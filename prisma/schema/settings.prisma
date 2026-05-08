@@ -1,0 +1,103 @@
+model TenantSettings {
+  tenantId        String   @id @map("tenant_id") @db.Uuid
+  tradeName       String?  @map("trade_name")
+  legalName       String?  @map("legal_name")
+  cnpj            String?
+  ie              String?
+  phone           String?
+  email           String?
+  address         Json?
+  logoUrl         String?  @map("logo_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_settings")
+}
+
+model PaymentMethod {
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  name            String
+  type            PaymentMethodType
+  feePercent      Decimal           @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  active          Boolean           @default(true)
+  acceptsChange   Boolean           @default(false) @map("accepts_change")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  installmentRules InstallmentRule[]
+
+  @@index([tenantId, active])
+  @@map("payment_methods")
+}
+
+enum PaymentMethodType {
+  CASH
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_TRANSFER
+  STORE_CREDIT
+  OTHER
+}
+
+model InstallmentRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  paymentMethodId String   @map("payment_method_id") @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  installments    Int
+  feePercent      Decimal  @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  minAmount       Decimal  @default(0) @map("min_amount") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentMethodId, installments])
+  @@index([tenantId])
+  @@map("installment_rules")
+}
+
+model TenantIntegration {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  provider    IntegrationProvider
+  enabled     Boolean             @default(false)
+  config      Json?
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("tenant_integrations")
+}
+
+enum IntegrationProvider {
+  AUTENTIQUE
+  DEPIX
+  EVOLUTION_WHATSAPP
+  CHATWOOT
+  NUVEM_FISCAL
+  FOCUS_NFE
+  IMEI_CHECK
+}
+
+model UserRole {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  role        TenantRole @default(OPERATOR)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@map("user_roles")
+}
+
+enum TenantRole {
+  OWNER
+  MANAGER
+  OPERATOR
+  TECHNICIAN
+  CASHIER
+}
