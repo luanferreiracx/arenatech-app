@@ -1,0 +1,55 @@
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
+}
+
+model CashRegister {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  userId          String             @map("user_id") @db.Uuid
+  status          CashRegisterStatus @default(OPEN)
+  openingBalance  Decimal            @map("opening_balance") @db.Decimal(10, 2)
+  closingBalance  Decimal?           @map("closing_balance") @db.Decimal(10, 2)
+  expectedBalance Decimal?           @map("expected_balance") @db.Decimal(10, 2)
+  difference      Decimal?           @db.Decimal(10, 2)
+  notes           String?
+  openedAt        DateTime           @default(now()) @map("opened_at")
+  closedAt        DateTime?          @map("closed_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  movements CashMovement[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, userId])
+  @@index([tenantId, openedAt])
+  @@map("cash_registers")
+}
+
+enum CashMovementType {
+  SALE
+  SERVICE_ORDER
+  WITHDRAWAL
+  DEPOSIT
+  ADJUSTMENT
+}
+
+model CashMovement {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  cashRegisterId String           @map("cash_register_id") @db.Uuid
+  type           CashMovementType
+  amount         Decimal          @db.Decimal(10, 2)
+  paymentMethod  String?          @map("payment_method")
+  description    String?
+  referenceId    String?          @map("reference_id") @db.Uuid
+  referenceType  String?          @map("reference_type")
+  userId         String           @map("user_id") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  @@index([tenantId, cashRegisterId])
+  @@index([tenantId, createdAt])
+  @@map("cash_movements")
+}
