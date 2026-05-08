@@ -158,7 +158,7 @@ export function AppSidebar({ userName, multiTenant, tenantName }: AppSidebarProp
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
               <DropdownMenuItem asChild>
-                <Link href="/perfil" className="flex items-center gap-2">
+                <Link href="/settings" className="flex items-center gap-2">
                   <User className="w-4 h-4" />
                   Perfil
                 </Link>

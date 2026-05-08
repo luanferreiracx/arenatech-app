@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/command";
 import {
   ClipboardPlus,
-  ShoppingCart,
   UserPlus,
   LayoutDashboard,
   Users,
   ClipboardList,
   Package,
+  DollarSign,
   Settings,
 } from "lucide-react";
 
@@ -85,11 +85,7 @@ function CommandPaletteDialog({
             <ClipboardPlus className="mr-2 h-4 w-4" />
             Nova Ordem de Serviço
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            Nova Venda
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/clientes/novo"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/customers/new"))}>
             <UserPlus className="mr-2 h-4 w-4" />
             Novo Cliente
           </CommandItem>
@@ -102,7 +98,7 @@ function CommandPaletteDialog({
             <LayoutDashboard className="mr-2 h-4 w-4" />
             Dashboard
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/clientes"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/customers"))}>
             <Users className="mr-2 h-4 w-4" />
             Clientes
           </CommandItem>
@@ -110,15 +106,15 @@ function CommandPaletteDialog({
             <ClipboardList className="mr-2 h-4 w-4" />
             Ordens de Serviço
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            PDV
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/estoque"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/stock"))}>
             <Package className="mr-2 h-4 w-4" />
             Estoque
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/configuracoes"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/financial"))}>
+            <DollarSign className="mr-2 h-4 w-4" />
+            Financeiro
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/settings"))}>
             <Settings className="mr-2 h-4 w-4" />
             Configurações
           </CommandItem>

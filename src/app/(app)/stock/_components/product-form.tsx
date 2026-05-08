@@ -78,7 +78,7 @@ export function ProductForm({ defaultValues, mode = "create" }: ProductFormProps
       salePrice: values.salePrice / 100,
     };
     if (mode === "edit" && defaultValues?.id) {
-      const { currentStock: _unused, ...updateData } = payload;
+      const { currentStock: _currentStock, ...updateData } = payload;
       updateMutation.mutate({ id: defaultValues.id, ...updateData });
     } else {
       createMutation.mutate(payload);

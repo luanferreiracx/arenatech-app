@@ -3,15 +3,11 @@ import {
   LayoutDashboard,
   Users,
   ClipboardList,
-  ShoppingCart,
   Wallet,
   Package,
   BookOpen,
   DollarSign,
   FileText,
-  TrendingUp,
-  Star,
-  Truck,
   Settings,
 } from "lucide-react";
 
@@ -23,18 +19,13 @@ export interface NavItem {
 
 export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Clientes", href: "/clientes", icon: Users },
+  { label: "Clientes", href: "/customers", icon: Users },
   { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList },
-  { label: "PDV", href: "/pdv", icon: ShoppingCart },
   { label: "Caixa", href: "/cashier", icon: Wallet },
   { label: "Estoque", href: "/stock", icon: Package },
-  { label: "Catálogo", href: "/catalogo", icon: BookOpen },
+  { label: "Catálogo", href: "/catalog", icon: BookOpen },
   { label: "Financeiro", href: "/financial", icon: DollarSign },
-  { label: "Fiscal", href: "/fiscal", icon: FileText },
-  { label: "Comissões", href: "/comissoes", icon: TrendingUp },
-  { label: "Recompensas", href: "/recompensas", icon: Star },
-  { label: "Operação", href: "/operacao", icon: Truck },
-  { label: "Configurações", href: "/configuracoes", icon: Settings },
+  { label: "Configurações", href: "/settings", icon: Settings },
 ];
 
 export const adminNavItems: NavItem[] = [
