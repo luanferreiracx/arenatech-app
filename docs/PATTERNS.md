@@ -123,8 +123,17 @@ model NomeDoModelo {
 
 - Provider: Credentials (CPF + senha, bcrypt cost 12)
 - Session: JWT com claims customizados (id, cpf, isSuperAdmin, activeTenantId, availableTenants)
-- Auth config split: `auth.config.ts` (Edge-safe) + `auth.ts` (Node-only com providers)
-- Middleware Edge lê JWT e cookie `x-active-tenant` para resolver tenant ativo
+- Auth config: `src/server/auth.ts` (arquivo unico, sem split Edge/Node)
+- `src/proxy.ts` (Next.js 16) le JWT e cookie `x-active-tenant` para resolver tenant ativo — roda em Node.js runtime
+
+### Validacao de tenant (defense in depth)
+
+O acesso ao tenant e validado em **dois pontos independentes**:
+
+1. **proxy.ts**: valida cookie `x-active-tenant` contra `session.availableTenants`, redireciona se invalido
+2. **tenantProcedure**: re-valida `ctx.tenantId` contra `session.availableTenants`, rejeita com FORBIDDEN se invalido
+
+Se um for bypassado, o outro ainda protege. Custo negligivel (1 array.some por request).
 
 ### tRPC Procedures
 
@@ -165,9 +174,9 @@ myRouter.allTenants = adminProcedure.query(({ ctx }) => {
 4. Se 0 tenants (não super admin) → redirect `/no-access`
 5. Se 2+ tenants → redirect `/select-tenant`
 6. Se super admin sem tenant → redirect `/admin`
-7. Troca de tenant → cookie `x-active-tenant` → middleware lê
+7. Troca de tenant → cookie `x-active-tenant` → proxy.ts lê
 
-### Middleware de rota
+### Proxy de rota (src/proxy.ts)
 
 Prioridade de decisão:
 1. Rota pública → passa sempre
