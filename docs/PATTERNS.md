@@ -282,3 +282,97 @@ Checklist:
 5. **Estilo:** usar tokens do design system (`text-primary`, `bg-muted`, etc.) em vez de cores hardcoded
 6. **Export:** named export (não default)
 7. **Documentar** no catálogo `/dev/components` se for componente genérico reutilizável
+
+---
+
+## Padrão CRUD por módulo (Fase 5+)
+
+Todo módulo de negócio segue o mesmo fluxo de implementação:
+
+### 1. Schema Prisma (`prisma/schema/<agregado>.prisma`)
+
+Checklist obrigatório:
+- [ ] `id String @id @default(uuid()) @db.Uuid`
+- [ ] `tenantId String @map("tenant_id") @db.Uuid`
+- [ ] `createdAt DateTime @default(now()) @map("created_at")`
+- [ ] `updatedAt DateTime @updatedAt @map("updated_at")`
+- [ ] `deletedAt DateTime? @map("deleted_at")` (se aplicável — clientes, catálogo)
+- [ ] `@@index([tenantId])` no mínimo; `@@index([tenantId, campo])` para filtros frequentes
+- [ ] `@@map("nome_tabela_snake_case")`
+- [ ] Migration SQL com `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy `tenant_isolation`
+
+### 2. Validator Zod (`src/lib/validators/<modulo>.ts`)
+
+- Use `z.boolean()` em vez de `z.boolean().default(true)` — defaults causam mismatch com react-hook-form
+- Use `z.number().min(0)` em vez de `z.number().default(0)` — mesma razão
+- Para schemas com `.superRefine()` (validação cruzada), NÃO use `.partial()` — Zod v4 não suporta. Crie um schema de update separado explicitamente
+- Para forms com react-hook-form, use `z.input<typeof schema>` como `type FormValues` se o output type difere do input type
+- Schemas de listagem: `page`, `pageSize` sem `.default()` — passe os defaults no código do cliente
+
+### 3. tRPC Router (`src/server/api/routers/<modulo>.ts`)
+
+- Registrar em `src/server/api/root.ts`
+- `tenantProcedure` para todas as operações escopadas por tenant
+- `adminProcedure` só para operações cross-tenant (super admin)
+- Listagens SEMPRE com `take` (pageSize) e `skip` (page * pageSize)
+- Soft delete: `deletedAt: new Date()` — filtrar com `deletedAt: null` nas listagens por padrão
+- Para tabelas globais (users, tenants) dentro de tenantProcedure: usar `withAdmin` importado dinamicamente
+
+### 4. Páginas (`src/app/(app)/<modulo>/`)
+
+Estrutura padrão de um módulo CRUD completo:
+
+```
+<modulo>/
+  page.tsx                   # redirect para subpágina (se houver) ou listagem direta
+  layout.tsx                 # nav lateral/horizontal (se tiver submódulos)
+  _components/
+    <modulo>-table.tsx       # DataTable client — useTRPC + estados search/page/delete
+    <modulo>-form.tsx        # form client — react-hook-form + zodResolver
+  new/
+    page.tsx                 # Server Component: PageHeader + <ModuloForm mode="create" />
+  [id]/
+    page.tsx                 # Server Component: <ModuloDetailClient id={id} />
+    edit/
+      page.tsx               # Server Component: PageHeader + <ModuloEditClient id={id} />
+      _components/
+        <modulo>-edit-client.tsx  # Client: useQuery para buscar, <ModuloForm mode="edit" defaultValues={...} />
+```
+
+### 5. Checklist por módulo
+
+- [ ] Schema com RLS
+- [ ] Validator sem `.default()` nos campos primitivos
+- [ ] tRPC router registrado em root.ts
+- [ ] Listagem com busca + paginação server-side
+- [ ] Form de criar com `FormSection` + `FormActions`
+- [ ] Form de editar reaproveitando o mesmo componente com `mode="edit"`
+- [ ] Soft delete + feedback com `toast.success()`
+- [ ] `ConfirmDialog` antes de deletar
+- [ ] `LoadingState` nos edit clients
+- [ ] Typecheck verde (`pnpm typecheck`)
+
+### Notas de Zod v4 + react-hook-form
+
+O problema mais comum ao usar `zodResolver` com Zod v4 schemas que têm `.default()`:
+
+```ts
+// ❌ Causa erro de tipo no resolver:
+const schema = z.object({ active: z.boolean().default(true) });
+
+// ✅ Correto — passar o default no form:
+const schema = z.object({ active: z.boolean() });
+const form = useForm({ defaultValues: { active: true } });
+```
+
+Para schemas com `.superRefine()` cross-field:
+
+```ts
+// ❌ Falha em runtime no Zod v4:
+const updateSchema = createSchema.partial(); // "cannot be used on schemas containing refinements"
+
+// ✅ Definir o schema de update explicitamente sem o superRefine
+export const updateSchema = z.object({ ... }).partial equivalent manually
+```
+
+---

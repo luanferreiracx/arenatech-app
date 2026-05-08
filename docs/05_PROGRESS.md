@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 5 — Configurações + Catálogo + Clientes (EM ANDAMENTO)
+**Fase atual:** Fase 6 — Estoque + Caixa + Financeiro (A INICIAR)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde último deploy:** 24
@@ -80,13 +80,13 @@
 - [x] ADR 0004
 - [x] Commit final
 
-### ☐ Fase 5 — Configurações + Catálogo + Clientes
-- [ ] Configurações (6 submódulos)
-- [ ] Catálogo (4 submódulos)
-- [ ] Clientes (4 submódulos)
-- [ ] PATTERNS.md documentado
-- [ ] Testes verdes
-- [ ] Commit final
+### ✓ Fase 5 — Configurações + Catálogo + Clientes
+- [x] Configurações (6 submódulos: settings, payment methods, installment rules, integrations, user roles, invite user)
+- [x] Catálogo (4 submódulos: services, diagnostic templates, device categories, devices)
+- [x] Clientes (4 submódulos: list, create, edit, detail + interests)
+- [x] PATTERNS.md documentado com padrão CRUD + notas Zod v4
+- [x] Testes verdes (82 unit + integration customers + e2e customers)
+- [x] Commit final
 
 ### ☐ Fase 6 — Estoque + Caixa + Financeiro
 - [ ] Estoque
@@ -177,6 +177,31 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Fase 5
+
+- **Implementado:**
+  - 3 schemas Prisma (settings.prisma, catalog.prisma, customer.prisma) com 11 novas tabelas + 5 enums
+  - RLS habilitado em todas as 11 tabelas tenant-scoped via migration SQL
+  - Validators Zod: settings.ts, catalog.ts, customer.ts (CNPJ com dígito verificador)
+  - tRPC routers: settingsRouter (14 procedures), catalogRouter (16 procedures), customerRouter (11 procedures)
+  - Settings UI: Geral (form com ViaCEP), Formas de Pagamento (CRUD + parcelamentos Sheet), Integrações (grid de cards com config Dialog), Usuários (tabela + invite por CPF)
+  - Catalog UI: Serviços (DataTable + form), Templates de Diagnóstico (DataTable + form), Aparelhos (DataTable + filtros), Categorias (inline CRUD)
+  - Customers UI: listagem com busca+filtro PF/PJ, criar (LGPD consent), editar, detalhe (tabs Dados/OS/Interesses)
+  - Testes: 23 unit tests de validators (CPF/CNPJ/serviço/pagamento), 7 integration tests de RLS de clientes, 4 e2e specs de clientes
+  - LoadingState ganhou variante "form"
+  - ConfirmDialog ganhou prop variant="destructive"
+  - PATTERNS.md: seção "Padrão CRUD por módulo" com template completo + notas Zod v4
+- **Decisões:**
+  - Zod v4 não suporta `.default()` em schemas usados com react-hook-form (causa type mismatch no resolver) — removidos todos os `.default()` dos validators, defaults passados no `useForm({ defaultValues })`
+  - Zod v4 não suporta `.partial()` em schemas com `.superRefine()` — updateCustomerSchema definido explicitamente
+  - `z.input<>` usado como FormValues type quando schema tem refinements que mudam o output type
+  - Prisma Device.attributes usa `as Parameters<...>` cast para contornar ambiguidade de union type no Prisma v7 (DeviceCreateInput vs DeviceUncheckedCreateInput com categoryId)
+  - Settings layout usa `headers()` `x-pathname` para destacar nav ativa (padrão estático — Next.js não expõe pathname em Server Components sem headers)
+  - Users page: user_roles é tenant-scoped, mas users é global — busca roles via withTenant, depois users via withAdmin
+- **Próximo:** Fase 6 — Estoque + Caixa + Financeiro
+
+---
 
 ### 2026-05-08 — Fase 4
 
@@ -326,9 +351,9 @@ _(vazio)_
 |---|---|
 | Linhas de código | ~3000 |
 | Cobertura de testes | 38 unit + 6 integration + 16 e2e |
-| Tabelas no schema | 4 (tenants, users, user_tenants, audit_logs) |
-| Procedures tRPC | 3 (example.hello, auth.me, auth.validateTenantAccess) |
-| Páginas | 7 (login, select-tenant, no-access, forgot-password, dashboard, admin, /dev/components) |
+| Tabelas no schema | 15 (tenants, users, user_tenants, audit_logs + 11 Fase 5) |
+| Procedures tRPC | 44 (example.hello, auth.2, settings.14, catalog.16, customers.11) |
+| Páginas | 28+ (7 anteriores + settings 4 + catalog 10 + customers 7) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
