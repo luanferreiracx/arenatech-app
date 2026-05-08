@@ -1,6 +1,6 @@
 import { auth } from "@/server/auth";
 import { redirect } from "next/navigation";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TenantSelector } from "./tenant-selector";
 
 export default async function SelectTenantPage() {
@@ -12,17 +12,14 @@ export default async function SelectTenantPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="text-center">
-          <CardTitle className="text-xl">Selecione a loja</CardTitle>
-          <CardDescription>
-            Escolha a loja que deseja acessar
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <TenantSelector tenants={session.availableTenants} />
-    </div>
+    <>
+      <CardHeader className="text-center pb-4 pt-6">
+        <CardTitle className="text-xl font-semibold">Selecione a loja</CardTitle>
+        <CardDescription>Escolha a loja que deseja acessar</CardDescription>
+      </CardHeader>
+      <CardContent className="pb-6">
+        <TenantSelector tenants={session.availableTenants} />
+      </CardContent>
+    </>
   );
 }
