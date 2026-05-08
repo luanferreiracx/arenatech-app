@@ -1,0 +1,760 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { EntitySelector } from "@/components/domain/entity-selector";
+import { MoneyInput } from "@/components/inputs/money-input";
+import { DatePicker } from "@/components/inputs/date-picker";
+import { useTRPC } from "@/trpc/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "@/lib/toast";
+import {
+  CHECKLIST_LABELS,
+  DEVICE_INFO_LABELS,
+  type ChecklistInput,
+  type DeviceInfoInput,
+  type ServiceOrderItemInput,
+} from "@/lib/validators/service-order";
+import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+
+const STEPS = [
+  "Cliente",
+  "Equipamento",
+  "Problema",
+  "Serviços e Produtos",
+  "Resumo",
+] as const;
+
+const DEVICE_TYPES = [
+  "Celular",
+  "Tablet",
+  "Notebook",
+  "Desktop",
+  "Smart Watch",
+  "Console",
+  "Outro",
+];
+
+interface WizardState {
+  // Step 1
+  customerId: string;
+  customerName: string;
+  // Step 2
+  deviceType: string;
+  deviceBrand: string;
+  deviceModel: string;
+  serialNumber: string;
+  imei: string;
+  devicePassword: string;
+  accessories: string;
+  // Step 3
+  reportedProblem: string;
+  entryChecklist: ChecklistInput;
+  deviceInfo: DeviceInfoInput;
+  // Step 4
+  items: ServiceOrderItemInput[];
+  discount: number;
+  // Step 5
+  estimatedDate: Date | undefined;
+  technicianId: string;
+  technicianName: string;
+  isWarranty: boolean;
+  warrantyType: string;
+  originalOrderId: string;
+  internalNotes: string;
+  customerNotes: string;
+}
+
+const initialState: WizardState = {
+  customerId: "",
+  customerName: "",
+  deviceType: "",
+  deviceBrand: "",
+  deviceModel: "",
+  serialNumber: "",
+  imei: "",
+  devicePassword: "",
+  accessories: "",
+  reportedProblem: "",
+  entryChecklist: {},
+  deviceInfo: {},
+  items: [],
+  discount: 0,
+  estimatedDate: undefined,
+  technicianId: "",
+  technicianName: "",
+  isWarranty: false,
+  warrantyType: "",
+  originalOrderId: "",
+  internalNotes: "",
+  customerNotes: "",
+};
+
+export function ServiceOrderWizard() {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const [step, setStep] = useState(0);
+  const [state, setState] = useState<WizardState>(initialState);
+
+  const update = useCallback(
+    <K extends keyof WizardState>(key: K, value: WizardState[K]) => {
+      setState((prev) => ({ ...prev, [key]: value }));
+    },
+    [],
+  );
+
+  const createMutation = useMutation(
+    trpc.serviceOrders.create.mutationOptions({
+      onSuccess: (data) => {
+        toast.success(`OS ${data?.number} criada com sucesso!`);
+        router.push(`/service-orders/${data?.id}`);
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const canGoNext = (): boolean => {
+    switch (step) {
+      case 0:
+        return !!state.customerId;
+      case 1:
+        return true; // device is optional
+      case 2:
+        return state.reportedProblem.trim().length > 0;
+      case 3:
+        return true; // items can be 0
+      case 4:
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  const handleSubmit = () => {
+    const payload = {
+      customerId: state.customerId,
+      deviceType: state.deviceType || undefined,
+      deviceBrand: state.deviceBrand || undefined,
+      deviceModel: state.deviceModel || undefined,
+      serialNumber: state.serialNumber || undefined,
+      imei: state.imei || undefined,
+      devicePassword: state.devicePassword || undefined,
+      accessories: state.accessories || undefined,
+      reportedProblem: state.reportedProblem,
+      entryChecklist: Object.keys(state.entryChecklist).length > 0 ? state.entryChecklist : undefined,
+      deviceInfo: Object.keys(state.deviceInfo).length > 0 ? state.deviceInfo : undefined,
+      items: state.items,
+      discount: state.discount > 0 ? state.discount : undefined,
+      estimatedDate: state.estimatedDate?.toISOString(),
+      technicianId: state.technicianId || undefined,
+      isWarranty: state.isWarranty || undefined,
+      warrantyType: state.warrantyType || undefined,
+      originalOrderId: state.originalOrderId || undefined,
+      internalNotes: state.internalNotes || undefined,
+      customerNotes: state.customerNotes || undefined,
+    };
+
+    createMutation.mutate(payload);
+  };
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      {/* Progress bar */}
+      <div className="flex items-center gap-2">
+        {STEPS.map((label, i) => (
+          <div key={label} className="flex items-center gap-2 flex-1">
+            <button
+              type="button"
+              onClick={() => i < step && setStep(i)}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium transition-colors ${
+                i <= step
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              } ${i < step ? "cursor-pointer" : ""}`}
+            >
+              {i + 1}
+            </button>
+            <span
+              className={`text-xs hidden sm:inline ${
+                i === step ? "font-semibold" : "text-muted-foreground"
+              }`}
+            >
+              {label}
+            </span>
+            {i < STEPS.length - 1 && (
+              <div
+                className={`h-0.5 flex-1 rounded ${
+                  i < step ? "bg-primary" : "bg-muted"
+                }`}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Step content */}
+      <Card>
+        <CardContent className="pt-6">
+          {step === 0 && <Step1Customer state={state} update={update} />}
+          {step === 1 && <Step2Device state={state} update={update} />}
+          {step === 2 && <Step3Problem state={state} update={update} />}
+          {step === 3 && <Step4Items state={state} setState={setState} />}
+          {step === 4 && <Step5Summary state={state} update={update} />}
+        </CardContent>
+      </Card>
+
+      {/* Navigation */}
+      <div className="flex items-center justify-between">
+        <Button
+          variant="outline"
+          disabled={step === 0}
+          onClick={() => setStep((s) => s - 1)}
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Voltar
+        </Button>
+        {step < STEPS.length - 1 ? (
+          <Button
+            disabled={!canGoNext()}
+            onClick={() => setStep((s) => s + 1)}
+          >
+            Próximo
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            disabled={createMutation.isPending || !canGoNext()}
+            onClick={handleSubmit}
+          >
+            {createMutation.isPending ? "Criando..." : "Criar Ordem de Serviço"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Step 1: Customer ─────────────────────────────────────────────────────────
+
+interface CustomerItem {
+  id: string;
+  name: string;
+  cpf: string | null;
+  phone: string | null;
+}
+
+function Step1Customer({
+  state,
+  update,
+}: {
+  state: WizardState;
+  update: <K extends keyof WizardState>(key: K, value: WizardState[K]) => void;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const searchCustomers = useCallback(
+    async (query: string): Promise<CustomerItem[]> => {
+      const opts = trpc.customers.list.queryOptions({
+        search: query,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result.items as CustomerItem[];
+    },
+    [trpc.customers.list, queryClient],
+  );
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold">1. Selecione o Cliente</h3>
+      <EntitySelector<CustomerItem>
+        value={state.customerId || undefined}
+        onChange={(val) => {
+          update("customerId", val ?? "");
+        }}
+        searchFn={searchCustomers}
+        getOptionLabel={(c) =>
+          `${c.name}${c.cpf ? ` — ${c.cpf}` : ""}${c.phone ? ` — ${c.phone}` : ""}`
+        }
+        getOptionValue={(c) => c.id}
+        placeholder="Buscar cliente por nome, CPF ou telefone..."
+        emptyMessage="Nenhum cliente encontrado."
+      />
+      {state.customerId && (
+        <p className="text-sm text-muted-foreground">
+          Cliente selecionado. Prossiga para a próxima etapa.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Step 2: Device ───────────────────────────────────────────────────────────
+
+function Step2Device({
+  state,
+  update,
+}: {
+  state: WizardState;
+  update: <K extends keyof WizardState>(key: K, value: WizardState[K]) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold">2. Equipamento</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Tipo</Label>
+          <Select
+            value={state.deviceType}
+            onValueChange={(v) => update("deviceType", v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Selecionar tipo..." />
+            </SelectTrigger>
+            <SelectContent>
+              {DEVICE_TYPES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Marca</Label>
+          <Input
+            value={state.deviceBrand}
+            onChange={(e) => update("deviceBrand", e.target.value)}
+            placeholder="Apple, Samsung, Xiaomi..."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Modelo</Label>
+          <Input
+            value={state.deviceModel}
+            onChange={(e) => update("deviceModel", e.target.value)}
+            placeholder="iPhone 15 Pro, Galaxy S24..."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>N. Serial</Label>
+          <Input
+            value={state.serialNumber}
+            onChange={(e) => update("serialNumber", e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>IMEI</Label>
+          <Input
+            value={state.imei}
+            onChange={(e) => update("imei", e.target.value)}
+            placeholder="15 dígitos"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Senha do equipamento</Label>
+          <Input
+            value={state.devicePassword}
+            onChange={(e) => update("devicePassword", e.target.value)}
+            placeholder="PIN, padrão, senha..."
+          />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>Acessórios</Label>
+        <Textarea
+          value={state.accessories}
+          onChange={(e) => update("accessories", e.target.value)}
+          placeholder="Carregador, case, película..."
+          rows={2}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Step 3: Problem + Checklist ──────────────────────────────────────────────
+
+function Step3Problem({
+  state,
+  update,
+}: {
+  state: WizardState;
+  update: <K extends keyof WizardState>(key: K, value: WizardState[K]) => void;
+}) {
+  const toggleChecklist = (key: string) => {
+    const current = state.entryChecklist[key as keyof ChecklistInput];
+    update("entryChecklist", {
+      ...state.entryChecklist,
+      [key]: !current,
+    });
+  };
+
+  const toggleDeviceInfo = (key: string) => {
+    const current = state.deviceInfo[key as keyof DeviceInfoInput];
+    update("deviceInfo", {
+      ...state.deviceInfo,
+      [key]: !current,
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-lg font-semibold">3. Problema e Checklist</h3>
+
+      <div className="space-y-2">
+        <Label>Problema relatado *</Label>
+        <Textarea
+          value={state.reportedProblem}
+          onChange={(e) => update("reportedProblem", e.target.value)}
+          placeholder="Descreva o problema relatado pelo cliente..."
+          rows={3}
+        />
+      </div>
+
+      {/* Entry checklist */}
+      <div className="space-y-3">
+        <Label className="text-base">Checklist de Entrada</Label>
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+          {Object.entries(CHECKLIST_LABELS).map(([key, label]) => (
+            <div
+              key={key}
+              className="flex items-center gap-2"
+            >
+              <Switch
+                checked={!!state.entryChecklist[key as keyof ChecklistInput]}
+                onCheckedChange={() => toggleChecklist(key)}
+              />
+              <Label className="text-sm cursor-pointer font-normal">{label}</Label>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Device info */}
+      <div className="space-y-3">
+        <Label className="text-base">Informações adicionais</Label>
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          {Object.entries(DEVICE_INFO_LABELS).map(([key, label]) => (
+            <div
+              key={key}
+              className="flex items-center gap-2"
+            >
+              <Switch
+                checked={!!state.deviceInfo[key as keyof DeviceInfoInput]}
+                onCheckedChange={() => toggleDeviceInfo(key)}
+              />
+              <Label className="text-sm cursor-pointer font-normal">{label}</Label>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 4: Items ────────────────────────────────────────────────────────────
+
+function Step4Items({
+  state,
+  setState,
+}: {
+  state: WizardState;
+  setState: React.Dispatch<React.SetStateAction<WizardState>>;
+}) {
+
+  const addItem = () => {
+    setState((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          type: "SERVICE" as const,
+          description: "",
+          quantity: 1,
+          unitPrice: 0,
+        },
+      ],
+    }));
+  };
+
+  const removeItem = (index: number) => {
+    setState((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  const updateItem = (index: number, field: string, value: unknown) => {
+    setState((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) =>
+        i === index ? { ...item, [field]: value } : item,
+      ),
+    }));
+  };
+
+  const subtotal = state.items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPrice,
+    0,
+  );
+  const total = Math.max(0, subtotal - state.discount);
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold">4. Serviços e Produtos</h3>
+
+      {state.items.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          Nenhum item adicionado. Clique em &ldquo;Adicionar item&rdquo; para incluir serviços ou produtos.
+        </p>
+      )}
+
+      {state.items.map((item, idx) => (
+        <div
+          key={idx}
+          className="grid gap-3 rounded-md border p-3 sm:grid-cols-[120px_1fr_100px_140px_auto]"
+        >
+          <Select
+            value={item.type}
+            onValueChange={(v) => updateItem(idx, "type", v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="SERVICE">Serviço</SelectItem>
+              <SelectItem value="PRODUCT">Produto</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Descrição"
+            value={item.description}
+            onChange={(e) => updateItem(idx, "description", e.target.value)}
+          />
+          <Input
+            type="number"
+            placeholder="Qtd"
+            min={1}
+            value={item.quantity}
+            onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
+          />
+          <MoneyInput
+            value={item.unitPrice}
+            onChange={(val: number) => updateItem(idx, "unitPrice", val)}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive"
+            onClick={() => removeItem(idx)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+
+      <Button variant="outline" size="sm" onClick={addItem}>
+        <Plus className="mr-1 h-4 w-4" />
+        Adicionar item
+      </Button>
+
+      {state.items.length > 0 && (
+        <div className="space-y-2 border-t pt-4">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Subtotal</span>
+            <span className="font-mono">
+              {subtotal.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              })}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Desconto</span>
+            <MoneyInput
+              value={state.discount}
+              onChange={(val: number) =>
+                setState((prev) => ({ ...prev, discount: val }))
+              }
+              className="w-36"
+            />
+          </div>
+          <div className="flex justify-between text-base font-semibold">
+            <span>Total</span>
+            <span className="font-mono">
+              {total.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+              })}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Step 5: Summary ──────────────────────────────────────────────────────────
+
+interface TechnicianItem {
+  id: string;
+  name: string;
+}
+
+function Step5Summary({
+  state,
+  update,
+}: {
+  state: WizardState;
+  update: <K extends keyof WizardState>(key: K, value: WizardState[K]) => void;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const searchTechnicians = useCallback(
+    async (query: string): Promise<TechnicianItem[]> => {
+      const opts = trpc.serviceOrders.listTechnicians.queryOptions({
+        search: query || undefined,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result as TechnicianItem[];
+    },
+    [trpc.serviceOrders.listTechnicians, queryClient],
+  );
+
+  const subtotal = state.items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPrice,
+    0,
+  );
+  const total = Math.max(0, subtotal - state.discount);
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-lg font-semibold">5. Resumo e Finalização</h3>
+
+      {/* Summary */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-md border p-3 space-y-1 text-sm">
+          <p className="font-medium">Equipamento</p>
+          <p className="text-muted-foreground">
+            {[state.deviceType, state.deviceBrand, state.deviceModel]
+              .filter(Boolean)
+              .join(" — ") || "Não informado"}
+          </p>
+        </div>
+        <div className="rounded-md border p-3 space-y-1 text-sm">
+          <p className="font-medium">Problema</p>
+          <p className="text-muted-foreground line-clamp-2">
+            {state.reportedProblem || "—"}
+          </p>
+        </div>
+        <div className="rounded-md border p-3 space-y-1 text-sm">
+          <p className="font-medium">Itens</p>
+          <p className="text-muted-foreground">{state.items.length} item(ns)</p>
+        </div>
+        <div className="rounded-md border p-3 space-y-1 text-sm">
+          <p className="font-medium">Valor Total</p>
+          <p className="font-mono font-semibold">
+            {total.toLocaleString("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+            })}
+          </p>
+        </div>
+      </div>
+
+      {/* Additional fields */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Data prevista</Label>
+          <DatePicker
+            value={state.estimatedDate}
+            onChange={(date) => update("estimatedDate", date)}
+            placeholder="Selecione uma data..."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Técnico responsável</Label>
+          <EntitySelector<TechnicianItem>
+            value={state.technicianId || undefined}
+            onChange={(val) => update("technicianId", val ?? "")}
+            searchFn={searchTechnicians}
+            getOptionLabel={(u) => u.name}
+            getOptionValue={(u) => u.id}
+            placeholder="Selecionar técnico..."
+            emptyMessage="Nenhum técnico encontrado."
+          />
+        </div>
+      </div>
+
+      {/* Warranty */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={state.isWarranty}
+            onCheckedChange={(v) => update("isWarranty", v)}
+          />
+          <Label>É garantia?</Label>
+        </div>
+        {state.isWarranty && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Tipo de garantia</Label>
+              <Select
+                value={state.warrantyType}
+                onValueChange={(v) => update("warrantyType", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SAME_DEFECT">Mesmo defeito</SelectItem>
+                  <SelectItem value="DIFFERENT_DEFECT">Defeito diferente</SelectItem>
+                  <SelectItem value="MANUFACTURER">Fabricante</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Notas internas</Label>
+          <Textarea
+            value={state.internalNotes}
+            onChange={(e) => update("internalNotes", e.target.value)}
+            placeholder="Visível apenas pela equipe..."
+            rows={3}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Notas para o cliente</Label>
+          <Textarea
+            value={state.customerNotes}
+            onChange={(e) => update("customerNotes", e.target.value)}
+            placeholder="Visível na vista pública..."
+            rows={3}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
