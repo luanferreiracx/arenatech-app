@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 8 — PDV (PRÓXIMA)
-**Última atualização:** 2026-05-08
+**Fase atual:** Fase 9 — Fiscal (PROXIMA)
+**Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 38
+**Commits desde ultimo deploy:** 42
 
 ---
 
@@ -112,14 +112,19 @@
 - [x] Testes (42 unit + 4 e2e)
 - [x] Commit final
 
-### ☐ Fase 8 — PDV
-- [ ] Tela de venda
-- [ ] Carrinho com cálculo
-- [ ] Split payment
-- [ ] Comissões
-- [ ] PIX (Depix)
-- [ ] E2E completo
-- [ ] Commit final
+### ✓ Fase 8 — PDV
+- [x] Schema Sale + SaleItem (2 tabelas, 1 enum, RLS)
+- [x] Tela de venda (PDV full-screen, 2 colunas, busca + carrinho)
+- [x] Carrinho com calculo (add/remove/+/-, desconto fixo/percentual)
+- [x] Split payment (multiplas formas, parcelas para cartao credito)
+- [x] Finalize atomico (estoque + CashMovement + FinancialTransaction)
+- [x] Historico de vendas com DataTable + stats cards
+- [x] Detalhe de venda com estorno
+- [x] Atalhos de teclado (F2/F8/F9/Esc)
+- [ ] Comissoes (adiadas para Fase 10 dedicada)
+- [ ] PIX (Depix) (adiado — depende de integracao Depix)
+- [x] Testes (35 unit + 5 e2e)
+- [x] Commit final
 
 ### ☐ Fase 9 — Fiscal (paralelizável)
 ### ☐ Fase 10 — Comissões (paralelizável)
@@ -181,7 +186,30 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ---
 
-## Histórico de execução
+## Historico de execucao
+
+### 2026-05-08 — Fase 8
+
+- **Implementado:**
+  - 1 schema Prisma (sale.prisma) com 2 tabelas + 1 enum (SaleStatus)
+  - RLS habilitado em sales e sale_items via migration SQL
+  - Validators Zod: sale.ts (paymentDetail, addSaleItem, updateSaleItem, applyDiscount, finalizeSale, cancelSale, refundSale, listSales + labels)
+  - tRPC router: saleRouter (15 procedures: createDraft, getDraft, addItem, updateItemQuantity, removeItem, setCustomer, applyDiscount, finalize, cancel, refund, list, getById, stats, byPublicLink, listSellers)
+  - PDV UI: Tela principal full-screen com 2 colunas (busca produtos + carrinho), Dialog de pagamento com split payment, Historico de vendas com DataTable + stats cards, Detalhe de venda com estorno
+  - Finalize atomico: decrementa estoque (Product.currentStock), cria StockMovement (SALE), CashMovement para cada forma de pagamento, FinancialTransaction (RECEIVABLE) com parcelas para cartao de credito
+  - Sidebar: PDV adicionado entre OS e Caixa
+  - Command palette: Nova Venda + Historico de Vendas
+  - Testes: 35 unit tests de validators + 5 e2e specs
+- **Decisoes:**
+  - Comissoes adiadas para Fase 10 (dedicada) — apenas sellerId armazenado
+  - Integracao Depix adiada — depende de finalizacao da integracao PixPay
+  - Draft pattern: venda criada como DRAFT, items adicionados um a um, finalizada atomicamente
+  - Numero gerado atomicamente dentro da transacao (VND{year}{5-digit seq})
+  - Split payment armazenado como paymentDetails JSON na venda
+  - MoneyInput trabalha em centavos — router aceita valores em reais (conversao no client)
+  - Produto duplicado no carrinho incrementa quantidade (nao cria novo item)
+  - Troco calculado sobre o total pago vs total da venda
+- **Proximo:** Fase 9 — Fiscal
 
 ### 2026-05-08 — Fase 7
 
@@ -403,11 +431,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | ~10000 |
-| Cobertura de testes | 158 unit + 6 integration + 20 e2e |
-| Tabelas no schema | 26 (22 anteriores + 4 Fase 7: service_orders, service_order_items, service_order_history, service_order_documents) |
-| Procedures tRPC | 86 (71 anteriores + serviceOrders.15) |
-| Páginas | 53+ (45 anteriores + service-orders 4 + os/public 1 + service-orders detail/edit 3) |
+| Linhas de codigo | ~12500 |
+| Cobertura de testes | 191 unit + 6 integration + 25 e2e |
+| Tabelas no schema | 28 (26 anteriores + 2 Fase 8: sales, sale_items) |
+| Procedures tRPC | 101 (86 anteriores + sales.15) |
+| Paginas | 56+ (53 anteriores + pdv 3: pdv, pdv/history, pdv/[id]) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
