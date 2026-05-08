@@ -1,0 +1,126 @@
+# PATTERNS.md — Convenções e Padrões do Arena Tech
+
+> Referência para todos os desenvolvedores (humanos e Claude).
+> Atualizado a cada fase que introduz novos padrões.
+
+---
+
+## Multi-tenancy
+
+O Arena Tech usa **PostgreSQL Row Level Security (RLS)** para isolamento multi-tenant.
+
+Toda query que toca dados de tenant deve usar `withTenant(tenantId, fn)` de `@/server/db`:
+
+```ts
+import { withTenant } from "@/server/db";
+
+const logs = await withTenant(tenantId, async (tx) => {
+  return tx.auditLog.findMany();
+});
+```
+
+Para operações de super admin (cross-tenant):
+
+```ts
+import { withAdmin } from "@/server/db";
+
+const allLogs = await withAdmin(async (tx) => {
+  return tx.auditLog.findMany();
+});
+```
+
+**Nunca** acesse dados de tenant via `prisma.model.findMany()` diretamente — isso bypassa RLS e retorna dados de todos os tenants.
+
+---
+
+## Convenções de Schema
+
+### Regras numeradas
+
+1. **IDs:** Sempre `String @id @default(uuid()) @db.Uuid`
+2. **tenant_id:** Toda tabela com escopo de tenant DEVE ter `tenantId String @map("tenant_id") @db.Uuid`
+3. **Naming banco:** snake_case via `@map` (campos) e `@@map` (tabelas). camelCase no schema Prisma.
+4. **Timestamps:** Sempre `createdAt DateTime @default(now()) @map("created_at")` e `updatedAt DateTime @updatedAt @map("updated_at")`
+5. **Soft delete:** `deletedAt DateTime? @map("deleted_at")` quando aplicável
+6. **Índices compostos:** `@@index([tenantId, campo])` em colunas filtradas frequentemente
+7. **Enums:** Em PascalCase, valores em UPPER_CASE
+8. **Decimais monetários:** `@db.Decimal(10, 2)`
+9. **JSON:** `Json?` para dados semi-estruturados (endereço, checklist, payload)
+10. **Multi-file schema:** Um arquivo `.prisma` por agregado de domínio em `prisma/schema/`
+
+### Tabelas globais (sem tenant_id)
+
+- `tenants` — cadastro dos tenants
+- `users` — usuários (podem pertencer a múltiplos tenants)
+- `user_tenants` — vínculo usuário ↔ tenant
+
+### Tabelas com tenant_id (RLS ativo)
+
+- `audit_logs` — (Fase 2, cobaia)
+- _Demais tabelas serão adicionadas nas fases seguintes_
+
+---
+
+## Como adicionar uma nova tabela escopada por tenant
+
+### Checklist
+
+- [ ] 1. Criar modelo no arquivo `.prisma` adequado (ou novo arquivo)
+- [ ] 2. Incluir `tenantId String @map("tenant_id") @db.Uuid`
+- [ ] 3. Incluir `createdAt`, `updatedAt` (e `deletedAt` se aplicável)
+- [ ] 4. Adicionar `@@index([tenantId])` no mínimo
+- [ ] 5. Adicionar `@@map("nome_tabela_snake_case")`
+- [ ] 6. Rodar `pnpm prisma migrate dev --name descritivo`
+- [ ] 7. Criar migration SQL para habilitar RLS na nova tabela
+- [ ] 8. Rodar `pnpm prisma migrate dev` para aplicar a migration SQL
+- [ ] 9. Verificar com `pnpm test` que RLS está funcionando
+
+### Template SQL para RLS (copiar para cada nova tabela)
+
+Criar uma nova migration SQL em `prisma/migrations/<timestamp>_rls_<tabela>/migration.sql`:
+
+```sql
+-- Habilitar RLS na tabela <nome_tabela>
+ALTER TABLE <nome_tabela> ENABLE ROW LEVEL SECURITY;
+ALTER TABLE <nome_tabela> FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON <nome_tabela>
+  USING (tenant_id = current_tenant_id())
+  WITH CHECK (tenant_id = current_tenant_id());
+```
+
+### Template de modelo Prisma
+
+```prisma
+model NomeDoModelo {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  // ... campos do domínio
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("nome_tabela_snake_case")
+}
+```
+
+---
+
+## Prisma 7 — Notas importantes
+
+- **Driver adapter obrigatório:** `@prisma/adapter-pg` — sem `datasourceUrl` no schema
+- **datasource url:** Configurado em `prisma.config.ts`, não no schema `.prisma`
+- **Multi-file schema:** Nativo (sem `prismaSchemaFolder` preview feature)
+- **PrismaClient constructor:** Requer `{ adapter }` — `new PrismaClient()` sem args falha
+- **Migrations:** Rodam via `prisma migrate dev` que lê `prisma.config.ts` para obter URL
+
+---
+
+## tRPC Procedures (futuro — Fase 3+)
+
+_Será documentado na Fase 3:_
+- `publicProcedure` — sem auth
+- `protectedProcedure` — exige sessão JWT
+- `tenantProcedure` — exige sessão + tenantId, usa `withTenant` internamente
+- `adminProcedure` — exige `isSuperAdmin`, usa `withAdmin` internamente
