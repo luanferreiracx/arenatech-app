@@ -10,6 +10,8 @@ import {
   FileText,
   Settings,
   ShoppingCart,
+  Percent,
+  Smartphone,
 } from "lucide-react";
 
 export interface NavItem {
@@ -27,6 +29,8 @@ export const appNavItems: NavItem[] = [
   { label: "Estoque", href: "/stock", icon: Package },
   { label: "Catálogo", href: "/catalog", icon: BookOpen },
   { label: "Financeiro", href: "/financial", icon: DollarSign },
+  { label: "Comissões", href: "/commissions", icon: Percent },
+  { label: "Consulta IMEI", href: "/imei", icon: Smartphone },
   { label: "Configurações", href: "/settings", icon: Settings },
 ];
 
