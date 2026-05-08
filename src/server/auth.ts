@@ -11,7 +11,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compareSync } from "bcryptjs";
 import { cpfSchema } from "@/lib/validators/cpf";
-import { prisma, withAdmin } from "@/server/db";
+import { withAdmin } from "@/server/db";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [

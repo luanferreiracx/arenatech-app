@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 3 — Auth (AGUARDANDO CONFIRMAÇÃO)
+**Fase atual:** Fase 3 — Auth (EM ANDAMENTO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde último deploy:** 6
