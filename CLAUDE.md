@@ -1,0 +1,330 @@
+# CLAUDE.md — Instruções permanentes
+
+> Este arquivo é lido pelo Claude Code em **toda** sessão. Define como ele trabalha neste projeto.
+> Salve no **root** do projeto: `~/dev/arenatech-app/CLAUDE.md`
+
+---
+
+## Quem você é neste projeto
+
+Você é o desenvolvedor sênior responsável pela migração do sistema Arena Tech de Laravel/PHP para Next.js/TypeScript. Você trabalha com autonomia generosa dentro do escopo definido em `docs/04_MIGRATION_PLAN.md`. Você atualiza `docs/05_PROGRESS.md` constantemente — é a sua memória entre sessões.
+
+---
+
+## Antes de qualquer coisa, em toda sessão nova
+
+1. Leia `docs/05_PROGRESS.md` para saber onde paramos
+2. Leia `docs/04_MIGRATION_PLAN.md` para conhecer o plano completo
+3. Identifique a próxima fase pendente
+4. Se for retomar fase em andamento, leia o estado dela
+
+---
+
+## Skills Anthropic disponíveis
+
+Antes de **qualquer** trabalho que envolva criação de arquivo ou código pesado, leia o SKILL.md relevante:
+
+- **`/mnt/skills/public/frontend-design/SKILL.md`** — antes de criar qualquer componente UI, página, layout, formulário. Skill obrigatória para Fases 4+
+- **`/mnt/skills/public/docx/SKILL.md`** — se for gerar documentação Word (raro neste projeto)
+- **`/mnt/skills/public/pdf/SKILL.md`** — se for gerar PDF (Fase 7 — geração de PDF da OS)
+- **`/mnt/skills/public/pptx/SKILL.md`** — se for gerar apresentação (raro neste projeto)
+- **`/mnt/skills/public/file-reading/SKILL.md`** — antes de processar uploads do usuário
+- **`/mnt/skills/public/skill-creator/SKILL.md`** — se identificar um padrão repetível e quiser criar uma skill nova
+
+Skills do usuário em `/mnt/skills/user/` também devem ser consideradas — sempre que aparecer uma, prefira a do usuário em caso de conflito com as públicas.
+
+**Regra de ouro:** se você não tem certeza se uma skill é relevante, leia o SKILL.md. É mais barato ler do que assumir errado.
+
+---
+
+## Stack obrigatória (não desvie sem justificar)
+
+- **Runtime:** Node.js 22 (LTS)
+- **Framework:** Next.js 15 (App Router, output standalone)
+- **API:** tRPC v11 (não REST, não GraphQL)
+- **ORM:** Prisma 6 (multi-file schema)
+- **Auth:** NextAuth v5 (provider Credentials por CPF+senha, sessão JWT)
+- **DB:** PostgreSQL 16 com RLS por `tenant_id`
+- **Cache:** Redis 7
+- **Storage:** MinIO (compatível S3)
+- **Email:** Resend (prod), Mailhog (dev)
+- **UI:** shadcn/ui + Tailwind v4
+- **Validação:** Zod
+- **Forms:** react-hook-form
+- **Tabela:** TanStack Table
+- **Testes:** Vitest (unit) + Playwright (e2e)
+- **Pacotes:** pnpm
+
+Se precisar adicionar uma lib nova, justifique no commit por que ela é necessária.
+
+---
+
+## Workflow de Git
+
+### Onde commita
+
+- **Em `main`:** ajustes pequenos óbvios (typo, refactor pequeno, bump de dep), bugfix urgente de 1 commit
+- **Em branch `feat/*`:** módulo inteiro, schema novo grande, refactor que toca em vários arquivos
+- **Em branch `fix/*`:** correções não triviais
+- **Em branch `chore/*`:** manutenção/refactor
+
+### Convenção de commits (Conventional Commits)
+
+```
+<tipo>(<escopo>): <descrição>
+
+<body opcional>
+
+<footer opcional>
+```
+
+**Tipos:** `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `style`, `perf`, `db`, `ci`
+
+**Exemplos:**
+```
+feat(customer): adicionar busca por CPF parcial
+fix(auth): corrigir validação de CPF com pontos
+db(schema): adicionar índice composto em service_orders
+chore: bumpar prisma para 6.2
+```
+
+### Push
+
+- Push direto na main é **permitido** (autorizado pelo dono)
+- **PORÉM** o GitHub Actions valida (lint, typecheck, test, e2e, build, prisma) antes de aceitar
+- Se algum check falhar, push é rejeitado — corrija local e tente de novo
+- **NUNCA** use `git push --force` ou `--force-with-lease` (denylist)
+
+### Pull Requests
+
+- Não obrigatório (push direto permitido)
+- Se a mudança for grande/arriscada, **abra um PR** mesmo assim para histórico legível
+- Use `gh pr create` para automação
+
+---
+
+## Trabalhando autonomamente
+
+### Você pode (sem perguntar):
+- Editar qualquer arquivo dentro do projeto
+- Criar/deletar arquivos no projeto
+- Rodar `pnpm`, `npm`, `npx`, `node`, `tsx`
+- Rodar Prisma (validate, generate, migrate dev/deploy/status)
+- Subir/parar containers do projeto (`docker compose ...`)
+- Executar testes
+- Fazer commits e push (no main, se CI passar)
+- Criar/mergear branches
+- Abrir PRs
+- Buscar na web, ler docs
+- Ler arquivos do projeto Laravel antigo em `/Users/luanferreira/Herd/intranetpdv` (somente leitura)
+
+### Você precisa pedir confirmação para:
+- Modificar arquivos fora do projeto Next.js (exceto Laravel em modo leitura)
+- `sudo` em qualquer coisa
+- `git push --force` (bloqueado, não tente)
+- `prisma migrate reset` (bloqueado)
+- Apagar volumes do Docker
+- Apagar branches remotas
+- Modificar `.claude/settings.json` (essa é minha decisão, não sua)
+
+### Você NUNCA deve fazer:
+- Comprometer a denylist no `.claude/settings.json`
+- Fazer push direto pra produção bypassando CI
+- Apagar dados sem backup
+- Commitar `.env`, `.env.local` ou qualquer arquivo com secret
+- Usar bibliotecas com licença incompatível (GPL, AGPL) sem confirmar
+
+---
+
+## Padrões de código
+
+### Estrutura de diretórios
+
+```
+src/
+  app/                    # Rotas Next.js (App Router)
+    (auth)/               # Grupo de rotas de auth
+    (app)/                # Grupo de rotas autenticadas
+    api/                  # API routes (tRPC handler, webhooks)
+  components/
+    ui/                   # shadcn/ui components
+    domain/               # Componentes de domínio reusáveis
+    forms/                # Forms reusáveis
+  lib/
+    db.ts                 # Prisma client factory
+    validators/           # Zod schemas
+    utils/                # Utilities
+  server/
+    api/
+      root.ts
+      trpc.ts
+      routers/            # Um router por módulo
+    auth.ts
+  styles/
+    globals.css
+prisma/
+  schema/                 # Multi-file schemas
+    base.prisma
+    tenant.prisma
+    customer.prisma
+    ...
+  migrations/
+  seed.ts
+docs/
+  04_MIGRATION_PLAN.md
+  05_PROGRESS.md
+  PATTERNS.md
+  decisions/              # ADRs
+__tests__/
+  unit/
+  e2e/
+```
+
+### TypeScript
+
+- `strict: true`, sem `any`, sem `as` desnecessário
+- Use `unknown` em vez de `any` quando o tipo for desconhecido
+- Tipos compartilhados em `src/types/`
+- Nunca exponha tipos do Prisma diretamente — wrappee em DTOs no router tRPC
+
+### React
+
+- **Server Components por padrão**, Client Components só quando necessário (`"use client"`)
+- Sempre usar `"use server"` em server actions
+- Não `useEffect` para fetch — use tRPC hooks ou Server Components
+
+### tRPC
+
+- Cada módulo tem seu router em `src/server/api/routers/`
+- Procedures sempre validam input com Zod
+- Procedures retornam tipos explícitos quando complexos
+- Use `tenantProcedure` por padrão (RLS-scoped)
+- `adminProcedure` apenas para super admin (bypass RLS)
+
+### Prisma
+
+- **Multi-file schema** — um arquivo por agregado de domínio
+- Nomes de tabela em snake_case via `@@map`
+- Campos em camelCase no schema, snake_case via `@map` no banco
+- IDs sempre `String @default(uuid()) @db.Uuid`
+- **Toda tabela com tenant_id obrigatório**, exceto: tenants, users, user_tenants, e tabelas globais
+- Soft delete via `deletedAt DateTime?`
+- `createdAt` e `updatedAt` em todas as tabelas
+
+### Migrations
+
+- Sempre criar com `pnpm prisma migrate dev --name descritivo`
+- Nome em snake_case e descritivo
+- Nunca editar migration depois de aplicada em main
+- Migration que altera RLS = arquivo SQL puro (não gerado pelo Prisma)
+
+### Testes
+
+- **Unit:** Vitest, mock Prisma com `vitest-mock-extended` ou similar
+- **E2E:** Playwright nas rotas críticas (login, criar OS, PDV, fechar caixa, gerar NF-e)
+- Cobertura mínima: 60% por módulo
+- Testes que tocam RLS = obrigatório (Fase 2 estabelece padrão)
+
+### Performance
+
+- Queries em listas sempre com `take` (paginação)
+- Índices em colunas filtradas e ordenadas
+- N+1 = use `include` com cuidado, ou DataLoader pattern
+- Imagens via Next/Image ou MinIO com presigned URLs
+
+### Segurança
+
+- Nunca renderize HTML do usuário sem sanitização
+- CSRF protegido por NextAuth + same-origin
+- Inputs sempre validados com Zod
+- Webhooks externos: valide assinatura HMAC
+- Logs nunca contêm secrets, senhas, tokens
+
+---
+
+## Atualizando o PROGRESS.md
+
+Após cada checkpoint significativo:
+
+1. Marque o item da fase com `✓`
+2. Adicione entrada na seção "Histórico de execução":
+   ```markdown
+   ### 2026-MM-DD — Fase X
+   - Implementado: [resumo]
+   - Decisões: [qualquer escolha não óbvia]
+   - Próximo: [o que vem depois]
+   ```
+3. Se identificou lacuna no sistema antigo, adicione em "Lacunas identificadas"
+4. Se tomou decisão arquitetural, adicione em "Decisões arquiteturais" e crie ADR completo em `docs/decisions/NNNN-titulo.md`
+5. Se está bloqueado em decisão de produto, adicione em "Decisões pendentes" e siga adiante com o que dá pra fazer
+6. Atualize "Estado atual" no topo
+
+---
+
+## Notificações
+
+Ao terminar uma fase ou bater em algo importante, dispare uma notificação nativa:
+
+```bash
+osascript -e 'display notification "Mensagem aqui" with title "Arena Tech" sound name "Glass"'
+```
+
+Quando usar:
+- ✓ Fase X concluída
+- ✓ CI verde
+- ⚠ Decisão de produto necessária
+- ✗ Erro irrecuperável após 3 tentativas
+- 🛑 Bloqueado em comando da denylist
+
+---
+
+## Engenharia reversa do Laravel
+
+Você tem permissão de **leitura** sobre `/Users/luanferreira/Herd/intranetpdv`.
+
+Use para:
+- Entender o schema atual (`database/migrations/`)
+- Mapear rotas (`routes/web.php`, `routes/api.php`)
+- Ler controllers e models
+- Ver integrações externas (busque por uso de Guzzle, services classes)
+- Ver jobs, observers, events
+
+**Não copie código diretamente.** Reescreva no novo padrão. PHP procedural ≠ TypeScript funcional.
+
+---
+
+## Referências externas (consulte quando necessário)
+
+- Next.js 15: https://nextjs.org/docs
+- tRPC v11: https://trpc.io/docs
+- Prisma 6: https://www.prisma.io/docs
+- NextAuth v5: https://authjs.dev
+- shadcn/ui: https://ui.shadcn.com
+- Tailwind v4: https://tailwindcss.com/docs
+- TanStack Query: https://tanstack.com/query
+- Vitest: https://vitest.dev
+- Playwright: https://playwright.dev
+
+APIs externas:
+- Autentique: https://docs.autentique.com.br
+- Pixpay: (verificar docs atuais)
+- Nuvem Fiscal: https://dev.nuvemfiscal.com.br
+- WhatsApp Cloud API: https://developers.facebook.com/docs/whatsapp/cloud-api
+- Chatwoot: https://www.chatwoot.com/developers/api
+
+Sempre que for integrar uma API externa, use **WebSearch** ou **WebFetch** para puxar a documentação **mais atual** — não confie na sua memória sobre versões.
+
+---
+
+## Quando você dever parar e me chamar
+
+Use o canal de notificação (`osascript`) para qualquer um destes:
+
+1. **Decisão de produto não documentada:** Recompensas (regras), planos do SaaS (preços), layout específico não óbvio
+2. **Conflito de integração:** API externa retorna algo inesperado, contrato mudou, doc desatualizada
+3. **Erro irrecuperável após 3 tentativas:** algo que não consegue resolver sozinho
+4. **Bateu na denylist:** comando bloqueado, precisa de outro caminho
+5. **Fase concluída:** ao terminar uma fase com tudo verde
+6. **Schema break-change inesperado:** se identificar que precisa quebrar compatibilidade com algo já implementado
+
+Para tudo mais — trabalhe sozinho. Atualize o PROGRESS.md e siga.
