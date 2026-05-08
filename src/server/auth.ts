@@ -1,9 +1,6 @@
 /**
- * NextAuth v5 (beta.31) configuration — Credentials provider with CPF + password.
- *
- * JWT strategy. No database sessions.
- * Session carries: user info, activeTenantId, availableTenants[].
- * Tenant selection happens post-login via switchTenant server action.
+ * NextAuth v5 (beta.31) — Full configuration (Node.js only).
+ * Imports Edge-safe base config and adds Credentials provider with bcrypt + Prisma.
  *
  * @see docs/decisions/0002-auth-strategy.md
  */
@@ -12,8 +9,11 @@ import Credentials from "next-auth/providers/credentials";
 import { compareSync } from "bcryptjs";
 import { cpfSchema } from "@/lib/validators/cpf";
 import { withAdmin } from "@/server/db";
+import { authConfig } from "@/server/auth.config";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
+
   providers: [
     Credentials({
       credentials: {
@@ -28,7 +28,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const password = credentials?.password;
         if (typeof password !== "string" || !password) return null;
 
-        // Fetch user without RLS (auth precedes tenant scope)
         const user = await withAdmin(async (tx) => {
           return tx.user.findUnique({ where: { cpf } });
         });
@@ -47,22 +46,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
 
-  session: { strategy: "jwt" },
-
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
-
   callbacks: {
-    async jwt({ token, user }) {
-      // First call after login — populate token with user data + tenant info
-      if (user) {
-        token.id = user.id!;
-        token.cpf = user.cpf;
-        token.isSuperAdmin = user.isSuperAdmin;
+    ...authConfig.callbacks,
 
-        // Load available tenants
+    async jwt({ token, user }) {
+      // Run base config jwt callback first
+      token = await authConfig.callbacks.jwt({ token, user } as Parameters<NonNullable<typeof authConfig.callbacks.jwt>>[0]);
+
+      // On first login, load available tenants from DB
+      if (user) {
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
             where: { userId: user.id! },
@@ -78,26 +70,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }));
 
         // Auto-select tenant if user has exactly 1
-        if (userTenants.length === 1) {
-          token.activeTenantId = userTenants[0]!.tenant.id;
-        } else {
-          token.activeTenantId = null;
-        }
-
+        token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
         token.impersonatedTenantId = null;
       }
 
       return token;
-    },
-
-    async session({ session, token }) {
-      session.user.id = token.id;
-      session.user.cpf = token.cpf;
-      session.user.isSuperAdmin = token.isSuperAdmin;
-      session.activeTenantId = token.activeTenantId;
-      session.impersonatedTenantId = token.impersonatedTenantId;
-      session.availableTenants = token.availableTenants;
-      return session;
     },
   },
 });

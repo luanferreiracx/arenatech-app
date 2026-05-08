@@ -1,5 +1,8 @@
-import { auth } from "@/server/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/server/auth.config";
 import { NextResponse } from "next/server";
+
+const { auth } = NextAuth(authConfig);
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password"]);
 
@@ -24,10 +27,9 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  // 1. Public routes — always pass
+  // 1. Public routes
   if (isPublicRoute(pathname)) {
     if (session && pathname === "/login") {
-      // Resolve active tenant from cookie or JWT
       const cookieTenant = req.cookies.get("x-active-tenant")?.value;
       const activeTenantId = cookieTenant ?? session.activeTenantId;
 
@@ -45,14 +47,14 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // 2. Not authenticated — redirect to login
+  // 2. Not authenticated
   if (!session) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 3. No tenants, not super admin — /no-access
+  // 3. No tenants, not super admin
   if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
     if (pathname !== "/no-access") {
       return NextResponse.redirect(new URL("/no-access", req.url));
@@ -60,7 +62,7 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // 4. Admin routes — require isSuperAdmin
+  // 4. Admin routes
   if (pathname.startsWith("/admin")) {
     if (!session.user.isSuperAdmin) {
       return NextResponse.redirect(new URL("/", req.url));
@@ -68,12 +70,12 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // 5. No-tenant routes — pass
+  // 5. No-tenant routes
   if (isNoTenantRoute(pathname)) {
     return NextResponse.next();
   }
 
-  // 6. Resolve active tenant: cookie overrides JWT
+  // 6. Resolve active tenant
   const cookieTenant = req.cookies.get("x-active-tenant")?.value;
   const activeTenantId = cookieTenant ?? session.activeTenantId;
 
@@ -84,16 +86,15 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/select-tenant", req.url));
   }
 
-  // Validate tenant access (cookie could be stale)
+  // Validate tenant access
   const hasTenant = session.availableTenants.some((t) => t.id === activeTenantId);
   if (!hasTenant && !session.user.isSuperAdmin) {
-    // Clear stale cookie and redirect
     const res = NextResponse.redirect(new URL("/select-tenant", req.url));
     res.cookies.delete("x-active-tenant");
     return res;
   }
 
-  // 7. Inject tenant header for tRPC context
+  // 7. Inject tenant header
   const headers = new Headers(req.headers);
   headers.set("x-tenant-id", activeTenantId);
   return NextResponse.next({ request: { headers } });

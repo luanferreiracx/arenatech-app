@@ -34,9 +34,8 @@ export default function LoginPage() {
       return;
     }
 
-    // Successful login — let middleware handle redirect
-    router.push("/");
-    router.refresh();
+    // Full navigation so middleware can handle auth-aware redirect
+    window.location.href = "/";
   }
 
   return (
