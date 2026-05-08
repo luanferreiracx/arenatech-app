@@ -18,7 +18,8 @@ function isPublicRoute(pathname: string): boolean {
   return (
     PUBLIC_ROUTES.has(pathname) ||
     pathname.startsWith("/api/auth/") ||
-    pathname.startsWith("/api/health")
+    pathname.startsWith("/api/health") ||
+    pathname.startsWith("/os/")
   );
 }
 
