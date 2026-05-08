@@ -11,6 +11,7 @@ import { serviceOrderRouter } from "@/server/api/routers/service-order";
 import { saleRouter } from "@/server/api/routers/sale";
 import { commissionRouter } from "@/server/api/routers/commission";
 import { imeiRouter } from "@/server/api/routers/imei";
+import { operationRouter } from "@/server/api/routers/operation";
 
 export const appRouter = createTRPCRouter({
   example: exampleRouter,
@@ -25,6 +26,7 @@ export const appRouter = createTRPCRouter({
   sales: saleRouter,
   commissions: commissionRouter,
   imei: imeiRouter,
+  operation: operationRouter,
 });
 
 export type AppRouter = typeof appRouter;

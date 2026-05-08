@@ -80,7 +80,7 @@ export function AdminSidebar({ userName }: AdminSidebarProps) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           {adminNavItems.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+            const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
             const Icon = item.icon;
 
             const linkContent = (

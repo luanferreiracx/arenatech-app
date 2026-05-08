@@ -12,6 +12,8 @@ import {
   ShoppingCart,
   Percent,
   Smartphone,
+  Truck,
+  BarChart3,
 } from "lucide-react";
 
 export interface NavItem {
@@ -29,15 +31,16 @@ export const appNavItems: NavItem[] = [
   { label: "Estoque", href: "/stock", icon: Package },
   { label: "Catálogo", href: "/catalog", icon: BookOpen },
   { label: "Financeiro", href: "/financial", icon: DollarSign },
+  { label: "Operação", href: "/operation", icon: Truck },
   { label: "Comissões", href: "/commissions", icon: Percent },
   { label: "Consulta IMEI", href: "/imei", icon: Smartphone },
   { label: "Configurações", href: "/settings", icon: Settings },
 ];
 
 export const adminNavItems: NavItem[] = [
-  { label: "Tenants", href: "/admin/tenants", icon: LayoutDashboard },
-  { label: "Planos", href: "/admin/planos", icon: DollarSign },
-  { label: "Pré-cadastros", href: "/admin/pre-cadastros", icon: Users },
-  { label: "Cobranças", href: "/admin/cobrancas", icon: Wallet },
-  { label: "Relatórios", href: "/admin/relatorios", icon: FileText },
+  { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { label: "Tenants", href: "/admin/tenants", icon: Users },
+  { label: "Planos", href: "/admin/plans", icon: DollarSign },
+  { label: "Pré-cadastros", href: "/admin/pre-registrations", icon: FileText },
+  { label: "Relatórios", href: "/admin/reports", icon: BarChart3 },
 ];
