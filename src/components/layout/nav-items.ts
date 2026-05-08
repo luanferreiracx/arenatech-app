@@ -9,6 +9,7 @@ import {
   DollarSign,
   FileText,
   Settings,
+  ShoppingCart,
 } from "lucide-react";
 
 export interface NavItem {
@@ -21,6 +22,7 @@ export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Clientes", href: "/customers", icon: Users },
   { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList },
+  { label: "PDV", href: "/pdv", icon: ShoppingCart },
   { label: "Caixa", href: "/cashier", icon: Wallet },
   { label: "Estoque", href: "/stock", icon: Package },
   { label: "Catálogo", href: "/catalog", icon: BookOpen },

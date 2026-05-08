@@ -20,6 +20,8 @@ import {
   Package,
   DollarSign,
   Settings,
+  ShoppingCart,
+  History,
 } from "lucide-react";
 
 interface CommandPaletteContextValue {
@@ -89,6 +91,10 @@ function CommandPaletteDialog({
             <UserPlus className="mr-2 h-4 w-4" />
             Novo Cliente
           </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            Nova Venda
+          </CommandItem>
         </CommandGroup>
 
         <CommandSeparator />
@@ -105,6 +111,14 @@ function CommandPaletteDialog({
           <CommandItem onSelect={() => runCommand(() => router.push("/service-orders"))}>
             <ClipboardList className="mr-2 h-4 w-4" />
             Ordens de Serviço
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            PDV
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/pdv/history"))}>
+            <History className="mr-2 h-4 w-4" />
+            Historico de Vendas
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/stock"))}>
             <Package className="mr-2 h-4 w-4" />
