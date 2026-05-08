@@ -21,7 +21,7 @@ test("login with invalid CPF shows error", async ({ page }) => {
   await page.getByLabel("Senha").fill("wrong");
   await page.getByRole("button", { name: "Entrar" }).click();
 
-  await expect(page.getByText("Credenciais inválidas")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("CPF ou senha inválidos")).toBeVisible({ timeout: 5000 });
 });
 
 test("login with wrong password shows generic error", async ({ page }) => {
@@ -31,7 +31,7 @@ test("login with wrong password shows generic error", async ({ page }) => {
   await page.getByLabel("Senha").fill("wrongpassword");
   await page.getByRole("button", { name: "Entrar" }).click();
 
-  await expect(page.getByText("Credenciais inválidas")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("CPF ou senha inválidos")).toBeVisible({ timeout: 5000 });
 });
 
 test("single-tenant user logs in and goes to dashboard", async ({ page }) => {
