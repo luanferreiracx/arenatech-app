@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 6 — Estoque + Caixa + Financeiro (A INICIAR)
+**Fase atual:** Fase 7 — Ordens de Serviço (PRÓXIMA)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 24
+**Commits desde último deploy:** 30
 
 ---
 
@@ -88,13 +88,13 @@
 - [x] Testes verdes (82 unit + integration customers + e2e customers)
 - [x] Commit final
 
-### ☐ Fase 6 — Estoque + Caixa + Financeiro
-- [ ] Estoque
-- [ ] Caixa
-- [ ] Financeiro
-- [ ] Saques Depix
-- [ ] Testes verdes
-- [ ] Commit final
+### ✓ Fase 6 — Estoque + Caixa + Financeiro
+- [x] Estoque (produtos CRUD, movimentações atômicas, compras de aparelhos, relatório inventário)
+- [x] Caixa (abrir/fechar com conferência, sangria/suprimento, histórico, resumo por forma de pagamento)
+- [x] Financeiro (transações AP/AR, parcelamento automático, pagamento de parcelas, fluxo de caixa, vencidos)
+- [ ] Saques Depix (integração Pixpay adiada para Fase 7/8 — depende de OS/PDV)
+- [x] Testes verdes (31 unit tests de validators)
+- [x] Commit final
 
 ### ☐ Fase 7 — Ordens de Serviço (CRÍTICO)
 - [ ] Schema OS + items + history
@@ -177,6 +177,29 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Fase 6
+
+- **Implementado:**
+  - 3 schemas Prisma (stock.prisma, cashier.prisma, financial.prisma) com 7 novas tabelas + 6 enums
+  - RLS habilitado em todas as 7 tabelas tenant-scoped via migration SQL
+  - Validators Zod: stock.ts, cashier.ts, financial.ts
+  - tRPC routers: stockRouter (11 procedures), cashierRouter (7 procedures), financialRouter (9 procedures)
+  - Stock UI: Produtos (DataTable + CRUD + ajuste estoque Dialog), Movimentações (histórico geral filtrado), Compras de Aparelhos (DataTable + form), Relatório de Inventário (cards resumo + tabela)
+  - Cashier UI: Página principal com dois estados (sem caixa/caixa aberto), Dialogs para abrir/sangria/suprimento/fechar com conferência, Resumo por forma de pagamento, Histórico de caixas, Detalhe de caixa fechado
+  - Financial UI: Listagem com Tabs A Pagar/A Receber + filtros, Criar transação com parcelamento automático (1-36x), Detalhe com pagamento de parcelas (Dialog), Fluxo de Caixa (agrupamento dia/semana/mês + cards resumo), Seção de vencidos
+  - Sidebar nav atualizada (Estoque → /stock, Caixa → /cashier, Financeiro → /financial)
+  - Testes: 31 unit tests de validators (product, cash register, financial transaction, installment, device purchase)
+- **Decisões:**
+  - MoneyInput trabalha em centavos internamente — forms convertem centavos↔reais no submit/defaultValues
+  - Prisma Decimal retornado em queries precisa de cast para Number() nas tabelas UI — row interfaces usam `unknown` para Decimal fields
+  - Saques Depix (integração Pixpay) adiados para Fase 7/8 — dependem de OS e PDV para fazer sentido
+  - `adjustStock` usa delta atômico (increment/decrement) dentro de `withTenant` transaction
+  - Caixa: apenas 1 aberto por user (validado server-side com CONFLICT error)
+  - Parcelas geradas automaticamente com divisão proporcional (última parcela recebe resto)
+- **Próximo:** Fase 7 — Ordens de Serviço
+
+---
 
 ### 2026-05-08 — Fase 5
 
@@ -349,11 +372,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | ~3000 |
-| Cobertura de testes | 38 unit + 6 integration + 16 e2e |
-| Tabelas no schema | 15 (tenants, users, user_tenants, audit_logs + 11 Fase 5) |
-| Procedures tRPC | 44 (example.hello, auth.2, settings.14, catalog.16, customers.11) |
-| Páginas | 28+ (7 anteriores + settings 4 + catalog 10 + customers 7) |
+| Linhas de código | ~6000 |
+| Cobertura de testes | 69 unit + 6 integration + 16 e2e |
+| Tabelas no schema | 22 (15 anteriores + 7 Fase 6: products, stock_movements, device_purchases, cash_registers, cash_movements, financial_transactions, installments) |
+| Procedures tRPC | 71 (44 anteriores + stock.11, cashier.7, financial.9) |
+| Páginas | 45+ (28 anteriores + stock 8 + cashier 4 + financial 5) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
