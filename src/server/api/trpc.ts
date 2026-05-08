@@ -46,7 +46,12 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   });
 });
 
-/** Tenant procedure — requires session + active tenant. All queries run via withTenant. */
+/**
+ * Tenant procedure — requires session + active tenant. All queries run via withTenant.
+ * Defense in depth: validates tenant access BOTH here AND in proxy.ts.
+ * This ensures that even if the proxy matcher changes or a cookie is forged,
+ * the backend rejects unauthorized tenant access.
+ */
 export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
@@ -54,6 +59,15 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.tenantId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "No active tenant" });
   }
+
+  // Validate that the authenticated user actually has access to this tenant
+  const hasTenant = ctx.session.availableTenants.some(
+    (t) => t.id === ctx.tenantId,
+  );
+  if (!hasTenant && !ctx.session.user.isSuperAdmin) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "No access to this tenant" });
+  }
+
   return next({
     ctx: {
       session: ctx.session,
