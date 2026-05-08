@@ -1,0 +1,167 @@
+enum ServiceOrderStatus {
+  OPEN
+  IN_DIAGNOSIS
+  WAITING_APPROVAL
+  APPROVED
+  WAITING_PARTS
+  IN_PROGRESS
+  COMPLETED
+  PAID
+  READY_FOR_PICKUP
+  DELIVERED
+  IN_WARRANTY
+  CANCELLED
+  REFUNDED
+}
+
+enum ServiceOrderItemType {
+  SERVICE
+  PRODUCT
+}
+
+model ServiceOrder {
+  id                  String              @id @default(uuid()) @db.Uuid
+  tenantId            String              @map("tenant_id") @db.Uuid
+  number              String
+  customerId          String              @map("customer_id") @db.Uuid
+  technicianId        String?             @map("technician_id") @db.Uuid
+  createdById         String              @map("created_by_id") @db.Uuid
+  status              ServiceOrderStatus  @default(OPEN)
+  publicLink          String              @unique @map("public_link")
+
+  // Equipamento
+  deviceType          String?             @map("device_type")
+  deviceBrand         String?             @map("device_brand")
+  deviceModel         String?             @map("device_model")
+  serialNumber        String?             @map("serial_number")
+  imei                String?
+  devicePassword      String?             @map("device_password")
+  accessories         String?
+
+  // Problema e diagnostico
+  reportedProblem     String?             @map("reported_problem")
+  diagnosedProblem    String?             @map("diagnosed_problem")
+  internalNotes       String?             @map("internal_notes")
+  customerNotes       String?             @map("customer_notes")
+
+  // Checklist (JSON — redesign of 30 individual Laravel columns)
+  entryChecklist      Json?               @map("entry_checklist")
+  exitChecklist       Json?               @map("exit_checklist")
+
+  // Info adicionais
+  deviceInfo          Json?               @map("device_info")
+
+  // Valores
+  serviceAmount       Decimal             @default(0) @map("service_amount") @db.Decimal(10, 2)
+  partsAmount         Decimal             @default(0) @map("parts_amount") @db.Decimal(10, 2)
+  partsCost           Decimal             @default(0) @map("parts_cost") @db.Decimal(10, 2)
+  discount            Decimal             @default(0) @db.Decimal(10, 2)
+  totalAmount         Decimal             @default(0) @map("total_amount") @db.Decimal(10, 2)
+  paidAmount          Decimal             @default(0) @map("paid_amount") @db.Decimal(10, 2)
+
+  // Garantia
+  isWarranty          Boolean             @default(false) @map("is_warranty")
+  warrantyType        String?             @map("warranty_type")
+  warrantyMonths      Int                 @default(3) @map("warranty_months")
+  originalOrderId     String?             @map("original_order_id") @db.Uuid
+
+  // Datas
+  entryDate           DateTime            @default(now()) @map("entry_date")
+  estimatedDate       DateTime?           @map("estimated_date")
+  completedDate       DateTime?           @map("completed_date")
+  deliveredDate       DateTime?           @map("delivered_date")
+
+  // Pagamento
+  paymentMethod       String?             @map("payment_method")
+  paymentNotes        String?             @map("payment_notes")
+  paymentDiscount     Decimal             @default(0) @map("payment_discount") @db.Decimal(10, 2)
+
+  // Cancelamento/Estorno
+  cancellationReason  String?             @map("cancellation_reason")
+  refundReason        String?             @map("refund_reason")
+  refundedAt          DateTime?           @map("refunded_at")
+  refundedById        String?             @map("refunded_by_id") @db.Uuid
+
+  // Lab externo
+  sentToLab           Boolean             @default(false) @map("sent_to_lab")
+  labReceived         Boolean             @default(false) @map("lab_received")
+  deliveryPersonId    String?             @map("delivery_person_id") @db.Uuid
+
+  // Assinaturas (Autentique) — placeholders, integracao completa Fase 9+
+  signatureDocumentId   String?           @map("signature_document_id")
+  signatureUrl          String?           @map("signature_url")
+  signatureSentAt       DateTime?         @map("signature_sent_at")
+  signatureSignedAt     DateTime?         @map("signature_signed_at")
+
+  // Soft delete
+  deletedAt           DateTime?           @map("deleted_at")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  items               ServiceOrderItem[]
+  history             ServiceOrderHistory[]
+  documents           ServiceOrderDocument[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+  @@index([tenantId, technicianId])
+  @@index([tenantId, entryDate])
+  @@index([tenantId, deletedAt])
+  @@index([publicLink])
+  @@map("service_orders")
+}
+
+model ServiceOrderItem {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  orderId         String               @map("order_id") @db.Uuid
+  type            ServiceOrderItemType
+  serviceId       String?              @map("service_id") @db.Uuid
+  productId       String?              @map("product_id") @db.Uuid
+  description     String
+  quantity        Decimal              @default(1) @db.Decimal(10, 2)
+  unitPrice       Decimal              @map("unit_price") @db.Decimal(10, 2)
+  costPrice       Decimal              @default(0) @map("cost_price") @db.Decimal(10, 2)
+  total           Decimal              @db.Decimal(10, 2)
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  order           ServiceOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@map("service_order_items")
+}
+
+model ServiceOrderHistory {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  orderId         String   @map("order_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  previousStatus  String?  @map("previous_status")
+  newStatus       String   @map("new_status")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  order           ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@map("service_order_history")
+}
+
+model ServiceOrderDocument {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  orderId         String   @map("order_id") @db.Uuid
+  type            String
+  name            String
+  url             String
+  mimeType        String?  @map("mime_type")
+  size            Int?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  order           ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@map("service_order_documents")
+}
