@@ -345,9 +345,9 @@ intranet.arenatechpi.com.br  → 188.114.96.3 / 188.114.97.3  (Cloudflare proxy)
 |---|---|---|
 | Ubuntu 20+ | ✓ Ubuntu 24.04 LTS | Nenhuma |
 | Docker | ✓ rodando | Nenhuma |
-| Node.js 22 (LTS) | ✗ v20.19.4 instalado | Instalar v22 via NodeSource ou nvm |
-| pnpm | ✗ não instalado | `npm install -g pnpm` após Node 22 |
-| pm2 | ✗ não instalado | `npm install -g pm2` |
+| Node.js 22 (LTS) | ✓ v22.22.2 via nvm (deployer) | Instalado |
+| pnpm | ✓ v11.0.8 (deployer) | Instalado |
+| pm2 | ✗ não instalado | Instalar no momento do primeiro deploy |
 | PostgreSQL 16+ | ⚠ imagem presente, sem container | Criar container `arenatech-postgres` (porta 5434) |
 | Redis 7+ | ⚠ presente em containers Docker isolados | Criar container `arenatech-redis` (porta 6380 no host) |
 | MinIO | ⚠ imagem presente, sem container | Criar container `arenatech-minio` (portas 9000/9001) |
@@ -376,19 +376,15 @@ intranet.arenatechpi.com.br  → 188.114.96.3 / 188.114.97.3  (Cloudflare proxy)
 
 ---
 
-### D3 — Limpeza do arquivo `.bak` no Nginx
+### D3 — Limpeza do arquivo `.bak` no Nginx ✓ EXECUTADO
 
-`/etc/nginx/sites-enabled/arenatechpi.com.br.bak` é um arquivo de configuração ativo (não é ignorado pelo Nginx) com server blocks duplicados. Isso é um risco de conflito.
-
-**Pergunta:** Posso remover/renomear para `.bak.disabled` na próxima sessão de deploy?
+**Ação:** `arenatechpi.com.br.bak` movido de `sites-enabled/` para `sites-available/` (sem symlink). Nginx testado (zero warnings) e recarregado.
 
 ---
 
-### D4 — `pay.arenatechpi.com.br` morto
+### D4 — `pay.arenatechpi.com.br` morto ✓ EXECUTADO
 
-O site `pay.arenatechpi.com.br` aponta para a porta 49392 que não está em uso. Nginx serve 502 para esse domínio.
-
-**Pergunta:** Esse serviço foi descontinuado? Posso remover o server block?
+**Ação:** Symlink `sites-enabled/pay.arenatechpi.com.br` removido. Config preservada em `sites-available/` para referência. Nginx recarregado.
 
 ---
 
@@ -404,24 +400,15 @@ O site `pay.arenatechpi.com.br` aponta para a porta 49392 que não está em uso.
 
 ---
 
-### D7 — Crontab duplicado do Laravel
+### D7 — Crontab do Laravel ✓ DIAGNÓSTICO CORRIGIDO
 
-`deployer` e `root` ambos têm o mesmo `* * * * * ... php artisan schedule:run`. Isso executa o scheduler duas vezes por minuto.
-
-**Pergunta:** Posso remover o crontab do `root` na próxima sessão?
+**Situação real:** O crontab nunca foi duplicado. `crontab -l` e `sudo crontab -l` no diagnóstico inicial mostravam o mesmo crontab do `root` (conectado como root via SSH). O usuário `deployer` não tinha crontab próprio. O scheduler roda corretamente via `root` — nenhuma ação necessária.
 
 ---
 
-### D8 — Versão do Node.js: sistema vs nvm
+### D8 — Versão do Node.js: nvm para deployer ✓ EXECUTADO
 
-Node.js 22 pode ser instalado via:
-- `NodeSource` (substitui o v20 do apt)
-- `nvm` no usuário `deployer` (mantém v20 no sistema para outras coisas)
-
-O Chatwoot e Evolution usam apenas containers Docker, então não dependem do Node.js do sistema.
-
-**Recomendação:** nvm no usuário `deployer`, para isolamento.
-**Pergunta:** OK com nvm para o deployer?
+**Ação:** nvm v0.40.3 instalado em `/home/deployer/.nvm`. Node.js v22.22.2 instalado e definido como `default`. pnpm 11.0.8 instalado globalmente. Node.js v20 do sistema (apt) preservado para outros usos.
 
 ---
 
