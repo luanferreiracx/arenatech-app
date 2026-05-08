@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 0 — Bootstrap & infra local ✓ CONCLUÍDA
+**Fase atual:** Fase 2 — Schema base + RLS (AGUARDANDO CONFIRMAÇÃO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 1
+**Commits desde último deploy:** 2
 
 ---
 
@@ -24,18 +24,18 @@
 - [x] MIGRATION_NOTES.md com inventário do legado
 - [x] Commit final
 
-### ☐ Fase 1 — Esqueleto Next.js + tRPC + Prisma
-- [ ] create-next-app
-- [ ] TypeScript estrito
-- [ ] ESLint + Prettier
-- [ ] tRPC v11 estruturado
-- [ ] Prisma 6 multi-file schema
-- [ ] NextAuth v5 placeholder
-- [ ] shadcn/ui inicializado
-- [ ] Vitest + Playwright configurados
-- [ ] Hello World tRPC
-- [ ] CI passando
-- [ ] Commit final
+### ✓ Fase 1 — Esqueleto Next.js + tRPC + Prisma
+- [x] create-next-app (Next.js 16.2.5, App Router, standalone)
+- [x] TypeScript estrito (strict + noUncheckedIndexedAccess + noImplicitOverride)
+- [x] ESLint flat config (eslint.config.mjs) + Prettier
+- [x] tRPC v11 estruturado (server + client + API route)
+- [x] Prisma 7 multi-file schema (prismaSchemaFolder preview)
+- [x] NextAuth v5 placeholder
+- [x] shadcn/ui inicializado (new-york, slate, 22 componentes)
+- [x] Vitest + Playwright configurados
+- [x] Hello World tRPC (`/` → "olá" via server caller)
+- [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
+- [x] Commit final
 
 ### ☐ Fase 2 — Schema base + RLS
 - [ ] Schema Tenant + User + UserTenant
@@ -161,6 +161,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Histórico de execução
 
+### 2026-05-08 — Fase 1
+
+- **Implementado:**
+  - Scaffold Next.js 16.2.5 (App Router, `output: "standalone"`, Turbopack)
+  - TypeScript estrito com `noUncheckedIndexedAccess` + `noImplicitOverride`
+  - tRPC v11 completo: `src/server/api/trpc.ts`, `routers/example.ts`, `root.ts`, `api/trpc/[trpc]/route.ts`, `trpc/server.ts`, `trpc/react.tsx`
+  - Prisma 7 multi-file schema em `prisma/schema/base.prisma`
+  - NextAuth v5 placeholder em `src/server/auth.ts`
+  - shadcn/ui new-york + 22 componentes base
+  - ESLint flat config (`eslint.config.mjs`) — migrado de `.eslintrc.cjs` por ESLint 10→9 + Next.js 16 remover `next lint`
+  - `src/lib/utils.ts` com `cn()` helper
+  - Vitest + Playwright configurados com smoke tests verdes
+  - `src/app/page.tsx` exibindo "olá" via tRPC server caller
+- **Decisões:**
+  - Downgrade ESLint 10→9 (`eslint-plugin-react@7` incompatível com ESLint 10 flat config)
+  - `next lint` removido no Next.js 16 — lint script usa `eslint src` diretamente
+  - Prisma 7 (mais recente estável) em vez de Prisma 6 conforme spec
+- **Próximo:** Fase 2 — Schema base + RLS (aguardando confirmação)
+
+---
+
 ### 2026-05-08 — Fase 0
 
 - **Implementado:**
@@ -191,12 +212,12 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | 0 (infra apenas) |
-| Cobertura de testes | — |
-| Tabelas no schema | 0 (Prisma ainda não inicializado) |
-| Procedures tRPC | 0 |
-| Páginas | 0 |
-| Componentes | 0 |
+| Linhas de código | ~600 (scaffold) |
+| Cobertura de testes | 1 unit + 1 e2e |
+| Tabelas no schema | 0 (Fase 2) |
+| Procedures tRPC | 1 (example.hello) |
+| Páginas | 1 (/) |
+| Componentes shadcn/ui | 22 |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
 | Rotas inventariadas do Laravel | ~150+ rotas |
 | Jobs identificados | 13 |
