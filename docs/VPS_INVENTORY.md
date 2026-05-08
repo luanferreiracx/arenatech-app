@@ -7,17 +7,50 @@
 
 ## Resumo Executivo
 
-| # | Situação |
+**VPS Contabo — Ubuntu 24.04 LTS — 12 GB RAM — 96 GB disco (60 GB livres)**
+
+### O que já está pronto
+
+| Componente | Status | Detalhe |
+|---|---|---|
+| Ubuntu 24.04 LTS | ✓ | Sem upgrade necessário |
+| Docker + containerd | ✓ | Rodando, 7 containers ativos (Chatwoot + Evolution API) |
+| Node.js 22 (deployer) | ✓ | v22.22.2 via nvm em `/home/deployer/.nvm` |
+| pnpm (deployer) | ✓ | v11.0.8 |
+| Nginx 1.24 | ✓ | Rodando, configs limpas (D3/D4 resolvidos) |
+| SSL wildcard `*.arenatechpi.com.br` | ✓ | Cloudflare Origin CA, válido até 2040 |
+| DNS `app.arenatechpi.com.br` | ✓ | Aponta para VPS via Cloudflare proxy |
+| PHP 8.3 + PHP-FPM | ✓ | Servindo o Laravel atual |
+| MySQL 8.0 | ✓ | Banco do Laravel (não tocar) |
+| Imagens Docker disponíveis | ✓ | postgres:16, redis:7, minio/minio já baixadas |
+| Firewall UFW | ✓ | Bem configurado (22/80/443/email) |
+| Usuário `deployer` | ✓ | Owner do Laravel, usará o Next.js também |
+| Laravel scheduler | ✓ | crontab root, rodando via supervisor |
+
+### O que ainda falta criar (para o arenatech-app)
+
+| Componente | Ação necessária |
 |---|---|
-| 1 | **Ubuntu 24.04 LTS** — OS moderno, sem necessidade de upgrade |
-| 2 | **Node.js v20** instalado via apt (precisa upgrade para v22 para arenatech-app) |
-| 3 | **PostgreSQL 16** disponível como imagem Docker (não como serviço nativo) — port 5432 **não exposto para o host**; precisará de container dedicado para o Next.js |
-| 4 | **Redis 7** disponível em dois containers Docker (chatwoot e evolution-api), ambos **internos às redes Docker** — não acessíveis pelo host sem uma nova instância |
-| 5 | **MinIO**: imagem baixada (`minio/minio:latest` presente), mas **nenhum container rodando** — precisa ser criado |
+| Container `arenatech-postgres` (pg16) | `docker compose up` — imagem já baixada, porta 5434 |
+| Container `arenatech-redis` (redis:7) | `docker compose up` — imagem já baixada, porta 6380 |
+| Container `arenatech-minio` | `docker compose up` — imagem já baixada, portas 9000/9001 |
+| Container `arenatech-app` (Next.js) | Build + `docker compose up` — porta 3001 |
+| Nginx server block `app.arenatechpi.com.br` | Adicionar config → proxy para 3001 |
+| pm2 | Instalar no primeiro deploy (ou dispensar com Docker) |
 
-**Falta para o arenatech-app:** Node.js 22 no host do deployer (via nvm), pnpm, PostgreSQL 16 container (porta 5434), Redis 7 container dedicado (porta 6380), MinIO container (portas 9000/9001), server block Nginx para `app.arenatechpi.com.br` → 3001.
+### Estratégia de deploy decidida
 
-**Estratégia de deploy decidida:** Docker container (mesma abordagem do Chatwoot e Evolution API).
+**Docker container** — `docker-compose.yml` próprio com Next.js standalone + postgres:16 + redis:7 + minio, na mesma VPS, em coexistência com Laravel/Chatwoot/Evolution API. Next.js exposto internamente na porta 3001, Nginx como reverse proxy para `app.arenatechpi.com.br`.
+
+### Serviços já rodando na VPS (não tocar)
+
+| Serviço | Porta | Função |
+|---|---|---|
+| Laravel (PHP-FPM + Nginx) | 443 → `*.arenatechpi.com.br` | Sistema atual em produção |
+| Chatwoot | 127.0.0.1:3000 | Atendimento via `atendimento.arenatechpi.com.br` |
+| Evolution API | 127.0.0.1:8085 | WhatsApp via `evolutionapi.arenatechpi.com.br` |
+| MySQL 8.0 | 127.0.0.1:3306 | Bancos do Laravel |
+| Postfix + Dovecot | 25/465/587 | Email próprio da Arena Tech |
 
 ---
 
