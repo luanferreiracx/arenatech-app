@@ -12,7 +12,7 @@ export function TenantSelector({ tenants }: TenantSelectorProps) {
     const result = await switchTenantAction(tenantId);
     if (result && "error" in result) return;
     // Full navigation so proxy can handle the new cookie
-    window.location.href = "/";
+    window.location.assign("/");
   }
 
   return (

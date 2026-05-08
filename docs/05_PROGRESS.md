@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 3 — Auth (EM REVISÃO — pendências de segurança e refactor)
+**Fase atual:** Fase 4 — Design system + layout (AGUARDANDO CONFIRMAÇÃO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde último deploy:** 10
@@ -49,7 +49,7 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
 - [x] Commit final
 
-### ⚠ Fase 3 — Auth (EM REVISÃO)
+### ✓ Fase 3 — Auth
 - [x] Validador CPF com Zod (26 unit tests)
 - [x] NextAuth v5 beta.31: Credentials provider (CPF + bcrypt)
 - [x] JWT callbacks: availableTenants, activeTenantId, isSuperAdmin
@@ -172,12 +172,12 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Histórico de execução
 
-### 2026-05-08 — Revisão da Fase 3
+### 2026-05-08 — Revisão e fechamento da Fase 3
 
-- **Contexto:** Revisão do dono identificou duas pendências antes do fechamento:
-  - (a) Brecha de segurança no tenantProcedure — validação de acesso ao tenant ocorria apenas no middleware Edge, expondo vetor de horizontal privilege escalation se matcher mudasse. Cookie `x-active-tenant` é raw (sem assinatura/criptografia), e o backend aceitava qualquer valor sem revalidar.
-  - (b) middleware.ts deprecado em Next.js 16 — migrar para proxy.ts no runtime Node.js, o que também elimina necessidade do split auth.config.ts (Edge-safe) vs auth.ts (Node-only).
-- **Ação:** Reabrir Fase 3 para aplicar correções antes do fechamento oficial.
+- **Contexto:** Revisão do dono identificou duas pendências antes do fechamento.
+- **Correção A — Segurança:** Brecha no tenantProcedure corrigida. Cookie `x-active-tenant` é raw, mas agora validado em dois pontos independentes (proxy.ts + tenantProcedure). 6 testes de regressão adicionados.
+- **Correção B — Next.js 16:** middleware.ts migrado para proxy.ts (Node.js runtime). auth.config.ts mesclado em auth.ts (split não mais necessário). Zero warnings de deprecação.
+- **Documentação:** ADR 0002 com adendo pós-revisão, ADR 0003 novo (Next.js 16), PATTERNS.md atualizado.
 
 ---
 
