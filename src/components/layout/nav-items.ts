@@ -24,7 +24,7 @@ export interface NavItem {
 export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Clientes", href: "/clientes", icon: Users },
-  { label: "Ordens de Serviço", href: "/ordens", icon: ClipboardList },
+  { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList },
   { label: "PDV", href: "/pdv", icon: ShoppingCart },
   { label: "Caixa", href: "/cashier", icon: Wallet },
   { label: "Estoque", href: "/stock", icon: Package },

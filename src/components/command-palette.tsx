@@ -81,7 +81,7 @@ function CommandPaletteDialog({
         <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
         <CommandGroup heading="Ações rápidas">
-          <CommandItem onSelect={() => runCommand(() => router.push("/ordens/novo"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/service-orders/new"))}>
             <ClipboardPlus className="mr-2 h-4 w-4" />
             Nova Ordem de Serviço
           </CommandItem>
@@ -106,7 +106,7 @@ function CommandPaletteDialog({
             <Users className="mr-2 h-4 w-4" />
             Clientes
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/ordens"))}>
+          <CommandItem onSelect={() => runCommand(() => router.push("/service-orders"))}>
             <ClipboardList className="mr-2 h-4 w-4" />
             Ordens de Serviço
           </CommandItem>
