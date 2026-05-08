@@ -185,3 +185,100 @@ Prioridade de decisão:
 4. `/admin` → exige isSuperAdmin
 5. Sem tenant ativo → redirect `/select-tenant` (ou `/admin` se super admin)
 6. Com tenant ativo → injeta header `x-tenant-id`, passa
+
+---
+
+## Design System
+
+### Referência visual
+
+`/dev/components` — catálogo de todos os componentes (disponível em dev e para super admins em prod).
+
+### Tokens CSS (globals.css)
+
+A paleta Arena Tech está em `src/app/globals.css`:
+- **Primary (dourado):** `#c9a55c` → classe `text-primary`, `bg-primary`
+- **Background:** `#0a0a0a` (dark) / `#fafaf9` (light)
+- **Success:** `#22c55e` → `text-success`, `bg-success`
+- **Warning:** `#f59e0b` → `text-warning`, `bg-warning`
+
+### Componentes disponíveis
+
+| Componente | Path | Uso |
+|---|---|---|
+| `DataTable` | `@/components/domain/data-table` | Listas com paginação server-side |
+| `PageHeader` | `@/components/domain/page-header` | Título + subtitle + actions por página |
+| `StatusBadge` | `@/components/domain/status-badge` | Status semânticos (success/warning/destructive/info) |
+| `EmptyState` | `@/components/domain/empty-state` | Estado vazio em listas |
+| `LoadingState` | `@/components/domain/loading-state` | Skeletons (table/card/list) |
+| `ConfirmDialog` | `@/components/domain/confirm-dialog` | Dialog de confirmação destrutiva |
+| `EntitySelector` | `@/components/domain/entity-selector` | Combobox com search async |
+| `FormSection` | `@/components/domain/forms/form-section` | Agrupador de campos com título |
+| `FormActions` | `@/components/domain/forms/form-actions` | Botões Salvar/Cancelar com loading |
+| `MoneyInput` | `@/components/inputs/money-input` | Input de valor monetário (centavos) |
+| `CpfInput` | `@/components/inputs/cpf-input` | Input CPF com máscara |
+| `CnpjInput` | `@/components/inputs/cnpj-input` | Input CNPJ com máscara |
+| `PhoneInput` | `@/components/inputs/phone-input` | Input telefone com máscara dinâmica |
+| `CepInput` | `@/components/inputs/cep-input` | Input CEP + busca ViaCEP |
+| `DatePicker` | `@/components/inputs/date-picker` | Seletor de data com Calendar |
+| `DateRangePicker` | `@/components/inputs/date-range-picker` | Seletor de período |
+
+### Toast helpers
+
+```ts
+import { toast } from "@/lib/toast";
+
+toast.success("Salvo com sucesso!");
+toast.error("Erro ao processar.");
+toast.promise(minhaPromise, { loading: "Salvando...", success: "Salvo!", error: "Erro." });
+```
+
+---
+
+## Como criar uma nova página
+
+Checklist:
+
+1. **Criar o arquivo** em `src/app/(app)/[modulo]/page.tsx`
+2. **É Server Component** por padrão — fetch dados com tRPC server caller ou diretamente via Prisma
+3. **Usar `PageHeader`** para título e ações
+4. **Autenticação** já protegida pelo `(app)/layout.tsx` — não precisa checar `auth()` na maioria dos casos
+5. **Se precisar de interatividade** (formulários, filtros), separar em um componente `"use client"`
+6. **Paginação**: usar `DataTable` com `pageCount`, `pageIndex`, `pageSize` controlados via `searchParams`
+
+Exemplo mínimo:
+
+```tsx
+// src/app/(app)/clientes/page.tsx
+import { PageHeader } from "@/components/domain/page-header";
+import { Button } from "@/components/ui/button";
+
+export default function ClientesPage() {
+  return (
+    <div>
+      <PageHeader
+        title="Clientes"
+        subtitle="Gerencie os clientes da loja"
+        actions={<Button size="sm">Novo Cliente</Button>}
+      />
+      {/* conteúdo */}
+    </div>
+  );
+}
+```
+
+---
+
+## Como criar um novo componente de domínio
+
+Checklist:
+
+1. **Decidir se é Server ou Client Component**
+   - Usa hooks, event handlers, browser APIs → `"use client"`
+   - Apenas renderiza dados → Server Component (sem directive)
+2. **Local:** `src/components/domain/[nome].tsx`
+3. **Props:** interface TypeScript explícita, sem `any`
+4. **Acessibilidade:** `aria-label` em botões sem texto, `<Label htmlFor>` em inputs
+5. **Estilo:** usar tokens do design system (`text-primary`, `bg-muted`, etc.) em vez de cores hardcoded
+6. **Export:** named export (não default)
+7. **Documentar** no catálogo `/dev/components` se for componente genérico reutilizável

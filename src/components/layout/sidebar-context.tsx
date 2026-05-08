@@ -35,9 +35,14 @@ export function SidebarProvider({ children, defaultCollapsed = false, session }:
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    setIsMobile(mq.matches);
+    // Check initial value in a timeout to avoid synchronous setState in effect
+    const initialCheck = () => setIsMobile(mq.matches);
+    const timer = setTimeout(initialCheck, 0);
     mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    return () => {
+      clearTimeout(timer);
+      mq.removeEventListener("change", handler);
+    };
   }, []);
 
   const toggle = useCallback(() => {

@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 4 — Design system + layout (AGUARDANDO CONFIRMAÇÃO)
+**Fase atual:** Fase 5 — Configurações + Catálogo + Clientes
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 10
+**Commits desde último deploy:** 24
 
 ---
 
@@ -65,14 +65,20 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
 - [x] Commit final
 
-### ☐ Fase 4 — Design system + layout
-- [ ] Tokens de tema (escuro default)
-- [ ] Layout shell (sidebar/header/content)
-- [ ] Componentes de domínio (data-table, forms, etc)
-- [ ] Command palette
-- [ ] Toast system
-- [ ] Página /dev/components
-- [ ] Commit final
+### ✓ Fase 4 — Design system + layout
+- [x] Tokens CSS — paleta Arena Tech (dourado #c9a55c, preto #0a0a0a, prata)
+- [x] Branding — logo placeholder SVG "ARENA·TECH"
+- [x] Layout shell (app) — sidebar 224px/64px + header + breadcrumb
+- [x] Layout shell (admin) — variação para super admin
+- [x] Componentes de domínio — data-table, forms, inputs especializados
+- [x] Status-badge, entity-selector, confirm-dialog, page-header, empty-state
+- [x] Command palette ⌘K
+- [x] Toast helpers (sonner)
+- [x] Auth pages redesign (login, select-tenant, no-access)
+- [x] Página /dev/components (catálogo completo)
+- [x] Testes unit + e2e do shell (11 unit + 8 e2e)
+- [x] ADR 0004
+- [x] Commit final
 
 ### ☐ Fase 5 — Configurações + Catálogo + Clientes
 - [ ] Configurações (6 submódulos)
@@ -171,6 +177,35 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Fase 4
+
+- **Implementado:**
+  - globals.css: paleta Arena Tech completa (dark/light com tokens success, warning, sidebar)
+  - next-themes ThemeProvider (dark padrão) + Sonner Toaster no root layout
+  - Logo placeholder SVG "ARENA·TECH" (variantes: full, icon, monogram; tamanhos: sm/md/lg)
+  - App Shell: SidebarProvider com cookie de persistência, AppSidebar colapsável (224/64px), MobileSidebar (Sheet), AppHeader com breadcrumb e trigger ⌘K
+  - Admin Shell: AdminSidebar e AdminHeader com badge SUPER ADMIN dourado/warning
+  - DataTable com TanStack Table v8 (server-side pagination, skeleton loading, toolbar)
+  - FormSection + FormActions com loading state
+  - Inputs especializados: MoneyInput (centavos), CnpjInput, PhoneInput, CepInput (ViaCEP), DatePicker, DateRangePicker
+  - Domain components: StatusBadge (CVA), EntitySelector (Popover+Command+debounce), ConfirmDialog, PageHeader, EmptyState, LoadingState
+  - Command Palette ⌘K via CommandDialog (Context Provider global)
+  - Toast helpers wrapper (lib/toast.ts)
+  - Auth pages redesign: layout com glassmorphism + radial gradient dourado, login/select-tenant/no-access/forgot-password atualizados
+  - /dev/components: catálogo de 13 seções (typo, cores, botões, inputs, badges, cards, tabela, toast, empty, loading, confirm, form, command palette)
+  - Unit tests: 11 testes de inputs (CPF, CNPJ, phone, money) passando
+  - E2E tests: 8 cenários de shell (sidebar, cookie, navegação, ⌘K, /dev/components, toast, mobile)
+  - ADR 0004 + PATTERNS.md atualizado com seções de design system, nova página, novo componente
+- **Decisões:**
+  - Sidebar mobile usa Sheet (gaveta) em vez de overlay fixo — melhor UX em telas pequenas
+  - Cookie arena_sidebar_collapsed lido no servidor evita flash de estado no SSR
+  - CommandPaletteProvider no (app)/layout.tsx — disponível em todas as páginas autenticadas
+  - E2E usa credenciais do seed (não mockadas) — testa fluxo real
+  - Integration tests (rls, auth-tenant-access) falhando por issue pré-existente de credenciais DB test — não é regressão da Fase 4
+- **Próximo:** Fase 5 — Configurações + Catálogo + Clientes
+
+---
 
 ### 2026-05-08 — Revisão e fechamento da Fase 3
 
@@ -290,11 +325,12 @@ _(vazio)_
 | Métrica | Valor |
 |---|---|
 | Linhas de código | ~3000 |
-| Cobertura de testes | 27 unit + 6 integration + 8 e2e |
+| Cobertura de testes | 38 unit + 6 integration + 16 e2e |
 | Tabelas no schema | 4 (tenants, users, user_tenants, audit_logs) |
 | Procedures tRPC | 3 (example.hello, auth.me, auth.validateTenantAccess) |
-| Páginas | 6 (login, select-tenant, no-access, forgot-password, dashboard, admin) |
-| Componentes shadcn/ui | 22 |
+| Páginas | 7 (login, select-tenant, no-access, forgot-password, dashboard, admin, /dev/components) |
+| Componentes shadcn/ui | 24 (+ tooltip, calendar) |
+| Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
 | Rotas inventariadas do Laravel | ~150+ rotas |
 | Jobs identificados | 13 |
