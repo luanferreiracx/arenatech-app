@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 2 — Schema base + RLS (AGUARDANDO CONFIRMAÇÃO)
+**Fase atual:** Fase 3 — Auth (AGUARDANDO CONFIRMAÇÃO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 2
+**Commits desde último deploy:** 6
 
 ---
 
@@ -37,15 +37,17 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
 - [x] Commit final
 
-### ☐ Fase 2 — Schema base + RLS
-- [ ] Schema Tenant + User + UserTenant
-- [ ] Convenção de tenantId em todas tabelas
-- [ ] Migration RLS aplicada
-- [ ] Cliente Prisma com tenant scoping
-- [ ] Roles app_user / app_admin
-- [ ] Seed inicial
-- [ ] Suite de testes RLS
-- [ ] Commit final
+### ✓ Fase 2 — Schema base + RLS
+- [x] Schema Tenant + User + UserTenant + AuditLog (Prisma 7 multi-file)
+- [x] Convenções documentadas em docs/PATTERNS.md
+- [x] Migration RLS aplicada (current_tenant_id(), policies, FORCE ROW LEVEL SECURITY)
+- [x] Cliente Prisma com tenant scoping (withTenant, withAdmin via $transaction + SET LOCAL)
+- [x] Roles app_user (RLS) / app_admin (BYPASSRLS) criadas
+- [x] Seed idempotente (tenant arena-tech + super admin via env)
+- [x] Suite de testes RLS: 6 cenarios passando (isolamento, WITH CHECK, bypass, defense in depth)
+- [x] ADR 0001 em docs/decisions/
+- [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
+- [x] Commit final
 
 ### ☐ Fase 3 — Auth
 - [ ] Provider Credentials (CPF + senha)
@@ -148,8 +150,8 @@ O sistema atual usa Cloudinary para imagens de produtos. A migração vai reescr
 
 ## Decisões arquiteturais (ADRs resumidos)
 
-### 2026-05-08 — Multi-tenancy via RLS em vez de banco separado
-O Laravel usa `stancl/tenancy` com banco MySQL separado por tenant. O Next.js vai usar RLS no PostgreSQL com `tenant_id UUID` em todas as tabelas. Vantagens: backup único, migration única, sem overhead de conexão, impossível vazar dados cross-tenant.
+### 2026-05-08 — Multi-tenancy via RLS em vez de banco separado (ADR 0001)
+O Laravel usa `stancl/tenancy` com banco MySQL separado por tenant. O Next.js usa RLS no PostgreSQL com `tenant_id UUID` + `SET LOCAL ROLE app_user` + `SET LOCAL app.current_tenant_id`. Ver `docs/decisions/0001-multi-tenancy-via-rls.md`.
 
 ### 2026-05-08 — Deploy Next.js via Docker na VPS (coexistência com Laravel)
 O arenatech-app será hospedado na mesma VPS Contabo via Docker container próprio, com docker-compose dedicado. Next.js standalone na porta interna 3001, atrás do Nginx em `app.arenatechpi.com.br`. PostgreSQL 16 container na porta 5434, Redis 7 dedicado na porta 6380, MinIO nas portas 9000/9001.
@@ -163,6 +165,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Fase 2
+
+- **Implementado:**
+  - Prisma 7 multi-file schema: tenant.prisma (Tenant, User, UserTenant), audit.prisma (AuditLog)
+  - prisma.config.ts para Prisma 7 (datasource url migrado do schema para config)
+  - @prisma/adapter-pg para PrismaClient (Prisma 7 breaking change: driver adapter obrigatorio)
+  - Migration SQL pura para RLS: current_tenant_id(), roles app_user/app_admin, policies em audit_logs
+  - withTenant(id, fn) e withAdmin(fn) em src/server/db.ts
+  - Seed idempotente: tenant arena-tech + super admin (CPF/senha via env vars)
+  - 6 cenarios de teste RLS passando (isolamento A/B, WITH CHECK, BYPASSRLS, defense in depth, USING)
+  - ADR 0001 em docs/decisions/0001-multi-tenancy-via-rls.md
+  - PATTERNS.md com convencoes de schema, checklist de nova tabela, template SQL
+- **Decisoes:**
+  - Prisma 7 removeu datasourceUrl do schema — requer prisma.config.ts + @prisma/adapter-pg
+  - prismaSchemaFolder preview feature removida em Prisma 7 (multi-file e nativo)
+  - SET LOCAL ROLE app_user necessario porque superuser/owner bypassa RLS mesmo com FORCE
+  - Interactive transaction ($transaction) em vez de Client Extensions (extensions ignoram contexto de transacao existente)
+- **Proximo:** Fase 3 — Auth (aguardando confirmacao)
+
+---
 
 ### 2026-05-08 — Diagnóstico VPS
 
@@ -223,9 +246,9 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | ~600 (scaffold) |
-| Cobertura de testes | 1 unit + 1 e2e |
-| Tabelas no schema | 0 (Fase 2) |
+| Linhas de código | ~1500 |
+| Cobertura de testes | 1 unit + 6 integration + 1 e2e |
+| Tabelas no schema | 4 (tenants, users, user_tenants, audit_logs) |
 | Procedures tRPC | 1 (example.hello) |
 | Páginas | 1 (/) |
 | Componentes shadcn/ui | 22 |
