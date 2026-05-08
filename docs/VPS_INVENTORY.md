@@ -15,7 +15,9 @@
 | 4 | **Redis 7** disponível em dois containers Docker (chatwoot e evolution-api), ambos **internos às redes Docker** — não acessíveis pelo host sem uma nova instância |
 | 5 | **MinIO**: imagem baixada (`minio/minio:latest` presente), mas **nenhum container rodando** — precisa ser criado |
 
-**Falta para o arenatech-app:** Node.js 22, pnpm, pm2, PostgreSQL acessível pelo host, Redis acessível pelo host, MinIO rodando.
+**Falta para o arenatech-app:** Node.js 22 no host do deployer (via nvm), pnpm, PostgreSQL 16 container (porta 5434), Redis 7 container dedicado (porta 6380), MinIO container (portas 9000/9001), server block Nginx para `app.arenatechpi.com.br` → 3001.
+
+**Estratégia de deploy decidida:** Docker container (mesma abordagem do Chatwoot e Evolution API).
 
 ---
 
@@ -362,25 +364,15 @@ intranet.arenatechpi.com.br  → 188.114.96.3 / 188.114.97.3  (Cloudflare proxy)
 
 ## Decisões Pendentes (requerem aprovação humana)
 
-### D1 — Estratégia de deploy do Next.js na VPS
+### D1 — Estratégia de deploy do Next.js na VPS ✓ RESOLVIDO
 
-Opções para rodar o arenatech-app:
-
-- **A) Docker container** (recomendado): `docker-compose.yml` próprio com Next.js standalone, postgres 16, redis, minio. Consistente com os outros serviços.
-- **B) PM2 direto no host**: Node.js 22 + pnpm + pm2. Mais simples, sem overhead Docker. `next start` via pm2.
-- **C) Hybrid**: Next.js via PM2, dependências (postgres, redis, minio) via Docker.
-
-**Pergunta:** Qual estratégia prefere?
+**Decisão: Docker container** — `docker-compose.yml` próprio com Next.js standalone + postgres:16 + redis:7 + minio. Consistente com Chatwoot e Evolution API já na VPS. Isolado, reproduzível, rollback simples.
 
 ---
 
-### D2 — Porta e subdomínio do arenatech-app
+### D2 — Porta e subdomínio do arenatech-app ✓ RESOLVIDO
 
-`app.arenatechpi.com.br` está no DNS mas sem server block no Nginx. Precisamos definir:
-- A porta interna que o Next.js vai escutar (sugestão: `3001` para não conflitar com Chatwoot em 3000)
-- Confirmar que `app.arenatechpi.com.br` é o subdomínio correto para o novo sistema
-
-**Pergunta:** Usa `app.arenatechpi.com.br` ou outro subdomínio? Porta 3001?
+**Decisão:** Subdomínio `app.arenatechpi.com.br`, porta interna `3001` (Chatwoot ocupa 3000).
 
 ---
 
@@ -400,21 +392,15 @@ O site `pay.arenatechpi.com.br` aponta para a porta 49392 que não está em uso.
 
 ---
 
-### D5 — Redis isolado vs compartilhado
+### D5 — Redis isolado vs compartilhado ✓ RESOLVIDO
 
-O arenatech-app pode usar um dos Redis existentes (acessando a rede Docker interna) ou ter seu próprio container. Os existentes são privados às redes `chatwoot-net` e `evolution-net`.
-
-**Recomendação:** Redis próprio (`arenatech-redis`) para isolamento.
-**Pergunta:** Confirma Redis dedicado para o arenatech-app?
+**Decisão:** Redis dedicado `arenatech-redis` (redis:7-alpine), porta `127.0.0.1:6380:6379` no host. Isolado dos Redis do Chatwoot e Evolution.
 
 ---
 
-### D6 — PostgreSQL: porta para o container do arenatech-app
+### D6 — PostgreSQL: porta para o container do arenatech-app ✓ RESOLVIDO
 
-A porta 5432 não está exposta no host (evolution-postgres não está exposta). A porta 5433 está usada pelo chatwoot-postgres.
-
-**Sugestão:** usar `127.0.0.1:5434:5432` para o arenatech-postgres.
-**Pergunta:** OK com porta 5434 no host para o Postgres do Next.js?
+**Decisão:** `127.0.0.1:5434:5432` para o container `arenatech-postgres` (postgres:16-alpine). 5433 = Chatwoot, 5434 = arenatech-app.
 
 ---
 

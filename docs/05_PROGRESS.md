@@ -151,6 +151,9 @@ O sistema atual usa Cloudinary para imagens de produtos. A migração vai reescr
 ### 2026-05-08 — Multi-tenancy via RLS em vez de banco separado
 O Laravel usa `stancl/tenancy` com banco MySQL separado por tenant. O Next.js vai usar RLS no PostgreSQL com `tenant_id UUID` em todas as tabelas. Vantagens: backup único, migration única, sem overhead de conexão, impossível vazar dados cross-tenant.
 
+### 2026-05-08 — Deploy Next.js via Docker na VPS (coexistência com Laravel)
+O arenatech-app será hospedado na mesma VPS Contabo via Docker container próprio, com docker-compose dedicado. Next.js standalone na porta interna 3001, atrás do Nginx em `app.arenatechpi.com.br`. PostgreSQL 16 container na porta 5434, Redis 7 dedicado na porta 6380, MinIO nas portas 9000/9001.
+
 ### 2026-05-08 — WhatsApp via Evolution API (não Meta Cloud API diretamente)
 O sistema atual usa Evolution API como wrapper sobre WhatsApp. Manter essa integração no Next.js — não migrar para Meta Cloud API diretamente pois a Evolution API já está funcionando e estável.
 
