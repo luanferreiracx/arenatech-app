@@ -196,8 +196,6 @@ export const financialRouter = createTRPCRouter({
 
         // Update transaction totals
         const transactionPaidAmount = Number(installment.transaction.paidAmount) + input.paidAmount;
-        const isTransactionFullyPaid = transactionPaidAmount >= Number(installment.transaction.totalAmount);
-
         // Check if all installments are paid
         const pendingInstallments = await tx.installment.count({
           where: {
