@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 9 — Fiscal (PROXIMA)
+**Fase atual:** Fases 9-15 paralelizáveis (EM ANDAMENTO)
 **Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 42
+**Commits desde ultimo deploy:** 47
 
 ---
 
@@ -127,9 +127,24 @@
 - [x] Commit final
 
 ### ☐ Fase 9 — Fiscal (paralelizável)
-### ☐ Fase 10 — Comissões (paralelizável)
+### ✓ Fase 10 — Comissões
+- [x] Schema commission_rules + commissions + RLS
+- [x] Validators Zod: createRule, updateRule, listRules, listCommissions, calculate, changeStatus, batchChange, report
+- [x] tRPC router: commissionRouter (9 procedures: listRules, createRule, updateRule, deleteRule, list, calculate, approve, pay, cancel, report, userSummary)
+- [x] Páginas: /commissions (listagem), /commissions/rules (CRUD regras), /commissions/report (relatório mensal)
+- [x] Sidebar: Comissões adicionado
+- [x] Testes: 24 unit tests de validators
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ☐ Fase 11 — Operação (paralelizável)
-### ☐ Fase 12 — Consulta IMEI (paralelizável)
+### ✓ Fase 12 — Consulta IMEI
+- [x] Schema imei_queries + imei_quotas + RLS
+- [x] Validators Zod: imeiSchema (Luhn), queryImei, listImeiQueries
+- [x] Serviço: imei-service.ts com mock dev + real API prod
+- [x] tRPC router: imeiRouter (4 procedures: query, history, getQuota, getById)
+- [x] Página: /imei (consulta + resultado + histórico + indicador quota)
+- [x] Sidebar: Consulta IMEI adicionado
+- [x] Testes: 19 unit tests de validators
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ☐ Fase 13 — Comunicação (paralelizável)
 ### ☐ Fase 14 — Recompensas (paralelizável, requer decisão prévia)
 ### ☐ Fase 15 — Admin Central (paralelizável)
@@ -187,6 +202,29 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-08 — Fases 10 + 12
+
+- **Implementado:**
+  - 2 schemas Prisma (commission.prisma, imei.prisma) com 4 tabelas + 2 enums
+  - RLS habilitado em todas as 4 tabelas via migration SQL
+  - Validators Zod: commission.ts (8 schemas), imei.ts (3 schemas + Luhn validation)
+  - tRPC routers: commissionRouter (9 procedures), imeiRouter (4 procedures)
+  - IMEI service com mock para dev e real API call para prod (env-driven)
+  - Comissões UI: Listagem com filtros (mês/ano/status/tipo), Regras CRUD com Dialog inline, Relatório mensal com cards resumo + tabela agrupada por colaborador, Botão "Calcular Comissões" que processa vendas e OS do período
+  - IMEI UI: Input IMEI com validação Luhn, Resultado visual (dispositivo/segurança/garantia), Histórico com DataTable, Indicador de quota mensal
+  - Sidebar atualizada: Comissões + Consulta IMEI entre Financeiro e Configurações
+  - Testes: 43 unit tests de validators (24 comissão + 19 IMEI)
+- **Decisões:**
+  - Comissões recalculáveis: "Calcular" deleta PENDING existentes e recria com base nas regras ativas
+  - IMEI service usa env vars (IMEI_API_URL, IMEI_API_KEY) — mock automático quando ausentes
+  - Quota IMEI criada automaticamente no primeiro uso do mês (50/mês default)
+  - Comissões de venda aplicam regras role=seller sobre Sale.sellerId
+  - Comissões de OS aplicam regras role=technician sobre ServiceOrder.technicianId
+  - Batch approve/pay para múltiplas comissões; cancel individual com validação (não cancela PAID)
+- **Próximo:** Fases restantes (9, 11, 13, 14, 15)
+
+---
 
 ### 2026-05-08 — Fase 8
 
@@ -431,11 +469,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de codigo | ~12500 |
-| Cobertura de testes | 191 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 28 (26 anteriores + 2 Fase 8: sales, sale_items) |
-| Procedures tRPC | 101 (86 anteriores + sales.15) |
-| Paginas | 56+ (53 anteriores + pdv 3: pdv, pdv/history, pdv/[id]) |
+| Linhas de codigo | ~14500 |
+| Cobertura de testes | 234 unit + 6 integration + 25 e2e |
+| Tabelas no schema | 32 (28 anteriores + 4: commission_rules, commissions, imei_queries, imei_quotas) |
+| Procedures tRPC | 114 (101 anteriores + commissions.9 + imei.4) |
+| Paginas | 62+ (56 anteriores + commissions 3 + imei 1 + report 1 + rules 1) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
