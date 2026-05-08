@@ -1,0 +1,28 @@
+model ImeiQuery {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  imei         String
+  result       Json?
+  status       String   @default("pending")
+  errorMessage String?  @map("error_message")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, imei])
+  @@map("imei_queries")
+}
+
+model ImeiQuota {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  monthlyLimit Int      @default(50) @map("monthly_limit")
+  usedCount    Int      @default(0) @map("used_count")
+  periodMonth  Int      @map("period_month")
+  periodYear   Int      @map("period_year")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, periodMonth, periodYear])
+  @@map("imei_quotas")
+}

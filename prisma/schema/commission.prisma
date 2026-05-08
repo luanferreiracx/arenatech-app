@@ -1,0 +1,53 @@
+enum CommissionType {
+  SALE
+  SERVICE_ORDER
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+model CommissionRule {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  name        String
+  type        CommissionType
+  role        String
+  ratePercent Decimal        @map("rate_percent") @db.Decimal(5, 2)
+  fixedAmount Decimal?       @map("fixed_amount") @db.Decimal(10, 2)
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([tenantId, type, active])
+  @@map("commission_rules")
+}
+
+model Commission {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  ruleId           String?          @map("rule_id") @db.Uuid
+  type             CommissionType
+  status           CommissionStatus @default(PENDING)
+  referenceId      String           @map("reference_id") @db.Uuid
+  referenceType    String           @map("reference_type")
+  referenceNumber  String           @map("reference_number")
+  baseAmount       Decimal          @map("base_amount") @db.Decimal(10, 2)
+  ratePercent      Decimal          @map("rate_percent") @db.Decimal(5, 2)
+  commissionAmount Decimal          @map("commission_amount") @db.Decimal(10, 2)
+  paidAt           DateTime?        @map("paid_at")
+  periodMonth      Int              @map("period_month")
+  periodYear       Int              @map("period_year")
+  notes            String?
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([tenantId, userId, periodYear, periodMonth])
+  @@index([tenantId, status])
+  @@index([tenantId, referenceId])
+  @@map("commissions")
+}
