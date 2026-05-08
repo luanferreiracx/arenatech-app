@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 7 — Ordens de Serviço (PRÓXIMA)
+**Fase atual:** Fase 8 — PDV (PRÓXIMA)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 30
+**Commits desde último deploy:** 38
 
 ---
 
@@ -96,16 +96,21 @@
 - [x] Testes verdes (31 unit tests de validators)
 - [x] Commit final
 
-### ☐ Fase 7 — Ordens de Serviço (CRÍTICO)
-- [ ] Schema OS + items + history
-- [ ] Wizard de criação
-- [ ] Mudança de status com regras
-- [ ] Geração de PDF
-- [ ] Integração Autentique
-- [ ] Integração Depix/PixPay
-- [ ] Envio WhatsApp (Evolution API)
-- [ ] E2E completo
-- [ ] Commit final
+### ✓ Fase 7 — Ordens de Serviço (CRÍTICO)
+- [x] Schema OS + items + history + documents (4 tabelas, 2 enums, RLS)
+- [x] Wizard de criação (5 steps: cliente, equipamento, problema+checklist, itens, resumo)
+- [x] Mudança de status com regras (13 estados, transições validadas server-side)
+- [x] Pagamento com integração financeiro (FinancialTransaction + CashMovement)
+- [x] Vista pública por link (/os/[publicLink])
+- [x] Listagem com filtros + stats cards
+- [x] Detalhe com ações de status contextuais + adicionar/remover itens
+- [x] Editar dados da OS
+- [ ] Geração de PDF (placeholder criado, implementação futura)
+- [ ] Integração Autentique (campos no schema, sem integração nesta fase)
+- [ ] Integração Depix/PixPay (adiada para Fase 8+)
+- [ ] Envio WhatsApp (adiado para Fase 13)
+- [x] Testes (42 unit + 4 e2e)
+- [x] Commit final
 
 ### ☐ Fase 8 — PDV
 - [ ] Tela de venda
@@ -177,6 +182,32 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Fase 7
+
+- **Implementado:**
+  - 1 schema Prisma (service-order.prisma) com 4 tabelas + 2 enums
+  - RLS habilitado em todas as 4 tabelas via migration SQL
+  - Validators Zod: service-order.ts (create, update, updateStatus, list, addItem, updateItem, registerPayment, addDocument, checklist, deviceInfo + labels)
+  - tRPC router: serviceOrderRouter (15 procedures: list, getById, create, update, delete, updateStatus, addItem, updateItem, removeItem, registerPayment, addDocument, listDocuments, stats, byPublicLink, listTechnicians)
+  - Service Orders UI: Listagem com DataTable + stats cards (abertas, em andamento, concluidas, receita), Wizard de criacao multi-step (5 etapas), Detalhe completo com acoes de status contextuais + dialogs (pagamento, cancelamento, estorno), Edit com FormSection, Vista publica /os/[publicLink]
+  - Integracao pagamento: registerPayment cria FinancialTransaction (RECEIVABLE) + CashMovement (se caixa aberto)
+  - Sidebar nav atualizada (/service-orders), command palette atualizada
+  - Proxy.ts: /os/* como rota publica
+  - Testes: 42 unit tests de validators + 4 e2e specs
+  - PDF placeholder (src/lib/service-order-pdf.ts)
+- **Decisoes:**
+  - Checklist de entrada/saida como JSONB (redesenho dos 30 campos individuais do Laravel)
+  - 13 estados de OS com transicoes validadas server-side via ALLOWED_TRANSITIONS
+  - Numero gerado atomicamente dentro da transacao (OS{year}{5-digit seq})
+  - Customers buscados dentro do mesmo withTenant (RLS-scoped); users via withAdmin (global)
+  - MoneyInput trabalha em centavos — router tRPC aceita valores em centavos
+  - EntitySelector usa queryClient.fetchQuery com queryOptions (nao raw trpc client)
+  - PageHeader.title aceita ReactNode (mudanca de interface)
+  - Integracao Autentique, Depix, WhatsApp ficam como placeholders — implementacao em fases futuras
+- **Proximo:** Fase 8 — PDV
+
+---
 
 ### 2026-05-08 — Fase 6
 
@@ -372,11 +403,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | ~6000 |
-| Cobertura de testes | 69 unit + 6 integration + 16 e2e |
-| Tabelas no schema | 22 (15 anteriores + 7 Fase 6: products, stock_movements, device_purchases, cash_registers, cash_movements, financial_transactions, installments) |
-| Procedures tRPC | 71 (44 anteriores + stock.11, cashier.7, financial.9) |
-| Páginas | 45+ (28 anteriores + stock 8 + cashier 4 + financial 5) |
+| Linhas de código | ~10000 |
+| Cobertura de testes | 158 unit + 6 integration + 20 e2e |
+| Tabelas no schema | 26 (22 anteriores + 4 Fase 7: service_orders, service_order_items, service_order_history, service_order_documents) |
+| Procedures tRPC | 86 (71 anteriores + serviceOrders.15) |
+| Páginas | 53+ (45 anteriores + service-orders 4 + os/public 1 + service-orders detail/edit 3) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
