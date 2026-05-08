@@ -226,7 +226,6 @@ export const catalogRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         // Use unchecked create to avoid Prisma's connect/disconnect union ambiguity
         return tx.device.create({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           data: {
             tenantId: ctx.tenantId,
             brand: rest.brand,
@@ -252,7 +251,6 @@ export const catalogRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         return tx.device.update({
           where: { id },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           data: {
             ...(rest.brand !== undefined ? { brand: rest.brand } : {}),
             ...(rest.model !== undefined ? { model: rest.model } : {}),

@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 5 — Configurações + Catálogo + Clientes
+**Fase atual:** Fase 5 — Configurações + Catálogo + Clientes (EM ANDAMENTO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde último deploy:** 24

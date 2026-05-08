@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-type LoadingVariant = "table" | "card" | "list";
+type LoadingVariant = "table" | "card" | "list" | "form";
 
 interface LoadingStateProps {
   variant?: LoadingVariant;
@@ -16,6 +16,19 @@ export function LoadingState({ variant = "list", rows = 5, className }: LoadingS
         <Skeleton className="h-10 w-full" />
         {Array.from({ length: rows }).map((_, i) => (
           <Skeleton key={i} className="h-14 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === "form") {
+    return (
+      <div className={cn("space-y-6 max-w-2xl", className)}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ))}
       </div>
     );

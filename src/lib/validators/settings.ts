@@ -26,8 +26,8 @@ export type UpdateTenantSettingsInput = z.infer<typeof updateTenantSettingsSchem
 export const createPaymentMethodSchema = z.object({
   name: z.string().min(1).max(100),
   type: z.enum(["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "BANK_TRANSFER", "STORE_CREDIT", "OTHER"]),
-  feePercent: z.number().min(0).max(100).default(0),
-  acceptsChange: z.boolean().default(false),
+  feePercent: z.number().min(0).max(100),
+  acceptsChange: z.boolean(),
 });
 
 export const updatePaymentMethodSchema = createPaymentMethodSchema.partial().extend({
@@ -39,8 +39,8 @@ export type UpdatePaymentMethodInput = z.infer<typeof updatePaymentMethodSchema>
 
 export const installmentRuleSchema = z.object({
   installments: z.number().int().min(1).max(36),
-  feePercent: z.number().min(0).max(100).default(0),
-  minAmount: z.number().min(0).default(0),
+  feePercent: z.number().min(0).max(100),
+  minAmount: z.number().min(0),
 });
 
 export const upsertInstallmentRulesSchema = z.object({
@@ -74,7 +74,7 @@ export const updateUserRoleSchema = z.object({
 
 export const inviteUserSchema = z.object({
   cpf: z.string().min(11).max(14),
-  role: z.enum(["OWNER", "MANAGER", "OPERATOR", "TECHNICIAN", "CASHIER"]).default("OPERATOR"),
+  role: z.enum(["OWNER", "MANAGER", "OPERATOR", "TECHNICIAN", "CASHIER"]),
 });
 
 export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;

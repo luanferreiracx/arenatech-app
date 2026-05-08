@@ -20,6 +20,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   onConfirm: () => void | Promise<void>;
   isLoading?: boolean;
+  variant?: "default" | "destructive";
 }
 
 export function ConfirmDialog({
@@ -30,6 +31,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirmar",
   onConfirm,
   isLoading = false,
+  variant = "default",
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [pending, setPending] = useState(false);
@@ -69,7 +71,7 @@ export function ConfirmDialog({
             Cancelar
           </Button>
           <Button
-            variant="destructive"
+            variant={variant === "destructive" ? "destructive" : "default"}
             onClick={handleConfirm}
             disabled={loading}
           >

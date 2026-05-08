@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { prisma } from "@/server/db";
 import {
   updateTenantSettingsSchema,
   createPaymentMethodSchema,

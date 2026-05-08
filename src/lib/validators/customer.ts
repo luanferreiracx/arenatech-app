@@ -58,7 +58,7 @@ const addressSchema = z.object({
 
 export const createCustomerSchema = z
   .object({
-    type: z.enum(["PF", "PJ"]).default("PF"),
+    type: z.enum(["PF", "PJ"]),
     name: z.string().min(2).max(200),
     cpf: z.string().optional(),
     cnpj: z.string().optional(),
@@ -96,9 +96,9 @@ export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 export const listCustomersSchema = z.object({
   search: z.string().optional(),
   type: z.enum(["PF", "PJ"]).optional(),
-  page: z.number().int().min(0).default(0),
-  pageSize: z.number().int().min(1).max(100).default(20),
-  includeDeleted: z.boolean().default(false),
+  page: z.number().int().min(0),
+  pageSize: z.number().int().min(1).max(100),
+  includeDeleted: z.boolean().optional(),
 });
 
 export type ListCustomersInput = z.infer<typeof listCustomersSchema>;
@@ -111,7 +111,7 @@ export const createInterestSchema = z.object({
   customerId: z.string().uuid(),
   description: z.string().min(1).max(500),
   followUpAt: z.date().optional(),
-  resolved: z.boolean().default(false),
+  resolved: z.boolean().optional(),
 });
 
 export const updateInterestSchema = createInterestSchema.omit({ customerId: true }).partial();
