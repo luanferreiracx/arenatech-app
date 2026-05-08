@@ -1,0 +1,91 @@
+model DeliveryPerson {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  phone     String?
+  email     String?
+  active    Boolean   @default(true)
+  notes     String?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@map("delivery_persons")
+}
+
+model ExternalLab {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  address   Json?
+  active    Boolean   @default(true)
+  notes     String?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  labOrders LabOrder[]
+
+  @@index([tenantId, active])
+  @@map("external_labs")
+}
+
+enum LabOrderStatus {
+  SENT
+  RECEIVED
+  IN_PROGRESS
+  COMPLETED
+  RETURNED
+  CANCELLED
+}
+
+model LabOrder {
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  labId             String         @map("lab_id") @db.Uuid
+  serviceOrderId    String?        @map("service_order_id") @db.Uuid
+  deliveryPersonId  String?        @map("delivery_person_id") @db.Uuid
+  status            LabOrderStatus @default(SENT)
+  deviceDescription String?        @map("device_description")
+  problem           String?
+  estimatedCost     Decimal?       @map("estimated_cost") @db.Decimal(10, 2)
+  finalCost         Decimal?       @map("final_cost") @db.Decimal(10, 2)
+  sentAt            DateTime       @default(now()) @map("sent_at")
+  receivedAt        DateTime?      @map("received_at")
+  completedAt       DateTime?      @map("completed_at")
+  returnedAt        DateTime?      @map("returned_at")
+  notes             String?
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  lab ExternalLab @relation(fields: [labId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, labId])
+  @@index([tenantId, serviceOrderId])
+  @@map("lab_orders")
+}
+
+model ServiceProvider {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  type            String
+  cpfCnpj         String?   @map("cpf_cnpj")
+  phone           String?
+  email           String?
+  commissionRate  Decimal?  @map("commission_rate") @db.Decimal(5, 2)
+  contractDetails Json?     @map("contract_details")
+  active          Boolean   @default(true)
+  notes           String?
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@map("service_providers")
+}
