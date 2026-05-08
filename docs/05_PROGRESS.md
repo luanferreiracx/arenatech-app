@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 3 — Auth (EM ANDAMENTO)
+**Fase atual:** Fase 4 — Design system + layout (AGUARDANDO CONFIRMAÇÃO)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde último deploy:** 6
+**Commits desde último deploy:** 10
 
 ---
 
@@ -49,15 +49,21 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
 - [x] Commit final
 
-### ☐ Fase 3 — Auth
-- [ ] Provider Credentials (CPF + senha)
-- [ ] JWT callbacks
-- [ ] Resolução de tenant (subdomain/cookie)
-- [ ] Middleware Edge
-- [ ] Procedures protegidas
-- [ ] Telas de login/logout/forgot/reset
-- [ ] E2E auth
-- [ ] Commit final
+### ✓ Fase 3 — Auth
+- [x] Validador CPF com Zod (26 unit tests)
+- [x] NextAuth v5 beta.31: Credentials provider (CPF + bcrypt)
+- [x] JWT callbacks: availableTenants, activeTenantId, isSuperAdmin
+- [x] Auth config split: auth.config.ts (Edge) + auth.ts (Node)
+- [x] Cookie x-active-tenant para switch de tenant sem re-auth
+- [x] Middleware Edge: proteção de rotas, redirect por estado auth/tenant
+- [x] tRPC: publicProcedure, protectedProcedure, tenantProcedure, adminProcedure
+- [x] Páginas: login, select-tenant, no-access, forgot-password, dashboard, admin
+- [x] CpfInput component com máscara automática
+- [x] Seed: 4 users (super admin, single-tenant, multi-tenant, no-access)
+- [x] E2E: 8 cenários (invalid CPF, wrong password, single/multi/super admin, logout, redirect)
+- [x] ADR 0002 + PATTERNS.md atualizado
+- [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
+- [x] Commit final
 
 ### ☐ Fase 4 — Design system + layout
 - [ ] Tokens de tema (escuro default)
@@ -166,6 +172,34 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Histórico de execução
 
+### 2026-05-08 — Fase 3
+
+- **Implementado:**
+  - Validador CPF (normalizeCpf, validateCpf, cpfSchema) com 26 unit tests
+  - NextAuth v5 (beta.31) com Credentials provider (CPF + bcrypt)
+  - JWT callbacks carregam availableTenants, auto-select single-tenant
+  - Auth config split: auth.config.ts (Edge-safe) + auth.ts (Node-only)
+  - Cookie x-active-tenant para switch sem re-auth
+  - Middleware Edge com protecao completa de rotas
+  - tRPC: 4 tipos de procedures (public, protected, tenant, admin)
+  - Auth router: me + validateTenantAccess
+  - Server actions: loginAction, logoutAction, switchTenantAction
+  - 6 paginas: login, select-tenant, no-access, forgot-password, dashboard, admin
+  - CpfInput component com mascara automatica
+  - Seed expandido: 2 tenants + 4 users cobrindo todos os cenarios de auth
+  - 8 cenarios E2E passando (fluxos completos de auth)
+  - ADR 0002 em docs/decisions/0002-auth-strategy.md
+- **Decisoes:**
+  - SEM subdomain — tenant resolvido por cookie/JWT pos-login
+  - Auth config split para Edge runtime (middleware nao pode importar crypto/pg)
+  - middleware.ts deprecated no Next.js 16 em favor de proxy.ts — funciona com warning
+  - bcryptjs mantido (pure JS, Docker-safe, performance negligivel para login)
+  - Passwords no .env sem chars $ para evitar shell expansion no source
+  - impersonatedTenantId preparado no JWT para futuro uso
+- **Proximo:** Fase 4 — Design system + layout (aguardando confirmacao)
+
+---
+
 ### 2026-05-08 — Fase 2
 
 - **Implementado:**
@@ -246,11 +280,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de código | ~1500 |
-| Cobertura de testes | 1 unit + 6 integration + 1 e2e |
+| Linhas de código | ~3000 |
+| Cobertura de testes | 27 unit + 6 integration + 8 e2e |
 | Tabelas no schema | 4 (tenants, users, user_tenants, audit_logs) |
-| Procedures tRPC | 1 (example.hello) |
-| Páginas | 1 (/) |
+| Procedures tRPC | 3 (example.hello, auth.me, auth.validateTenantAccess) |
+| Páginas | 6 (login, select-tenant, no-access, forgot-password, dashboard, admin) |
 | Componentes shadcn/ui | 22 |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
 | Rotas inventariadas do Laravel | ~150+ rotas |

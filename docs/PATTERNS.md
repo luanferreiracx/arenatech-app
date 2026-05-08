@@ -117,10 +117,62 @@ model NomeDoModelo {
 
 ---
 
-## tRPC Procedures (futuro — Fase 3+)
+## Autenticacao e Autorizacao
 
-_Será documentado na Fase 3:_
-- `publicProcedure` — sem auth
-- `protectedProcedure` — exige sessão JWT
-- `tenantProcedure` — exige sessão + tenantId, usa `withTenant` internamente
-- `adminProcedure` — exige `isSuperAdmin`, usa `withAdmin` internamente
+### NextAuth v5 (JWT strategy)
+
+- Provider: Credentials (CPF + senha, bcrypt cost 12)
+- Session: JWT com claims customizados (id, cpf, isSuperAdmin, activeTenantId, availableTenants)
+- Auth config split: `auth.config.ts` (Edge-safe) + `auth.ts` (Node-only com providers)
+- Middleware Edge lê JWT e cookie `x-active-tenant` para resolver tenant ativo
+
+### tRPC Procedures
+
+| Procedure | Auth | Tenant | Uso |
+|---|---|---|---|
+| `publicProcedure` | Nenhuma | Nenhum | Login, health, dados públicos |
+| `protectedProcedure` | Session JWT | Nenhum | Endpoints que precisam de user mas não de tenant (me, switchTenant) |
+| `tenantProcedure` | Session JWT | `x-tenant-id` header | Todas operações de negócio (CRUD, queries) — usa `withTenant` |
+| `adminProcedure` | Session JWT + isSuperAdmin | Nenhum (BYPASSRLS) | Admin central — usa `withAdmin` |
+
+### Quando usar cada procedure
+
+```ts
+// Dados públicos (sem login)
+myRouter.hello = publicProcedure.query(() => ...);
+
+// Precisa de user, mas não de tenant
+myRouter.me = protectedProcedure.query(({ ctx }) => {
+  return ctx.session.user;
+});
+
+// Operação de negócio escopada por tenant
+myRouter.list = tenantProcedure.query(({ ctx }) => {
+  return ctx.withTenant(async (tx) => tx.customer.findMany());
+});
+
+// Admin central (cross-tenant)
+myRouter.allTenants = adminProcedure.query(({ ctx }) => {
+  return ctx.withAdmin(async (tx) => tx.tenant.findMany());
+});
+```
+
+### Fluxo de login
+
+1. `/login` → CPF + senha → NextAuth `signIn("credentials")`
+2. JWT callback carrega `availableTenants` do banco
+3. Se 1 tenant → auto-seleciona `activeTenantId` no JWT
+4. Se 0 tenants (não super admin) → redirect `/no-access`
+5. Se 2+ tenants → redirect `/select-tenant`
+6. Se super admin sem tenant → redirect `/admin`
+7. Troca de tenant → cookie `x-active-tenant` → middleware lê
+
+### Middleware de rota
+
+Prioridade de decisão:
+1. Rota pública → passa sempre
+2. Não autenticado → redirect `/login`
+3. 0 tenants, não super admin → redirect `/no-access`
+4. `/admin` → exige isSuperAdmin
+5. Sem tenant ativo → redirect `/select-tenant` (ou `/admin` se super admin)
+6. Com tenant ativo → injeta header `x-tenant-id`, passa
