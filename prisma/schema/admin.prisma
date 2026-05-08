@@ -1,0 +1,47 @@
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Plan {
+  id              String     @id @default(uuid()) @db.Uuid
+  name            String
+  slug            String     @unique
+  description     String?
+  monthlyPrice    Decimal    @map("monthly_price") @db.Decimal(10, 2)
+  yearlyPrice     Decimal?   @map("yearly_price") @db.Decimal(10, 2)
+  maxUsers        Int        @default(5) @map("max_users")
+  maxImeiQueries  Int        @default(50) @map("max_imei_queries")
+  features        Json?
+  status          PlanStatus @default(ACTIVE)
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@map("plans")
+}
+
+enum PreRegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model PreRegistration {
+  id            String                @id @default(uuid()) @db.Uuid
+  tradeName     String                @map("trade_name")
+  legalName     String?               @map("legal_name")
+  cnpj          String?
+  ownerName     String                @map("owner_name")
+  ownerCpf      String                @map("owner_cpf")
+  ownerEmail    String                @map("owner_email")
+  ownerPhone    String                @map("owner_phone")
+  planId        String?               @map("plan_id") @db.Uuid
+  status        PreRegistrationStatus @default(PENDING)
+  notes         String?
+  reviewedAt    DateTime?             @map("reviewed_at")
+  reviewedById  String?               @map("reviewed_by_id") @db.Uuid
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  @@map("pre_registrations")
+}
