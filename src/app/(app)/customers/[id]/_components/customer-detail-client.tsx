@@ -181,9 +181,11 @@ export function CustomerDetailClient({ id }: Props) {
         <TabsContent value="orders" className="mt-4">
           <Card>
             <CardContent className="pt-6">
-              <p className="text-muted-foreground text-sm">
-                Ordens de Serviço — disponível na Fase 7.
-              </p>
+              <Button size="sm" asChild>
+                <Link href={`/service-orders?customerId=${id}`}>
+                  Ver Ordens de Serviço deste cliente
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
