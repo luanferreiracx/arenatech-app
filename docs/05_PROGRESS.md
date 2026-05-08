@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 4 — Design system + layout (AGUARDANDO CONFIRMAÇÃO)
+**Fase atual:** Fase 3 — Auth (EM REVISÃO — pendências de segurança e refactor)
 **Última atualização:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde último deploy:** 10
@@ -49,7 +49,7 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | e2e ✓ | build ✓
 - [x] Commit final
 
-### ✓ Fase 3 — Auth
+### ⚠ Fase 3 — Auth (EM REVISÃO)
 - [x] Validador CPF com Zod (26 unit tests)
 - [x] NextAuth v5 beta.31: Credentials provider (CPF + bcrypt)
 - [x] JWT callbacks: availableTenants, activeTenantId, isSuperAdmin
@@ -171,6 +171,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Histórico de execução
+
+### 2026-05-08 — Revisão da Fase 3
+
+- **Contexto:** Revisão do dono identificou duas pendências antes do fechamento:
+  - (a) Brecha de segurança no tenantProcedure — validação de acesso ao tenant ocorria apenas no middleware Edge, expondo vetor de horizontal privilege escalation se matcher mudasse. Cookie `x-active-tenant` é raw (sem assinatura/criptografia), e o backend aceitava qualquer valor sem revalidar.
+  - (b) middleware.ts deprecado em Next.js 16 — migrar para proxy.ts no runtime Node.js, o que também elimina necessidade do split auth.config.ts (Edge-safe) vs auth.ts (Node-only).
+- **Ação:** Reabrir Fase 3 para aplicar correções antes do fechamento oficial.
+
+---
 
 ### 2026-05-08 — Fase 3
 

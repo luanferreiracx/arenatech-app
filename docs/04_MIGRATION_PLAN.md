@@ -241,7 +241,11 @@ Esse documento é referência para todas as fases seguintes.
 
 # FASE 1 — Esqueleto Next.js + tRPC + Prisma
 
-**Objetivo:** projeto Next.js 15 inicializado com toda a stack, "Hello World" funcionando.
+**Objetivo:** projeto Next.js inicializado com toda a stack, "Hello World" funcionando.
+
+> **Nota:** Stack atualizada para Next.js 16.2.5 desde a Fase 1 (consequência de `create-next-app@latest`). Detalhes em `docs/decisions/0003-nextjs-16-migration.md`.
+>
+> **Setup de VPS:** descartado da sequência de fases — VPS Contabo já configurada e inventariada em `docs/VPS_INVENTORY.md`. Deploy do app entrará em fase posterior, quando aplicável.
 
 ## 1.1 Inicializar projeto
 
