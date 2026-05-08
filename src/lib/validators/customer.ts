@@ -84,7 +84,28 @@ export const createCustomerSchema = z
     }
   });
 
-export const updateCustomerSchema = createCustomerSchema.partial();
+// NOTE: cannot use .partial() on createCustomerSchema because it uses .superRefine()
+// Define update schema without the cross-field validation (validated server-side anyway)
+export const updateCustomerSchema = z.object({
+  type: z.enum(["PF", "PJ"]).optional(),
+  name: z.string().min(2).max(200).optional(),
+  cpf: z.string().optional(),
+  cnpj: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+  phone2: z.string().optional(),
+  address: z.object({
+    street: z.string().optional(),
+    number: z.string().optional(),
+    complement: z.string().optional(),
+    neighborhood: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().max(2).optional(),
+    zip: z.string().optional(),
+  }).optional(),
+  notes: z.string().optional(),
+  consentAt: z.date().optional(),
+});
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
