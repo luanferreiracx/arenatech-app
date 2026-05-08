@@ -1,8 +1,16 @@
-import NextAuth from "next-auth";
-import { authConfig } from "@/server/auth.config";
+/**
+ * Next.js 16 proxy — replaces middleware.ts.
+ * Runs in Node.js runtime (not Edge), so it can import bcrypt, Prisma, etc.
+ *
+ * Handles:
+ * - Route protection (default deny — only explicit public routes pass)
+ * - Tenant resolution from cookie x-active-tenant or JWT activeTenantId
+ * - Header injection of x-tenant-id for downstream tRPC context
+ *
+ * @see docs/decisions/0003-nextjs-16-migration.md
+ */
+import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
-
-const { auth } = NextAuth(authConfig);
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password"]);
 
@@ -23,7 +31,7 @@ function isNoTenantRoute(pathname: string): boolean {
   );
 }
 
-export default auth((req) => {
+export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
@@ -86,7 +94,7 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/select-tenant", req.url));
   }
 
-  // Validate tenant access
+  // Validate tenant access (cookie could be stale or forged)
   const hasTenant = session.availableTenants.some((t) => t.id === activeTenantId);
   if (!hasTenant && !session.user.isSuperAdmin) {
     const res = NextResponse.redirect(new URL("/select-tenant", req.url));
@@ -94,7 +102,7 @@ export default auth((req) => {
     return res;
   }
 
-  // 7. Inject tenant header
+  // 7. Inject tenant header for tRPC context
   const headers = new Headers(req.headers);
   headers.set("x-tenant-id", activeTenantId);
   return NextResponse.next({ request: { headers } });

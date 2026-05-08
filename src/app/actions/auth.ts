@@ -56,8 +56,6 @@ export async function switchTenantAction(tenantId: string) {
     return { error: "Sem acesso a este tenant" };
   }
 
-  // We can't easily update JWT claims in NextAuth v5 without re-auth.
-  // Store active tenant in a cookie that the middleware reads.
   const { cookies } = await import("next/headers");
   const cookieStore = await cookies();
   cookieStore.set("x-active-tenant", tenantId, {
@@ -67,5 +65,5 @@ export async function switchTenantAction(tenantId: string) {
     path: "/",
   });
 
-  redirect("/");
+  return { success: true };
 }

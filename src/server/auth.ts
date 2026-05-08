@@ -1,18 +1,25 @@
 /**
- * NextAuth v5 (beta.31) — Full configuration (Node.js only).
- * Imports Edge-safe base config and adds Credentials provider with bcrypt + Prisma.
+ * NextAuth v5 (beta.31) — Unified auth configuration.
+ *
+ * Since Next.js 16 proxy.ts runs in Node.js runtime (not Edge),
+ * we no longer need a split config. All auth logic lives here.
  *
  * @see docs/decisions/0002-auth-strategy.md
+ * @see docs/decisions/0003-nextjs-16-migration.md
  */
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compareSync } from "bcryptjs";
 import { cpfSchema } from "@/lib/validators/cpf";
 import { withAdmin } from "@/server/db";
-import { authConfig } from "@/server/auth.config";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  ...authConfig,
+  session: { strategy: "jwt" },
+
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
 
   providers: [
     Credentials({
@@ -47,14 +54,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
 
   callbacks: {
-    ...authConfig.callbacks,
-
     async jwt({ token, user }) {
-      // Run base config jwt callback first
-      token = await authConfig.callbacks.jwt({ token, user } as Parameters<NonNullable<typeof authConfig.callbacks.jwt>>[0]);
-
-      // On first login, load available tenants from DB
+      // First call after login — populate token with user data + tenants
       if (user) {
+        token.id = user.id!;
+        token.cpf = (user as { cpf: string }).cpf;
+        token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
+
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
             where: { userId: user.id! },
@@ -69,12 +75,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           role: ut.role,
         }));
 
-        // Auto-select tenant if user has exactly 1
         token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
         token.impersonatedTenantId = null;
       }
 
       return token;
+    },
+
+    async session({ session, token }) {
+      session.user.id = token.id as string;
+      session.user.cpf = token.cpf as string;
+      session.user.isSuperAdmin = token.isSuperAdmin as boolean;
+      session.activeTenantId = (token.activeTenantId as string) ?? null;
+      session.impersonatedTenantId = (token.impersonatedTenantId as string) ?? null;
+      session.availableTenants =
+        (token.availableTenants as Array<{ id: string; slug: string; name: string; role: string }>) ?? [];
+      return session;
+    },
+
+    authorized() {
+      // Route protection handled by proxy.ts — always allow here
+      return true;
     },
   },
 });
