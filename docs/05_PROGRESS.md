@@ -161,6 +161,14 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Histórico de execução
 
+### 2026-05-08 — Diagnóstico VPS
+
+- **Implementado:** Diagnóstico read-only completo da VPS Contabo (194.34.232.81). Ver `docs/VPS_INVENTORY.md`.
+- **Decisões pendentes:** 8 decisões registradas no inventário (D1–D8) sobre estratégia de deploy, portas, limpeza de configs
+- **Próximo:** Aguardando decisões D1–D8 antes de qualquer ação na VPS
+
+---
+
 ### 2026-05-08 — Fase 1
 
 - **Implementado:**
