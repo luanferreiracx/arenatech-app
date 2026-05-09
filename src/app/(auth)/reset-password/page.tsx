@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,20 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <CardContent className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
+  );
+}
+
+function ResetPasswordContent() {
   const trpc = useTRPC();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");

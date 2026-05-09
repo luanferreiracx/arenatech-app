@@ -4,7 +4,6 @@ import { withTenant } from "@/server/db";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { withAdmin } from "@/server/db";
-import type { Prisma } from "@prisma/client";
 
 const uuidSchema = z.string().uuid();
 
