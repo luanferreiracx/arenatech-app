@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fases 9-15 paralelizáveis (EM ANDAMENTO)
+**Fase atual:** Fases 9, 13, 14 paralelizáveis (EM ANDAMENTO)
 **Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 47
+**Commits desde ultimo deploy:** 55
 
 ---
 
@@ -135,7 +135,15 @@
 - [x] Sidebar: Comissões adicionado
 - [x] Testes: 24 unit tests de validators
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
-### ☐ Fase 11 — Operação (paralelizável)
+### ✓ Fase 11 — Operação
+- [x] Schema operation.prisma (4 tabelas: delivery_persons, external_labs, lab_orders, service_providers)
+- [x] RLS habilitado em todas as 4 tabelas
+- [x] Validators Zod: operation.ts (12 schemas)
+- [x] tRPC router: operationRouter (14 procedures)
+- [x] Páginas: /operation com tabs (Entregadores, Laboratórios, Envios Lab, Prestadores)
+- [x] Sidebar: Operação adicionado
+- [x] Testes: 30 unit tests de validators
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ✓ Fase 12 — Consulta IMEI
 - [x] Schema imei_queries + imei_quotas + RLS
 - [x] Validators Zod: imeiSchema (Luhn), queryImei, listImeiQueries
@@ -147,7 +155,18 @@
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ☐ Fase 13 — Comunicação (paralelizável)
 ### ☐ Fase 14 — Recompensas (paralelizável, requer decisão prévia)
-### ☐ Fase 15 — Admin Central (paralelizável)
+### ✓ Fase 15 — Admin Central (SaaS)
+- [x] Schema admin.prisma (2 tabelas globais: plans, pre_registrations — sem tenant_id, sem RLS)
+- [x] Validators Zod: admin.ts (11 schemas)
+- [x] tRPC router: adminRouter (15 procedures: dashboard, tenants CRUD, plans CRUD, pre-registrations approve/reject, reports, publicPlans, submitPreRegistration)
+- [x] hashPassword util (bcryptjs)
+- [x] approve cria Tenant + User + UserTenant automaticamente
+- [x] Páginas admin: /admin (dashboard), /admin/tenants (lista + detalhe), /admin/plans (CRUD), /admin/pre-registrations (lista + detalhe + aprovar/rejeitar), /admin/reports
+- [x] Página pública: /register (form pre-cadastro sem auth)
+- [x] Proxy.ts: /register como rota pública
+- [x] AdminSidebar: hrefs corretos (Dashboard, Tenants, Planos, Pré-cadastros, Relatórios)
+- [x] Testes: 25 unit tests de validators
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 
 ### ☐ Fase 16 — Hardening
 ### ☐ Fase 17 — Cutover
@@ -202,6 +221,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-08 — Fases 11 + 15
+
+- **Implementado:**
+  - **Fase 11 (Operacao):** 4 tabelas Prisma (delivery_persons, external_labs, lab_orders, service_providers) + 1 enum (LabOrderStatus), RLS em todas, 12 validators Zod, 14 procedures tRPC, 7 paginas com layout tabs, sidebar atualizada
+  - **Fase 15 (Admin Central):** 2 tabelas globais (plans, pre_registrations) + 2 enums, 11 validators Zod, 15 procedures tRPC (incl. publicPlans e submitPreRegistration), dashboard com cards resumo, CRUD tenants/plans, pre-cadastros com approve/reject, relatorios cross-tenant, pagina publica /register
+  - hashPassword util para bcryptjs (usado no approve)
+  - AdminSidebar com hrefs corretos
+  - Proxy.ts com /register como rota publica
+  - 55 testes novos (30 operation + 25 admin), total 289
+- **Decisoes:**
+  - Plans e PreRegistrations sao tabelas GLOBAIS (sem tenant_id, sem RLS) — acessadas via adminProcedure + withAdmin
+  - Approve de pre-cadastro: cria Tenant (slug auto-gerado), User (senha temporaria Arena@XXXX), UserTenant (role admin)
+  - publicPlans e submitPreRegistration usam publicProcedure com prisma direto (sem withAdmin/withTenant)
+  - Operacao usa tenantProcedure padrao (dados scoped)
+  - Lab orders tem timestamps automaticos por status (receivedAt, completedAt, returnedAt)
+- **Proximo:** Fases restantes (9, 13, 14)
+
+---
 
 ### 2026-05-08 — Fases 10 + 12
 
@@ -469,11 +507,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de codigo | ~14500 |
-| Cobertura de testes | 234 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 32 (28 anteriores + 4: commission_rules, commissions, imei_queries, imei_quotas) |
-| Procedures tRPC | 114 (101 anteriores + commissions.9 + imei.4) |
-| Paginas | 62+ (56 anteriores + commissions 3 + imei 1 + report 1 + rules 1) |
+| Linhas de codigo | ~18500 |
+| Cobertura de testes | 289 unit + 6 integration + 25 e2e |
+| Tabelas no schema | 38 (32 anteriores + 4 operation + 2 admin) |
+| Procedures tRPC | 143 (114 anteriores + operation.14 + admin.15) |
+| Paginas | 80+ (62 anteriores + operation 7 + admin 9 + register 1) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
