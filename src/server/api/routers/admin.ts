@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
+import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import {
   createPlanSchema,
   updatePlanSchema,
@@ -398,6 +399,7 @@ export const adminRouter = createTRPCRouter({
   // ── Public Pre-Registration ───────────────────────────────────────────────
 
   submitPreRegistration: publicProcedure
+    .use(rateLimitMiddleware({ limit: 3, windowMs: 3_600_000 })) // 3 per IP per hour
     .input(createPreRegistrationSchema)
     .mutation(async ({ input }) => {
       const { prisma } = await import("@/server/db");

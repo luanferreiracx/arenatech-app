@@ -3,10 +3,23 @@
 import { signIn, signOut, auth } from "@/server/auth";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
+import { headers } from "next/headers";
+import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
 
 export async function loginAction(formData: FormData) {
   const cpf = formData.get("cpf") as string;
   const password = formData.get("password") as string;
+
+  // Rate limit: 5 attempts per IP per minute
+  const headerStore = await headers();
+  const ip =
+    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    headerStore.get("x-real-ip") ??
+    "unknown";
+  const rl = rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });
+  if (!rl.success) {
+    return { error: "Muitas tentativas. Aguarde um minuto e tente novamente." };
+  }
 
   try {
     await signIn("credentials", {
@@ -20,6 +33,9 @@ export async function loginAction(formData: FormData) {
     }
     throw error;
   }
+
+  // Successful login — reset rate limit for this IP
+  resetRateLimit(`login:${ip}`);
 
   // Determine where to redirect based on session
   const session = await auth();
