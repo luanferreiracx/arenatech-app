@@ -16,6 +16,7 @@ import {
   rejectPreRegistrationSchema,
   adminReportSchema,
 } from "@/lib/validators/admin";
+import { randomBytes } from "crypto";
 import { hashPassword } from "@/lib/password";
 
 export const adminRouter = createTRPCRouter({
@@ -319,10 +320,11 @@ export const adminRouter = createTRPCRouter({
 
         // Check if user already exists
         let user = await tx.user.findUnique({ where: { cpf: normalizedCpf } });
+        let tempPassword: string | undefined;
 
         if (!user) {
-          // Generate temporary password
-          const tempPassword = `Arena@${normalizedCpf.slice(0, 4)}`;
+          // Generate cryptographically random temporary password
+          tempPassword = randomBytes(12).toString("base64url");
           const passwordHash = hashPassword(tempPassword);
 
           user = await tx.user.create({
@@ -356,7 +358,8 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
-        return { tenant, user };
+        // Include tempPassword so admin can communicate it to the tenant owner
+        return { tenant, user, ...(tempPassword ? { tempPassword } : {}) };
       });
     }),
 
