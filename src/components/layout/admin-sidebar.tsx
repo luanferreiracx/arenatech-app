@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, LogOut, User } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, User, Store } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/branding/logo";
@@ -118,7 +118,22 @@ export function AdminSidebar({ userName }: AdminSidebarProps) {
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-sidebar-border p-2 shrink-0">
+        <div className="border-t border-sidebar-border p-2 shrink-0 space-y-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                href="/"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-2 py-2 text-sm text-primary font-medium hover:bg-sidebar-accent transition-colors",
+                  isCollapsed ? "justify-center" : ""
+                )}
+              >
+                <Store className="w-4 h-4 shrink-0" />
+                {!isCollapsed && <span className="truncate">Voltar à loja</span>}
+              </Link>
+            </TooltipTrigger>
+            {isCollapsed && <TooltipContent side="right">Voltar à loja</TooltipContent>}
+          </Tooltip>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -144,7 +159,7 @@ export function AdminSidebar({ userName }: AdminSidebarProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
               <DropdownMenuItem asChild>
-                <Link href="/perfil" className="flex items-center gap-2">
+                <Link href="/settings" className="flex items-center gap-2">
                   <User className="w-4 h-4" />
                   Perfil
                 </Link>
