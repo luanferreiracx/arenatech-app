@@ -16,6 +16,9 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { z } from "zod";
+
+const uuidSchema = z.string().uuid();
 
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL;
@@ -57,10 +60,12 @@ export async function withTenant<T>(
   tenantId: string,
   fn: (tx: TransactionClient) => Promise<T>,
 ): Promise<T> {
+  // Validate UUID format to prevent SQL injection via tenantId interpolation
+  const validTenantId = uuidSchema.parse(tenantId);
   return prisma.$transaction(async (tx) => {
     // SET ROLE first — app_user is subject to RLS (superuser/owner bypasses it)
     await tx.$executeRawUnsafe(`SET LOCAL ROLE app_user`);
-    await tx.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${tenantId}'`);
+    await tx.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${validTenantId}'`);
     return fn(tx);
   });
 }

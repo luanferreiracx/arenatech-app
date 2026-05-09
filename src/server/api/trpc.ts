@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
@@ -59,9 +59,9 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
     logger.warn("tenantProcedure: unauthenticated request");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
   }
-  if (!ctx.tenantId) {
-    logger.warn("tenantProcedure: no active tenant", { userId: ctx.session.user.id });
-    throw new TRPCError({ code: "FORBIDDEN", message: "No active tenant" });
+  if (!ctx.tenantId || !z.string().uuid().safeParse(ctx.tenantId).success) {
+    logger.warn("tenantProcedure: no active tenant or invalid UUID", { userId: ctx.session.user.id });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid tenant" });
   }
 
   // Validate that the authenticated user actually has access to this tenant
