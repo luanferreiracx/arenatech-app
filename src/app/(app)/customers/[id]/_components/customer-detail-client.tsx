@@ -178,15 +178,7 @@ export function CustomerDetailClient({ id }: Props) {
         </TabsContent>
 
         <TabsContent value="orders" className="mt-4">
-          <Card>
-            <CardContent className="pt-6">
-              <Button size="sm" asChild>
-                <Link href={`/service-orders?customerId=${id}`}>
-                  Ver Ordens de Serviço deste cliente
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <CustomerOrdersTab customerId={id} />
         </TabsContent>
 
         <TabsContent value="interests" className="mt-4">
@@ -205,6 +197,91 @@ export function CustomerDetailClient({ id }: Props) {
         isLoading={deleteMutation.isPending}
       />
     </div>
+  );
+}
+
+// ── Customer Orders Tab ───────────────────────────────────────────────────────
+
+function CustomerOrdersTab({ customerId }: { customerId: string }) {
+  const trpc = useTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.serviceOrders.list.queryOptions({
+      customerId,
+      page: 0,
+      pageSize: 50,
+    }),
+  );
+
+  if (isLoading) return <LoadingState variant="card" />;
+
+  const orders = data?.items ?? [];
+
+  if (orders.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <p className="text-sm text-muted-foreground">
+            Nenhuma Ordem de Servico encontrada para este cliente.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="pb-2 font-medium text-muted-foreground">Numero</th>
+                <th className="pb-2 font-medium text-muted-foreground">Status</th>
+                <th className="pb-2 font-medium text-muted-foreground">Data</th>
+                <th className="pb-2 font-medium text-muted-foreground text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id} className="border-b last:border-0">
+                  <td className="py-2">
+                    <Link
+                      href={`/service-orders/${order.id}`}
+                      className="font-mono text-primary hover:underline"
+                    >
+                      {order.number}
+                    </Link>
+                  </td>
+                  <td className="py-2">
+                    <Badge variant="outline" className="text-xs">
+                      {order.status}
+                    </Badge>
+                  </td>
+                  <td className="py-2 text-muted-foreground">
+                    {new Date(order.entryDate).toLocaleDateString("pt-BR")}
+                  </td>
+                  <td className="py-2 text-right font-mono">
+                    {Number(order.totalAmount).toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {data && data.total > 50 && (
+          <div className="mt-3">
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/service-orders?customerId=${customerId}`}>
+                Ver todas ({data.total})
+              </Link>
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
