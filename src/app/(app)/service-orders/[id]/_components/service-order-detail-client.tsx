@@ -190,6 +190,15 @@ export function ServiceOrderDetailClient({ id }: Props) {
     }),
   );
 
+  const whatsappMutation = useMutation(
+    trpc.communication.notifyOsCompleted.mutationOptions({
+      onSuccess: () => {
+        toast.success("Notificacao WhatsApp enviada!");
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
   if (isLoading) return <LoadingState variant="card" />;
   if (!order)
     return (
@@ -323,13 +332,11 @@ export function ServiceOrderDetailClient({ id }: Props) {
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                toast.info("Em breve — integração Fase 13")
-              }
-              disabled
+              disabled={whatsappMutation.isPending}
+              onClick={() => whatsappMutation.mutate({ serviceOrderId: id })}
             >
               <MessageCircle className="mr-1 h-4 w-4" />
-              WhatsApp
+              {whatsappMutation.isPending ? "Enviando..." : "WhatsApp"}
             </Button>
 
             {!isTerminal && (
