@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 14 (Recompensas) pendente
+**Fase atual:** Fase 16 — Hardening (EM ANDAMENTO). Fase 14 (Recompensas) adiada — decisão de produto pendente.
 **Ultima atualizacao:** 2026-05-09
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 56
