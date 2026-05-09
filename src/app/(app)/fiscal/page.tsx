@@ -1,4 +1,7 @@
+import { createMetadata } from "@/lib/metadata";
 import { PageHeader } from "@/components/domain/page-header";
+
+export const metadata = createMetadata("Fiscal");
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { InvoicesTable } from "./_components/invoices-table";

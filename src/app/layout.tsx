@@ -17,7 +17,12 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Arena Tech",
-  description: "Sistema de gestão Arena Tech",
+  description: "Sistema de gestao para assistencias tecnicas",
+  openGraph: {
+    title: "Arena Tech",
+    description: "Sistema de gestao para assistencias tecnicas",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

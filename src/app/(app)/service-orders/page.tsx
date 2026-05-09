@@ -2,6 +2,9 @@ import { PageHeader } from "@/components/domain/page-header";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ServiceOrdersTable } from "./_components/service-orders-table";
+import { createMetadata } from "@/lib/metadata";
+
+export const metadata = createMetadata("Ordens de Serviço");
 
 export default function ServiceOrdersPage() {
   return (

@@ -1,4 +1,7 @@
+import { createMetadata } from "@/lib/metadata";
 import { Logo } from "@/components/branding/logo";
+
+export const metadata = createMetadata("Login");
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (

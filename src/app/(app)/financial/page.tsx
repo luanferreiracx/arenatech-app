@@ -2,6 +2,9 @@ import { PageHeader } from "@/components/domain/page-header";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { TransactionsClient } from "./_components/transactions-client";
+import { createMetadata } from "@/lib/metadata";
+
+export const metadata = createMetadata("Financeiro");
 
 export default function FinancialPage() {
   return (

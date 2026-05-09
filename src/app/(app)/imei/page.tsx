@@ -1,4 +1,7 @@
+import { createMetadata } from "@/lib/metadata";
 import { PageHeader } from "@/components/domain/page-header";
+
+export const metadata = createMetadata("Consulta IMEI");
 import { ImeiLookup } from "./_components/imei-lookup";
 
 export default function ImeiPage() {

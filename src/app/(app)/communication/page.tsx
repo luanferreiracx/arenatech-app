@@ -1,4 +1,7 @@
+import { createMetadata } from "@/lib/metadata";
 import { PageHeader } from "@/components/domain/page-header";
+
+export const metadata = createMetadata("Comunicacao");
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { MessagesTable } from "./_components/messages-table";

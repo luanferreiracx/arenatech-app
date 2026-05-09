@@ -1,4 +1,7 @@
+import { createMetadata } from "@/lib/metadata";
 import { PageHeader } from "@/components/domain/page-header";
+
+export const metadata = createMetadata("Comissoes");
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { CommissionsTable } from "./_components/commissions-table";

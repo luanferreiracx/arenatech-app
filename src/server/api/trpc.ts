@@ -40,6 +40,7 @@ export const publicProcedure = t.procedure;
 /** Protected procedure — requires valid session */
 export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
+    logger.warn("protectedProcedure: unauthenticated request");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
   }
   return next({
@@ -55,9 +56,11 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
  */
 export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
+    logger.warn("tenantProcedure: unauthenticated request");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
   }
   if (!ctx.tenantId) {
+    logger.warn("tenantProcedure: no active tenant", { userId: ctx.session.user.id });
     throw new TRPCError({ code: "FORBIDDEN", message: "No active tenant" });
   }
 
@@ -66,6 +69,10 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
     (t) => t.id === ctx.tenantId,
   );
   if (!hasTenant && !ctx.session.user.isSuperAdmin) {
+    logger.warn("tenantProcedure: unauthorized tenant access attempt", {
+      userId: ctx.session.user.id,
+      tenantId: ctx.tenantId,
+    });
     throw new TRPCError({ code: "FORBIDDEN", message: "No access to this tenant" });
   }
 
@@ -81,9 +88,11 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
 /** Admin procedure — requires isSuperAdmin. All queries run via withAdmin. */
 export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
+    logger.warn("adminProcedure: unauthenticated request");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
   }
   if (!ctx.session.user.isSuperAdmin) {
+    logger.warn("adminProcedure: non-admin access attempt", { userId: ctx.session.user.id });
     throw new TRPCError({ code: "FORBIDDEN", message: "Not a super admin" });
   }
   return next({

@@ -1,9 +1,12 @@
+import { createMetadata } from "@/lib/metadata";
 import { auth } from "@/server/auth";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { SidebarProvider } from "@/components/layout/sidebar-context";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { AdminHeader } from "@/components/layout/admin-header";
+
+export const metadata = createMetadata("Admin");
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
