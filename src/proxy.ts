@@ -12,7 +12,7 @@
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password"]);
+const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/register"]);
 
 function isPublicRoute(pathname: string): boolean {
   return (
