@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 16 — Hardening (EM ANDAMENTO). Fase 14 (Recompensas) adiada — decisão de produto pendente.
-**Ultima atualizacao:** 2026-05-09
+**Fase atual:** Fase 16 concluida. Fase 14 (Recompensas) adiada — decisao de produto pendente. Proximo: Fase 17 — Cutover.
+**Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 56
+**Commits desde ultimo deploy:** 57
 
 ---
 
@@ -185,7 +185,18 @@
 - [x] Testes: 25 unit tests de validators
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 
-### ☐ Fase 16 — Hardening
+### ✓ Fase 16 — Hardening
+- [x] Rate limiting (src/lib/rate-limit.ts) — in-memory Map com TTL cleanup
+- [x] Security headers (next.config.ts) — X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- [x] Logger estruturado (src/lib/logger.ts) — JSON output, integrado em todos os services + tRPC middleware
+- [x] Metadata por pagina — createMetadata helper + export metadata em 13 paginas principais
+- [x] Open Graph no root layout
+- [x] Loading states — loading.tsx em app shell, service-orders, customers, stock
+- [x] Bundle optimization — optimizePackageImports (lucide-react, date-fns, @tanstack/react-table)
+- [x] 404 page (not-found.tsx) — Logo Arena Tech + botao voltar
+- [x] Error page (error.tsx) — error boundary com retry + voltar
+- [x] Testes: 17 unit tests (rate-limit 6, logger 7, metadata 4)
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ☐ Fase 17 — Cutover
 
 ---
@@ -238,6 +249,30 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-08 — Fase 16
+
+- **Implementado:**
+  - Rate limiting in-memory com TTL cleanup (ja existia, adicionado teste)
+  - Security headers em next.config.ts (ja existia: X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy camera/mic/geo=())
+  - Logger estruturado JSON (ja existia, integrado em todos services)
+  - Logger adicionado ao tRPC middleware (protectedProcedure, tenantProcedure, adminProcedure) para monitorar tentativas de acesso nao autorizadas
+  - createMetadata helper (src/lib/metadata.ts) — formato "{title} | Arena Tech"
+  - Metadata exportado em 13 paginas: service-orders, pdv, customers, stock, cashier, financial, fiscal, commissions, imei, communication + layouts auth e admin
+  - Open Graph metadata no root layout
+  - not-found.tsx: Logo Arena Tech + "Pagina nao encontrada" + botao voltar
+  - error.tsx: Error boundary client component com "Tentar novamente" + "Voltar ao inicio"
+  - loading.tsx em 4 locais: app shell (card), service-orders (table), customers (table), stock (table)
+  - Bundle optimization: optimizePackageImports ja incluia lucide-react, date-fns, @tanstack/react-table
+  - 17 testes novos (rate-limit 6, logger 7, metadata 4), total 360
+- **Decisoes:**
+  - Rate limiter, logger e security headers ja existiam de sessoes anteriores — faltava commit do metadata.ts e testes
+  - Logger integrado no tRPC middleware para security observability (warn em UNAUTHORIZED e FORBIDDEN)
+  - Login page e "use client" — metadata colocado no (auth)/layout.tsx
+  - Admin page e "use client" — metadata colocado no (admin)/layout.tsx
+- **Proximo:** Fase 17 — Cutover
+
+---
 
 ### 2026-05-09 — Fases 9 + 13
 
@@ -547,7 +582,7 @@ _(vazio)_
 | Métrica | Valor |
 |---|---|
 | Linhas de codigo | ~23300 |
-| Cobertura de testes | 343 unit + 6 integration + 25 e2e |
+| Cobertura de testes | 360 unit + 6 integration + 25 e2e |
 | Tabelas no schema | 42 (38 anteriores + 2 fiscal + 2 communication) |
 | Procedures tRPC | 168 (143 anteriores + fiscal.11 + communication.14) |
 | Paginas | 86+ (80 anteriores + fiscal 3 + communication 3) |
