@@ -119,35 +119,46 @@ export const stockRouter = createTRPCRouter({
           delta = input.quantity;
         } else if (input.type === "EXIT") {
           delta = -input.quantity;
-          if (product.currentStock - input.quantity < 0) {
+        } else {
+          // ADJUSTMENT — quantity is the new absolute stock
+          delta = input.quantity - product.currentStock;
+        }
+
+        // For EXIT: use atomic decrement with WHERE guard to prevent negative stock
+        if (input.type === "EXIT") {
+          const result = await tx.product.updateMany({
+            where: {
+              id: input.productId,
+              currentStock: { gte: input.quantity },
+            },
+            data: { currentStock: { decrement: input.quantity } },
+          });
+
+          if (result.count === 0) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "Estoque insuficiente para esta saída",
             });
           }
         } else {
-          // ADJUSTMENT — quantity is the new absolute stock
-          delta = input.quantity - product.currentStock;
-        }
-
-        // Atomic: create movement + update stock
-        const [movement] = await Promise.all([
-          tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: input.productId,
-              type: input.type,
-              quantity: input.type === "ADJUSTMENT" ? input.quantity : input.quantity,
-              unitCost: input.unitCost,
-              reason: input.reason,
-              userId,
-            },
-          }),
-          tx.product.update({
+          await tx.product.update({
             where: { id: input.productId },
             data: { currentStock: { increment: delta } },
-          }),
-        ]);
+          });
+        }
+
+        // Create stock movement record
+        const movement = await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            type: input.type,
+            quantity: input.quantity,
+            unitCost: input.unitCost,
+            reason: input.reason,
+            userId,
+          },
+        });
 
         return movement;
       });
