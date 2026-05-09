@@ -39,6 +39,7 @@ export function EntitySelector<T>({
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(
@@ -67,8 +68,17 @@ export function EntitySelector<T>({
     };
   }, [query, open, search]);
 
-  const selectedItem = items.find((item) => getOptionValue(item) === value);
-  const displayLabel = selectedItem ? getOptionLabel(selectedItem) : null;
+  // Keep selected label in sync when items change
+  useEffect(() => {
+    if (value) {
+      const found = items.find((item) => getOptionValue(item) === value);
+      if (found) setSelectedLabel(getOptionLabel(found));
+    } else {
+      setSelectedLabel(null);
+    }
+  }, [value, items, getOptionLabel, getOptionValue]);
+
+  const displayLabel = selectedLabel;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -84,7 +94,7 @@ export function EntitySelector<T>({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
+        <Command shouldFilter={false}>
           <CommandInput
             placeholder="Buscar..."
             value={query}
@@ -106,7 +116,13 @@ export function EntitySelector<T>({
                       key={itemValue}
                       value={itemValue}
                       onSelect={() => {
-                        onChange(itemValue === value ? undefined : itemValue);
+                        if (itemValue === value) {
+                          onChange(undefined);
+                          setSelectedLabel(null);
+                        } else {
+                          onChange(itemValue);
+                          setSelectedLabel(getOptionLabel(item));
+                        }
                         setOpen(false);
                       }}
                     >
