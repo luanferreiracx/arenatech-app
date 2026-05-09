@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 16 concluida. Fase 14 (Recompensas) adiada — decisao de produto pendente. Proximo: Fase 17 — Cutover.
+**Fase atual:** Fase 17 — Cutover CONCLUIDA. Fase 14 (Recompensas) adiada.
 **Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 57
@@ -197,7 +197,17 @@
 - [x] Error page (error.tsx) — error boundary com retry + voltar
 - [x] Testes: 17 unit tests (rate-limit 6, logger 7, metadata 4)
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
-### ☐ Fase 17 — Cutover
+### ✓ Fase 17 — Cutover
+- [x] Dockerfile multi-stage (deps → build → runner) para Next.js standalone
+- [x] .dockerignore otimizado
+- [x] docker-compose.prod.yml (app + postgres:16 + redis:7 + minio)
+- [x] .env.production.example com todas as variaveis
+- [x] Nginx config (SSL Cloudflare, real IP, security headers, proxy 3001)
+- [x] GitHub Actions CI/CD (validate + deploy via SSH)
+- [x] Script de migracao de dados (placeholder com mapeamento completo)
+- [x] RUNBOOK.md operacional (deploy, monitoramento, backup, cutover)
+- [x] README.md atualizado (stack, setup, comandos, modulos, deploy)
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 
 ---
 
@@ -249,6 +259,28 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-08 — Fase 17
+
+- **Implementado:**
+  - Dockerfile multi-stage build (node:22-alpine, 3 stages: deps/builder/runner)
+  - .dockerignore (node_modules, .next, .git, docs, tests, .env*)
+  - docker-compose.prod.yml: app (3001), postgres:16 (5434), redis:7 (6380), minio (9000/9001)
+  - .env.production.example com todas as variaveis de producao
+  - Nginx config: SSL via Cloudflare Origin cert wildcard, Cloudflare real IP ranges, security headers (HSTS, X-Frame-Options DENY, etc.), proxy para 127.0.0.1:3001
+  - GitHub Actions CI/CD: validate job (lint + typecheck + test + build com Postgres e Redis services), deploy job (SSH + docker compose build/up + prisma migrate deploy)
+  - scripts/migrate-data.ts: placeholder com mapeamento completo MySQL->PostgreSQL (tabelas, campos, status enums, helpers de conversao), --dry-run flag, ordem de migracao respeitando FKs
+  - docs/RUNBOOK.md: deploy (primeiro + subsequente + rollback), monitoramento (logs, health check, alertas), backup (PostgreSQL + MinIO, crontab automatico), cutover (pre/durante/pos), troubleshooting
+  - README.md: descricao, stack, setup local, comandos, estrutura, modulos, deploy, multi-tenancy, contribuicao
+- **Decisoes:**
+  - Docker container em vez de PM2 (consistente com Chatwoot/Evolution API ja na VPS)
+  - SSL via Cloudflare Origin Certificate wildcard (valido ate 2040), nao Let's Encrypt
+  - Nginx inclui set_real_ip_from para ranges Cloudflare (todo trafego passa por CF proxy)
+  - Script de migracao e placeholder — implementacao real sera refinada no dia do cutover
+  - CI nao roda e2e (Playwright) por default para velocidade — pode ser adicionado quando necessario
+- **Proximo:** Cutover real (janela de manutencao com o dono)
+
+---
 
 ### 2026-05-08 — Fase 16
 
