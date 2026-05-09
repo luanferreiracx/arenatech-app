@@ -13,7 +13,8 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Prisma generate
+# Prisma generate (dummy DATABASE_URL — only needed for client generation, not connection)
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 RUN pnpm prisma generate
 # Build Next.js
 RUN pnpm build
