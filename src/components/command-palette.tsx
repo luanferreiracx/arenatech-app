@@ -118,7 +118,7 @@ function CommandPaletteDialog({
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/pdv/history"))}>
             <History className="mr-2 h-4 w-4" />
-            Historico de Vendas
+            Histórico de Vendas
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/stock"))}>
             <Package className="mr-2 h-4 w-4" />
