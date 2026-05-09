@@ -298,14 +298,16 @@ export function ServiceOrderDetailClient({ id }: Props) {
               Link Público
             </Button>
 
-            {/* Placeholder buttons */}
+            {/* PDF */}
             <Button
               size="sm"
               variant="outline"
-              onClick={() => toast.info("Em breve")}
+              asChild
             >
-              <FileText className="mr-1 h-4 w-4" />
-              PDF
+              <a href={`/api/service-orders/${id}/pdf`} target="_blank" rel="noopener noreferrer">
+                <FileText className="mr-1 h-4 w-4" />
+                PDF
+              </a>
             </Button>
             <Button
               size="sm"
