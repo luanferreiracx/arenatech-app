@@ -156,8 +156,12 @@ export function ServiceOrderWizard() {
       reportedProblem: state.reportedProblem,
       entryChecklist: Object.keys(state.entryChecklist).length > 0 ? state.entryChecklist : undefined,
       deviceInfo: Object.keys(state.deviceInfo).length > 0 ? state.deviceInfo : undefined,
-      items: state.items,
-      discount: state.discount > 0 ? state.discount : undefined,
+      items: state.items.map((i) => ({
+        ...i,
+        unitPrice: i.unitPrice / 100,
+        costPrice: (i.costPrice ?? 0) / 100,
+      })),
+      discount: state.discount > 0 ? state.discount / 100 : undefined,
       estimatedDate: state.estimatedDate?.toISOString(),
       technicianId: state.technicianId || undefined,
       isWarranty: state.isWarranty || undefined,
@@ -579,7 +583,7 @@ function Step4Items({
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Subtotal</span>
             <span className="font-mono">
-              {subtotal.toLocaleString("pt-BR", {
+              {(subtotal / 100).toLocaleString("pt-BR", {
                 style: "currency",
                 currency: "BRL",
               })}
@@ -598,7 +602,7 @@ function Step4Items({
           <div className="flex justify-between text-base font-semibold">
             <span>Total</span>
             <span className="font-mono">
-              {total.toLocaleString("pt-BR", {
+              {(total / 100).toLocaleString("pt-BR", {
                 style: "currency",
                 currency: "BRL",
               })}
@@ -671,7 +675,7 @@ function Step5Summary({
         <div className="rounded-md border p-3 space-y-1 text-sm">
           <p className="font-medium">Valor Total</p>
           <p className="font-mono font-semibold">
-            {total.toLocaleString("pt-BR", {
+            {(total / 100).toLocaleString("pt-BR", {
               style: "currency",
               currency: "BRL",
             })}
