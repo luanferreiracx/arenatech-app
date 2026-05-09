@@ -1,0 +1,81 @@
+enum InvoiceType {
+  NFE
+  NFCE
+  NFSE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  AUTHORIZED
+  CANCELLED
+  REJECTED
+  CORRECTION_LETTER
+}
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  type            InvoiceType
+  status          InvoiceStatus @default(DRAFT)
+  number          Int?
+  series          Int?          @default(1)
+  accessKey       String?       @map("access_key")
+
+  // Reference (OS or Sale)
+  referenceId     String?       @map("reference_id") @db.Uuid
+  referenceType   String?       @map("reference_type")
+
+  // Recipient
+  recipientName   String?       @map("recipient_name")
+  recipientCpfCnpj String?     @map("recipient_cpf_cnpj")
+
+  // Values
+  totalAmount     Decimal       @default(0) @map("total_amount") @db.Decimal(10, 2)
+
+  // Provider data
+  providerRef     String?       @map("provider_ref")
+  providerStatus  String?       @map("provider_status")
+  xmlUrl          String?       @map("xml_url")
+  pdfUrl          String?       @map("pdf_url")
+
+  // Correction
+  correctionReason String?      @map("correction_reason")
+
+  // Full payload/response
+  payload         Json?
+  response        Json?
+
+  createdById     String        @map("created_by_id") @db.Uuid
+  authorizedAt    DateTime?     @map("authorized_at")
+  cancelledAt     DateTime?     @map("cancelled_at")
+  deletedAt       DateTime?     @map("deleted_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  items           InvoiceItem[]
+
+  @@index([tenantId, type, status])
+  @@index([tenantId, referenceId])
+  @@index([tenantId, number])
+  @@index([tenantId, accessKey])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  invoiceId       String   @map("invoice_id") @db.Uuid
+  description     String
+  quantity        Decimal  @default(1) @db.Decimal(10, 2)
+  unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
+  total           Decimal  @db.Decimal(10, 2)
+  ncm             String?
+  cfop            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, invoiceId])
+  @@map("invoice_items")
+}

@@ -1,0 +1,73 @@
+enum MessageChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+model Message {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  channel          MessageChannel
+  direction        MessageDirection @default(OUTBOUND)
+  status           MessageStatus    @default(PENDING)
+
+  recipientPhone   String?          @map("recipient_phone")
+  recipientEmail   String?          @map("recipient_email")
+  recipientName    String?          @map("recipient_name")
+
+  subject          String?
+  body             String
+  templateName     String?          @map("template_name")
+  templateParams   Json?            @map("template_params")
+
+  // Reference
+  referenceId      String?          @map("reference_id") @db.Uuid
+  referenceType    String?          @map("reference_type")
+
+  // Provider
+  providerMessageId String?         @map("provider_message_id")
+  providerResponse Json?            @map("provider_response")
+  errorMessage     String?          @map("error_message")
+
+  sentAt           DateTime?        @map("sent_at")
+  deliveredAt      DateTime?        @map("delivered_at")
+  readAt           DateTime?        @map("read_at")
+  createdById      String?          @map("created_by_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([tenantId, channel, status])
+  @@index([tenantId, referenceId])
+  @@index([tenantId, recipientPhone])
+  @@index([tenantId, createdAt])
+  @@map("messages")
+}
+
+model MessageTemplate {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  channel     MessageChannel
+  name        String
+  slug        String
+  body        String
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, channel, active])
+  @@map("message_templates")
+}

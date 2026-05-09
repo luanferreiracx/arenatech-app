@@ -14,6 +14,8 @@ import {
   Smartphone,
   Truck,
   BarChart3,
+  Receipt,
+  MessageSquare,
 } from "lucide-react";
 
 export interface NavItem {
@@ -32,6 +34,8 @@ export const appNavItems: NavItem[] = [
   { label: "Catálogo", href: "/catalog", icon: BookOpen },
   { label: "Financeiro", href: "/financial", icon: DollarSign },
   { label: "Operação", href: "/operation", icon: Truck },
+  { label: "Fiscal", href: "/fiscal", icon: Receipt },
+  { label: "Comunicação", href: "/communication", icon: MessageSquare },
   { label: "Comissões", href: "/commissions", icon: Percent },
   { label: "Consulta IMEI", href: "/imei", icon: Smartphone },
   { label: "Configurações", href: "/settings", icon: Settings },
