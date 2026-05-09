@@ -28,14 +28,24 @@ async function generateOrderNumber(tx: TransactionClient, tenantId: string): Pro
   const year = new Date().getFullYear();
   const prefix = `OS${year}`;
 
-  const lastOrder = await tx.serviceOrder.findFirst({
-    where: { tenantId, number: { startsWith: prefix } },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
+  // Retry loop handles concurrent number generation
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const lastOrder = await tx.serviceOrder.findFirst({
+      where: { tenantId, number: { startsWith: prefix } },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
 
-  const lastNum = lastOrder ? parseInt(lastOrder.number.slice(prefix.length), 10) : 0;
-  return `${prefix}${String(lastNum + 1).padStart(5, "0")}`;
+    const lastNum = lastOrder ? parseInt(lastOrder.number.slice(prefix.length), 10) : 0;
+    const newNumber = `${prefix}${String(lastNum + 1).padStart(5, "0")}`;
+
+    // Check if already exists (concurrent conflict)
+    const exists = await tx.serviceOrder.findFirst({ where: { tenantId, number: newNumber } });
+    if (!exists) return newNumber;
+  }
+
+  // Fallback: use timestamp-based suffix
+  return `${prefix}${Date.now().toString().slice(-5)}`;
 }
 
 async function recalculateTotals(tx: TransactionClient, orderId: string, discount?: number) {

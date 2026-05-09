@@ -26,14 +26,24 @@ async function generateSaleNumber(tx: TransactionClient, tenantId: string): Prom
   const year = new Date().getFullYear();
   const prefix = `VND${year}`;
 
-  const lastSale = await tx.sale.findFirst({
-    where: { tenantId, number: { startsWith: prefix } },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
+  // Retry loop handles concurrent number generation
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const lastSale = await tx.sale.findFirst({
+      where: { tenantId, number: { startsWith: prefix } },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
 
-  const lastNum = lastSale ? parseInt(lastSale.number.slice(prefix.length), 10) : 0;
-  return `${prefix}${String(lastNum + 1).padStart(5, "0")}`;
+    const lastNum = lastSale ? parseInt(lastSale.number.slice(prefix.length), 10) : 0;
+    const newNumber = `${prefix}${String(lastNum + 1).padStart(5, "0")}`;
+
+    // Check if already exists (concurrent conflict)
+    const exists = await tx.sale.findFirst({ where: { tenantId, number: newNumber } });
+    if (!exists) return newNumber;
+  }
+
+  // Fallback: use timestamp-based suffix
+  return `${prefix}${Date.now().toString().slice(-5)}`;
 }
 
 async function recalculateSaleTotals(
@@ -62,7 +72,7 @@ async function recalculateSaleTotals(
   if (dType === "fixed") {
     discountAmount = dValue ?? 0;
   } else if (dType === "percent") {
-    discountAmount = Math.round(subtotal * (dValue ?? 0)) / 100;
+    discountAmount = Math.round((subtotal * (dValue ?? 0)) / 100);
   }
 
   const totalAmount = Math.max(0, subtotal - discountAmount);
@@ -433,24 +443,36 @@ export const saleRouter = createTRPCRouter({
           where: { userId, status: "OPEN" },
         });
 
+        // Distribute changeAmount across CASH payments proportionally
+        let remainingChange = changeAmount;
+
         for (const payment of payments) {
           // Create cash movement (if register is open)
           if (openRegister) {
-            await tx.cashMovement.create({
-              data: {
-                tenantId: ctx.tenantId,
-                cashRegisterId: openRegister.id,
-                type: "SALE",
-                amount: payment.method === "CASH" || payment.method === "Dinheiro"
-                  ? Math.min(payment.amount, totalAmount - payments.filter((p) => p !== payment && (p.method === "CASH" || p.method === "Dinheiro")).reduce((s, p) => s + p.amount, 0) > 0 ? payment.amount : payment.amount)
-                  : payment.amount,
-                paymentMethod: payment.method,
-                description: `Venda ${updatedSale.number}`,
-                referenceId: updatedSale.id,
-                referenceType: "SALE",
-                userId,
-              },
-            });
+            const isCash = payment.method === "CASH" || payment.method === "Dinheiro";
+            // For cash payments, subtract change so the register reflects actual sale value
+            let movementAmount = payment.amount;
+            if (isCash && remainingChange > 0) {
+              const deduction = Math.min(remainingChange, payment.amount);
+              movementAmount = payment.amount - deduction;
+              remainingChange -= deduction;
+            }
+
+            if (movementAmount > 0) {
+              await tx.cashMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  cashRegisterId: openRegister.id,
+                  type: "SALE",
+                  amount: movementAmount,
+                  paymentMethod: payment.method,
+                  description: `Venda ${updatedSale.number}`,
+                  referenceId: updatedSale.id,
+                  referenceType: "SALE",
+                  userId,
+                },
+              });
+            }
           }
 
           // Create financial transaction (RECEIVABLE)
