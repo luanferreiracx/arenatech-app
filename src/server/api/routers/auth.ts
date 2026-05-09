@@ -1,6 +1,12 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "@/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { prisma } from "@/server/db";
+import { hashPassword } from "@/lib/password";
+import { sendEmail } from "@/lib/services/email-service";
+import { compareSync } from "bcryptjs";
+import { randomUUID } from "crypto";
+import { logger } from "@/lib/logger";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -12,10 +18,7 @@ export const authRouter = createTRPCRouter({
     };
   }),
 
-  /** Validate that user has access to the given tenant.
-   *  Actual JWT update is done via NextAuth's update() on the client side.
-   *  This procedure just validates the tenant access.
-   */
+  /** Validate that user has access to the given tenant. */
   validateTenantAccess: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid() }))
     .mutation(({ ctx, input }) => {
@@ -29,5 +32,167 @@ export const authRouter = createTRPCRouter({
         });
       }
       return { success: true, tenantId: input.tenantId };
+    }),
+
+  /** Request password reset — sends email with reset link */
+  forgotPassword: publicProcedure
+    .input(z.object({ identifier: z.string().min(1, "Informe o CPF ou e-mail") }))
+    .mutation(async ({ input }) => {
+      // Normalize: remove formatting from CPF
+      const normalized = input.identifier.replace(/\D/g, "");
+      const isCpf = /^\d{11}$/.test(normalized);
+
+      // Find user by CPF or email
+      const user = await prisma.user.findFirst({
+        where: isCpf
+          ? { cpf: normalized }
+          : { email: { equals: input.identifier, mode: "insensitive" } },
+        select: { id: true, email: true, name: true },
+      });
+
+      // Always return success to prevent user enumeration
+      if (!user || !user.email) {
+        logger.info("forgotPassword: user not found or no email", {
+          identifier: isCpf ? "***CPF***" : input.identifier,
+        });
+        return { success: true };
+      }
+
+      // Generate token
+      const token = randomUUID();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // Invalidate previous tokens for this user
+      await prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      // Create new token
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          token,
+          expiresAt,
+        },
+      });
+
+      // Build reset link
+      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000";
+      const resetLink = `${baseUrl}/reset-password?token=${token}`;
+
+      // Send email
+      await sendEmail(
+        user.email,
+        "Arena Tech - Redefinir senha",
+        `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #c9a55c;">Arena Tech</h2>
+          <p>Ola, ${user.name}!</p>
+          <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${resetLink}"
+               style="background-color: #c9a55c; color: #0a0a0a; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+              Redefinir Senha
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #666;">Este link expira em 1 hora. Se voce nao solicitou a redefinicao, ignore este e-mail.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+          <p style="font-size: 12px; color: #999;">Arena Tech - Sistema de Gestao</p>
+        </div>
+        `,
+      );
+
+      logger.info("forgotPassword: reset email sent", { userId: user.id });
+      return { success: true };
+    }),
+
+  /** Reset password using token */
+  resetPassword: publicProcedure
+    .input(
+      z.object({
+        token: z.string().uuid(),
+        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const resetToken = await prisma.passwordResetToken.findUnique({
+        where: { token: input.token },
+        include: { user: { select: { id: true } } },
+      });
+
+      if (!resetToken) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Token invalido ou expirado",
+        });
+      }
+
+      if (resetToken.usedAt) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este link ja foi utilizado",
+        });
+      }
+
+      if (resetToken.expiresAt < new Date()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este link expirou. Solicite um novo.",
+        });
+      }
+
+      const passwordHash = hashPassword(input.newPassword);
+
+      // Update password and mark token as used
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: resetToken.userId },
+          data: { passwordHash },
+        }),
+        prisma.passwordResetToken.update({
+          where: { id: resetToken.id },
+          data: { usedAt: new Date() },
+        }),
+      ]);
+
+      logger.info("resetPassword: password updated", { userId: resetToken.userId });
+      return { success: true };
+    }),
+
+  /** Change password (authenticated user) */
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1, "Informe a senha atual"),
+        newPassword: z.string().min(6, "A nova senha deve ter pelo menos 6 caracteres"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { id: true, passwordHash: true },
+      });
+
+      if (!user) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Usuario nao encontrado" });
+      }
+
+      const isValid = compareSync(input.currentPassword, user.passwordHash);
+      if (!isValid) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Senha atual incorreta",
+        });
+      }
+
+      const passwordHash = hashPassword(input.newPassword);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      });
+
+      logger.info("changePassword: password updated", { userId: user.id });
+      return { success: true };
     }),
 });
