@@ -1,4 +1,5 @@
 import type { ImeiResult } from "@/lib/validators/imei";
+import { logger } from "@/lib/logger";
 
 /**
  * Query IMEI information from external API.
@@ -11,9 +12,11 @@ export async function queryImei(imei: string): Promise<ImeiResult> {
   const apiKey = process.env.IMEI_API_KEY;
 
   if (!apiUrl || !apiKey) {
-    // Mock response for development
+    logger.info("IMEI: mock mode (no credentials)", { imei });
     return getMockResult(imei);
   }
+
+  logger.info("IMEI: querying", { imei });
 
   try {
     const response = await fetch(`${apiUrl}/check`, {
@@ -27,6 +30,7 @@ export async function queryImei(imei: string): Promise<ImeiResult> {
     });
 
     if (!response.ok) {
+      logger.error("IMEI: API error", { imei, status: response.status });
       throw new Error(`IMEI API returned HTTP ${response.status}`);
     }
 

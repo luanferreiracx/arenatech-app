@@ -7,6 +7,8 @@
  * @see https://doc.evolution-api.com/
  */
 
+import { logger } from "@/lib/logger";
+
 // ────────────────────────────────────────────────────────────────────────────
 // Types
 // ────────────────────────────────────────────────────────────────────────────
@@ -76,9 +78,11 @@ export async function sendTextMessage(
   const formattedPhone = formatPhone(phone);
 
   if (!config) {
-    console.log(`[WhatsApp Mock] Sending text to ${formattedPhone}: ${text.substring(0, 100)}...`);
+    logger.info("WhatsApp: mock mode (no credentials)", { phone: formattedPhone });
     return { success: true, messageId: `mock-wa-${Date.now()}` };
   }
+
+  logger.info("WhatsApp: sending text", { phone: formattedPhone });
 
   try {
     const response = await fetch(
@@ -109,8 +113,13 @@ export async function sendTextMessage(
     const key = data["key"] as Record<string, unknown> | undefined;
     const messageId = key ? String(key["id"] ?? "") : undefined;
 
+    logger.info("WhatsApp: text sent", { phone: formattedPhone, messageId });
     return { success: true, messageId };
   } catch (error) {
+    logger.error("WhatsApp: send text error", {
+      phone: formattedPhone,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erro ao enviar WhatsApp",
@@ -130,11 +139,11 @@ export async function sendMediaMessage(
   const formattedPhone = formatPhone(phone);
 
   if (!config) {
-    console.log(
-      `[WhatsApp Mock] Sending media to ${formattedPhone}: ${mediaUrl} (caption: ${caption ?? "none"})`,
-    );
+    logger.info("WhatsApp: mock media send", { phone: formattedPhone, mediaUrl });
     return { success: true, messageId: `mock-wa-media-${Date.now()}` };
   }
+
+  logger.info("WhatsApp: sending media", { phone: formattedPhone, mediaUrl });
 
   try {
     const response = await fetch(

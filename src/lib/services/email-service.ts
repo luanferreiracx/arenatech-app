@@ -8,6 +8,8 @@
  * @see https://resend.com/docs
  */
 
+import { logger } from "@/lib/logger";
+
 // ────────────────────────────────────────────────────────────────────────────
 // Types
 // ────────────────────────────────────────────────────────────────────────────
@@ -31,9 +33,11 @@ export async function sendEmail(
   const from = process.env.EMAIL_FROM ?? "noreply@arenatechpi.com.br";
 
   if (!apiKey) {
-    console.log(`[Email Mock] To: ${to} | Subject: ${subject} | Body: ${html.substring(0, 100)}...`);
+    logger.info("Email: mock mode (no RESEND_API_KEY)", { to, subject });
     return { success: true, messageId: `mock-email-${Date.now()}` };
   }
+
+  logger.info("Email: sending via Resend", { to, subject });
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -53,6 +57,7 @@ export async function sendEmail(
 
     if (!response.ok) {
       const body = await response.text();
+      logger.error("Email: Resend API error", { status: response.status, to, subject });
       return {
         success: false,
         error: `Resend API HTTP ${response.status}: ${body.substring(0, 200)}`,
@@ -60,11 +65,18 @@ export async function sendEmail(
     }
 
     const data = (await response.json()) as Record<string, unknown>;
+    const messageId = String(data["id"] ?? "");
+    logger.info("Email: sent successfully", { to, subject, messageId });
     return {
       success: true,
-      messageId: String(data["id"] ?? ""),
+      messageId,
     };
   } catch (error) {
+    logger.error("Email: send error", {
+      to,
+      subject,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erro ao enviar e-mail",

@@ -7,6 +7,8 @@
  * @see https://dev.nuvemfiscal.com.br/docs/
  */
 
+import { logger } from "@/lib/logger";
+
 // ────────────────────────────────────────────────────────────────────────────
 // Types
 // ────────────────────────────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ async function getAccessToken(config: NuvemFiscalConfig): Promise<string> {
 
   if (!response.ok) {
     const body = await response.text();
+    logger.error("Nuvem Fiscal auth failed", { status: response.status, body });
     throw new Error(`Nuvem Fiscal auth failed (HTTP ${response.status}): ${body}`);
   }
 
@@ -126,12 +129,14 @@ async function apiFetch(
 export async function createAndAuthorizeInvoice(payload: Record<string, unknown>): Promise<FiscalEmitResult> {
   const config = getConfig();
   if (!config) {
+    logger.info("Nuvem Fiscal: mock mode (no credentials)");
     return getMockEmitResult();
   }
 
   try {
     const modelo = payload["modelo"] as string | undefined;
     const endpoint = modelo === "65" ? "/nfce" : "/nfe";
+    logger.info("Nuvem Fiscal: emitting invoice", { endpoint, modelo });
 
     const response = await apiFetch(config, endpoint, {
       method: "POST",
@@ -173,6 +178,9 @@ export async function createAndAuthorizeInvoice(payload: Record<string, unknown>
 
     return { success: false, error: errorMsg };
   } catch (error) {
+    logger.error("Nuvem Fiscal: emit error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erro desconhecido ao emitir NF-e",
