@@ -44,9 +44,18 @@ export const adminRouter = createTRPCRouter({
         tx.plan.findMany({ where: { status: "ACTIVE" } }),
       ]);
 
-      // Estimated revenue from active plans
+      // Estimated revenue: sum(plan.monthlyPrice * count of active tenants on that plan)
+      const activeTenantsByPlan = await tx.tenant.groupBy({
+        by: ["plan"],
+        _count: { _all: true },
+        where: { status: "ACTIVE", plan: { not: null } },
+      });
+      const planCountMap = new Map(
+        activeTenantsByPlan.map((g) => [g.plan, g._count._all]),
+      );
+
       const estimatedRevenue = plans.reduce(
-        (sum, plan) => sum + Number(plan.monthlyPrice),
+        (sum, plan) => sum + Number(plan.monthlyPrice) * (planCountMap.get(plan.slug) ?? 0),
         0,
       );
 
