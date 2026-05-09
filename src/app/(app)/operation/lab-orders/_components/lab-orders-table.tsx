@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, Plus, ArrowRight } from "lucide-react";
+import { Plus, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
