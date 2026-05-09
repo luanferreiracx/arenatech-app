@@ -646,6 +646,16 @@ export const saleRouter = createTRPCRouter({
           data: { status: "CANCELLED" },
         });
 
+        // 3b. Cancel pending commissions linked to this sale
+        await tx.commission.updateMany({
+          where: {
+            referenceId: sale.id,
+            referenceType: "sale",
+            status: "PENDING",
+          },
+          data: { status: "CANCELLED", notes: `Estorno venda ${sale.number}` },
+        });
+
         // 4. Update sale status
         return tx.sale.update({
           where: { id: input.saleId },

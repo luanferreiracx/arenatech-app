@@ -161,11 +161,11 @@ export const commissionRouter = createTRPCRouter({
           },
         });
 
-        // Get completed service orders in the period
+        // Get completed service orders in the period (use completedDate, not updatedAt)
         const serviceOrders = await tx.serviceOrder.findMany({
           where: {
             status: { in: ["COMPLETED", "DELIVERED"] },
-            updatedAt: { gte: startDate, lte: endDate },
+            completedDate: { gte: startDate, lte: endDate },
           },
         });
 
