@@ -609,24 +609,31 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // 2. Create negative cash movement
+        // 2. Create negative cash movements only for cash-equivalent payments
         const openRegister = await tx.cashRegister.findFirst({
           where: { userId, status: "OPEN" },
         });
         if (openRegister) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashRegisterId: openRegister.id,
-              type: "WITHDRAWAL",
-              amount: Number(sale.totalAmount),
-              paymentMethod: "REFUND",
-              description: `Estorno venda ${sale.number}`,
-              referenceId: sale.id,
-              referenceType: "SALE_REFUND",
-              userId,
-            },
-          });
+          const paymentDetails = (sale.paymentDetails ?? []) as PaymentDetail[];
+          const cashMethods = ["CASH", "Dinheiro"];
+
+          for (const payment of paymentDetails) {
+            if (cashMethods.includes(payment.method)) {
+              await tx.cashMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  cashRegisterId: openRegister.id,
+                  type: "WITHDRAWAL",
+                  amount: Math.min(payment.amount, Number(sale.totalAmount)),
+                  paymentMethod: "REFUND",
+                  description: `Estorno venda ${sale.number} — ${payment.method}`,
+                  referenceId: sale.id,
+                  referenceType: "SALE_REFUND",
+                  userId,
+                },
+              });
+            }
+          }
         }
 
         // 3. Cancel related financial transactions
