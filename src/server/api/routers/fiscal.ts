@@ -18,6 +18,7 @@ import {
   getInvoiceDocumentUrls,
 } from "@/lib/services/fiscal-service";
 import type { Prisma } from "@prisma/client";
+import { buildFiscalPayload } from "@/lib/services/fiscal-payload-builder";
 
 export const fiscalRouter = createTRPCRouter({
   // ── List ─────────────────────────────────────────────────────────────────
@@ -158,14 +159,64 @@ export const fiscalRouter = createTRPCRouter({
           });
         }
 
+        // Fetch tenant settings for emitente data
+        const settings = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+
+        // Fetch customer for destinatario
+        let customer: { name: string; cpf: string | null; cnpj: string | null; email: string | null; address: unknown } | null = null;
+        if (sale.customerId) {
+          customer = await tx.customer.findFirst({
+            where: { id: sale.customerId },
+            select: { name: true, cpf: true, cnpj: true, email: true, address: true },
+          });
+        }
+
+        const settingsAddr = settings?.address as Record<string, string> | null;
+        const custAddr = customer?.address as Record<string, string> | null;
+
+        // Build fiscal payload
+        const payload = buildFiscalPayload({
+          tipo: input.type,
+          emitente: {
+            cnpj: settings?.cnpj ?? "",
+            ie: settings?.ie ?? undefined,
+            razaoSocial: settings?.legalName ?? settings?.tradeName ?? "Emitente",
+            nomeFantasia: settings?.tradeName ?? undefined,
+            endereco: settingsAddr
+              ? { logradouro: settingsAddr.street, numero: settingsAddr.number, complemento: settingsAddr.complement, bairro: settingsAddr.neighborhood, municipio: settingsAddr.city, uf: settingsAddr.state, cep: settingsAddr.zip }
+              : undefined,
+          },
+          destinatario: customer
+            ? {
+                nome: customer.name,
+                cpfCnpj: customer.cnpj ?? customer.cpf ?? "",
+                email: customer.email ?? undefined,
+                endereco: custAddr
+                  ? { logradouro: custAddr.street, numero: custAddr.number, bairro: custAddr.neighborhood, municipio: custAddr.city, uf: custAddr.state, cep: custAddr.zip }
+                  : undefined,
+              }
+            : null,
+          itens: sale.items.map((item) => ({
+            descricao: item.description,
+            quantidade: item.quantity,
+            valorUnitario: Number(item.unitPrice),
+            valorTotal: Number(item.total),
+          })),
+          valorTotal: Number(sale.totalAmount),
+        });
+
         const invoice = await tx.invoice.create({
           data: {
             tenantId: ctx.tenantId,
             type: input.type,
             referenceId: sale.id,
             referenceType: "sale",
-            recipientName: null,
+            recipientName: customer?.name ?? null,
+            recipientCpfCnpj: customer?.cnpj ?? customer?.cpf ?? null,
             totalAmount: sale.totalAmount,
+            payload: payload as Prisma.InputJsonValue,
             createdById: ctx.session.user.id,
             items: {
               create: sale.items.map((item) => ({
@@ -221,14 +272,61 @@ export const fiscalRouter = createTRPCRouter({
           0,
         );
 
+        // Fetch tenant settings for emitente data
+        const settings = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+
+        // Fetch customer for destinatario
+        const customer = await tx.customer.findFirst({
+          where: { id: serviceOrder.customerId },
+          select: { name: true, cpf: true, cnpj: true, email: true, address: true },
+        });
+
+        const settingsAddr = settings?.address as Record<string, string> | null;
+        const custAddr = customer?.address as Record<string, string> | null;
+
+        // Build fiscal payload (NFS-e for service orders)
+        const payload = buildFiscalPayload({
+          tipo: "NFSE",
+          emitente: {
+            cnpj: settings?.cnpj ?? "",
+            ie: settings?.ie ?? undefined,
+            razaoSocial: settings?.legalName ?? settings?.tradeName ?? "Emitente",
+            nomeFantasia: settings?.tradeName ?? undefined,
+            endereco: settingsAddr
+              ? { logradouro: settingsAddr.street, numero: settingsAddr.number, complemento: settingsAddr.complement, bairro: settingsAddr.neighborhood, municipio: settingsAddr.city, uf: settingsAddr.state, cep: settingsAddr.zip }
+              : undefined,
+          },
+          destinatario: customer
+            ? {
+                nome: customer.name,
+                cpfCnpj: customer.cnpj ?? customer.cpf ?? "",
+                email: customer.email ?? undefined,
+                endereco: custAddr
+                  ? { logradouro: custAddr.street, numero: custAddr.number, bairro: custAddr.neighborhood, municipio: custAddr.city, uf: custAddr.state, cep: custAddr.zip }
+                  : undefined,
+              }
+            : null,
+          itens: serviceOrder.items.map((item) => ({
+            descricao: item.description,
+            quantidade: Number(item.quantity),
+            valorUnitario: Number(item.unitPrice),
+            valorTotal: Number(item.total),
+          })),
+          valorTotal: totalAmount,
+        });
+
         const invoice = await tx.invoice.create({
           data: {
             tenantId: ctx.tenantId,
             type: "NFSE",
             referenceId: serviceOrder.id,
             referenceType: "service_order",
-            recipientName: null,
+            recipientName: customer?.name ?? null,
+            recipientCpfCnpj: customer?.cnpj ?? customer?.cpf ?? null,
             totalAmount,
+            payload: payload as Prisma.InputJsonValue,
             createdById: ctx.session.user.id,
             items: {
               create: serviceOrder.items.map((item) => ({
