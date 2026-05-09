@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Fases 9, 13, 14 paralelizáveis (EM ANDAMENTO)
-**Ultima atualizacao:** 2026-05-08
+**Fase atual:** Fase 14 (Recompensas) pendente
+**Ultima atualizacao:** 2026-05-09
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 55
+**Commits desde ultimo deploy:** 56
 
 ---
 
@@ -126,7 +126,15 @@
 - [x] Testes (35 unit + 5 e2e)
 - [x] Commit final
 
-### ☐ Fase 9 — Fiscal (paralelizável)
+### ✓ Fase 9 — Fiscal (NF-e via Nuvem Fiscal)
+- [x] Schema invoices + invoice_items (2 tabelas, 2 enums, RLS)
+- [x] Validators Zod: fiscal.ts (9 schemas)
+- [x] Serviço: fiscal-service.ts com OAuth2, mock dev + real API prod
+- [x] tRPC router: fiscalRouter (11 procedures: list, getById, create, createFromSale, createFromServiceOrder, authorize, cancel, correctionLetter, downloadPdf, downloadXml, stats)
+- [x] Páginas: /fiscal (listagem + stats cards), /fiscal/new (emissão manual), /fiscal/[id] (detalhe com autorizar/cancelar/carta correção/PDF/XML)
+- [x] Sidebar: Fiscal adicionado
+- [x] Testes: 26 unit tests de validators
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ✓ Fase 10 — Comissões
 - [x] Schema commission_rules + commissions + RLS
 - [x] Validators Zod: createRule, updateRule, listRules, listCommissions, calculate, changeStatus, batchChange, report
@@ -153,7 +161,16 @@
 - [x] Sidebar: Consulta IMEI adicionado
 - [x] Testes: 19 unit tests de validators
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
-### ☐ Fase 13 — Comunicação (paralelizável)
+### ✓ Fase 13 — Comunicação (WhatsApp + Email)
+- [x] Schema messages + message_templates (2 tabelas, 3 enums, RLS)
+- [x] Serviço: whatsapp-service.ts (Evolution API), email-service.ts (Resend)
+- [x] Validators Zod: communication.ts (8 schemas)
+- [x] tRPC router: communicationRouter (14 procedures: list, getById, send, sendToCustomer, resend, notifyOsCompleted, notifyOsStatusChanged, sendOsReceipt, sendSaleReceipt, listTemplates, createTemplate, updateTemplate, deleteTemplate)
+- [x] Páginas: /communication (histórico), /communication/send (envio manual), /communication/templates (CRUD templates)
+- [x] Quick actions: notifyOsCompleted, notifyOsStatusChanged, sendOsReceipt, sendSaleReceipt
+- [x] Sidebar: Comunicação adicionado
+- [x] Testes: 22 unit tests de validators + 6 unit tests whatsapp-service
+- [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
 ### ☐ Fase 14 — Recompensas (paralelizável, requer decisão prévia)
 ### ✓ Fase 15 — Admin Central (SaaS)
 - [x] Schema admin.prisma (2 tabelas globais: plans, pre_registrations — sem tenant_id, sem RLS)
@@ -221,6 +238,28 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-09 — Fases 9 + 13
+
+- **Implementado:**
+  - **Fase 9 (Fiscal):** 2 tabelas Prisma (invoices, invoice_items) + 2 enums (InvoiceType, InvoiceStatus), RLS em ambas, 9 validators Zod, 11 procedures tRPC, 3 páginas (listagem + emissão manual + detalhe), sidebar atualizada
+  - **Fase 13 (Comunicação):** 2 tabelas Prisma (messages, message_templates) + 3 enums (MessageChannel, MessageStatus, MessageDirection), RLS em ambas, 8 validators Zod, 14 procedures tRPC, 3 páginas (histórico + envio manual + templates), sidebar atualizada
+  - fiscal-service.ts: OAuth2 Client Credentials com cache de token, polling assíncrono, mock automático sem env vars
+  - whatsapp-service.ts: Evolution API (sendText, sendMedia, sendTemplate, formatPhone), mock automático
+  - email-service.ts: Resend API, mock automático
+  - Quick actions: notifyOsCompleted, notifyOsStatusChanged, sendOsReceipt, sendSaleReceipt com lookup de template + customer
+  - 54 testes novos (26 fiscal + 22 communication + 6 whatsapp-service), total 343
+- **Decisões:**
+  - Nuvem Fiscal como provider único (conforme decisão pendente já documentada)
+  - Evolution API para WhatsApp (não Meta Cloud API diretamente, conforme ADR existente)
+  - Chatwoot não implementado nesta fase (placeholder futuro)
+  - VendaBot fora do escopo
+  - Services com fallback mock: log + retorno success quando env vars ausentes
+  - Templates de mensagem são tenant-scoped com slug único (@@unique([tenantId, slug]))
+  - Zod v4: z.record() requer 2 argumentos (key, value); .email() antes de .max() pode causar type error
+- **Próximo:** Fase 14 — Recompensas (requer decisão prévia de regras)
+
+---
 
 ### 2026-05-08 — Fases 11 + 15
 
@@ -507,11 +546,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de codigo | ~18500 |
-| Cobertura de testes | 289 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 38 (32 anteriores + 4 operation + 2 admin) |
-| Procedures tRPC | 143 (114 anteriores + operation.14 + admin.15) |
-| Paginas | 80+ (62 anteriores + operation 7 + admin 9 + register 1) |
+| Linhas de codigo | ~23300 |
+| Cobertura de testes | 343 unit + 6 integration + 25 e2e |
+| Tabelas no schema | 42 (38 anteriores + 2 fiscal + 2 communication) |
+| Procedures tRPC | 168 (143 anteriores + fiscal.11 + communication.14) |
+| Paginas | 86+ (80 anteriores + fiscal 3 + communication 3) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
