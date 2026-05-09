@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, ArrowLeftRight, LogOut, User } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowLeftRight, LogOut, User, Shield } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/branding/logo";
@@ -27,9 +27,10 @@ interface AppSidebarProps {
   userName: string;
   multiTenant: boolean;
   tenantName?: string;
+  isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -111,6 +112,23 @@ export function AppSidebar({ userName, multiTenant, tenantName }: AppSidebarProp
 
         {/* Footer */}
         <div className="border-t border-sidebar-border p-2 shrink-0 space-y-1">
+          {isSuperAdmin && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href="/admin"
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-2 py-2 text-sm text-warning font-medium hover:bg-sidebar-accent transition-colors",
+                    isCollapsed ? "justify-center" : ""
+                  )}
+                >
+                  <Shield className="w-4 h-4 shrink-0" />
+                  {!isCollapsed && <span className="truncate">Admin Central</span>}
+                </Link>
+              </TooltipTrigger>
+              {isCollapsed && <TooltipContent side="right">Admin Central</TooltipContent>}
+            </Tooltip>
+          )}
           {multiTenant && (
             <Tooltip>
               <TooltipTrigger asChild>
