@@ -7,6 +7,7 @@ const navItems = [
   { href: "/settings/payment-methods", label: "Formas de Pagamento" },
   { href: "/settings/integrations", label: "Integrações" },
   { href: "/settings/users", label: "Usuários" },
+  { href: "/settings/security", label: "Segurança" },
 ];
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
