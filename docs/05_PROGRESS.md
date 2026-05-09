@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 17 — Cutover CONCLUIDA. Fase 14 (Recompensas) adiada.
+**Fase atual:** Fase 17 — Cutover CONCLUIDA. Migracao de dados executada. Fase 14 (Recompensas) adiada.
 **Ultima atualizacao:** 2026-05-08
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 57
@@ -204,7 +204,7 @@
 - [x] .env.production.example com todas as variaveis
 - [x] Nginx config (SSL Cloudflare, real IP, security headers, proxy 3001)
 - [x] GitHub Actions CI/CD (validate + deploy via SSH)
-- [x] Script de migracao de dados (placeholder com mapeamento completo)
+- [x] Script de migracao de dados (scripts/migrate-arena-dev.sh — executado com sucesso)
 - [x] RUNBOOK.md operacional (deploy, monitoramento, backup, cutover)
 - [x] README.md atualizado (stack, setup, comandos, modulos, deploy)
 - [x] typecheck ✓ | lint ✓ | test ✓ | build ✓
@@ -259,6 +259,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-08 — Migracao de dados arena_dev
+
+- **Implementado:**
+  - Script shell `scripts/migrate-arena-dev.sh` para migracao MySQL -> PostgreSQL via SSH
+  - 15 tabelas migradas com verificacao de contagem (todas batendo)
+  - usuarios (13), clientes (1236), servicos (96), avaliacoes (231), produtos (665), formas_pagamento (9), entregadores (2), prestadores (5), ordens_servico (160), OS itens (168), OS historico (1352), vendas (1728), venda itens (1782), contas_receber (499), contas_pagar (46)
+  - Mapeamento old_id -> new_uuid via tabelas temporarias _map_*
+  - Idempotente: DELETE + INSERT por tabela a cada execucao
+- **Decisoes:**
+  - COALESCE(NULLIF(col,''),'__X__') para evitar colapso de tabs em campos vazios pelo bash read
+  - IF(col IS NULL, default, col) para colunas DATETIME/TIMESTAMP (MySQL strict mode rejeita NULLIF com '')
+  - REPLACE(REPLACE(col,'\n',' '),'\r','') para campos TEXT multiline que quebram while read
+  - Produto placeholder "Item Avulso (Migrado)" para 18 sale_items sem product_id (FK NOT NULL)
+  - Passwords bcrypt $2y$ do PHP sao compativeis com bcryptjs do Node.js
+  - Users do seed preservados; apenas users do MySQL (com CPF valido) migrados
+- **Proximo:** Cutover real (janela de manutencao com o dono)
+
+---
 
 ### 2026-05-08 — Fase 17
 
