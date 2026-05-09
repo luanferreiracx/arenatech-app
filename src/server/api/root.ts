@@ -1,6 +1,6 @@
 import { createTRPCRouter } from "@/server/api/trpc";
-import { exampleRouter } from "@/server/api/routers/example";
 import { authRouter } from "@/server/api/routers/auth";
+import { dashboardRouter } from "@/server/api/routers/dashboard";
 import { settingsRouter } from "@/server/api/routers/settings";
 import { catalogRouter } from "@/server/api/routers/catalog";
 import { customerRouter } from "@/server/api/routers/customer";
@@ -17,8 +17,8 @@ import { fiscalRouter } from "@/server/api/routers/fiscal";
 import { communicationRouter } from "@/server/api/routers/communication";
 
 export const appRouter = createTRPCRouter({
-  example: exampleRouter,
   auth: authRouter,
+  dashboard: dashboardRouter,
   settings: settingsRouter,
   catalog: catalogRouter,
   customers: customerRouter,

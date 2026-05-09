@@ -1,7 +1,7 @@
 import { auth } from "@/server/auth";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DashboardClient } from "./_components/dashboard-client";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -22,62 +22,14 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Ordens Abertas
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">—</p>
-          </CardContent>
-        </Card>
+      <DashboardClient />
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Vendas Hoje
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">—</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Clientes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">—</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Faturamento do Mês
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">—</p>
-          </CardContent>
-        </Card>
+      <div className="rounded-lg border bg-card p-6">
+        <h2 className="text-lg font-semibold">Bem-vindo, {session.user.name}!</h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Use o menu lateral para navegar entre os modulos do sistema.
+        </p>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Bem-vindo, {session.user.name}!</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            O dashboard está em construção. Use o menu lateral para navegar.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }
