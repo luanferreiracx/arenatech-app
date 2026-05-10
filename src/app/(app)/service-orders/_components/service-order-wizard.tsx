@@ -24,9 +24,12 @@ import { toast } from "@/lib/toast";
 import {
   CHECKLIST_LABELS,
   DEVICE_INFO_LABELS,
+  WARRANTY_TYPE_LABELS,
+  WARRANTY_TYPES,
   type ChecklistInput,
   type DeviceInfoInput,
   type ServiceOrderItemInput,
+  type WarrantyType,
 } from "@/lib/validators/service-order";
 import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -59,7 +62,6 @@ interface WizardState {
   serialNumber: string;
   imei: string;
   devicePassword: string;
-  accessories: string;
   // Step 3
   reportedProblem: string;
   entryChecklist: ChecklistInput;
@@ -72,7 +74,8 @@ interface WizardState {
   technicianId: string;
   technicianName: string;
   isWarranty: boolean;
-  warrantyType: string;
+  warrantyType: WarrantyType | "";
+  warrantyMonths: number;
   originalOrderId: string;
   internalNotes: string;
   customerNotes: string;
@@ -87,7 +90,6 @@ const initialState: WizardState = {
   serialNumber: "",
   imei: "",
   devicePassword: "",
-  accessories: "",
   reportedProblem: "",
   entryChecklist: {},
   deviceInfo: {},
@@ -98,6 +100,7 @@ const initialState: WizardState = {
   technicianName: "",
   isWarranty: false,
   warrantyType: "",
+  warrantyMonths: 3,
   originalOrderId: "",
   internalNotes: "",
   customerNotes: "",
@@ -152,7 +155,6 @@ export function ServiceOrderWizard() {
       serialNumber: state.serialNumber || undefined,
       imei: state.imei || undefined,
       devicePassword: state.devicePassword || undefined,
-      accessories: state.accessories || undefined,
       reportedProblem: state.reportedProblem,
       entryChecklist: Object.keys(state.entryChecklist).length > 0 ? state.entryChecklist : undefined,
       deviceInfo: Object.keys(state.deviceInfo).length > 0 ? state.deviceInfo : undefined,
@@ -165,8 +167,9 @@ export function ServiceOrderWizard() {
       estimatedDate: state.estimatedDate?.toISOString(),
       technicianId: state.technicianId || undefined,
       isWarranty: state.isWarranty || undefined,
-      warrantyType: state.warrantyType || undefined,
-      originalOrderId: state.originalOrderId || undefined,
+      warrantyType: (state.isWarranty && state.warrantyType) ? state.warrantyType as WarrantyType : undefined,
+      warrantyMonths: state.isWarranty ? state.warrantyMonths : undefined,
+      originalOrderId: (state.isWarranty && state.originalOrderId) ? state.originalOrderId : undefined,
       internalNotes: state.internalNotes || undefined,
       customerNotes: state.customerNotes || undefined,
     };
@@ -379,15 +382,6 @@ function Step2Device({
           />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>Acessórios</Label>
-        <Textarea
-          value={state.accessories}
-          onChange={(e) => update("accessories", e.target.value)}
-          placeholder="Carregador, case, película..."
-          rows={2}
-        />
-      </div>
     </div>
   );
 }
@@ -474,6 +468,19 @@ function Step3Problem({
 
 // ── Step 4: Items ────────────────────────────────────────────────────────────
 
+interface ServiceItem {
+  id: string;
+  name: string;
+  basePrice: unknown; // Decimal from Prisma
+}
+
+interface ProductItem {
+  id: string;
+  name: string;
+  salePrice: unknown; // Decimal from Prisma
+  costPrice: unknown; // Decimal from Prisma
+}
+
 function Step4Items({
   state,
   setState,
@@ -481,6 +488,35 @@ function Step4Items({
   state: WizardState;
   setState: React.Dispatch<React.SetStateAction<WizardState>>;
 }) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const searchServices = useCallback(
+    async (query: string): Promise<ServiceItem[]> => {
+      const opts = trpc.catalog.listServices.queryOptions({
+        search: query,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result.items as ServiceItem[];
+    },
+    [trpc.catalog.listServices, queryClient],
+  );
+
+  const searchProducts = useCallback(
+    async (query: string): Promise<ProductItem[]> => {
+      const opts = trpc.stock.listProducts.queryOptions({
+        search: query,
+        active: true,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result.items as ProductItem[];
+    },
+    [trpc.stock.listProducts, queryClient],
+  );
 
   const addItem = () => {
     setState((prev) => ({
@@ -513,6 +549,58 @@ function Step4Items({
     }));
   };
 
+  const handleSelectService = (idx: number, serviceId: string | undefined) => {
+    if (!serviceId) {
+      updateItem(idx, "serviceId", undefined);
+      return;
+    }
+    // Search in cache to get the service details
+    void searchServices("").then((services) => {
+      const service = services.find((s) => s.id === serviceId);
+      if (service) {
+        setState((prev) => ({
+          ...prev,
+          items: prev.items.map((item, i) =>
+            i === idx
+              ? {
+                  ...item,
+                  serviceId: service.id,
+                  description: service.name,
+                  unitPrice: Math.round(Number(service.basePrice) * 100),
+                }
+              : item,
+          ),
+        }));
+      }
+    });
+  };
+
+  const handleSelectProduct = (idx: number, productId: string | undefined) => {
+    if (!productId) {
+      updateItem(idx, "productId", undefined);
+      return;
+    }
+    void searchProducts("").then((products) => {
+      const product = products.find((p) => p.id === productId);
+      if (product) {
+        setState((prev) => ({
+          ...prev,
+          items: prev.items.map((item, i) =>
+            i === idx
+              ? {
+                  ...item,
+                  productId: product.id,
+                  description: product.name,
+                  unitPrice: Math.round(Number(product.salePrice) * 100),
+                  costPrice: Math.round(Number(product.costPrice) * 100),
+                }
+              : item,
+          ),
+        }));
+      }
+    });
+  };
+
   const subtotal = state.items.reduce(
     (sum, item) => sum + item.quantity * item.unitPrice,
     0,
@@ -532,44 +620,79 @@ function Step4Items({
       {state.items.map((item, idx) => (
         <div
           key={idx}
-          className="grid gap-3 rounded-md border p-3 sm:grid-cols-[120px_1fr_100px_140px_auto]"
+          className="space-y-3 rounded-md border p-3"
         >
-          <Select
-            value={item.type}
-            onValueChange={(v) => updateItem(idx, "type", v)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="SERVICE">Serviço</SelectItem>
-              <SelectItem value="PRODUCT">Produto</SelectItem>
-            </SelectContent>
-          </Select>
-          <Input
-            placeholder="Descrição"
-            value={item.description}
-            onChange={(e) => updateItem(idx, "description", e.target.value)}
-          />
-          <Input
-            type="number"
-            placeholder="Qtd"
-            min={1}
-            value={item.quantity}
-            onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
-          />
-          <MoneyInput
-            value={item.unitPrice}
-            onChange={(val: number) => updateItem(idx, "unitPrice", val)}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={() => removeItem(idx)}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-3">
+            <Select
+              value={item.type}
+              onValueChange={(v) => {
+                updateItem(idx, "type", v);
+                // Reset linked entity when type changes
+                updateItem(idx, "serviceId", undefined);
+                updateItem(idx, "productId", undefined);
+                updateItem(idx, "description", "");
+                updateItem(idx, "unitPrice", 0);
+                updateItem(idx, "costPrice", undefined);
+              }}
+            >
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="SERVICE">Serviço</SelectItem>
+                <SelectItem value="PRODUCT">Produto</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex-1">
+              {item.type === "SERVICE" ? (
+                <EntitySelector<ServiceItem>
+                  value={item.serviceId}
+                  onChange={(val) => handleSelectService(idx, val)}
+                  searchFn={searchServices}
+                  getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
+                  getOptionValue={(s) => s.id}
+                  placeholder="Buscar serviço do catálogo..."
+                  emptyMessage="Nenhum serviço encontrado."
+                />
+              ) : (
+                <EntitySelector<ProductItem>
+                  value={item.productId}
+                  onChange={(val) => handleSelectProduct(idx, val)}
+                  searchFn={searchProducts}
+                  getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
+                  getOptionValue={(p) => p.id}
+                  placeholder="Buscar produto do estoque..."
+                  emptyMessage="Nenhum produto encontrado."
+                />
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-destructive hover:text-destructive"
+              onClick={() => removeItem(idx)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_100px_140px]">
+            <Input
+              placeholder="Descrição (manual)"
+              value={item.description}
+              onChange={(e) => updateItem(idx, "description", e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Qtd"
+              min={1}
+              value={item.quantity}
+              onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
+            />
+            <MoneyInput
+              value={item.unitPrice}
+              onChange={(val: number) => updateItem(idx, "unitPrice", val)}
+            />
+          </div>
         </div>
       ))}
 
@@ -621,6 +744,13 @@ interface TechnicianItem {
   name: string;
 }
 
+interface OrderSearchItem {
+  id: string;
+  number: string;
+  deviceModel: string | null;
+  reportedProblem: string | null;
+}
+
 function Step5Summary({
   state,
   update,
@@ -640,6 +770,26 @@ function Step5Summary({
       return result as TechnicianItem[];
     },
     [trpc.serviceOrders.listTechnicians, queryClient],
+  );
+
+  const searchOrders = useCallback(
+    async (query: string): Promise<OrderSearchItem[]> => {
+      if (!state.customerId) return [];
+      const opts = trpc.serviceOrders.list.queryOptions({
+        search: query,
+        customerId: state.customerId,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return (result.items as OrderSearchItem[]).map((o) => ({
+        id: o.id,
+        number: o.number,
+        deviceModel: o.deviceModel,
+        reportedProblem: o.reportedProblem,
+      }));
+    },
+    [trpc.serviceOrders.list, queryClient, state.customerId],
   );
 
   const subtotal = state.items.reduce(
@@ -712,7 +862,13 @@ function Step5Summary({
         <div className="flex items-center gap-2">
           <Switch
             checked={state.isWarranty}
-            onCheckedChange={(v) => update("isWarranty", v)}
+            onCheckedChange={(v) => {
+              update("isWarranty", v);
+              if (!v) {
+                update("warrantyType", "");
+                update("originalOrderId", "");
+              }
+            }}
           />
           <Label>É garantia?</Label>
         </div>
@@ -722,17 +878,43 @@ function Step5Summary({
               <Label>Tipo de garantia</Label>
               <Select
                 value={state.warrantyType}
-                onValueChange={(v) => update("warrantyType", v)}
+                onValueChange={(v) => update("warrantyType", v as WarrantyType)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="SAME_DEFECT">Mesmo defeito</SelectItem>
-                  <SelectItem value="DIFFERENT_DEFECT">Defeito diferente</SelectItem>
-                  <SelectItem value="MANUFACTURER">Fabricante</SelectItem>
+                  {WARRANTY_TYPES.map((wt) => (
+                    <SelectItem key={wt} value={wt}>
+                      {WARRANTY_TYPE_LABELS[wt]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Prazo de garantia (meses)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                value={state.warrantyMonths}
+                onChange={(e) => update("warrantyMonths", Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>OS original (do mesmo cliente)</Label>
+              <EntitySelector<OrderSearchItem>
+                value={state.originalOrderId || undefined}
+                onChange={(val) => update("originalOrderId", val ?? "")}
+                searchFn={searchOrders}
+                getOptionLabel={(o) =>
+                  `${o.number}${o.deviceModel ? ` — ${o.deviceModel}` : ""}${o.reportedProblem ? ` — ${o.reportedProblem.slice(0, 40)}` : ""}`
+                }
+                getOptionValue={(o) => o.id}
+                placeholder="Buscar OS original..."
+                emptyMessage="Nenhuma OS encontrada para este cliente."
+              />
             </div>
           </div>
         )}
