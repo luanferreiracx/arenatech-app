@@ -28,7 +28,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { updateServiceOrderSchema, type ChecklistInput, type DeviceInfoInput } from "@/lib/validators/service-order";
+import { updateServiceOrderSchema, WARRANTY_TYPES, WARRANTY_TYPE_LABELS, type ChecklistInput, type DeviceInfoInput } from "@/lib/validators/service-order";
 import { z } from "zod";
 
 type FormValues = z.input<typeof updateServiceOrderSchema>;
@@ -65,7 +65,6 @@ export function ServiceOrderEditClient({ id }: Props) {
           serialNumber: order.serialNumber ?? undefined,
           imei: order.imei ?? undefined,
           devicePassword: order.devicePassword ?? undefined,
-          accessories: order.accessories ?? undefined,
           reportedProblem: order.reportedProblem ?? undefined,
           diagnosedProblem: order.diagnosedProblem ?? undefined,
           entryChecklist: (order.entryChecklist as ChecklistInput) ?? undefined,
@@ -77,7 +76,8 @@ export function ServiceOrderEditClient({ id }: Props) {
             : undefined,
           technicianId: order.technicianId ?? undefined,
           isWarranty: order.isWarranty,
-          warrantyType: order.warrantyType ?? undefined,
+          warrantyType: (order.warrantyType as (typeof WARRANTY_TYPES)[number]) ?? undefined,
+          warrantyMonths: order.warrantyMonths ?? 3,
           internalNotes: order.internalNotes ?? undefined,
           customerNotes: order.customerNotes ?? undefined,
         }
@@ -199,22 +199,6 @@ export function ServiceOrderEditClient({ id }: Props) {
               )}
             />
           </div>
-          <FormField
-            control={form.control}
-            name="accessories"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Acessórios</FormLabel>
-                <FormControl>
-                  <Textarea
-                    {...field}
-                    value={field.value ?? ""}
-                    rows={2}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
         </FormSection>
 
         <FormSection title="Problema e Diagnóstico">
@@ -287,6 +271,54 @@ export function ServiceOrderEditClient({ id }: Props) {
               )}
             />
           </div>
+          {form.watch("isWarranty") && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="warrantyType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de garantia</FormLabel>
+                    <Select
+                      value={field.value ?? ""}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecionar..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {WARRANTY_TYPES.map((wt) => (
+                          <SelectItem key={wt} value={wt}>
+                            {WARRANTY_TYPE_LABELS[wt]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="warrantyMonths"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Prazo de garantia (meses)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={120}
+                        value={field.value ?? 3}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
         </FormSection>
 
         <FormSection title="Notas">
