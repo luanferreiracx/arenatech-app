@@ -26,20 +26,20 @@ export type ChecklistInput = z.infer<typeof checklistSchema>;
 
 export const CHECKLIST_LABELS: Record<string, string> = {
   powerOn: "Aparelho liga",
-  vibration: "Vibra",
+  vibration: "Aparelho vibra",
   buttons: "Botões OK",
-  bluetooth: "Bluetooth",
-  wifi: "WiFi",
-  backGlass: "Vidro traseiro",
-  audio: "Áudio",
-  microphone: "Microfone",
-  cameras: "Câmeras/Flash",
-  touchFaceId: "Touch/FaceID",
-  charging: "Carrega",
-  screen: "Tela",
-  cableCharging: "Cabo",
-  wirelessCharging: "Indução",
-  magSafe: "MagSafe",
+  bluetooth: "Bluetooth OK",
+  wifi: "WiFi OK",
+  backGlass: "Vidro traseiro OK",
+  audio: "Áudio OK",
+  microphone: "Microfone OK",
+  cameras: "Câmeras/Flash OK",
+  touchFaceId: "Touch/FaceID OK",
+  charging: "Aparelho carrega",
+  screen: "Tela frontal OK",
+  cableCharging: "Carregamento cabo",
+  wirelessCharging: "Carregamento indução",
+  magSafe: "Imã/MagSafe",
 };
 
 export const deviceInfoSchema = z.object({
@@ -53,13 +53,26 @@ export const deviceInfoSchema = z.object({
 
 export type DeviceInfoInput = z.infer<typeof deviceInfoSchema>;
 
+// ────────────────────────────────────────────────────────────────────────────
+// Warranty type enum (mirrors Laravel: retorno_servico, produto_vendido, fabricante)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const WARRANTY_TYPES = ["retorno_servico", "produto_vendido", "fabricante"] as const;
+export type WarrantyType = (typeof WARRANTY_TYPES)[number];
+
+export const WARRANTY_TYPE_LABELS: Record<WarrantyType, string> = {
+  retorno_servico: "Retorno de Serviço",
+  produto_vendido: "Produto Vendido",
+  fabricante: "Fabricante",
+};
+
 export const DEVICE_INFO_LABELS: Record<string, string> = {
   waterDamage: "Aparelho molhou",
   noOriginalCharger: "Não usa fonte original",
-  dropDamage: "Sofreu queda",
+  dropDamage: "Aparelho sofreu queda",
   hiddenProblems: "Problemas ocultos",
   recentOtherRepair: "Outra assistência recente",
-  simChipReturned: "Chip/acessórios devolvidos",
+  simChipReturned: "Acessórios/chip devolvidos",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -92,7 +105,6 @@ export const createServiceOrderSchema = z.object({
   serialNumber: z.string().optional(),
   imei: z.string().optional(),
   devicePassword: z.string().optional(),
-  accessories: z.string().optional(),
   // Step 3: Problem + Checklist
   reportedProblem: z.string().min(1, "Problema relatado é obrigatório"),
   entryChecklist: checklistSchema.optional(),
@@ -104,7 +116,8 @@ export const createServiceOrderSchema = z.object({
   estimatedDate: z.string().datetime().optional(),
   technicianId: z.string().uuid().optional(),
   isWarranty: z.boolean().optional(),
-  warrantyType: z.string().optional(),
+  warrantyType: z.enum(WARRANTY_TYPES).optional(),
+  warrantyMonths: z.number().int().min(0).max(120).optional(),
   originalOrderId: z.string().uuid().optional(),
   internalNotes: z.string().optional(),
   customerNotes: z.string().optional(),
@@ -123,7 +136,6 @@ export const updateServiceOrderSchema = z.object({
   serialNumber: z.string().optional(),
   imei: z.string().optional(),
   devicePassword: z.string().optional(),
-  accessories: z.string().optional(),
   reportedProblem: z.string().optional(),
   diagnosedProblem: z.string().optional(),
   entryChecklist: checklistSchema.optional(),
@@ -133,7 +145,8 @@ export const updateServiceOrderSchema = z.object({
   estimatedDate: z.string().datetime().optional().nullable(),
   technicianId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
-  warrantyType: z.string().optional().nullable(),
+  warrantyType: z.enum(WARRANTY_TYPES).optional().nullable(),
+  warrantyMonths: z.number().int().min(0).max(120).optional().nullable(),
   originalOrderId: z.string().uuid().optional().nullable(),
   internalNotes: z.string().optional().nullable(),
   customerNotes: z.string().optional().nullable(),
