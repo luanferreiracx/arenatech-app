@@ -25,6 +25,7 @@ interface ServiceRow {
   name: string;
   description: string | null;
   basePrice: unknown;
+  estimatedTime: string | null;
   active: boolean;
 }
 
@@ -63,6 +64,14 @@ export function ServicesTable() {
       accessorKey: "basePrice",
       header: "Preço Base",
       cell: ({ row }) => formatCurrency(row.getValue("basePrice") as string | number),
+    },
+    {
+      accessorKey: "estimatedTime",
+      header: "Tempo Est.",
+      cell: ({ row }) => {
+        const time = row.getValue("estimatedTime") as string | null;
+        return time ?? "—";
+      },
     },
     {
       accessorKey: "active",
@@ -109,7 +118,7 @@ export function ServicesTable() {
     <>
       <DataTable
         columns={columns}
-        data={(data?.items ?? []) as ServiceRow[]}
+        data={(data?.items ?? []) as unknown as ServiceRow[]}
         pageCount={data?.pageCount}
         pageIndex={page}
         pageSize={20}

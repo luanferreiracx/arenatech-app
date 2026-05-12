@@ -39,6 +39,7 @@ export function ServiceForm({ defaultValues, mode = "create" }: ServiceFormProps
       name: defaultValues?.name ?? "",
       description: defaultValues?.description ?? "",
       basePrice: defaultValues?.basePrice ?? 0,
+      estimatedTime: defaultValues?.estimatedTime ?? "",
       active: defaultValues?.active ?? true,
     },
   });
@@ -108,7 +109,7 @@ export function ServiceForm({ defaultValues, mode = "create" }: ServiceFormProps
               </FormItem>
             )}
           />
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <FormField
               control={form.control}
               name="basePrice"
@@ -124,6 +125,19 @@ export function ServiceForm({ defaultValues, mode = "create" }: ServiceFormProps
                       {...field}
                       onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                     />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="estimatedTime"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tempo Estimado</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ex: 1 hora, 30 min" {...field} value={field.value ?? ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -65,6 +65,7 @@ export const createCustomerSchema = z
     email: z.string().email().optional().or(z.literal("")),
     phone: z.string().optional(),
     phone2: z.string().optional(),
+    birthDate: z.date().optional(),
     address: addressSchema.optional(),
     notes: z.string().optional(),
     consentAt: z.date().optional(),
@@ -94,6 +95,7 @@ export const updateCustomerSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   phone2: z.string().optional(),
+  birthDate: z.date().optional().or(z.literal("").transform(() => undefined)),
   address: z.object({
     street: z.string().optional(),
     number: z.string().optional(),

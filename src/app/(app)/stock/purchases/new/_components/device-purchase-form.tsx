@@ -43,7 +43,9 @@ export function DevicePurchaseForm() {
       brand: "",
       model: "",
       condition: "USED",
+      batteryHealth: undefined,
       purchasePrice: 0, // centavos internally
+      salePrice: 0,
       notes: "",
     },
   });
@@ -59,7 +61,11 @@ export function DevicePurchaseForm() {
   );
 
   const onSubmit = (values: FormValues) => {
-    createMutation.mutate({ ...values, purchasePrice: values.purchasePrice / 100 });
+    createMutation.mutate({
+      ...values,
+      purchasePrice: values.purchasePrice / 100,
+      salePrice: values.salePrice ? values.salePrice / 100 : undefined,
+    });
   };
 
   return (
@@ -122,7 +128,7 @@ export function DevicePurchaseForm() {
               )}
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <FormField
               control={form.control}
               name="condition"
@@ -137,11 +143,34 @@ export function DevicePurchaseForm() {
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="NEW">Novo</SelectItem>
-                      <SelectItem value="USED">Usado</SelectItem>
+                      <SelectItem value="USED">Seminovo</SelectItem>
                       <SelectItem value="REFURBISHED">Recondicionado</SelectItem>
                       <SelectItem value="DEFECTIVE">Defeituoso</SelectItem>
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="batteryHealth"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Bateria %</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      placeholder="85"
+                      value={field.value ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        field.onChange(val === "" ? undefined : Number(val));
+                      }}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -160,6 +189,19 @@ export function DevicePurchaseForm() {
               )}
             />
           </div>
+          <FormField
+            control={form.control}
+            name="salePrice"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Preço de Venda Sugerido</FormLabel>
+                <FormControl>
+                  <MoneyInput value={field.value ?? 0} onChange={field.onChange} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         </FormSection>
 
         <FormSection title="Observações">

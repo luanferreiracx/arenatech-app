@@ -26,6 +26,7 @@ export function ServiceEditClient({ id }: Props) {
         name: service.name,
         description: service.description ?? undefined,
         basePrice: Number(service.basePrice),
+        estimatedTime: service.estimatedTime ?? undefined,
         active: service.active,
       }}
     />

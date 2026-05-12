@@ -76,7 +76,9 @@ export const createDevicePurchaseSchema = z.object({
   brand: z.string().max(100).optional(),
   model: z.string().max(200).optional(),
   condition: z.enum(["NEW", "USED", "REFURBISHED", "DEFECTIVE"]),
+  batteryHealth: z.number().int().min(0).max(100).optional(),
   purchasePrice: z.number().min(0, "Preço de compra não pode ser negativo"),
+  salePrice: z.number().min(0, "Preço de venda não pode ser negativo").optional(),
   notes: z.string().optional(),
 });
 

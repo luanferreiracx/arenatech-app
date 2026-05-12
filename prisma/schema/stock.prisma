@@ -70,9 +70,11 @@ model DevicePurchase {
   serial        String?
   brand         String?
   model         String?
-  condition     DeviceCondition @default(USED)
-  purchasePrice Decimal         @map("purchase_price") @db.Decimal(10, 2)
-  notes         String?
+  condition      DeviceCondition @default(USED)
+  batteryHealth  Int?            @map("battery_health")
+  purchasePrice  Decimal         @map("purchase_price") @db.Decimal(10, 2)
+  salePrice      Decimal?        @map("sale_price") @db.Decimal(10, 2)
+  notes          String?
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 

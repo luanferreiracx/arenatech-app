@@ -28,6 +28,7 @@ import { CpfInput } from "@/components/inputs/cpf-input";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
 import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
+import { DatePicker } from "@/components/inputs/date-picker";
 import { createCustomerSchema } from "@/lib/validators/customer";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
@@ -41,6 +42,7 @@ type FormValues = {
   email?: string;
   phone?: string;
   phone2?: string;
+  birthDate?: Date;
   address?: {
     street?: string;
     number?: string;
@@ -74,6 +76,7 @@ export function CustomerForm({ defaultValues, mode = "create" }: CustomerFormPro
       email: defaultValues?.email ?? "",
       phone: defaultValues?.phone ?? "",
       phone2: defaultValues?.phone2 ?? "",
+      birthDate: defaultValues?.birthDate,
       address: defaultValues?.address ?? {},
       notes: defaultValues?.notes ?? "",
     },
@@ -209,6 +212,26 @@ export function CustomerForm({ defaultValues, mode = "create" }: CustomerFormPro
               />
             )}
           </div>
+
+          {customerType === "PF" && (
+            <FormField
+              control={form.control}
+              name="birthDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Data de Nascimento</FormLabel>
+                  <FormControl>
+                    <DatePicker
+                      value={field.value ? new Date(field.value) : undefined}
+                      onChange={field.onChange}
+                      placeholder="Selecione a data"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           <div className="grid gap-4 sm:grid-cols-3">
             <FormField

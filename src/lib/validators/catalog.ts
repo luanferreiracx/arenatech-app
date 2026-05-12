@@ -4,6 +4,7 @@ export const createServiceSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
   basePrice: z.number().min(0),
+  estimatedTime: z.string().max(50).optional(),
   active: z.boolean(),
 });
 

@@ -162,6 +162,18 @@ export function CustomerDetailClient({ id }: Props) {
                     <span>{customer.phone2}</span>
                   </div>
                 )}
+                {customer.birthDate && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Data de Nascimento</span>
+                    <span>
+                      {new Date(customer.birthDate).toLocaleDateString("pt-BR")}
+                      {" "}
+                      <span className="text-muted-foreground text-xs">
+                        ({Math.floor((Date.now() - new Date(customer.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))} anos)
+                      </span>
+                    </span>
+                  </div>
+                )}
                 {customer.consentAt && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Consentimento LGPD</span>

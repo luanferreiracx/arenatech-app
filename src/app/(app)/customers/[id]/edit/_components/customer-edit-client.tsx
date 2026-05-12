@@ -40,6 +40,7 @@ export function CustomerEditClient({ id }: Props) {
         email: customer.email ?? undefined,
         phone: customer.phone ?? undefined,
         phone2: customer.phone2 ?? undefined,
+        birthDate: customer.birthDate ? new Date(customer.birthDate) : undefined,
         address: address ?? undefined,
         notes: customer.notes ?? undefined,
         consentAt: customer.consentAt ?? undefined,
