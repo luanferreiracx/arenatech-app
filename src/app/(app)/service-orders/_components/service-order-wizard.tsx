@@ -629,55 +629,49 @@ function Step4Items({
     }
   };
 
-  const handleSelectService = (idx: number, serviceId: string | undefined) => {
+  const handleSelectService = (idx: number, serviceId: string | undefined, service?: ServiceItem) => {
     if (!serviceId) {
       updateItem(idx, "serviceId", undefined);
       return;
     }
-    void searchServices("").then((services) => {
-      const service = services.find((s) => s.id === serviceId);
-      if (service) {
-        setState((prev) => ({
-          ...prev,
-          items: prev.items.map((item, i) =>
-            i === idx
-              ? {
-                  ...item,
-                  serviceId: service.id,
-                  description: service.name,
-                  unitPrice: Math.round(Number(service.basePrice) * 100),
-                }
-              : item,
-          ),
-        }));
-      }
-    });
+    if (service) {
+      setState((prev) => ({
+        ...prev,
+        items: prev.items.map((item, i) =>
+          i === idx
+            ? {
+                ...item,
+                serviceId: service.id,
+                description: service.name,
+                unitPrice: Math.round(Number(service.basePrice) * 100),
+              }
+            : item,
+        ),
+      }));
+    }
   };
 
-  const handleSelectProduct = (idx: number, productId: string | undefined) => {
+  const handleSelectProduct = (idx: number, productId: string | undefined, product?: ProductItem) => {
     if (!productId) {
       updateItem(idx, "productId", undefined);
       return;
     }
-    void searchProducts("").then((products) => {
-      const product = products.find((p) => p.id === productId);
-      if (product) {
-        setState((prev) => ({
-          ...prev,
-          items: prev.items.map((item, i) =>
-            i === idx
-              ? {
-                  ...item,
-                  productId: product.id,
-                  description: product.name,
-                  unitPrice: Math.round(Number(product.salePrice) * 100),
-                  costPrice: Math.round(Number(product.costPrice) * 100),
-                }
-              : item,
-          ),
-        }));
-      }
-    });
+    if (product) {
+      setState((prev) => ({
+        ...prev,
+        items: prev.items.map((item, i) =>
+          i === idx
+            ? {
+                ...item,
+                productId: product.id,
+                description: product.name,
+                unitPrice: Math.round(Number(product.salePrice) * 100),
+                costPrice: Math.round(Number(product.costPrice) * 100),
+              }
+            : item,
+        ),
+      }));
+    }
   };
 
   const subtotal = state.items.reduce(
@@ -732,7 +726,10 @@ function Step4Items({
                     {item.type === "SERVICE" ? (
                       <EntitySelector<ServiceItem>
                         value={item.serviceId}
-                        onChange={(val) => handleSelectService(idx, val)}
+                        onChange={(val) => {
+                          if (!val) handleSelectService(idx, undefined);
+                        }}
+                        onSelect={(svc) => handleSelectService(idx, svc.id, svc)}
                         searchFn={searchServices}
                         getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
                         getOptionValue={(s) => s.id}
@@ -742,7 +739,10 @@ function Step4Items({
                     ) : (
                       <EntitySelector<ProductItem>
                         value={item.productId}
-                        onChange={(val) => handleSelectProduct(idx, val)}
+                        onChange={(val) => {
+                          if (!val) handleSelectProduct(idx, undefined);
+                        }}
+                        onSelect={(prod) => handleSelectProduct(idx, prod.id, prod)}
                         searchFn={searchProducts}
                         getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
                         getOptionValue={(p) => p.id}

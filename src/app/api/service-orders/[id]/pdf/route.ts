@@ -101,7 +101,8 @@ export async function GET(
     const userMap = new Map(users.map((u) => [u.id, u.name]));
 
     const address = customer?.address as Record<string, string> | null;
-    const checklist = order.entryChecklist as Record<string, boolean> | null;
+    const checklist = order.entryChecklist as Record<string, boolean | null> | null;
+    const deviceInfo = order.deviceInfo as Record<string, boolean> | null;
 
     const html = buildHtml({
       tenantName: tenantSettings?.tradeName ?? "Arena Tech",
@@ -112,6 +113,7 @@ export async function GET(
       number: order.number,
       status: STATUS_LABELS[order.status] ?? order.status,
       entryDate: formatDate(order.entryDate),
+      entryDateTime: formatDateTime(order.entryDate),
       estimatedDate: formatDate(order.estimatedDate),
       completedDate: formatDate(order.completedDate),
       deliveredDate: formatDate(order.deliveredDate),
@@ -131,6 +133,7 @@ export async function GET(
       reportedProblem: order.reportedProblem,
       diagnosedProblem: order.diagnosedProblem,
       entryChecklist: checklist,
+      deviceInfo,
       items: order.items.map((item) => ({
         type: item.type === "SERVICE" ? "Servico" : "Produto",
         description: item.description,
@@ -148,6 +151,7 @@ export async function GET(
       customerNotes: order.customerNotes,
       isWarranty: order.isWarranty,
       warrantyType: order.warrantyType,
+      warrantyMonths: order.warrantyMonths,
     });
 
     return new NextResponse(html, {
@@ -170,6 +174,7 @@ interface PdfTemplateData {
   number: string;
   status: string;
   entryDate: string;
+  entryDateTime: string;
   estimatedDate: string;
   completedDate: string;
   deliveredDate: string;
@@ -188,7 +193,8 @@ interface PdfTemplateData {
   accessories: string | null;
   reportedProblem: string | null;
   diagnosedProblem: string | null;
-  entryChecklist: Record<string, boolean> | null;
+  entryChecklist: Record<string, boolean | null> | null;
+  deviceInfo: Record<string, boolean> | null;
   items: Array<{
     type: string;
     description: string;
@@ -206,11 +212,58 @@ interface PdfTemplateData {
   customerNotes: string | null;
   isWarranty: boolean;
   warrantyType: string | null;
+  warrantyMonths: number | null;
 }
+
+// Checklist key → human-readable label (matches CHECKLIST_LABELS in validators)
+const CHECKLIST_KEY_LABELS: Record<string, string> = {
+  powerOn: "Aparelho liga",
+  vibration: "Aparelho vibra",
+  buttons: "Botoes OK",
+  bluetooth: "Bluetooth OK",
+  wifi: "WiFi OK",
+  backGlass: "Vidro traseiro OK",
+  audio: "Audio OK",
+  microphone: "Microfone OK",
+  cameras: "Cameras/Flash OK",
+  touchFaceId: "Touch/FaceID OK",
+  charging: "Aparelho carrega",
+  screen: "Tela frontal OK",
+  cableCharging: "Carregamento cabo",
+  wirelessCharging: "Carregamento inducao",
+  magSafe: "Ima/MagSafe",
+};
+
+const DEVICE_INFO_KEY_LABELS: Record<string, string> = {
+  waterDamage: "Aparelho molhou",
+  noOriginalCharger: "Nao usa fonte original",
+  dropDamage: "Aparelho sofreu queda",
+  hiddenProblems: "Problemas ocultos",
+  recentOtherRepair: "Outra assistencia recente",
+  simChipReturned: "Acessorios/chip devolvidos",
+};
+
+const WARRANTY_TYPE_LABELS: Record<string, string> = {
+  retorno_servico: "Retorno de Servico",
+  produto_vendido: "Produto Vendido",
+  fabricante: "Fabricante",
+};
 
 function esc(str: string | null | undefined): string {
   if (!str) return "";
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function formatChecklistValue(val: boolean | null | undefined): string {
+  if (val === true) return "&#10003; Sim";
+  if (val === false) return "&#10007; Nao";
+  return "&#8212; N/A";
+}
+
+function formatChecklistClass(val: boolean | null | undefined): string {
+  if (val === true) return "color:#16a34a;";
+  if (val === false) return "color:#dc2626;";
+  return "color:#888;";
 }
 
 function buildHtml(data: PdfTemplateData): string {
@@ -237,11 +290,29 @@ function buildHtml(data: PdfTemplateData): string {
     )
     .join("");
 
+  // Build checklist HTML with proper labels and 3-state rendering
   const checklistHtml = data.entryChecklist
-    ? Object.entries(data.entryChecklist)
-        .map(([key, val]) => `<span class="check-item">${val ? "&#10003;" : "&#10007;"} ${esc(key)}</span>`)
+    ? Object.entries(CHECKLIST_KEY_LABELS)
+        .map(([key, label]) => {
+          const val = data.entryChecklist?.[key];
+          if (val === undefined) return "";
+          return `<span class="check-item" style="${formatChecklistClass(val)}">${formatChecklistValue(val)} ${esc(label)}</span>`;
+        })
+        .filter(Boolean)
         .join(" ")
     : "";
+
+  // Build device info HTML
+  const deviceInfoItems = data.deviceInfo
+    ? Object.entries(DEVICE_INFO_KEY_LABELS)
+        .filter(([key]) => data.deviceInfo?.[key])
+        .map(([, label]) => label)
+    : [];
+
+  // Build warranty text
+  const warrantyText = data.isWarranty
+    ? `${WARRANTY_TYPE_LABELS[data.warrantyType ?? ""] ?? data.warrantyType ?? "N/A"} — ${data.warrantyMonths ?? 3} meses`
+    : null;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -258,11 +329,12 @@ function buildHtml(data: PdfTemplateData): string {
     }
     .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #c9a55c; padding-bottom: 12px; margin-bottom: 16px; }
     .header h1 { font-size: 22px; color: #c9a55c; margin-bottom: 2px; }
+    .header .subtitle { font-size: 10px; color: #888; }
     .header .company-info { font-size: 11px; color: #666; }
     .header .os-info { text-align: right; }
     .header .os-number { font-size: 18px; font-weight: bold; font-family: monospace; }
     .header .os-status { display: inline-block; background: #c9a55c; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-top: 4px; }
-    .section { margin-bottom: 14px; }
+    .section { margin-bottom: 14px; page-break-inside: avoid; }
     .section-title { font-size: 13px; font-weight: 600; color: #c9a55c; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
     .grid .label { color: #888; font-size: 11px; }
@@ -277,8 +349,12 @@ function buildHtml(data: PdfTemplateData): string {
     .totals .total-final { font-size: 14px; font-weight: 700; border-top: 2px solid #c9a55c; padding-top: 4px; }
     .notes { background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px; margin-top: 6px; white-space: pre-line; font-size: 11px; }
     .check-item { display: inline-block; margin-right: 10px; font-size: 11px; }
+    .info-alert { display: inline-block; background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 3px; padding: 2px 6px; margin: 2px; font-size: 10px; color: #e65100; }
+    .warranty-box { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 4px; padding: 8px; margin-top: 6px; font-size: 11px; }
     .footer { margin-top: 32px; border-top: 1px solid #ddd; padding-top: 12px; }
-    .signature-line { display: inline-block; width: 240px; border-top: 1px solid #333; text-align: center; padding-top: 4px; font-size: 10px; color: #666; margin: 0 32px; }
+    .signature-block { display: inline-block; width: 280px; text-align: center; margin: 0 20px; }
+    .signature-line { border-top: 1px solid #333; padding-top: 4px; font-size: 10px; color: #666; margin-top: 40px; }
+    .signature-name { font-size: 9px; color: #999; margin-top: 2px; }
     .print-btn { position: fixed; top: 16px; right: 16px; background: #c9a55c; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
     .print-btn:hover { background: #b08e4a; }
   </style>
@@ -289,6 +365,7 @@ function buildHtml(data: PdfTemplateData): string {
   <div class="header">
     <div>
       <h1>${esc(data.tenantName)}</h1>
+      <div class="subtitle">Assistencia Tecnica Especializada</div>
       <div class="company-info">
         ${data.tenantCnpj ? `CNPJ: ${esc(data.tenantCnpj)}<br/>` : ""}
         ${data.tenantPhone ? `Tel: ${esc(data.tenantPhone)}` : ""}${data.tenantEmail ? ` | ${esc(data.tenantEmail)}` : ""}
@@ -299,14 +376,14 @@ function buildHtml(data: PdfTemplateData): string {
       <div class="os-number">${esc(data.number)}</div>
       <span class="os-status">${esc(data.status)}</span>
       <div style="margin-top:6px; font-size:11px; color:#666;">
-        Entrada: ${esc(data.entryDate)}
+        Entrada: ${esc(data.entryDateTime)}
         ${data.estimatedDate !== "-" ? `<br/>Previsao: ${esc(data.estimatedDate)}` : ""}
       </div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Cliente</div>
+    <div class="section-title">Dados do Cliente</div>
     <div class="grid">
       <div><span class="label">Nome:</span> <span class="value">${esc(data.customerName)}</span></div>
       ${data.customerCpf ? `<div><span class="label">CPF:</span> <span class="value">${esc(data.customerCpf)}</span></div>` : ""}
@@ -318,13 +395,14 @@ function buildHtml(data: PdfTemplateData): string {
   </div>
 
   <div class="section">
-    <div class="section-title">Equipamento</div>
+    <div class="section-title">Dados do Equipamento</div>
     <div class="grid">
       ${data.deviceType ? `<div><span class="label">Tipo:</span> <span class="value">${esc(data.deviceType)}</span></div>` : ""}
       ${data.deviceBrand ? `<div><span class="label">Marca:</span> <span class="value">${esc(data.deviceBrand)}</span></div>` : ""}
       ${data.deviceModel ? `<div><span class="label">Modelo:</span> <span class="value">${esc(data.deviceModel)}</span></div>` : ""}
       ${data.serialNumber ? `<div><span class="label">Serial:</span> <span class="value">${esc(data.serialNumber)}</span></div>` : ""}
       ${data.imei ? `<div><span class="label">IMEI:</span> <span class="value">${esc(data.imei)}</span></div>` : ""}
+      ${data.devicePassword ? `<div><span class="label">Senha:</span> <span class="value">${esc(data.devicePassword)}</span></div>` : ""}
       ${data.accessories ? `<div style="grid-column:1/-1;"><span class="label">Acessorios:</span> <span class="value">${esc(data.accessories)}</span></div>` : ""}
     </div>
   </div>
@@ -334,6 +412,12 @@ function buildHtml(data: PdfTemplateData): string {
     <div class="section-title">Problema</div>
     ${data.reportedProblem ? `<p style="margin-bottom:4px;"><strong>Relatado:</strong> ${esc(data.reportedProblem)}</p>` : ""}
     ${data.diagnosedProblem ? `<p><strong>Diagnosticado:</strong> ${esc(data.diagnosedProblem)}</p>` : ""}
+  </div>` : ""}
+
+  ${deviceInfoItems.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Informacoes Adicionais</div>
+    <div>${deviceInfoItems.map((info) => `<span class="info-alert">${esc(info)}</span>`).join(" ")}</div>
   </div>` : ""}
 
   ${checklistHtml ? `
@@ -366,13 +450,19 @@ function buildHtml(data: PdfTemplateData): string {
   </div>` : ""}
 
   <div class="section">
-    <div class="section-title">Responsaveis</div>
+    <div class="section-title">Responsaveis e Garantia</div>
     <div class="grid">
       <div><span class="label">Atendente:</span> <span class="value">${esc(data.createdByName)}</span></div>
       ${data.technicianName ? `<div><span class="label">Tecnico:</span> <span class="value">${esc(data.technicianName)}</span></div>` : ""}
-      ${data.isWarranty ? `<div><span class="label">Garantia:</span> <span class="value">Sim - ${esc(data.warrantyType)}</span></div>` : ""}
     </div>
+    ${warrantyText ? `<div class="warranty-box"><strong>Garantia:</strong> ${esc(warrantyText)}</div>` : ""}
   </div>
+
+  ${data.internalNotes ? `
+  <div class="section">
+    <div class="section-title">Observacoes Internas</div>
+    <div class="notes">${esc(data.internalNotes)}</div>
+  </div>` : ""}
 
   ${data.customerNotes ? `
   <div class="section">
@@ -382,8 +472,14 @@ function buildHtml(data: PdfTemplateData): string {
 
   <div class="footer">
     <div style="display:flex; justify-content:space-around; margin-top:40px;">
-      <span class="signature-line">Responsavel Tecnico</span>
-      <span class="signature-line">Cliente</span>
+      <div class="signature-block">
+        <div class="signature-line">Responsavel Tecnico</div>
+        ${data.technicianName ? `<div class="signature-name">${esc(data.technicianName)}</div>` : ""}
+      </div>
+      <div class="signature-block">
+        <div class="signature-line">Cliente</div>
+        <div class="signature-name">${esc(data.customerName)}${data.customerCpf ? `<br/>CPF: ${esc(data.customerCpf)}` : ""}</div>
+      </div>
     </div>
     <p style="text-align:center; font-size:10px; color:#999; margin-top:16px;">
       Documento gerado em ${formatDateTime(new Date())} | ${esc(data.tenantName)}

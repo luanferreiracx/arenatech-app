@@ -72,7 +72,7 @@ export function ServiceOrderEditClient({ id }: Props) {
           entryChecklist: (order.entryChecklist as ChecklistInput) ?? undefined,
           exitChecklist: (order.exitChecklist as ChecklistInput) ?? undefined,
           deviceInfo: (order.deviceInfo as DeviceInfoInput) ?? undefined,
-          discount: Number(order.discount),
+          discount: Math.round(Number(order.discount) * 100),
           estimatedDate: order.estimatedDate
             ? new Date(order.estimatedDate).toISOString()
             : undefined,
@@ -103,7 +103,12 @@ export function ServiceOrderEditClient({ id }: Props) {
     );
 
   const onSubmit = (values: FormValues) => {
-    updateMutation.mutate({ id, ...values });
+    updateMutation.mutate({
+      id,
+      ...values,
+      // MoneyInput stores centavos, router expects reais
+      discount: values.discount !== undefined ? values.discount / 100 : undefined,
+    });
   };
 
   return (

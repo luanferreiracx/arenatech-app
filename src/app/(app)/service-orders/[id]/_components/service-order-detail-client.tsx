@@ -262,7 +262,7 @@ export function ServiceOrderDetailClient({ id }: Props) {
   const handleStatusChange = (targetStatus: ServiceOrderStatusValue, label: string) => {
     // PAID has special handling via payment dialog
     if (targetStatus === "PAID") {
-      setPaymentAmount(Number(order.totalAmount));
+      setPaymentAmount(Math.round(Number(order.totalAmount) * 100));
       setPaymentOpen(true);
       return;
     }
@@ -284,8 +284,8 @@ export function ServiceOrderDetailClient({ id }: Props) {
     paymentMutation.mutate({
       orderId: id,
       paymentMethod,
-      paidAmount: paymentAmount,
-      paymentDiscount: paymentDiscount > 0 ? paymentDiscount : undefined,
+      paidAmount: paymentAmount / 100,
+      paymentDiscount: paymentDiscount > 0 ? paymentDiscount / 100 : undefined,
       paymentNotes: paymentNotes || undefined,
     });
   };
@@ -1072,16 +1072,14 @@ export function ServiceOrderDetailClient({ id }: Props) {
                   <EntitySelector<ServiceCatalogItem>
                     value={newItemServiceId}
                     onChange={(val) => {
-                      setNewItemServiceId(val ?? undefined);
-                      if (val) {
-                        void searchServices("").then((items) => {
-                          const svc = items.find((s) => s.id === val);
-                          if (svc) {
-                            setNewItemDescription(svc.name);
-                            setNewItemUnitPrice(Math.round(Number(svc.basePrice) * 100));
-                          }
-                        });
+                      if (!val) {
+                        setNewItemServiceId(undefined);
                       }
+                    }}
+                    onSelect={(svc) => {
+                      setNewItemServiceId(svc.id);
+                      setNewItemDescription(svc.name);
+                      setNewItemUnitPrice(Math.round(Number(svc.basePrice) * 100));
                     }}
                     searchFn={searchServices}
                     getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
@@ -1093,17 +1091,15 @@ export function ServiceOrderDetailClient({ id }: Props) {
                   <EntitySelector<ProductCatalogItem>
                     value={newItemProductId}
                     onChange={(val) => {
-                      setNewItemProductId(val ?? undefined);
-                      if (val) {
-                        void searchProducts("").then((items) => {
-                          const prod = items.find((p) => p.id === val);
-                          if (prod) {
-                            setNewItemDescription(prod.name);
-                            setNewItemUnitPrice(Math.round(Number(prod.salePrice) * 100));
-                            setNewItemCostPrice(Math.round(Number(prod.costPrice) * 100));
-                          }
-                        });
+                      if (!val) {
+                        setNewItemProductId(undefined);
                       }
+                    }}
+                    onSelect={(prod) => {
+                      setNewItemProductId(prod.id);
+                      setNewItemDescription(prod.name);
+                      setNewItemUnitPrice(Math.round(Number(prod.salePrice) * 100));
+                      setNewItemCostPrice(Math.round(Number(prod.costPrice) * 100));
                     }}
                     searchFn={searchProducts}
                     getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
@@ -1183,8 +1179,8 @@ export function ServiceOrderDetailClient({ id }: Props) {
                   productId: newItemProductId,
                   description: newItemDescription,
                   quantity: newItemQuantity,
-                  unitPrice: newItemUnitPrice,
-                  costPrice: newItemCostPrice > 0 ? newItemCostPrice : undefined,
+                  unitPrice: newItemUnitPrice / 100,
+                  costPrice: newItemCostPrice > 0 ? newItemCostPrice / 100 : undefined,
                 })
               }
               disabled={

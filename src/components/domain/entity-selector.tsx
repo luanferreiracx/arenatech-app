@@ -17,6 +17,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 interface EntitySelectorProps<T> {
   value: string | undefined;
   onChange: (value: string | undefined) => void;
+  /** Called with the full entity object when an item is selected (not on deselect). */
+  onSelect?: (item: T) => void;
   searchFn: (query: string) => Promise<T[]>;
   getOptionLabel: (item: T) => string;
   getOptionValue: (item: T) => string;
@@ -28,6 +30,7 @@ interface EntitySelectorProps<T> {
 export function EntitySelector<T>({
   value,
   onChange,
+  onSelect,
   searchFn,
   getOptionLabel,
   getOptionValue,
@@ -122,6 +125,7 @@ export function EntitySelector<T>({
                         } else {
                           onChange(itemValue);
                           setSelectedLabel(getOptionLabel(item));
+                          onSelect?.(item);
                         }
                         setOpen(false);
                       }}
