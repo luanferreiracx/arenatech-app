@@ -247,13 +247,13 @@ describe("createTransactionSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects more than 36 installments", () => {
+  it("rejects more than 60 installments", () => {
     const result = createTransactionSchema.safeParse({
       type: "RECEIVABLE",
       description: "Parcelado demais",
-      totalAmount: 3700,
+      totalAmount: 6100,
       dueDate: new Date(),
-      installments: 37,
+      installments: 61,
     });
     expect(result.success).toBe(false);
   });
