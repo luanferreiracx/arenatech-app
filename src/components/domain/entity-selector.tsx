@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -71,17 +71,14 @@ export function EntitySelector<T>({
     };
   }, [query, open, search]);
 
-  // Keep selected label in sync when items change
-  useEffect(() => {
-    if (value) {
-      const found = items.find((item) => getOptionValue(item) === value);
-      if (found) setSelectedLabel(getOptionLabel(found));
-    } else {
-      setSelectedLabel(null);
-    }
+  // Derive label from items when available
+  const derivedLabel = useMemo(() => {
+    if (!value) return null;
+    const found = items.find((item) => getOptionValue(item) === value);
+    return found ? getOptionLabel(found) : null;
   }, [value, items, getOptionLabel, getOptionValue]);
 
-  const displayLabel = selectedLabel;
+  const displayLabel = derivedLabel ?? selectedLabel;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
