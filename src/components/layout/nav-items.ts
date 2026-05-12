@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -11,6 +12,7 @@ export interface NavItem {
 
 export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Clientes", href: "/customers", icon: Users },
 ];
 
 export const adminNavItems: NavItem[] = [
