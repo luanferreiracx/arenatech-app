@@ -11,12 +11,9 @@ interface Props {
 
 export function DiagnosticEditClient({ id }: Props) {
   const trpc = useTRPC();
-  // We list all and find the one — simple enough since templates are paginated
-  const { data, isLoading } = useQuery(
-    trpc.catalog.listDiagnosticTemplates.queryOptions({ page: 0, pageSize: 200 }),
+  const { data: template, isLoading } = useQuery(
+    trpc.catalog.getDiagnosticTemplate.queryOptions({ id }),
   );
-
-  const template = data?.items.find((t) => t.id === id);
 
   if (isLoading) return <LoadingState variant="form" />;
   if (!template) return <p className="text-muted-foreground">Template não encontrado.</p>;

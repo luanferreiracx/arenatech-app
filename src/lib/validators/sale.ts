@@ -93,7 +93,7 @@ export const listSalesSchema = z.object({
   page: z.number().int().min(0),
   pageSize: z.number().int().min(1).max(100),
   search: z.string().optional(),
-  status: z.enum(["DRAFT", "COMPLETED", "CANCELLED", "REFUNDED"]).optional(),
+  status: z.enum(["DRAFT", "COMPLETED", "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED"]).optional(),
   sellerId: z.string().uuid().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
@@ -105,7 +105,7 @@ export type ListSalesInput = z.infer<typeof listSalesSchema>;
 // Sale status labels and variants (for UI)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const SALE_STATUSES = ["DRAFT", "COMPLETED", "CANCELLED", "REFUNDED"] as const;
+export const SALE_STATUSES = ["DRAFT", "COMPLETED", "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED"] as const;
 export type SaleStatusValue = (typeof SALE_STATUSES)[number];
 
 export const SALE_STATUS_LABELS: Record<SaleStatusValue, string> = {
@@ -113,6 +113,7 @@ export const SALE_STATUS_LABELS: Record<SaleStatusValue, string> = {
   COMPLETED: "Finalizada",
   CANCELLED: "Cancelada",
   REFUNDED: "Estornada",
+  PARTIALLY_REFUNDED: "Parcialmente Estornada",
 };
 
 export const SALE_STATUS_VARIANTS: Record<SaleStatusValue, "default" | "success" | "warning" | "destructive" | "info"> = {
@@ -120,4 +121,5 @@ export const SALE_STATUS_VARIANTS: Record<SaleStatusValue, "default" | "success"
   COMPLETED: "success",
   CANCELLED: "destructive",
   REFUNDED: "info",
+  PARTIALLY_REFUNDED: "warning",
 };

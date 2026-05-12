@@ -18,6 +18,9 @@ export const customerRouter = createTRPCRouter({
       const skip = page * pageSize;
 
       return ctx.withTenant(async (tx) => {
+        // Strip formatting (dots, dashes, slashes, parens, spaces) for document/phone search
+        const searchClean = search ? search.replace(/[\.\-\/\(\)\s]/g, "") : undefined;
+
         const where = {
           ...(includeDeleted ? {} : { deletedAt: null }),
           ...(type ? { type } : {}),
@@ -25,9 +28,10 @@ export const customerRouter = createTRPCRouter({
             ? {
                 OR: [
                   { name: { contains: search, mode: "insensitive" as const } },
-                  { cpf: { contains: search, mode: "insensitive" as const } },
-                  { cnpj: { contains: search, mode: "insensitive" as const } },
-                  { phone: { contains: search, mode: "insensitive" as const } },
+                  { cpf: { contains: searchClean ?? search, mode: "insensitive" as const } },
+                  { cnpj: { contains: searchClean ?? search, mode: "insensitive" as const } },
+                  { phone: { contains: searchClean ?? search, mode: "insensitive" as const } },
+                  { email: { contains: search, mode: "insensitive" as const } },
                 ],
               }
             : {}),

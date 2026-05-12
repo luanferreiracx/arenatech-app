@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,6 +62,16 @@ export function PaymentDialog({
   const [selectedMethod, setSelectedMethod] = useState<string>("");
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [installments, setInstallments] = useState(1);
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setPayments([]);
+      setSelectedMethod("");
+      setPaymentAmount(0);
+      setInstallments(1);
+    }
+  }, [open]);
 
   // Fetch payment methods
   const { data: paymentMethods } = useQuery(

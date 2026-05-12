@@ -42,8 +42,10 @@ export function TransactionForm() {
       type: "PAYABLE",
       description: "",
       category: "",
+      supplier: "",
       totalAmount: 0, // centavos
       dueDate: new Date(),
+      paymentMethod: "",
       notes: "",
       installments: 1,
     },
@@ -63,6 +65,7 @@ export function TransactionForm() {
     createMutation.mutate({ ...values, totalAmount: values.totalAmount / 100 });
   };
 
+  const watchType = form.watch("type");
   const installmentsCount = form.watch("installments");
   const totalAmount = form.watch("totalAmount");
   const installmentValue = installmentsCount > 0 ? (totalAmount / 100) / installmentsCount : 0;
@@ -136,19 +139,63 @@ export function TransactionForm() {
             />
           </div>
 
-          <FormField
-            control={form.control}
-            name="dueDate"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Data de Vencimento *</FormLabel>
-                <FormControl>
-                  <DatePicker value={field.value} onChange={field.onChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {watchType === "PAYABLE" && (
+            <FormField
+              control={form.control}
+              name="supplier"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Fornecedor</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Nome do fornecedor" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="dueDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Data de Vencimento *</FormLabel>
+                  <FormControl>
+                    <DatePicker value={field.value} onChange={field.onChange} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="paymentMethod"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Forma de Pagamento</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                      <SelectItem value="pix">PIX</SelectItem>
+                      <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                      <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                      <SelectItem value="boleto">Boleto</SelectItem>
+                      <SelectItem value="transferencia">Transferência</SelectItem>
+                      <SelectItem value="crediario">Crediário</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         </FormSection>
 
         <FormSection title="Parcelamento">

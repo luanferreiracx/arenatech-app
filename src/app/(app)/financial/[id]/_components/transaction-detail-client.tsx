@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { XCircle, Trash2, DollarSign } from "lucide-react";
+import { XCircle, Trash2, DollarSign, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,16 @@ import { PageHeader } from "@/components/domain/page-header";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { LoadingState } from "@/components/domain/loading-state";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
@@ -53,6 +63,8 @@ export function TransactionDetailClient({ id }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [payDialog, setPayDialog] = useState<{ installmentId: string; defaultAmount: number } | null>(null);
   const [payAmount, setPayAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState("");
+  const [payNotes, setPayNotes] = useState("");
 
   const { data: transaction, isLoading, refetch } = useQuery(
     trpc.financial.getTransaction.queryOptions({ id }),
@@ -152,16 +164,38 @@ export function TransactionDetailClient({ id }: Props) {
         </Card>
       </div>
 
-      {transaction.notes && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Observações</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm">{transaction.notes}</p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Details */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Detalhes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {transaction.category && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Categoria</span>
+              <span>{transaction.category}</span>
+            </div>
+          )}
+          {Boolean((transaction as Record<string, unknown>).supplier) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fornecedor</span>
+              <span>{String((transaction as Record<string, unknown>).supplier)}</span>
+            </div>
+          )}
+          {Boolean((transaction as Record<string, unknown>).paymentMethod) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Forma de Pagamento</span>
+              <span>{String((transaction as Record<string, unknown>).paymentMethod)}</span>
+            </div>
+          )}
+          {transaction.notes && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Observações</span>
+              <span className="max-w-[300px] text-right">{transaction.notes}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Installments table */}
       <Card>
@@ -223,18 +257,45 @@ export function TransactionDetailClient({ id }: Props) {
       </Card>
 
       {/* Pay installment dialog */}
-      <Dialog open={!!payDialog} onOpenChange={(open) => !open && setPayDialog(null)}>
+      <Dialog open={!!payDialog} onOpenChange={(open) => { if (!open) { setPayDialog(null); setPayMethod(""); setPayNotes(""); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Registrar Pagamento</DialogTitle>
-            <DialogDescription>Informe o valor pago.</DialogDescription>
+            <DialogDescription>Informe o valor pago e a forma de pagamento.</DialogDescription>
           </DialogHeader>
-          <div>
-            <label className="text-sm font-medium">Valor Pago</label>
-            <MoneyInput value={Math.round(payAmount * 100)} onChange={(centavos) => setPayAmount(centavos / 100)} />
+          <div className="space-y-4">
+            <div>
+              <Label>Valor Pago *</Label>
+              <MoneyInput value={Math.round(payAmount * 100)} onChange={(centavos) => setPayAmount(centavos / 100)} />
+            </div>
+            <div>
+              <Label>Forma de Pagamento</Label>
+              <Select value={payMethod} onValueChange={setPayMethod}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                  <SelectItem value="pix">PIX</SelectItem>
+                  <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                  <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                  <SelectItem value="boleto">Boleto</SelectItem>
+                  <SelectItem value="transferencia">Transferência</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Observações</Label>
+              <Textarea
+                value={payNotes}
+                onChange={(e) => setPayNotes(e.target.value)}
+                placeholder="Observações do pagamento..."
+                rows={2}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPayDialog(null)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setPayDialog(null); setPayMethod(""); setPayNotes(""); }}>Cancelar</Button>
             <Button
               disabled={payMutation.isPending || payAmount <= 0}
               onClick={() => {
@@ -242,6 +303,8 @@ export function TransactionDetailClient({ id }: Props) {
                   payMutation.mutate({
                     installmentId: payDialog.installmentId,
                     paidAmount: payAmount,
+                    paymentMethod: payMethod || undefined,
+                    notes: payNotes || undefined,
                   });
                 }
               }}

@@ -584,7 +584,7 @@ export const saleRouter = createTRPCRouter({
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda não encontrada" });
         }
-        if (sale.status !== "COMPLETED") {
+        if (sale.status !== "COMPLETED" && sale.status !== "PARTIALLY_REFUNDED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas podem ser estornadas" });
         }
 
@@ -609,31 +609,25 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // 2. Create negative cash movements only for cash-equivalent payments
+        // 2. Create cash movement for the refund (register the reversal)
         const openRegister = await tx.cashRegister.findFirst({
           where: { userId, status: "OPEN" },
         });
         if (openRegister) {
-          const paymentDetails = (sale.paymentDetails ?? []) as PaymentDetail[];
-          const cashMethods = ["CASH", "Dinheiro"];
-
-          for (const payment of paymentDetails) {
-            if (cashMethods.includes(payment.method)) {
-              await tx.cashMovement.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  cashRegisterId: openRegister.id,
-                  type: "WITHDRAWAL",
-                  amount: Math.min(payment.amount, Number(sale.totalAmount)),
-                  paymentMethod: "REFUND",
-                  description: `Estorno venda ${sale.number} — ${payment.method}`,
-                  referenceId: sale.id,
-                  referenceType: "SALE_REFUND",
-                  userId,
-                },
-              });
-            }
-          }
+          // Register refund in the cash register for the total amount
+          await tx.cashMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              cashRegisterId: openRegister.id,
+              type: "WITHDRAWAL",
+              amount: Number(sale.totalAmount),
+              paymentMethod: "REFUND",
+              description: `Estorno venda ${sale.number}`,
+              referenceId: sale.id,
+              referenceType: "SALE_REFUND",
+              userId,
+            },
+          });
         }
 
         // 3. Cancel related financial transactions
@@ -679,6 +673,23 @@ export const saleRouter = createTRPCRouter({
       const skip = page * pageSize;
 
       return ctx.withTenant(async (tx) => {
+        // If searching, find matching customer IDs first (like Laravel does)
+        let customerIdFilter: string[] | undefined;
+        if (search) {
+          const matchingCustomers = await tx.customer.findMany({
+            where: {
+              deletedAt: null,
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { cpf: { contains: search, mode: "insensitive" as const } },
+              ],
+            },
+            select: { id: true },
+            take: 50,
+          });
+          customerIdFilter = matchingCustomers.map((c) => c.id);
+        }
+
         const where = {
           deletedAt: null,
           ...(status ? { status } : {}),
@@ -695,6 +706,9 @@ export const saleRouter = createTRPCRouter({
             ? {
                 OR: [
                   { number: { contains: search, mode: "insensitive" as const } },
+                  ...(customerIdFilter && customerIdFilter.length > 0
+                    ? [{ customerId: { in: customerIdFilter } }]
+                    : []),
                 ],
               }
             : {}),

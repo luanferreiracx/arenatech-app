@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Trash2, Plus, X } from "lucide-react";
+import { Pencil, Trash2, Plus, X, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,10 +54,21 @@ export function CustomerDetailClient({ id }: Props) {
     }),
   );
 
+  const restoreMutation = useMutation(
+    trpc.customers.restore.mutationOptions({
+      onSuccess: () => {
+        toast.success("Cliente restaurado.");
+        void refetch();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
   if (isLoading) return <LoadingState variant="card" />;
   if (!customer) return <p className="text-muted-foreground">Cliente não encontrado.</p>;
 
   const address = customer.address as Record<string, string> | null;
+  const isDeleted = !!customer.deletedAt;
 
   return (
     <div className="space-y-6">
@@ -74,23 +85,46 @@ export function CustomerDetailClient({ id }: Props) {
         }
         actions={
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" asChild>
-              <Link href={`/customers/${id}/edit`}>
-                <Pencil className="mr-1 h-4 w-4" />
-                Editar
-              </Link>
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => setDeleteOpen(true)}
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Remover
-            </Button>
+            {isDeleted ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={restoreMutation.isPending}
+                onClick={() => restoreMutation.mutate({ id })}
+              >
+                <RotateCcw className="mr-1 h-4 w-4" />
+                Restaurar
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href={`/customers/${id}/edit`}>
+                    <Pencil className="mr-1 h-4 w-4" />
+                    Editar
+                  </Link>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  Remover
+                </Button>
+              </>
+            )}
           </div>
         }
       />
+
+      {isDeleted && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+          <p className="text-sm text-destructive font-medium">
+            Este cliente foi removido em {new Date(customer.deletedAt as string | Date).toLocaleDateString("pt-BR")}.
+            Use o botão &quot;Restaurar&quot; para reativá-lo.
+          </p>
+        </div>
+      )}
 
       <Tabs defaultValue="data">
         <TabsList>

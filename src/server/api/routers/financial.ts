@@ -81,27 +81,34 @@ export const financialRouter = createTRPCRouter({
       const { installments: numInstallments, ...transactionData } = input;
 
       return ctx.withTenant(async (tx) => {
+        // Compute final dueDate for the transaction (last installment's due date)
+        const baseDueDate = new Date(input.dueDate);
+        const lastDueDate = new Date(baseDueDate);
+        lastDueDate.setMonth(lastDueDate.getMonth() + (numInstallments - 1));
+
         // Create transaction
         const transaction = await tx.financialTransaction.create({
           data: {
             tenantId: ctx.tenantId,
             ...transactionData,
+            dueDate: numInstallments > 1 ? lastDueDate : baseDueDate,
           },
         });
 
-        // Generate installments
-        const installmentAmount = input.totalAmount / numInstallments;
+        // Generate installments with proportional split (last gets remainder for centavos precision)
+        const installmentAmount = Math.round((input.totalAmount * 100) / numInstallments) / 100;
 
         const installmentRecords = Array.from({ length: numInstallments }, (_, i) => {
-          const dueDate = new Date(input.dueDate);
-          dueDate.setMonth(dueDate.getMonth() + i);
+          // Each installment gets its own fresh Date to avoid mutation bug
+          const dueDate = new Date(baseDueDate);
+          dueDate.setMonth(baseDueDate.getMonth() + i);
 
           return {
             tenantId: ctx.tenantId,
             transactionId: transaction.id,
             number: i + 1,
             amount: i === numInstallments - 1
-              ? input.totalAmount - installmentAmount * (numInstallments - 1) // last gets remainder
+              ? Math.round((input.totalAmount - installmentAmount * (numInstallments - 1)) * 100) / 100
               : installmentAmount,
             dueDate,
           };
@@ -181,8 +188,17 @@ export const financialRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Parcela já paga ou cancelada" });
         }
 
+        // Validate amount does not exceed remaining
+        const remainingOnInstallment = Number(installment.amount) - Number(installment.paidAmount);
+        if (input.paidAmount > remainingOnInstallment + 0.01) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Valor pago (R$ ${input.paidAmount.toFixed(2)}) excede o saldo da parcela (R$ ${remainingOnInstallment.toFixed(2)})`,
+          });
+        }
+
         const newPaidAmount = Number(installment.paidAmount) + input.paidAmount;
-        const isFullyPaid = newPaidAmount >= Number(installment.amount);
+        const isFullyPaid = newPaidAmount >= Number(installment.amount) - 0.01;
 
         // Update installment
         await tx.installment.update({
@@ -190,6 +206,8 @@ export const financialRouter = createTRPCRouter({
           data: {
             paidAmount: newPaidAmount,
             paidAt: input.paidAt ?? new Date(),
+            paymentMethod: input.paymentMethod,
+            notes: input.notes,
             status: isFullyPaid ? "PAID" : "PARTIALLY_PAID",
           },
         });
@@ -298,13 +316,40 @@ export const financialRouter = createTRPCRouter({
 
   overdueReport: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Mark overdue installments (PENDING + past due date)
+      await tx.installment.updateMany({
+        where: {
+          status: "PENDING",
+          dueDate: { lt: new Date() },
+        },
+        data: { status: "OVERDUE" },
+      });
+
+      // Mark overdue transactions that have overdue installments
+      const overdueTransactionIds = await tx.installment.findMany({
+        where: { status: "OVERDUE" },
+        select: { transactionId: true },
+        distinct: ["transactionId"],
+      });
+
+      if (overdueTransactionIds.length > 0) {
+        await tx.financialTransaction.updateMany({
+          where: {
+            id: { in: overdueTransactionIds.map((i) => i.transactionId) },
+            status: { in: ["PENDING", "PARTIALLY_PAID"] },
+          },
+          data: { status: "OVERDUE" },
+        });
+      }
+
       return tx.financialTransaction.findMany({
         where: {
           deletedAt: null,
-          status: { in: ["PENDING", "PARTIALLY_PAID"] },
+          status: { in: ["OVERDUE", "PARTIALLY_PAID"] },
           dueDate: { lt: new Date() },
         },
         orderBy: { dueDate: "asc" },
+        include: { installments: { orderBy: { number: "asc" } } },
       });
     });
   }),

@@ -3,6 +3,7 @@ enum SaleStatus {
   COMPLETED
   CANCELLED
   REFUNDED
+  PARTIALLY_REFUNDED
 }
 
 model Sale {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +55,15 @@ export function DiagnosticTemplatesTable() {
       accessorKey: "category",
       header: "Categoria",
       cell: ({ row }) => row.getValue("category") ?? "—",
+    },
+    {
+      accessorKey: "active",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge variant={row.getValue("active") ? "default" : "secondary"}>
+          {row.getValue("active") ? "Ativo" : "Inativo"}
+        </Badge>
+      ),
     },
     {
       id: "actions",

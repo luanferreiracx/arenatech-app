@@ -8,13 +8,15 @@ export const createTransactionSchema = z.object({
   type: z.enum(["PAYABLE", "RECEIVABLE"]),
   description: z.string().min(1, "Descrição obrigatória").max(500),
   category: z.string().max(100).optional(),
+  supplier: z.string().max(200).optional(),
   totalAmount: z.number().min(0.01, "Valor total deve ser maior que zero"),
   dueDate: z.date({ error: "Data de vencimento obrigatória" }),
+  paymentMethod: z.string().max(50).optional(),
   customerId: z.string().uuid().optional(),
   referenceId: z.string().uuid().optional(),
   referenceType: z.string().max(50).optional(),
   notes: z.string().optional(),
-  installments: z.number().int().min(1).max(36),
+  installments: z.number().int().min(1).max(60),
 });
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
@@ -53,6 +55,8 @@ export const payInstallmentSchema = z.object({
   installmentId: z.string().uuid(),
   paidAmount: z.number().min(0.01, "Valor pago deve ser maior que zero"),
   paidAt: z.date().optional(),
+  paymentMethod: z.string().max(50).optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 export type PayInstallmentInput = z.infer<typeof payInstallmentSchema>;

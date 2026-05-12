@@ -100,10 +100,19 @@ export const fiscalRouter = createTRPCRouter({
           0,
         );
 
+        // Generate next invoice number atomically
+        const lastInvoice = await tx.invoice.findFirst({
+          where: { type: input.type },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        const nextNumber = (lastInvoice?.number ?? 0) + 1;
+
         const invoice = await tx.invoice.create({
           data: {
             tenantId: ctx.tenantId,
             type: input.type,
+            number: nextNumber,
             recipientName: input.recipientName,
             recipientCpfCnpj: input.recipientCpfCnpj,
             totalAmount,
@@ -207,10 +216,19 @@ export const fiscalRouter = createTRPCRouter({
           valorTotal: Number(sale.totalAmount),
         });
 
+        // Generate next invoice number
+        const lastInvoice = await tx.invoice.findFirst({
+          where: { type: input.type },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        const nextNumber = (lastInvoice?.number ?? 0) + 1;
+
         const invoice = await tx.invoice.create({
           data: {
             tenantId: ctx.tenantId,
             type: input.type,
+            number: nextNumber,
             referenceId: sale.id,
             referenceType: "sale",
             recipientName: customer?.name ?? null,
@@ -317,10 +335,19 @@ export const fiscalRouter = createTRPCRouter({
           valorTotal: totalAmount,
         });
 
+        // Generate next invoice number
+        const lastInvoice = await tx.invoice.findFirst({
+          where: { type: "NFSE" },
+          orderBy: { number: "desc" },
+          select: { number: true },
+        });
+        const nextNumber = (lastInvoice?.number ?? 0) + 1;
+
         const invoice = await tx.invoice.create({
           data: {
             tenantId: ctx.tenantId,
             type: "NFSE",
+            number: nextNumber,
             referenceId: serviceOrder.id,
             referenceType: "service_order",
             recipientName: customer?.name ?? null,

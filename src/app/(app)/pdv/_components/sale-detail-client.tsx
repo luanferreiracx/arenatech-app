@@ -87,7 +87,7 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
           </div>
         }
         actions={
-          status === "COMPLETED" ? (
+          (status === "COMPLETED" || status === "PARTIALLY_REFUNDED") ? (
             <Button
               variant="destructive"
               size="sm"

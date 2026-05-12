@@ -18,10 +18,12 @@ model FinancialTransaction {
   status        TransactionStatus @default(PENDING)
   description   String
   category      String?
+  supplier      String?
   totalAmount   Decimal           @map("total_amount") @db.Decimal(10, 2)
   paidAmount    Decimal           @default(0) @map("paid_amount") @db.Decimal(10, 2)
   dueDate       DateTime          @map("due_date")
   paidAt        DateTime?         @map("paid_at")
+  paymentMethod String?           @map("payment_method")
   referenceId   String?           @map("reference_id") @db.Uuid
   referenceType String?           @map("reference_type")
   customerId    String?           @map("customer_id") @db.Uuid
@@ -48,6 +50,8 @@ model Installment {
   dueDate       DateTime          @map("due_date")
   paidAmount    Decimal           @default(0) @map("paid_amount") @db.Decimal(10, 2)
   paidAt        DateTime?         @map("paid_at")
+  paymentMethod String?           @map("payment_method")
+  notes         String?
   status        TransactionStatus @default(PENDING)
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")

@@ -23,7 +23,14 @@ export const catalogRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const where = {
           deletedAt: null,
-          ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
+          ...(search
+            ? {
+                OR: [
+                  { name: { contains: search, mode: "insensitive" as const } },
+                  { description: { contains: search, mode: "insensitive" as const } },
+                ],
+              }
+            : {}),
         };
 
         const [items, total] = await Promise.all([
@@ -89,7 +96,15 @@ export const catalogRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const where = {
           deletedAt: null,
-          ...(search ? { title: { contains: search, mode: "insensitive" as const } } : {}),
+          ...(search
+            ? {
+                OR: [
+                  { title: { contains: search, mode: "insensitive" as const } },
+                  { content: { contains: search, mode: "insensitive" as const } },
+                  { category: { contains: search, mode: "insensitive" as const } },
+                ],
+              }
+            : {}),
         };
 
         const [items, total] = await Promise.all([
@@ -103,6 +118,16 @@ export const catalogRouter = createTRPCRouter({
         ]);
 
         return { items, total, pageCount: Math.ceil(total / pageSize) };
+      });
+    }),
+
+  getDiagnosticTemplate: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.diagnosticTemplate.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
       });
     }),
 

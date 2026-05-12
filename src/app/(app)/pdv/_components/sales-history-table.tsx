@@ -185,7 +185,7 @@ export function SalesHistoryTable() {
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
             <Input
-              placeholder="Buscar por numero da venda..."
+              placeholder="Buscar por numero, nome ou CPF do cliente..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);

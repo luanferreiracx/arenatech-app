@@ -249,10 +249,41 @@ export const stockRouter = createTRPCRouter({
   createDevicePurchase: tenantProcedure
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
       return ctx.withTenant(async (tx) => {
-        return tx.devicePurchase.create({
+        const purchase = await tx.devicePurchase.create({
           data: { tenantId: ctx.tenantId, ...input },
         });
+
+        // If linked to a product, increment stock and create movement
+        if (input.productId) {
+          await tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { increment: 1 } },
+          });
+
+          const product = await tx.product.findFirst({
+            where: { id: input.productId },
+            select: { name: true },
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              type: "ENTRY",
+              quantity: 1,
+              unitCost: input.purchasePrice,
+              reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}${product ? ` (${product.name})` : ""}`,
+              referenceId: purchase.id,
+              referenceType: "DEVICE_PURCHASE",
+              userId,
+            },
+          });
+        }
+
+        return purchase;
       });
     }),
 
