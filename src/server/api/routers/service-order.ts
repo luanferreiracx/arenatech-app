@@ -17,7 +17,6 @@ import {
   listServiceOrdersSchema,
   createQuoteSchema,
   respondQuoteSchema,
-  sendSignatureSchema,
   confirmPhysicalSignatureSchema,
   sendToLabSchema,
   receiveFromLabSchema,
@@ -25,7 +24,6 @@ import {
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
-import { logger } from "@/lib/logger";
 
 // ── Helpers ──
 
@@ -56,7 +54,7 @@ function generateQuoteLink(): string {
   return result;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function serializeOrder(order: any) {
   return {
     ...order,
@@ -73,7 +71,7 @@ function serializeOrder(order: any) {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function serializeItem(item: any) {
   return {
     ...item,
@@ -84,7 +82,7 @@ function serializeItem(item: any) {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function serializeQuote(q: any) {
   return {
     ...q,
@@ -109,7 +107,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const pageSize = input.pageSize ?? 10;
         const skip = page * pageSize;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const where: any = { deletedAt: null };
 
         if (input.status) {
@@ -151,7 +149,7 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         // Determine ordering
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         let orderBy: any = { entryDate: "desc" };
         if (input.sortBy === "number") orderBy = { number: input.sortOrder ?? "desc" };
         if (input.sortBy === "totalAmount") orderBy = { totalAmount: input.sortOrder ?? "desc" };
@@ -402,7 +400,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const { id, ...data } = input;
 
         // Build update data, converting dates and handling null
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const updateData: any = {};
         for (const [key, value] of Object.entries(data)) {
           if (value === undefined) continue;
@@ -471,7 +469,7 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const updateData: any = { status: newStatus };
 
         if (newStatus === "COMPLETED") {
@@ -802,7 +800,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const data: any = {};
         let note = "";
 
@@ -1272,8 +1270,8 @@ export const serviceOrderRouter = createTRPCRouter({
 
 // ── Helper: Recalculate order totals from items ──
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function recalculateOrderTotals(tx: any, orderId: string, tenantId: string) {
+ 
+async function recalculateOrderTotals(tx: any, orderId: string, _tenantId: string) {
   const items = await tx.serviceOrderItem.findMany({
     where: { orderId },
   });
