@@ -8,9 +8,9 @@
 ## Estado atual
 
 **Fase atual:** Fase 17 — Cutover CONCLUIDA. Migracao de dados executada. Fase 14 (Recompensas) adiada.
-**Ultima atualizacao:** 2026-05-08
+**Ultima atualizacao:** 2026-05-12
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 57
+**Commits desde ultimo deploy:** 0
 
 ---
 
@@ -259,6 +259,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-12 — Alinhamento OS com Laravel campo a campo (segunda rodada)
+
+- **Implementado:**
+  - Schema: vendorId, otherCost, nfseIssued, nfseNumber, paymentDate
+  - Wizard: campo "Vendedor intermediador" no step 5 com EntitySelector
+  - Listagem: colunas Telefone, CPF, tipo equipamento; badge Garantia; filtro por tecnico e data
+  - Detalhe: card "Custos e Lucro" com edicao inline (partsCost, otherCost) + calculo lucro; vendedor; NFS-e; data pagamento
+  - Edicao: secoes Responsaveis (tecnico + vendedor via EntitySelector) e NFS-e (checkbox + numero)
+  - PDF: vendedor, secao pagamento, secao NFS-e
+  - Router: procedures updateCosts e listVendors
+- **Decisoes:**
+  - otherCost separado de partsCost (alinhado com Laravel custo vs custo_pecas)
+  - NFS-e como campo manual (checkbox + numero) alinhado com Laravel edit
+  - Lucro calculado client-side em tempo real (total - partsCost - otherCost)
+  - paymentDate automatico no registerPayment
+- **Proximo:** Verificar fluxos restantes (orcamento adicional, descancelamento)
 
 ### 2026-05-08 — Fix fidelidade modulo OS
 
