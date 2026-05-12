@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { XCircle, Trash2, DollarSign, AlertTriangle } from "lucide-react";
+import { XCircle, Trash2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,6 @@ import { PageHeader } from "@/components/domain/page-header";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { LoadingState } from "@/components/domain/loading-state";
 import { MoneyInput } from "@/components/inputs/money-input";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {

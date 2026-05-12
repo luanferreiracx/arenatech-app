@@ -205,12 +205,12 @@ export function TransactionForm() {
               name="installments"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Número de Parcelas (1-36)</FormLabel>
+                  <FormLabel>Número de Parcelas (1-60)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
                       min={1}
-                      max={36}
+                      max={60}
                       {...field}
                       onChange={(e) => field.onChange(Number(e.target.value))}
                     />

@@ -266,17 +266,10 @@ export async function sendCorrectionLetter(
 }
 
 export async function getInvoiceDocumentUrls(providerRef: string): Promise<FiscalDocumentUrls> {
-  const config = getConfig();
-  if (!config) {
-    return {
-      pdfUrl: `/api/fiscal/mock-danfe/${providerRef}.pdf`,
-      xmlUrl: `/api/fiscal/mock-xml/${providerRef}.xml`,
-    };
-  }
-
+  // Always return proxy URLs — the API route handles auth with Nuvem Fiscal
   return {
-    pdfUrl: `${config.baseUrl}/nfe/${providerRef}/pdf`,
-    xmlUrl: `${config.baseUrl}/nfe/${providerRef}/xml`,
+    pdfUrl: `/api/fiscal/download?ref=${encodeURIComponent(providerRef)}&type=pdf`,
+    xmlUrl: `/api/fiscal/download?ref=${encodeURIComponent(providerRef)}&type=xml`,
   };
 }
 
