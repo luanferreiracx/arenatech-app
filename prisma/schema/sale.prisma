@@ -24,6 +24,9 @@ model Sale {
 
   paymentDetails  Json?      @map("payment_details")
 
+  observations    String?
+  discountReason  String?    @map("discount_reason")
+
   saleDate        DateTime   @default(now()) @map("sale_date")
   cancelledAt     DateTime?  @map("cancelled_at")
   cancelledById   String?    @map("cancelled_by_id") @db.Uuid

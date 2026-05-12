@@ -329,6 +329,14 @@ export const saleRouter = createTRPCRouter({
 
         await recalculateSaleTotals(tx, input.saleId, input.discountType, input.discountValue);
 
+        // Save discount reason if provided
+        if (input.discountReason !== undefined) {
+          await tx.sale.update({
+            where: { id: input.saleId },
+            data: { discountReason: input.discountReason || null },
+          });
+        }
+
         return tx.sale.findFirst({
           where: { id: input.saleId },
           include: { items: true },
@@ -435,6 +443,8 @@ export const saleRouter = createTRPCRouter({
             changeAmount,
             paymentDetails: payments,
             saleDate: new Date(),
+            observations: input.observations ?? null,
+            discountReason: input.discountReason ?? updatedSale.discountReason,
           },
         });
 
@@ -692,7 +702,8 @@ export const saleRouter = createTRPCRouter({
 
         const where = {
           deletedAt: null,
-          ...(status ? { status } : {}),
+          // Exclude DRAFT from listing unless explicitly requested
+          ...(status ? { status } : { status: { not: "DRAFT" as const } }),
           ...(sellerId ? { sellerId } : {}),
           ...(dateFrom || dateTo
             ? {
@@ -720,7 +731,9 @@ export const saleRouter = createTRPCRouter({
             skip,
             take: pageSize,
             orderBy: { saleDate: "desc" },
-            include: { items: true },
+            include: {
+              items: { select: { quantity: true } },
+            },
           }),
           tx.sale.count({ where }),
         ]);
@@ -750,6 +763,7 @@ export const saleRouter = createTRPCRouter({
 
         const enrichedItems = items.map((sale) => ({
           ...sale,
+          itemCount: sale.items.reduce((sum, item) => sum + item.quantity, 0),
           customer: sale.customerId ? customerMap.get(sale.customerId) ?? null : null,
           seller: sellerMap.get(sale.sellerId) ?? null,
         }));
@@ -791,7 +805,19 @@ export const saleRouter = createTRPCRouter({
         });
         seller = sellers[0] ?? null;
 
-        return { ...sale, customer, seller };
+        // Fetch cancelled-by user name if applicable
+        let cancelledBy: { id: string; name: string } | null = null;
+        if (sale.cancelledById) {
+          const cbUsers = await withAdmin(async (adminTx) => {
+            return adminTx.user.findMany({
+              where: { id: sale.cancelledById! },
+              select: { id: true, name: true },
+            });
+          });
+          cancelledBy = cbUsers[0] ?? null;
+        }
+
+        return { ...sale, customer, seller, cancelledBy };
       });
     }),
 

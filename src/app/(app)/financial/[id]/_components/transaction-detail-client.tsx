@@ -181,10 +181,34 @@ export function TransactionDetailClient({ id }: Props) {
               <span>{String((transaction as Record<string, unknown>).supplier)}</span>
             </div>
           )}
+          {Boolean((transaction as Record<string, unknown>).customerName) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Cliente</span>
+              <span>{String((transaction as Record<string, unknown>).customerName)}</span>
+            </div>
+          )}
           {Boolean((transaction as Record<string, unknown>).paymentMethod) && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">Forma de Pagamento</span>
               <span>{String((transaction as Record<string, unknown>).paymentMethod)}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Parcelas</span>
+            <span>
+              {transaction.installments.filter((i) => i.status === "PAID").length}/{transaction.installments.length}
+            </span>
+          </div>
+          {Boolean((transaction as Record<string, unknown>).emissionDate) && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Data de Emissão</span>
+              <span>{new Date(String((transaction as Record<string, unknown>).emissionDate)).toLocaleDateString("pt-BR")}</span>
+            </div>
+          )}
+          {transaction.paidAt && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Data de Pagamento</span>
+              <span>{new Date(transaction.paidAt).toLocaleDateString("pt-BR")}</span>
             </div>
           )}
           {transaction.notes && (

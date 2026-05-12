@@ -1,12 +1,24 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Plus, Minus, X, ShoppingCart, Trash2 } from "lucide-react";
+import {
+  Search,
+  Plus,
+  Minus,
+  X,
+  ShoppingCart,
+  Trash2,
+  Percent,
+  DollarSign,
+  RotateCcw,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -14,6 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
@@ -46,10 +65,15 @@ export function PdvClient() {
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [showDiscountDialog, setShowDiscountDialog] = useState(false);
   const [discountType, setDiscountType] = useState<"fixed" | "percent">("fixed");
   const [discountValue, setDiscountValue] = useState(0);
+  const [discountReason, setDiscountReason] = useState("");
   const [customerId, setCustomerId] = useState<string | undefined>();
+  const [observations, setObservations] = useState("");
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Debounce search
   useEffect(() => {
@@ -57,7 +81,26 @@ export function PdvClient() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Fetch products
+  // Show results when search changes
+  useEffect(() => {
+    setShowSearchResults(debouncedSearch.length >= 2);
+  }, [debouncedSearch]);
+
+  // Close results on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowSearchResults(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Fetch products for search
   const { data: productsData } = useQuery(
     trpc.stock.listProducts.queryOptions({
       search: debouncedSearch || undefined,
@@ -85,6 +128,9 @@ export function PdvClient() {
     trpc.sales.addItem.mutationOptions({
       onSuccess: () => {
         void refetchDraft();
+        setSearch("");
+        setShowSearchResults(false);
+        searchInputRef.current?.focus();
       },
       onError: (err) => {
         toast.error(err.message);
@@ -105,8 +151,10 @@ export function PdvClient() {
 
   const removeItem = useMutation(
     trpc.sales.removeItem.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (_, vars) => {
         void refetchDraft();
+        const removed = cartItems.find((i) => i.id === vars.itemId);
+        if (removed) toast.info(`${removed.description} removido`);
       },
     }),
   );
@@ -115,6 +163,8 @@ export function PdvClient() {
     trpc.sales.applyDiscount.mutationOptions({
       onSuccess: () => {
         void refetchDraft();
+        setShowDiscountDialog(false);
+        toast.success("Desconto aplicado");
       },
     }),
   );
@@ -131,7 +181,12 @@ export function PdvClient() {
     trpc.sales.cancel.mutationOptions({
       onSuccess: () => {
         void refetchDraft();
-        toast.success("Venda cancelada");
+        setDiscountType("fixed");
+        setDiscountValue(0);
+        setDiscountReason("");
+        setCustomerId(undefined);
+        setObservations("");
+        toast.success("Venda reiniciada");
       },
     }),
   );
@@ -145,7 +200,9 @@ export function PdvClient() {
         setShowPaymentDialog(false);
         setDiscountType("fixed");
         setDiscountValue(0);
+        setDiscountReason("");
         setCustomerId(undefined);
+        setObservations("");
       },
       onError: (err) => {
         toast.error(err.message);
@@ -191,39 +248,46 @@ export function PdvClient() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "F2" || (e.key === "Enter" && e.target === document.body)) {
+      const target = e.target as HTMLElement;
+      const inInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+
+      if (e.key === "F2") {
         e.preventDefault();
         searchInputRef.current?.focus();
+        searchInputRef.current?.select();
       }
       if (e.key === "F8") {
+        if (inInput && target !== searchInputRef.current) return;
         e.preventDefault();
         if (draft && cartItems.length > 0) {
           setShowPaymentDialog(true);
         }
       }
-      if (e.key === "F9") {
-        e.preventDefault();
-        if (draft) {
-          cancelDraft.mutate({ saleId: draft.id });
-        }
-      }
       if (e.key === "Escape") {
-        setShowPaymentDialog(false);
+        if (showPaymentDialog) {
+          setShowPaymentDialog(false);
+        } else if (showDiscountDialog) {
+          setShowDiscountDialog(false);
+        } else if (showSearchResults) {
+          setShowSearchResults(false);
+          setSearch("");
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [draft, cartItems.length, cancelDraft]);
+  }, [draft, cartItems.length, showPaymentDialog, showDiscountDialog, showSearchResults]);
 
-  // Apply discount when value changes
+  // Apply discount handler
   const handleApplyDiscount = useCallback(() => {
     if (!draft) return;
     applyDiscountMutation.mutate({
       saleId: draft.id,
       discountType,
       discountValue: discountType === "fixed" ? discountValue / 100 : discountValue,
+      discountReason: discountReason || undefined,
     });
-  }, [draft, discountType, discountValue, applyDiscountMutation]);
+  }, [draft, discountType, discountValue, discountReason, applyDiscountMutation]);
 
   // Set customer
   const handleSetCustomer = useCallback(
@@ -256,213 +320,215 @@ export function PdvClient() {
 
   const products = productsData?.items ?? [];
 
+  // Get quantity already in cart for a product
+  const getQtyInCart = (productId: string) =>
+    cartItems
+      .filter((i) => i.productId === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] gap-4 p-4">
-      {/* Left column — Products */}
-      <div className="flex w-3/5 flex-col gap-4">
-        {/* Search */}
-        <div className="relative">
+    <div className="grid h-[calc(100vh-3.5rem)] grid-cols-[1fr_350px] gap-4 p-4">
+      {/* Left column — Main area */}
+      <div className="flex min-h-0 flex-col">
+        {/* Header */}
+        <div className="mb-3 flex items-center justify-between">
+          <h1 className="text-xl font-bold">PDV - Ponto de Venda</h1>
+          <Badge variant="default" className="bg-primary px-3 py-1 text-sm font-bold">
+            {draft ? `Venda #${draft.number}` : "Nova Venda"}
+          </Badge>
+        </div>
+
+        {/* Search bar (autocomplete) */}
+        <div ref={searchContainerRef} className="relative mb-3">
           <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={searchInputRef}
-            placeholder="Buscar produto por nome, SKU ou código de barras... (F2)"
+            placeholder="Buscar produto por nome, SKU ou codigo de barras..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => {
+              if (debouncedSearch.length >= 2) setShowSearchResults(true);
+            }}
             className="h-12 pl-10 text-lg"
             autoFocus
           />
-        </div>
 
-        {/* Product grid */}
-        <div className="grid flex-1 grid-cols-2 gap-2 overflow-y-auto lg:grid-cols-3 xl:grid-cols-4">
-          {products.map((product) => {
-            const price = Number(product.salePrice);
-            const isOutOfStock = product.currentStock <= 0;
-
-            return (
-              <button
-                key={product.id}
-                disabled={isOutOfStock || addItem.isPending}
-                onClick={() => handleAddProduct(product.id, price)}
-                className={`flex flex-col rounded-lg border p-3 text-left transition-colors ${
-                  isOutOfStock
-                    ? "cursor-not-allowed border-border bg-muted opacity-50"
-                    : "cursor-pointer border-border hover:border-primary hover:bg-primary/5"
-                }`}
-              >
-                <span className="truncate text-sm font-medium">{product.name}</span>
-                {product.sku && (
-                  <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
-                )}
-                <div className="mt-auto flex items-center justify-between pt-2">
-                  <span className="font-mono text-sm font-bold text-primary">
-                    {formatMoney(Math.round(price * 100))}
-                  </span>
-                  <Badge variant={isOutOfStock ? "destructive" : "secondary"} className="text-xs">
-                    {product.currentStock} un
-                  </Badge>
+          {/* Autocomplete dropdown */}
+          {showSearchResults && (
+            <div className="absolute left-0 right-0 top-full z-50 max-h-[300px] overflow-y-auto rounded-b-lg border border-t-0 bg-card shadow-lg">
+              {products.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  Nenhum produto encontrado
                 </div>
-              </button>
-            );
-          })}
-          {products.length === 0 && debouncedSearch && (
-            <div className="col-span-full flex items-center justify-center py-12 text-muted-foreground">
-              Nenhum produto encontrado
+              ) : (
+                products.map((product) => {
+                  const price = Number(product.salePrice);
+                  const inCart = getQtyInCart(product.id);
+                  const available = product.currentStock - inCart;
+                  const isOutOfStock = available <= 0;
+
+                  return (
+                    <button
+                      key={product.id}
+                      disabled={isOutOfStock || addItem.isPending}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!isOutOfStock) {
+                          void handleAddProduct(product.id, price);
+                        }
+                      }}
+                      className="flex w-full items-center justify-between border-b px-4 py-3 text-left transition-colors last:border-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium">{product.name}</span>
+                        {product.sku && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {product.sku}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-sm font-bold text-primary">
+                          {formatMoney(Math.round(price * 100))}
+                        </span>
+                        <Badge
+                          variant={isOutOfStock ? "destructive" : "secondary"}
+                          className="min-w-[3rem] justify-center text-xs"
+                        >
+                          {available} un
+                        </Badge>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
           )}
+        </div>
+
+        {/* Cart items table */}
+        <div className="flex-1 overflow-y-auto rounded-lg border bg-card">
+          <table className="w-full">
+            <thead className="sticky top-0 z-10 bg-muted">
+              <tr className="border-b-2 border-primary text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <th className="px-4 py-2.5">Produto</th>
+                <th className="w-[100px] px-4 py-2.5">Qtd</th>
+                <th className="w-[130px] px-4 py-2.5">Preco Unit.</th>
+                <th className="w-[130px] px-4 py-2.5">Subtotal</th>
+                <th className="w-[50px] px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {cartItems.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="py-12 text-center text-sm text-muted-foreground"
+                  >
+                    Nenhum item adicionado. Busque um produto acima.
+                  </td>
+                </tr>
+              ) : (
+                cartItems.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="border-b transition-colors hover:bg-primary/5"
+                  >
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium">{item.description}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => {
+                            if (item.quantity <= 1) {
+                              removeItem.mutate({ itemId: item.id });
+                            } else {
+                              updateItemQty.mutate({
+                                itemId: item.id,
+                                quantity: item.quantity - 1,
+                              });
+                            }
+                          }}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-8 text-center text-sm font-medium">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() =>
+                            updateItemQty.mutate({
+                              itemId: item.id,
+                              quantity: item.quantity + 1,
+                            })
+                          }
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-sm">
+                      {formatMoney(item.unitPrice)}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-sm font-bold">
+                      {formatMoney(item.total)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => removeItem.mutate({ itemId: item.id })}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Right column — Cart */}
-      <div className="flex w-2/5 flex-col rounded-lg border bg-card">
-        {/* Cart Header */}
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold">
-              {draft ? `Venda #${draft.number}` : "Nova Venda"}
-            </h2>
-          </div>
-          {draft && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => cancelDraft.mutate({ saleId: draft.id })}
-              className="text-destructive hover:text-destructive"
-              title="Nova venda (F9)"
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Limpar
-            </Button>
-          )}
-        </div>
-
-        {/* Cart Items */}
-        <div className="flex-1 overflow-y-auto px-4 py-2">
-          {cartItems.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
-              <ShoppingCart className="mb-2 h-10 w-10 opacity-30" />
-              <p className="text-sm">Carrinho vazio</p>
-              <p className="text-xs">Busque e clique em um produto para adicionar</p>
-            </div>
+      {/* Right column — Sidebar */}
+      <div className="flex flex-col gap-3">
+        {/* Customer */}
+        <div className="rounded-lg border bg-card p-4">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Cliente
+          </h3>
+          {cartItems.length > 0 ? (
+            <EntitySelector
+              value={customerId}
+              onChange={handleSetCustomer}
+              searchFn={searchCustomers}
+              getOptionLabel={(c: { name: string; cpf: string | null }) =>
+                c.cpf ? `${c.name} (${c.cpf})` : c.name
+              }
+              getOptionValue={(c: { id: string }) => c.id}
+              placeholder="Venda sem cliente"
+              emptyMessage="Nenhum cliente encontrado"
+            />
           ) : (
-            <div className="space-y-2">
-              {cartItems.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 rounded-md border p-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.description}</p>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {formatMoney(item.unitPrice)} x {item.quantity}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => {
-                        if (item.quantity <= 1) {
-                          removeItem.mutate({ itemId: item.id });
-                        } else {
-                          updateItemQty.mutate({ itemId: item.id, quantity: item.quantity - 1 });
-                        }
-                      }}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() =>
-                        updateItemQty.mutate({ itemId: item.id, quantity: item.quantity + 1 })
-                      }
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <span className="w-20 text-right font-mono text-sm font-bold">
-                    {formatMoney(item.total)}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    onClick={() => removeItem.mutate({ itemId: item.id })}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <User className="h-4 w-4" />
+              <span>Adicione itens para selecionar cliente</span>
             </div>
           )}
         </div>
 
-        {/* Cart Footer */}
-        <div className="border-t px-4 py-3 space-y-3">
-          {/* Discount */}
-          {cartItems.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Desconto</Label>
-              <div className="flex gap-2">
-                <Select
-                  value={discountType}
-                  onValueChange={(v) => setDiscountType(v as "fixed" | "percent")}
-                >
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fixed">R$</SelectItem>
-                    <SelectItem value="percent">%</SelectItem>
-                  </SelectContent>
-                </Select>
-                {discountType === "fixed" ? (
-                  <MoneyInput
-                    value={discountValue}
-                    onChange={setDiscountValue}
-                    className="flex-1"
-                    onBlur={handleApplyDiscount}
-                  />
-                ) : (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={discountValue}
-                    onChange={(e) => setDiscountValue(Number(e.target.value))}
-                    onBlur={handleApplyDiscount}
-                    className="flex-1"
-                    placeholder="0"
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Customer */}
-          {cartItems.length > 0 && (
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Cliente (opcional)</Label>
-              <EntitySelector
-                value={customerId}
-                onChange={handleSetCustomer}
-                searchFn={searchCustomers}
-                getOptionLabel={(c: { name: string; cpf: string | null }) =>
-                  c.cpf ? `${c.name} (${c.cpf})` : c.name
-                }
-                getOptionValue={(c: { id: string }) => c.id}
-                placeholder="Venda sem cliente"
-                emptyMessage="Nenhum cliente encontrado"
-              />
-            </div>
-          )}
-
-          <Separator />
-
-          {/* Totals */}
-          <div className="space-y-1 text-sm">
+        {/* Summary */}
+        <div className="rounded-lg border bg-card p-4">
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Subtotal</span>
               <span className="font-mono">{formatMoney(subtotal)}</span>
@@ -474,25 +540,145 @@ export function PdvClient() {
               </div>
             )}
           </div>
-
+          <Separator className="my-3" />
           <div className="flex items-center justify-between">
-            <span className="text-lg font-bold">Total</span>
-            <span className="text-2xl font-bold font-mono text-primary">
+            <span className="text-lg font-bold">TOTAL</span>
+            <span className="font-mono text-2xl font-bold text-primary">
               {formatMoney(totalAmount)}
             </span>
           </div>
+        </div>
 
-          {/* Finalize Button */}
+        {/* Actions */}
+        <div className="mt-auto flex flex-col gap-2">
+          {/* Discount button */}
+          <Button
+            variant="secondary"
+            className="w-full justify-center gap-2"
+            disabled={cartItems.length === 0}
+            onClick={() => setShowDiscountDialog(true)}
+          >
+            <Percent className="h-4 w-4" />
+            Desconto
+          </Button>
+
+          {/* Finalize button */}
           <Button
             size="lg"
-            className="w-full text-lg h-12"
+            className="h-12 w-full text-lg"
             disabled={cartItems.length === 0}
             onClick={() => setShowPaymentDialog(true)}
           >
-            Finalizar Venda (F8)
+            <DollarSign className="mr-1 h-5 w-5" />
+            Finalizar Venda
           </Button>
+
+          {/* Keyboard hints */}
+          <div className="flex items-center justify-center gap-4 text-[10px] text-muted-foreground">
+            <span>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                F2
+              </kbd>{" "}
+              buscar
+            </span>
+            <span>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                F8
+              </kbd>{" "}
+              finalizar
+            </span>
+            <span>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                Esc
+              </kbd>{" "}
+              fechar
+            </span>
+          </div>
+
+          {/* Restart / Cancel */}
+          {draft && (
+            <Button
+              variant="outline"
+              className="w-full gap-2 border-destructive text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                if (confirm("Tem certeza? Todos os itens do carrinho serao removidos.")) {
+                  cancelDraft.mutate({ saleId: draft.id });
+                }
+              }}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reiniciar Venda
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Discount Dialog */}
+      <Dialog open={showDiscountDialog} onOpenChange={setShowDiscountDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Aplicar Desconto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-2 block text-sm">Tipo de Desconto</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={discountType === "fixed" ? "default" : "outline"}
+                  onClick={() => setDiscountType("fixed")}
+                  className="w-full"
+                >
+                  R$ Valor
+                </Button>
+                <Button
+                  variant={discountType === "percent" ? "default" : "outline"}
+                  onClick={() => setDiscountType("percent")}
+                  className="w-full"
+                >
+                  % Percentual
+                </Button>
+              </div>
+            </div>
+            <div>
+              <Label className="mb-2 block text-sm">Valor do Desconto</Label>
+              {discountType === "fixed" ? (
+                <MoneyInput
+                  value={discountValue}
+                  onChange={setDiscountValue}
+                  className="text-lg"
+                />
+              ) : (
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={discountValue || ""}
+                  onChange={(e) => setDiscountValue(Number(e.target.value))}
+                  className="text-lg"
+                  placeholder="0"
+                />
+              )}
+            </div>
+            <div>
+              <Label className="mb-2 block text-sm">Motivo (opcional)</Label>
+              <Input
+                value={discountReason}
+                onChange={(e) => setDiscountReason(e.target.value)}
+                placeholder="Ex: Cliente fidelidade"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDiscountDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleApplyDiscount} disabled={discountValue <= 0}>
+              Aplicar Desconto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Payment Dialog */}
       {draft && (
@@ -504,15 +690,23 @@ export function PdvClient() {
           customerId={customerId}
           discountType={discountType}
           discountValue={discountType === "fixed" ? discountValue / 100 : discountValue}
+          discountReason={discountReason}
+          observations={observations}
+          onObservationsChange={setObservations}
           onFinalize={(payments) => {
             finalizeMutation.mutate({
               saleId: draft.id,
               customerId,
               payments,
               discountType: discountValue > 0 ? discountType : undefined,
-              discountValue: discountValue > 0
-                ? (discountType === "fixed" ? discountValue / 100 : discountValue)
-                : undefined,
+              discountValue:
+                discountValue > 0
+                  ? discountType === "fixed"
+                    ? discountValue / 100
+                    : discountValue
+                  : undefined,
+              discountReason: discountReason || undefined,
+              observations: observations || undefined,
             });
           }}
           isPending={finalizeMutation.isPending}

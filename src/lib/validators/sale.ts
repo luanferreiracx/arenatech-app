@@ -45,6 +45,7 @@ export const applyDiscountSchema = z.object({
   saleId: z.string().uuid(),
   discountType: z.enum(["fixed", "percent"]),
   discountValue: z.number().min(0, "Desconto não pode ser negativo"),
+  discountReason: z.string().optional(),
 });
 
 export type ApplyDiscountInput = z.infer<typeof applyDiscountSchema>;
@@ -59,6 +60,8 @@ export const finalizeSaleSchema = z.object({
   payments: z.array(paymentDetailSchema).min(1, "Pelo menos uma forma de pagamento"),
   discountType: z.enum(["fixed", "percent"]).optional(),
   discountValue: z.number().min(0).optional(),
+  discountReason: z.string().optional(),
+  observations: z.string().optional(),
 });
 
 export type FinalizeSaleInput = z.infer<typeof finalizeSaleSchema>;
@@ -122,4 +125,28 @@ export const SALE_STATUS_VARIANTS: Record<SaleStatusValue, "default" | "success"
   CANCELLED: "destructive",
   REFUNDED: "info",
   PARTIALLY_REFUNDED: "warning",
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// Payment method labels (aligned with Laravel formas_pagamento)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  Dinheiro: "Dinheiro",
+  PIX: "PIX",
+  "Cartão de Crédito": "Crédito",
+  "Cartão de Débito": "Débito",
+  CASH: "Dinheiro",
+  CREDIT_CARD: "Crédito",
+  DEBIT_CARD: "Débito",
+};
+
+export const PAYMENT_METHOD_VARIANTS: Record<string, string> = {
+  Dinheiro: "pay-cash",
+  CASH: "pay-cash",
+  PIX: "pay-pix",
+  "Cartão de Crédito": "pay-card",
+  CREDIT_CARD: "pay-card",
+  "Cartão de Débito": "pay-card",
+  DEBIT_CARD: "pay-card",
 };

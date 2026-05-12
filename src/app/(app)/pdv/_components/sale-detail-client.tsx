@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RotateCcw, Loader2 } from "lucide-react";
+import { ArrowLeft, RotateCcw, Loader2, Plus, FileText } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -71,6 +73,7 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
 
   const status = sale.status as SaleStatusValue;
   const paymentDetails = (sale.paymentDetails as PaymentDetail[] | null) ?? [];
+  const itemCount = sale.items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
     <div className="space-y-4">
@@ -87,16 +90,27 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
           </div>
         }
         actions={
-          (status === "COMPLETED" || status === "PARTIALLY_REFUNDED") ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowRefund(true)}
-            >
-              <RotateCcw className="mr-1 h-4 w-4" />
-              Estornar
+          <div className="flex items-center gap-2">
+            {(status === "COMPLETED" || status === "PARTIALLY_REFUNDED") && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowRefund(true)}
+              >
+                <RotateCcw className="mr-1 h-4 w-4" />
+                Estornar
+              </Button>
+            )}
+            <Button size="sm" asChild>
+              <Link href="/pdv">
+                <Plus className="mr-1 h-4 w-4" />
+                Nova Venda
+              </Link>
             </Button>
-          ) : undefined
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/pdv/history">Voltar</Link>
+            </Button>
+          </div>
         }
       />
 
@@ -109,21 +123,74 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Vendedor</span>
-              <span>{sale.seller?.name ?? "—"}</span>
+              <span>{sale.seller?.name ?? "-"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Cliente</span>
-              <span>{sale.customer?.name ?? "Sem cliente"}</span>
+              <span>
+                {sale.customer ? (
+                  <Link href={`/customers/${sale.customer.id}`} className="text-primary hover:underline">
+                    {sale.customer.name}
+                  </Link>
+                ) : (
+                  "Sem cliente"
+                )}
+              </span>
             </div>
+            {sale.customer?.cpf && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">CPF</span>
+                <span className="font-mono text-xs">{sale.customer.cpf}</span>
+              </div>
+            )}
+            {sale.customer?.phone && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Telefone</span>
+                <span className="text-xs">{sale.customer.phone}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Data</span>
               <span>{new Date(sale.saleDate).toLocaleString("pt-BR")}</span>
             </div>
-            {sale.cancellationReason && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Itens</span>
+              <span>{itemCount}</span>
+            </div>
+            {sale.observations && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Motivo cancelamento</span>
-                <span className="text-destructive">{sale.cancellationReason}</span>
+                <span className="text-muted-foreground">Observacoes</span>
+                <span className="max-w-[250px] text-right">{sale.observations}</span>
               </div>
+            )}
+            {sale.discountReason && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Motivo desconto</span>
+                <span className="text-right">{sale.discountReason}</span>
+              </div>
+            )}
+            {sale.cancellationReason && (
+              <>
+                <Separator />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Motivo cancelamento</span>
+                  <span className="text-destructive">{sale.cancellationReason}</span>
+                </div>
+                {sale.cancelledAt && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Data cancelamento</span>
+                    <span className="text-xs">
+                      {new Date(sale.cancelledAt).toLocaleString("pt-BR")}
+                    </span>
+                  </div>
+                )}
+                {(sale as Record<string, unknown>).cancelledBy && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cancelado por</span>
+                    <span>{((sale as Record<string, unknown>).cancelledBy as { name: string })?.name}</span>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -134,24 +201,28 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
             <CardTitle className="text-sm">Pagamento</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            {paymentDetails.map((payment, index) => (
-              <div key={index} className="flex justify-between">
-                <span className="text-muted-foreground">
-                  {payment.method}
-                  {payment.installments && payment.installments > 1
-                    ? ` (${payment.installments}x)`
-                    : ""}
-                </span>
-                <span className="font-mono">{formatMoney(payment.amount)}</span>
-              </div>
-            ))}
+            {paymentDetails.length > 0 ? (
+              paymentDetails.map((payment, index) => (
+                <div key={index} className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    {payment.method}
+                    {payment.installments && payment.installments > 1
+                      ? ` (${payment.installments}x)`
+                      : ""}
+                  </span>
+                  <span className="font-mono">{formatMoney(payment.amount)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">Sem detalhes de pagamento</p>
+            )}
             <Separator />
             <div className="flex justify-between font-bold">
               <span>Total pago</span>
               <span className="font-mono">{formatMoney(sale.paidAmount)}</span>
             </div>
             {Number(sale.changeAmount) > 0 && (
-              <div className="flex justify-between text-success">
+              <div className="flex justify-between font-bold text-green-500">
                 <span>Troco</span>
                 <span className="font-mono">{formatMoney(sale.changeAmount)}</span>
               </div>
@@ -163,30 +234,30 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
       {/* Items table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Itens</CardTitle>
+          <CardTitle className="text-sm">Itens da Venda</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-muted-foreground">
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="pb-2 pr-4">Produto</th>
                   <th className="pb-2 pr-4 text-center">Qtd</th>
                   <th className="pb-2 pr-4 text-right">Preco Unit.</th>
                   <th className="pb-2 pr-4 text-right">Desconto</th>
-                  <th className="pb-2 text-right">Total</th>
+                  <th className="pb-2 text-right">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
                 {sale.items.map((item) => (
                   <tr key={item.id} className="border-b last:border-0">
-                    <td className="py-2 pr-4">{item.description}</td>
+                    <td className="py-2 pr-4 font-medium">{item.description}</td>
                     <td className="py-2 pr-4 text-center">{item.quantity}</td>
                     <td className="py-2 pr-4 text-right font-mono">
                       {formatMoney(item.unitPrice)}
                     </td>
                     <td className="py-2 pr-4 text-right font-mono">
-                      {Number(item.discount) > 0 ? formatMoney(item.discount) : "—"}
+                      {Number(item.discount) > 0 ? formatMoney(item.discount) : "-"}
                     </td>
                     <td className="py-2 text-right font-mono font-bold">
                       {formatMoney(item.total)}
@@ -196,10 +267,10 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={4} className="pt-2 text-right font-medium">
+                  <td colSpan={4} className="pt-3 text-right font-medium">
                     Subtotal
                   </td>
-                  <td className="pt-2 text-right font-mono font-bold">
+                  <td className="pt-3 text-right font-mono font-bold">
                     {formatMoney(sale.subtotal)}
                   </td>
                 </tr>
@@ -207,6 +278,11 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
                   <tr>
                     <td colSpan={4} className="pt-1 text-right text-destructive">
                       Desconto
+                      {sale.discountReason && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({sale.discountReason})
+                        </span>
+                      )}
                     </td>
                     <td className="pt-1 text-right font-mono text-destructive">
                       -{formatMoney(sale.discountAmount)}
@@ -214,10 +290,10 @@ export function SaleDetailClient({ id }: SaleDetailClientProps) {
                   </tr>
                 )}
                 <tr>
-                  <td colSpan={4} className="pt-1 text-right text-lg font-bold">
+                  <td colSpan={4} className="pt-2 text-right text-lg font-bold">
                     Total
                   </td>
-                  <td className="pt-1 text-right font-mono text-lg font-bold text-primary">
+                  <td className="pt-2 text-right font-mono text-lg font-bold text-primary">
                     {formatMoney(sale.totalAmount)}
                   </td>
                 </tr>

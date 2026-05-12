@@ -9,8 +9,10 @@ export const createTransactionSchema = z.object({
   description: z.string().min(1, "Descrição obrigatória").max(500),
   category: z.string().max(100).optional(),
   supplier: z.string().max(200).optional(),
+  customerName: z.string().max(200).optional(),
   totalAmount: z.number().min(0.01, "Valor total deve ser maior que zero"),
   dueDate: z.date({ error: "Data de vencimento obrigatória" }),
+  emissionDate: z.date().optional(),
   paymentMethod: z.string().max(50).optional(),
   customerId: z.string().uuid().optional(),
   referenceId: z.string().uuid().optional(),
@@ -24,6 +26,7 @@ export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 export const updateTransactionSchema = z.object({
   description: z.string().min(1).max(500).optional(),
   category: z.string().max(100).optional(),
+  supplier: z.string().max(200).optional(),
   dueDate: z.date().optional(),
   customerId: z.string().uuid().optional().nullable(),
   notes: z.string().optional(),
@@ -32,7 +35,8 @@ export const updateTransactionSchema = z.object({
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
 
 // ────────────────────────────────────────────────────────────────────────────
-// Transaction list filters
+// Transaction list filters (aligned with Laravel: status, origin, client,
+// supplier, category, date range)
 // ────────────────────────────────────────────────────────────────────────────
 
 export const listTransactionsSchema = z.object({
@@ -41,6 +45,8 @@ export const listTransactionsSchema = z.object({
   from: z.date().optional(),
   to: z.date().optional(),
   search: z.string().optional(),
+  referenceType: z.string().optional(),
+  supplier: z.string().optional(),
   page: z.number().int().min(0),
   pageSize: z.number().int().min(1).max(100),
 });
@@ -72,3 +78,32 @@ export const cashFlowReportSchema = z.object({
 });
 
 export type CashFlowReportInput = z.infer<typeof cashFlowReportSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Status labels
+// ────────────────────────────────────────────────────────────────────────────
+
+export const transactionStatusLabels: Record<string, string> = {
+  PENDING: "Pendente",
+  PARTIALLY_PAID: "Parcialmente Paga",
+  PAID: "Paga",
+  OVERDUE: "Vencida",
+  CANCELLED: "Cancelada",
+};
+
+export const transactionTypeLabels: Record<string, string> = {
+  PAYABLE: "A Pagar",
+  RECEIVABLE: "A Receber",
+};
+
+export const paymentMethodLabels: Record<string, string> = {
+  dinheiro: "Dinheiro",
+  pix: "PIX",
+  cartao_credito: "Cartão de Crédito",
+  cartao_debito: "Cartão de Débito",
+  boleto: "Boleto",
+  transferencia: "Transferência",
+  crediario: "Crediário",
+  parcelado: "Parcelado",
+  misto: "Misto",
+};

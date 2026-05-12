@@ -10,12 +10,63 @@ import {
 } from "@/lib/validators/financial";
 
 export const financialRouter = createTRPCRouter({
+  // ── Stats ────────────────────────────────────────────────────────────────────
+
+  stats: tenantProcedure
+    .input(z.object({ type: z.enum(["PAYABLE", "RECEIVABLE"]).optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+        const baseWhere = {
+          deletedAt: null,
+          ...(input.type ? { type: input.type } : {}),
+        };
+
+        const [pendingResult, overdueResult, paidThisMonthResult] = await Promise.all([
+          // Total pending (valor_restante)
+          tx.financialTransaction.aggregate({
+            where: {
+              ...baseWhere,
+              status: { in: ["PENDING", "PARTIALLY_PAID"] },
+            },
+            _sum: { totalAmount: true, paidAmount: true },
+          }),
+          // Total overdue
+          tx.financialTransaction.aggregate({
+            where: {
+              ...baseWhere,
+              status: "OVERDUE",
+            },
+            _sum: { totalAmount: true, paidAmount: true },
+          }),
+          // Total paid this month
+          tx.financialTransaction.aggregate({
+            where: {
+              ...baseWhere,
+              status: "PAID",
+              paidAt: { gte: startOfMonth, lte: endOfMonth },
+            },
+            _sum: { totalAmount: true },
+          }),
+        ]);
+
+        const totalPending = Number(pendingResult._sum.totalAmount ?? 0) - Number(pendingResult._sum.paidAmount ?? 0);
+        const totalOverdue = Number(overdueResult._sum.totalAmount ?? 0) - Number(overdueResult._sum.paidAmount ?? 0);
+        const totalPaidThisMonth = Number(paidThisMonthResult._sum.totalAmount ?? 0);
+
+        return { totalPending, totalOverdue, totalPaidThisMonth };
+      });
+    }),
+
   // ── List Transactions ───────────────────────────────────────────────────────
 
   listTransactions: tenantProcedure
     .input(listTransactionsSchema)
     .query(async ({ ctx, input }) => {
-      const { type, status, from, to, search, page, pageSize } = input;
+      const { type, status, from, to, search, referenceType, supplier, page, pageSize } = input;
       const skip = page * pageSize;
 
       return ctx.withTenant(async (tx) => {
@@ -23,11 +74,14 @@ export const financialRouter = createTRPCRouter({
           deletedAt: null,
           ...(type ? { type } : {}),
           ...(status ? { status } : {}),
+          ...(referenceType ? { referenceType } : {}),
+          ...(supplier ? { supplier: { contains: supplier, mode: "insensitive" as const } } : {}),
           ...(search
             ? {
                 OR: [
                   { description: { contains: search, mode: "insensitive" as const } },
                   { category: { contains: search, mode: "insensitive" as const } },
+                  { customerName: { contains: search, mode: "insensitive" as const } },
                 ],
               }
             : {}),
@@ -91,6 +145,7 @@ export const financialRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             ...transactionData,
+            emissionDate: transactionData.emissionDate ?? new Date(),
             dueDate: numInstallments > 1 ? lastDueDate : baseDueDate,
           },
         });
@@ -130,6 +185,15 @@ export const financialRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.withTenant(async (tx) => {
+        const existing = await tx.financialTransaction.findFirst({
+          where: { id, deletedAt: null },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transação não encontrada" });
+        }
+        if (existing.status === "PAID" || existing.status === "CANCELLED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Transação paga ou cancelada não pode ser editada" });
+        }
         return tx.financialTransaction.update({ where: { id }, data });
       });
     }),
@@ -153,11 +217,21 @@ export const financialRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const existing = await tx.financialTransaction.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transação não encontrada" });
+        }
+        if (existing.status === "PAID") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível cancelar uma transação já paga" });
+        }
+
         // Cancel all pending installments too
         await tx.installment.updateMany({
           where: {
             transactionId: input.id,
-            status: { in: ["PENDING", "PARTIALLY_PAID"] },
+            status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
           },
           data: { status: "CANCELLED" },
         });
@@ -214,25 +288,84 @@ export const financialRouter = createTRPCRouter({
 
         // Update transaction totals
         const transactionPaidAmount = Number(installment.transaction.paidAmount) + input.paidAmount;
+
         // Check if all installments are paid
         const pendingInstallments = await tx.installment.count({
           where: {
             transactionId: installment.transactionId,
-            status: { in: ["PENDING", "PARTIALLY_PAID"] },
-            id: { not: input.installmentId }, // exclude the one we just updated
+            status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+            id: { not: input.installmentId },
           },
         });
 
         const allPaid = isFullyPaid && pendingInstallments === 0;
 
+        // Recalculate status like Laravel
+        let newStatus: "PAID" | "PARTIALLY_PAID" | "PENDING" | "OVERDUE" = "PENDING";
+        if (allPaid) {
+          newStatus = "PAID";
+        } else if (transactionPaidAmount > 0) {
+          // Check for overdue installments
+          const overdueCount = await tx.installment.count({
+            where: {
+              transactionId: installment.transactionId,
+              status: "OVERDUE",
+              id: { not: input.installmentId },
+            },
+          });
+          newStatus = overdueCount > 0 ? "OVERDUE" : "PARTIALLY_PAID";
+        }
+
         await tx.financialTransaction.update({
           where: { id: installment.transactionId },
           data: {
             paidAmount: transactionPaidAmount,
-            status: allPaid ? "PAID" : "PARTIALLY_PAID",
+            status: newStatus,
             paidAt: allPaid ? new Date() : undefined,
           },
         });
+
+        // Try to create cash movement if user has open register
+        // (aligned with Laravel: baixa parcela creates cash movement)
+        try {
+          const userId = ctx.session.user.id;
+          const openRegister = await tx.cashRegister.findFirst({
+            where: { userId, status: "OPEN" },
+            include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+          });
+
+          if (openRegister) {
+            const lastBalance = openRegister.movements[0]
+              ? Number(openRegister.movements[0].currentBalance ?? 0)
+              : Number(openRegister.openingBalance);
+
+            const isPayable = installment.transaction.type === "PAYABLE";
+            const nature = isPayable ? "OUTFLOW" : "INFLOW";
+            const movType = isPayable ? "EXPENSE" : "SALE";
+            const newBalance = isPayable
+              ? lastBalance - input.paidAmount
+              : lastBalance + input.paidAmount;
+
+            await tx.cashMovement.create({
+              data: {
+                tenantId: ctx.tenantId,
+                cashRegisterId: openRegister.id,
+                type: movType,
+                amount: input.paidAmount,
+                nature,
+                paymentMethod: input.paymentMethod ?? "outros",
+                description: `Baixa parcela #${installment.number} - ${installment.transaction.description}`,
+                referenceType: isPayable ? "installment_payable" : "installment_receivable",
+                referenceId: installment.id,
+                userId,
+                previousBalance: lastBalance,
+                currentBalance: newBalance,
+              },
+            });
+          }
+        } catch {
+          // Non-critical: if cash movement fails, the payment itself is still valid
+        }
 
         return tx.installment.findFirst({
           where: { id: input.installmentId },
@@ -267,14 +400,12 @@ export const financialRouter = createTRPCRouter({
           if (groupBy === "day") {
             key = date.toISOString().slice(0, 10);
           } else if (groupBy === "week") {
-            // ISO week start (Monday)
             const d = new Date(date);
             const day = d.getDay();
             const diff = d.getDate() - day + (day === 0 ? -6 : 1);
             d.setDate(diff);
             key = d.toISOString().slice(0, 10);
           } else {
-            // month
             key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
           }
 

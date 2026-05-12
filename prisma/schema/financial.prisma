@@ -19,9 +19,11 @@ model FinancialTransaction {
   description   String
   category      String?
   supplier      String?
+  customerName  String?           @map("customer_name")
   totalAmount   Decimal           @map("total_amount") @db.Decimal(10, 2)
   paidAmount    Decimal           @default(0) @map("paid_amount") @db.Decimal(10, 2)
   dueDate       DateTime          @map("due_date")
+  emissionDate  DateTime?         @map("emission_date")
   paidAt        DateTime?         @map("paid_at")
   paymentMethod String?           @map("payment_method")
   referenceId   String?           @map("reference_id") @db.Uuid

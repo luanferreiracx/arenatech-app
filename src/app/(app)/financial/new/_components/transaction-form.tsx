@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
@@ -32,6 +33,45 @@ import type { z } from "zod";
 
 type FormValues = z.input<typeof createTransactionSchema>;
 
+function formatMoney(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function InstallmentPreview({ totalCentavos, count, baseDate }: {
+  totalCentavos: number;
+  count: number;
+  baseDate: Date;
+}) {
+  if (totalCentavos <= 0 || count <= 0) {
+    return <p className="text-sm text-muted-foreground">Informe o valor e número de parcelas.</p>;
+  }
+
+  const totalReais = totalCentavos / 100;
+  const installmentAmount = Math.floor((totalReais / count) * 100) / 100;
+  const lastAmount = Math.round((totalReais - installmentAmount * (count - 1)) * 100) / 100;
+
+  const items = Array.from({ length: count }, (_, i) => {
+    const dueDate = new Date(baseDate);
+    dueDate.setMonth(baseDate.getMonth() + i + 1);
+    const value = i === count - 1 ? lastAmount : installmentAmount;
+    return { number: i + 1, value, dueDate };
+  });
+
+  return (
+    <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
+      {items.map((item) => (
+        <div key={item.number} className="p-2 rounded-md border bg-muted/30 text-xs">
+          <span className="font-semibold text-primary">{item.number}/{count}</span>
+          {" — "}
+          <span className="text-success">{formatMoney(item.value)}</span>
+          {" — "}
+          <span className="text-muted-foreground">{item.dueDate.toLocaleDateString("pt-BR")}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TransactionForm() {
   const trpc = useTRPC();
   const router = useRouter();
@@ -43,8 +83,10 @@ export function TransactionForm() {
       description: "",
       category: "",
       supplier: "",
-      totalAmount: 0, // centavos
+      customerName: "",
+      totalAmount: 0,
       dueDate: new Date(),
+      emissionDate: new Date(),
       paymentMethod: "",
       notes: "",
       installments: 1,
@@ -62,13 +104,18 @@ export function TransactionForm() {
   );
 
   const onSubmit = (values: FormValues) => {
-    createMutation.mutate({ ...values, totalAmount: values.totalAmount / 100 });
+    createMutation.mutate({
+      ...values,
+      totalAmount: values.totalAmount / 100,
+      customerName: values.customerName || undefined,
+      supplier: values.supplier || undefined,
+    });
   };
 
   const watchType = form.watch("type");
   const installmentsCount = form.watch("installments");
   const totalAmount = form.watch("totalAmount");
-  const installmentValue = installmentsCount > 0 ? (totalAmount / 100) / installmentsCount : 0;
+  const dueDate = form.watch("dueDate");
 
   return (
     <Form {...form}>
@@ -103,7 +150,12 @@ export function TransactionForm() {
               <FormItem>
                 <FormLabel>Descrição *</FormLabel>
                 <FormControl>
-                  <Input placeholder="Descrição da transação" {...field} />
+                  <Input
+                    placeholder={watchType === "PAYABLE"
+                      ? "Ex: Aluguel da loja - Janeiro"
+                      : "Ex: Venda a prazo para cliente X"}
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -129,7 +181,7 @@ export function TransactionForm() {
               name="totalAmount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Valor Total *</FormLabel>
+                  <FormLabel>Valor Total (R$) *</FormLabel>
                   <FormControl>
                     <MoneyInput value={field.value} onChange={field.onChange} />
                   </FormControl>
@@ -139,7 +191,7 @@ export function TransactionForm() {
             />
           </div>
 
-          {watchType === "PAYABLE" && (
+          {watchType === "PAYABLE" ? (
             <FormField
               control={form.control}
               name="supplier"
@@ -153,22 +205,23 @@ export function TransactionForm() {
                 </FormItem>
               )}
             />
-          )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
+          ) : (
             <FormField
               control={form.control}
-              name="dueDate"
+              name="customerName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Data de Vencimento *</FormLabel>
+                  <FormLabel>Cliente</FormLabel>
                   <FormControl>
-                    <DatePicker value={field.value} onChange={field.onChange} />
+                    <Input placeholder="Nome do cliente" {...field} value={field.value ?? ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <FormField
               control={form.control}
               name="paymentMethod"
@@ -195,39 +248,70 @@ export function TransactionForm() {
                 </FormItem>
               )}
             />
-          </div>
-        </FormSection>
-
-        <FormSection title="Parcelamento">
-          <div className="grid gap-4 sm:grid-cols-2">
             <FormField
               control={form.control}
-              name="installments"
+              name="emissionDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Número de Parcelas (1-60)</FormLabel>
+                  <FormLabel>Data de Emissão</FormLabel>
                   <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={60}
-                      {...field}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                    />
+                    <DatePicker value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            {installmentsCount > 1 && (
-              <div className="flex items-end">
-                <p className="text-sm text-muted-foreground">
-                  {installmentsCount}x de{" "}
-                  {installmentValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                </p>
-              </div>
-            )}
           </div>
+
+          <FormField
+            control={form.control}
+            name="dueDate"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Data de Vencimento *</FormLabel>
+                <FormControl>
+                  <DatePicker value={field.value} onChange={field.onChange} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </FormSection>
+
+        <FormSection title="Parcelamento">
+          <FormField
+            control={form.control}
+            name="installments"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Número de Parcelas (1-60)</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={60}
+                    {...field}
+                    onChange={(e) => field.onChange(Number(e.target.value))}
+                    className="w-32"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <Card className="bg-muted/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-primary">Preview das Parcelas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InstallmentPreview
+                totalCentavos={totalAmount}
+                count={installmentsCount}
+                baseDate={dueDate instanceof Date ? dueDate : new Date(dueDate)}
+              />
+            </CardContent>
+          </Card>
         </FormSection>
 
         <FormSection title="Observações">
