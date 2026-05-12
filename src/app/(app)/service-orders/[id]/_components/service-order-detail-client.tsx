@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +12,9 @@ import {
   FileText,
   Send,
   MessageCircle,
+  Check,
+  X,
+  Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,8 +41,9 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { LoadingState } from "@/components/domain/loading-state";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { EntitySelector } from "@/components/domain/entity-selector";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import {
   STATUS_LABELS,
@@ -100,9 +104,50 @@ function getStatusActions(status: ServiceOrderStatusValue): Array<{
   return actions;
 }
 
+interface ServiceCatalogItem {
+  id: string;
+  name: string;
+  basePrice: unknown;
+}
+
+interface ProductCatalogItem {
+  id: string;
+  name: string;
+  salePrice: unknown;
+  costPrice: unknown;
+}
+
 export function ServiceOrderDetailClient({ id }: Props) {
   const trpc = useTRPC();
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const searchServices = useCallback(
+    async (query: string): Promise<ServiceCatalogItem[]> => {
+      const opts = trpc.catalog.listServices.queryOptions({
+        search: query,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result.items as ServiceCatalogItem[];
+    },
+    [trpc.catalog.listServices, queryClient],
+  );
+
+  const searchProducts = useCallback(
+    async (query: string): Promise<ProductCatalogItem[]> => {
+      const opts = trpc.stock.listProducts.queryOptions({
+        search: query,
+        active: true,
+        page: 0,
+        pageSize: 20,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result.items as ProductCatalogItem[];
+    },
+    [trpc.stock.listProducts, queryClient],
+  );
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusDialog, setStatusDialog] = useState<{
     open: boolean;
@@ -124,6 +169,10 @@ export function ServiceOrderDetailClient({ id }: Props) {
   const [newItemDescription, setNewItemDescription] = useState("");
   const [newItemQuantity, setNewItemQuantity] = useState(1);
   const [newItemUnitPrice, setNewItemUnitPrice] = useState(0);
+  const [newItemServiceId, setNewItemServiceId] = useState<string | undefined>();
+  const [newItemProductId, setNewItemProductId] = useState<string | undefined>();
+  const [newItemCostPrice, setNewItemCostPrice] = useState(0);
+  const [newItemManualMode, setNewItemManualMode] = useState(false);
 
   const {
     data: order,
@@ -247,8 +296,8 @@ export function ServiceOrderDetailClient({ id }: Props) {
     toast.success("Link copiado!");
   };
 
-  const entryChecklist = order.entryChecklist as Record<string, boolean> | null;
-  const exitChecklist = order.exitChecklist as Record<string, boolean> | null;
+  const entryChecklist = order.entryChecklist as Record<string, boolean | null> | null;
+  const exitChecklist = order.exitChecklist as Record<string, boolean | null> | null;
   const deviceInfo = order.deviceInfo as Record<string, boolean> | null;
 
   return (
@@ -487,9 +536,22 @@ export function ServiceOrderDetailClient({ id }: Props) {
                         return (
                           <span
                             key={key}
-                            className={`text-xs ${val ? "text-success" : "text-destructive"}`}
+                            className={`flex items-center gap-1 text-xs ${
+                              val === true
+                                ? "text-green-600"
+                                : val === false
+                                  ? "text-red-600"
+                                  : "text-muted-foreground"
+                            }`}
                           >
-                            {val ? "✓" : "✗"} {label}
+                            {val === true ? (
+                              <Check className="h-3 w-3" />
+                            ) : val === false ? (
+                              <X className="h-3 w-3" />
+                            ) : (
+                              <Minus className="h-3 w-3" />
+                            )}
+                            {label}
                           </span>
                         );
                       })}
@@ -510,9 +572,22 @@ export function ServiceOrderDetailClient({ id }: Props) {
                         return (
                           <span
                             key={key}
-                            className={`text-xs ${val ? "text-success" : "text-destructive"}`}
+                            className={`flex items-center gap-1 text-xs ${
+                              val === true
+                                ? "text-green-600"
+                                : val === false
+                                  ? "text-red-600"
+                                  : "text-muted-foreground"
+                            }`}
                           >
-                            {val ? "✓" : "✗"} {label}
+                            {val === true ? (
+                              <Check className="h-3 w-3" />
+                            ) : val === false ? (
+                              <X className="h-3 w-3" />
+                            ) : (
+                              <Minus className="h-3 w-3" />
+                            )}
+                            {label}
                           </span>
                         );
                       })}
@@ -945,7 +1020,22 @@ export function ServiceOrderDetailClient({ id }: Props) {
       </Dialog>
 
       {/* Add item dialog */}
-      <Dialog open={addItemOpen} onOpenChange={setAddItemOpen}>
+      <Dialog
+        open={addItemOpen}
+        onOpenChange={(open) => {
+          setAddItemOpen(open);
+          if (!open) {
+            setNewItemType("SERVICE");
+            setNewItemDescription("");
+            setNewItemQuantity(1);
+            setNewItemUnitPrice(0);
+            setNewItemServiceId(undefined);
+            setNewItemProductId(undefined);
+            setNewItemCostPrice(0);
+            setNewItemManualMode(false);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Adicionar Item</DialogTitle>
@@ -955,7 +1045,15 @@ export function ServiceOrderDetailClient({ id }: Props) {
               <Label>Tipo</Label>
               <Select
                 value={newItemType}
-                onValueChange={(v) => setNewItemType(v as "SERVICE" | "PRODUCT")}
+                onValueChange={(v) => {
+                  setNewItemType(v as "SERVICE" | "PRODUCT");
+                  setNewItemDescription("");
+                  setNewItemUnitPrice(0);
+                  setNewItemServiceId(undefined);
+                  setNewItemProductId(undefined);
+                  setNewItemCostPrice(0);
+                  setNewItemManualMode(false);
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -966,14 +1064,93 @@ export function ServiceOrderDetailClient({ id }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Descrição *</Label>
-              <Input
-                value={newItemDescription}
-                onChange={(e) => setNewItemDescription(e.target.value)}
-                placeholder="Nome do serviço ou produto..."
-              />
-            </div>
+
+            {!newItemManualMode ? (
+              <div className="space-y-2">
+                <Label>{newItemType === "SERVICE" ? "Buscar serviço" : "Buscar produto"}</Label>
+                {newItemType === "SERVICE" ? (
+                  <EntitySelector<ServiceCatalogItem>
+                    value={newItemServiceId}
+                    onChange={(val) => {
+                      setNewItemServiceId(val ?? undefined);
+                      if (val) {
+                        void searchServices("").then((items) => {
+                          const svc = items.find((s) => s.id === val);
+                          if (svc) {
+                            setNewItemDescription(svc.name);
+                            setNewItemUnitPrice(Math.round(Number(svc.basePrice) * 100));
+                          }
+                        });
+                      }
+                    }}
+                    searchFn={searchServices}
+                    getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
+                    getOptionValue={(s) => s.id}
+                    placeholder="Buscar serviço do catálogo..."
+                    emptyMessage="Nenhum serviço encontrado."
+                  />
+                ) : (
+                  <EntitySelector<ProductCatalogItem>
+                    value={newItemProductId}
+                    onChange={(val) => {
+                      setNewItemProductId(val ?? undefined);
+                      if (val) {
+                        void searchProducts("").then((items) => {
+                          const prod = items.find((p) => p.id === val);
+                          if (prod) {
+                            setNewItemDescription(prod.name);
+                            setNewItemUnitPrice(Math.round(Number(prod.salePrice) * 100));
+                            setNewItemCostPrice(Math.round(Number(prod.costPrice) * 100));
+                          }
+                        });
+                      }
+                    }}
+                    searchFn={searchProducts}
+                    getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
+                    getOptionValue={(p) => p.id}
+                    placeholder="Buscar produto do estoque..."
+                    emptyMessage="Nenhum produto encontrado."
+                  />
+                )}
+                {(newItemServiceId || newItemProductId) && (
+                  <p className="text-xs text-muted-foreground">
+                    Selecionado: <span className="font-medium">{newItemDescription}</span>
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => {
+                    setNewItemManualMode(true);
+                    setNewItemServiceId(undefined);
+                    setNewItemProductId(undefined);
+                  }}
+                >
+                  Não encontrou? Digite manualmente
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Descrição *</Label>
+                <Input
+                  value={newItemDescription}
+                  onChange={(e) => setNewItemDescription(e.target.value)}
+                  placeholder={newItemType === "SERVICE" ? "Descrição do serviço..." : "Descrição do produto..."}
+                />
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => {
+                    setNewItemManualMode(false);
+                    setNewItemDescription("");
+                    setNewItemUnitPrice(0);
+                  }}
+                >
+                  Buscar no catálogo
+                </button>
+              </div>
+            )}
+
             <div className="grid gap-4 grid-cols-2">
               <div className="space-y-2">
                 <Label>Quantidade</Label>
@@ -1002,9 +1179,12 @@ export function ServiceOrderDetailClient({ id }: Props) {
                 addItemMutation.mutate({
                   orderId: id,
                   type: newItemType,
+                  serviceId: newItemServiceId,
+                  productId: newItemProductId,
                   description: newItemDescription,
                   quantity: newItemQuantity,
                   unitPrice: newItemUnitPrice,
+                  costPrice: newItemCostPrice > 0 ? newItemCostPrice : undefined,
                 })
               }
               disabled={

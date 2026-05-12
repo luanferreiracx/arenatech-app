@@ -28,7 +28,9 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { updateServiceOrderSchema, WARRANTY_TYPES, WARRANTY_TYPE_LABELS, type ChecklistInput, type DeviceInfoInput } from "@/lib/validators/service-order";
+import { updateServiceOrderSchema, WARRANTY_TYPES, WARRANTY_TYPE_LABELS, CHECKLIST_LABELS, DEVICE_INFO_LABELS, type ChecklistInput, type DeviceInfoInput } from "@/lib/validators/service-order";
+import { Check, X, Minus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { z } from "zod";
 
 type FormValues = z.input<typeof updateServiceOrderSchema>;
@@ -38,11 +40,11 @@ interface Props {
 }
 
 const DEVICE_TYPES = [
-  "Celular",
-  "Tablet",
+  "iPhone",
+  "iPad",
+  "MacBook",
+  "Android",
   "Notebook",
-  "Desktop",
-  "Smart Watch",
   "Console",
   "Outro",
 ];
@@ -236,6 +238,150 @@ export function ServiceOrderEditClient({ id }: Props) {
               </FormItem>
             )}
           />
+        </FormSection>
+
+        <FormSection title="Checklist de Entrada">
+          <p className="text-xs text-muted-foreground mb-3">
+            Para cada item: <span className="text-green-600 font-medium">✓ OK</span>{" "}
+            / <span className="text-red-600 font-medium">✗ Não OK</span>{" "}
+            / <span className="text-muted-foreground font-medium">— N/A</span>
+          </p>
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(CHECKLIST_LABELS).map(([key, label]) => {
+              const val = (form.watch("entryChecklist") ?? {})[key as keyof ChecklistInput];
+              const normalized = val ?? null;
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <div className="flex rounded-md border overflow-hidden shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("entryChecklist") ?? {};
+                        form.setValue("entryChecklist", { ...current, [key]: normalized === true ? null : true }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+                        normalized === true ? "bg-green-600 text-white" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="OK"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("entryChecklist") ?? {};
+                        form.setValue("entryChecklist", { ...current, [key]: normalized === false ? null : false }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors border-x",
+                        normalized === false ? "bg-red-600 text-white" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="Não OK"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("entryChecklist") ?? {};
+                        form.setValue("entryChecklist", { ...current, [key]: null }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+                        normalized === null ? "bg-muted-foreground/20 text-muted-foreground" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="N/A"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <span className="text-sm">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </FormSection>
+
+        <FormSection title="Checklist de Saída">
+          <p className="text-xs text-muted-foreground mb-3">
+            Preencha ao finalizar o serviço.
+          </p>
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(CHECKLIST_LABELS).map(([key, label]) => {
+              const val = (form.watch("exitChecklist") ?? {})[key as keyof ChecklistInput];
+              const normalized = val ?? null;
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <div className="flex rounded-md border overflow-hidden shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("exitChecklist") ?? {};
+                        form.setValue("exitChecklist", { ...current, [key]: normalized === true ? null : true }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+                        normalized === true ? "bg-green-600 text-white" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="OK"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("exitChecklist") ?? {};
+                        form.setValue("exitChecklist", { ...current, [key]: normalized === false ? null : false }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors border-x",
+                        normalized === false ? "bg-red-600 text-white" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="Não OK"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = form.getValues("exitChecklist") ?? {};
+                        form.setValue("exitChecklist", { ...current, [key]: null }, { shouldDirty: true });
+                      }}
+                      className={cn(
+                        "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+                        normalized === null ? "bg-muted-foreground/20 text-muted-foreground" : "hover:bg-muted text-muted-foreground",
+                      )}
+                      title="N/A"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <span className="text-sm">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </FormSection>
+
+        <FormSection title="Informações Adicionais">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+            {Object.entries(DEVICE_INFO_LABELS).map(([key, label]) => {
+              const val = (form.watch("deviceInfo") ?? {})[key as keyof DeviceInfoInput];
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <Switch
+                    checked={!!val}
+                    onCheckedChange={(checked) => {
+                      const current = form.getValues("deviceInfo") ?? {};
+                      form.setValue("deviceInfo", { ...current, [key]: checked }, { shouldDirty: true });
+                    }}
+                  />
+                  <span className="text-sm">{label}</span>
+                </div>
+              );
+            })}
+          </div>
         </FormSection>
 
         <FormSection title="Valores e Garantia">

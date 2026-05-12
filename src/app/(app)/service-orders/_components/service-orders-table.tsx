@@ -205,7 +205,7 @@ export function ServiceOrdersTable() {
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
             <Input
-              placeholder="Buscar por número, IMEI, serial..."
+              placeholder="Buscar por número, cliente, IMEI, modelo..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);

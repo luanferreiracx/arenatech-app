@@ -4,22 +4,28 @@ import { z } from "zod";
 // Checklist schemas (JSONB — redesign of 30 individual Laravel columns)
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Checklist value: true = OK, false = Não OK, null = N/A (não se aplica / não testado)
+ * All fields are optional — when absent, treated as "not tested".
+ */
+export const checklistValueSchema = z.boolean().nullable().optional();
+
 export const checklistSchema = z.object({
-  powerOn: z.boolean().optional(),
-  vibration: z.boolean().optional(),
-  buttons: z.boolean().optional(),
-  bluetooth: z.boolean().optional(),
-  wifi: z.boolean().optional(),
-  backGlass: z.boolean().optional(),
-  audio: z.boolean().optional(),
-  microphone: z.boolean().optional(),
-  cameras: z.boolean().optional(),
-  touchFaceId: z.boolean().optional(),
-  charging: z.boolean().optional(),
-  screen: z.boolean().optional(),
-  cableCharging: z.boolean().optional(),
-  wirelessCharging: z.boolean().optional(),
-  magSafe: z.boolean().optional(),
+  powerOn: checklistValueSchema,
+  vibration: checklistValueSchema,
+  buttons: checklistValueSchema,
+  bluetooth: checklistValueSchema,
+  wifi: checklistValueSchema,
+  backGlass: checklistValueSchema,
+  audio: checklistValueSchema,
+  microphone: checklistValueSchema,
+  cameras: checklistValueSchema,
+  touchFaceId: checklistValueSchema,
+  charging: checklistValueSchema,
+  screen: checklistValueSchema,
+  cableCharging: checklistValueSchema,
+  wirelessCharging: checklistValueSchema,
+  magSafe: checklistValueSchema,
 });
 
 export type ChecklistInput = z.infer<typeof checklistSchema>;

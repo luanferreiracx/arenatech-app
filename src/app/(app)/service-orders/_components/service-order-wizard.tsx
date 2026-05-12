@@ -31,7 +31,8 @@ import {
   type ServiceOrderItemInput,
   type WarrantyType,
 } from "@/lib/validators/service-order";
-import { Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, ChevronRight, Check, X, Minus } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const STEPS = [
   "Cliente",
@@ -42,11 +43,11 @@ const STEPS = [
 ] as const;
 
 const DEVICE_TYPES = [
-  "Celular",
-  "Tablet",
+  "iPhone",
+  "iPad",
+  "MacBook",
+  "Android",
   "Notebook",
-  "Desktop",
-  "Smart Watch",
   "Console",
   "Outro",
 ];
@@ -388,6 +389,67 @@ function Step2Device({
 
 // ── Step 3: Problem + Checklist ──────────────────────────────────────────────
 
+/** 3-state checklist button group for a single checklist item */
+function ChecklistToggle({
+  value,
+  onChange,
+  label,
+}: {
+  value: boolean | null | undefined;
+  onChange: (val: boolean | null) => void;
+  label: string;
+}) {
+  // undefined and null both treated as N/A
+  const normalized = value ?? null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex rounded-md border overflow-hidden shrink-0">
+        <button
+          type="button"
+          onClick={() => onChange(normalized === true ? null : true)}
+          className={cn(
+            "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+            normalized === true
+              ? "bg-green-600 text-white"
+              : "hover:bg-muted text-muted-foreground",
+          )}
+          title="OK"
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(normalized === false ? null : false)}
+          className={cn(
+            "flex h-7 w-7 items-center justify-center text-xs transition-colors border-x",
+            normalized === false
+              ? "bg-red-600 text-white"
+              : "hover:bg-muted text-muted-foreground",
+          )}
+          title="Não OK"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className={cn(
+            "flex h-7 w-7 items-center justify-center text-xs transition-colors",
+            normalized === null
+              ? "bg-muted-foreground/20 text-muted-foreground"
+              : "hover:bg-muted text-muted-foreground",
+          )}
+          title="N/A"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <span className="text-sm">{label}</span>
+    </div>
+  );
+}
+
 function Step3Problem({
   state,
   update,
@@ -395,11 +457,10 @@ function Step3Problem({
   state: WizardState;
   update: <K extends keyof WizardState>(key: K, value: WizardState[K]) => void;
 }) {
-  const toggleChecklist = (key: string) => {
-    const current = state.entryChecklist[key as keyof ChecklistInput];
+  const setChecklistValue = (key: string, val: boolean | null) => {
     update("entryChecklist", {
       ...state.entryChecklist,
-      [key]: !current,
+      [key]: val,
     });
   };
 
@@ -425,21 +486,24 @@ function Step3Problem({
         />
       </div>
 
-      {/* Entry checklist */}
+      {/* Entry checklist — 3 states: OK / Não OK / N/A */}
       <div className="space-y-3">
-        <Label className="text-base">Checklist de Entrada</Label>
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+        <div>
+          <Label className="text-base">Checklist de Entrada</Label>
+          <p className="text-xs text-muted-foreground mt-1">
+            Para cada item: <span className="text-green-600 font-medium">✓ OK</span>{" "}
+            / <span className="text-red-600 font-medium">✗ Não OK</span>{" "}
+            / <span className="text-muted-foreground font-medium">— N/A</span>
+          </p>
+        </div>
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {Object.entries(CHECKLIST_LABELS).map(([key, label]) => (
-            <div
+            <ChecklistToggle
               key={key}
-              className="flex items-center gap-2"
-            >
-              <Switch
-                checked={!!state.entryChecklist[key as keyof ChecklistInput]}
-                onCheckedChange={() => toggleChecklist(key)}
-              />
-              <Label className="text-sm cursor-pointer font-normal">{label}</Label>
-            </div>
+              value={state.entryChecklist[key as keyof ChecklistInput]}
+              onChange={(val) => setChecklistValue(key, val)}
+              label={label}
+            />
           ))}
         </div>
       </div>
@@ -490,6 +554,8 @@ function Step4Items({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // Track which items are in "manual" mode (typing description freely)
+  const [manualMode, setManualMode] = useState<Record<number, boolean>>({});
 
   const searchServices = useCallback(
     async (query: string): Promise<ServiceItem[]> => {
@@ -538,6 +604,11 @@ function Step4Items({
       ...prev,
       items: prev.items.filter((_, i) => i !== index),
     }));
+    setManualMode((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
   };
 
   const updateItem = (index: number, field: string, value: unknown) => {
@@ -549,12 +620,20 @@ function Step4Items({
     }));
   };
 
+  const toggleManualMode = (idx: number) => {
+    setManualMode((prev) => ({ ...prev, [idx]: !prev[idx] }));
+    // Clear entity selection when switching to manual
+    if (!manualMode[idx]) {
+      updateItem(idx, "serviceId", undefined);
+      updateItem(idx, "productId", undefined);
+    }
+  };
+
   const handleSelectService = (idx: number, serviceId: string | undefined) => {
     if (!serviceId) {
       updateItem(idx, "serviceId", undefined);
       return;
     }
-    // Search in cache to get the service details
     void searchServices("").then((services) => {
       const service = services.find((s) => s.id === serviceId);
       if (service) {
@@ -617,84 +696,121 @@ function Step4Items({
         </p>
       )}
 
-      {state.items.map((item, idx) => (
-        <div
-          key={idx}
-          className="space-y-3 rounded-md border p-3"
-        >
-          <div className="flex items-center gap-3">
-            <Select
-              value={item.type}
-              onValueChange={(v) => {
-                updateItem(idx, "type", v);
-                // Reset linked entity when type changes
-                updateItem(idx, "serviceId", undefined);
-                updateItem(idx, "productId", undefined);
-                updateItem(idx, "description", "");
-                updateItem(idx, "unitPrice", 0);
-                updateItem(idx, "costPrice", undefined);
-              }}
-            >
-              <SelectTrigger className="w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="SERVICE">Serviço</SelectItem>
-                <SelectItem value="PRODUCT">Produto</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex-1">
-              {item.type === "SERVICE" ? (
-                <EntitySelector<ServiceItem>
-                  value={item.serviceId}
-                  onChange={(val) => handleSelectService(idx, val)}
-                  searchFn={searchServices}
-                  getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
-                  getOptionValue={(s) => s.id}
-                  placeholder="Buscar serviço do catálogo..."
-                  emptyMessage="Nenhum serviço encontrado."
-                />
-              ) : (
-                <EntitySelector<ProductItem>
-                  value={item.productId}
-                  onChange={(val) => handleSelectProduct(idx, val)}
-                  searchFn={searchProducts}
-                  getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
-                  getOptionValue={(p) => p.id}
-                  placeholder="Buscar produto do estoque..."
-                  emptyMessage="Nenhum produto encontrado."
-                />
-              )}
+      {state.items.map((item, idx) => {
+        const isManual = !!manualMode[idx];
+        const hasEntitySelected = !!(item.serviceId || item.productId);
+
+        return (
+          <div
+            key={idx}
+            className="space-y-3 rounded-md border p-3"
+          >
+            <div className="flex items-center gap-3">
+              <Select
+                value={item.type}
+                onValueChange={(v) => {
+                  updateItem(idx, "type", v);
+                  updateItem(idx, "serviceId", undefined);
+                  updateItem(idx, "productId", undefined);
+                  updateItem(idx, "description", "");
+                  updateItem(idx, "unitPrice", 0);
+                  updateItem(idx, "costPrice", undefined);
+                  setManualMode((prev) => ({ ...prev, [idx]: false }));
+                }}
+              >
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SERVICE">Serviço</SelectItem>
+                  <SelectItem value="PRODUCT">Produto</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex-1 space-y-2">
+                {!isManual ? (
+                  <>
+                    {item.type === "SERVICE" ? (
+                      <EntitySelector<ServiceItem>
+                        value={item.serviceId}
+                        onChange={(val) => handleSelectService(idx, val)}
+                        searchFn={searchServices}
+                        getOptionLabel={(s) => `${s.name} — R$ ${Number(s.basePrice).toFixed(2).replace(".", ",")}`}
+                        getOptionValue={(s) => s.id}
+                        placeholder="Buscar serviço do catálogo..."
+                        emptyMessage="Nenhum serviço encontrado."
+                      />
+                    ) : (
+                      <EntitySelector<ProductItem>
+                        value={item.productId}
+                        onChange={(val) => handleSelectProduct(idx, val)}
+                        searchFn={searchProducts}
+                        getOptionLabel={(p) => `${p.name} — R$ ${Number(p.salePrice).toFixed(2).replace(".", ",")}`}
+                        getOptionValue={(p) => p.id}
+                        placeholder="Buscar produto do estoque..."
+                        emptyMessage="Nenhum produto encontrado."
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                      onClick={() => toggleManualMode(idx)}
+                    >
+                      Não encontrou? Digite manualmente
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      placeholder={item.type === "SERVICE" ? "Descrição do serviço" : "Descrição do produto"}
+                      value={item.description}
+                      onChange={(e) => updateItem(idx, "description", e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                      onClick={() => toggleManualMode(idx)}
+                    >
+                      Buscar no catálogo
+                    </button>
+                  </>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-destructive hover:text-destructive"
+                onClick={() => removeItem(idx)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0 text-destructive hover:text-destructive"
-              onClick={() => removeItem(idx)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+
+            {/* Selected item name + quantity + price */}
+            <div className="grid gap-3 sm:grid-cols-[1fr_100px_140px]">
+              {!isManual && hasEntitySelected ? (
+                <div className="flex items-center px-3 text-sm text-muted-foreground bg-muted rounded-md">
+                  {item.description}
+                </div>
+              ) : !isManual ? (
+                <div />
+              ) : (
+                <div />
+              )}
+              <Input
+                type="number"
+                placeholder="Qtd"
+                min={1}
+                value={item.quantity}
+                onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
+              />
+              <MoneyInput
+                value={item.unitPrice}
+                onChange={(val: number) => updateItem(idx, "unitPrice", val)}
+              />
+            </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_100px_140px]">
-            <Input
-              placeholder="Descrição (manual)"
-              value={item.description}
-              onChange={(e) => updateItem(idx, "description", e.target.value)}
-            />
-            <Input
-              type="number"
-              placeholder="Qtd"
-              min={1}
-              value={item.quantity}
-              onChange={(e) => updateItem(idx, "quantity", Number(e.target.value))}
-            />
-            <MoneyInput
-              value={item.unitPrice}
-              onChange={(val: number) => updateItem(idx, "unitPrice", val)}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       <Button variant="outline" size="sm" onClick={addItem}>
         <Plus className="mr-1 h-4 w-4" />

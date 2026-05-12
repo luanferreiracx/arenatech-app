@@ -102,6 +102,23 @@ export const serviceOrderRouter = createTRPCRouter({
       const skip = page * pageSize;
 
       return ctx.withTenant(async (tx) => {
+        // If searching, also search by customer name/CPF
+        let searchCustomerIds: string[] | undefined;
+        if (search) {
+          const matchingCustomers = await tx.customer.findMany({
+            where: {
+              deletedAt: null,
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { cpf: { contains: search, mode: "insensitive" as const } },
+              ],
+            },
+            select: { id: true },
+            take: 50,
+          });
+          searchCustomerIds = matchingCustomers.map((c) => c.id);
+        }
+
         const where = {
           deletedAt: null,
           ...(status ? { status } : {}),
@@ -121,6 +138,10 @@ export const serviceOrderRouter = createTRPCRouter({
                   { number: { contains: search, mode: "insensitive" as const } },
                   { imei: { contains: search, mode: "insensitive" as const } },
                   { serialNumber: { contains: search, mode: "insensitive" as const } },
+                  { deviceModel: { contains: search, mode: "insensitive" as const } },
+                  ...(searchCustomerIds && searchCustomerIds.length > 0
+                    ? [{ customerId: { in: searchCustomerIds } }]
+                    : []),
                 ],
               }
             : {}),
