@@ -96,11 +96,42 @@ model ServiceOrder {
   labReceived         Boolean             @default(false) @map("lab_received")
   deliveryPersonId    String?             @map("delivery_person_id") @db.Uuid
 
-  // Assinaturas (Autentique) — placeholders, integracao completa Fase 9+
+  // Assinatura Digital (Autentique)
   signatureDocumentId   String?           @map("signature_document_id")
   signatureUrl          String?           @map("signature_url")
   signatureSentAt       DateTime?         @map("signature_sent_at")
   signatureSignedAt     DateTime?         @map("signature_signed_at")
+  physicalSignature     Boolean           @default(false) @map("physical_signature")
+
+  // Termo de Entrega (Autentique)
+  deliveryTermSent          Boolean   @default(false) @map("delivery_term_sent")
+  deliveryTermSentAt        DateTime? @map("delivery_term_sent_at")
+  deliveryTermAutentiqueId  String?   @map("delivery_term_autentique_id")
+  deliveryTermLink          String?   @map("delivery_term_link")
+  deliveryTermSigned        Boolean   @default(false) @map("delivery_term_signed")
+  deliveryTermSignedAt      DateTime? @map("delivery_term_signed_at")
+  deliveryTermPhysical      Boolean   @default(false) @map("delivery_term_physical")
+
+  // Termo de Devolucao (Autentique)
+  returnTermSent          Boolean   @default(false) @map("return_term_sent")
+  returnTermSentAt        DateTime? @map("return_term_sent_at")
+  returnTermAutentiqueId  String?   @map("return_term_autentique_id")
+  returnTermLink          String?   @map("return_term_link")
+  returnTermSigned        Boolean   @default(false) @map("return_term_signed")
+  returnTermSignedAt      DateTime? @map("return_term_signed_at")
+  returnTermPhysical      Boolean   @default(false) @map("return_term_physical")
+
+  // Orcamento adicional
+  pendingQuoteId      String?             @map("pending_quote_id") @db.Uuid
+  budgetPending       Boolean             @default(false) @map("budget_pending")
+
+  // Recibo
+  receiptSent         Boolean             @default(false) @map("receipt_sent")
+  receiptSentAt       DateTime?           @map("receipt_sent_at")
+
+  // Depix (PIX)
+  depixTransactionId  String?             @map("depix_transaction_id")
+  depixStatus         String?             @map("depix_status")
 
   // Soft delete
   deletedAt           DateTime?           @map("deleted_at")
@@ -111,6 +142,7 @@ model ServiceOrder {
   items               ServiceOrderItem[]
   history             ServiceOrderHistory[]
   documents           ServiceOrderDocument[]
+  quotes              ServiceOrderQuote[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -173,4 +205,36 @@ model ServiceOrderDocument {
 
   @@index([tenantId, orderId])
   @@map("service_order_documents")
+}
+
+model ServiceOrderQuote {
+  id                    String   @id @default(uuid()) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  orderId               String   @map("order_id") @db.Uuid
+  previousServiceAmount Decimal  @default(0) @map("previous_service_amount") @db.Decimal(10, 2)
+  previousPartsAmount   Decimal  @default(0) @map("previous_parts_amount") @db.Decimal(10, 2)
+  previousDiscount      Decimal  @default(0) @map("previous_discount") @db.Decimal(10, 2)
+  previousTotal         Decimal  @default(0) @map("previous_total") @db.Decimal(10, 2)
+  newServiceAmount      Decimal  @default(0) @map("new_service_amount") @db.Decimal(10, 2)
+  newPartsAmount        Decimal  @default(0) @map("new_parts_amount") @db.Decimal(10, 2)
+  newDiscount           Decimal  @default(0) @map("new_discount") @db.Decimal(10, 2)
+  newTotal              Decimal  @default(0) @map("new_total") @db.Decimal(10, 2)
+  reason                String
+  additionalServices    String?  @map("additional_services")
+  status                String   @default("pending") // pending, approved, rejected
+  approvalLink          String   @unique @map("approval_link")
+  sentToCustomer        Boolean  @default(false) @map("sent_to_customer")
+  sentAt                DateTime? @map("sent_at")
+  approvedAt            DateTime? @map("approved_at")
+  rejectedAt            DateTime? @map("rejected_at")
+  customerNotes         String?  @map("customer_notes")
+  userId                String   @map("user_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  order                 ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@index([approvalLink])
+  @@map("service_order_quotes")
 }

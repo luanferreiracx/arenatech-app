@@ -15,6 +15,10 @@ import {
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatusValue,
 } from "@/lib/validators/service-order";
+import * as autentiqueService from "@/lib/services/autentique-service";
+import * as depixService from "@/lib/services/depix-service";
+import * as whatsappService from "@/lib/services/whatsapp-service";
+import { logger } from "@/lib/logger";
 import crypto from "crypto";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -939,6 +943,847 @@ export const serviceOrderRouter = createTRPCRouter({
         });
 
         return users;
+      });
+    }),
+
+  // ── Cancelar ──────────────────────────────────────────────────────────────
+  cancelar: tenantProcedure
+    .input(z.object({
+      orderId: z.string().uuid(),
+      motivo: z.string().min(1, "Motivo obrigatorio"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (["COMPLETED", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao e possivel cancelar OS concluida ou entregue" });
+        }
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { status: "CANCELLED", cancellationReason: input.motivo },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: "CANCELLED", notes: `Cancelamento: ${input.motivo}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Descancelar (admin only) ──────────────────────────────────────────────
+  descancelar: tenantProcedure
+    .input(z.object({
+      orderId: z.string().uuid(),
+      motivo: z.string().min(1, "Motivo obrigatorio"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.status !== "CANCELLED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas OS canceladas podem ser descanceladas" });
+        }
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { status: "IN_DIAGNOSIS", cancellationReason: null },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: "CANCELLED", newStatus: "IN_DIAGNOSIS", notes: `[DESCANCELAMENTO] ${input.motivo}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Estornar ──────────────────────────────────────────────────────────────
+  estornar: tenantProcedure
+    .input(z.object({
+      orderId: z.string().uuid(),
+      motivo: z.string().min(10, "Motivo deve ter no minimo 10 caracteres"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.status !== "DELIVERED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas OS entregues podem ser estornadas" });
+        }
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { status: "REFUNDED", refundReason: input.motivo, refundedAt: new Date(), refundedById: userId },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: "DELIVERED", newStatus: "REFUNDED", notes: `[ESTORNO] ${input.motivo}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Assinatura Digital (Autentique) ───────────────────────────────────────
+  enviarAssinatura: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), whatsapp: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({
+          where: { id: input.orderId, deletedAt: null },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+
+        const customer = await tx.customer.findFirst({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        const phone = input.whatsapp ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        // Create a placeholder PDF buffer (the real one would be generated server-side)
+        const pdfBuffer = Buffer.from("PDF placeholder for digital signature");
+
+        const result = await autentiqueService.createDocumentWithLink(
+          `Ordem de Servico #${order.number}`,
+          [{ name: customer?.name ?? "Cliente", whatsapp: phone }],
+          pdfBuffer,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao criar documento" });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            signatureDocumentId: result.documentId,
+            signatureUrl: result.signatureLink,
+            signatureSentAt: new Date(),
+          },
+        });
+
+        // Send via WhatsApp
+        if (result.signatureLink) {
+          const msg = `Assinatura - OS #${order.number}\n\nOla, ${customer?.name ?? "Cliente"}! Para assinar digitalmente:\n${result.signatureLink}\n\nApos assinar, seu aparelho estara liberado para o servico.`;
+          await whatsappService.sendTextMessage(phone, msg);
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Documento enviado para assinatura digital" },
+        });
+
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  verificarAssinatura: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.signatureSignedAt) return { signed: true, alreadySigned: true };
+        if (!order.signatureDocumentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Documento nao enviado" });
+
+        const status = await autentiqueService.getDocumentStatus(order.signatureDocumentId);
+        if (!status.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar" });
+
+        if (status.signed) {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: { signatureSignedAt: new Date() },
+          });
+          await tx.serviceOrderHistory.create({
+            data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Assinatura digital confirmada pelo cliente" },
+          });
+        }
+        return { signed: status.signed, signaturesCompleted: status.signaturesCompleted };
+      });
+    }),
+
+  confirmarAssinaturaFisica: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { physicalSignature: true, signatureSignedAt: new Date() },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Assinatura fisica confirmada" },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Termo de Entrega ──────────────────────────────────────────────────────
+  enviarTermoEntrega: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), whatsapp: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de entrega so pode ser enviado apos pagamento" });
+        }
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true, phone: true } });
+        const phone = input.whatsapp ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        const pdfBuffer = Buffer.from("PDF Termo de Entrega placeholder");
+        const result = await autentiqueService.createDocumentWithLink(
+          `Termo de Entrega - OS #${order.number}`,
+          [{ name: customer?.name ?? "Cliente", whatsapp: phone }],
+          pdfBuffer,
+        );
+
+        if (!result.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro" });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { deliveryTermSent: true, deliveryTermSentAt: new Date(), deliveryTermAutentiqueId: result.documentId, deliveryTermLink: result.signatureLink },
+        });
+
+        if (result.signatureLink) {
+          const msg = `Termo de Entrega - OS #${order.number}\n\nOla, ${customer?.name ?? "Cliente"}! Para assinar digitalmente:\n${result.signatureLink}`;
+          await whatsappService.sendTextMessage(phone, msg);
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Termo de entrega enviado para assinatura digital" },
+        });
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  verificarTermoEntrega: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.deliveryTermSigned) return { signed: true, alreadySigned: true };
+        if (!order.deliveryTermAutentiqueId) throw new TRPCError({ code: "BAD_REQUEST", message: "Termo nao enviado" });
+
+        const status = await autentiqueService.getDocumentStatus(order.deliveryTermAutentiqueId);
+        if (!status.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro" });
+
+        if (status.signed) {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: { deliveryTermSigned: true, deliveryTermSignedAt: new Date(), status: "DELIVERED", deliveredDate: new Date() },
+          });
+          await tx.serviceOrderHistory.create({
+            data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: "DELIVERED", notes: "Termo de entrega assinado digitalmente e equipamento entregue" },
+          });
+        }
+        return { signed: status.signed, orderDelivered: status.signed };
+      });
+    }),
+
+  confirmarTermoEntregaFisico: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!["PAID", "READY_FOR_PICKUP"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de entrega so pode ser confirmado apos pagamento" });
+        }
+        const prev = order.status;
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { deliveryTermSigned: true, deliveryTermPhysical: true, deliveryTermSignedAt: new Date(), status: "DELIVERED", deliveredDate: new Date() },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: prev, newStatus: "DELIVERED", notes: "Assinatura fisica do termo de entrega confirmada e equipamento entregue" },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Termo de Devolucao ────────────────────────────────────────────────────
+  enviarTermoDevolucao: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), motivo: z.string().optional(), whatsapp: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true, phone: true } });
+        const phone = input.whatsapp ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        const pdfBuffer = Buffer.from("PDF Termo de Devolucao placeholder");
+        const result = await autentiqueService.createDocumentWithLink(
+          `Termo de Devolucao - OS #${order.number}`,
+          [{ name: customer?.name ?? "Cliente", whatsapp: phone }],
+          pdfBuffer,
+        );
+        if (!result.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro" });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            returnTermSent: true, returnTermSentAt: new Date(), returnTermAutentiqueId: result.documentId, returnTermLink: result.signatureLink,
+            cancellationReason: input.motivo ?? "Equipamento devolvido ao cliente",
+          },
+        });
+
+        if (result.signatureLink) {
+          const msg = `Termo de Devolucao - OS #${order.number}\n\nOla, ${customer?.name ?? "Cliente"}! Para assinar digitalmente:\n${result.signatureLink}`;
+          await whatsappService.sendTextMessage(phone, msg);
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: `Termo de devolucao enviado. Motivo: ${input.motivo ?? "Equipamento devolvido"}` },
+        });
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  verificarTermoDevolucao: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.returnTermSigned) return { signed: true, alreadySigned: true };
+        if (!order.returnTermAutentiqueId) throw new TRPCError({ code: "BAD_REQUEST", message: "Termo nao enviado" });
+
+        const status = await autentiqueService.getDocumentStatus(order.returnTermAutentiqueId);
+        if (!status.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro" });
+
+        if (status.signed) {
+          const prev = order.status;
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: { returnTermSigned: true, returnTermSignedAt: new Date(), status: "CANCELLED" },
+          });
+          await tx.serviceOrderHistory.create({
+            data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: prev, newStatus: "CANCELLED", notes: "Termo de devolucao assinado e OS cancelada" },
+          });
+        }
+        return { signed: status.signed, osCancelled: status.signed };
+      });
+    }),
+
+  confirmarTermoDevolucaoFisico: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), motivo: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        const prev = order.status;
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { returnTermSigned: true, returnTermPhysical: true, returnTermSignedAt: new Date(), status: "CANCELLED" },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: prev, newStatus: "CANCELLED", notes: `Assinatura fisica do termo de devolucao confirmada e OS cancelada. Motivo: ${input.motivo ?? "Equipamento devolvido"}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Orcamento Adicional ───────────────────────────────────────────────────
+  criarOrcamento: tenantProcedure
+    .input(z.object({
+      orderId: z.string().uuid(),
+      newServiceAmount: z.number().min(0),
+      newPartsAmount: z.number().min(0).optional(),
+      newDiscount: z.number().min(0).optional(),
+      reason: z.string().min(1, "Motivo obrigatorio"),
+      additionalServices: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (order.budgetPending) throw new TRPCError({ code: "BAD_REQUEST", message: "Ja existe orcamento pendente" });
+        if (["CANCELLED", "DELIVERED", "REFUNDED", "READY_FOR_PICKUP"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao e possivel criar orcamento neste status" });
+        }
+
+        const newTotal = (input.newServiceAmount) + (input.newPartsAmount ?? 0) - (input.newDiscount ?? 0);
+        const approvalLink = crypto.randomBytes(16).toString("hex");
+
+        const quote = await tx.serviceOrderQuote.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId,
+            previousServiceAmount: Number(order.serviceAmount),
+            previousPartsAmount: Number(order.partsAmount),
+            previousDiscount: Number(order.discount),
+            previousTotal: Number(order.totalAmount),
+            newServiceAmount: input.newServiceAmount,
+            newPartsAmount: input.newPartsAmount ?? 0,
+            newDiscount: input.newDiscount ?? 0,
+            newTotal: Math.max(0, newTotal),
+            reason: input.reason,
+            additionalServices: input.additionalServices ?? null,
+            approvalLink,
+          },
+        });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { pendingQuoteId: quote.id, budgetPending: true },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: `Novo orcamento criado. Motivo: ${input.reason}` },
+        });
+
+        return quote;
+      });
+    }),
+
+  enviarOrcamento: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), whatsapp: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.pendingQuoteId) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum orcamento pendente" });
+
+        const quote = await tx.serviceOrderQuote.findFirst({ where: { id: order.pendingQuoteId, status: "pending" } });
+        if (!quote) throw new TRPCError({ code: "BAD_REQUEST", message: "Orcamento nao encontrado ou ja processado" });
+
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true, phone: true } });
+        const phone = input.whatsapp ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        const approvalUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://app.arenatechpi.com.br"}/quote/${quote.approvalLink}`;
+        const valor = Number(quote.newTotal).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const msg = `Orcamento - OS #${order.number}\nValor: ${valor}\n\nPara aprovar ou rejeitar:\n${approvalUrl}`;
+
+        await whatsappService.sendTextMessage(phone, msg);
+
+        await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: { sentToCustomer: true, sentAt: new Date() },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Orcamento enviado para o cliente via WhatsApp" },
+        });
+
+        return { success: true, approvalUrl };
+      });
+    }),
+
+  cancelarOrcamento: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.pendingQuoteId) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum orcamento pendente" });
+
+        await tx.serviceOrderQuote.update({
+          where: { id: order.pendingQuoteId },
+          data: { status: "rejected", rejectedAt: new Date(), customerNotes: "Cancelado pela equipe interna" },
+        });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { pendingQuoteId: null, budgetPending: false },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Orcamento cancelado pela equipe" },
+        });
+        return { success: true };
+      });
+    }),
+
+  verificarOrcamento: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        const quotes = await tx.serviceOrderQuote.findMany({
+          where: { orderId: input.orderId },
+          orderBy: { createdAt: "desc" },
+        });
+        return quotes;
+      });
+    }),
+
+  aprovarOrcamentoManual: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), quoteId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const quote = await tx.serviceOrderQuote.findFirst({ where: { id: input.quoteId, orderId: input.orderId, status: "pending" } });
+        if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado" });
+
+        await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: { status: "approved", approvedAt: new Date() },
+        });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            serviceAmount: Number(quote.newServiceAmount),
+            partsAmount: Number(quote.newPartsAmount),
+            discount: Number(quote.newDiscount),
+            totalAmount: Number(quote.newTotal),
+            pendingQuoteId: null,
+            budgetPending: false,
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: "OPEN", newStatus: "OPEN", notes: `Orcamento aprovado manualmente. Valor atualizado para R$ ${Number(quote.newTotal).toFixed(2)}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Orcamento Publico (sem auth) ──────────────────────────────────────────
+  getQuotePublic: publicProcedure
+    .input(z.object({ approvalLink: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return withAdmin(async (tx) => {
+        const quote = await tx.serviceOrderQuote.findFirst({
+          where: { approvalLink: input.approvalLink },
+          include: { order: { select: { number: true, deviceType: true, deviceModel: true, customerId: true, status: true } } },
+        });
+        if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado" });
+
+        const customer = await tx.customer.findFirst({
+          where: { id: quote.order.customerId },
+          select: { name: true },
+        });
+
+        return {
+          id: quote.id,
+          status: quote.status,
+          orderNumber: quote.order.number,
+          deviceType: quote.order.deviceType,
+          deviceModel: quote.order.deviceModel,
+          customerName: customer?.name ?? "-",
+          previousTotal: Number(quote.previousTotal),
+          newServiceAmount: Number(quote.newServiceAmount),
+          newPartsAmount: Number(quote.newPartsAmount),
+          newDiscount: Number(quote.newDiscount),
+          newTotal: Number(quote.newTotal),
+          reason: quote.reason,
+          additionalServices: quote.additionalServices,
+          createdAt: quote.createdAt,
+        };
+      });
+    }),
+
+  aprovarOrcamentoPublico: publicProcedure
+    .input(z.object({ approvalLink: z.string().min(1), notes: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      return withAdmin(async (tx) => {
+        const quote = await tx.serviceOrderQuote.findFirst({
+          where: { approvalLink: input.approvalLink, status: "pending" },
+        });
+        if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado ou ja processado" });
+
+        await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: { status: "approved", approvedAt: new Date(), customerNotes: input.notes ?? null },
+        });
+
+        await tx.serviceOrder.update({
+          where: { id: quote.orderId },
+          data: {
+            serviceAmount: Number(quote.newServiceAmount),
+            partsAmount: Number(quote.newPartsAmount),
+            discount: Number(quote.newDiscount),
+            totalAmount: Number(quote.newTotal),
+            pendingQuoteId: null,
+            budgetPending: false,
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: quote.tenantId, orderId: quote.orderId, userId: quote.userId, previousStatus: "OPEN", newStatus: "OPEN", notes: `Orcamento aprovado pelo cliente via link publico` },
+        });
+        return { success: true };
+      });
+    }),
+
+  rejeitarOrcamentoPublico: publicProcedure
+    .input(z.object({ approvalLink: z.string().min(1), notes: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      return withAdmin(async (tx) => {
+        const quote = await tx.serviceOrderQuote.findFirst({
+          where: { approvalLink: input.approvalLink, status: "pending" },
+        });
+        if (!quote) throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado ou ja processado" });
+
+        await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: { status: "rejected", rejectedAt: new Date(), customerNotes: input.notes ?? null },
+        });
+
+        await tx.serviceOrder.update({
+          where: { id: quote.orderId },
+          data: { pendingQuoteId: null, budgetPending: false },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: quote.tenantId, orderId: quote.orderId, userId: quote.userId, previousStatus: "OPEN", newStatus: "OPEN", notes: `Orcamento REJEITADO pelo cliente. Motivo: ${input.notes ?? "Nao informado"}` },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── WhatsApp / Notificacoes ───────────────────────────────────────────────
+  notificarConclusao: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), telefone: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Notificacao so pode ser enviada quando a OS estiver concluida" });
+        }
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true, phone: true } });
+        const phone = input.telefone ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        const equipamento = [order.deviceType, order.deviceModel].filter(Boolean).join(" ");
+        const msg = `Aparelho Pronto - Arena Tech\n\nOla, ${customer?.name ?? "Cliente"}!\n\nSeu aparelho (${equipamento}) da OS #${order.number} foi concluido e esta pronto para retirada.\n\nHorario de funcionamento:\nSegunda a Sabado: 09h as 21h\n\nArena Tech`;
+
+        const result = await whatsappService.sendTextMessage(phone, msg);
+        if (!result.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar WhatsApp" });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Notificacao de conclusao enviada via WhatsApp" },
+        });
+        return { success: true };
+      });
+    }),
+
+  enviarRecibo: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), whatsapp: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Recibo so pode ser enviado apos pagamento" });
+        }
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true, phone: true } });
+        const phone = input.whatsapp ?? customer?.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel" });
+
+        const receiptUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/api/service-orders/${order.id}/receipt`;
+        const msg = `Recibo - OS #${order.number}\nOla, ${customer?.name ?? "Cliente"}! Segue o recibo do servico realizado.\n\nAcesse: ${receiptUrl}\n\nArena Tech`;
+
+        await whatsappService.sendTextMessage(phone, msg);
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { receiptSent: true, receiptSentAt: new Date() },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Recibo enviado para o cliente via WhatsApp" },
+        });
+        return { success: true };
+      });
+    }),
+
+  enviarRastreamento: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), telefone: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.publicLink) throw new TRPCError({ code: "BAD_REQUEST", message: "OS sem link publico" });
+
+        const customer = await tx.customer.findFirst({ where: { id: order.customerId }, select: { name: true } });
+        const trackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/os/${order.publicLink}`;
+        const msg = `Ola, ${customer?.name ?? "Cliente"}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real:\n${trackUrl}\n\nArena Tech`;
+
+        const result = await whatsappService.sendTextMessage(input.telefone, msg);
+        if (!result.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar WhatsApp" });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Link de rastreamento enviado via WhatsApp" },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Laboratorio Externo ───────────────────────────────────────────────────
+  enviarParaLaboratorio: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), deliveryPersonId: z.string().uuid().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { sentToLab: true, labReceived: false, deliveryPersonId: input.deliveryPersonId ?? null },
+        });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Equipamento enviado para laboratorio externo" },
+        });
+        return { success: true };
+      });
+    }),
+
+  confirmarRecebimentoLaboratorio: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.sentToLab) throw new TRPCError({ code: "BAD_REQUEST", message: "Equipamento nao foi enviado para laboratorio" });
+        await tx.serviceOrder.update({ where: { id: input.orderId }, data: { labReceived: true } });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Equipamento recebido de volta do laboratorio externo" },
+        });
+        return { success: true };
+      });
+    }),
+
+  cancelarEnvioLaboratorio: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        await tx.serviceOrder.update({ where: { id: input.orderId }, data: { sentToLab: false, labReceived: false, deliveryPersonId: null } });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Envio para laboratorio cancelado" },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Info Tecnicas e Custos inline ─────────────────────────────────────────
+  atualizarTecnico: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid(), technicianId: z.string().uuid().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        await tx.serviceOrder.update({ where: { id: input.orderId }, data: { technicianId: input.technicianId } });
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "Tecnico responsavel atualizado" },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ── Consultas ─────────────────────────────────────────────────────────────
+  ordensDoCliente: tenantProcedure
+    .input(z.object({ customerId: z.string().uuid(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(1).max(50).optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const take = input.pageSize ?? 10;
+        const skip = (input.page ?? 0) * take;
+        const [items, total] = await Promise.all([
+          tx.serviceOrder.findMany({ where: { customerId: input.customerId, deletedAt: null }, orderBy: { entryDate: "desc" }, skip, take }),
+          tx.serviceOrder.count({ where: { customerId: input.customerId, deletedAt: null } }),
+        ]);
+        return { items, total };
+      });
+    }),
+
+  buscarPecas: tenantProcedure
+    .input(z.object({ search: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.product.findMany({
+          where: {
+            active: true,
+            deletedAt: null,
+            ...(input.search ? { name: { contains: input.search, mode: "insensitive" as const } } : {}),
+          },
+          select: { id: true, name: true, salePrice: true, costPrice: true, currentStock: true },
+          take: 20,
+          orderBy: { name: "asc" },
+        });
+      });
+    }),
+
+  // ── PIX Depix ─────────────────────────────────────────────────────────────
+  gerarPixDepix: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (Number(order.totalAmount) <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "OS sem valor" });
+
+        const result = await depixService.createPixPayment(
+          Number(order.totalAmount),
+          `OS ${order.number}`,
+          order.id,
+        );
+
+        if (!result.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { depixTransactionId: result.transactionId, depixStatus: "pending" },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "QR Code PIX gerado" },
+        });
+
+        return { success: true, qrCode: result.qrCode, qrCodeBase64: result.qrCodeBase64, pixKey: result.pixKey, transactionId: result.transactionId };
+      });
+    }),
+
+  cancelarPixDepix: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({ where: { id: input.orderId, deletedAt: null } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.depixTransactionId) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum PIX pendente" });
+
+        const result = await depixService.cancelPixPayment(order.depixTransactionId);
+        if (!result.success) {
+          logger.warn("Depix cancel failed", { error: result.error });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { depixTransactionId: null, depixStatus: null },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: { tenantId: ctx.tenantId, orderId: input.orderId, userId, previousStatus: order.status, newStatus: order.status, notes: "PIX cancelado" },
+        });
+        return { success: true };
       });
     }),
 });

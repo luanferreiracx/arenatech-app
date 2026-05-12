@@ -15,6 +15,15 @@ import {
   Check,
   X,
   Minus,
+  Building2,
+  QrCode,
+  FileSignature,
+  Truck,
+  RotateCcw,
+  Receipt,
+  Loader2,
+  CircleDollarSign,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -263,6 +272,45 @@ export function ServiceOrderDetailClient({ id }: Props) {
     }),
   );
 
+  // ── New mutations for all missing features ──
+  const enviarAssinaturaMut = useMutation(trpc.serviceOrders.enviarAssinatura.mutationOptions({ onSuccess: () => { toast.success("Assinatura enviada!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const verificarAssinaturaMut = useMutation(trpc.serviceOrders.verificarAssinatura.mutationOptions({ onSuccess: (r) => { toast.success(r.signed ? "Assinatura confirmada!" : "Ainda nao assinado."); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const confirmarAssinaturaFisicaMut = useMutation(trpc.serviceOrders.confirmarAssinaturaFisica.mutationOptions({ onSuccess: () => { toast.success("Assinatura fisica confirmada!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const enviarTermoEntregaMut = useMutation(trpc.serviceOrders.enviarTermoEntrega.mutationOptions({ onSuccess: () => { toast.success("Termo de entrega enviado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const verificarTermoEntregaMut = useMutation(trpc.serviceOrders.verificarTermoEntrega.mutationOptions({ onSuccess: (r) => { toast.success(r.signed ? "Termo assinado e OS entregue!" : "Ainda nao assinado."); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const confirmarTermoEntregaFisicoMut = useMutation(trpc.serviceOrders.confirmarTermoEntregaFisico.mutationOptions({ onSuccess: () => { toast.success("Termo de entrega assinado e OS entregue!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const enviarTermoDevolucaoMut = useMutation(trpc.serviceOrders.enviarTermoDevolucao.mutationOptions({ onSuccess: () => { toast.success("Termo de devolucao enviado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const verificarTermoDevolucaoMut = useMutation(trpc.serviceOrders.verificarTermoDevolucao.mutationOptions({ onSuccess: (r) => { toast.success(r.signed ? "Termo assinado e OS cancelada!" : "Ainda nao assinado."); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const confirmarTermoDevolucaoFisicoMut = useMutation(trpc.serviceOrders.confirmarTermoDevolucaoFisico.mutationOptions({ onSuccess: () => { toast.success("Termo de devolucao assinado e OS cancelada!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const descancelarMut = useMutation(trpc.serviceOrders.descancelar.mutationOptions({ onSuccess: () => { toast.success("OS descancelada!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const notificarConclusaoMut = useMutation(trpc.serviceOrders.notificarConclusao.mutationOptions({ onSuccess: () => { toast.success("Notificacao de conclusao enviada!"); }, onError: (e) => toast.error(e.message) }));
+  const enviarReciboMut = useMutation(trpc.serviceOrders.enviarRecibo.mutationOptions({ onSuccess: () => { toast.success("Recibo enviado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const enviarRastreamentoMut = useMutation(trpc.serviceOrders.enviarRastreamento.mutationOptions({ onSuccess: () => { toast.success("Link de rastreamento enviado!"); }, onError: (e) => toast.error(e.message) }));
+  const enviarLabMut = useMutation(trpc.serviceOrders.enviarParaLaboratorio.mutationOptions({ onSuccess: () => { toast.success("Equipamento marcado como enviado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const confirmarRecebLabMut = useMutation(trpc.serviceOrders.confirmarRecebimentoLaboratorio.mutationOptions({ onSuccess: () => { toast.success("Recebimento confirmado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const cancelarLabMut = useMutation(trpc.serviceOrders.cancelarEnvioLaboratorio.mutationOptions({ onSuccess: () => { toast.success("Envio cancelado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const gerarPixMut = useMutation(trpc.serviceOrders.gerarPixDepix.mutationOptions({ onSuccess: (r) => { toast.success("PIX gerado!"); setPixData(r); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const cancelarPixMut = useMutation(trpc.serviceOrders.cancelarPixDepix.mutationOptions({ onSuccess: () => { toast.success("PIX cancelado!"); setPixData(null); void refetch(); }, onError: (e) => toast.error(e.message) }));
+
+  // Quote mutations
+  const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
+  const [quoteNewServiceAmount, setQuoteNewServiceAmount] = useState(0);
+  const [quoteNewPartsAmount, setQuoteNewPartsAmount] = useState(0);
+  const [quoteNewDiscount, setQuoteNewDiscount] = useState(0);
+  const [quoteReason, setQuoteReason] = useState("");
+  const [quoteAdditionalServices, setQuoteAdditionalServices] = useState("");
+  const [descancelarMotivo, setDescancelarMotivo] = useState("");
+  const [descancelarOpen, setDescancelarOpen] = useState(false);
+  const [pixData, setPixData] = useState<{ qrCode?: string; pixKey?: string } | null>(null);
+
+  const criarOrcamentoMut = useMutation(trpc.serviceOrders.criarOrcamento.mutationOptions({
+    onSuccess: () => { toast.success("Orcamento criado!"); setQuoteDialogOpen(false); void refetch(); },
+    onError: (e) => toast.error(e.message),
+  }));
+  const enviarOrcamentoMut = useMutation(trpc.serviceOrders.enviarOrcamento.mutationOptions({ onSuccess: () => { toast.success("Orcamento enviado ao cliente!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const cancelarOrcamentoMut = useMutation(trpc.serviceOrders.cancelarOrcamento.mutationOptions({ onSuccess: () => { toast.success("Orcamento cancelado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+  const aprovarOrcManualMut = useMutation(trpc.serviceOrders.aprovarOrcamentoManual.mutationOptions({ onSuccess: () => { toast.success("Orcamento aprovado!"); void refetch(); }, onError: (e) => toast.error(e.message) }));
+
   // Initialize cost values from order data
   if (order && !costsInitialized) {
     setCostPartsCost(Math.round(Number(order.partsCost) * 100));
@@ -379,35 +427,11 @@ export function ServiceOrderDetailClient({ id }: Props) {
             </Button>
 
             {/* PDF */}
-            <Button
-              size="sm"
-              variant="outline"
-              asChild
-            >
+            <Button size="sm" variant="outline" asChild>
               <a href={`/api/service-orders/${id}/pdf`} target="_blank" rel="noopener noreferrer">
                 <FileText className="mr-1 h-4 w-4" />
                 PDF
               </a>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                toast.info("Em breve — integração Fase 9")
-              }
-              disabled
-            >
-              <Send className="mr-1 h-4 w-4" />
-              Assinatura
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={whatsappMutation.isPending}
-              onClick={() => whatsappMutation.mutate({ serviceOrderId: id })}
-            >
-              <MessageCircle className="mr-1 h-4 w-4" />
-              {whatsappMutation.isPending ? "Enviando..." : "WhatsApp"}
             </Button>
 
             {!isTerminal && (
@@ -961,6 +985,250 @@ export function ServiceOrderDetailClient({ id }: Props) {
             </Card>
           )}
 
+          {/* ── Assinatura Digital ────────────────────────────── */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2"><FileSignature className="h-4 w-4" />Assinatura</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {order.signatureSignedAt ? (
+                <Badge className="w-full justify-center">Assinado em {formatDateTime(order.signatureSignedAt)}</Badge>
+              ) : order.signatureUrl ? (
+                <>
+                  <p className="text-xs text-muted-foreground">Aguardando assinatura digital</p>
+                  <Button size="sm" variant="outline" className="w-full" disabled={verificarAssinaturaMut.isPending} onClick={() => verificarAssinaturaMut.mutate({ orderId: id })}>
+                    {verificarAssinaturaMut.isPending ? "Verificando..." : "Verificar Assinatura"}
+                  </Button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <Button size="sm" variant="outline" className="w-full" disabled={enviarAssinaturaMut.isPending} onClick={() => enviarAssinaturaMut.mutate({ orderId: id })}>
+                    <Send className="h-3 w-3 mr-1" />
+                    {enviarAssinaturaMut.isPending ? "Enviando..." : "Enviar Assinatura Digital"}
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" disabled={confirmarAssinaturaFisicaMut.isPending} onClick={() => confirmarAssinaturaFisicaMut.mutate({ orderId: id })}>
+                    <Check className="h-3 w-3 mr-1" />
+                    {confirmarAssinaturaFisicaMut.isPending ? "Confirmando..." : "Confirmar Assinatura Fisica"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Termos ────────────────────────────────────────── */}
+          {["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" />Termo de Entrega</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.deliveryTermSigned ? (
+                  <Badge className="w-full justify-center">Assinado em {formatDateTime(order.deliveryTermSignedAt)}</Badge>
+                ) : order.deliveryTermSent ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">Enviado em {formatDateTime(order.deliveryTermSentAt)}</p>
+                    <Button size="sm" variant="outline" className="w-full" disabled={verificarTermoEntregaMut.isPending} onClick={() => verificarTermoEntregaMut.mutate({ orderId: id })}>
+                      {verificarTermoEntregaMut.isPending ? "Verificando..." : "Verificar Assinatura"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" disabled={confirmarTermoEntregaFisicoMut.isPending} onClick={() => confirmarTermoEntregaFisicoMut.mutate({ orderId: id })}>
+                      <Check className="h-3 w-3 mr-1" />Confirmar Assinatura Fisica
+                    </Button>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <Button size="sm" variant="outline" className="w-full" disabled={enviarTermoEntregaMut.isPending} onClick={() => enviarTermoEntregaMut.mutate({ orderId: id })}>
+                      <Send className="h-3 w-3 mr-1" />{enviarTermoEntregaMut.isPending ? "Enviando..." : "Enviar Termo de Entrega"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" disabled={confirmarTermoEntregaFisicoMut.isPending} onClick={() => confirmarTermoEntregaFisicoMut.mutate({ orderId: id })}>
+                      <Check className="h-3 w-3 mr-1" />Confirmar Assinatura Fisica
+                    </Button>
+                    <Button size="sm" variant="ghost" className="w-full text-xs" asChild>
+                      <a href={`/api/service-orders/${id}/delivery-term`} target="_blank" rel="noopener noreferrer"><FileText className="h-3 w-3 mr-1" />PDF Termo Entrega</a>
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!["DELIVERED", "REFUNDED"].includes(status) && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><RotateCcw className="h-4 w-4" />Termo de Devolucao</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.returnTermSigned ? (
+                  <Badge variant="destructive" className="w-full justify-center">Devolvido em {formatDateTime(order.returnTermSignedAt)}</Badge>
+                ) : order.returnTermSent ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">Enviado em {formatDateTime(order.returnTermSentAt)}</p>
+                    <Button size="sm" variant="outline" className="w-full" disabled={verificarTermoDevolucaoMut.isPending} onClick={() => verificarTermoDevolucaoMut.mutate({ orderId: id })}>
+                      {verificarTermoDevolucaoMut.isPending ? "Verificando..." : "Verificar Assinatura"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" disabled={confirmarTermoDevolucaoFisicoMut.isPending} onClick={() => confirmarTermoDevolucaoFisicoMut.mutate({ orderId: id })}>
+                      <Check className="h-3 w-3 mr-1" />Confirmar Assinatura Fisica
+                    </Button>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <Button size="sm" variant="outline" className="w-full" disabled={enviarTermoDevolucaoMut.isPending} onClick={() => enviarTermoDevolucaoMut.mutate({ orderId: id })}>
+                      <Send className="h-3 w-3 mr-1" />{enviarTermoDevolucaoMut.isPending ? "Enviando..." : "Enviar Termo de Devolucao"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" disabled={confirmarTermoDevolucaoFisicoMut.isPending} onClick={() => confirmarTermoDevolucaoFisicoMut.mutate({ orderId: id })}>
+                      <Check className="h-3 w-3 mr-1" />Confirmar Devolucao Fisica
+                    </Button>
+                    <Button size="sm" variant="ghost" className="w-full text-xs" asChild>
+                      <a href={`/api/service-orders/${id}/return-term`} target="_blank" rel="noopener noreferrer"><FileText className="h-3 w-3 mr-1" />PDF Termo Devolucao</a>
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Orcamento Adicional ────────────────────────────── */}
+          {isEditable && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><CircleDollarSign className="h-4 w-4" />Orcamento Adicional</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.budgetPending && order.pendingQuoteId ? (
+                  <>
+                    <Badge variant="outline" className="w-full justify-center">Orcamento pendente</Badge>
+                    <Button size="sm" variant="outline" className="w-full" disabled={enviarOrcamentoMut.isPending} onClick={() => enviarOrcamentoMut.mutate({ orderId: id })}>
+                      <Send className="h-3 w-3 mr-1" />{enviarOrcamentoMut.isPending ? "Enviando..." : "Enviar ao Cliente"}
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" disabled={aprovarOrcManualMut.isPending} onClick={() => aprovarOrcManualMut.mutate({ orderId: id, quoteId: order.pendingQuoteId! })}>
+                      <Check className="h-3 w-3 mr-1" />{aprovarOrcManualMut.isPending ? "Aprovando..." : "Aprovar Manualmente"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="w-full text-xs text-destructive" disabled={cancelarOrcamentoMut.isPending} onClick={() => cancelarOrcamentoMut.mutate({ orderId: id })}>
+                      {cancelarOrcamentoMut.isPending ? "Cancelando..." : "Cancelar Orcamento"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="w-full text-xs" asChild>
+                      <a href={`/api/service-orders/${id}/quote-pdf`} target="_blank" rel="noopener noreferrer"><FileText className="h-3 w-3 mr-1" />PDF Orcamento</a>
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => {
+                    setQuoteNewServiceAmount(Math.round(Number(order.serviceAmount) * 100));
+                    setQuoteNewPartsAmount(Math.round(Number(order.partsAmount) * 100));
+                    setQuoteNewDiscount(Math.round(Number(order.discount) * 100));
+                    setQuoteReason("");
+                    setQuoteAdditionalServices("");
+                    setQuoteDialogOpen(true);
+                  }}>
+                    <Plus className="h-3 w-3 mr-1" />Criar Orcamento
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Laboratorio Externo ────────────────────────────── */}
+          {isEditable && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4" />Laboratorio Externo</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.sentToLab ? (
+                  order.labReceived ? (
+                    <Badge className="w-full justify-center">Recebido do laboratorio</Badge>
+                  ) : (
+                    <>
+                      <Badge variant="outline" className="w-full justify-center">Enviado ao laboratorio</Badge>
+                      <Button size="sm" variant="outline" className="w-full" disabled={confirmarRecebLabMut.isPending} onClick={() => confirmarRecebLabMut.mutate({ orderId: id })}>
+                        <Check className="h-3 w-3 mr-1" />{confirmarRecebLabMut.isPending ? "Confirmando..." : "Confirmar Recebimento"}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="w-full text-xs text-destructive" disabled={cancelarLabMut.isPending} onClick={() => cancelarLabMut.mutate({ orderId: id })}>
+                        {cancelarLabMut.isPending ? "Cancelando..." : "Cancelar Envio"}
+                      </Button>
+                    </>
+                  )
+                ) : (
+                  <Button size="sm" variant="outline" className="w-full" disabled={enviarLabMut.isPending} onClick={() => enviarLabMut.mutate({ orderId: id })}>
+                    <Truck className="h-3 w-3 mr-1" />{enviarLabMut.isPending ? "Enviando..." : "Enviar para Laboratorio"}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Comunicacao ────────────────────────────────────── */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2"><MessageCircle className="h-4 w-4" />Comunicacao</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(status) && (
+                <Button size="sm" variant="outline" className="w-full" disabled={notificarConclusaoMut.isPending} onClick={() => notificarConclusaoMut.mutate({ orderId: id })}>
+                  <MessageCircle className="h-3 w-3 mr-1" />{notificarConclusaoMut.isPending ? "Enviando..." : "Notificar Conclusao"}
+                </Button>
+              )}
+              {["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+                <>
+                  <Button size="sm" variant="outline" className="w-full" disabled={enviarReciboMut.isPending} onClick={() => enviarReciboMut.mutate({ orderId: id })}>
+                    <Receipt className="h-3 w-3 mr-1" />{enviarReciboMut.isPending ? "Enviando..." : "Enviar Recibo WhatsApp"}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="w-full text-xs" asChild>
+                    <a href={`/api/service-orders/${id}/receipt`} target="_blank" rel="noopener noreferrer"><FileText className="h-3 w-3 mr-1" />PDF Recibo</a>
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="outline" className="w-full" disabled={enviarRastreamentoMut.isPending} onClick={() => {
+                const phone = order.customer?.phone;
+                if (!phone) { toast.error("Cliente sem telefone"); return; }
+                enviarRastreamentoMut.mutate({ orderId: id, telefone: phone });
+              }}>
+                <Send className="h-3 w-3 mr-1" />{enviarRastreamentoMut.isPending ? "Enviando..." : "Enviar Rastreamento"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* ── PIX ────────────────────────────────────────────── */}
+          {isEditable && Number(order.totalAmount) > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2"><QrCode className="h-4 w-4" />PIX</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.depixTransactionId ? (
+                  <>
+                    <Badge variant="outline" className="w-full justify-center">PIX {order.depixStatus ?? "pendente"}</Badge>
+                    {pixData?.qrCode && (
+                      <div className="p-2 bg-white rounded text-center">
+                        <p className="text-xs text-black font-mono break-all">{pixData.qrCode}</p>
+                      </div>
+                    )}
+                    <Button size="sm" variant="ghost" className="w-full text-xs text-destructive" disabled={cancelarPixMut.isPending} onClick={() => cancelarPixMut.mutate({ orderId: id })}>
+                      {cancelarPixMut.isPending ? "Cancelando..." : "Cancelar PIX"}
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" className="w-full" disabled={gerarPixMut.isPending} onClick={() => gerarPixMut.mutate({ orderId: id })}>
+                    <QrCode className="h-3 w-3 mr-1" />{gerarPixMut.isPending ? "Gerando..." : "Gerar QR Code PIX"}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Descancelar ──────────────────────────────────── */}
+          {status === "CANCELLED" && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Descancelar OS</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">Reabre a OS como Em Diagnostico (admin)</p>
+                <Button size="sm" variant="outline" className="w-full" onClick={() => setDescancelarOpen(true)}>
+                  <RotateCcw className="h-3 w-3 mr-1" />Descancelar
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* History */}
           <Card>
             <CardHeader className="pb-3">
@@ -1316,6 +1584,72 @@ export function ServiceOrderDetailClient({ id }: Props) {
               }
             >
               {addItemMutation.isPending ? "Adicionando..." : "Adicionar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quote creation dialog */}
+      <Dialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Criar Orcamento Adicional</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Novo valor dos servicos *</Label>
+              <MoneyInput value={quoteNewServiceAmount} onChange={setQuoteNewServiceAmount} />
+            </div>
+            <div className="space-y-2">
+              <Label>Novo valor das pecas</Label>
+              <MoneyInput value={quoteNewPartsAmount} onChange={setQuoteNewPartsAmount} />
+            </div>
+            <div className="space-y-2">
+              <Label>Novo desconto</Label>
+              <MoneyInput value={quoteNewDiscount} onChange={setQuoteNewDiscount} />
+            </div>
+            <div className="space-y-2">
+              <Label>Motivo da alteracao *</Label>
+              <Textarea value={quoteReason} onChange={(e) => setQuoteReason(e.target.value)} placeholder="Informe o motivo..." rows={3} />
+            </div>
+            <div className="space-y-2">
+              <Label>Servicos adicionais</Label>
+              <Textarea value={quoteAdditionalServices} onChange={(e) => setQuoteAdditionalServices(e.target.value)} placeholder="Descricao dos servicos adicionais..." rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuoteDialogOpen(false)}>Cancelar</Button>
+            <Button disabled={criarOrcamentoMut.isPending || !quoteReason.trim()} onClick={() => criarOrcamentoMut.mutate({
+              orderId: id,
+              newServiceAmount: quoteNewServiceAmount / 100,
+              newPartsAmount: quoteNewPartsAmount > 0 ? quoteNewPartsAmount / 100 : undefined,
+              newDiscount: quoteNewDiscount > 0 ? quoteNewDiscount / 100 : undefined,
+              reason: quoteReason,
+              additionalServices: quoteAdditionalServices || undefined,
+            })}>
+              {criarOrcamentoMut.isPending ? "Criando..." : "Criar Orcamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Descancelar dialog */}
+      <Dialog open={descancelarOpen} onOpenChange={setDescancelarOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Descancelar OS</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">A OS sera reaberta como Em Diagnostico.</p>
+            <div className="space-y-2">
+              <Label>Motivo do descancelamento *</Label>
+              <Textarea value={descancelarMotivo} onChange={(e) => setDescancelarMotivo(e.target.value)} placeholder="Informe o motivo..." rows={3} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDescancelarOpen(false)}>Cancelar</Button>
+            <Button disabled={descancelarMut.isPending || !descancelarMotivo.trim()} onClick={() => { descancelarMut.mutate({ orderId: id, motivo: descancelarMotivo }); setDescancelarOpen(false); }}>
+              {descancelarMut.isPending ? "Descancelando..." : "Confirmar"}
             </Button>
           </DialogFooter>
         </DialogContent>
