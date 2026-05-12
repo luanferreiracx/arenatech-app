@@ -3,6 +3,8 @@ import {
   Users,
   BookOpen,
   Package,
+  Banknote,
+  Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -17,6 +19,8 @@ export const appNavItems: NavItem[] = [
   { label: "Catalogo", href: "/catalog", icon: BookOpen },
   { label: "Clientes", href: "/customers", icon: Users },
   { label: "Estoque", href: "/stock", icon: Package },
+  { label: "Caixa", href: "/cashier", icon: Banknote },
+  { label: "Configuracoes", href: "/settings", icon: Settings },
 ];
 
 export const adminNavItems: NavItem[] = [
