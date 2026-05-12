@@ -1,0 +1,401 @@
+import { z } from "zod";
+
+// ── Enums ──
+
+export const serviceOrderStatusEnum = z.enum([
+  "OPEN",
+  "IN_DIAGNOSIS",
+  "WAITING_APPROVAL",
+  "APPROVED",
+  "WAITING_PARTS",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+  "IN_WARRANTY",
+  "CANCELLED",
+  "REFUNDED",
+]);
+export type ServiceOrderStatus = z.infer<typeof serviceOrderStatusEnum>;
+
+export const SERVICE_ORDER_STATUS_LABELS: Record<ServiceOrderStatus, string> = {
+  OPEN: "Iniciada",
+  IN_DIAGNOSIS: "Em Diagnostico",
+  WAITING_APPROVAL: "Aguard. Aprovacao",
+  APPROVED: "Aprovada",
+  WAITING_PARTS: "Aguard. Pecas",
+  IN_PROGRESS: "Em Execucao",
+  COMPLETED: "Concluida",
+  PAID: "Paga",
+  READY_FOR_PICKUP: "Aguard. Retirada",
+  DELIVERED: "Entregue",
+  IN_WARRANTY: "Em Garantia",
+  CANCELLED: "Cancelada",
+  REFUNDED: "Estornada",
+};
+
+export const SERVICE_ORDER_STATUS_VARIANT: Record<ServiceOrderStatus, "default" | "success" | "warning" | "destructive" | "info"> = {
+  OPEN: "default",
+  IN_DIAGNOSIS: "info",
+  WAITING_APPROVAL: "warning",
+  APPROVED: "success",
+  WAITING_PARTS: "warning",
+  IN_PROGRESS: "info",
+  COMPLETED: "success",
+  PAID: "success",
+  READY_FOR_PICKUP: "warning",
+  DELIVERED: "success",
+  IN_WARRANTY: "info",
+  CANCELLED: "destructive",
+  REFUNDED: "destructive",
+};
+
+/** Status flow order for the stepper */
+export const STATUS_FLOW: ServiceOrderStatus[] = [
+  "OPEN",
+  "IN_DIAGNOSIS",
+  "APPROVED",
+  "WAITING_PARTS",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+];
+
+export const OPTIONAL_STATUSES: ServiceOrderStatus[] = ["WAITING_PARTS"];
+export const SPECIAL_STATUSES: ServiceOrderStatus[] = ["CANCELLED", "REFUNDED", "IN_WARRANTY"];
+
+/** Allowed status transitions. Key=current, value=allowed next statuses */
+export const ALLOWED_TRANSITIONS: Record<string, ServiceOrderStatus[]> = {
+  OPEN: ["IN_DIAGNOSIS", "CANCELLED"],
+  IN_DIAGNOSIS: ["WAITING_APPROVAL", "APPROVED", "WAITING_PARTS", "IN_PROGRESS", "CANCELLED"],
+  WAITING_APPROVAL: ["APPROVED", "CANCELLED"],
+  APPROVED: ["WAITING_PARTS", "IN_PROGRESS", "CANCELLED"],
+  WAITING_PARTS: ["IN_PROGRESS", "APPROVED", "CANCELLED"],
+  IN_PROGRESS: ["COMPLETED", "WAITING_PARTS", "CANCELLED"],
+  COMPLETED: ["PAID", "CANCELLED"],
+  PAID: ["READY_FOR_PICKUP", "DELIVERED"],
+  READY_FOR_PICKUP: ["DELIVERED"],
+  DELIVERED: [], // final state (admin can refund)
+  IN_WARRANTY: ["IN_DIAGNOSIS"],
+  CANCELLED: [], // admin can uncancell
+  REFUNDED: [], // final state
+};
+
+export const serviceOrderItemTypeEnum = z.enum(["SERVICE", "PRODUCT"]);
+export type ServiceOrderItemType = z.infer<typeof serviceOrderItemTypeEnum>;
+
+export const deviceTypeEnum = z.enum([
+  "iPhone",
+  "iPad",
+  "MacBook",
+  "Android",
+  "Notebook",
+  "Console",
+  "Outro",
+]);
+export type DeviceType = z.infer<typeof deviceTypeEnum>;
+
+export const warrantyTypeEnum = z.enum([
+  "none",
+  "return",      // retorno de servico (garantia do proprio servico)
+  "manufacturer", // garantia de fabrica
+  "extended",     // garantia estendida
+]);
+export type WarrantyType = z.infer<typeof warrantyTypeEnum>;
+
+export const WARRANTY_TYPE_LABELS: Record<string, string> = {
+  none: "Sem Garantia",
+  return: "Retorno de Servico",
+  manufacturer: "Garantia de Fabrica",
+  extended: "Garantia Estendida",
+};
+
+// ── Checklist ──
+
+/**
+ * Checklist item: true=OK, false=NOK, null=N/A
+ */
+export const checklistSchema = z.object({
+  display: z.boolean().nullable().optional(),            // Display / Tela
+  touchscreen: z.boolean().nullable().optional(),        // Touchscreen
+  battery: z.boolean().nullable().optional(),            // Bateria
+  charging: z.boolean().nullable().optional(),           // Carregamento
+  wifi: z.boolean().nullable().optional(),               // Wi-Fi
+  bluetooth: z.boolean().nullable().optional(),          // Bluetooth
+  camera: z.boolean().nullable().optional(),             // Camera
+  speaker: z.boolean().nullable().optional(),            // Alto-falante
+  microphone: z.boolean().nullable().optional(),         // Microfone
+  buttons: z.boolean().nullable().optional(),            // Botoes
+  biometrics: z.boolean().nullable().optional(),         // Biometria
+  faceId: z.boolean().nullable().optional(),             // Face ID
+  gps: z.boolean().nullable().optional(),                // GPS
+  cellular: z.boolean().nullable().optional(),           // Rede Celular
+  sensors: z.boolean().nullable().optional(),            // Sensores
+});
+
+export type ChecklistData = z.infer<typeof checklistSchema>;
+
+export const CHECKLIST_ITEMS: { key: keyof ChecklistData; label: string }[] = [
+  { key: "display", label: "Display / Tela" },
+  { key: "touchscreen", label: "Touchscreen" },
+  { key: "battery", label: "Bateria" },
+  { key: "charging", label: "Carregamento" },
+  { key: "wifi", label: "Wi-Fi" },
+  { key: "bluetooth", label: "Bluetooth" },
+  { key: "camera", label: "Camera" },
+  { key: "speaker", label: "Alto-falante" },
+  { key: "microphone", label: "Microfone" },
+  { key: "buttons", label: "Botoes" },
+  { key: "biometrics", label: "Biometria" },
+  { key: "faceId", label: "Face ID" },
+  { key: "gps", label: "GPS" },
+  { key: "cellular", label: "Rede Celular" },
+  { key: "sensors", label: "Sensores" },
+];
+
+// ── Device Info (additional info checkboxes) ──
+
+export const deviceInfoSchema = z.object({
+  deviceGotWet: z.boolean().optional(),           // Aparelho molhou
+  notOriginalCharger: z.boolean().optional(),     // Nao usa fonte original
+  deviceFell: z.boolean().optional(),             // Aparelho sofreu queda
+  hiddenProblems: z.boolean().optional(),          // Problemas ocultos
+  otherRepairShop: z.boolean().optional(),         // Outra assistencia recente
+  accessoriesReturned: z.boolean().optional(),     // Acessorios/chip devolvidos
+});
+
+export type DeviceInfoData = z.infer<typeof deviceInfoSchema>;
+
+export const DEVICE_INFO_ITEMS: { key: keyof DeviceInfoData; label: string }[] = [
+  { key: "deviceGotWet", label: "Aparelho molhou" },
+  { key: "notOriginalCharger", label: "Nao usa fonte original" },
+  { key: "deviceFell", label: "Aparelho sofreu queda" },
+  { key: "hiddenProblems", label: "Problemas ocultos" },
+  { key: "otherRepairShop", label: "Outra assistencia recente" },
+  { key: "accessoriesReturned", label: "Acessorios/chip devolvidos" },
+];
+
+// ── Input Schemas ──
+
+/** Item in the wizard */
+export const createItemSchema = z.object({
+  type: serviceOrderItemTypeEnum,
+  serviceId: z.string().uuid().optional().nullable(),
+  productId: z.string().uuid().optional().nullable(),
+  description: z.string().min(1, "Descricao obrigatoria"),
+  quantity: z.number().int().min(1, "Quantidade minima 1"),
+  unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
+  costPrice: z.number().int().min(0).optional(), // centavos
+});
+
+/** Create service order (wizard) */
+export const createServiceOrderSchema = z.object({
+  // Step 1: Customer
+  customerId: z.string().uuid("Selecione um cliente"),
+
+  // Step 2: Equipment
+  deviceType: z.string().max(100).optional().nullable(),
+  deviceBrand: z.string().max(100).optional().nullable(),
+  deviceModel: z.string().max(100).optional().nullable(),
+  serialNumber: z.string().max(100).optional().nullable(),
+  imei: z.string().max(50).optional().nullable(),
+  devicePassword: z.string().max(50).optional().nullable(),
+  accessories: z.string().max(2000).optional().nullable(),
+
+  // Step 3: Problem + Checklist
+  reportedProblem: z.string().min(1, "Problema relatado obrigatorio"),
+  entryChecklist: checklistSchema.optional(),
+  deviceInfo: deviceInfoSchema.optional(),
+
+  // Step 4: Items
+  items: z.array(createItemSchema).min(0),
+
+  // Step 5: Summary
+  technicianId: z.string().uuid().optional().nullable(),
+  vendorId: z.string().uuid().optional().nullable(),
+  isWarranty: z.boolean().optional(),
+  warrantyType: z.string().optional().nullable(),
+  warrantyMonths: z.number().int().min(0).max(120).optional(),
+  originalOrderId: z.string().uuid().optional().nullable(),
+  customerNotes: z.string().max(2000).optional().nullable(),
+  estimatedDate: z.string().optional().nullable(), // ISO date string
+});
+
+export type CreateServiceOrderInput = z.infer<typeof createServiceOrderSchema>;
+
+/** Update service order (edit page) */
+export const updateServiceOrderSchema = z.object({
+  id: z.string().uuid(),
+  customerId: z.string().uuid().optional(),
+  deviceType: z.string().max(100).optional().nullable(),
+  deviceBrand: z.string().max(100).optional().nullable(),
+  deviceModel: z.string().max(100).optional().nullable(),
+  serialNumber: z.string().max(100).optional().nullable(),
+  imei: z.string().max(50).optional().nullable(),
+  devicePassword: z.string().max(50).optional().nullable(),
+  accessories: z.string().max(2000).optional().nullable(),
+  reportedProblem: z.string().min(1).optional(),
+  diagnosedProblem: z.string().max(2000).optional().nullable(),
+  internalNotes: z.string().max(5000).optional().nullable(),
+  customerNotes: z.string().max(2000).optional().nullable(),
+  entryChecklist: checklistSchema.optional(),
+  exitChecklist: checklistSchema.optional(),
+  deviceInfo: deviceInfoSchema.optional(),
+  technicianId: z.string().uuid().optional().nullable(),
+  vendorId: z.string().uuid().optional().nullable(),
+  isWarranty: z.boolean().optional(),
+  warrantyType: z.string().optional().nullable(),
+  warrantyMonths: z.number().int().min(0).max(120).optional(),
+  estimatedDate: z.string().optional().nullable(),
+  nfseIssued: z.boolean().optional(),
+  nfseNumber: z.string().max(40).optional().nullable(),
+});
+
+export type UpdateServiceOrderInput = z.infer<typeof updateServiceOrderSchema>;
+
+/** Update status */
+export const updateStatusSchema = z.object({
+  id: z.string().uuid(),
+  status: serviceOrderStatusEnum,
+  notes: z.string().max(1000).optional().nullable(),
+  warrantyMonths: z.number().int().min(0).max(120).optional(),
+  // Payment fields (for PAID status)
+  paymentMethod: z.string().max(50).optional().nullable(),
+  paymentNotes: z.string().max(500).optional().nullable(),
+  paymentDiscount: z.number().int().min(0).optional(), // centavos
+  notifyWhatsapp: z.boolean().optional(),
+  notifyPhone: z.string().max(30).optional().nullable(),
+});
+
+export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
+
+/** Add item to existing OS */
+export const addItemSchema = z.object({
+  orderId: z.string().uuid(),
+  type: serviceOrderItemTypeEnum,
+  serviceId: z.string().uuid().optional().nullable(),
+  productId: z.string().uuid().optional().nullable(),
+  description: z.string().min(1, "Descricao obrigatoria"),
+  quantity: z.number().int().min(1),
+  unitPrice: z.number().int().min(0), // centavos
+  costPrice: z.number().int().min(0).optional(), // centavos
+});
+
+export type AddItemInput = z.infer<typeof addItemSchema>;
+
+/** Update item */
+export const updateItemSchema = z.object({
+  id: z.string().uuid(),
+  description: z.string().min(1).optional(),
+  quantity: z.number().int().min(1).optional(),
+  unitPrice: z.number().int().min(0).optional(), // centavos
+  costPrice: z.number().int().min(0).optional(), // centavos
+});
+
+export type UpdateItemInput = z.infer<typeof updateItemSchema>;
+
+/** Register payment */
+export const registerPaymentSchema = z.object({
+  id: z.string().uuid(),
+  paymentMethod: z.string().min(1, "Forma de pagamento obrigatoria"),
+  paidAmount: z.number().int().min(0), // centavos
+  paymentDiscount: z.number().int().min(0).optional(), // centavos
+  paymentNotes: z.string().max(500).optional().nullable(),
+});
+
+export type RegisterPaymentInput = z.infer<typeof registerPaymentSchema>;
+
+/** Cancel OS */
+export const cancelOrderSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().min(1, "Motivo do cancelamento obrigatorio").max(500),
+  force: z.boolean().optional(),
+});
+
+export type CancelOrderInput = z.infer<typeof cancelOrderSchema>;
+
+/** Uncancell OS (admin only) */
+export const uncancelOrderSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().min(1, "Motivo do descancelamento obrigatorio").max(500),
+});
+
+/** Refund OS (admin only) */
+export const refundOrderSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().min(10, "Motivo deve ter pelo menos 10 caracteres").max(1000),
+});
+
+/** Update costs inline */
+export const updateCostsSchema = z.object({
+  id: z.string().uuid(),
+  partsCost: z.number().int().min(0), // centavos
+  otherCost: z.number().int().min(0), // centavos
+});
+
+/** List service orders */
+export const listServiceOrdersSchema = z.object({
+  search: z.string().optional(),
+  status: serviceOrderStatusEnum.optional(),
+  technicianId: z.string().uuid().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  sortBy: z.enum(["number", "entryDate", "totalAmount", "status", "customerName"]).optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+});
+
+export type ListServiceOrdersInput = z.infer<typeof listServiceOrdersSchema>;
+
+/** Create quote (orcamento adicional) */
+export const createQuoteSchema = z.object({
+  orderId: z.string().uuid(),
+  newServiceAmount: z.number().int().min(0), // centavos
+  newPartsAmount: z.number().int().min(0).optional(), // centavos
+  newDiscount: z.number().int().min(0).optional(), // centavos
+  reason: z.string().min(1, "Motivo obrigatorio").max(1000),
+  additionalServices: z.string().max(1000).optional().nullable(),
+});
+
+export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+
+/** Approve/reject quote (public page) */
+export const respondQuoteSchema = z.object({
+  link: z.string().min(1),
+  action: z.enum(["approve", "reject"]),
+  customerNotes: z.string().max(500).optional().nullable(),
+});
+
+export type RespondQuoteInput = z.infer<typeof respondQuoteSchema>;
+
+/** Send signature (Autentique) */
+export const sendSignatureSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8, "Numero de telefone invalido").max(30),
+  type: z.enum(["entry", "delivery", "return"]),
+});
+
+/** Confirm physical signature */
+export const confirmPhysicalSignatureSchema = z.object({
+  orderId: z.string().uuid(),
+  type: z.enum(["entry", "delivery", "return"]),
+  reason: z.string().max(500).optional().nullable(),
+});
+
+/** Lab external */
+export const sendToLabSchema = z.object({
+  orderId: z.string().uuid(),
+  deliveryPersonId: z.string().uuid().optional().nullable(),
+});
+
+export const receiveFromLabSchema = z.object({
+  orderId: z.string().uuid(),
+});
+
+export const cancelLabSchema = z.object({
+  orderId: z.string().uuid(),
+});
