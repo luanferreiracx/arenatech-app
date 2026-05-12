@@ -28,7 +28,10 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
+import { EntitySelector } from "@/components/domain/entity-selector";
 import { updateServiceOrderSchema, WARRANTY_TYPES, WARRANTY_TYPE_LABELS, CHECKLIST_LABELS, DEVICE_INFO_LABELS, type ChecklistInput, type DeviceInfoInput } from "@/lib/validators/service-order";
+import { useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, X, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
@@ -52,6 +55,29 @@ const DEVICE_TYPES = [
 export function ServiceOrderEditClient({ id }: Props) {
   const trpc = useTRPC();
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const searchTechnicians = useCallback(
+    async (query: string) => {
+      const opts = trpc.serviceOrders.listTechnicians.queryOptions({
+        search: query || undefined,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result as Array<{ id: string; name: string }>;
+    },
+    [trpc.serviceOrders.listTechnicians, queryClient],
+  );
+
+  const searchVendors = useCallback(
+    async (query: string) => {
+      const opts = trpc.serviceOrders.listVendors.queryOptions({
+        search: query || undefined,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result as Array<{ id: string; name: string }>;
+    },
+    [trpc.serviceOrders.listVendors, queryClient],
+  );
 
   const { data: order, isLoading } = useQuery(
     trpc.serviceOrders.getById.queryOptions({ id }),
@@ -77,6 +103,9 @@ export function ServiceOrderEditClient({ id }: Props) {
             ? new Date(order.estimatedDate).toISOString()
             : undefined,
           technicianId: order.technicianId ?? undefined,
+          vendorId: order.vendorId ?? undefined,
+          nfseIssued: order.nfseIssued ?? false,
+          nfseNumber: order.nfseNumber ?? undefined,
           isWarranty: order.isWarranty,
           warrantyType: (order.warrantyType as (typeof WARRANTY_TYPES)[number]) ?? undefined,
           warrantyMonths: order.warrantyMonths ?? 3,
@@ -387,6 +416,89 @@ export function ServiceOrderEditClient({ id }: Props) {
               );
             })}
           </div>
+        </FormSection>
+
+        <FormSection title="Responsáveis">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="technicianId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Técnico Responsável</FormLabel>
+                  <FormControl>
+                    <EntitySelector<{ id: string; name: string }>
+                      value={field.value ?? undefined}
+                      onChange={(val) => field.onChange(val ?? null)}
+                      searchFn={searchTechnicians}
+                      getOptionLabel={(u) => u.name}
+                      getOptionValue={(u) => u.id}
+                      placeholder="Selecionar técnico..."
+                      emptyMessage="Nenhum técnico encontrado."
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="vendorId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Vendedor Intermediador <span className="text-xs text-muted-foreground">(opcional)</span></FormLabel>
+                  <FormControl>
+                    <EntitySelector<{ id: string; name: string }>
+                      value={field.value ?? undefined}
+                      onChange={(val) => field.onChange(val ?? null)}
+                      searchFn={searchVendors}
+                      getOptionLabel={(u) => u.name}
+                      getOptionValue={(u) => u.id}
+                      placeholder="Selecionar vendedor..."
+                      emptyMessage="Nenhum vendedor encontrado."
+                    />
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Vendedor que recepcionou o cliente e encaminhou a OS.
+                  </p>
+                </FormItem>
+              )}
+            />
+          </div>
+        </FormSection>
+
+        <FormSection title="NFS-e">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="nfseIssued"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-2 pt-2">
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormLabel>NFS-e emitida</FormLabel>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="nfseNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Número da NFS-e</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ""} placeholder="Ex: 2025/001234" />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Marque após emitir a nota na prefeitura. Habilita dedução de tributos no cálculo de comissão.
+          </p>
         </FormSection>
 
         <FormSection title="Valores e Garantia">

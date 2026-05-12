@@ -74,6 +74,7 @@ interface WizardState {
   estimatedDate: Date | undefined;
   technicianId: string;
   technicianName: string;
+  vendorId: string;
   isWarranty: boolean;
   warrantyType: WarrantyType | "";
   warrantyMonths: number;
@@ -99,6 +100,7 @@ const initialState: WizardState = {
   estimatedDate: undefined,
   technicianId: "",
   technicianName: "",
+  vendorId: "",
   isWarranty: false,
   warrantyType: "",
   warrantyMonths: 3,
@@ -167,6 +169,7 @@ export function ServiceOrderWizard() {
       discount: state.discount > 0 ? state.discount / 100 : undefined,
       estimatedDate: state.estimatedDate?.toISOString(),
       technicianId: state.technicianId || undefined,
+      vendorId: state.vendorId || undefined,
       isWarranty: state.isWarranty || undefined,
       warrantyType: (state.isWarranty && state.warrantyType) ? state.warrantyType as WarrantyType : undefined,
       warrantyMonths: state.isWarranty ? state.warrantyMonths : undefined,
@@ -888,6 +891,17 @@ function Step5Summary({
     [trpc.serviceOrders.listTechnicians, queryClient],
   );
 
+  const searchVendors = useCallback(
+    async (query: string): Promise<TechnicianItem[]> => {
+      const opts = trpc.serviceOrders.listVendors.queryOptions({
+        search: query || undefined,
+      });
+      const result = await queryClient.fetchQuery(opts);
+      return result as TechnicianItem[];
+    },
+    [trpc.serviceOrders.listVendors, queryClient],
+  );
+
   const searchOrders = useCallback(
     async (query: string): Promise<OrderSearchItem[]> => {
       if (!state.customerId) return [];
@@ -970,6 +984,21 @@ function Step5Summary({
             placeholder="Selecionar técnico..."
             emptyMessage="Nenhum técnico encontrado."
           />
+        </div>
+        <div className="space-y-2">
+          <Label>Vendedor intermediador <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+          <EntitySelector<TechnicianItem>
+            value={state.vendorId || undefined}
+            onChange={(val) => update("vendorId", val ?? "")}
+            searchFn={searchVendors}
+            getOptionLabel={(u) => u.name}
+            getOptionValue={(u) => u.id}
+            placeholder="Selecionar vendedor..."
+            emptyMessage="Nenhum vendedor encontrado."
+          />
+          <p className="text-xs text-muted-foreground">
+            Vendedor que recepcionou o cliente e encaminhou a OS (recebe comissão de intermediação).
+          </p>
         </div>
       </div>
 

@@ -94,7 +94,7 @@ export async function GET(
     });
 
     // Fetch user names
-    const userIds = [order.createdById, order.technicianId].filter((uid): uid is string => !!uid);
+    const userIds = [order.createdById, order.technicianId, order.vendorId].filter((uid): uid is string => !!uid);
     const users = userIds.length > 0
       ? await withAdmin(async (tx) => tx.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }))
       : [];
@@ -146,12 +146,18 @@ export async function GET(
       discount: Number(order.discount) > 0 ? formatMoney(order.discount) : null,
       totalAmount: formatMoney(order.totalAmount),
       technicianName: order.technicianId ? (userMap.get(order.technicianId) ?? "-") : null,
+      vendorName: order.vendorId ? (userMap.get(order.vendorId) ?? null) : null,
       createdByName: userMap.get(order.createdById) ?? "-",
       internalNotes: order.internalNotes,
       customerNotes: order.customerNotes,
       isWarranty: order.isWarranty,
       warrantyType: order.warrantyType,
       warrantyMonths: order.warrantyMonths,
+      nfseIssued: order.nfseIssued,
+      nfseNumber: order.nfseNumber,
+      paymentMethod: order.paymentMethod,
+      paidAmount: formatMoney(order.paidAmount),
+      paymentDate: formatDate(order.paymentDate),
     });
 
     return new NextResponse(html, {
@@ -207,12 +213,18 @@ interface PdfTemplateData {
   discount: string | null;
   totalAmount: string;
   technicianName: string | null;
+  vendorName: string | null;
   createdByName: string;
   internalNotes: string | null;
   customerNotes: string | null;
   isWarranty: boolean;
   warrantyType: string | null;
   warrantyMonths: number | null;
+  nfseIssued: boolean;
+  nfseNumber: string | null;
+  paymentMethod: string | null;
+  paidAmount: string;
+  paymentDate: string;
 }
 
 // Checklist key → human-readable label (matches CHECKLIST_LABELS in validators)
@@ -454,9 +466,29 @@ function buildHtml(data: PdfTemplateData): string {
     <div class="grid">
       <div><span class="label">Atendente:</span> <span class="value">${esc(data.createdByName)}</span></div>
       ${data.technicianName ? `<div><span class="label">Tecnico:</span> <span class="value">${esc(data.technicianName)}</span></div>` : ""}
+      ${data.vendorName ? `<div><span class="label">Vendedor:</span> <span class="value">${esc(data.vendorName)}</span></div>` : ""}
     </div>
     ${warrantyText ? `<div class="warranty-box"><strong>Garantia:</strong> ${esc(warrantyText)}</div>` : ""}
   </div>
+
+  ${data.paymentMethod ? `
+  <div class="section">
+    <div class="section-title">Pagamento</div>
+    <div class="grid">
+      <div><span class="label">Forma:</span> <span class="value">${esc(data.paymentMethod)}</span></div>
+      <div><span class="label">Valor Pago:</span> <span class="value">${esc(data.paidAmount)}</span></div>
+      ${data.paymentDate !== "-" ? `<div><span class="label">Data:</span> <span class="value">${esc(data.paymentDate)}</span></div>` : ""}
+    </div>
+  </div>` : ""}
+
+  ${data.nfseIssued ? `
+  <div class="section">
+    <div class="section-title">NFS-e</div>
+    <div class="grid">
+      <div><span class="label">Emitida:</span> <span class="value">Sim</span></div>
+      ${data.nfseNumber ? `<div><span class="label">Numero:</span> <span class="value">${esc(data.nfseNumber)}</span></div>` : ""}
+    </div>
+  </div>` : ""}
 
   ${data.internalNotes ? `
   <div class="section">

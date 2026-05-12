@@ -121,6 +121,7 @@ export const createServiceOrderSchema = z.object({
   discount: z.number().min(0).optional(),
   estimatedDate: z.string().datetime().optional(),
   technicianId: z.string().uuid().optional(),
+  vendorId: z.string().uuid().optional(),
   isWarranty: z.boolean().optional(),
   warrantyType: z.enum(WARRANTY_TYPES).optional(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
@@ -150,6 +151,9 @@ export const updateServiceOrderSchema = z.object({
   discount: z.number().min(0).optional(),
   estimatedDate: z.string().datetime().optional().nullable(),
   technicianId: z.string().uuid().optional().nullable(),
+  vendorId: z.string().uuid().optional().nullable(),
+  nfseIssued: z.boolean().optional(),
+  nfseNumber: z.string().optional().nullable(),
   isWarranty: z.boolean().optional(),
   warrantyType: z.enum(WARRANTY_TYPES).optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional().nullable(),
@@ -298,6 +302,18 @@ export const registerPaymentSchema = z.object({
 });
 
 export type RegisterPaymentInput = z.infer<typeof registerPaymentSchema>;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Update costs (inline on detail page sidebar)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const updateCostsSchema = z.object({
+  orderId: z.string().uuid(),
+  partsCost: z.number().min(0),
+  otherCost: z.number().min(0),
+});
+
+export type UpdateCostsInput = z.infer<typeof updateCostsSchema>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Documents

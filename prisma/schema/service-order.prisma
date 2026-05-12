@@ -26,6 +26,7 @@ model ServiceOrder {
   customerId          String              @map("customer_id") @db.Uuid
   technicianId        String?             @map("technician_id") @db.Uuid
   createdById         String              @map("created_by_id") @db.Uuid
+  vendorId            String?             @map("vendor_id") @db.Uuid
   status              ServiceOrderStatus  @default(OPEN)
   publicLink          String              @unique @map("public_link")
 
@@ -71,10 +72,18 @@ model ServiceOrder {
   completedDate       DateTime?           @map("completed_date")
   deliveredDate       DateTime?           @map("delivered_date")
 
+  // Custos adicionais
+  otherCost           Decimal             @default(0) @map("other_cost") @db.Decimal(10, 2)
+
+  // NFS-e manual
+  nfseIssued          Boolean             @default(false) @map("nfse_issued")
+  nfseNumber          String?             @map("nfse_number")
+
   // Pagamento
   paymentMethod       String?             @map("payment_method")
   paymentNotes        String?             @map("payment_notes")
   paymentDiscount     Decimal             @default(0) @map("payment_discount") @db.Decimal(10, 2)
+  paymentDate         DateTime?           @map("payment_date")
 
   // Cancelamento/Estorno
   cancellationReason  String?             @map("cancellation_reason")

@@ -11,6 +11,7 @@ import {
   updateItemSchema,
   registerPaymentSchema,
   addDocumentSchema,
+  updateCostsSchema,
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatusValue,
 } from "@/lib/validators/service-order";
@@ -165,7 +166,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const customers = customerIds.length > 0
           ? await tx.customer.findMany({
               where: { id: { in: customerIds } },
-              select: { id: true, name: true, cpf: true },
+              select: { id: true, name: true, cpf: true, phone: true },
             })
           : [];
         const customerMap = new Map(customers.map((c) => [c.id, c]));
@@ -218,10 +219,11 @@ export const serviceOrderRouter = createTRPCRouter({
           select: { id: true, name: true, cpf: true, cnpj: true, phone: true, email: true, type: true },
         });
 
-        // Fetch technician and history users via admin
+        // Fetch technician, vendor, and history users via admin
         const userIds = [
           order.createdById,
           order.technicianId,
+          order.vendorId,
           ...order.history.map((h) => h.userId),
         ].filter((id): id is string => !!id);
 
@@ -246,6 +248,7 @@ export const serviceOrderRouter = createTRPCRouter({
           ...order,
           customer,
           technician: order.technicianId ? userMap.get(order.technicianId) ?? null : null,
+          vendor: order.vendorId ? userMap.get(order.vendorId) ?? null : null,
           createdBy: userMap.get(order.createdById) ?? null,
           history: enrichedHistory,
         };
@@ -297,6 +300,7 @@ export const serviceOrderRouter = createTRPCRouter({
             number,
             customerId: input.customerId,
             technicianId: input.technicianId ?? null,
+            vendorId: input.vendorId ?? null,
             createdById: userId,
             status: "OPEN",
             publicLink,
@@ -662,6 +666,7 @@ export const serviceOrderRouter = createTRPCRouter({
             paymentNotes: input.paymentNotes ?? null,
             paymentDiscount,
             paidAmount,
+            paymentDate: new Date(),
           },
         });
 
@@ -842,6 +847,67 @@ export const serviceOrderRouter = createTRPCRouter({
     }),
 
   // ── Technicians list (for selectors) ───────────────────────────────────────
+
+  // ── Update Costs (inline on detail sidebar) ─────────────────────────────
+  updateCosts: tenantProcedure
+    .input(updateCostsSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({
+          where: { id: input.orderId, deletedAt: null },
+        });
+
+        if (!order) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ordem de Serviço não encontrada" });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            partsCost: input.partsCost,
+            otherCost: input.otherCost,
+          },
+        });
+
+        return tx.serviceOrder.findFirst({
+          where: { id: input.orderId },
+          include: { items: true },
+        });
+      });
+    }),
+
+  // ── List Vendors (for selectors) ──────────────────────────────────────
+  listVendors: tenantProcedure
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const userTenants = await tx.userTenant.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            role: { in: ["seller", "operator", "admin"] },
+          },
+          select: { userId: true },
+        });
+
+        const userIds = userTenants.map((ut) => ut.userId);
+        if (userIds.length === 0) return [];
+
+        const users = await withAdmin(async (adminTx) => {
+          return adminTx.user.findMany({
+            where: {
+              id: { in: userIds },
+              ...(input?.search
+                ? { name: { contains: input.search, mode: "insensitive" as const } }
+                : {}),
+            },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          });
+        });
+
+        return users;
+      });
+    }),
 
   listTechnicians: tenantProcedure
     .input(z.object({ search: z.string().optional() }).optional())

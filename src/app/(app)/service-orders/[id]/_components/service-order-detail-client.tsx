@@ -148,6 +148,11 @@ export function ServiceOrderDetailClient({ id }: Props) {
     },
     [trpc.stock.listProducts, queryClient],
   );
+  // Inline cost editing
+  const [costPartsCost, setCostPartsCost] = useState(0);
+  const [costOtherCost, setCostOtherCost] = useState(0);
+  const [costsInitialized, setCostsInitialized] = useState(false);
+
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusDialog, setStatusDialog] = useState<{
     open: boolean;
@@ -239,6 +244,16 @@ export function ServiceOrderDetailClient({ id }: Props) {
     }),
   );
 
+  const updateCostsMutation = useMutation(
+    trpc.serviceOrders.updateCosts.mutationOptions({
+      onSuccess: () => {
+        toast.success("Custos atualizados.");
+        void refetch();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
   const whatsappMutation = useMutation(
     trpc.communication.notifyOsCompleted.mutationOptions({
       onSuccess: () => {
@@ -247,6 +262,13 @@ export function ServiceOrderDetailClient({ id }: Props) {
       onError: (err) => toast.error(err.message),
     }),
   );
+
+  // Initialize cost values from order data
+  if (order && !costsInitialized) {
+    setCostPartsCost(Math.round(Number(order.partsCost) * 100));
+    setCostOtherCost(Math.round(Number(order.otherCost) * 100));
+    setCostsInitialized(true);
+  }
 
   if (isLoading) return <LoadingState variant="card" />;
   if (!order)
@@ -741,6 +763,12 @@ export function ServiceOrderDetailClient({ id }: Props) {
                     </span>
                   </div>
                 )}
+                {order.paymentDate && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Data pagamento</span>
+                    <span>{formatDateTime(order.paymentDate)}</span>
+                  </div>
+                )}
                 {order.paymentNotes && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Observações</span>
@@ -768,6 +796,12 @@ export function ServiceOrderDetailClient({ id }: Props) {
                 <span className="text-muted-foreground">Técnico</span>
                 <span>{order.technician?.name ?? "Não definido"}</span>
               </div>
+              {order.vendor && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Vendedor</span>
+                  <span>{order.vendor.name}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Entrada</span>
                 <span>{formatDate(order.entryDate)}</span>
@@ -834,6 +868,98 @@ export function ServiceOrderDetailClient({ id }: Props) {
               )}
             </CardContent>
           </Card>
+
+          {/* Costs — inline editable like Laravel */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Custos e Lucro</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Serviços</span>
+                <span className="font-mono">{formatMoney(order.serviceAmount)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Peças</span>
+                <span className="font-mono">{formatMoney(order.partsAmount)}</span>
+              </div>
+              {Number(order.discount) > 0 && (
+                <div className="flex justify-between text-destructive">
+                  <span>Desconto</span>
+                  <span className="font-mono">-{formatMoney(order.discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-semibold border-t pt-2">
+                <span>Total</span>
+                <span className="font-mono text-primary">{formatMoney(order.totalAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t">
+                <span className="text-muted-foreground">Custo Peças</span>
+                <MoneyInput
+                  value={costPartsCost}
+                  onChange={setCostPartsCost}
+                  className="w-28 h-8 text-xs"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Outros Custos</span>
+                <MoneyInput
+                  value={costOtherCost}
+                  onChange={setCostOtherCost}
+                  className="w-28 h-8 text-xs"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={updateCostsMutation.isPending}
+                onClick={() => {
+                  updateCostsMutation.mutate({
+                    orderId: id,
+                    partsCost: costPartsCost / 100,
+                    otherCost: costOtherCost / 100,
+                  });
+                }}
+              >
+                {updateCostsMutation.isPending ? "Salvando..." : "Salvar Custos"}
+              </Button>
+              <div className="flex justify-between pt-2 border-t">
+                <span className="text-muted-foreground">Lucro</span>
+                {(() => {
+                  const lucro = Number(order.totalAmount) - (costPartsCost / 100) - (costOtherCost / 100);
+                  return (
+                    <span className={`font-mono font-semibold ${lucro >= 0 ? "text-green-600" : "text-destructive"}`}>
+                      {formatMoney(lucro)}
+                    </span>
+                  );
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* NFS-e info */}
+          {(order.nfseIssued || order.nfseNumber) && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">NFS-e</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Emitida</span>
+                  <Badge variant={order.nfseIssued ? "default" : "outline"}>
+                    {order.nfseIssued ? "Sim" : "Não"}
+                  </Badge>
+                </div>
+                {order.nfseNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Número</span>
+                    <span className="font-mono">{order.nfseNumber}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* History */}
           <Card>

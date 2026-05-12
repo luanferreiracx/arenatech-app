@@ -36,11 +36,13 @@ interface OrderRow {
   id: string;
   number: string;
   status: string;
+  deviceType: string | null;
   deviceBrand: string | null;
   deviceModel: string | null;
   totalAmount: unknown;
   entryDate: Date | string;
-  customer: { id: string; name: string; cpf: string | null } | null;
+  isWarranty: boolean;
+  customer: { id: string; name: string; cpf: string | null; phone: string | null } | null;
   technician: { id: string; name: string } | null;
 }
 
@@ -56,14 +58,21 @@ export function ServiceOrdersTable() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
+  const [technicianId, setTechnicianId] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
 
   const { data: stats } = useQuery(trpc.serviceOrders.stats.queryOptions());
+  const { data: technicians } = useQuery(trpc.serviceOrders.listTechnicians.queryOptions());
 
   const { data } = useQuery(
     trpc.serviceOrders.list.queryOptions({
       search: search || undefined,
       status: status === "all" ? undefined : (status as ServiceOrderStatusValue),
+      technicianId: technicianId === "all" ? undefined : technicianId,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
       page,
       pageSize: 20,
     }),
@@ -74,33 +83,54 @@ export function ServiceOrdersTable() {
       accessorKey: "number",
       header: "N. OS",
       cell: ({ row }) => (
-        <Link
-          href={`/service-orders/${row.original.id}`}
-          className="font-mono font-medium text-primary hover:underline"
-        >
-          {row.original.number}
-        </Link>
+        <div>
+          <Link
+            href={`/service-orders/${row.original.id}`}
+            className="font-mono font-medium text-primary hover:underline"
+          >
+            {row.original.number}
+          </Link>
+          {row.original.isWarranty && (
+            <div className="text-xs text-warning flex items-center gap-1 mt-0.5">
+              🛡 Garantia
+            </div>
+          )}
+        </div>
       ),
     },
     {
       id: "customer",
       header: "Cliente",
-      cell: ({ row }) => row.original.customer?.name ?? "—",
+      cell: ({ row }) => {
+        const c = row.original.customer;
+        if (!c) return "—";
+        return (
+          <div>
+            <div className="font-medium">{c.name}</div>
+            {c.cpf && <div className="text-xs text-muted-foreground">{c.cpf}</div>}
+          </div>
+        );
+      },
+    },
+    {
+      id: "phone",
+      header: "Telefone",
+      cell: ({ row }) => row.original.customer?.phone ?? "—",
     },
     {
       id: "device",
       header: "Equipamento",
       cell: ({ row }) => {
-        const brand = row.original.deviceBrand;
+        const type = row.original.deviceType;
         const model = row.original.deviceModel;
-        if (!brand && !model) return "—";
-        return [brand, model].filter(Boolean).join(" ");
+        if (!type && !model) return "—";
+        return (
+          <div>
+            {type && <div className="text-sm">{type}</div>}
+            {model && <div className="text-xs text-muted-foreground">{model}</div>}
+          </div>
+        );
       },
-    },
-    {
-      id: "technician",
-      header: "Técnico",
-      cell: ({ row }) => row.original.technician?.name ?? "—",
     },
     {
       accessorKey: "status",
@@ -205,13 +235,13 @@ export function ServiceOrdersTable() {
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
             <Input
-              placeholder="Buscar por número, cliente, IMEI, modelo..."
+              placeholder="Buscar por OS, cliente, CPF, IMEI, modelo..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setPage(0);
               }}
-              className="max-w-sm"
+              className="max-w-xs"
             />
             <Select
               value={status}
@@ -220,7 +250,7 @@ export function ServiceOrdersTable() {
                 setPage(0);
               }}
             >
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -232,6 +262,45 @@ export function ServiceOrdersTable() {
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={technicianId}
+              onValueChange={(v) => {
+                setTechnicianId(v);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Técnico" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os técnicos</SelectItem>
+                {(technicians ?? []).map((t: { id: string; name: string }) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(0);
+              }}
+              className="w-36"
+              placeholder="Data início"
+            />
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(0);
+              }}
+              className="w-36"
+              placeholder="Data fim"
+            />
             <Button size="sm" asChild>
               <Link href="/service-orders/new">Nova OS</Link>
             </Button>
