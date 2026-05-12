@@ -260,6 +260,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-08 — Fix fidelidade modulo OS
+
+- **Implementado:**
+  - Checklist com 3 estados (OK/Nao OK/N/A) via boolean|null e toggle group visual
+  - Itens da OS: EntitySelector como padrao, campo manual so via toggle "Nao encontrou?"
+  - Device types alinhados com Laravel (iPhone, iPad, MacBook, Android, etc.)
+  - Busca na listagem agora inclui nome e CPF do cliente
+  - Formulario de edicao agora tem secoes de checklist entrada/saida e info adicionais
+  - Dialog de adicionar item na tela de detalhe agora usa EntitySelector
+- **Decisoes:**
+  - checklistSchema: z.boolean().nullable().optional() para representar 3 estados
+  - UI: grupo de 3 botoes (Check/X/Minus) por item do checklist
+  - Busca por cliente feita em 2 etapas (busca IDs de clientes, depois filtra OS)
+
 ### 2026-05-08 — Migracao de dados arena_dev
 
 - **Implementado:**
