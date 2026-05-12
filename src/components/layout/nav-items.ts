@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Users,
+  BookOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -12,6 +13,7 @@ export interface NavItem {
 
 export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Catalogo", href: "/catalog", icon: BookOpen },
   { label: "Clientes", href: "/customers", icon: Users },
 ];
 
