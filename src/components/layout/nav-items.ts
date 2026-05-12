@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Users,
   BookOpen,
+  Package,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -15,6 +16,7 @@ export const appNavItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Catalogo", href: "/catalog", icon: BookOpen },
   { label: "Clientes", href: "/customers", icon: Users },
+  { label: "Estoque", href: "/stock", icon: Package },
 ];
 
 export const adminNavItems: NavItem[] = [
