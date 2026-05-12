@@ -1,5 +1,17 @@
-import type { ImeiResult } from "@/lib/validators/imei";
 import { logger } from "@/lib/logger";
+
+export interface ImeiResult {
+  imei: string;
+  valid: boolean;
+  brand: string;
+  model: string;
+  blacklisted: boolean;
+  warranty: { status: string; expiry: string | null };
+  carrier: string;
+  icloudLock?: string;
+  simLock?: boolean;
+  error?: string;
+}
 
 /**
  * Query IMEI information from external API.
@@ -70,11 +82,7 @@ function parseApiResponse(data: unknown, imei: string): ImeiResult {
       expiry: result["coverageEndDate"] ? String(result["coverageEndDate"]) : null,
     },
     carrier: String(result["carrier"] ?? "Unknown"),
-    icloudLock: result["fmiOn"] != null ? Boolean(result["fmiOn"]) : undefined,
-    activationStatus: result["activationStatus"]
-      ? String(result["activationStatus"])
-      : undefined,
-    serial: result["serial"] ? String(result["serial"]) : undefined,
+    icloudLock: result["fmiOn"] != null ? (Boolean(result["fmiOn"]) ? "ON" : "OFF") : undefined,
   };
 }
 
@@ -104,8 +112,6 @@ function getMockResult(imei: string): ImeiResult {
       expiry: lastDigit > 5 ? "2027-06-01" : "2025-01-01",
     },
     carrier: lastDigit % 2 === 0 ? "Unlocked" : "Vivo",
-    icloudLock: selected.brand === "Apple" ? lastDigit === 8 : undefined,
-    activationStatus: "activated",
-    serial: `C${imei.substring(0, 11)}`,
+    icloudLock: selected.brand === "Apple" ? (lastDigit === 8 ? "ON" : "OFF") : undefined,
   };
 }
