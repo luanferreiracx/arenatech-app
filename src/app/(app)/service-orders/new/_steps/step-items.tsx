@@ -67,7 +67,7 @@ function ItemRow({
       return result.data.map((s) => ({
         id: s.id,
         name: s.name,
-        basePrice: Number(s.basePrice),
+        basePrice: Math.round(Number(s.basePrice) * 100),
       }));
     },
     [trpc.catalog.listServices, queryClient]
