@@ -49,6 +49,9 @@ export function PdvScreen() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setDraftId((data as any).id as string);
       },
+      onError: (err) => {
+        toast.error(`Erro ao criar rascunho: ${err.message}`);
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -100,7 +103,10 @@ export function PdvScreen() {
   };
 
   const handleAddProduct = (product: { id: string; salePrice: number }) => {
-    if (!draftId) return;
+    if (!draftId) {
+      toast.error("Aguarde o rascunho ser criado ou reinicie a venda.");
+      return;
+    }
     addItemMutation.mutate(
       {
         saleId: draftId,
@@ -208,6 +214,9 @@ export function PdvScreen() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setDraftId((data as any).id as string);
       },
+      onError: (err) => {
+        toast.error(`Erro ao criar rascunho: ${err.message}`);
+      },
     });
   };
 
@@ -299,6 +308,7 @@ export function PdvScreen() {
                   className="w-full flex items-center justify-between p-3 hover:bg-accent/50 transition-colors border-b border-border last:border-b-0 text-left"
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     handleAddProduct(product);
                   }}
                 >

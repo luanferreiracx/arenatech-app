@@ -22,6 +22,9 @@ import {
   Send,
   FlaskConical,
   FileSignature,
+  MessageCircle,
+  ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -250,6 +253,53 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
+  const sendForSignatureMut = useMutation(
+    trpc.serviceOrder.sendForSignature.mutationOptions({
+      onSuccess: (data) => {
+        toast.success("Documento enviado para assinatura!");
+        if (data.signatureLink) {
+          window.open(data.signatureLink, "_blank");
+        }
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const checkSignatureStatusMut = useMutation(
+    trpc.serviceOrder.checkSignatureStatus.mutationOptions({
+      onSuccess: (data) => {
+        if (data.signed) {
+          toast.success("Assinatura confirmada!");
+        } else {
+          toast.info(`Assinaturas: ${data.signaturesCompleted}/${data.totalSignatures}`);
+        }
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const notifyCompletedMut = useMutation(
+    trpc.communication.notifyOsCompleted.mutationOptions({
+      onSuccess: (data) => {
+        if (data.success) toast.success("Notificacao de conclusao enviada por WhatsApp!");
+        else toast.error("Falha ao enviar notificacao");
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const notifyStatusMut = useMutation(
+    trpc.communication.notifyOsStatusChanged.mutationOptions({
+      onSuccess: (data) => {
+        if (data.success) toast.success("Atualizacao de status enviada por WhatsApp!");
+        else toast.error("Falha ao enviar notificacao");
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
   const createQuoteMut = useMutation(
     trpc.serviceOrder.createQuote.mutationOptions({
       onSuccess: () => { toast.success("Orcamento criado!"); setQuoteDialog(false); invalidateOrder(); },
@@ -353,13 +403,77 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <FileSignature className="h-5 w-5" />
             {isSigned ? "Assinatura Confirmada" : "Assinatura Pendente"}
           </h3>
-          {!isSigned && (
-            <div className="flex gap-2 mt-3">
+          {order.signatureUrl && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Documento enviado em {order.signatureSentAt ? format(new Date(order.signatureSentAt), "dd/MM/yyyy HH:mm") : "—"}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {!isSigned && !order.signatureDocumentId && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={sendForSignatureMut.isPending}
+                onClick={() => sendForSignatureMut.mutate({ orderId: id })}
+              >
+                <Send className="mr-1 h-3 w-3" />Enviar para Assinatura Digital
+              </Button>
+            )}
+            {order.signatureDocumentId && !isSigned && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={checkSignatureStatusMut.isPending}
+                  onClick={() => checkSignatureStatusMut.mutate({ orderId: id })}
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" />Verificar Status
+                </Button>
+                {order.signatureUrl && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={order.signatureUrl as string} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="mr-1 h-3 w-3" />Ver Documento
+                    </a>
+                  </Button>
+                )}
+              </>
+            )}
+            {!isSigned && (
               <Button size="sm" variant="outline" onClick={() => confirmSigMut.mutate({ orderId: id, type: "entry" })}>
                 <Check className="mr-1 h-3 w-3" />Confirmar Assinatura Fisica
               </Button>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Communication */}
+      {!isCancelled && !isRefunded && order.customer?.phone && (
+        <div className="rounded-lg border-2 border-blue-500 bg-blue-500/10 p-4 mb-6">
+          <h3 className="font-semibold text-blue-400 flex items-center gap-2">
+            <MessageCircle className="h-5 w-5" />Comunicacao
+          </h3>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={notifyCompletedMut.isPending}
+              onClick={() => notifyCompletedMut.mutate({ serviceOrderId: id })}
+            >
+              <MessageCircle className="mr-1 h-3 w-3" />Enviar Conclusao por WhatsApp
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={notifyStatusMut.isPending}
+              onClick={() => notifyStatusMut.mutate({
+                serviceOrderId: id,
+                newStatus: SERVICE_ORDER_STATUS_LABELS[status] ?? status,
+              })}
+            >
+              <Send className="mr-1 h-3 w-3" />Enviar Status Atual por WhatsApp
+            </Button>
+          </div>
         </div>
       )}
 

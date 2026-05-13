@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
+import { createDocumentWithLink, getDocumentStatus, formatWhatsApp } from "@/lib/services/autentique-service";
+import { logger } from "@/lib/logger";
 import {
   createServiceOrderSchema,
   updateServiceOrderSchema,
@@ -1225,6 +1227,120 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         return { success: true, action: input.action };
+      });
+    }),
+
+  // ── SEND FOR DIGITAL SIGNATURE (Autentique) ──
+  sendForSignature: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+
+        if (order.signatureDocumentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Documento de assinatura ja foi enviado." });
+        }
+
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+        if (!customer.phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado" });
+
+        // Generate a simple PDF buffer for the signature document
+        const pdfUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/service-orders/${input.orderId}/pdf`;
+        let pdfBuffer: Buffer;
+        try {
+          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+          pdfBuffer = Buffer.from(await res.arrayBuffer());
+        } catch (err) {
+          logger.error("Failed to fetch OS PDF for signature", { orderId: input.orderId, error: err });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da OS para assinatura" });
+        }
+
+        const result = await createDocumentWithLink(
+          `OS ${order.number} - Termo de Servico`,
+          [{ name: customer.name, whatsapp: formatWhatsApp(customer.phone) }],
+          pdfBuffer,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            signatureDocumentId: result.documentId ?? null,
+            signatureUrl: result.signatureLink ?? null,
+            signatureSentAt: new Date(),
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Documento enviado para assinatura digital (Autentique)",
+          },
+        });
+
+        logger.info("OS sent for digital signature", { orderId: input.orderId, documentId: result.documentId });
+
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  // ── CHECK SIGNATURE STATUS (Autentique) ──
+  checkSignatureStatus: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!order.signatureDocumentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum documento de assinatura enviado." });
+        }
+
+        const status = await getDocumentStatus(order.signatureDocumentId);
+
+        if (!status.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+        }
+
+        if (status.signed && !order.signatureSignedAt) {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: { signatureSignedAt: new Date() },
+          });
+
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: input.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: order.status,
+              newStatus: order.status,
+              notes: "Assinatura digital confirmada via Autentique",
+            },
+          });
+        }
+
+        return {
+          signed: status.signed,
+          signaturesCompleted: status.signaturesCompleted,
+          totalSignatures: status.totalSignatures,
+        };
       });
     }),
 
