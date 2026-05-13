@@ -2,18 +2,34 @@ import { createTRPCRouter } from "@/server/api/trpc";
 import { authRouter } from "@/server/api/routers/auth";
 import { cashierRouter } from "@/server/api/routers/cashier";
 import { catalogRouter } from "@/server/api/routers/catalog";
+import { commissionRouter } from "@/server/api/routers/commission";
+import { communicationRouter } from "@/server/api/routers/communication";
 import { customerRouter } from "@/server/api/routers/customer";
+import { dashboardRouter } from "@/server/api/routers/dashboard";
 import { financialRouter } from "@/server/api/routers/financial";
+import { fiscalRouter } from "@/server/api/routers/fiscal";
+import { imeiRouter } from "@/server/api/routers/imei";
+import { operationRouter } from "@/server/api/routers/operation";
+import { saleRouter } from "@/server/api/routers/sale";
 import { serviceOrderRouter } from "@/server/api/routers/service-order";
 import { stockRouter } from "@/server/api/routers/stock";
 import { settingsRouter } from "@/server/api/routers/settings";
+import { adminRouter } from "@/server/api/routers/admin";
 
 export const appRouter = createTRPCRouter({
+  admin: adminRouter,
   auth: authRouter,
   cashier: cashierRouter,
   catalog: catalogRouter,
+  commission: commissionRouter,
+  communication: communicationRouter,
   customer: customerRouter,
+  dashboard: dashboardRouter,
   financial: financialRouter,
+  fiscal: fiscalRouter,
+  imei: imeiRouter,
+  operation: operationRouter,
+  sale: saleRouter,
   serviceOrder: serviceOrderRouter,
   stock: stockRouter,
   settings: settingsRouter,

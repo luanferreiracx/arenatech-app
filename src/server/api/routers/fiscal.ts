@@ -1,0 +1,488 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { Prisma } from "@prisma/client";
+import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import {
+  createInvoiceSchema,
+  createFromSaleSchema,
+  createFromServiceOrderSchema,
+  authorizeInvoiceSchema,
+  cancelInvoiceSchema,
+  correctionLetterSchema,
+  listInvoicesSchema,
+} from "@/lib/validators/fiscal";
+import {
+  createAndAuthorizeInvoice,
+  cancelInvoice as cancelInvoiceService,
+  sendCorrectionLetter,
+  getInvoiceDocumentUrls,
+} from "@/lib/services/fiscal-service";
+import { logger } from "@/lib/logger";
+
+// ── Helpers ──
+
+function decimalToCents(v: Prisma.Decimal | null | undefined): number {
+  if (v == null) return 0;
+  return Math.round(Number(v) * 100);
+}
+
+function centsToPrisma(cents: number): Prisma.Decimal {
+  return new Prisma.Decimal(cents / 100);
+}
+
+export const fiscalRouter = createTRPCRouter({
+  /** List invoices with filters */
+  list: tenantProcedure
+    .input(listInvoicesSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const page = input.page ?? 0;
+        const pageSize = input.pageSize ?? 20;
+        const sortBy = input.sortBy ?? "createdAt";
+        const sortOrder = input.sortOrder ?? "desc";
+
+        const where: Prisma.InvoiceWhereInput = { deletedAt: null };
+
+        if (input.type) where.type = input.type;
+        if (input.status) where.status = input.status;
+        if (input.search) {
+          where.OR = [
+            { recipientName: { contains: input.search, mode: "insensitive" } },
+            { recipientCpfCnpj: { contains: input.search, mode: "insensitive" } },
+            { accessKey: { contains: input.search, mode: "insensitive" } },
+          ];
+        }
+        if (input.dateFrom || input.dateTo) {
+          const createdAt: Record<string, Date> = {};
+          if (input.dateFrom) createdAt.gte = new Date(input.dateFrom);
+          if (input.dateTo) {
+            const end = new Date(input.dateTo);
+            end.setHours(23, 59, 59, 999);
+            createdAt.lte = end;
+          }
+          where.createdAt = createdAt;
+        }
+
+        const [data, total] = await Promise.all([
+          tx.invoice.findMany({
+            where,
+            include: { items: true },
+            orderBy: { [sortBy]: sortOrder },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.invoice.count({ where }),
+        ]);
+
+        return {
+          data: data.map((inv) => ({
+            ...inv,
+            totalAmount: decimalToCents(inv.totalAmount),
+            items: inv.items.map((item) => ({
+              ...item,
+              quantity: Number(item.quantity),
+              unitPrice: decimalToCents(item.unitPrice),
+              total: decimalToCents(item.total),
+            })),
+          })),
+          total,
+          pageCount: Math.ceil(total / pageSize),
+        };
+      });
+    }),
+
+  /** Get invoice by ID */
+  getById: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.id, deletedAt: null },
+          include: { items: true },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        return {
+          ...invoice,
+          totalAmount: decimalToCents(invoice.totalAmount),
+          items: invoice.items.map((item) => ({
+            ...item,
+            quantity: Number(item.quantity),
+            unitPrice: decimalToCents(item.unitPrice),
+            total: decimalToCents(item.total),
+          })),
+        };
+      });
+    }),
+
+  /** Create invoice manually */
+  create: tenantProcedure
+    .input(createInvoiceSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const totalCents = input.items.reduce(
+          (sum, item) => sum + Math.round(item.quantity * item.unitPrice),
+          0,
+        );
+
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: input.type,
+            status: "DRAFT",
+            recipientName: input.recipientName,
+            recipientCpfCnpj: input.recipientCpfCnpj,
+            totalAmount: centsToPrisma(totalCents),
+            referenceId: input.referenceId ?? null,
+            referenceType: input.referenceType ?? null,
+            createdById: ctx.session.user.id,
+            items: {
+              create: input.items.map((item) => ({
+                tenantId: ctx.tenantId,
+                description: item.description,
+                quantity: new Prisma.Decimal(item.quantity),
+                unitPrice: centsToPrisma(item.unitPrice),
+                total: centsToPrisma(Math.round(item.quantity * item.unitPrice)),
+                ncm: item.ncm ?? null,
+                cfop: item.cfop ?? null,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+
+        logger.info("Invoice created", { invoiceId: invoice.id, type: input.type });
+        return { id: invoice.id };
+      });
+    }),
+
+  /** Create invoice from sale */
+  createFromSale: tenantProcedure
+    .input(createFromSaleSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findFirst({
+          where: { id: input.saleId, deletedAt: null, status: "COMPLETED" },
+          include: { items: true },
+        });
+        if (!sale) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada ou nao finalizada" });
+        }
+
+        // Fetch customer for recipient info
+        let recipientName = "Consumidor Final";
+        let recipientCpfCnpj = "";
+        if (sale.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: sale.customerId },
+            select: { name: true, cpf: true, cnpj: true },
+          });
+          if (customer) {
+            recipientName = customer.name;
+            recipientCpfCnpj = customer.cnpj ?? customer.cpf ?? "";
+          }
+        }
+
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: input.type,
+            status: "DRAFT",
+            recipientName,
+            recipientCpfCnpj,
+            totalAmount: sale.totalAmount,
+            referenceId: sale.id,
+            referenceType: "SALE",
+            createdById: ctx.session.user.id,
+            items: {
+              create: sale.items.map((item) => ({
+                tenantId: ctx.tenantId,
+                description: item.description,
+                quantity: new Prisma.Decimal(item.quantity),
+                unitPrice: item.unitPrice,
+                total: item.total,
+              })),
+            },
+          },
+        });
+
+        return { id: invoice.id };
+      });
+    }),
+
+  /** Create invoice from service order */
+  createFromServiceOrder: tenantProcedure
+    .input(createFromServiceOrderSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const so = await tx.serviceOrder.findFirst({
+          where: { id: input.serviceOrderId, deletedAt: null },
+          include: { items: true },
+        });
+        if (!so) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        }
+
+        // Fetch customer
+        let recipientName = "Cliente";
+        let recipientCpfCnpj = "";
+        if (so.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: so.customerId },
+            select: { name: true, cpf: true, cnpj: true },
+          });
+          if (customer) {
+            recipientName = customer.name;
+            recipientCpfCnpj = customer.cnpj ?? customer.cpf ?? "";
+          }
+        }
+
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: input.type,
+            status: "DRAFT",
+            recipientName,
+            recipientCpfCnpj,
+            totalAmount: so.totalAmount,
+            referenceId: so.id,
+            referenceType: "SERVICE_ORDER",
+            createdById: ctx.session.user.id,
+            items: {
+              create: so.items.map((item) => ({
+                tenantId: ctx.tenantId,
+                description: item.description,
+                quantity: new Prisma.Decimal(item.quantity),
+                unitPrice: item.unitPrice,
+                total: item.total,
+              })),
+            },
+          },
+        });
+
+        return { id: invoice.id };
+      });
+    }),
+
+  /** Authorize invoice via Nuvem Fiscal */
+  authorize: tenantProcedure
+    .input(authorizeInvoiceSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+          include: { items: true },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "DRAFT" && invoice.status !== "REJECTED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nota ja autorizada ou cancelada" });
+        }
+
+        // Build payload for Nuvem Fiscal
+        const payload = {
+          modelo: invoice.type === "NFCE" ? "65" : "55",
+          destinatario: {
+            nome: invoice.recipientName,
+            cpf_cnpj: invoice.recipientCpfCnpj?.replace(/\D/g, ""),
+          },
+          itens: invoice.items.map((item, idx) => ({
+            numero: idx + 1,
+            descricao: item.description,
+            quantidade: Number(item.quantity),
+            valor_unitario: Number(item.unitPrice),
+            valor_total: Number(item.total),
+            ncm: item.ncm ?? "00000000",
+            cfop: item.cfop ?? "5102",
+          })),
+        };
+
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: { status: "PENDING", payload },
+        });
+
+        const result = await createAndAuthorizeInvoice(payload);
+
+        if (result.success) {
+          await tx.invoice.update({
+            where: { id: input.invoiceId },
+            data: {
+              status: "AUTHORIZED",
+              providerRef: result.providerRef ?? null,
+              accessKey: result.accessKey ?? null,
+              providerStatus: result.status ?? null,
+              authorizedAt: new Date(),
+              number: result.accessKey ? parseInt(result.accessKey.slice(25, 34), 10) || null : null,
+              response: result as unknown as Prisma.InputJsonValue,
+            },
+          });
+          logger.info("Invoice authorized", { invoiceId: input.invoiceId });
+          return { success: true, accessKey: result.accessKey };
+        } else {
+          await tx.invoice.update({
+            where: { id: input.invoiceId },
+            data: {
+              status: "REJECTED",
+              providerStatus: "rejected",
+              response: result as unknown as Prisma.InputJsonValue,
+            },
+          });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: result.error ?? "Erro ao autorizar nota fiscal",
+          });
+        }
+      });
+    }),
+
+  /** Cancel authorized invoice */
+  cancel: tenantProcedure
+    .input(cancelInvoiceSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "AUTHORIZED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas notas autorizadas podem ser canceladas" });
+        }
+        if (!invoice.providerRef) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nota sem referencia no provider" });
+        }
+
+        const result = await cancelInvoiceService(invoice.providerRef, input.reason);
+
+        if (result.success) {
+          await tx.invoice.update({
+            where: { id: input.invoiceId },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+            },
+          });
+          logger.info("Invoice cancelled", { invoiceId: input.invoiceId });
+          return { success: true };
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: result.error ?? "Erro ao cancelar nota fiscal",
+          });
+        }
+      });
+    }),
+
+  /** Send correction letter */
+  correctionLetter: tenantProcedure
+    .input(correctionLetterSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "AUTHORIZED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Carta de correcao requer nota autorizada" });
+        }
+        if (!invoice.providerRef) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nota sem referencia no provider" });
+        }
+
+        const result = await sendCorrectionLetter(invoice.providerRef, input.reason);
+
+        if (result.success) {
+          await tx.invoice.update({
+            where: { id: input.invoiceId },
+            data: {
+              status: "CORRECTION_LETTER",
+              correctionReason: input.reason,
+            },
+          });
+          return { success: true };
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: result.error ?? "Erro ao enviar carta de correcao",
+          });
+        }
+      });
+    }),
+
+  /** Get PDF/XML download URLs */
+  downloadPdf: tenantProcedure
+    .input(z.object({ invoiceId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (!invoice.providerRef) {
+          return { pdfUrl: null, xmlUrl: null };
+        }
+        return getInvoiceDocumentUrls(invoice.providerRef);
+      });
+    }),
+
+  /** Get XML download URL */
+  downloadXml: tenantProcedure
+    .input(z.object({ invoiceId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (!invoice.providerRef) {
+          return { xmlUrl: null };
+        }
+        const urls = await getInvoiceDocumentUrls(invoice.providerRef);
+        return { xmlUrl: urls.xmlUrl };
+      });
+    }),
+
+  /** Stats for fiscal dashboard */
+  stats: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const [totalAuthorized, totalCancelled, totalDraft, monthAuthorized] = await Promise.all([
+        tx.invoice.count({ where: { status: "AUTHORIZED", deletedAt: null } }),
+        tx.invoice.count({ where: { status: "CANCELLED", deletedAt: null } }),
+        tx.invoice.count({ where: { status: "DRAFT", deletedAt: null } }),
+        tx.invoice.findMany({
+          where: {
+            status: "AUTHORIZED",
+            authorizedAt: { gte: startOfMonth },
+            deletedAt: null,
+          },
+        }),
+      ]);
+
+      const monthTotal = monthAuthorized.reduce(
+        (sum, inv) => sum + decimalToCents(inv.totalAmount),
+        0,
+      );
+
+      return {
+        totalAuthorized,
+        totalCancelled,
+        totalDraft,
+        monthCount: monthAuthorized.length,
+        monthTotal,
+      };
+    });
+  }),
+});

@@ -22,6 +22,11 @@ import {
   Settings,
   ShoppingCart,
   History,
+  FileText,
+  Percent,
+  Smartphone,
+  Truck,
+  MessageSquare,
 } from "lucide-react";
 
 interface CommandPaletteContextValue {
@@ -82,10 +87,10 @@ function CommandPaletteDialog({
       <CommandList>
         <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
-        <CommandGroup heading="Ações rápidas">
+        <CommandGroup heading="Acoes rapidas">
           <CommandItem onSelect={() => runCommand(() => router.push("/service-orders/new"))}>
             <ClipboardPlus className="mr-2 h-4 w-4" />
-            Nova Ordem de Serviço
+            Nova Ordem de Servico
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/customers/new"))}>
             <UserPlus className="mr-2 h-4 w-4" />
@@ -110,7 +115,7 @@ function CommandPaletteDialog({
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/service-orders"))}>
             <ClipboardList className="mr-2 h-4 w-4" />
-            Ordens de Serviço
+            Ordens de Servico
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
             <ShoppingCart className="mr-2 h-4 w-4" />
@@ -118,7 +123,7 @@ function CommandPaletteDialog({
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/pdv/history"))}>
             <History className="mr-2 h-4 w-4" />
-            Histórico de Vendas
+            Historico de Vendas
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/stock"))}>
             <Package className="mr-2 h-4 w-4" />
@@ -128,9 +133,29 @@ function CommandPaletteDialog({
             <DollarSign className="mr-2 h-4 w-4" />
             Financeiro
           </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/fiscal"))}>
+            <FileText className="mr-2 h-4 w-4" />
+            Fiscal
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/commissions"))}>
+            <Percent className="mr-2 h-4 w-4" />
+            Comissoes
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/imei"))}>
+            <Smartphone className="mr-2 h-4 w-4" />
+            Consulta IMEI
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/operation"))}>
+            <Truck className="mr-2 h-4 w-4" />
+            Operacao
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/communication"))}>
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Comunicacao
+          </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/settings"))}>
             <Settings className="mr-2 h-4 w-4" />
-            Configurações
+            Configuracoes
           </CommandItem>
         </CommandGroup>
       </CommandList>
