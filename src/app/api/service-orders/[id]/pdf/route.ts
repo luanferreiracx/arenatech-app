@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
-import { withTenant } from "@/server/db";
-import { withAdmin } from "@/server/db";
+import { withTenant, withAdmin } from "@/server/db";
 
 /**
  * GET /api/service-orders/[id]/pdf
  *
- * Generates a simple HTML-based PDF for the service order.
- * Returns an HTML page with print-optimized styles that can be
- * printed to PDF via the browser's print dialog (Cmd+P / Ctrl+P).
- *
- * A full server-side PDF generation (via puppeteer or react-pdf)
- * can be added later. For now, this "print-friendly" approach
- * covers the core requirement.
+ * Generates OS PDF — FAITHFUL to the Laravel OrdemServicoPdfController.
+ * Header (logo+loja), numero OS, cliente (nome/CPF/tel), equipamento,
+ * info adicionais (6 checkboxes), checklist entrada (15 itens),
+ * termos e condicoes, itens+valores, assinatura cliente, rodape.
  */
 export async function GET(
   _req: NextRequest,
@@ -25,7 +21,6 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Resolve tenant from cookie
   const cookies = _req.cookies;
   const tenantId = cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
 
@@ -37,9 +32,7 @@ export async function GET(
     const order = await withTenant(tenantId, async (tx) => {
       return tx.serviceOrder.findUnique({
         where: { id },
-        include: {
-          items: { orderBy: { createdAt: "asc" } },
-        },
+        include: { items: { orderBy: { createdAt: "asc" } } },
       });
     });
 
@@ -47,7 +40,6 @@ export async function GET(
       return NextResponse.json({ error: "OS not found" }, { status: 404 });
     }
 
-    // Load customer
     const customer = await withTenant(tenantId, async (tx) => {
       return tx.customer.findUnique({
         where: { id: order.customerId },
@@ -55,15 +47,17 @@ export async function GET(
       });
     });
 
-    // Load tenant info
-    const tenant = await withAdmin(async (tx) => {
-      return tx.tenant.findUnique({
+    const [tenant, settings] = await Promise.all([
+      withAdmin(async (tx) => tx.tenant.findUnique({
         where: { id: tenantId },
         select: { name: true, cnpj: true },
-      });
-    });
+      })),
+      withTenant(tenantId, async (tx) => tx.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { tradeName: true, cnpj: true, phone: true, logoUrl: true },
+      })),
+    ]);
 
-    // Load user names
     const userIds = [order.createdById, order.technicianId, order.vendorId].filter(Boolean) as string[];
     const users = await withAdmin(async (tx) => {
       return tx.user.findMany({
@@ -73,156 +67,229 @@ export async function GET(
     });
     const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-    const formatMoney = (v: unknown) => {
+    const nomeLoja = settings?.tradeName ?? tenant?.name ?? "ARENA TECH";
+    const cnpjLoja = settings?.cnpj ?? tenant?.cnpj ?? "";
+    const telefoneLoja = settings?.phone ?? "";
+
+    const fmt = (v: unknown) => {
       const num = Number(v ?? 0);
-      return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      return "R$ " + num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
-    const formatDate = (d: Date | null) => {
-      if (!d) return "—";
-      return new Date(d).toLocaleDateString("pt-BR");
+    const fmtDate = (d: Date | null) => {
+      if (!d) return "-";
+      return new Date(d).toLocaleDateString("pt-BR") + " " + new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     };
 
-    const STATUS_LABELS: Record<string, string> = {
-      OPEN: "Iniciada", IN_DIAGNOSIS: "Em Diagnostico", WAITING_APPROVAL: "Aguard. Aprovacao",
-      APPROVED: "Aprovada", WAITING_PARTS: "Aguard. Pecas", IN_PROGRESS: "Em Execucao",
-      COMPLETED: "Concluida", PAID: "Paga", READY_FOR_PICKUP: "Aguard. Retirada",
-      DELIVERED: "Entregue", IN_WARRANTY: "Em Garantia", CANCELLED: "Cancelada", REFUNDED: "Estornada",
+    const esc = (s: string | null | undefined) => (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/&/g, "&amp;");
+
+    // Checklist items (15 — identical to Laravel)
+    const checklistLabels: Record<string, string> = {
+      aparelho_liga: "Aparelho Liga", aparelho_vibra: "Aparelho Vibra",
+      botoes_ok: "Botoes OK", bluetooth_ok: "Bluetooth OK",
+      wifi_ok: "Wi-Fi OK", vidro_traseiro_ok: "Vidro Traseiro OK",
+      audio_ok: "Audio OK", microfone_ok: "Microfone OK",
+      cameras_flash_ok: "Cameras/Flash OK", touch_faceid_ok: "Touch/FaceID OK",
+      aparelho_carrega: "Aparelho Carrega", tela_frontal_ok: "Tela Frontal OK",
+      carregamento_cabo: "Carregamento Cabo", carregamento_inducao: "Carregamento Inducao",
+      ima_magsafe: "Ima MagSafe",
     };
 
-    const itemsHtml = order.items.map((item) => `
-      <tr>
-        <td>${item.type === "SERVICE" ? "Servico" : "Produto"}</td>
-        <td>${item.description}</td>
-        <td style="text-align:center">${Number(item.quantity)}</td>
-        <td style="text-align:right">${formatMoney(item.unitPrice)}</td>
-        <td style="text-align:right">${formatMoney(item.total)}</td>
-      </tr>
-    `).join("");
+    const entryChecklist = (order.entryChecklist as Record<string, boolean | null> | null) ?? {};
+
+    const formatCheck = (v: boolean | null | undefined): string => {
+      if (v === true) return "Sim";
+      if (v === false) return "Nao";
+      return "Nao Testado";
+    };
+
+    let checklistHtml = '<div class="checklist">';
+    const checklistKeys = Object.keys(checklistLabels);
+    for (let i = 0; i < checklistKeys.length; i += 5) {
+      checklistHtml += '<div class="checklist-row">';
+      for (let j = i; j < i + 5 && j < checklistKeys.length; j++) {
+        const key = checklistKeys[j]!;
+        const label = checklistLabels[key]!;
+        const val = entryChecklist[key];
+        checklistHtml += `<div><strong>${label}:</strong> ${formatCheck(val as boolean | null)}</div>`;
+      }
+      // Fill empty cells
+      const remaining = i + 5 - checklistKeys.length;
+      if (remaining > 0 && i + 5 > checklistKeys.length) {
+        for (let k = 0; k < remaining; k++) {
+          checklistHtml += "<div></div>";
+        }
+      }
+      checklistHtml += "</div>";
+    }
+    checklistHtml += "</div>";
+
+    // Info adicionais
+    const deviceInfo = (order.deviceInfo as Record<string, boolean> | null) ?? {};
+    const infoLabels: Record<string, string> = {
+      cliente_aparelho_molhou: "Cliente informou que aparelho molhou",
+      cliente_nao_usa_fonte_original: "Cliente informou nao usar fonte original",
+      cliente_aparelho_sofreu_queda: "Cliente informou que aparelho sofreu queda",
+      aparelho_problemas_ocultos: "Aparelho pode ter outros problemas ocultos",
+      servico_outra_assistencia_recente: "Realizou servico em outra assistencia recentemente",
+      acessorios_chip_devolvidos: "Os acessorios e o chip foram devolvidos ao cliente",
+    };
+    const activeInfos = Object.entries(infoLabels)
+      .filter(([key]) => deviceInfo[key])
+      .map(([, label]) => label);
+
+    let infoHtml = "";
+    if (activeInfos.length > 0) {
+      infoHtml = '<div style="display: table; width: 100%; margin-bottom: 5px;"><div style="display: table-row;">';
+      activeInfos.forEach((info, idx) => {
+        infoHtml += `<div style="display: table-cell; padding: 2px 4px; border: 1px solid #ddd; font-size: 7pt; background: #fff3e0;">${esc(info)}</div>`;
+        if ((idx + 1) % 3 === 0 && idx + 1 < activeInfos.length) {
+          infoHtml += '</div><div style="display: table-row;">';
+        }
+      });
+      infoHtml += "</div></div>";
+    }
+
+    // Items table
+    let itemsHtml = "";
+    if (order.items.length > 0) {
+      itemsHtml = `<table class="servicos"><thead><tr>
+        <th style="text-align: left;">Servico</th>
+        <th style="text-align: center; width: 50px;">Qtd</th>
+        <th style="text-align: right; width: 80px;">Valor Unit.</th>
+        <th style="text-align: right; width: 80px;">Subtotal</th>
+      </tr></thead><tbody>`;
+      for (const item of order.items) {
+        itemsHtml += `<tr>
+          <td>${esc(item.description)}</td>
+          <td style="text-align: center;">${Math.round(Number(item.quantity))}</td>
+          <td style="text-align: right;">${fmt(item.unitPrice)}</td>
+          <td style="text-align: right; font-weight: bold;">${fmt(item.total)}</td>
+        </tr>`;
+      }
+      itemsHtml += "</tbody></table>";
+    }
 
     const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>OS ${order.number} — ${tenant?.name ?? "Arena Tech"}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #333; padding: 20px; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #c9a55c; padding-bottom: 12px; margin-bottom: 16px; }
-    .header h1 { font-size: 20px; color: #c9a55c; }
-    .header .company { text-align: right; font-size: 11px; color: #666; }
-    .section { margin-bottom: 16px; }
-    .section h2 { font-size: 13px; font-weight: bold; color: #c9a55c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .grid .item { }
-    .grid .item label { display: block; font-size: 10px; color: #999; text-transform: uppercase; }
-    .grid .item span { font-size: 12px; font-weight: 500; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    table th, table td { padding: 6px 8px; border: 1px solid #ddd; font-size: 11px; }
-    table th { background: #f5f5f5; font-weight: 600; text-align: left; }
-    .total-row td { font-weight: bold; border-top: 2px solid #c9a55c; }
-    .footer { margin-top: 24px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #ddd; padding-top: 8px; }
-    @media print { body { padding: 0; } }
-  </style>
-</head>
-<body>
+<html><head><meta charset="UTF-8">
+<title>Ordem de Servico #${esc(order.number)}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #000; line-height: 1.2; margin: 5mm 8mm; }
+  .header { width: 100%; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 6px; }
+  .header-table { width: 100%; border-collapse: collapse; }
+  .header-left { text-align: left; vertical-align: middle; }
+  .header-left h1 { font-size: 14pt; margin: 0; color: #000; }
+  .header-left .subtitulo { font-size: 8pt; color: #666; }
+  .header-right { text-align: right; vertical-align: middle; font-size: 8pt; color: #666; }
+  .numero-os { font-size: 13pt; font-weight: bold; color: #f97316; }
+  .section { margin-bottom: 5px; page-break-inside: avoid; }
+  .section-title { background: #f3f4f6; padding: 3px 6px; font-weight: bold; font-size: 9pt; margin-bottom: 3px; border-left: 3px solid #f97316; }
+  .grid-2 { display: table; width: 100%; }
+  .grid-2 .col { display: table-cell; width: 50%; padding-right: 6px; vertical-align: top; }
+  .field { margin-bottom: 2px; }
+  .field-label { font-weight: bold; font-size: 7pt; color: #666; display: block; }
+  .field-value { font-size: 8pt; padding: 1px 3px; background: #f9fafb; border: 1px solid #e5e7eb; }
+  .checklist { display: table; width: 100%; }
+  .checklist-row { display: table-row; }
+  .checklist-row > div { display: table-cell; width: 20%; padding: 1px 2px; border: 1px solid #ddd; font-size: 7pt; }
+  .valores { margin-top: 8px; border: 2px solid #000; padding: 8px; }
+  .valores .total { font-size: 13pt; font-weight: bold; text-align: right; margin-top: 8px; padding-top: 8px; border-top: 2px solid #000; }
+  .assinatura-box { border-top: 2px solid #000; padding-top: 8px; margin-top: 20px; text-align: center; }
+  table.servicos { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 8pt; }
+  table.servicos th, table.servicos td { border: 1px solid #ddd; padding: 3px; }
+  table.servicos th { background: #f3f4f6; font-weight: bold; }
+  @media print { body { margin: 0; } }
+</style>
+</head><body>
   <div class="header">
-    <h1>OS ${order.number}</h1>
-    <div class="company">
-      <strong>${tenant?.name ?? "Arena Tech"}</strong><br>
-      ${tenant?.cnpj ? `CNPJ: ${tenant.cnpj}` : ""}
+    <table class="header-table"><tr>
+      <td class="header-left">
+        <h1>${esc(nomeLoja)}</h1>
+        <div class="subtitulo">Assistencia Tecnica Especializada</div>
+      </td>
+      <td class="header-right">
+        ${cnpjLoja ? `CNPJ: ${esc(cnpjLoja)}<br>` : ""}
+        ${telefoneLoja ? `Tel: ${esc(telefoneLoja)}` : ""}
+      </td>
+    </tr></table>
+  </div>
+
+  <div style="margin-bottom: 6px;">
+    <table style="width: 100%; border-collapse: collapse;"><tr>
+      <td style="text-align: left;"><span class="numero-os">ORDEM DE SERVICO #${esc(order.number)}</span></td>
+      <td style="text-align: right; font-size: 9pt;">Data: ${fmtDate(order.entryDate)}</td>
+    </tr></table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">DADOS DO CLIENTE</div>
+    <div class="grid-2">
+      <div class="col">
+        <div class="field"><span class="field-label">Nome:</span><div class="field-value">${esc(customer?.name)}</div></div>
+        <div class="field"><span class="field-label">CPF:</span><div class="field-value">${esc(customer?.cpf) || "Nao informado"}</div></div>
+      </div>
+      <div class="col">
+        <div class="field"><span class="field-label">Telefone:</span><div class="field-value">${esc(customer?.phone) || "-"}</div></div>
+        <div class="field"><span class="field-label">Email:</span><div class="field-value">${esc(customer?.email) || "Nao informado"}</div></div>
+      </div>
     </div>
   </div>
 
   <div class="section">
-    <h2>Dados da OS</h2>
-    <div class="grid">
-      <div class="item"><label>Status</label><span>${STATUS_LABELS[order.status] ?? order.status}</span></div>
-      <div class="item"><label>Data Entrada</label><span>${formatDate(order.entryDate)}</span></div>
-      <div class="item"><label>Previsao</label><span>${formatDate(order.estimatedDate)}</span></div>
-      <div class="item"><label>Tecnico</label><span>${order.technicianId ? userMap.get(order.technicianId) ?? "—" : "—"}</span></div>
+    <div class="section-title">DADOS DO EQUIPAMENTO</div>
+    <div class="grid-2">
+      <div class="col">
+        <div class="field"><span class="field-label">Tipo:</span><div class="field-value">${esc(order.deviceType) || "-"}</div></div>
+        <div class="field"><span class="field-label">Modelo:</span><div class="field-value">${esc(order.deviceModel) || "-"}</div></div>
+      </div>
+      <div class="col">
+        <div class="field"><span class="field-label">IMEI:</span><div class="field-value">${esc(order.imei) || "Nao informado"}</div></div>
+        <div class="field"><span class="field-label">Senha:</span><div class="field-value">${esc(order.devicePassword) || "Nao informado"}</div></div>
+      </div>
     </div>
   </div>
 
   <div class="section">
-    <h2>Cliente</h2>
-    <div class="grid">
-      <div class="item"><label>Nome</label><span>${customer?.name ?? "—"}</span></div>
-      <div class="item"><label>CPF</label><span>${customer?.cpf ?? "—"}</span></div>
-      <div class="item"><label>Telefone</label><span>${customer?.phone ?? "—"}</span></div>
-      <div class="item"><label>Email</label><span>${customer?.email ?? "—"}</span></div>
+    <div class="section-title">PROBLEMA RELATADO</div>
+    <div class="field-value" style="min-height: 20px; padding: 4px;">${(esc(order.reportedProblem) || "-").replace(/\n/g, "<br>")}</div>
+  </div>
+
+  ${infoHtml ? `<div class="section">${infoHtml}</div>` : ""}
+
+  <div class="section">
+    <div class="section-title">CHECKLIST DE ENTRADA</div>
+    ${checklistHtml}
+  </div>
+
+  <div class="valores">
+    <div class="section-title">SERVICOS E VALORES</div>
+    ${itemsHtml}
+    <div class="grid-2" style="margin-top: 10px;">
+      <div class="col">
+        <div class="field"><span class="field-label">Subtotal Servicos:</span><div class="field-value">${fmt(order.serviceAmount)}</div></div>
+        <div class="field"><span class="field-label">Valor Pecas:</span><div class="field-value">${fmt(order.partsAmount)}</div></div>
+      </div>
+      <div class="col">
+        <div class="field"><span class="field-label">Desconto:</span><div class="field-value">${fmt(order.discount)}</div></div>
+        <div class="total">TOTAL: ${fmt(order.totalAmount)}</div>
+      </div>
     </div>
   </div>
 
-  <div class="section">
-    <h2>Equipamento</h2>
-    <div class="grid">
-      <div class="item"><label>Tipo</label><span>${order.deviceType ?? "—"}</span></div>
-      <div class="item"><label>Modelo</label><span>${order.deviceModel ?? "—"}</span></div>
-      <div class="item"><label>IMEI/Serial</label><span>${order.imei ?? order.serialNumber ?? "—"}</span></div>
-      <div class="item"><label>Senha</label><span>${order.devicePassword ?? "—"}</span></div>
-    </div>
+  <div class="assinatura-box">
+    <strong>ASSINATURA DO CLIENTE</strong><br>
+    ${esc(customer?.name)}<br>
+    CPF: ${esc(customer?.cpf)}
   </div>
 
-  <div class="section">
-    <h2>Problema</h2>
-    <p>${order.reportedProblem ?? "—"}</p>
-    ${order.diagnosedProblem ? `<p style="margin-top:8px"><strong>Diagnostico:</strong> ${order.diagnosedProblem}</p>` : ""}
+  <div style="text-align: center; margin-top: 20px; font-size: 8pt; color: #666;">
+    ${esc(nomeLoja)} - Documento gerado em ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}
   </div>
-
-  <div class="section">
-    <h2>Itens</h2>
-    <table>
-      <thead>
-        <tr><th>Tipo</th><th>Descricao</th><th style="text-align:center">Qtd</th><th style="text-align:right">Unit.</th><th style="text-align:right">Total</th></tr>
-      </thead>
-      <tbody>
-        ${itemsHtml}
-        <tr class="total-row">
-          <td colspan="4" style="text-align:right">TOTAL</td>
-          <td style="text-align:right">${formatMoney(order.totalAmount)}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  ${order.paymentMethod ? `
-  <div class="section">
-    <h2>Pagamento</h2>
-    <div class="grid">
-      <div class="item"><label>Forma</label><span>${order.paymentMethod}</span></div>
-      <div class="item"><label>Valor Pago</label><span>${formatMoney(order.paidAmount)}</span></div>
-      <div class="item"><label>Data Pagamento</label><span>${formatDate(order.paymentDate)}</span></div>
-    </div>
-  </div>` : ""}
-
-  ${order.vendorId ? `
-  <div class="section">
-    <h2>Vendedor</h2>
-    <p>${userMap.get(order.vendorId) ?? "—"}</p>
-  </div>` : ""}
-
-  ${order.nfseIssued ? `
-  <div class="section">
-    <h2>NFS-e</h2>
-    <p>Emitida${order.nfseNumber ? ` — Numero: ${order.nfseNumber}` : ""}</p>
-  </div>` : ""}
-
-  <div class="section">
-    <h2>Garantia</h2>
-    <p>${order.warrantyMonths} meses${order.isWarranty ? " (OS de garantia)" : ""}</p>
-  </div>
-
-  <div class="footer">
-    ${tenant?.name ?? "Arena Tech"} — Documento gerado em ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}
-  </div>
-</body>
-</html>`;
+</body></html>`;
 
     return new NextResponse(html, {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-      },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (err) {
     console.error("PDF generation error:", err);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings, BarChart3 } from "lucide-react";
+import { Settings, BarChart3, Users, UserCircle, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { CommissionsList } from "./_components/commissions-list";
@@ -15,7 +15,25 @@ export default function CommissionsPage() {
         title="Comissoes"
         subtitle="Gerenciamento de comissoes de vendas e servicos"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/commissions/my">
+                <UserCircle className="mr-2 h-4 w-4" />
+                Minha Comissao
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/commissions/partner">
+                <Heart className="mr-2 h-4 w-4" />
+                Comissao Socia
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/commissions/providers">
+                <Users className="mr-2 h-4 w-4" />
+                Prestadores
+              </Link>
+            </Button>
             <Button variant="outline" asChild>
               <Link href="/commissions/report">
                 <BarChart3 className="mr-2 h-4 w-4" />

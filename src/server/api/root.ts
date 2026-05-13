@@ -12,8 +12,10 @@ import { imeiRouter } from "@/server/api/routers/imei";
 import { operationRouter } from "@/server/api/routers/operation";
 import { saleRouter } from "@/server/api/routers/sale";
 import { serviceOrderRouter } from "@/server/api/routers/service-order";
+import { simulatorRouter } from "@/server/api/routers/simulator";
 import { stockRouter } from "@/server/api/routers/stock";
 import { settingsRouter } from "@/server/api/routers/settings";
+import { valuationRouter } from "@/server/api/routers/valuation";
 import { adminRouter } from "@/server/api/routers/admin";
 
 export const appRouter = createTRPCRouter({
@@ -31,8 +33,10 @@ export const appRouter = createTRPCRouter({
   operation: operationRouter,
   sale: saleRouter,
   serviceOrder: serviceOrderRouter,
+  simulator: simulatorRouter,
   stock: stockRouter,
   settings: settingsRouter,
+  valuation: valuationRouter,
 });
 
 export type AppRouter = typeof appRouter;

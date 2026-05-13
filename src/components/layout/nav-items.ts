@@ -17,6 +17,9 @@ import {
   CreditCard,
   FileBarChart,
   UserPlus,
+  Calculator,
+  Star,
+  CheckSquare,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -36,6 +39,9 @@ export const appNavItems: NavItem[] = [
   { label: "Caixa", href: "/cashier", icon: Banknote },
   { label: "Financeiro", href: "/financial", icon: Wallet },
   { label: "Fiscal", href: "/fiscal", icon: FileText },
+  { label: "Simulador", href: "/simulator", icon: Calculator },
+  { label: "Avaliacoes", href: "/valuations", icon: Star },
+  { label: "Checklist", href: "/checklist", icon: CheckSquare },
   { label: "Comissoes", href: "/commissions", icon: Percent },
   { label: "Consulta IMEI", href: "/imei", icon: Smartphone },
   { label: "Operacao", href: "/operation", icon: Truck },
