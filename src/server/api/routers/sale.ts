@@ -64,13 +64,33 @@ export const saleRouter = createTRPCRouter({
   // DRAFT MANAGEMENT
   // ═══════════════════════════════════════
 
-  /** Create a new draft sale */
+  /** Create a new draft sale (idempotent — reuses existing draft for this user) */
   createDraft: tenantProcedure.mutation(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Reuse existing DRAFT for the same seller to avoid unique constraint
+      // violations and handle React Strict Mode double-invocation
+      const existing = await tx.sale.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          sellerId: ctx.session.user.id,
+          status: "DRAFT",
+          deletedAt: null,
+        },
+        include: { items: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (existing) {
+        return serializeSale(existing as unknown as Record<string, unknown>);
+      }
+
+      // Use a unique draft number per seller to avoid unique([tenantId, number]) conflict
+      const draftNumber = `DRAFT-${ctx.session.user.id.slice(0, 8)}-${Date.now()}`;
+
       const sale = await tx.sale.create({
         data: {
           tenantId: ctx.tenantId,
-          number: "DRAFT",
+          number: draftNumber,
           sellerId: ctx.session.user.id,
           status: "DRAFT",
           publicLink: generatePublicLink(),

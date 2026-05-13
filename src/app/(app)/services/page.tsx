@@ -7,18 +7,18 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { ServicesTable } from "./_components/services-table";
 
 export const metadata = {
-  title: "Servicos | Arena Tech",
+  title: "Gestao de Servicos | Arena Tech",
 };
 
 export default function ServicesPage() {
   return (
     <div>
       <PageHeader
-        title="Servicos"
+        title="Gestao de Servicos"
         subtitle="Gerencie os servicos oferecidos pela assistencia"
         actions={
           <Button asChild>
-            <Link href="/catalog/services/new">
+            <Link href="/services/new">
               <Plus className="mr-2 h-4 w-4" />
               Novo Servico
             </Link>

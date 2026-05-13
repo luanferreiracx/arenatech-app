@@ -13,15 +13,30 @@ import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
 
-interface TemplateRow {
+interface ServiceRow {
   id: string;
-  title: string;
-  content: string;
-  category: string | null;
+  name: string;
+  description: string | null;
+  basePrice: { toNumber?: () => number } | number | string;
+  estimatedTime: string | null;
   active: boolean;
 }
 
-export function DiagnosticTemplatesTable() {
+function formatCurrency(value: ServiceRow["basePrice"]): string {
+  let num: number;
+  if (typeof value === "object" && value !== null && "toNumber" in value) {
+    num = (value as { toNumber: () => number }).toNumber();
+  } else {
+    num = Number(value);
+  }
+  return num.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+  });
+}
+
+export function ServicesTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -40,7 +55,7 @@ export function DiagnosticTemplatesTable() {
   }, []);
 
   const { data, isLoading } = useQuery(
-    trpc.catalog.listDiagnosticTemplates.queryOptions({
+    trpc.catalog.listServices.queryOptions({
       search: debouncedSearch || undefined,
       page,
       pageSize,
@@ -48,9 +63,9 @@ export function DiagnosticTemplatesTable() {
   );
 
   const deleteMutation = useMutation(
-    trpc.catalog.deleteDiagnosticTemplate.mutationOptions({
+    trpc.catalog.deleteService.mutationOptions({
       onSuccess: () => {
-        toast.success("Template excluido com sucesso!");
+        toast.success("Servico excluido com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["catalog"]] });
         setDeleteTarget(null);
       },
@@ -58,29 +73,27 @@ export function DiagnosticTemplatesTable() {
     }),
   );
 
-  const columns: ColumnDef<TemplateRow>[] = [
+  const columns: ColumnDef<ServiceRow>[] = [
     {
-      accessorKey: "title",
-      header: "Titulo",
+      accessorKey: "name",
+      header: "Nome",
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.title}</span>
+        <span className="font-medium">{row.original.name}</span>
       ),
     },
     {
-      accessorKey: "category",
-      header: "Categoria",
+      accessorKey: "basePrice",
+      header: "Preco",
+      cell: ({ row }) => (
+        <span className="font-mono text-sm">{formatCurrency(row.original.basePrice)}</span>
+      ),
+    },
+    {
+      accessorKey: "estimatedTime",
+      header: "Tempo Estimado",
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
-          {row.original.category || "-"}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "content",
-      header: "Conteudo",
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground line-clamp-2 max-w-md">
-          {row.original.content}
+          {row.original.estimatedTime || "-"}
         </span>
       ),
     },
@@ -99,7 +112,7 @@ export function DiagnosticTemplatesTable() {
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <Link href={`/catalog/diagnostic-templates/${row.original.id}/edit`}>
+            <Link href={`/services/${row.original.id}/edit`}>
               <Pencil className="h-4 w-4" />
             </Link>
           </Button>
@@ -120,7 +133,7 @@ export function DiagnosticTemplatesTable() {
     <>
       <DataTable
         columns={columns}
-        data={(data?.data ?? []) as TemplateRow[]}
+        data={(data?.data ?? []) as ServiceRow[]}
         pageCount={data?.pageCount ?? 0}
         pageIndex={page}
         pageSize={pageSize}
@@ -130,20 +143,20 @@ export function DiagnosticTemplatesTable() {
           setPage(0);
         }}
         isLoading={isLoading}
-        emptyMessage="Nenhum template encontrado."
+        emptyMessage="Nenhum servico encontrado."
         toolbar={
           <DataTableToolbar
             searchValue={search}
             onSearchChange={handleSearchChange}
-            searchPlaceholder="Buscar por titulo, conteudo ou categoria..."
+            searchPlaceholder="Buscar por nome ou descricao..."
           />
         }
       />
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Excluir Template"
-        description="Tem certeza que deseja excluir este template de diagnostico?"
+        title="Excluir Servico"
+        description="Tem certeza que deseja excluir este servico? Esta acao nao pode ser desfeita."
         confirmLabel="Excluir"
         variant="destructive"
         isLoading={deleteMutation.isPending}

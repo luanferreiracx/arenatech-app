@@ -49,7 +49,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
       onSuccess: () => {
         toast.success("Servico cadastrado com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["catalog"]] });
-        router.push("/catalog/services");
+        router.push("/services");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -60,7 +60,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
       onSuccess: () => {
         toast.success("Servico atualizado com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["catalog"]] });
-        router.push("/catalog/services");
+        router.push("/services");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -151,7 +151,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
 
         <FormActions
           isLoading={isPending}
-          onCancel={() => router.push("/catalog/services")}
+          onCancel={() => router.push("/services")}
           submitLabel={isEdit ? "Salvar Alteracoes" : "Cadastrar Servico"}
         />
       </form>

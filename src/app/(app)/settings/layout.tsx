@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { label: "Geral", href: "/settings/general" },
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
+  { label: "Taxas de Parcelamento", href: "/settings/installments" },
+  { label: "Entregadores", href: "/settings/delivery-persons" },
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Usuarios", href: "/settings/users" },
   { label: "Seguranca", href: "/settings/security" },
