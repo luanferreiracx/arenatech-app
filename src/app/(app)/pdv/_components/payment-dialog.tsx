@@ -3,23 +3,38 @@
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
-import { X, Plus, ChevronLeft } from "lucide-react";
+import { X, Plus, ChevronLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/lib/toast";
-import { PAYMENT_METHOD_LABELS } from "@/lib/validators/sale";
 
 function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
 interface PaymentEntry {
   method: string;
+  label: string;
   amount: number; // centavos
   installments: number;
 }
@@ -30,7 +45,9 @@ const PAYMENT_METHODS = [
   { key: "cartao_credito", label: "Cartao Credito" },
   { key: "cartao_debito", label: "Cartao Debito" },
   { key: "crediario", label: "Crediario" },
-];
+] as const;
+
+const MAX_INSTALLMENTS = 12;
 
 interface PaymentDialogProps {
   open: boolean;
@@ -53,6 +70,7 @@ export function PaymentDialog({
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
   const [step, setStep] = useState<"select" | "form">("select");
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
+  const [selectedLabel, setSelectedLabel] = useState<string>("");
   const [formAmount, setFormAmount] = useState("");
   const [formInstallments, setFormInstallments] = useState("1");
   const [observations, setObservations] = useState("");
@@ -61,13 +79,13 @@ export function PaymentDialog({
 
   const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = Math.max(0, totalAmount - paidTotal);
-  const progress = totalAmount > 0 ? Math.min(100, (paidTotal / totalAmount) * 100) : 0;
+  const progress =
+    totalAmount > 0 ? Math.min(100, (paidTotal / totalAmount) * 100) : 0;
   const isComplete = paidTotal >= totalAmount;
 
-  const changeCents = paidTotal > totalAmount ? paidTotal - totalAmount : 0;
-
-  const handleSelectMethod = (method: string) => {
+  const handleSelectMethod = (method: string, label: string) => {
     setSelectedMethod(method);
+    setSelectedLabel(label);
     setFormAmount((remaining / 100).toFixed(2));
     setFormInstallments("1");
     setStep("form");
@@ -83,23 +101,26 @@ export function PaymentDialog({
 
     let amountCents = Math.round(amountReais * 100);
 
-    // For cash, allow overpayment (change)
+    // For cash, allow overpayment (change); for others, cap at remaining
     if (selectedMethod !== "dinheiro" && amountCents > remaining + 1) {
       toast.error(`O valor nao pode exceder ${formatCurrency(remaining)}`);
       return;
     }
 
-    // For non-cash, cap at remaining; for cash, send the real amount paid
     if (selectedMethod !== "dinheiro") {
       amountCents = Math.min(amountCents, remaining);
     }
-    // For cash (dinheiro), keep the full amountCents so the backend can calculate change
 
     const installments = parseInt(formInstallments, 10) || 1;
 
     setPayments((prev) => [
       ...prev,
-      { method: selectedMethod, amount: amountCents, installments },
+      {
+        method: selectedMethod,
+        label: selectedLabel,
+        amount: amountCents,
+        installments,
+      },
     ]);
 
     setSelectedMethod(null);
@@ -131,8 +152,7 @@ export function PaymentDialog({
       {
         onSuccess: (data) => {
           toast.success("Venda finalizada com sucesso!");
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onSuccess((data as any).id as string);
+          onSuccess((data as unknown as { id: string }).id);
         },
         onError: (err) => {
           toast.error(err.message);
@@ -141,21 +161,34 @@ export function PaymentDialog({
     );
   };
 
-  const showInstallments = selectedMethod === "cartao_credito" || selectedMethod === "crediario";
+  const showInstallments =
+    selectedMethod === "cartao_credito" || selectedMethod === "crediario";
   const showChange = selectedMethod === "dinheiro";
+
+  // Calculate change for display
+  const trocoDisplay = (() => {
+    if (!showChange) return 0;
+    const inputCents = Math.round((parseFloat(formAmount) || 0) * 100);
+    const troco = inputCents - remaining;
+    return troco > 0 ? troco : 0;
+  })();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Finalizar Venda</DialogTitle>
-          <DialogDescription>Selecione as formas de pagamento</DialogDescription>
+          <DialogDescription>
+            Selecione as formas de pagamento
+          </DialogDescription>
         </DialogHeader>
 
         {/* Total */}
-        <div className="text-center py-3 bg-muted/50 rounded-lg mb-2">
+        <div className="text-center py-4 bg-muted/50 rounded-lg mb-2">
           <div className="text-sm text-muted-foreground">Total a Pagar</div>
-          <div className="text-2xl font-bold text-primary">{formatCurrency(totalAmount)}</div>
+          <div className="text-2xl font-bold text-primary">
+            {formatCurrency(totalAmount)}
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -163,7 +196,8 @@ export function PaymentDialog({
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Valor coberto</span>
             <span>
-              {formatCurrency(paidTotal)} de {formatCurrency(totalAmount)}
+              {formatCurrency(Math.min(paidTotal, totalAmount))} de{" "}
+              {formatCurrency(totalAmount)}
             </span>
           </div>
           <Progress value={progress} className="h-1.5" />
@@ -179,16 +213,17 @@ export function PaymentDialog({
                 className="flex items-center gap-2 bg-muted/50 rounded-md p-2.5 border-l-2 border-primary"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium">
-                    {PAYMENT_METHOD_LABELS[p.method] ?? p.method}
-                  </div>
+                  <div className="text-sm font-medium">{p.label}</div>
                   {p.installments > 1 && (
                     <div className="text-xs text-muted-foreground">
-                      {p.installments}x de {formatCurrency(Math.round(p.amount / p.installments))}
+                      {p.installments}x de{" "}
+                      {formatCurrency(Math.round(p.amount / p.installments))}
                     </div>
                   )}
                 </div>
-                <div className="text-sm font-bold">{formatCurrency(p.amount)}</div>
+                <div className="text-sm font-bold">
+                  {formatCurrency(p.amount)}
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -206,7 +241,9 @@ export function PaymentDialog({
         {step === "select" && !isComplete && (
           <div>
             <div className="text-sm font-semibold mb-2">
-              {payments.length > 0 ? "Adicionar outra forma" : "Selecione a forma de pagamento"}
+              {payments.length > 0
+                ? "Adicionar outra forma"
+                : "Selecione a forma de pagamento"}
             </div>
             <div className="grid grid-cols-3 gap-2">
               {PAYMENT_METHODS.map((m) => (
@@ -214,7 +251,7 @@ export function PaymentDialog({
                   key={m.key}
                   variant="outline"
                   className="h-auto py-3 text-sm"
-                  onClick={() => handleSelectMethod(m.key)}
+                  onClick={() => handleSelectMethod(m.key, m.label)}
                 >
                   {m.label}
                 </Button>
@@ -227,12 +264,15 @@ export function PaymentDialog({
         {step === "form" && selectedMethod && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setStep("select")}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setStep("select")}
+              >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="font-semibold">
-                {PAYMENT_METHOD_LABELS[selectedMethod] ?? selectedMethod}
-              </span>
+              <span className="font-semibold">{selectedLabel}</span>
             </div>
 
             <div className="flex gap-3">
@@ -256,17 +296,23 @@ export function PaymentDialog({
               {showInstallments && (
                 <div className="flex-1">
                   <Label>Parcelas</Label>
-                  <Select value={formInstallments} onValueChange={setFormInstallments}>
+                  <Select
+                    value={formInstallments}
+                    onValueChange={setFormInstallments}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                      {Array.from(
+                        { length: MAX_INSTALLMENTS },
+                        (_, i) => i + 1,
+                      ).map((n) => (
                         <SelectItem key={n} value={String(n)}>
                           {n}x de{" "}
                           {formatCurrency(
                             Math.round(
-                              (parseFloat(formAmount) * 100 || 0) / n,
+                              ((parseFloat(formAmount) * 100) || 0) / n,
                             ),
                           )}
                         </SelectItem>
@@ -281,11 +327,7 @@ export function PaymentDialog({
               <div>
                 <Label>Troco</Label>
                 <div className="text-lg font-bold text-green-500 bg-muted/50 rounded-md p-2 text-center">
-                  {(() => {
-                    const inputCents = Math.round((parseFloat(formAmount) || 0) * 100);
-                    const troco = inputCents - remaining;
-                    return troco > 0 ? formatCurrency(troco) : "R$ 0,00";
-                  })()}
+                  {trocoDisplay > 0 ? formatCurrency(trocoDisplay) : "R$ 0,00"}
                 </div>
               </div>
             )}
@@ -314,10 +356,18 @@ export function PaymentDialog({
             Cancelar
           </Button>
           <Button
-            disabled={!isComplete || payments.length === 0 || finalizeMutation.isPending}
+            disabled={
+              !isComplete ||
+              payments.length === 0 ||
+              finalizeMutation.isPending
+            }
             onClick={handleFinalize}
+            className="gap-2"
           >
-            {finalizeMutation.isPending ? "Processando..." : "Confirmar Pagamento"}
+            <Check className="h-4 w-4" />
+            {finalizeMutation.isPending
+              ? "Processando..."
+              : "Confirmar Pagamento"}
           </Button>
         </div>
       </DialogContent>
