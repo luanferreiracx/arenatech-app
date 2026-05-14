@@ -1,0 +1,232 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useTRPC } from "@/trpc/react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  CreditCard,
+  CheckCircle,
+  XCircle,
+  Pencil,
+  User,
+  Calendar,
+  Loader2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/domain/page-header";
+import { LoadingState } from "@/components/domain/loading-state";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { QUICK_SALE_STATUS_LABELS } from "@/lib/validators/quick-sale";
+import { toast } from "@/lib/toast";
+import { useState } from "react";
+
+const STATUS_COLORS: Record<string, string> = {
+  AWAITING_PAYMENT: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+  PAID: "bg-green-500/10 text-green-500 border-green-500/20",
+  CANCELLED: "bg-red-500/10 text-red-500 border-red-500/20",
+  REFUNDED: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+};
+
+function formatCurrency(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+export default function QuickSaleDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const { data: sale, isLoading } = useQuery(
+    trpc.quickSale.getById.queryOptions({ id })
+  );
+
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const markPaidMutation = useMutation(
+    trpc.quickSale.markPaid.mutationOptions({
+      onSuccess: () => {
+        toast.success("Pagamento confirmado!");
+        queryClient.invalidateQueries({ queryKey: [["quickSale"]] });
+      },
+      onError: (err) => toast.error(err.message),
+    })
+  );
+
+  const cancelMutation = useMutation(
+    trpc.quickSale.cancel.mutationOptions({
+      onSuccess: () => {
+        toast.success("Venda cancelada");
+        queryClient.invalidateQueries({ queryKey: [["quickSale"]] });
+        setShowCancelConfirm(false);
+      },
+      onError: (err) => toast.error(err.message),
+    })
+  );
+
+  if (isLoading) return <LoadingState />;
+  if (!sale) return <div className="text-center py-12 text-muted-foreground">Venda nao encontrada</div>;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = sale as any;
+  const status = s.status as string;
+  const isAwaiting = status === "AWAITING_PAYMENT";
+  const isPaid = status === "PAID";
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <Link href="/quick-sales"><ArrowLeft className="h-4 w-4" /></Link>
+            </Button>
+            <CreditCard className="h-5 w-5 text-primary" />
+            <span>Venda #{s.number as string}</span>
+            <Badge variant="outline" className={STATUS_COLORS[status] ?? ""}>
+              {QUICK_SALE_STATUS_LABELS[status] ?? status}
+            </Badge>
+          </div>
+        }
+        actions={
+          <div className="flex gap-2">
+            {isAwaiting && (
+              <>
+                <Button
+                  onClick={() => markPaidMutation.mutate({ id })}
+                  disabled={markPaidMutation.isPending}
+                >
+                  {markPaidMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                  )}
+                  Confirmar Pagamento
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-destructive border-destructive/30"
+                  onClick={() => setShowCancelConfirm(true)}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Cancelar
+                </Button>
+              </>
+            )}
+            {isPaid && (
+              <Button variant="outline" disabled className="opacity-60">
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Pagamento Confirmado
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Payer data */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <User className="h-4 w-4" /> Dados do Pagador
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Nome</span>
+              <span className="font-medium">{String(s.buyerName ?? "-")}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">CPF/CNPJ</span>
+              <span className="font-mono">{String(s.cpfCnpj ?? "-")}</span>
+            </div>
+            {s.phone && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Telefone</span>
+                <span>{String(s.phone)}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Values */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Valores</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Quantidade</span>
+              <span>{s.quantity as number}x</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Valor Unitario</span>
+              <span>{formatCurrency(s.unitPrice as number)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span>{formatCurrency((s.quantity as number) * (s.unitPrice as number))}</span>
+            </div>
+            {(s.discount as number) > 0 && (
+              <div className="flex justify-between text-green-500">
+                <span>Desconto</span>
+                <span>- {formatCurrency(s.discount as number)}</span>
+              </div>
+            )}
+            <div className="flex justify-between pt-2 border-t text-lg font-bold">
+              <span>Total</span>
+              <span className="text-primary">{formatCurrency(s.totalAmount as number)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Info */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <Calendar className="h-4 w-4" /> Registro
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Criado em</span>
+              <span>{new Date(s.createdAt as string).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+            {s.paidAt && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Pago em</span>
+                <span>{new Date(s.paidAt as string).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Product description */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Descricao do Produto/Servico</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="whitespace-pre-wrap text-sm bg-muted/50 p-4 rounded-lg border">
+            {String(s.productDescription)}
+          </div>
+        </CardContent>
+      </Card>
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        onOpenChange={setShowCancelConfirm}
+        title="Cancelar venda?"
+        description="Essa acao nao pode ser desfeita."
+        confirmLabel="Cancelar Venda"
+        variant="destructive"
+        isLoading={cancelMutation.isPending}
+        onConfirm={() => cancelMutation.mutate({ id })}
+      />
+    </div>
+  );
+}

@@ -190,9 +190,41 @@ export type ListCustomersInput = z.infer<typeof listCustomersSchema>;
 
 // ── Interest schemas ──
 
+export const interestStatusEnum = z.enum(["WAITING", "CONTACTED", "FINISHED", "CANCELLED"]);
+export type InterestStatus = z.infer<typeof interestStatusEnum>;
+
+export const interestTypeEnum = z.enum(["PURCHASE", "SALE", "TRADE", "REPAIR"]);
+export type InterestType = z.infer<typeof interestTypeEnum>;
+
+export const INTEREST_STATUS_LABELS: Record<string, string> = {
+  WAITING: "Em Espera",
+  CONTACTED: "Contatado",
+  FINISHED: "Finalizado",
+  CANCELLED: "Cancelado",
+};
+
+export const INTEREST_TYPE_LABELS: Record<string, string> = {
+  PURCHASE: "Compra",
+  SALE: "Venda",
+  TRADE: "Troca",
+  REPAIR: "Reparo",
+};
+
+export const INTEREST_PRIORITY_LABELS: Record<string, string> = {
+  baixa: "Baixa",
+  media: "Media",
+  alta: "Alta",
+};
+
 export const createInterestSchema = z.object({
   customerId: z.string().uuid(),
   description: z.string().min(1, "Descricao obrigatoria").max(1000),
+  product: z.string().max(255).optional().nullable(),
+  estimatedValue: z.number().int().min(0).optional().nullable(), // centavos
+  interestType: interestTypeEnum.optional(),
+  priority: z.enum(["baixa", "media", "alta"]).optional(),
+  assignedUserId: z.string().uuid().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
   followUpAt: z.string().optional(),
 });
 
@@ -201,8 +233,43 @@ export type CreateInterestInput = z.infer<typeof createInterestSchema>;
 export const updateInterestSchema = z.object({
   id: z.string().uuid(),
   description: z.string().min(1, "Descricao obrigatoria").max(1000).optional(),
+  product: z.string().max(255).optional().nullable(),
+  estimatedValue: z.number().int().min(0).optional().nullable(),
+  interestType: interestTypeEnum.optional(),
+  priority: z.enum(["baixa", "media", "alta"]).optional(),
+  status: interestStatusEnum.optional(),
+  assignedUserId: z.string().uuid().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
   followUpAt: z.string().optional().nullable(),
   resolved: z.boolean().optional(),
+  statusChangeReason: z.string().max(1000).optional().nullable(),
 });
 
 export type UpdateInterestInput = z.infer<typeof updateInterestSchema>;
+
+export const listInterestsSchema = z.object({
+  customerId: z.string().uuid().optional(),
+  status: interestStatusEnum.optional(),
+  interestType: interestTypeEnum.optional(),
+  search: z.string().optional(),
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
+
+export type ListInterestsInput = z.infer<typeof listInterestsSchema>;
+
+export const addInteractionSchema = z.object({
+  interestId: z.string().uuid(),
+  interactionType: z.string().min(1, "Tipo obrigatorio"),
+  description: z.string().min(1, "Descricao obrigatoria").max(2000),
+});
+
+export type AddInteractionInput = z.infer<typeof addInteractionSchema>;
+
+export const changeInterestStatusSchema = z.object({
+  id: z.string().uuid(),
+  status: interestStatusEnum,
+  reason: z.string().min(10, "Motivo deve ter no minimo 10 caracteres").max(1000),
+});
+
+export type ChangeInterestStatusInput = z.infer<typeof changeInterestStatusSchema>;

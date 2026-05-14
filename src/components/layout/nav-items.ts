@@ -23,6 +23,14 @@ import {
   UserCog,
   Shield,
   Lock,
+  TrendingUp,
+  BarChart3,
+  Tags,
+  Building2,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Ban,
+  Download,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -72,12 +80,17 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Vendas", href: "/pdv", icon: ShoppingCart },
       { label: "Historico de Vendas", href: "/pdv/history", icon: History },
+      { label: "Vendas Avulsas", href: "/quick-sales", icon: CreditCard },
     ],
   },
   {
     title: "Estoque",
     items: [
       { label: "Produtos", href: "/stock", icon: Package },
+      { label: "Fornecedores", href: "/stock/suppliers", icon: Building2 },
+      { label: "Categorias", href: "/stock/categories", icon: Tags },
+      { label: "Entrada", href: "/stock/entry", icon: ArrowDownToLine },
+      { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine },
       { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag },
       { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp },
     ],
@@ -94,12 +107,16 @@ export const appNavGroups: NavGroup[] = [
       { label: "Financeiro", href: "/financial", icon: Wallet },
       { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt },
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt },
+      { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp },
+      { label: "DRE", href: "/financial/dre", icon: BarChart3 },
     ],
   },
   {
     title: "Fiscal",
     items: [
       { label: "Fiscal", href: "/fiscal", icon: FileText },
+      { label: "NF-e Entrada", href: "/fiscal/entrada", icon: Download },
+      { label: "Inutilizar", href: "/fiscal/inutilizar", icon: Ban },
     ],
   },
   {

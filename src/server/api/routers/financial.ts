@@ -10,6 +10,8 @@ import {
   reverseInstallmentSchema,
   cashFlowSchema,
   overdueSchema,
+  dreSchema,
+  projectedCashFlowSchema,
 } from "@/lib/validators/financial";
 
 // ── Helpers ──
@@ -739,6 +741,163 @@ export const financialRouter = createTRPCRouter({
           })),
           total,
           pageCount: Math.ceil(total / pageSize),
+        };
+      });
+    }),
+
+  /** DRE - Demonstrativo de Resultados do Exercicio */
+  dre: tenantProcedure
+    .input(dreSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const year = input.year;
+        const months: Array<{
+          month: number;
+          monthName: string;
+          revenue: number;
+          partsCost: number;
+          grossProfit: number;
+          expenses: number;
+          netProfit: number;
+        }> = [];
+
+        const monthNames = [
+          "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+        ];
+
+        for (let m = 0; m < 12; m++) {
+          const startOfMonth = new Date(year, m, 1);
+          const endOfMonth = new Date(year, m + 1, 0, 23, 59, 59, 999);
+
+          // Revenue: paid receivables in this month
+          const revenueResult = await tx.installment.aggregate({
+            where: {
+              status: "PAID",
+              paidAt: { gte: startOfMonth, lte: endOfMonth },
+              transaction: { type: "RECEIVABLE", deletedAt: null },
+            },
+            _sum: { paidAmount: true },
+          });
+
+          // Expenses (Contas a Pagar pagas)
+          const expensesResult = await tx.installment.aggregate({
+            where: {
+              status: "PAID",
+              paidAt: { gte: startOfMonth, lte: endOfMonth },
+              transaction: { type: "PAYABLE", deletedAt: null },
+            },
+            _sum: { paidAmount: true },
+          });
+
+          // Parts cost: sum of cost from sales in period (approximation)
+          // Using stock movements of type SALE in the period
+          const partsCostResult = await tx.stockMovement.aggregate({
+            where: {
+              type: "SALE",
+              createdAt: { gte: startOfMonth, lte: endOfMonth },
+            },
+            _sum: { unitCost: true },
+          });
+
+          const revenue = decimalToCents(revenueResult._sum.paidAmount);
+          const partsCost = decimalToCents(partsCostResult._sum.unitCost);
+          const grossProfit = revenue - partsCost;
+          const expenses = decimalToCents(expensesResult._sum.paidAmount);
+          const netProfit = grossProfit - expenses;
+
+          months.push({
+            month: m + 1,
+            monthName: monthNames[m]!,
+            revenue,
+            partsCost,
+            grossProfit,
+            expenses,
+            netProfit,
+          });
+        }
+
+        const totals = months.reduce(
+          (acc, m) => ({
+            revenue: acc.revenue + m.revenue,
+            partsCost: acc.partsCost + m.partsCost,
+            grossProfit: acc.grossProfit + m.grossProfit,
+            expenses: acc.expenses + m.expenses,
+            netProfit: acc.netProfit + m.netProfit,
+          }),
+          { revenue: 0, partsCost: 0, grossProfit: 0, expenses: 0, netProfit: 0 },
+        );
+
+        return { months, totals, year };
+      });
+    }),
+
+  /** Projected Cash Flow based on pending installments */
+  projectedCashFlow: tenantProcedure
+    .input(projectedCashFlowSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const endDate = new Date(today);
+        endDate.setDate(endDate.getDate() + input.days);
+        endDate.setHours(23, 59, 59, 999);
+
+        // Get all pending/overdue installments in range
+        const installments = await tx.installment.findMany({
+          where: {
+            dueDate: { gte: today, lte: endDate },
+            status: { in: ["PENDING", "OVERDUE"] },
+            transaction: { deletedAt: null },
+          },
+          include: {
+            transaction: { select: { type: true } },
+          },
+          orderBy: { dueDate: "asc" },
+        });
+
+        // Group by day
+        const dailyMap: Record<string, { receivable: number; payable: number }> = {};
+
+        for (const inst of installments) {
+          const key = inst.dueDate.toISOString().split("T")[0]!;
+          if (!dailyMap[key]) {
+            dailyMap[key] = { receivable: 0, payable: 0 };
+          }
+          const remaining = decimalToCents(inst.amount) - decimalToCents(inst.paidAmount);
+          if (inst.transaction.type === "RECEIVABLE") {
+            dailyMap[key]!.receivable += remaining;
+          } else {
+            dailyMap[key]!.payable += remaining;
+          }
+        }
+
+        let cumulativeBalance = 0;
+        const projection = Object.entries(dailyMap)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, data]) => {
+            const dayBalance = data.receivable - data.payable;
+            cumulativeBalance += dayBalance;
+            return {
+              date,
+              receivable: data.receivable,
+              payable: data.payable,
+              dayBalance,
+              cumulativeBalance,
+            };
+          });
+
+        const totalReceivable = projection.reduce((s, p) => s + p.receivable, 0);
+        const totalPayable = projection.reduce((s, p) => s + p.payable, 0);
+
+        return {
+          projection,
+          summary: {
+            totalReceivable,
+            totalPayable,
+            projectedBalance: totalReceivable - totalPayable,
+          },
+          days: input.days,
         };
       });
     }),

@@ -11,18 +11,58 @@ model Product {
   minStock     Int       @default(0) @map("min_stock")
   unit         String    @default("un")
   active       Boolean   @default(true)
+  categoryId   String?   @map("category_id") @db.Uuid
   deletedAt    DateTime? @map("deleted_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   movements StockMovement[]
   purchases DevicePurchase[]
+  category  ProductCategory? @relation(fields: [categoryId], references: [id])
 
   @@index([tenantId, active])
   @@index([tenantId, sku])
   @@index([tenantId, barcode])
   @@index([tenantId, name])
+  @@index([tenantId, categoryId])
   @@map("products")
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_categories")
+}
+
+model Supplier {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  type      String    @default("PJ") // PF or PJ
+  name      String                    // razao social or nome
+  tradeName String?   @map("trade_name") // nome fantasia
+  cpfCnpj   String?   @map("cpf_cnpj")
+  phone     String?
+  email     String?
+  address   Json?
+  notes     String?
+  active    Boolean   @default(true)
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@index([tenantId, cpfCnpj])
+  @@index([tenantId, name])
+  @@map("suppliers")
 }
 
 enum StockMovementType {

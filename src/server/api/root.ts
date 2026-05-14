@@ -9,7 +9,9 @@ import { dashboardRouter } from "@/server/api/routers/dashboard";
 import { financialRouter } from "@/server/api/routers/financial";
 import { fiscalRouter } from "@/server/api/routers/fiscal";
 import { imeiRouter } from "@/server/api/routers/imei";
+import { interestRouter } from "@/server/api/routers/interest";
 import { operationRouter } from "@/server/api/routers/operation";
+import { quickSaleRouter } from "@/server/api/routers/quick-sale";
 import { saleRouter } from "@/server/api/routers/sale";
 import { serviceOrderRouter } from "@/server/api/routers/service-order";
 import { simulatorRouter } from "@/server/api/routers/simulator";
@@ -30,7 +32,9 @@ export const appRouter = createTRPCRouter({
   financial: financialRouter,
   fiscal: fiscalRouter,
   imei: imeiRouter,
+  interest: interestRouter,
   operation: operationRouter,
+  quickSale: quickSaleRouter,
   sale: saleRouter,
   serviceOrder: serviceOrderRouter,
   simulator: simulatorRouter,

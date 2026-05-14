@@ -9,6 +9,14 @@ import {
   listMovementsSchema,
   createDevicePurchaseSchema,
   listDevicePurchasesSchema,
+  createSupplierSchema,
+  updateSupplierSchema,
+  listSuppliersSchema,
+  createCategorySchema,
+  updateCategorySchema,
+  listCategoriesSchema,
+  stockEntrySchema,
+  stockExitSchema,
 } from "@/lib/validators/stock";
 import { Prisma } from "@prisma/client";
 
@@ -511,4 +519,362 @@ export const stockRouter = createTRPCRouter({
         });
       });
     }),
+
+  // ═══════════════════════════════════════
+  // SUPPLIERS (Fornecedores)
+  // ═══════════════════════════════════════
+
+  listSuppliers: tenantProcedure
+    .input(listSuppliersSchema)
+    .query(async ({ ctx, input }) => {
+      const page = input.page ?? 0;
+      const pageSize = input.pageSize ?? 20;
+
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.SupplierWhereInput = { deletedAt: null };
+
+        if (input.active !== undefined) where.active = input.active;
+
+        if (input.search?.trim()) {
+          const term = input.search.trim();
+          where.OR = [
+            { name: { contains: term, mode: "insensitive" } },
+            { tradeName: { contains: term, mode: "insensitive" } },
+            { cpfCnpj: { contains: term, mode: "insensitive" } },
+          ];
+        }
+
+        const [data, total] = await Promise.all([
+          tx.supplier.findMany({
+            where,
+            orderBy: { name: "asc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.supplier.count({ where }),
+        ]);
+
+        return { data, total, pageCount: Math.ceil(total / pageSize) };
+      });
+    }),
+
+  getSupplier: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const supplier = await tx.supplier.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
+        if (!supplier) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Fornecedor nao encontrado" });
+        }
+        return supplier;
+      });
+    }),
+
+  createSupplier: tenantProcedure
+    .input(createSupplierSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.supplier.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: input.type,
+            name: input.name,
+            tradeName: input.tradeName || null,
+            cpfCnpj: input.cpfCnpj || null,
+            phone: input.phone || null,
+            email: input.email || null,
+            address: input.address ? (input.address as Prisma.InputJsonValue) : Prisma.JsonNull,
+            notes: input.notes || null,
+            active: input.active ?? true,
+          },
+        });
+      });
+    }),
+
+  updateSupplier: tenantProcedure
+    .input(updateSupplierSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.supplier.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Fornecedor nao encontrado" });
+        }
+        return tx.supplier.update({
+          where: { id: input.id },
+          data: {
+            type: input.type,
+            name: input.name,
+            tradeName: input.tradeName || null,
+            cpfCnpj: input.cpfCnpj || null,
+            phone: input.phone || null,
+            email: input.email || null,
+            address: input.address ? (input.address as Prisma.InputJsonValue) : Prisma.JsonNull,
+            notes: input.notes || null,
+            active: input.active ?? true,
+          },
+        });
+      });
+    }),
+
+  deleteSupplier: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.supplier.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Fornecedor nao encontrado" });
+        }
+        await tx.supplier.update({
+          where: { id: input.id },
+          data: { deletedAt: new Date() },
+        });
+        return { success: true };
+      });
+    }),
+
+  searchSuppliers: tenantProcedure
+    .input(z.object({ search: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.supplier.findMany({
+          where: {
+            deletedAt: null,
+            active: true,
+            OR: [
+              { name: { contains: input.search, mode: "insensitive" } },
+              { tradeName: { contains: input.search, mode: "insensitive" } },
+              { cpfCnpj: { contains: input.search, mode: "insensitive" } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          take: 15,
+          select: { id: true, name: true, tradeName: true, cpfCnpj: true },
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PRODUCT CATEGORIES
+  // ═══════════════════════════════════════
+
+  listCategories: tenantProcedure
+    .input(listCategoriesSchema)
+    .query(async ({ ctx, input }) => {
+      const page = input.page ?? 0;
+      const pageSize = input.pageSize ?? 50;
+
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductCategoryWhereInput = { deletedAt: null };
+
+        if (input.search?.trim()) {
+          where.name = { contains: input.search.trim(), mode: "insensitive" };
+        }
+
+        const [data, total] = await Promise.all([
+          tx.productCategory.findMany({
+            where,
+            orderBy: { name: "asc" },
+            skip: page * pageSize,
+            take: pageSize,
+            include: { _count: { select: { products: true } } },
+          }),
+          tx.productCategory.count({ where }),
+        ]);
+
+        return { data, total, pageCount: Math.ceil(total / pageSize) };
+      });
+    }),
+
+  createCategory: tenantProcedure
+    .input(createCategorySchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.productCategory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            name: input.name,
+          },
+        });
+      });
+    }),
+
+  updateCategory: tenantProcedure
+    .input(updateCategorySchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.productCategory.findFirst({
+          where: { id: input.id, deletedAt: null },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Categoria nao encontrada" });
+        }
+        return tx.productCategory.update({
+          where: { id: input.id },
+          data: { name: input.name },
+        });
+      });
+    }),
+
+  deleteCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.productCategory.findFirst({
+          where: { id: input.id, deletedAt: null },
+          include: { _count: { select: { products: true } } },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Categoria nao encontrada" });
+        }
+        if (existing._count.products > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Categoria possui ${existing._count.products} produto(s) vinculado(s)`,
+          });
+        }
+        await tx.productCategory.update({
+          where: { id: input.id },
+          data: { deletedAt: new Date() },
+        });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // STOCK ENTRY / EXIT (dedicated screens)
+  // ═══════════════════════════════════════
+
+  stockEntry: tenantProcedure
+    .input(stockEntrySchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const product = await tx.product.findFirst({
+          where: { id: input.productId, deletedAt: null },
+        });
+        if (!product) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+        }
+
+        await Promise.all([
+          tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { increment: input.quantity } },
+          }),
+          tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              type: "ENTRY",
+              quantity: input.quantity,
+              unitCost: input.unitCost
+                ? new Prisma.Decimal(input.unitCost).div(100)
+                : null,
+              reason: input.reason,
+              referenceId: input.supplierId || null,
+              referenceType: input.supplierId ? "supplier" : null,
+              userId: ctx.session.user.id,
+            },
+          }),
+        ]);
+
+        return { success: true };
+      });
+    }),
+
+  stockExit: tenantProcedure
+    .input(stockExitSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const product = await tx.product.findFirst({
+          where: { id: input.productId, deletedAt: null },
+        });
+        if (!product) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+        }
+
+        if (product.currentStock < input.quantity) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Estoque insuficiente. Atual: ${product.currentStock}`,
+          });
+        }
+
+        await Promise.all([
+          tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { decrement: input.quantity } },
+          }),
+          tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              type: "EXIT",
+              quantity: input.quantity,
+              reason: input.reason,
+              userId: ctx.session.user.id,
+            },
+          }),
+        ]);
+
+        return { success: true };
+      });
+    }),
+
+  /** Stock dashboard stats with alerts */
+  stockDashboard: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const products = await tx.product.findMany({
+        where: { deletedAt: null, active: true },
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          currentStock: true,
+          minStock: true,
+          costPrice: true,
+          salePrice: true,
+        },
+      });
+
+      const totalProducts = products.length;
+      const totalItems = products.reduce((s, p) => s + p.currentStock, 0);
+      const totalCostValue = products.reduce(
+        (s, p) => s + p.currentStock * Number(p.costPrice),
+        0,
+      );
+      const totalSaleValue = products.reduce(
+        (s, p) => s + p.currentStock * Number(p.salePrice),
+        0,
+      );
+      const lowStockProducts = products.filter(
+        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
+      );
+      const outOfStockProducts = products.filter((p) => p.currentStock === 0);
+
+      // Recent movements
+      const recentMovements = await tx.stockMovement.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: {
+          product: { select: { id: true, name: true } },
+        },
+      });
+
+      return {
+        totalProducts,
+        totalItems,
+        totalCostValue: Math.round(totalCostValue * 100),
+        totalSaleValue: Math.round(totalSaleValue * 100),
+        lowStockProducts,
+        outOfStockProducts,
+        recentMovements,
+      };
+    });
+  }),
 });

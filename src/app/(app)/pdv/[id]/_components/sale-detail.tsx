@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ShoppingCart, XCircle, RotateCcw, User, Receipt, Calendar } from "lucide-react";
+import { ArrowLeft, ShoppingCart, XCircle, RotateCcw, User, Receipt, Calendar, FileText, Shield, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -138,33 +138,62 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </div>
         }
         actions={
-          isCompleted && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="text-destructive border-destructive/30"
-                onClick={() => {
-                  setCancelReason("");
-                  setShowCancelDialog(true);
-                }}
-              >
-                <XCircle className="mr-2 h-4 w-4" />
-                Cancelar
-              </Button>
-              <Button
-                variant="outline"
-                className="text-yellow-500 border-yellow-500/30"
-                onClick={() => {
-                  setRefundReason("");
-                  setReturnStock(true);
-                  setShowRefundDialog(true);
-                }}
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Estornar
-              </Button>
-            </div>
-          )
+          <div className="flex gap-2">
+            {isCompleted && (
+              <>
+                <Button
+                  variant="outline"
+                  asChild
+                >
+                  <a href={`/api/pdv/${saleId}/recibo`} target="_blank" rel="noopener noreferrer">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Recibo
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  asChild
+                >
+                  <a href={`/api/pdv/${saleId}/termo-garantia`} target="_blank" rel="noopener noreferrer">
+                    <Shield className="mr-2 h-4 w-4" />
+                    Garantia
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  asChild
+                >
+                  <a href={`/api/pdv/${saleId}/termo-entrega`} target="_blank" rel="noopener noreferrer">
+                    <Package className="mr-2 h-4 w-4" />
+                    Entrega
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-destructive border-destructive/30"
+                  onClick={() => {
+                    setCancelReason("");
+                    setShowCancelDialog(true);
+                  }}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Cancelar
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-yellow-500 border-yellow-500/30"
+                  onClick={() => {
+                    setRefundReason("");
+                    setReturnStock(true);
+                    setShowRefundDialog(true);
+                  }}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Estornar
+                </Button>
+              </>
+            )}
+          </div>
         }
       />
 

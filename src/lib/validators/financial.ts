@@ -129,3 +129,43 @@ export const overdueSchema = z.object({
 });
 
 export type OverdueInput = z.infer<typeof overdueSchema>;
+
+// ── DRE (Demonstrativo de Resultados) ──
+
+export const dreSchema = z.object({
+  year: z.number().int().min(2020).max(2050),
+});
+
+export type DreInput = z.infer<typeof dreSchema>;
+
+// ── Projected Cash Flow ──
+
+export const projectedCashFlowSchema = z.object({
+  days: z.number().int().min(7).max(90),
+});
+
+export type ProjectedCashFlowInput = z.infer<typeof projectedCashFlowSchema>;
+
+// ── Receivables (dedicated view) ──
+
+export const listReceivablesSchema = z.object({
+  search: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
+
+export type ListReceivablesInput = z.infer<typeof listReceivablesSchema>;
+
+// ── Pending payments ──
+
+export const listPendingSchema = z.object({
+  status: z.string().optional(),
+  search: z.string().optional(),
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
+
+export type ListPendingInput = z.infer<typeof listPendingSchema>;

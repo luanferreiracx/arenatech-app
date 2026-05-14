@@ -1,0 +1,35 @@
+enum QuickSaleStatus {
+  AWAITING_PAYMENT
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+model QuickSale {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  number            String
+  status            QuickSaleStatus @default(AWAITING_PAYMENT)
+
+  buyerName         String?         @map("buyer_name")
+  cpfCnpj           String?         @map("cpf_cnpj")
+  phone             String?
+
+  productDescription String         @map("product_description")
+  quantity           Int             @default(1)
+  unitPrice          Decimal         @map("unit_price") @db.Decimal(10, 2)
+  discount           Decimal         @default(0) @db.Decimal(10, 2)
+  totalAmount        Decimal         @map("total_amount") @db.Decimal(10, 2)
+
+  createdById        String          @map("created_by_id") @db.Uuid
+  paidAt             DateTime?       @map("paid_at")
+
+  deletedAt          DateTime?       @map("deleted_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("quick_sales")
+}

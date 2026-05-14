@@ -10,6 +10,11 @@ import {
   cancelInvoiceSchema,
   correctionLetterSchema,
   listInvoicesSchema,
+  updateInvoiceSchema,
+  addInvoiceItemSchema,
+  removeInvoiceItemSchema,
+  inutilizarSchema,
+  createEntradaSchema,
 } from "@/lib/validators/fiscal";
 import {
   createAndAuthorizeInvoice,
@@ -449,6 +454,212 @@ export const fiscalRouter = createTRPCRouter({
         }
         const urls = await getInvoiceDocumentUrls(invoice.providerRef);
         return { xmlUrl: urls.xmlUrl };
+      });
+    }),
+
+  /** Update invoice (DRAFT/REJECTED only) */
+  update: tenantProcedure
+    .input(updateInvoiceSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "DRAFT" && invoice.status !== "REJECTED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas rascunhos podem ser editados" });
+        }
+
+        const data: Record<string, unknown> = {};
+        if (input.recipientName !== undefined) data.recipientName = input.recipientName;
+        if (input.recipientCpfCnpj !== undefined) data.recipientCpfCnpj = input.recipientCpfCnpj;
+
+        // Store extra fields in payload JSON
+        const existingPayload = (invoice.payload as Record<string, unknown>) ?? {};
+        const updatedPayload = {
+          ...existingPayload,
+          recipientEmail: input.recipientEmail ?? existingPayload.recipientEmail,
+          recipientPhone: input.recipientPhone ?? existingPayload.recipientPhone,
+          recipientAddress: {
+            zipCode: input.recipientZipCode,
+            street: input.recipientStreet,
+            number: input.recipientNumber,
+            complement: input.recipientComplement,
+            neighborhood: input.recipientNeighborhood,
+            city: input.recipientCity,
+            state: input.recipientState,
+          },
+          freightAmount: input.freightAmount,
+          insuranceAmount: input.insuranceAmount,
+          otherExpenses: input.otherExpenses,
+          discountAmount: input.discountAmount,
+          freightMode: input.freightMode,
+          paymentForm: input.paymentForm,
+          additionalInfo: input.additionalInfo,
+        };
+
+        data.payload = updatedPayload;
+
+        await tx.invoice.update({ where: { id: input.invoiceId }, data });
+        return { success: true };
+      });
+    }),
+
+  /** Add item to invoice (DRAFT/REJECTED only) */
+  addItem: tenantProcedure
+    .input(addInvoiceItemSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "DRAFT" && invoice.status !== "REJECTED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas rascunhos podem receber itens" });
+        }
+
+        const totalCents = Math.round(input.quantity * input.unitPrice);
+
+        await tx.invoiceItem.create({
+          data: {
+            tenantId: ctx.tenantId,
+            invoiceId: input.invoiceId,
+            description: input.description,
+            quantity: new Prisma.Decimal(input.quantity),
+            unitPrice: centsToPrisma(input.unitPrice),
+            total: centsToPrisma(totalCents),
+            ncm: input.ncm ?? null,
+            cfop: input.cfop ?? null,
+          },
+        });
+
+        // Recalculate total
+        const allItems = await tx.invoiceItem.findMany({
+          where: { invoiceId: input.invoiceId },
+        });
+        const newTotal = allItems.reduce((sum, item) => sum + Number(item.total), 0);
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: { totalAmount: new Prisma.Decimal(newTotal) },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  /** Remove item from invoice */
+  removeItem: tenantProcedure
+    .input(removeInvoiceItemSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "DRAFT" && invoice.status !== "REJECTED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas rascunhos podem ter itens removidos" });
+        }
+
+        await tx.invoiceItem.delete({ where: { id: input.itemId } });
+
+        // Recalculate total
+        const allItems = await tx.invoiceItem.findMany({
+          where: { invoiceId: input.invoiceId },
+        });
+        const newTotal = allItems.reduce((sum, item) => sum + Number(item.total), 0);
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: { totalAmount: new Prisma.Decimal(newTotal) },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  /** Inutilizar numeracao */
+  inutilizar: tenantProcedure
+    .input(inutilizarSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (input.endNumber < input.startNumber) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Numero final deve ser maior ou igual ao inicial",
+        });
+      }
+
+      logger.info("Inutilizacao solicitada", {
+        model: input.model,
+        series: input.series,
+        startNumber: input.startNumber,
+        endNumber: input.endNumber,
+        justification: input.justification,
+      });
+
+      // In production, this would call Nuvem Fiscal API
+      // For now, log and return success (mock)
+      return {
+        success: true,
+        model: input.model,
+        series: input.series,
+        startNumber: input.startNumber,
+        endNumber: input.endNumber,
+        quantity: input.endNumber - input.startNumber + 1,
+      };
+    }),
+
+  /** Create NF-e de entrada (avulsa) */
+  createEntrada: tenantProcedure
+    .input(createEntradaSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const payload = {
+          tipoOperacao: "entrada",
+          fornecedor: {
+            nome: input.supplierName,
+            cpfCnpj: input.supplierCpfCnpj,
+            email: input.supplierEmail,
+            telefone: input.supplierPhone,
+            fornecedorId: input.supplierId,
+            endereco: {
+              cep: input.zipCode,
+              logradouro: input.street,
+              numero: input.number,
+              complemento: input.complement,
+              bairro: input.neighborhood,
+              cidade: input.city,
+              uf: input.state,
+            },
+          },
+          frete: {
+            modalidade: input.freightMode,
+            valor: input.freightAmount,
+            seguro: input.insuranceAmount,
+            outrasDespesas: input.otherExpenses,
+          },
+          informacoesComplementares: input.additionalInfo,
+        };
+
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: "NFE",
+            status: "DRAFT",
+            recipientName: input.supplierName,
+            recipientCpfCnpj: input.supplierCpfCnpj,
+            totalAmount: new Prisma.Decimal(0),
+            createdById: ctx.session.user.id,
+            payload: payload as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        logger.info("NF-e de entrada criada", { invoiceId: invoice.id });
+        return { id: invoice.id };
       });
     }),
 
