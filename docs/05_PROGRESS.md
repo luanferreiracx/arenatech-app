@@ -7,8 +7,8 @@
 
 ## Estado atual
 
-**Fase atual:** Fase 17 — Cutover CONCLUIDA. Migracao de dados executada. Fase 14 (Recompensas) adiada.
-**Ultima atualizacao:** 2026-05-12
+**Fase atual:** Modulos finais implementados. Fase 14 (Recompensas) adiada.
+**Ultima atualizacao:** 2026-05-14
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 0
 
@@ -259,6 +259,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-14 — Modulos finais (DePix, Pagamento Publico, Pre-cadastro, Simulador PDF, Recibo, Relatorios NF)
+
+- **Implementado:**
+  - **Saques DePix:** schema depix-withdraw.prisma (1 tabela + 2 enums), RLS, 7 validators Zod, router depixWithdrawRouter (7 procedures: list, getById, create, update, stats, searchRecipients, checkStatus), 3 paginas (listagem+filtros+stats, novo saque com resumo lateral, detalhe com valores+acoes)
+  - **Pagamento Publico:** /pay/[token] pagina publica com layout DePix (placeholder para integracao futura)
+  - **Recibo Publico:** /receipt/[token] pagina publica que busca Sale por publicLink e exibe recibo com itens, cliente, totais
+  - **Pre-cadastro Fluxo:** /register/pending (aguardando aprovacao), /register/approved (sucesso + link login), /register/rejected (com motivo + contato WhatsApp)
+  - **Simulador PDF:** API route /api/simulator/pdf (gera HTML formatado para impressao), botao "Gerar PDF" + campo "Nome do Cliente" no formulario
+  - **Relatorios NF:** router reportRouter (1 procedure: nfReport), pagina /reports com filtros (periodo, status NF), 6 cards de totais, tabela visao conjunta (vendas + OS)
+  - Proxy.ts: /pay, /receipt, /register/* como rotas publicas
+  - Sidebar: "Saques DePix" em Financeiro, "Relatorio NF" em Fiscal
+  - RLS habilitado em depix_withdrawals, quick_sales, interest_interactions
+- **Decisoes:**
+  - DePix create e mock (sem integracao real com api.pixpay.space nesta sessao) — webhook externo pode atualizar status
+  - Recibo publico usa prisma direto (sem withTenant) pois e rota publica
+  - Relatorio NF cruza vendas/OS com invoices por referenceId
+  - Invoice.number e Int? — mapeado como string|number|null na interface
+- **Proximo:** Fase 14 (Recompensas) quando decisao de produto for tomada
 
 ### 2026-05-12 — Alinhamento OS com Laravel campo a campo (segunda rodada)
 
@@ -663,11 +682,11 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de codigo | ~23300 |
+| Linhas de codigo | ~25400 |
 | Cobertura de testes | 360 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 42 (38 anteriores + 2 fiscal + 2 communication) |
-| Procedures tRPC | 168 (143 anteriores + fiscal.11 + communication.14) |
-| Paginas | 86+ (80 anteriores + fiscal 3 + communication 3) |
+| Tabelas no schema | 45 (42 anteriores + depix_withdrawals + quick_sales + interest_interactions) |
+| Procedures tRPC | 176 (168 anteriores + depixWithdraw.7 + report.1) |
+| Paginas | 96+ (86 anteriores + depix 3 + reports 1 + pay 1 + receipt 1 + register 3 + api/simulator/pdf 1) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
