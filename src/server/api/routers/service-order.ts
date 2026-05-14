@@ -513,6 +513,100 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
+        // ── If PAID, register cash movement and financial receivable ──
+        if (newStatus === "PAID") {
+          const paidCents = decimalToCents(updateData.paidAmount ?? order.totalAmount);
+          const paymentMethodUsed = input.paymentMethod ?? "dinheiro";
+
+          if (paidCents > 0) {
+            // Cash movement
+            const userId = ctx.session.user.id;
+            const openRegister = await tx.cashRegister.findFirst({
+              where: { userId, status: "OPEN" },
+              include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+            });
+
+            if (openRegister) {
+              const lastMov = openRegister.movements[0];
+              const curBal = lastMov
+                ? decimalToCents(lastMov.currentBalance)
+                : decimalToCents(openRegister.openingBalance);
+              const newBal = curBal + paidCents;
+
+              await tx.cashMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  cashRegisterId: openRegister.id,
+                  type: "SERVICE_ORDER",
+                  amount: centsToPrisma(paidCents),
+                  nature: "INFLOW",
+                  paymentMethod: paymentMethodUsed,
+                  description: `Pagamento OS ${order.number}`,
+                  referenceType: "service_order",
+                  referenceId: order.id,
+                  userId,
+                  previousBalance: centsToPrisma(curBal),
+                  currentBalance: centsToPrisma(newBal),
+                },
+              });
+            }
+
+            // Financial receivable (avoid duplicates)
+            const existingRcv = await tx.financialTransaction.findFirst({
+              where: {
+                referenceType: "service_order",
+                referenceId: order.id,
+                type: "RECEIVABLE",
+                status: { not: "CANCELLED" },
+                deletedAt: null,
+              },
+            });
+
+            if (!existingRcv) {
+              const customerData = await tx.customer.findUnique({
+                where: { id: order.customerId },
+                select: { name: true },
+              });
+              const instantPay = ["dinheiro", "pix"].includes(paymentMethodUsed);
+              const amtDec = centsToPrisma(paidCents);
+
+              const rcv = await tx.financialTransaction.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  type: "RECEIVABLE",
+                  status: instantPay ? "PAID" : "PENDING",
+                  description: `OS #${order.number}`,
+                  category: "Ordem de Servico",
+                  customerName: customerData?.name ?? null,
+                  customerId: order.customerId,
+                  totalAmount: amtDec,
+                  paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
+                  dueDate: new Date(),
+                  emissionDate: new Date(),
+                  paidAt: instantPay ? new Date() : null,
+                  paymentMethod: paymentMethodUsed,
+                  referenceType: "service_order",
+                  referenceId: order.id,
+                },
+              });
+
+              await tx.installment.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  transactionId: rcv.id,
+                  number: 1,
+                  amount: amtDec,
+                  dueDate: new Date(),
+                  paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
+                  paidAt: instantPay ? new Date() : null,
+                  paymentMethod: instantPay ? paymentMethodUsed : null,
+                  status: instantPay ? "PAID" : "PENDING",
+                },
+              });
+            }
+          }
+        }
+
         return { success: true };
       });
     }),
@@ -774,6 +868,96 @@ export const serviceOrderRouter = createTRPCRouter({
             notes: `Pagamento registrado: ${input.paymentMethod}`,
           },
         });
+
+        // ── Register cash movement (parity with Laravel CaixaService) ──
+        const userId = ctx.session.user.id;
+        const openRegister = await tx.cashRegister.findFirst({
+          where: { userId, status: "OPEN" },
+          include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+        });
+
+        if (openRegister) {
+          const lastMovement = openRegister.movements[0];
+          const currentBalance = lastMovement
+            ? decimalToCents(lastMovement.currentBalance)
+            : decimalToCents(openRegister.openingBalance);
+          const newBalance = currentBalance + input.paidAmount;
+
+          await tx.cashMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              cashRegisterId: openRegister.id,
+              type: "SERVICE_ORDER",
+              amount: centsToPrisma(input.paidAmount),
+              nature: "INFLOW",
+              paymentMethod: input.paymentMethod,
+              description: `Pagamento OS ${order.number}`,
+              referenceType: "service_order",
+              referenceId: order.id,
+              userId,
+              previousBalance: centsToPrisma(currentBalance),
+              currentBalance: centsToPrisma(newBalance),
+            },
+          });
+        }
+
+        // ── Generate financial receivable (parity with Laravel gerarRecebiveisOS) ──
+        const paidAmountDecimal = centsToPrisma(input.paidAmount);
+        const instantPayment = ["dinheiro", "pix"].includes(input.paymentMethod);
+
+        // Avoid duplicates
+        const existingReceivable = await tx.financialTransaction.findFirst({
+          where: {
+            referenceType: "service_order",
+            referenceId: order.id,
+            type: "RECEIVABLE",
+            status: { not: "CANCELLED" },
+            deletedAt: null,
+          },
+        });
+
+        if (!existingReceivable && input.paidAmount > 0) {
+          // Load customer name
+          const customer = await tx.customer.findUnique({
+            where: { id: order.customerId },
+            select: { name: true },
+          });
+
+          const receivable = await tx.financialTransaction.create({
+            data: {
+              tenantId: ctx.tenantId,
+              type: "RECEIVABLE",
+              status: instantPayment ? "PAID" : "PENDING",
+              description: `OS #${order.number}`,
+              category: "Ordem de Servico",
+              customerName: customer?.name ?? null,
+              customerId: order.customerId,
+              totalAmount: paidAmountDecimal,
+              paidAmount: instantPayment ? paidAmountDecimal : new Prisma.Decimal(0),
+              dueDate: new Date(),
+              emissionDate: new Date(),
+              paidAt: instantPayment ? new Date() : null,
+              paymentMethod: input.paymentMethod,
+              referenceType: "service_order",
+              referenceId: order.id,
+            },
+          });
+
+          // Create single installment
+          await tx.installment.create({
+            data: {
+              tenantId: ctx.tenantId,
+              transactionId: receivable.id,
+              number: 1,
+              amount: paidAmountDecimal,
+              dueDate: new Date(),
+              paidAmount: instantPayment ? paidAmountDecimal : new Prisma.Decimal(0),
+              paidAt: instantPayment ? new Date() : null,
+              paymentMethod: instantPayment ? input.paymentMethod : null,
+              status: instantPayment ? "PAID" : "PENDING",
+            },
+          });
+        }
 
         return { success: true };
       });
