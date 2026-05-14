@@ -5,6 +5,10 @@ import {
   createServiceSchema,
   updateServiceSchema,
   listServicesSchema,
+  bulkAdjustSchema,
+  renameTypeSchema,
+  duplicateTypeSchema,
+  sendServiceWhatsAppSchema,
   createDiagnosticTemplateSchema,
   updateDiagnosticTemplateSchema,
   listDiagnosticTemplatesSchema,
@@ -15,6 +19,11 @@ import {
   listDevicesSchema,
 } from "@/lib/validators/catalog";
 import { Prisma } from "@prisma/client";
+import { sendTextMessage, formatPhone } from "@/lib/services/whatsapp-service";
+
+function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
+  return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
+}
 
 export const catalogRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -25,7 +34,7 @@ export const catalogRouter = createTRPCRouter({
     .input(listServicesSchema)
     .query(async ({ ctx, input }) => {
       const page = input.page ?? 0;
-      const pageSize = input.pageSize ?? 10;
+      const pageSize = input.pageSize ?? 50;
 
       return ctx.withTenant(async (tx) => {
         const where: Prisma.ServiceWhereInput = { deletedAt: null };
@@ -34,10 +43,20 @@ export const catalogRouter = createTRPCRouter({
           where.active = input.active;
         }
 
+        if (input.serviceType) {
+          where.serviceType = input.serviceType;
+        }
+
+        if (input.deviceModel) {
+          where.deviceModel = { contains: input.deviceModel, mode: "insensitive" };
+        }
+
         if (input.search?.trim()) {
           const term = input.search.trim();
           where.OR = [
             { name: { contains: term, mode: "insensitive" } },
+            { serviceType: { contains: term, mode: "insensitive" } },
+            { deviceModel: { contains: term, mode: "insensitive" } },
             { description: { contains: term, mode: "insensitive" } },
           ];
         }
@@ -45,7 +64,7 @@ export const catalogRouter = createTRPCRouter({
         const [data, total] = await Promise.all([
           tx.service.findMany({
             where,
-            orderBy: { name: "asc" },
+            orderBy: [{ serviceType: "asc" }, { deviceModel: "asc" }],
             skip: page * pageSize,
             take: pageSize,
           }),
@@ -55,11 +74,100 @@ export const catalogRouter = createTRPCRouter({
         return {
           data: data.map((s) => ({
             ...s,
-            basePrice: s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0,
+            basePrice: serviceToCents(s),
           })),
           total,
           pageCount: Math.ceil(total / pageSize),
         };
+      });
+    }),
+
+  /** Returns all services grouped by serviceType (for the catalog card view) */
+  listServicesGrouped: tenantProcedure
+    .input(
+      z.object({
+        serviceType: z.string().optional(),
+        deviceModel: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ServiceWhereInput = {
+          deletedAt: null,
+          active: true,
+        };
+
+        if (input.serviceType) {
+          where.serviceType = input.serviceType;
+        }
+
+        if (input.deviceModel) {
+          where.deviceModel = { contains: input.deviceModel, mode: "insensitive" };
+        }
+
+        const data = await tx.service.findMany({
+          where,
+          orderBy: [{ serviceType: "asc" }, { deviceModel: "asc" }],
+        });
+
+        // Group by serviceType
+        const groups: Record<string, Array<{
+          id: string;
+          name: string;
+          serviceType: string | null;
+          deviceModel: string | null;
+          description: string | null;
+          basePrice: number;
+          estimatedTime: string | null;
+        }>> = {};
+
+        for (const s of data) {
+          const key = s.serviceType ?? "Outros";
+          if (!groups[key]) {
+            groups[key] = [];
+          }
+          groups[key].push({
+            ...s,
+            basePrice: serviceToCents(s),
+          });
+        }
+
+        return groups;
+      });
+    }),
+
+  /** Distinct service types for filter dropdowns */
+  listServiceTypes: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const result = await tx.service.findMany({
+        where: { deletedAt: null, serviceType: { not: null } },
+        select: { serviceType: true },
+        distinct: ["serviceType"],
+        orderBy: { serviceType: "asc" },
+      });
+      return result.map((r) => r.serviceType).filter(Boolean) as string[];
+    });
+  }),
+
+  /** Distinct device models for filter dropdowns */
+  listDeviceModels: tenantProcedure
+    .input(z.object({ serviceType: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ServiceWhereInput = {
+          deletedAt: null,
+          deviceModel: { not: null },
+        };
+        if (input?.serviceType) {
+          where.serviceType = input.serviceType;
+        }
+        const result = await tx.service.findMany({
+          where,
+          select: { deviceModel: true },
+          distinct: ["deviceModel"],
+          orderBy: { deviceModel: "asc" },
+        });
+        return result.map((r) => r.deviceModel).filter(Boolean) as string[];
       });
     }),
 
@@ -75,7 +183,7 @@ export const catalogRouter = createTRPCRouter({
         }
         return {
           ...service,
-          basePrice: service.basePrice ? Math.round(Number(service.basePrice) * 100) : 0,
+          basePrice: serviceToCents(service),
         };
       });
     }),
@@ -84,10 +192,13 @@ export const catalogRouter = createTRPCRouter({
     .input(createServiceSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const name = `${input.serviceType} - ${input.deviceModel}`;
         return tx.service.create({
           data: {
             tenantId: ctx.tenantId,
-            name: input.name,
+            name,
+            serviceType: input.serviceType,
+            deviceModel: input.deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
             estimatedTime: input.estimatedTime || null,
@@ -105,10 +216,13 @@ export const catalogRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
 
+        const name = `${input.serviceType} - ${input.deviceModel}`;
         return tx.service.update({
           where: { id: input.id },
           data: {
-            name: input.name,
+            name,
+            serviceType: input.serviceType,
+            deviceModel: input.deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
             estimatedTime: input.estimatedTime || null,
@@ -147,6 +261,186 @@ export const catalogRouter = createTRPCRouter({
           where: { id: input.id },
           data: { active: !existing.active },
         });
+      });
+    }),
+
+  /** Bulk adjust price for all services of a given type (+/- centavos) */
+  bulkAdjustPrice: tenantProcedure
+    .input(bulkAdjustSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const services = await tx.service.findMany({
+          where: {
+            serviceType: input.serviceType,
+            deletedAt: null,
+          },
+        });
+
+        if (services.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhum servico encontrado para este tipo" });
+        }
+
+        const adjustDecimal = new Prisma.Decimal(input.adjustmentCents).div(100);
+
+        let count = 0;
+        for (const s of services) {
+          const newPrice = s.basePrice.add(adjustDecimal);
+          if (newPrice.lessThan(0)) continue;
+          await tx.service.update({
+            where: { id: s.id },
+            data: { basePrice: newPrice },
+          });
+          count++;
+        }
+
+        return { updated: count };
+      });
+    }),
+
+  /** Delete all services of a given type (soft delete) */
+  deleteByType: tenantProcedure
+    .input(z.object({ serviceType: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const result = await tx.service.updateMany({
+          where: {
+            serviceType: input.serviceType,
+            deletedAt: null,
+          },
+          data: { deletedAt: new Date() },
+        });
+
+        return { deleted: result.count };
+      });
+    }),
+
+  /** Rename a service type across all services */
+  renameType: tenantProcedure
+    .input(renameTypeSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const services = await tx.service.findMany({
+          where: {
+            serviceType: input.oldName,
+            deletedAt: null,
+          },
+        });
+
+        if (services.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de servico nao encontrado" });
+        }
+
+        for (const s of services) {
+          const newName = `${input.newName} - ${s.deviceModel ?? ""}`.trim();
+          await tx.service.update({
+            where: { id: s.id },
+            data: {
+              serviceType: input.newName,
+              name: newName,
+            },
+          });
+        }
+
+        return { updated: services.length };
+      });
+    }),
+
+  /** Duplicate all services of a type with a new type name */
+  duplicateType: tenantProcedure
+    .input(duplicateTypeSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const services = await tx.service.findMany({
+          where: {
+            serviceType: input.sourceType,
+            deletedAt: null,
+          },
+        });
+
+        if (services.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de servico nao encontrado" });
+        }
+
+        for (const s of services) {
+          const newName = `${input.newType} - ${s.deviceModel ?? ""}`.trim();
+          await tx.service.create({
+            data: {
+              tenantId: ctx.tenantId,
+              name: newName,
+              serviceType: input.newType,
+              deviceModel: s.deviceModel,
+              description: s.description,
+              basePrice: s.basePrice,
+              estimatedTime: s.estimatedTime,
+            },
+          });
+        }
+
+        return { created: services.length };
+      });
+    }),
+
+  /** Send quote via WhatsApp */
+  sendServiceWhatsApp: tenantProcedure
+    .input(sendServiceWhatsAppSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const service = await tx.service.findUnique({
+          where: { id: input.serviceId },
+        });
+        if (!service || service.deletedAt) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
+        }
+
+        // Get installment info from settings
+        const creditCard = await tx.paymentMethod.findFirst({
+          where: { type: "CREDIT_CARD", active: true },
+          include: { installmentRules: { orderBy: { installments: "desc" }, take: 1 } },
+        });
+
+        const maxInstallments = creditCard?.installmentRules[0]?.installments ?? 12;
+        const priceCents = serviceToCents(service);
+        const priceFormatted = (priceCents / 100).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+        const installmentValue = (priceCents / maxInstallments / 100).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+        const pixDiscount = 5;
+        const pixPrice = ((priceCents * (100 - pixDiscount)) / 10000).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+
+        const message = [
+          `Ola ${input.clientName}! Segue o orcamento da Arena Tech:`,
+          "",
+          `\u{1F527} ORCAMENTO`,
+          `\u{1F4F1} Servico: ${service.serviceType ?? service.name}`,
+          `\u{1F4F2} Aparelho: ${service.deviceModel ?? "-"}`,
+          `\u{1F4B0} Valor: ${priceFormatted}`,
+          `\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`,
+          `\u{1F4B5} Desconto PIX: ${pixDiscount}% = ${pixPrice}`,
+          `\u{2705} Valido por 48h`,
+          "",
+          "Arena Tech - Assistencia Tecnica",
+        ].join("\n");
+
+        const result = await sendTextMessage(
+          formatPhone(input.clientPhone),
+          message,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: result.error ?? "Erro ao enviar WhatsApp",
+          });
+        }
+
+        return { success: true, messageId: result.messageId };
       });
     }),
 

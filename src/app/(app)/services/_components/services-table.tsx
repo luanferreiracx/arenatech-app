@@ -3,7 +3,18 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Pencil, Trash2 } from "lucide-react";
+import {
+  Pencil,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  Plus,
+  TrendingUp,
+  TrendingDown,
+  Copy,
+  Type,
+  Trash,
+} from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
@@ -11,39 +22,55 @@ import { DataTableToolbar } from "@/components/domain/data-table/data-table-tool
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/lib/toast";
+import { BulkActionDialog, type BulkAction } from "./bulk-action-dialog";
 
 interface ServiceRow {
   id: string;
   name: string;
+  serviceType: string | null;
+  deviceModel: string | null;
   description: string | null;
-  basePrice: { toNumber?: () => number } | number | string;
+  basePrice: number;
   estimatedTime: string | null;
   active: boolean;
 }
 
-function formatCurrency(value: ServiceRow["basePrice"]): string {
-  let num: number;
-  if (typeof value === "object" && value !== null && "toNumber" in value) {
-    num = (value as { toNumber: () => number }).toNumber();
-  } else {
-    num = Number(value);
-  }
-  return num.toLocaleString("pt-BR", {
+function formatCurrency(centavos: number): string {
+  return (centavos / 100).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
-    minimumFractionDigits: 2,
   });
 }
 
-export function ServicesTable() {
+export function ServicesManageTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(50);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("");
+  const [deviceModelFilter, setDeviceModelFilter] = useState<string>("");
+  const [bulkAction, setBulkAction] = useState<{
+    action: BulkAction;
+    serviceType: string;
+  } | null>(null);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
@@ -54,20 +81,45 @@ export function ServicesTable() {
     return () => clearTimeout(timeoutId);
   }, []);
 
+  const { data: serviceTypes } = useQuery(
+    trpc.catalog.listServiceTypes.queryOptions(),
+  );
+
+  const { data: deviceModels } = useQuery(
+    trpc.catalog.listDeviceModels.queryOptions(
+      serviceTypeFilter ? { serviceType: serviceTypeFilter } : undefined,
+    ),
+  );
+
   const { data, isLoading } = useQuery(
     trpc.catalog.listServices.queryOptions({
       search: debouncedSearch || undefined,
+      serviceType: serviceTypeFilter || undefined,
+      deviceModel: deviceModelFilter || undefined,
       page,
       pageSize,
     }),
   );
 
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: [["catalog"]] });
+
   const deleteMutation = useMutation(
     trpc.catalog.deleteService.mutationOptions({
       onSuccess: () => {
         toast.success("Servico excluido com sucesso!");
-        queryClient.invalidateQueries({ queryKey: [["catalog"]] });
+        invalidate();
         setDeleteTarget(null);
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  const toggleMutation = useMutation(
+    trpc.catalog.toggleServiceActive.mutationOptions({
+      onSuccess: () => {
+        toast.success("Status alterado!");
+        invalidate();
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -75,22 +127,31 @@ export function ServicesTable() {
 
   const columns: ColumnDef<ServiceRow>[] = [
     {
-      accessorKey: "name",
-      header: "Nome",
+      accessorKey: "serviceType",
+      header: "Tipo de Servico",
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.name}</span>
+        <span className="font-medium">{row.original.serviceType ?? "-"}</span>
+      ),
+    },
+    {
+      accessorKey: "deviceModel",
+      header: "Modelo",
+      cell: ({ row }) => (
+        <span>{row.original.deviceModel ?? "-"}</span>
       ),
     },
     {
       accessorKey: "basePrice",
       header: "Preco",
       cell: ({ row }) => (
-        <span className="font-mono text-sm">{formatCurrency(row.original.basePrice)}</span>
+        <span className="font-mono text-sm font-medium text-green-600">
+          {formatCurrency(row.original.basePrice)}
+        </span>
       ),
     },
     {
       accessorKey: "estimatedTime",
-      header: "Tempo Estimado",
+      header: "Tempo",
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
           {row.original.estimatedTime || "-"}
@@ -119,6 +180,19 @@ export function ServicesTable() {
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8"
+            onClick={() => toggleMutation.mutate({ id: row.original.id })}
+            title={row.original.active ? "Desativar" : "Ativar"}
+          >
+            {row.original.active ? (
+              <ToggleRight className="h-4 w-4 text-green-600" />
+            ) : (
+              <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className="h-8 w-8 text-destructive"
             onClick={() => setDeleteTarget(row.original.id)}
           >
@@ -128,6 +202,9 @@ export function ServicesTable() {
       ),
     },
   ];
+
+  // Get distinct types for bulk actions dropdown
+  const distinctTypes = serviceTypes ?? [];
 
   return (
     <>
@@ -145,13 +222,138 @@ export function ServicesTable() {
         isLoading={isLoading}
         emptyMessage="Nenhum servico encontrado."
         toolbar={
-          <DataTableToolbar
-            searchValue={search}
-            onSearchChange={handleSearchChange}
-            searchPlaceholder="Buscar por nome ou descricao..."
-          />
+          <div className="flex flex-wrap items-center gap-3 w-full">
+            <div className="flex-1 min-w-[200px]">
+              <DataTableToolbar
+                searchValue={search}
+                onSearchChange={handleSearchChange}
+                searchPlaceholder="Buscar servico..."
+              />
+            </div>
+
+            <Select
+              value={serviceTypeFilter}
+              onValueChange={(v) => {
+                setServiceTypeFilter(v === "__all__" ? "" : v);
+                setDeviceModelFilter("");
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos os tipos</SelectItem>
+                {serviceTypes?.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={deviceModelFilter}
+              onValueChange={(v) => {
+                setDeviceModelFilter(v === "__all__" ? "" : v);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos os modelos</SelectItem>
+                {deviceModels?.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Bulk actions dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={distinctTypes.length === 0}>
+                  Acoes em Massa
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {distinctTypes.map((type) => (
+                  <DropdownMenu key={type}>
+                    <DropdownMenuTrigger asChild>
+                      <DropdownMenuItem className="cursor-pointer font-medium">
+                        {type}
+                      </DropdownMenuItem>
+                    </DropdownMenuTrigger>
+                  </DropdownMenu>
+                ))}
+                <DropdownMenuSeparator />
+                {serviceTypeFilter && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setBulkAction({ action: "adjust-up", serviceType: serviceTypeFilter })
+                      }
+                    >
+                      <TrendingUp className="mr-2 h-4 w-4" />
+                      Aumentar valores ({serviceTypeFilter})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setBulkAction({ action: "adjust-down", serviceType: serviceTypeFilter })
+                      }
+                    >
+                      <TrendingDown className="mr-2 h-4 w-4" />
+                      Diminuir valores ({serviceTypeFilter})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setBulkAction({ action: "duplicate", serviceType: serviceTypeFilter })
+                      }
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Duplicar tipo ({serviceTypeFilter})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setBulkAction({ action: "rename", serviceType: serviceTypeFilter })
+                      }
+                    >
+                      <Type className="mr-2 h-4 w-4" />
+                      Renomear tipo ({serviceTypeFilter})
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={() =>
+                        setBulkAction({ action: "delete-type", serviceType: serviceTypeFilter })
+                      }
+                    >
+                      <Trash className="mr-2 h-4 w-4" />
+                      Excluir tipo ({serviceTypeFilter})
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {!serviceTypeFilter && (
+                  <DropdownMenuItem disabled>
+                    Selecione um tipo para acoes em massa
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button asChild>
+              <Link href="/services/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Novo Servico
+              </Link>
+            </Button>
+          </div>
         }
       />
+
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -163,6 +365,11 @@ export function ServicesTable() {
         onConfirm={() => {
           if (deleteTarget) deleteMutation.mutate({ id: deleteTarget });
         }}
+      />
+
+      <BulkActionDialog
+        action={bulkAction}
+        onClose={() => setBulkAction(null)}
       />
     </>
   );

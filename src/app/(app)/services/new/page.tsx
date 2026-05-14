@@ -8,7 +8,7 @@ export const metadata = {
 export default function NewServicePage() {
   return (
     <div>
-      <PageHeader title="Novo Servico" subtitle="Cadastre um novo servico" />
+      <PageHeader title="Novo Servico" subtitle="Cadastre um novo servico no catalogo" />
       <ServiceForm />
     </div>
   );

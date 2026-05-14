@@ -31,21 +31,20 @@ export default function EditServicePage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  // Convert Decimal to centavos for MoneyInput
-  const priceNum = typeof service.basePrice === "object" && "toNumber" in service.basePrice
-    ? (service.basePrice as { toNumber: () => number }).toNumber()
-    : Number(service.basePrice);
-
   return (
     <div>
-      <PageHeader title="Editar Servico" subtitle={service.name} />
+      <PageHeader
+        title="Editar Servico"
+        subtitle={`${service.serviceType ?? ""} - ${service.deviceModel ?? ""}`}
+      />
       <ServiceForm
         isEdit
         defaultValues={{
           id: service.id,
-          name: service.name,
+          serviceType: service.serviceType ?? "",
+          deviceModel: service.deviceModel ?? "",
           description: service.description ?? "",
-          basePrice: Math.round(priceNum * 100),
+          basePrice: service.basePrice,
           estimatedTime: service.estimatedTime ?? "",
         }}
       />

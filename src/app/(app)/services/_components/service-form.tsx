@@ -37,7 +37,8 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
   const form = useForm<CreateServiceInput>({
     resolver: zodResolver(createServiceSchema),
     defaultValues: defaultValues ?? {
-      name: "",
+      serviceType: "",
+      deviceModel: "",
       description: "",
       basePrice: 0,
       estimatedTime: "",
@@ -49,7 +50,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
       onSuccess: () => {
         toast.success("Servico cadastrado com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["catalog"]] });
-        router.push("/services");
+        router.push("/services/manage");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -60,7 +61,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
       onSuccess: () => {
         toast.success("Servico atualizado com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["catalog"]] });
-        router.push("/services");
+        router.push("/services/manage");
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -83,12 +84,26 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="name"
+              name="serviceType"
               render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Nome do Servico *</FormLabel>
+                <FormItem>
+                  <FormLabel>Tipo de Servico *</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="Ex: Troca de Tela" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="deviceModel"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Modelo do Aparelho *</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Ex: iPhone 15 Pro" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -151,7 +166,7 @@ export function ServiceForm({ defaultValues, isEdit = false }: ServiceFormProps)
 
         <FormActions
           isLoading={isPending}
-          onCancel={() => router.push("/services")}
+          onCancel={() => router.push("/services/manage")}
           submitLabel={isEdit ? "Salvar Alteracoes" : "Cadastrar Servico"}
         />
       </form>

@@ -1,32 +1,21 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
-import { ServicesTable } from "./_components/services-table";
+import { ServicesCatalog } from "./_components/services-catalog";
 
 export const metadata = {
-  title: "Gestao de Servicos | Arena Tech",
+  title: "Servicos | Arena Tech",
 };
 
 export default function ServicesPage() {
   return (
     <div>
       <PageHeader
-        title="Gestao de Servicos"
-        subtitle="Gerencie os servicos oferecidos pela assistencia"
-        actions={
-          <Button asChild>
-            <Link href="/services/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Novo Servico
-            </Link>
-          </Button>
-        }
+        title="Catalogo de Servicos"
+        subtitle="Consulte precos e envie orcamentos para clientes"
       />
       <Suspense fallback={<LoadingState variant="table" />}>
-        <ServicesTable />
+        <ServicesCatalog />
       </Suspense>
     </div>
   );
