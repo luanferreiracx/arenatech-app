@@ -15,6 +15,10 @@ import {
   updateUserSchema,
   changePasswordSchema,
 } from "@/lib/validators/settings";
+import {
+  listAuditLogsSchema,
+  updateFiscalSettingsSchema,
+} from "@/lib/validators/subscription";
 
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -361,6 +365,203 @@ export const settingsRouter = createTRPCRouter({
       });
       return { success: true };
     }),
+
+  // ═══════════════════════════════════════
+  // SECURITY (Change password)
+  // ═══════════════════════════════════════
+
+  // ═══════════════════════════════════════
+  // AUDIT LOGS
+  // ═══════════════════════════════════════
+
+  listAuditLogs: tenantProcedure
+    .input(listAuditLogsSchema)
+    .query(async ({ ctx, input }) => {
+      const page = input.page ?? 0;
+      const pageSize = input.pageSize ?? 50;
+
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.AuditLogWhereInput = {
+          tenantId: ctx.tenantId,
+        };
+
+        if (input.action) where.action = input.action;
+        if (input.entity) where.entity = input.entity;
+        if (input.dateFrom || input.dateTo) {
+          where.createdAt = {};
+          if (input.dateFrom) where.createdAt.gte = new Date(input.dateFrom);
+          if (input.dateTo) where.createdAt.lte = new Date(input.dateTo + "T23:59:59");
+        }
+
+        const [data, total] = await Promise.all([
+          tx.auditLog.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.auditLog.count({ where }),
+        ]);
+
+        // Get distinct actions and entities for filter dropdowns
+        const [actions, entities] = await Promise.all([
+          tx.auditLog.findMany({
+            where: { tenantId: ctx.tenantId },
+            select: { action: true },
+            distinct: ["action"],
+          }),
+          tx.auditLog.findMany({
+            where: { tenantId: ctx.tenantId },
+            select: { entity: true },
+            distinct: ["entity"],
+          }),
+        ]);
+
+        return {
+          data,
+          total,
+          pageCount: Math.ceil(total / pageSize),
+          actions: actions.map((a) => a.action),
+          entities: entities.map((e) => e.entity),
+        };
+      });
+    }),
+
+  getAuditLog: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const log = await tx.auditLog.findFirst({
+          where: { id: input.id, tenantId: ctx.tenantId },
+        });
+        if (!log) throw new TRPCError({ code: "NOT_FOUND" });
+        return log;
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // FISCAL SETTINGS
+  // ═══════════════════════════════════════
+
+  getFiscalSettings: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const settings = await tx.tenantSettings.findUnique({
+        where: { tenantId: ctx.tenantId },
+      });
+      // Return the fiscal config from the address JSON field or defaults
+      const fiscal = (settings?.address as Record<string, unknown> | null)?.fiscal as Record<string, unknown> | undefined;
+      return fiscal ?? {};
+    });
+  }),
+
+  updateFiscalSettings: tenantProcedure
+    .input(updateFiscalSettingsSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const settings = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+
+        const existingAddress = (settings?.address as Record<string, unknown> | null) ?? {};
+        const updatedAddress = {
+          ...existingAddress,
+          fiscal: input,
+        };
+
+        await tx.tenantSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: {
+            tenantId: ctx.tenantId,
+            address: updatedAddress as Prisma.InputJsonValue,
+          },
+          update: {
+            address: updatedAddress as Prisma.InputJsonValue,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SUBSCRIPTION (tenant view)
+  // ═══════════════════════════════════════
+
+  getSubscription: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const tenant = await withAdmin(async (adminTx) => {
+        return adminTx.tenant.findUnique({
+          where: { id: ctx.tenantId },
+        });
+      });
+
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND" });
+
+      // Get plan info if tenant has one
+      let plan = null;
+      if (tenant.plan) {
+        plan = await withAdmin(async (adminTx) => {
+          return adminTx.plan.findFirst({
+            where: {
+              OR: [
+                { id: tenant.plan ?? "__nope__" },
+                { slug: tenant.plan ?? "__nope__" },
+              ],
+            },
+          });
+        });
+      }
+
+      return {
+        tenantName: tenant.name,
+        status: tenant.status,
+        planName: plan?.name ?? tenant.plan ?? "Sem plano",
+        planPrice: plan ? Math.round(Number(plan.monthlyPrice) * 100) : 0,
+        maxUsers: plan?.maxUsers ?? 5,
+        maxImeiQueries: plan?.maxImeiQueries ?? 0,
+      };
+    });
+  }),
+
+  // ═══════════════════════════════════════
+  // TEAM (list all users + roles)
+  // ═══════════════════════════════════════
+
+  listTeam: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const userTenants = await tx.userTenant.findMany({
+        where: { tenantId: ctx.tenantId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              cpf: true,
+              name: true,
+              email: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { user: { name: "asc" } },
+      });
+
+      // Get user roles if any
+      const userRoles = await tx.userRole.findMany({
+        where: { tenantId: ctx.tenantId },
+      });
+      const roleMap = new Map(userRoles.map((r) => [r.userId, r.role]));
+
+      return userTenants.map((ut) => ({
+        userId: ut.userId,
+        name: ut.user.name,
+        cpf: ut.user.cpf,
+        email: ut.user.email,
+        accessRole: ut.role,
+        tenantRole: roleMap.get(ut.userId) ?? null,
+        createdAt: ut.user.createdAt,
+      }));
+    });
+  }),
 
   // ═══════════════════════════════════════
   // SECURITY (Change password)

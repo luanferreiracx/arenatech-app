@@ -31,6 +31,9 @@ import {
   ArrowUpFromLine,
   Ban,
   Download,
+  MessageSquare,
+  Undo2,
+  Puzzle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -56,6 +59,7 @@ export const appNavGroups: NavGroup[] = [
     title: "Assistencia",
     items: [
       { label: "Ordens de Servico", href: "/service-orders", icon: ClipboardList },
+      { label: "Relatorio Tecnicos", href: "/service-orders/technician-report", icon: BarChart3 },
       { label: "Gestao de Servicos", href: "/services", icon: Wrench },
       { label: "Taxas de Parcelamento", href: "/settings/installments", icon: Percent },
     ],
@@ -142,11 +146,14 @@ export const appNavGroups: NavGroup[] = [
 // Flat list for backward compatibility (mobile sidebar, etc.)
 export const appNavItems: NavItem[] = appNavGroups.flatMap((g) => g.items);
 
-// Admin sidebar items (unchanged)
+// Admin sidebar items
 export const adminNavItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Tenants", href: "/admin/tenants", icon: Package },
   { label: "Planos", href: "/admin/plans", icon: CreditCard },
   { label: "Pre-cadastros", href: "/admin/pre-registrations", icon: Users },
+  { label: "Addons", href: "/admin/addons", icon: Puzzle },
+  { label: "Estornos", href: "/admin/refunds", icon: Undo2 },
+  { label: "WhatsApp Logs", href: "/admin/whatsapp-logs", icon: MessageSquare },
   { label: "Relatorios", href: "/admin/reports", icon: FileText },
 ];

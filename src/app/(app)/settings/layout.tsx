@@ -11,6 +11,10 @@ const tabs = [
   { label: "Entregadores", href: "/settings/delivery-persons" },
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Usuarios", href: "/settings/users" },
+  { label: "Equipe", href: "/settings/team" },
+  { label: "Fiscal", href: "/settings/fiscal" },
+  { label: "Assinatura", href: "/settings/subscription" },
+  { label: "Logs", href: "/settings/logs" },
   { label: "Seguranca", href: "/settings/security" },
 ];
 

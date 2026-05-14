@@ -14,6 +14,10 @@ import {
   listTenantsSchema,
   updateTenantSchema,
 } from "@/lib/validators/admin";
+import {
+  createTenantSchema,
+  listWhatsappLogsSchema,
+} from "@/lib/validators/subscription";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
 
@@ -333,6 +337,134 @@ export const adminRouter = createTRPCRouter({
         });
 
         return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // CREATE TENANT (manual)
+  // ═══════════════════════════════════════
+
+  createTenant: adminProcedure
+    .input(createTenantSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const slug = generateSlug(input.name);
+        const tempPassword = generateTempPassword();
+
+        const tenant = await tx.tenant.create({
+          data: {
+            name: input.name,
+            slug: `${slug}-${Date.now().toString(36)}`,
+            cnpj: input.cnpj ?? null,
+            plan: input.planId ?? null,
+            status: input.trialDays && input.trialDays > 0 ? "PENDING" : "ACTIVE",
+          },
+        });
+
+        const existingUser = await tx.user.findUnique({
+          where: { cpf: input.ownerCpf.replace(/\D/g, "") },
+        });
+
+        let userId: string;
+        if (existingUser) {
+          userId = existingUser.id;
+        } else {
+          const user = await tx.user.create({
+            data: {
+              name: input.ownerName,
+              cpf: input.ownerCpf.replace(/\D/g, ""),
+              email: input.email,
+              passwordHash: hashPassword(tempPassword),
+            },
+          });
+          userId = user.id;
+        }
+
+        await tx.userTenant.create({
+          data: {
+            userId,
+            tenantId: tenant.id,
+            role: "admin",
+          },
+        });
+
+        logger.info("Tenant created manually", {
+          tenantId: tenant.id,
+          userId,
+          byAdmin: ctx.session.user.id,
+        });
+
+        return { tenantId: tenant.id, userId, tempPassword: existingUser ? null : tempPassword };
+      });
+    }),
+
+  deleteTenant: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        await tx.tenant.update({
+          where: { id: input.id },
+          data: { status: "CANCELLED" },
+        });
+        logger.info("Tenant deleted (soft)", { tenantId: input.id, byAdmin: ctx.session.user.id });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // WHATSAPP LOGS (cross-tenant)
+  // ═══════════════════════════════════════
+
+  listWhatsappLogs: adminProcedure
+    .input(listWhatsappLogsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const page = input.page ?? 0;
+        const pageSize = input.pageSize ?? 50;
+
+        const where: Prisma.MessageWhereInput = {
+          channel: "WHATSAPP",
+        };
+        if (input.phone) where.recipientPhone = { contains: input.phone };
+        if (input.status) {
+          const statusMap: Record<string, string> = { SENT: "SENT", FAILED: "FAILED", OUTSIDE_WINDOW: "FAILED" };
+          where.status = statusMap[input.status] as Prisma.EnumMessageStatusFilter;
+        }
+        if (input.dateFrom || input.dateTo) {
+          where.createdAt = {};
+          if (input.dateFrom) where.createdAt.gte = new Date(input.dateFrom);
+          if (input.dateTo) where.createdAt.lte = new Date(input.dateTo + "T23:59:59");
+        }
+
+        const [data, total] = await Promise.all([
+          tx.message.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.message.count({ where }),
+        ]);
+
+        // Stats (last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const statsWhere: Prisma.MessageWhereInput = {
+          channel: "WHATSAPP",
+          createdAt: { gte: thirtyDaysAgo },
+        };
+        const [totalLogs, sentLogs, failedLogs] = await Promise.all([
+          tx.message.count({ where: statsWhere }),
+          tx.message.count({ where: { ...statsWhere, status: "SENT" } }),
+          tx.message.count({ where: { ...statsWhere, status: "FAILED" } }),
+        ]);
+
+        return {
+          data,
+          total,
+          pageCount: Math.ceil(total / pageSize),
+          stats: { total: totalLogs, sent: sentLogs, failed: failedLogs },
+        };
       });
     }),
 
