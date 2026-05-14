@@ -20,7 +20,10 @@ function isPublicRoute(pathname: string): boolean {
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/os/") ||
-    pathname.startsWith("/quote/")
+    pathname.startsWith("/quote/") ||
+    pathname.startsWith("/pay/") ||
+    pathname.startsWith("/receipt/") ||
+    pathname.startsWith("/register/")
   );
 }
 

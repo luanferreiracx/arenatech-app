@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Calculator, Printer } from "lucide-react";
+import { Calculator, Printer, FileDown } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { Card } from "@/components/ui/card";
@@ -42,6 +43,35 @@ export function SimulatorForm() {
       valorProduto: valorProduto / 100,
       valorEntrada: valorEntrada / 100,
     });
+  };
+
+  const [nomeCliente, setNomeCliente] = useState("");
+
+  const handleGeneratePdf = async () => {
+    if (!result) return;
+    try {
+      const res = await fetch("/api/simulator/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: nomeCliente || "Cliente",
+          valorProduto: result.valorProduto,
+          valorEntrada: result.valorEntrada,
+          valorFinanciar: result.valorFinanciar,
+          debito: result.debito,
+          avista: result.avista,
+          parcelas: result.parcelas,
+        }),
+      });
+      const html = await res.text();
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.print();
+    } catch {
+      toast.error("Erro ao gerar PDF");
+    }
   };
 
   const handlePrint = () => {
@@ -83,7 +113,15 @@ export function SimulatorForm() {
     <div className="space-y-6">
       {/* Input Form */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div>
+            <Label>Nome do Cliente (para PDF)</Label>
+            <Input
+              value={nomeCliente}
+              onChange={(e) => setNomeCliente(e.target.value)}
+              placeholder="Nome do cliente"
+            />
+          </div>
           <div>
             <Label>Valor do Produto</Label>
             <MoneyInput
@@ -123,10 +161,16 @@ export function SimulatorForm() {
                 </p>
               )}
             </div>
-            <Button variant="outline" onClick={handlePrint}>
-              <Printer className="mr-2 h-4 w-4" />
-              Imprimir
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handlePrint}>
+                <Printer className="mr-2 h-4 w-4" />
+                Imprimir
+              </Button>
+              <Button variant="outline" onClick={handleGeneratePdf}>
+                <FileDown className="mr-2 h-4 w-4" />
+                Gerar PDF
+              </Button>
+            </div>
           </div>
 
           <div ref={tableRef}>

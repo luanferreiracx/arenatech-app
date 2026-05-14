@@ -1,0 +1,45 @@
+enum DepixWithdrawStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum PixKeyType {
+  RANDOM
+  CPF
+  CNPJ
+  EMAIL
+  PHONE
+}
+
+model DepixWithdraw {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  number           String              @unique
+  pixKeyType       PixKeyType          @map("pix_key_type")
+  pixKey           String              @map("pix_key")
+  recipientName    String?             @map("recipient_name")
+  recipientTaxId   String?             @map("recipient_tax_id")
+  notes            String?
+  requestedAmount  Decimal             @map("requested_amount") @db.Decimal(10, 2)
+  receivedAmount   Decimal?            @map("received_amount") @db.Decimal(10, 2)
+  fee              Decimal?            @db.Decimal(10, 2)
+  depositAmount    Decimal?            @map("deposit_amount") @db.Decimal(10, 2)
+  status           DepixWithdrawStatus @default(PENDING)
+  depixId          String?             @map("depix_id")
+  depositAddress   String?             @map("deposit_address")
+  blockchainTxId   String?             @map("blockchain_tx_id")
+  expiration       DateTime?
+  apiResponse      Json?               @map("api_response")
+  userId           String              @map("user_id") @db.Uuid
+  userName         String?             @map("user_name")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([pixKey])
+  @@map("depix_withdrawals")
+}

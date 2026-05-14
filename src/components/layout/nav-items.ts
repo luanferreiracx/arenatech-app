@@ -113,6 +113,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt },
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp },
       { label: "DRE", href: "/financial/dre", icon: BarChart3 },
+      { label: "Saques DePix", href: "/depix/withdrawals", icon: Banknote },
     ],
   },
   {
@@ -121,6 +122,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Fiscal", href: "/fiscal", icon: FileText },
       { label: "NF-e Entrada", href: "/fiscal/entrada", icon: Download },
       { label: "Inutilizar", href: "/fiscal/inutilizar", icon: Ban },
+      { label: "Relatorio NF", href: "/reports", icon: BarChart3 },
     ],
   },
   {

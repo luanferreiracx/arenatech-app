@@ -19,9 +19,12 @@ import { stockRouter } from "@/server/api/routers/stock";
 import { settingsRouter } from "@/server/api/routers/settings";
 import { valuationRouter } from "@/server/api/routers/valuation";
 import { adminRouter } from "@/server/api/routers/admin";
+import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
+import { reportRouter } from "@/server/api/routers/report";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
+  depixWithdraw: depixWithdrawRouter,
   auth: authRouter,
   cashier: cashierRouter,
   catalog: catalogRouter,
@@ -40,6 +43,7 @@ export const appRouter = createTRPCRouter({
   simulator: simulatorRouter,
   stock: stockRouter,
   settings: settingsRouter,
+  report: reportRouter,
   valuation: valuationRouter,
 });
 
