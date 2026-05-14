@@ -101,6 +101,31 @@ export const saleRouter = createTRPCRouter({
     });
   }),
 
+  /** Abandon (delete) all existing DRAFT sales for the current seller */
+  abandonDraft: tenantProcedure.mutation(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      await tx.saleItem.deleteMany({
+        where: {
+          sale: {
+            tenantId: ctx.tenantId,
+            sellerId: ctx.session.user.id,
+            status: "DRAFT",
+            deletedAt: null,
+          },
+        },
+      });
+      await tx.sale.deleteMany({
+        where: {
+          tenantId: ctx.tenantId,
+          sellerId: ctx.session.user.id,
+          status: "DRAFT",
+          deletedAt: null,
+        },
+      });
+      return { ok: true };
+    });
+  }),
+
   /** Get a draft sale by ID */
   getDraft: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -967,14 +992,20 @@ export const saleRouter = createTRPCRouter({
     });
   }),
 
-  /** List sellers (users) for filter */
-  listSellers: tenantProcedure.query(async () => {
-    return withAdmin(async (adminTx) => {
-      const users = await adminTx.user.findMany({
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
+  /** List sellers (users) for filter — scoped to current tenant */
+  listSellers: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const userTenants = await tx.userTenant.findMany({
+        where: { tenantId: ctx.tenantId },
+        select: {
+          user: {
+            select: { id: true, name: true },
+          },
+        },
       });
-      return users;
+      return userTenants
+        .map((ut) => ut.user)
+        .sort((a, b) => a.name.localeCompare(b.name));
     });
   }),
 

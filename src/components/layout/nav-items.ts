@@ -61,7 +61,8 @@ export const appNavGroups: NavGroup[] = [
       { label: "Ordens de Servico", href: "/service-orders", icon: ClipboardList },
       { label: "Relatorio Tecnicos", href: "/service-orders/technician-report", icon: BarChart3 },
       { label: "Gestao de Servicos", href: "/services", icon: Wrench },
-      { label: "Taxas de Parcelamento", href: "/settings/installments", icon: Percent },
+      { label: "Operacao", href: "/operation", icon: Truck },
+      { label: "Comunicacao", href: "/communication", icon: MessageSquare },
     ],
   },
   {
@@ -76,6 +77,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Simulador", href: "/simulator", icon: Calculator },
       { label: "Avaliar Aparelho", href: "/valuations", icon: Star },
+      { label: "Consulta IMEI", href: "/imei", icon: Shield },
       { label: "Checklist", href: "/checklist", icon: CheckSquare },
     ],
   },
@@ -97,6 +99,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine },
       { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag },
       { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp },
+      { label: "Relatorio de Estoque", href: "/stock/report", icon: BarChart3 },
     ],
   },
   {

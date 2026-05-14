@@ -7,9 +7,11 @@ import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Heart } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { EntitySelector } from "@/components/domain/entity-selector";
 import {
   Form,
   FormControl,
@@ -40,6 +42,7 @@ import { toast } from "@/lib/toast";
 export default function NewInterestPage() {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
   const form = useForm<CreateInterestInput>({
     resolver: zodResolver(createInterestSchema),
@@ -85,9 +88,26 @@ export default function NewInterestPage() {
               name="customerId"
               render={({ field }) => (
                 <FormItem className="col-span-2">
-                  <FormLabel>ID do Cliente *</FormLabel>
+                  <FormLabel>Cliente *</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="UUID do cliente (cole da pagina do cliente)" />
+                    <EntitySelector
+                      value={field.value || undefined}
+                      onChange={(val) => field.onChange(val ?? "")}
+                      searchFn={async (query: string) => {
+                        const res = await queryClient.fetchQuery(
+                          trpc.customer.list.queryOptions({
+                            search: query,
+                            page: 0,
+                            pageSize: 10,
+                          }),
+                        );
+                        return res.data as Array<{ id: string; name: string }>;
+                      }}
+                      getOptionLabel={(item: { name: string }) => item.name}
+                      getOptionValue={(item: { id: string }) => item.id}
+                      placeholder="Buscar cliente por nome ou CPF..."
+                      emptyMessage="Nenhum cliente encontrado"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

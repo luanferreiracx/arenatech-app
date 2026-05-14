@@ -89,13 +89,11 @@ export function PaymentDialog({
       return;
     }
 
-    // For non-cash, cap at remaining
+    // For non-cash, cap at remaining; for cash, send the real amount paid
     if (selectedMethod !== "dinheiro") {
       amountCents = Math.min(amountCents, remaining);
-    } else {
-      // For cash, only register the remaining amount (change is calculated)
-      amountCents = Math.min(amountCents, remaining);
     }
+    // For cash (dinheiro), keep the full amountCents so the backend can calculate change
 
     const installments = parseInt(formInstallments, 10) || 1;
 

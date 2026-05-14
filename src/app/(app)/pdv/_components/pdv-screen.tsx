@@ -203,19 +203,31 @@ export function PdvScreen() {
     );
   };
 
+  // ── Abandon Draft ──
+  const abandonDraftMutation = useMutation(
+    trpc.sale.abandonDraft.mutationOptions(),
+  );
+
   // ── New Sale (restart) ──
   const handleNewSale = () => {
     if (items.length > 0 && !confirm("Descartar venda atual e iniciar uma nova?")) return;
     setDraftId(null);
     setCustomerId(undefined);
     setCustomerName(null);
-    createDraftMutation.mutate(undefined, {
-      onSuccess: (data) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setDraftId((data as any).id as string);
+    abandonDraftMutation.mutate(undefined, {
+      onSuccess: () => {
+        createDraftMutation.mutate(undefined, {
+          onSuccess: (data) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            setDraftId((data as any).id as string);
+          },
+          onError: (err) => {
+            toast.error(`Erro ao criar rascunho: ${err.message}`);
+          },
+        });
       },
       onError: (err) => {
-        toast.error(`Erro ao criar rascunho: ${err.message}`);
+        toast.error(`Erro ao descartar rascunho: ${err.message}`);
       },
     });
   };

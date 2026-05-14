@@ -72,8 +72,8 @@ export default function InterestsPage() {
   const { data, isLoading } = useQuery(
     trpc.interest.list.queryOptions({
       search: search || undefined,
-      status: (statusFilter || undefined) as InterestStatus | undefined,
-      interestType: (typeFilter || undefined) as InterestType | undefined,
+      status: (statusFilter && statusFilter !== "all" ? statusFilter : undefined) as InterestStatus | undefined,
+      interestType: (typeFilter && typeFilter !== "all" ? typeFilter : undefined) as InterestType | undefined,
       pageSize: 50,
     })
   );

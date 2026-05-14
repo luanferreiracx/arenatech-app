@@ -52,7 +52,6 @@ export const simulatorRouter = createTRPCRouter({
           for (const rule of rules) {
             const n = rule.installments;
             const taxa = Number(rule.feePercent);
-            if (taxa <= 0) continue;
 
             // Check minimum amount
             const minAmount = Number(rule.minAmount);

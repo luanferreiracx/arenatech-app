@@ -1,20 +1,13 @@
-import { PageHeader } from "@/components/domain/page-header";
-import { EmptyState } from "@/components/domain/empty-state";
-import { Percent } from "lucide-react";
+import { redirect } from "next/navigation";
 
 export const metadata = {
   title: "Taxas de Parcelamento | Arena Tech",
 };
 
+/**
+ * Installment rules are managed inside Settings > Payment Methods.
+ * This page redirects there to avoid a dead-end stub.
+ */
 export default function InstallmentsPage() {
-  return (
-    <div>
-      <PageHeader title="Taxas de Parcelamento" subtitle="Configure as taxas de parcelamento para servicos" />
-      <EmptyState
-        icon={Percent}
-        title="Em breve"
-        description="Configuracao de taxas de parcelamento sera implementada em uma proxima fase."
-      />
-    </div>
-  );
+  redirect("/settings/payment-methods");
 }

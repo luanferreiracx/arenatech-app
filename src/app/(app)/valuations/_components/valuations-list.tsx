@@ -43,7 +43,7 @@ export function ValuationsList() {
   const modelsQuery = useQuery(trpc.valuation.listModels.queryOptions());
   const listQuery = useQuery(
     trpc.valuation.list.queryOptions({
-      modelo: modeloFilter || undefined,
+      modelo: modeloFilter && modeloFilter !== "all" ? modeloFilter : undefined,
       pageSize: 100,
     }),
   );
@@ -178,7 +178,7 @@ export function ValuationsList() {
                 <SelectValue placeholder="Todos os modelos" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos</SelectItem>
+                <SelectItem value="all">Todos</SelectItem>
                 {(modelsQuery.data ?? []).map((m) => (
                   <SelectItem key={m} value={m}>{m}</SelectItem>
                 ))}

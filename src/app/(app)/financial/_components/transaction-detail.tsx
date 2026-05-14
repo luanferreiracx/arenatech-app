@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { ArrowLeft, Ban, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";

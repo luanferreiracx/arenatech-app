@@ -53,7 +53,10 @@ export const catalogRouter = createTRPCRouter({
         ]);
 
         return {
-          data,
+          data: data.map((s) => ({
+            ...s,
+            basePrice: s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0,
+          })),
           total,
           pageCount: Math.ceil(total / pageSize),
         };
@@ -70,7 +73,10 @@ export const catalogRouter = createTRPCRouter({
         if (!service || service.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
-        return service;
+        return {
+          ...service,
+          basePrice: service.basePrice ? Math.round(Number(service.basePrice) * 100) : 0,
+        };
       });
     }),
 
