@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** SPEC Clientes v1.0 produzida, aguardando revisão do dono. 5 perguntas pendentes em QUESTIONS.md.
+**Fase atual:** Módulo Clientes IMPLEMENTADO contra SPEC v1.0. Aguardando validação cruzada.
 **Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 10
+**Commits desde ultimo deploy:** 14
 
 ---
 
@@ -312,7 +312,19 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
   - Endereço: campos separados (ADR 0007) — compatibilidade NF-e
   - RBAC: 3 papéis (operator/manager/owner) para controle de ações destrutivas
   - Partial unique index para CPF/CNPJ (permite reuso após soft delete) — sujeito a Q1
-- **Próximo:** Revisão do dono da SPEC + respostas às 5 perguntas
+- **Próximo:** Implementação concluída, validação cruzada pelo dono
+
+### 2026-05-15 — IMPLEMENT Clientes contra SPEC v1.0
+
+- **Implementado:**
+  - Schema: Customer (PF/PJ, 19 campos, partial unique CPF/CNPJ), Interest (autônomo), InterestInteraction (enum)
+  - Migration: realign_customers_to_spec + RLS em 3 tabelas
+  - Validators: 30 testes (CPF/CNPJ dígito verificador, cross-field, sendBatch)
+  - Routers: customer (list/byId/create/update/delete/restore com RBAC), interest (CRUD + interactions + sendBatch stub)
+  - Páginas: /customers (CRUD), /interests (CRUD + interações)
+  - CustomerForm PF/PJ toggle, endereço campos separados (ADR 0007)
+  - typecheck 0 erros, 30 testes passando
+- **Próximo:** Validação cruzada pelo dono
 
 ### 2026-05-15 — Sprint 6: Lacunas finais (PDF recibos, Admin CRUD, sidebar)
 
