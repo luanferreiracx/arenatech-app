@@ -1,0 +1,74 @@
+/// Addon packages for IMEI query credits (SaaS global — no tenant_id, no RLS)
+model Addon {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  slug               String   @unique
+  description        String?
+  queryCount         Int      @map("query_count")
+  price              Decimal  @db.Decimal(10, 2)
+  validityDays       Int      @map("validity_days")
+  sortOrder          Int      @default(0) @map("sort_order")
+  featured           Boolean  @default(false)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  purchases AddonPurchase[]
+
+  @@map("addons")
+}
+
+enum AddonPurchaseStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+/// Tracks per-tenant addon purchases (global table — no RLS)
+model AddonPurchase {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  addonId           String              @map("addon_id") @db.Uuid
+  quantityPurchased Int                 @map("quantity_purchased")
+  quantityRemaining Int                 @map("quantity_remaining")
+  pricePaid         Decimal             @map("price_paid") @db.Decimal(10, 2)
+  purchaseDate      DateTime            @default(now()) @map("purchase_date")
+  expirationDate    DateTime            @map("expiration_date")
+  status            AddonPurchaseStatus @default(PENDING)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  addon Addon @relation(fields: [addonId], references: [id])
+
+  @@index([tenantId])
+  @@index([addonId])
+  @@map("addon_purchases")
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  CANCELLED
+}
+
+/// Tracks refunds from plan downgrades (global table — no RLS)
+model Refund {
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  oldPlanId      String?      @map("old_plan_id") @db.Uuid
+  newPlanId      String?      @map("new_plan_id") @db.Uuid
+  refundAmount   Decimal      @map("refund_amount") @db.Decimal(10, 2)
+  status         RefundStatus @default(PENDING)
+  notes          String?
+  processedById  String?      @map("processed_by_id") @db.Uuid
+  processedAt    DateTime?    @map("processed_at")
+  cancelledAt    DateTime?    @map("cancelled_at")
+  cancelReason   String?      @map("cancel_reason")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("refunds")
+}

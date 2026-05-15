@@ -13,6 +13,7 @@ import {
   User,
   Calendar,
   Loader2,
+  Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,10 +118,19 @@ export default function QuickSaleDetailPage() {
               </>
             )}
             {isPaid && (
-              <Button variant="outline" disabled className="opacity-60">
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Pagamento Confirmado
-              </Button>
+              <>
+                <Button variant="outline" disabled className="opacity-60">
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Pagamento Confirmado
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open(`/api/quick-sales/${id}/recibo`, "_blank")}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Recibo
+                </Button>
+              </>
             )}
           </div>
         }

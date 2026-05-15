@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { PIX_KEY_TYPE_LABELS } from "@/lib/validators/depix-withdraw";
-import { RefreshCw, Plus, ArrowLeft, User, Calendar, Edit } from "lucide-react";
+import { RefreshCw, Plus, ArrowLeft, User, Calendar, Edit, Printer } from "lucide-react";
 
 function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -162,6 +162,16 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
         {/* Actions */}
         <Card className="p-4 space-y-2">
           <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Acoes</h3>
+          {w.status === "SENT" && (
+            <Button
+              variant="outline"
+              className="w-full justify-center"
+              onClick={() => window.open(`/api/depix/withdrawals/${id}/comprovante`, "_blank")}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Comprovante
+            </Button>
+          )}
           <Button variant="outline" className="w-full justify-center" asChild>
             <Link href={`/depix/withdrawals/new?pixKeyType=${w.pixKeyType}&pixKey=${encodeURIComponent(w.pixKey)}&recipientName=${encodeURIComponent(w.recipientName ?? "")}`}>
               <RefreshCw className="w-4 h-4 mr-2" />

@@ -18,6 +18,16 @@ import {
   createTenantSchema,
   listWhatsappLogsSchema,
 } from "@/lib/validators/subscription";
+import {
+  createAddonSchema,
+  updateAddonSchema,
+  listAddonsSchema,
+  assignAddonSchema,
+  listRefundsSchema,
+  processRefundSchema,
+  cancelRefundSchema,
+  REFUND_STATUS_LABELS,
+} from "@/lib/validators/addon";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
 
@@ -490,6 +500,331 @@ export const adminRouter = createTRPCRouter({
         userCount: t.users.length,
         createdAt: t.createdAt,
       }));
+    });
+  }),
+
+  // ═══════════════════════════════════════
+  // ADDONS
+  // ═══════════════════════════════════════
+
+  listAddons: adminProcedure
+    .input(listAddonsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const where: Prisma.AddonWhereInput = {};
+        if (input.activeOnly) where.active = true;
+
+        const addons = await tx.addon.findMany({
+          where,
+          orderBy: { sortOrder: "asc" },
+          include: { _count: { select: { purchases: true } } },
+        });
+
+        return addons.map((a) => ({
+          ...a,
+          price: decimalToCents(a.price),
+          purchaseCount: a._count.purchases,
+        }));
+      });
+    }),
+
+  getAddon: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const addon = await tx.addon.findUnique({
+          where: { id: input.id },
+          include: {
+            purchases: {
+              orderBy: { createdAt: "desc" },
+              take: 20,
+            },
+            _count: { select: { purchases: true } },
+          },
+        });
+        if (!addon) throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...addon,
+          price: decimalToCents(addon.price),
+          purchaseCount: addon._count.purchases,
+          purchases: addon.purchases.map((p) => ({
+            ...p,
+            pricePaid: decimalToCents(p.pricePaid),
+          })),
+        };
+      });
+    }),
+
+  createAddon: adminProcedure
+    .input(createAddonSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const baseSlug = generateSlug(input.name);
+        let slug = baseSlug;
+        let counter = 1;
+        while (await tx.addon.findUnique({ where: { slug } })) {
+          slug = `${baseSlug}-${counter}`;
+          counter++;
+        }
+
+        const addon = await tx.addon.create({
+          data: {
+            name: input.name,
+            slug,
+            description: input.description ?? null,
+            queryCount: input.queryCount,
+            price: centsToPrisma(input.price),
+            validityDays: input.validityDays,
+            sortOrder: input.sortOrder ?? 0,
+            featured: input.featured ?? false,
+            active: input.active ?? true,
+          },
+        });
+
+        logger.info("Addon created", { id: addon.id, name: addon.name });
+        return { id: addon.id };
+      });
+    }),
+
+  updateAddon: adminProcedure
+    .input(updateAddonSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const data: Record<string, unknown> = {};
+        if (input.name !== undefined) data.name = input.name;
+        if (input.description !== undefined) data.description = input.description;
+        if (input.queryCount !== undefined) data.queryCount = input.queryCount;
+        if (input.price !== undefined) data.price = centsToPrisma(input.price);
+        if (input.validityDays !== undefined) data.validityDays = input.validityDays;
+        if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+        if (input.featured !== undefined) data.featured = input.featured;
+        if (input.active !== undefined) data.active = input.active;
+
+        await tx.addon.update({ where: { id: input.id }, data });
+        return { success: true };
+      });
+    }),
+
+  toggleAddon: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const addon = await tx.addon.findUnique({ where: { id: input.id } });
+        if (!addon) throw new TRPCError({ code: "NOT_FOUND" });
+        await tx.addon.update({
+          where: { id: input.id },
+          data: { active: !addon.active },
+        });
+        return { active: !addon.active };
+      });
+    }),
+
+  deleteAddon: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const hasPurchases = await tx.addonPurchase.count({ where: { addonId: input.id } });
+        if (hasPurchases > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e possivel excluir addon que ja foi vendido. Desative-o.",
+          });
+        }
+        await tx.addon.delete({ where: { id: input.id } });
+        return { success: true };
+      });
+    }),
+
+  assignAddon: adminProcedure
+    .input(assignAddonSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const addon = await tx.addon.findUnique({ where: { id: input.addonId } });
+        if (!addon) throw new TRPCError({ code: "NOT_FOUND", message: "Addon nao encontrado" });
+
+        const pricePaid = input.pricePaid !== undefined
+          ? centsToPrisma(input.pricePaid)
+          : addon.price;
+
+        const now = new Date();
+        const expiration = new Date(now);
+        expiration.setDate(expiration.getDate() + addon.validityDays);
+
+        const purchase = await tx.addonPurchase.create({
+          data: {
+            tenantId: input.tenantId,
+            addonId: addon.id,
+            quantityPurchased: addon.queryCount,
+            quantityRemaining: addon.queryCount,
+            pricePaid,
+            purchaseDate: now,
+            expirationDate: expiration,
+            status: "PAID",
+          },
+        });
+
+        logger.info("Addon assigned to tenant", {
+          purchaseId: purchase.id,
+          tenantId: input.tenantId,
+          addonId: addon.id,
+        });
+
+        return { purchaseId: purchase.id };
+      });
+    }),
+
+  addonStats: adminProcedure.query(async ({ ctx }) => {
+    return ctx.withAdmin(async (tx) => {
+      const now = new Date();
+      const [totalSold, activeCount, totalRevenueResult] = await Promise.all([
+        tx.addonPurchase.count({ where: { status: "PAID" } }),
+        tx.addonPurchase.count({
+          where: {
+            status: "PAID",
+            quantityRemaining: { gt: 0 },
+            expirationDate: { gt: now },
+          },
+        }),
+        tx.addonPurchase.aggregate({
+          where: { status: "PAID" },
+          _sum: { pricePaid: true },
+        }),
+      ]);
+
+      return {
+        totalSold,
+        activeCount,
+        totalRevenue: decimalToCents(totalRevenueResult._sum.pricePaid),
+      };
+    });
+  }),
+
+  // ═══════════════════════════════════════
+  // REFUNDS
+  // ═══════════════════════════════════════
+
+  listRefunds: adminProcedure
+    .input(listRefundsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const page = input.page ?? 1;
+        const perPage = input.perPage ?? 20;
+        const skip = (page - 1) * perPage;
+
+        const where: Prisma.RefundWhereInput = {};
+        if (input.status) {
+          where.status = input.status;
+        } else {
+          where.status = "PENDING";
+        }
+
+        const [data, total] = await Promise.all([
+          tx.refund.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip,
+            take: perPage,
+          }),
+          tx.refund.count({ where }),
+        ]);
+
+        return {
+          data: data.map((r) => ({
+            ...r,
+            refundAmount: decimalToCents(r.refundAmount),
+            statusLabel: REFUND_STATUS_LABELS[r.status] ?? r.status,
+          })),
+          total,
+          page,
+          perPage,
+          totalPages: Math.ceil(total / perPage),
+        };
+      });
+    }),
+
+  getRefund: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const r = await tx.refund.findUnique({ where: { id: input.id } });
+        if (!r) throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...r,
+          refundAmount: decimalToCents(r.refundAmount),
+          statusLabel: REFUND_STATUS_LABELS[r.status] ?? r.status,
+        };
+      });
+    }),
+
+  processRefund: adminProcedure
+    .input(processRefundSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const r = await tx.refund.findUnique({ where: { id: input.id } });
+        if (!r) throw new TRPCError({ code: "NOT_FOUND" });
+        if (r.status !== "PENDING") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Estorno ja processado ou cancelado" });
+        }
+
+        await tx.refund.update({
+          where: { id: input.id },
+          data: {
+            status: "PROCESSED",
+            notes: input.notes ?? null,
+            processedById: ctx.session.user.id,
+            processedAt: new Date(),
+          },
+        });
+
+        logger.info("Refund processed", { refundId: input.id });
+        return { success: true };
+      });
+    }),
+
+  cancelRefund: adminProcedure
+    .input(cancelRefundSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const r = await tx.refund.findUnique({ where: { id: input.id } });
+        if (!r) throw new TRPCError({ code: "NOT_FOUND" });
+        if (r.status !== "PENDING") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Estorno ja processado ou cancelado" });
+        }
+
+        await tx.refund.update({
+          where: { id: input.id },
+          data: {
+            status: "CANCELLED",
+            cancelReason: input.reason,
+            cancelledAt: new Date(),
+          },
+        });
+
+        logger.info("Refund cancelled", { refundId: input.id });
+        return { success: true };
+      });
+    }),
+
+  refundStats: adminProcedure.query(async ({ ctx }) => {
+    return ctx.withAdmin(async (tx) => {
+      const [total, pending, processed, cancelled, totalPendingResult] = await Promise.all([
+        tx.refund.count(),
+        tx.refund.count({ where: { status: "PENDING" } }),
+        tx.refund.count({ where: { status: "PROCESSED" } }),
+        tx.refund.count({ where: { status: "CANCELLED" } }),
+        tx.refund.aggregate({
+          where: { status: "PENDING" },
+          _sum: { refundAmount: true },
+        }),
+      ]);
+
+      return {
+        total,
+        pending,
+        processed,
+        cancelled,
+        totalPendingAmount: decimalToCents(totalPendingResult._sum.refundAmount),
+      };
     });
   }),
 
