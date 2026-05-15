@@ -42,7 +42,7 @@ export async function GET(
       ? await withTenant(tenantId, async (tx) => {
           return tx.customer.findUnique({
             where: { id: sale.customerId! },
-            select: { name: true, cpf: true, phone: true, address: true },
+            select: { name: true, cpf: true, phone: true, street: true, streetNumber: true, neighborhood: true, city: true, state: true },
           });
         })
       : null;
@@ -78,10 +78,9 @@ export async function GET(
       return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
     };
 
-    const customerAddress =
-      typeof customer?.address === "object" && customer?.address !== null
-        ? formatAddress(customer.address as Record<string, unknown>)
-        : "-";
+    const customerAddress = customer
+      ? [customer.street, customer.streetNumber ? `nº ${customer.streetNumber}` : null, customer.neighborhood, customer.city, customer.state].filter(Boolean).join(", ") || "-"
+      : "-";
 
     const now = new Date();
 

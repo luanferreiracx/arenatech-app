@@ -10,7 +10,7 @@ export default function NewCustomerPage() {
     <div>
       <PageHeader title="Novo Cliente" subtitle="Cadastrar um novo cliente" />
       <div className="max-w-3xl">
-        <CustomerForm />
+        <CustomerForm mode="create" />
       </div>
     </div>
   );

@@ -1,81 +1,69 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "@/lib/toast";
 import {
   createCustomerSchema,
   type CreateCustomerInput,
+  CUSTOMER_TYPE_LABELS,
 } from "@/lib/validators/customer";
-import type { AddressData } from "@/lib/validators/customer";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
-import { CpfInput } from "@/components/forms/cpf-input";
+import { CpfInput } from "@/components/inputs/cpf-input";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
-import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
-import { DatePicker } from "@/components/inputs/date-picker";
-import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { toast } from "@/lib/toast";
+
+const UF_OPTIONS = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG",
+  "PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
+];
 
 interface CustomerFormProps {
-  defaultValues?: CreateCustomerInput & { id?: string };
-  isEdit?: boolean;
+  mode: "create" | "edit";
+  customerId?: string;
+  defaultValues?: Partial<CreateCustomerInput>;
 }
 
-export function CustomerForm({ defaultValues, isEdit = false }: CustomerFormProps) {
+export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormProps) {
   const router = useRouter();
-  const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const trpc = useTRPC();
 
   const form = useForm<CreateCustomerInput>({
     resolver: zodResolver(createCustomerSchema),
-    defaultValues: defaultValues ?? {
+    defaultValues: {
       type: "PF",
       name: "",
-      cpf: "",
-      cnpj: "",
-      email: "",
       phone: "",
-      phone2: "",
-      birthDate: "",
-      address: {
-        cep: "",
-        logradouro: "",
-        numero: "",
-        complemento: "",
-        bairro: "",
-        cidade: "",
-        uf: "",
-      },
-      notes: "",
-      consentLgpd: false,
+      ...defaultValues,
     },
   });
 
-  const customerType = form.watch("type");
+  const watchType = form.watch("type");
 
   const createMutation = useMutation(
     trpc.customer.create.mutationOptions({
-      onSuccess: (data) => {
+      onSuccess: (data: { id: string }) => {
         toast.success("Cliente cadastrado com sucesso!");
-        queryClient.invalidateQueries({ queryKey: [["customer"]] });
+        void queryClient.invalidateQueries({ queryKey: trpc.customer.list.queryKey() });
         router.push(`/customers/${data.id}`);
       },
-      onError: (error) => {
+      onError: (error: { message: string }) => {
         toast.error(error.message);
       },
     }),
@@ -83,346 +71,175 @@ export function CustomerForm({ defaultValues, isEdit = false }: CustomerFormProp
 
   const updateMutation = useMutation(
     trpc.customer.update.mutationOptions({
-      onSuccess: (data) => {
+      onSuccess: () => {
         toast.success("Cliente atualizado com sucesso!");
-        queryClient.invalidateQueries({ queryKey: [["customer"]] });
-        router.push(`/customers/${data.id}`);
+        void queryClient.invalidateQueries({ queryKey: trpc.customer.list.queryKey() });
+        router.push(`/customers/${customerId}`);
       },
-      onError: (error) => {
+      onError: (error: { message: string }) => {
         toast.error(error.message);
       },
     }),
   );
 
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const isLoading = createMutation.isPending || updateMutation.isPending;
 
   function onSubmit(data: CreateCustomerInput) {
-    if (isEdit && defaultValues?.id) {
-      updateMutation.mutate({ ...data, id: defaultValues.id });
-    } else {
+    if (mode === "create") {
       createMutation.mutate(data);
+    } else {
+      updateMutation.mutate({ ...data, id: customerId! });
     }
   }
 
-  function handleAddressFound(addr: ViaCEPResponse) {
-    const current = form.getValues("address") as AddressData | undefined;
-    form.setValue("address", {
-      ...current,
-      logradouro: addr.logradouro || current?.logradouro || "",
-      bairro: addr.bairro || current?.bairro || "",
-      cidade: addr.localidade || current?.cidade || "",
-      uf: addr.uf || current?.uf || "",
-    });
-  }
-
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-        {/* Tipo */}
-        <FormSection title="Tipo de Cliente">
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={customerType === "PF" ? "default" : "outline"}
-              onClick={() => form.setValue("type", "PF")}
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {/* Tipo de pessoa */}
+      <FormSection title="Tipo de pessoa">
+        <div className="space-y-2">
+          <Label>Tipo</Label>
+          <RadioGroup
+            value={watchType}
+            onValueChange={(v: string) => form.setValue("type", v as "PF" | "PJ")}
+            className="flex gap-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="PF" id="pf" />
+              <Label htmlFor="pf">{CUSTOMER_TYPE_LABELS.PF}</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="PJ" id="pj" />
+              <Label htmlFor="pj">{CUSTOMER_TYPE_LABELS.PJ}</Label>
+            </div>
+          </RadioGroup>
+        </div>
+      </FormSection>
+
+      {/* Dados principais */}
+      <FormSection title="Dados do cliente">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{watchType === "PJ" ? "Razão social" : "Nome completo"} *</Label>
+            <Input {...form.register("name")} placeholder={watchType === "PJ" ? "Razão social" : "Nome completo"} />
+            {form.formState.errors.name && (
+              <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
+            )}
+          </div>
+
+          {watchType === "PJ" && (
+            <div className="space-y-2">
+              <Label>Nome fantasia</Label>
+              <Input {...form.register("tradeName")} placeholder="Nome fantasia" />
+            </div>
+          )}
+
+          {watchType === "PF" ? (
+            <div className="space-y-2">
+              <Label>CPF *</Label>
+              <CpfInput {...form.register("cpf")} />
+              {form.formState.errors.cpf && (
+                <p className="text-sm text-destructive">{form.formState.errors.cpf.message}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>CNPJ *</Label>
+              <CnpjInput {...form.register("cnpj")} />
+              {form.formState.errors.cnpj && (
+                <p className="text-sm text-destructive">{form.formState.errors.cnpj.message}</p>
+              )}
+            </div>
+          )}
+
+          {watchType === "PF" && (
+            <div className="space-y-2">
+              <Label>Data de nascimento</Label>
+              <Input type="date" {...form.register("birthDate")} />
+            </div>
+          )}
+        </div>
+      </FormSection>
+
+      {/* Contato */}
+      <FormSection title="Contato">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>WhatsApp *</Label>
+            <PhoneInput {...form.register("phone")} />
+            {form.formState.errors.phone && (
+              <p className="text-sm text-destructive">{form.formState.errors.phone.message}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Telefone alternativo</Label>
+            <PhoneInput {...form.register("phoneSecondary")} />
+          </div>
+          <div className="space-y-2">
+            <Label>E-mail</Label>
+            <Input {...form.register("email")} type="email" placeholder="email@exemplo.com" />
+            {form.formState.errors.email && (
+              <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
+            )}
+          </div>
+        </div>
+      </FormSection>
+
+      {/* Endereço (ADR 0007: campos separados) */}
+      <FormSection title="Endereço">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label>CEP</Label>
+            <Input {...form.register("zipCode")} placeholder="00000-000" maxLength={9} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Logradouro</Label>
+            <Input {...form.register("street")} placeholder="Rua, Avenida..." />
+          </div>
+          <div className="space-y-2">
+            <Label>Número</Label>
+            <Input {...form.register("streetNumber")} placeholder="Nº" />
+          </div>
+          <div className="space-y-2">
+            <Label>Complemento</Label>
+            <Input {...form.register("complement")} placeholder="Apto, Sala..." />
+          </div>
+          <div className="space-y-2">
+            <Label>Bairro</Label>
+            <Input {...form.register("neighborhood")} />
+          </div>
+          <div className="space-y-2">
+            <Label>Cidade</Label>
+            <Input {...form.register("city")} />
+          </div>
+          <div className="space-y-2">
+            <Label>Estado</Label>
+            <Select
+              value={form.watch("state") ?? ""}
+              onValueChange={(v: string) => form.setValue("state", v)}
             >
-              Pessoa Fisica (PF)
-            </Button>
-            <Button
-              type="button"
-              variant={customerType === "PJ" ? "default" : "outline"}
-              onClick={() => form.setValue("type", "PJ")}
-            >
-              Pessoa Juridica (PJ)
-            </Button>
+              <SelectTrigger>
+                <SelectValue placeholder="UF" />
+              </SelectTrigger>
+              <SelectContent>
+                {UF_OPTIONS.map((uf) => (
+                  <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </FormSection>
+        </div>
+      </FormSection>
 
-        {/* Dados Pessoais */}
-        <FormSection title={customerType === "PF" ? "Dados Pessoais" : "Dados da Empresa"}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>
-                    {customerType === "PF" ? "Nome Completo" : "Razao Social / Nome Fantasia"} *
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder={customerType === "PF" ? "Digite o nome completo" : "Digite a razao social"} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+      {/* Observações */}
+      <FormSection title="Observações">
+        <Textarea {...form.register("notes")} placeholder="Observações sobre o cliente..." rows={3} />
+      </FormSection>
 
-            {customerType === "PF" && (
-              <FormField
-                control={form.control}
-                name="cpf"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CPF *</FormLabel>
-                    <FormControl>
-                      <CpfInput
-                        value={field.value ?? ""}
-                        onValueChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {customerType === "PJ" && (
-              <FormField
-                control={form.control}
-                name="cnpj"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CNPJ *</FormLabel>
-                    <FormControl>
-                      <CnpjInput
-                        value={field.value ?? ""}
-                        onValueChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {customerType === "PF" && (
-              <FormField
-                control={form.control}
-                name="birthDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data de Nascimento</FormLabel>
-                    <FormControl>
-                      <DatePicker
-                        value={field.value ? new Date(field.value) : undefined}
-                        onChange={(date) => field.onChange(date?.toISOString() ?? "")}
-                        placeholder="Selecionar data"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input {...field} type="email" placeholder="email@exemplo.com" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </FormSection>
-
-        {/* Contato */}
-        <FormSection title="Contato">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Celular/WhatsApp</FormLabel>
-                  <FormControl>
-                    <PhoneInput
-                      value={field.value ?? ""}
-                      onValueChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="phone2"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Celular Alternativo</FormLabel>
-                  <FormControl>
-                    <PhoneInput
-                      value={field.value ?? ""}
-                      onValueChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </FormSection>
-
-        {/* Endereco */}
-        <FormSection title="Endereco">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <FormField
-              control={form.control}
-              name="address.cep"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>CEP</FormLabel>
-                  <FormControl>
-                    <CepInput
-                      value={field.value ?? ""}
-                      onValueChange={field.onChange}
-                      onAddressFound={handleAddressFound}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.logradouro"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Logradouro</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Rua, Avenida..." />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.numero"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Numero</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="N" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.complemento"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Complemento</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Apto, Sala..." />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.bairro"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Bairro</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Bairro" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.cidade"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Cidade</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Cidade" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="address.uf"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Estado</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="UF" maxLength={2} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </FormSection>
-
-        {/* Observacoes */}
-        <FormSection title="Observacoes">
-          <FormField
-            control={form.control}
-            name="notes"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Observacoes</FormLabel>
-                <FormControl>
-                  <Textarea {...field} value={field.value ?? ""} placeholder="Observacoes sobre o cliente" rows={4} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </FormSection>
-
-        {/* LGPD */}
-        {!isEdit && (
-          <FormField
-            control={form.control}
-            name="consentLgpd"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value ?? false}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <div className="space-y-1 leading-none">
-                  <FormLabel className="font-normal">
-                    Autorizo o uso dos meus dados conforme a LGPD
-                  </FormLabel>
-                </div>
-              </FormItem>
-            )}
-          />
-        )}
-
-        <FormActions
-          isLoading={isPending}
-          onCancel={() => router.back()}
-          submitLabel={isEdit ? "Salvar Alteracoes" : "Cadastrar Cliente"}
-        />
-      </form>
-    </Form>
+      <FormActions
+        submitLabel={mode === "create" ? "Cadastrar cliente" : "Salvar alterações"}
+        onCancel={() => router.push("/customers")}
+        isLoading={isLoading}
+      />
+    </form>
   );
 }

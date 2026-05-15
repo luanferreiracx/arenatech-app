@@ -1,25 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useTRPC } from "@/trpc/react";
-import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Heart } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
+import { useTRPC } from "@/trpc/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { PageHeader } from "@/components/domain/page-header";
+import { FormSection } from "@/components/domain/forms/form-section";
+import { FormActions } from "@/components/domain/forms/form-actions";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { EntitySelector } from "@/components/domain/entity-selector";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import {
   Select,
   SelectContent,
@@ -27,210 +18,113 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageHeader } from "@/components/domain/page-header";
-import { FormSection } from "@/components/domain/forms/form-section";
-import { FormActions } from "@/components/domain/forms/form-actions";
-import { MoneyInput } from "@/components/inputs/money-input";
+import { toast } from "@/lib/toast";
 import {
   createInterestSchema,
   type CreateInterestInput,
   INTEREST_TYPE_LABELS,
-  INTEREST_PRIORITY_LABELS,
 } from "@/lib/validators/customer";
-import { toast } from "@/lib/toast";
 
 export default function NewInterestPage() {
   const router = useRouter();
-  const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const trpc = useTRPC();
 
   const form = useForm<CreateInterestInput>({
     resolver: zodResolver(createInterestSchema),
     defaultValues: {
-      customerId: "",
-      description: "",
-      product: "",
-      interestType: "PURCHASE",
-      priority: "media",
-      notes: "",
+      customerName: "",
+      phone: "",
+      type: "PURCHASE",
+      desiredModel: "",
     },
   });
 
-  const createMutation = useMutation(
+  const mutation = useMutation(
     trpc.interest.create.mutationOptions({
-      onSuccess: (data) => {
-        toast.success("Interesse cadastrado!");
-        router.push(`/interests/${(data as Record<string, unknown>).id}`);
+      onSuccess: (data: { id: string }) => {
+        toast.success("Interesse cadastrado com sucesso!");
+        void queryClient.invalidateQueries({ queryKey: trpc.interest.list.queryKey() });
+        router.push(`/interests/${data.id}`);
       },
-      onError: (err) => toast.error(err.message),
-    })
+      onError: (error: { message: string }) => toast.error(error.message),
+    }),
   );
 
+  function onSubmit(data: CreateInterestInput) {
+    mutation.mutate(data);
+  }
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <Link href="/interests"><ArrowLeft className="h-4 w-4" /></Link>
-            </Button>
-            <Heart className="h-5 w-5 text-primary" />
-            <span>Novo Interesse</span>
+    <div className="space-y-6 p-6">
+      <PageHeader title="Novo interesse" />
+
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <FormSection title="Dados do lead">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Nome do cliente *</Label>
+              <Input {...form.register("customerName")} placeholder="Nome completo" />
+              {form.formState.errors.customerName && (
+                <p className="text-sm text-destructive">{form.formState.errors.customerName.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Telefone *</Label>
+              <Input {...form.register("phone")} placeholder="(00) 00000-0000" />
+              {form.formState.errors.phone && (
+                <p className="text-sm text-destructive">{form.formState.errors.phone.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>CPF</Label>
+              <Input {...form.register("cpf")} placeholder="000.000.000-00" />
+            </div>
+            <div className="space-y-2">
+              <Label>E-mail</Label>
+              <Input {...form.register("email")} type="email" placeholder="email@exemplo.com" />
+            </div>
           </div>
-        }
-      />
+        </FormSection>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-6">
-          <FormSection title="Cliente">
-            <FormField
-              control={form.control}
-              name="customerId"
-              render={({ field }) => (
-                <FormItem className="col-span-2">
-                  <FormLabel>Cliente *</FormLabel>
-                  <FormControl>
-                    <EntitySelector
-                      value={field.value || undefined}
-                      onChange={(val) => field.onChange(val ?? "")}
-                      searchFn={async (query: string) => {
-                        const res = await queryClient.fetchQuery(
-                          trpc.customer.list.queryOptions({
-                            search: query,
-                            page: 0,
-                            pageSize: 10,
-                          }),
-                        );
-                        return res.data as Array<{ id: string; name: string }>;
-                      }}
-                      getOptionLabel={(item: { name: string }) => item.name}
-                      getOptionValue={(item: { id: string }) => item.id}
-                      placeholder="Buscar cliente por nome ou CPF..."
-                      emptyMessage="Nenhum cliente encontrado"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+        <FormSection title="Interesse">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Tipo de interesse *</Label>
+              <Select
+                value={form.watch("type")}
+                onValueChange={(v: string) => form.setValue("type", v as CreateInterestInput["type"])}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(INTEREST_TYPE_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Modelo desejado *</Label>
+              <Input {...form.register("desiredModel")} placeholder="Ex: iPhone 15 Pro 256GB" />
+              {form.formState.errors.desiredModel && (
+                <p className="text-sm text-destructive">{form.formState.errors.desiredModel.message}</p>
               )}
-            />
-          </FormSection>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Observações</Label>
+            <Textarea {...form.register("notes")} placeholder="Detalhes adicionais..." rows={3} />
+          </div>
+        </FormSection>
 
-          <FormSection title="Dados do Interesse">
-            <FormField
-              control={form.control}
-              name="product"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Produto / Modelo Desejado</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Ex: iPhone 15 Pro 256GB" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="interestType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Tipo de Interesse</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {Object.entries(INTEREST_TYPE_LABELS).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="estimatedValue"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Valor Estimado</FormLabel>
-                  <FormControl>
-                    <MoneyInput
-                      value={field.value ?? 0}
-                      onChange={field.onChange}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="priority"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Prioridade</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {Object.entries(INTEREST_PRIORITY_LABELS).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </FormSection>
-
-          <FormSection title="Detalhes">
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem className="col-span-2">
-                  <FormLabel>Descricao *</FormLabel>
-                  <FormControl>
-                    <Textarea {...field} placeholder="Descreva o interesse do cliente..." rows={4} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem className="col-span-2">
-                  <FormLabel>Observacoes Internas</FormLabel>
-                  <FormControl>
-                    <Textarea {...field} value={field.value ?? ""} placeholder="Notas internas..." rows={3} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </FormSection>
-
-          <FormActions
-            isLoading={createMutation.isPending}
-            submitLabel="Cadastrar Interesse"
-            onCancel={() => router.push("/interests")}
-          />
-        </form>
-      </Form>
+        <FormActions
+          submitLabel="Cadastrar interesse"
+          onCancel={() => router.push("/interests")}
+          isLoading={mutation.isPending}
+        />
+      </form>
     </div>
   );
 }
