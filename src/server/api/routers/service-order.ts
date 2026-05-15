@@ -23,11 +23,25 @@ import {
   sendToLabSchema,
   receiveFromLabSchema,
   cancelLabSchema,
+  searchPartsSchema,
+  sendTrackingSchema,
+  notifyDeliveryPersonSchema,
+  sendDeliveryTermSchema,
+  confirmPhysicalDeliveryTermSchema,
+  checkDeliveryTermStatusSchema,
+  sendReturnTermSchema,
+  confirmPhysicalReturnTermSchema,
+  checkReturnTermStatusSchema,
+  sendQuoteWhatsAppSchema,
+  checkQuoteStatusSchema,
+  updateTechnicalInfoSchema,
+  updateTechnicianSchema,
+  getByCustomerSchema,
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
-
+import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 // ── Helpers ──
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -1698,6 +1712,719 @@ export const serviceOrderRouter = createTRPCRouter({
         const ticketMedio = totals.completed > 0 ? Math.round(totals.totalValue / totals.completed) : 0;
 
         return { items, totals: { ...totals, ticketMedio } };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SPRINT 1A — NEW PROCEDURES
+  // ═══════════════════════════════════════
+
+  // ── 1. GET BY CUSTOMER (warranty check) ──
+  getByCustomer: tenantProcedure
+    .input(getByCustomerSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const orders = await tx.serviceOrder.findMany({
+          where: {
+            customerId: input.customerId,
+            deletedAt: null,
+            status: { in: ["DELIVERED", "READY_FOR_PICKUP", "PAID"] },
+          },
+          include: {
+            items: { select: { description: true, type: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        const techIds = [...new Set(orders.map((o) => o.technicianId).filter(Boolean))] as string[];
+        let techMap = new Map<string, string>();
+        if (techIds.length > 0) {
+          const techs = await withAdmin(async (adminTx) =>
+            adminTx.user.findMany({
+              where: { id: { in: techIds } },
+              select: { id: true, name: true },
+            }),
+          );
+          techMap = new Map(techs.map((t) => [t.id, t.name]));
+        }
+
+        return orders.map((o) => ({
+          id: o.id,
+          number: o.number,
+          status: o.status,
+          deviceType: o.deviceType,
+          deviceModel: o.deviceModel,
+          deviceBrand: o.deviceBrand,
+          serialNumber: o.serialNumber,
+          imei: o.imei,
+          devicePassword: o.devicePassword,
+          reportedProblem: o.reportedProblem,
+          totalAmount: decimalToCents(o.totalAmount),
+          technicianName: o.technicianId ? (techMap.get(o.technicianId) ?? null) : null,
+          warrantyMonths: o.warrantyMonths,
+          completedDate: o.completedDate,
+          entryDate: o.entryDate,
+          items: o.items.map((i) => ({ description: i.description, type: i.type })),
+        }));
+      });
+    }),
+
+  // ── 2. SEARCH PARTS (stock products) ──
+  searchParts: tenantProcedure
+    .input(searchPartsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const limit = input.limit ?? 20;
+        const where: Prisma.ProductWhereInput = {
+          active: true,
+          isDevice: false,
+          currentStock: { gt: 0 },
+          deletedAt: null,
+        };
+
+        if (input.query) {
+          const q = input.query.trim();
+          where.OR = [
+            { name: { contains: q, mode: "insensitive" } },
+            { sku: { contains: q, mode: "insensitive" } },
+            { brand: { contains: q, mode: "insensitive" } },
+          ];
+        }
+
+        const products = await tx.product.findMany({
+          where,
+          orderBy: { name: "asc" },
+          take: limit,
+        });
+
+        return products.map((p) => ({
+          id: p.id,
+          name: p.name,
+          brand: p.brand,
+          sku: p.sku,
+          stock: p.currentStock,
+          costPrice: decimalToCents(p.costPrice),
+          salePrice: decimalToCents(p.salePrice),
+        }));
+      });
+    }),
+
+  // ── 3. SEND TRACKING ──
+  sendTracking: tenantProcedure
+    .input(sendTrackingSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!order.publicLink) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "OS sem link publico configurado." });
+        }
+
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true },
+        });
+
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const trackingUrl = `${appUrl}/os/${order.publicLink}`;
+        const customerName = customer?.name ?? "Cliente";
+
+        const text = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\nArena Tech`;
+
+        const result = await sendTextMessage(input.phone, text);
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Falha ao enviar WhatsApp" });
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Link de rastreamento enviado via WhatsApp",
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ── 4. NOTIFY DELIVERY PERSON ──
+  notifyDeliveryPerson: tenantProcedure
+    .input(notifyDeliveryPersonSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const deliveryPerson = await tx.deliveryPerson.findUnique({
+          where: { id: input.deliveryPersonId },
+        });
+        if (!deliveryPerson) throw new TRPCError({ code: "NOT_FOUND", message: "Entregador nao encontrado" });
+
+        let whatsappSent = false;
+        if (deliveryPerson.phone) {
+          const result = await sendTextMessage(deliveryPerson.phone, input.message);
+          whatsappSent = result.success;
+          if (!result.success) {
+            logger.warn("Falha ao enviar WhatsApp para entregador", {
+              orderId: input.orderId,
+              deliveryPersonId: deliveryPerson.id,
+              error: result.error,
+            });
+          }
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { deliveryPersonId: deliveryPerson.id },
+        });
+
+        const context = input.context ?? "generico";
+        const noteText = context === "retirada"
+          ? `Solicitada retirada do aparelho no laboratorio. Entregador: ${deliveryPerson.name}`
+          : `Mensagem enviada ao entregador: ${deliveryPerson.name}`;
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: `${noteText} (WhatsApp ${whatsappSent ? "enviado" : "nao enviado"})`,
+          },
+        });
+
+        return { success: true, whatsappSent };
+      });
+    }),
+
+  // ── 5. SEND DELIVERY TERM ──
+  sendDeliveryTerm: tenantProcedure
+    .input(sendDeliveryTermSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O termo de entrega so pode ser enviado apos o pagamento da OS.",
+          });
+        }
+
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+
+        const phone = input.phone ?? customer.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
+
+        // Generate delivery term PDF
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-entrega`;
+        let pdfBuffer: Buffer;
+        try {
+          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+          pdfBuffer = Buffer.from(await res.arrayBuffer());
+        } catch (err) {
+          logger.error("Failed to fetch delivery term PDF", { orderId: input.orderId, error: err });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de entrega" });
+        }
+
+        const result = await createDocumentWithLink(
+          `Termo de Entrega - OS ${order.number}`,
+          [{ name: customer.name, whatsapp: formatWhatsApp(phone) }],
+          pdfBuffer,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            deliveryTermSent: true,
+            deliveryTermSentAt: new Date(),
+            deliveryTermAutentiqueId: result.documentId ?? null,
+            deliveryTermLink: result.signatureLink ?? null,
+          },
+        });
+
+        // Send via WhatsApp
+        if (result.signatureLink) {
+          const caption = `Termo de Entrega - OS #${order.number}\n\nOla, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
+          await sendTextMessage(phone, caption);
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Termo de entrega enviado para assinatura digital via WhatsApp",
+          },
+        });
+
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  // ── 6. CONFIRM PHYSICAL DELIVERY TERM ──
+  confirmPhysicalDeliveryTerm: tenantProcedure
+    .input(confirmPhysicalDeliveryTermSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!["PAID", "READY_FOR_PICKUP"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O termo de entrega so pode ser confirmado apos o pagamento da OS.",
+          });
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            deliveryTermSigned: true,
+            deliveryTermPhysical: true,
+            deliveryTermSignedAt: new Date(),
+            status: "DELIVERED",
+            deliveredDate: new Date(),
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: "DELIVERED",
+            notes: "Assinatura fisica do termo de entrega confirmada e equipamento entregue ao cliente",
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ── 7. CHECK DELIVERY TERM STATUS ──
+  checkDeliveryTermStatus: tenantProcedure
+    .input(checkDeliveryTermStatusSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (order.deliveryTermSigned) {
+          return { signed: true, alreadySigned: true };
+        }
+
+        if (!order.deliveryTermAutentiqueId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de entrega nao foi enviado para assinatura digital." });
+        }
+
+        const status = await getDocumentStatus(order.deliveryTermAutentiqueId);
+        if (!status.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+        }
+
+        if (status.signed) {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: {
+              deliveryTermSigned: true,
+              deliveryTermSignedAt: new Date(),
+              status: "DELIVERED",
+              deliveredDate: new Date(),
+            },
+          });
+
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: input.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: order.status,
+              newStatus: "DELIVERED",
+              notes: "Termo de entrega assinado digitalmente e equipamento entregue ao cliente",
+            },
+          });
+        }
+
+        return { signed: status.signed, alreadySigned: false };
+      });
+    }),
+
+  // ── 8. SEND RETURN TERM ──
+  sendReturnTerm: tenantProcedure
+    .input(sendReturnTermSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+
+        const phone = input.phone ?? customer.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
+
+        // Generate return term PDF
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-devolucao`;
+        let pdfBuffer: Buffer;
+        try {
+          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+          pdfBuffer = Buffer.from(await res.arrayBuffer());
+        } catch (err) {
+          logger.error("Failed to fetch return term PDF", { orderId: input.orderId, error: err });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de devolucao" });
+        }
+
+        const result = await createDocumentWithLink(
+          `Termo de Devolucao - OS ${order.number}`,
+          [{ name: customer.name, whatsapp: formatWhatsApp(phone) }],
+          pdfBuffer,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+        }
+
+        const reason = input.reason ?? "Equipamento devolvido ao cliente";
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            returnTermSent: true,
+            returnTermSentAt: new Date(),
+            returnTermAutentiqueId: result.documentId ?? null,
+            returnTermLink: result.signatureLink ?? null,
+            cancellationReason: reason,
+          },
+        });
+
+        // Send via WhatsApp
+        if (result.signatureLink) {
+          const caption = `Termo de Devolucao - OS #${order.number}\n\nOla, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
+          await sendTextMessage(phone, caption);
+        }
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Termo de devolucao enviado para assinatura digital via WhatsApp",
+          },
+        });
+
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  // ── 9. CONFIRM PHYSICAL RETURN TERM ──
+  confirmPhysicalReturnTerm: tenantProcedure
+    .input(confirmPhysicalReturnTermSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const reason = input.reason ?? order.cancellationReason ?? "Equipamento devolvido ao cliente";
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            returnTermSigned: true,
+            returnTermPhysical: true,
+            returnTermSignedAt: new Date(),
+            status: "CANCELLED",
+            cancellationReason: reason,
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Assinatura fisica do termo de devolucao confirmada",
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: "CANCELLED",
+            notes: `OS cancelada - ${reason}`,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ── 10. CHECK RETURN TERM STATUS ──
+  checkReturnTermStatus: tenantProcedure
+    .input(checkReturnTermStatusSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (order.returnTermSigned) {
+          return { signed: true, alreadySigned: true, cancelled: false };
+        }
+
+        if (!order.returnTermAutentiqueId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de devolucao nao foi enviado para assinatura digital." });
+        }
+
+        const status = await getDocumentStatus(order.returnTermAutentiqueId);
+        if (!status.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+        }
+
+        if (status.signed) {
+          const reason = order.cancellationReason ?? "Equipamento devolvido ao cliente";
+
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: {
+              returnTermSigned: true,
+              returnTermSignedAt: new Date(),
+              status: "CANCELLED",
+            },
+          });
+
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: input.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: order.status,
+              newStatus: order.status,
+              notes: "Termo de devolucao assinado digitalmente pelo cliente",
+            },
+          });
+
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: input.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: order.status,
+              newStatus: "CANCELLED",
+              notes: `OS cancelada - ${reason}`,
+            },
+          });
+
+          return { signed: true, alreadySigned: false, cancelled: true };
+        }
+
+        return { signed: false, alreadySigned: false, cancelled: false };
+      });
+    }),
+
+  // ── 11. SEND QUOTE VIA WHATSAPP ──
+  sendQuoteWhatsApp: tenantProcedure
+    .input(sendQuoteWhatsAppSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!order.pendingQuoteId || !order.budgetPending) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao existe orcamento pendente para enviar." });
+        }
+
+        const quote = await tx.serviceOrderQuote.findUnique({ where: { id: order.pendingQuoteId } });
+        if (!quote || quote.status !== "pending") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Orcamento nao encontrado ou ja processado." });
+        }
+
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+
+        const phone = input.phone ?? customer.phone;
+        if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
+
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const approvalLink = `${appUrl}/quote/${quote.approvalLink}`;
+        const totalFormatted = (Number(quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+        const text = `Orcamento - OS #${order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
+
+        // Also try to send the quote PDF
+        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/quote-pdf`;
+        try {
+          const pdfRes = await fetch(pdfUrl, { signal: AbortSignal.timeout(10_000) });
+          if (pdfRes.ok) {
+            await sendMediaMessage(phone, pdfUrl, text);
+          } else {
+            await sendTextMessage(phone, text);
+          }
+        } catch {
+          // Fallback to text-only
+          await sendTextMessage(phone, text);
+        }
+
+        await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: { sentToCustomer: true, sentAt: new Date() },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Orcamento enviado para o cliente via WhatsApp",
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ── 12. CHECK QUOTE STATUS ──
+  checkQuoteStatus: tenantProcedure
+    .input(checkQuoteStatusSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!order.pendingQuoteId) {
+          return { pending: false, status: null, approved: false, rejected: false };
+        }
+
+        const quote = await tx.serviceOrderQuote.findUnique({ where: { id: order.pendingQuoteId } });
+        if (!quote) {
+          return { pending: false, status: null, approved: false, rejected: false };
+        }
+
+        return {
+          pending: quote.status === "pending",
+          status: quote.status,
+          approved: quote.status === "approved",
+          rejected: quote.status === "rejected",
+          sentToCustomer: quote.sentToCustomer,
+          customerNotes: quote.customerNotes,
+        };
+      });
+    }),
+
+  // ── 13. UPDATE TECHNICAL INFO ──
+  updateTechnicalInfo: tenantProcedure
+    .input(updateTechnicalInfoSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const finalStatuses = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "CANCELLED", "REFUNDED"];
+        if (finalStatuses.includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "As informacoes tecnicas nao podem ser alteradas apos a conclusao da OS.",
+          });
+        }
+
+        const updateData: Record<string, unknown> = {};
+        if (input.diagnosedProblem !== undefined) updateData.diagnosedProblem = input.diagnosedProblem;
+        if (input.internalNotes !== undefined) updateData.internalNotes = input.internalNotes;
+
+        await tx.serviceOrder.update({ where: { id: input.orderId }, data: updateData });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Informacoes tecnicas atualizadas",
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ── 14. UPDATE TECHNICIAN ──
+  updateTechnician: tenantProcedure
+    .input(updateTechnicianSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Get previous technician name
+        let previousName = "Nenhum";
+        if (order.technicianId) {
+          const prev = await withAdmin(async (adminTx) =>
+            adminTx.user.findUnique({ where: { id: order.technicianId! }, select: { name: true } }),
+          );
+          previousName = prev?.name ?? "Nenhum";
+        }
+
+        // Get new technician name
+        const newTech = await withAdmin(async (adminTx) =>
+          adminTx.user.findUnique({ where: { id: input.technicianId }, select: { name: true } }),
+        );
+        if (!newTech) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao encontrado" });
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { technicianId: input.technicianId },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: `Tecnico responsavel alterado de "${previousName}" para "${newTech.name}"`,
+          },
+        });
+
+        return { success: true };
       });
     }),
 });

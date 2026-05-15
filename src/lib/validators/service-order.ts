@@ -399,3 +399,86 @@ export const receiveFromLabSchema = z.object({
 export const cancelLabSchema = z.object({
   orderId: z.string().uuid(),
 });
+
+/** Search parts/products from stock */
+export const searchPartsSchema = z.object({
+  query: z.string().optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+
+/** Send tracking link via WhatsApp */
+export const sendTrackingSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30),
+});
+
+/** Notify delivery person via WhatsApp */
+export const notifyDeliveryPersonSchema = z.object({
+  orderId: z.string().uuid(),
+  deliveryPersonId: z.string().uuid(),
+  message: z.string().min(1).max(1000),
+  context: z.string().max(50).optional().nullable(),
+});
+
+/** Send delivery term (Autentique + WhatsApp) */
+export const sendDeliveryTermSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
+
+/** Confirm physical delivery term */
+export const confirmPhysicalDeliveryTermSchema = z.object({
+  orderId: z.string().uuid(),
+});
+
+/** Check delivery term status (Autentique) */
+export const checkDeliveryTermStatusSchema = z.object({
+  orderId: z.string().uuid(),
+});
+
+/** Send return term (Autentique + WhatsApp) */
+export const sendReturnTermSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+  reason: z.string().max(500).optional().nullable(),
+});
+
+/** Confirm physical return term */
+export const confirmPhysicalReturnTermSchema = z.object({
+  orderId: z.string().uuid(),
+  reason: z.string().max(500).optional().nullable(),
+});
+
+/** Check return term status (Autentique) */
+export const checkReturnTermStatusSchema = z.object({
+  orderId: z.string().uuid(),
+});
+
+/** Send quote via WhatsApp */
+export const sendQuoteWhatsAppSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
+
+/** Check quote status (polling) */
+export const checkQuoteStatusSchema = z.object({
+  orderId: z.string().uuid(),
+});
+
+/** Update technical info (diagnosis/notes) */
+export const updateTechnicalInfoSchema = z.object({
+  orderId: z.string().uuid(),
+  diagnosedProblem: z.string().max(2000).optional().nullable(),
+  internalNotes: z.string().max(5000).optional().nullable(),
+});
+
+/** Update technician (admin) */
+export const updateTechnicianSchema = z.object({
+  orderId: z.string().uuid(),
+  technicianId: z.string().uuid(),
+});
+
+/** Get OS by customer (for warranty check) */
+export const getByCustomerSchema = z.object({
+  customerId: z.string().uuid(),
+});

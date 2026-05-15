@@ -25,6 +25,12 @@ import {
   MessageCircle,
   ExternalLink,
   RefreshCw,
+  Truck,
+  Navigation,
+  RotateCcw,
+  Wrench,
+  UserCog,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -177,6 +183,19 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [quoteDiscount, setQuoteDiscount] = useState(0);
   const [quoteReason, setQuoteReason] = useState("");
   const [quoteAdditional, setQuoteAdditional] = useState("");
+  // New dialogs — Sprint 1A
+  const [trackingDialog, setTrackingDialog] = useState(false);
+  const [trackingPhone, setTrackingPhone] = useState("");
+  const [deliveryTermDialog, setDeliveryTermDialog] = useState(false);
+  const [deliveryTermPhone, setDeliveryTermPhone] = useState("");
+  const [returnTermDialog, setReturnTermDialog] = useState(false);
+  const [returnTermPhone, setReturnTermPhone] = useState("");
+  const [returnTermReason, setReturnTermReason] = useState("Equipamento devolvido ao cliente");
+  const [techInfoDialog, setTechInfoDialog] = useState(false);
+  const [techDiagnosed, setTechDiagnosed] = useState("");
+  const [techNotes, setTechNotes] = useState("");
+  const [changeTechDialog, setChangeTechDialog] = useState(false);
+  const [selectedTechId, setSelectedTechId] = useState("");
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
