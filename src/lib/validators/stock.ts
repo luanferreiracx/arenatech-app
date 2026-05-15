@@ -7,11 +7,15 @@ export const createProductSchema = z.object({
   barcode: z.string().max(50).optional().nullable(),
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres").max(200),
   description: z.string().max(2000).optional().nullable(),
+  brand: z.string().max(100).optional().nullable(),
+  isDevice: z.boolean().optional(),
   costPrice: z.number().int().min(0, "Preco de custo deve ser positivo"), // centavos
   salePrice: z.number().int().min(0, "Preco de venda deve ser positivo"), // centavos
+  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
   minStock: z.number().int().min(0).optional(),
   unit: z.string().max(10).optional(),
   active: z.boolean().optional(),
+  categoryId: z.string().uuid().optional().nullable(),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;

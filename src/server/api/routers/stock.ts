@@ -115,11 +115,17 @@ export const stockRouter = createTRPCRouter({
             barcode: input.barcode || null,
             name: input.name,
             description: input.description || null,
+            brand: input.brand || null,
+            isDevice: input.isDevice ?? false,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
+            promotionalPrice: input.promotionalPrice != null
+              ? new Prisma.Decimal(input.promotionalPrice).div(100)
+              : null,
             minStock: input.minStock ?? 0,
             unit: input.unit ?? "un",
             active: input.active ?? true,
+            categoryId: input.categoryId || null,
           },
         });
       });
@@ -142,11 +148,17 @@ export const stockRouter = createTRPCRouter({
             barcode: input.barcode || null,
             name: input.name,
             description: input.description || null,
+            brand: input.brand || null,
+            isDevice: input.isDevice ?? false,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
+            promotionalPrice: input.promotionalPrice != null
+              ? new Prisma.Decimal(input.promotionalPrice).div(100)
+              : null,
             minStock: input.minStock ?? 0,
             unit: input.unit ?? "un",
             active: input.active ?? true,
+            categoryId: input.categoryId || null,
           },
         });
       });

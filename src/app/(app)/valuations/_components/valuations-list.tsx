@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Copy, TrendingUp, Trash2, Pencil, Search } from "lucide-react";
+import { Plus, Copy, TrendingUp, Trash2, Pencil, Search, MessageCircle, DollarSign } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,13 @@ export function ValuationsList() {
   const [adjustModelo, setAdjustModelo] = useState("");
   const [dupSource, setDupSource] = useState("");
   const [dupTarget, setDupTarget] = useState("");
+  const [showWhatsAppDialog, setShowWhatsAppDialog] = useState(false);
+  const [whatsAppModelo, setWhatsAppModelo] = useState("");
+  const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [whatsAppName, setWhatsAppName] = useState("");
+  const [showAdjustFixedDialog, setShowAdjustFixedDialog] = useState(false);
+  const [adjustFixedModelo, setAdjustFixedModelo] = useState("");
+  const [adjustFixedAmount, setAdjustFixedAmount] = useState(0); // centavos
 
   const modelsQuery = useQuery(trpc.valuation.listModels.queryOptions());
   const listQuery = useQuery(
@@ -52,7 +59,10 @@ export function ValuationsList() {
   const updateMutation = useMutation(trpc.valuation.update.mutationOptions());
   const deleteMutation = useMutation(trpc.valuation.delete.mutationOptions());
   const adjustMutation = useMutation(trpc.valuation.bulkAdjust.mutationOptions());
+  const adjustFixedMutation = useMutation(trpc.valuation.bulkAdjustFixed.mutationOptions());
   const duplicateMutation = useMutation(trpc.valuation.duplicateModel.mutationOptions());
+  const whatsAppMutation = useMutation(trpc.valuation.formatWhatsAppMessage.mutationOptions());
+  const deleteModelMutation = useMutation(trpc.valuation.deleteModel.mutationOptions());
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: trpc.valuation.list.queryKey() });
@@ -133,6 +143,62 @@ export function ValuationsList() {
     );
   };
 
+  const handleAdjustFixed = () => {
+    if (!adjustFixedModelo) {
+      toast.error("Selecione um modelo");
+      return;
+    }
+    if (adjustFixedAmount === 0) {
+      toast.error("Informe o valor do ajuste");
+      return;
+    }
+    adjustFixedMutation.mutate(
+      { modelo: adjustFixedModelo, adjustAmount: adjustFixedAmount },
+      {
+        onSuccess: (data) => {
+          toast.success(`${data.updated} precos ajustados`);
+          setShowAdjustFixedDialog(false);
+          setAdjustFixedAmount(0);
+          invalidate();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleSendWhatsApp = () => {
+    if (!whatsAppModelo || !whatsAppPhone) {
+      toast.error("Preencha modelo e telefone");
+      return;
+    }
+    whatsAppMutation.mutate(
+      { modelo: whatsAppModelo, phone: whatsAppPhone, customerName: whatsAppName || undefined },
+      {
+        onSuccess: (data) => {
+          window.open(data.whatsappUrl, "_blank");
+          setShowWhatsAppDialog(false);
+          setWhatsAppPhone("");
+          setWhatsAppName("");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleDeleteModel = (modelo: string) => {
+    if (!confirm(`Excluir todas as avaliacoes do modelo "${modelo}"?`)) return;
+    deleteModelMutation.mutate(
+      { modelo },
+      {
+        onSuccess: (data) => {
+          toast.success(`${data.deleted} avaliacoes removidas`);
+          invalidate();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
   const handleDuplicate = () => {
     if (!dupSource || !dupTarget) {
       toast.error("Preencha origem e destino");
@@ -191,11 +257,19 @@ export function ValuationsList() {
           </Button>
           <Button variant="outline" onClick={() => setShowAdjustDialog(true)}>
             <TrendingUp className="mr-2 h-4 w-4" />
-            Ajuste em Massa
+            Ajuste %
+          </Button>
+          <Button variant="outline" onClick={() => setShowAdjustFixedDialog(true)}>
+            <DollarSign className="mr-2 h-4 w-4" />
+            Ajuste R$
           </Button>
           <Button variant="outline" onClick={() => setShowDuplicateDialog(true)}>
             <Copy className="mr-2 h-4 w-4" />
-            Duplicar Modelo
+            Duplicar
+          </Button>
+          <Button variant="outline" onClick={() => setShowWhatsAppDialog(true)}>
+            <MessageCircle className="mr-2 h-4 w-4" />
+            Enviar WhatsApp
           </Button>
         </div>
       </Card>
@@ -374,6 +448,91 @@ export function ValuationsList() {
             <Button variant="outline" onClick={() => setShowDuplicateDialog(false)}>Cancelar</Button>
             <Button onClick={handleDuplicate} disabled={duplicateMutation.isPending}>
               Duplicar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fixed R$ Adjust Dialog */}
+      <Dialog open={showAdjustFixedDialog} onOpenChange={setShowAdjustFixedDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ajuste em Massa (R$)</DialogTitle>
+            <DialogDescription>Ajuste todos os precos de um modelo por valor fixo em Reais</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Modelo</Label>
+              <Select value={adjustFixedModelo} onValueChange={setAdjustFixedModelo}>
+                <SelectTrigger><SelectValue placeholder="Selecione o modelo" /></SelectTrigger>
+                <SelectContent>
+                  {(modelsQuery.data ?? []).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Valor do Ajuste</Label>
+              <MoneyInput
+                value={adjustFixedAmount}
+                onChange={setAdjustFixedAmount}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Positivo = aumento, negativo = reducao. Use multiplos de R$ 100.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdjustFixedDialog(false)}>Cancelar</Button>
+            <Button onClick={handleAdjustFixed} disabled={adjustFixedMutation.isPending}>
+              Aplicar Ajuste
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WhatsApp Send Dialog */}
+      <Dialog open={showWhatsAppDialog} onOpenChange={setShowWhatsAppDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar Avaliacao via WhatsApp</DialogTitle>
+            <DialogDescription>Envie a tabela de precos de um modelo para o cliente via WhatsApp</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Modelo</Label>
+              <Select value={whatsAppModelo} onValueChange={setWhatsAppModelo}>
+                <SelectTrigger><SelectValue placeholder="Selecione o modelo" /></SelectTrigger>
+                <SelectContent>
+                  {(modelsQuery.data ?? []).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Telefone do Cliente</Label>
+              <Input
+                value={whatsAppPhone}
+                onChange={(e) => setWhatsAppPhone(e.target.value)}
+                placeholder="86999999999"
+              />
+            </div>
+            <div>
+              <Label>Nome do Cliente (opcional)</Label>
+              <Input
+                value={whatsAppName}
+                onChange={(e) => setWhatsAppName(e.target.value)}
+                placeholder="Ex: Joao"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWhatsAppDialog(false)}>Cancelar</Button>
+            <Button onClick={handleSendWhatsApp} disabled={whatsAppMutation.isPending}>
+              <MessageCircle className="mr-2 h-4 w-4" />
+              Enviar
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -33,13 +33,21 @@ export const listValuationsSchema = z.object({
 });
 export type ListValuationsInput = z.infer<typeof listValuationsSchema>;
 
-// ── Bulk Adjust ──
+// ── Bulk Adjust (percentage) ──
 
 export const bulkAdjustSchema = z.object({
   modelo: z.string().min(1, "Modelo obrigatorio"),
   adjustPercent: z.number().min(-100).max(1000), // percentage adjustment
 });
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;
+
+// ── Bulk Adjust Fixed (R$ amount, like Laravel) ──
+
+export const bulkAdjustFixedSchema = z.object({
+  modelo: z.string().min(1, "Modelo obrigatorio"),
+  adjustAmount: z.number().int(), // centavos (positive = increase, negative = decrease)
+});
+export type BulkAdjustFixedInput = z.infer<typeof bulkAdjustFixedSchema>;
 
 // ── Duplicate Model ──
 
@@ -48,6 +56,22 @@ export const duplicateModelSchema = z.object({
   targetModelo: z.string().min(1, "Modelo de destino obrigatorio"),
 });
 export type DuplicateModelInput = z.infer<typeof duplicateModelSchema>;
+
+// ── Delete all valuations of a model ──
+
+export const deleteModelSchema = z.object({
+  modelo: z.string().min(1, "Modelo obrigatorio"),
+});
+export type DeleteModelInput = z.infer<typeof deleteModelSchema>;
+
+// ── Send WhatsApp ──
+
+export const sendValuationWhatsAppSchema = z.object({
+  phone: z.string().min(10, "Telefone obrigatorio"),
+  modelo: z.string().min(1, "Modelo obrigatorio"),
+  customerName: z.string().max(255).optional(),
+});
+export type SendValuationWhatsAppInput = z.infer<typeof sendValuationWhatsAppSchema>;
 
 // ── Constants ──
 

@@ -42,11 +42,15 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       barcode: "",
       name: "",
       description: "",
+      brand: "",
+      isDevice: false,
       costPrice: 0,
       salePrice: 0,
+      promotionalPrice: null,
       minStock: 0,
       unit: "un",
       active: true,
+      categoryId: null,
     },
   });
 
@@ -128,6 +132,20 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="brand"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Marca</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ""} placeholder="Ex: Apple, Samsung" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         </FormSection>
 
@@ -155,6 +173,23 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                   <FormLabel>Preco de Venda *</FormLabel>
                   <FormControl>
                     <MoneyInput value={field.value} onChange={field.onChange} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="promotionalPrice"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Preco Promocional</FormLabel>
+                  <FormControl>
+                    <MoneyInput
+                      value={field.value ?? 0}
+                      onChange={(v) => field.onChange(v > 0 ? v : null)}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -219,26 +254,49 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
         </FormSection>
 
         <FormSection title="Configuracoes">
-          <FormField
-            control={form.control}
-            name="active"
-            render={({ field }) => (
-              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <FormLabel className="text-base">Produto Ativo</FormLabel>
-                  <p className="text-sm text-muted-foreground">
-                    Produtos inativos nao aparecem na busca do PDV
-                  </p>
-                </div>
-                <FormControl>
-                  <Switch
-                    checked={field.value ?? true}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+          <div className="space-y-4">
+            <FormField
+              control={form.control}
+              name="isDevice"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">E Aparelho</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Aparelhos usam entrada via Compra de Aparelhos (com IMEI, condicao, bateria)
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="active"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Produto Ativo</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Produtos inativos nao aparecem na busca do PDV
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? true}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
         </FormSection>
 
         <FormActions
