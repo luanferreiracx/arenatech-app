@@ -81,7 +81,7 @@ export async function GET(
       return new Date(d).toLocaleDateString("pt-BR") + " " + new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     };
 
-    const esc = (s: string | null | undefined) => (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/&/g, "&amp;");
+    const esc = (s: string | null | undefined) => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     // Checklist items (15 — identical to Laravel)
     const checklistLabels: Record<string, string> = {

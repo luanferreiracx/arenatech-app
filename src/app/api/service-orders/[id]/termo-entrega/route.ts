@@ -58,7 +58,7 @@ export async function GET(
     const cnpjLoja = settings?.cnpj ?? tenant?.cnpj ?? "";
     const telefoneLoja = settings?.phone ?? "";
 
-    const esc = (s: string | null | undefined) => (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const esc = (s: string | null | undefined) => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const now = new Date();
 
     const html = `<!DOCTYPE html>

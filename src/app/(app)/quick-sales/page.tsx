@@ -59,7 +59,7 @@ export default function QuickSalesPage() {
   const { data, isLoading } = useQuery(
     trpc.quickSale.list.queryOptions({
       search: search || undefined,
-      status: (statusFilter || undefined) as QuickSaleStatus | undefined,
+      status: (statusFilter && statusFilter !== "all" ? statusFilter : undefined) as QuickSaleStatus | undefined,
       pageSize: 50,
     })
   );

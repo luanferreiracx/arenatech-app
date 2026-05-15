@@ -81,7 +81,7 @@ export async function GET(
         : "";
 
     const esc = (s: string | null | undefined) =>
-      (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     const fmt = (v: number) =>
       "R$ " +
