@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Modulos finais implementados. Fase 14 (Recompensas) adiada.
-**Ultima atualizacao:** 2026-05-14
+**Fase atual:** Auditoria de modulos concluida. Fase 14 (Recompensas) adiada.
+**Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 0
+**Commits desde ultimo deploy:** 1
 
 ---
 
@@ -259,6 +259,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-15 — Auditoria de 7 modulos (Estoque, Configuracoes, Avaliacoes, Comissoes, Clientes, Checklist, Simulador)
+
+- **Auditado contra Laravel:**
+  - **Estoque:** Produtos CRUD completo, fornecedores CRUD, categorias, entrada/saida/ajuste, compras de aparelhos, relatorios inventario. Migration adicionou campos `brand`, `is_device`, `promotional_price`, `image_url` ao Product para paridade com Laravel (marca, eh_aparelho, preco_promocional, imagem_url). Form atualizado com marca, preco promocional e switch "E Aparelho".
+  - **Configuracoes:** Completo — gerais (nome, CNPJ, telefone, endereco com CEP), fiscais (razao social, IE, IM, CNAE, regime tributario, NF-e/NFC-e config, certificado), formas de pagamento com taxas, regras de parcelamento por forma, integracoes, usuarios CRUD com roles, alterar senha, audit logs, assinatura/plano.
+  - **Avaliacoes:** Tabela de precos por modelo/armazenamento/bateria com CRUD completo. Adicionado `bulkAdjustFixed` (ajuste por valor fixo R$ como Laravel), `deleteModel` (excluir modelo inteiro), `formatWhatsAppMessage` (formata tabela e gera link wa.me para envio). UI atualizada com botoes "Ajuste R$", "Enviar WhatsApp" e dialogs correspondentes.
+  - **Comissoes:** Redesenho completo vs Laravel — Laravel tem regras hardcoded por usuario com calculo semanal/mensal e categorias (aparelho/nao-aparelho, propria/loja, com-custo/sem-custo). Next.js usa tabela de regras (CommissionRule) por tipo (SALE/SERVICE_ORDER) e papel (seller/technician) com calculo automatico sobre vendas e OS do periodo. Mais flexivel e escalavel. Paginas: listagem, regras CRUD, relatorio mensal, prestadores (via operation), comissao socia, minha comissao.
+  - **Clientes:** Completo — CRUD com busca (nome, CPF, CNPJ, telefone, email), tipo PF/PJ com validacao, endereco com CEP (via addressSchema), data nascimento, telefone principal + alternativo, interesses com status/tipo/prioridade/followUp, LGPD consent, soft delete, restore.
+  - **Checklist:** Completo — 15 itens (display, touchscreen, bateria, carregamento, wifi, bluetooth, camera, alto-falante, microfone, botoes, biometria, faceId, GPS, rede celular, sensores) com 3 estados (OK/NOK/N/A via boolean|null). Fluxo de entrada e saida na OS. 6 infos adicionais do aparelho (deviceInfo).
+  - **Simulador:** Completo — mostra TODAS as parcelas incluindo taxa 0% (PIX/Dinheiro, Debito, Credito 1x, parcelas 2x-36x conforme regras). PDF funciona via /api/simulator/pdf. Campo nome do cliente presente.
+- **Decisoes:**
+  - Comissoes redesenhadas intencionalmente (regras em tabela vs hardcoded) — mais flexivel para SaaS multi-tenant
+  - bulkAdjust em avaliacoes mantido com percentual (adicionado bulkAdjustFixed para valor fixo como alternativa)
+  - WhatsApp de avaliacao usa URL wa.me (nao Evolution API diretamente) — abre no navegador do usuario
+- **Proximo:** Fase 14 (Recompensas) quando decisao de produto for tomada
 
 ### 2026-05-14 — Modulos finais (DePix, Pagamento Publico, Pre-cadastro, Simulador PDF, Recibo, Relatorios NF)
 
