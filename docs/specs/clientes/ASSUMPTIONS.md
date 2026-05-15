@@ -34,13 +34,13 @@
 
 ---
 
-## A4. Interest é entidade autônoma (não sub-recurso de Customer)
+## A4. Interest é entidade 100% autônoma (sem FK para Customer) — CONFIRMADA
 
-**Premissa:** Interest tem sua própria listagem, CRUD e rota (`/interests`). Não é acessado como sub-recurso de Customer (`/customers/[id]/interests`). O campo `customerId` é opcional para eventual vinculação.
+**Premissa:** Interest tem sua própria listagem, CRUD e rota (`/interests`). NÃO tem FK para Customer. São entidades completamente independentes.
 
-**Razão:** Reflete o design do legacy onde `interesses_clientes` não tem FK para `clientes`. Leads existem independentemente de clientes formais.
+**Razão:** Reflete o design do legacy onde `interesses_clientes` não tem FK para `clientes`. **Confirmado pelo dono em Q3: vínculo desnecessário.**
 
-**Reversível:** Sim, pode-se reorganizar rotas depois.
+**Reversível:** Sim, pode-se adicionar FK depois se necessário.
 
 ---
 
@@ -54,11 +54,11 @@
 
 ---
 
-## A6. Soft delete com partial unique index
+## A6. Soft delete com partial unique index — CONFIRMADA
 
 **Premissa:** CPF e CNPJ usam partial unique index (`WHERE deleted_at IS NULL`). Isso permite reuso de CPF/CNPJ após soft delete de um cliente.
 
-**Razão:** Cenário real: cliente cadastrado errado → excluído → recadastrado com mesmo CPF. Se unique fosse absoluto, precisaria de restore + edit (UX pior). Sujeito a confirmação em QUESTIONS Q1.
+**Razão:** Cenário real: cliente cadastrado errado → excluído → recadastrado com mesmo CPF. **Confirmado pelo dono em Q1 (decisão B).**
 
 **Reversível:** Sim, pode-se trocar para unique absoluto.
 

@@ -1,6 +1,6 @@
 # SPEC: Clientes
 
-> **Status:** rascunho aguardando revisão do dono
+> **Status:** aprovada pelo dono (QUESTIONS respondidas 2026-05-15)
 > **Base:** docs/legacy/clientes.md + leitura direta do código Laravel + decisões do dono (PROMPT_2)
 > **Versão:** 1.0
 
@@ -55,8 +55,8 @@ Módulo de gestão de clientes (pessoas físicas e jurídicas) e leads de intere
 | updatedAt | DateTime @updatedAt | NO | — | — | mudança#3 | Prisma padrão |
 
 **Índices:**
-- `@@unique([tenantId, cpf])` — CPF único por tenant (apenas entre não-excluídos; ver QUESTIONS Q1)
-- `@@unique([tenantId, cnpj])` — CNPJ único por tenant (mesma regra)
+- Partial unique index `(tenantId, cpf) WHERE deletedAt IS NULL` — CPF único entre clientes ativos. Permite reuso após soft delete. // Q1: decisão B confirmada
+- Partial unique index `(tenantId, cnpj) WHERE deletedAt IS NULL` — CNPJ idem
 - `@@index([tenantId, name])` — busca por nome
 - `@@index([tenantId, phone])` — busca por telefone
 - `@@index([tenantId, deletedAt])` — filtro soft delete
@@ -68,7 +68,6 @@ Módulo de gestão de clientes (pessoas físicas e jurídicas) e leads de intere
 | createdBy | belongsTo User? | legacy `usuario_cadastro_id` |
 | serviceOrders | hasMany ServiceOrder | legacy `ordensServico()` |
 | sales | hasMany Sale | legacy (PDV via `cliente_id`) |
-| interests | — | **NÃO é relação direta** (ver 3.2) |
 | rewardBalance | hasOne RewardBalance? | legacy `recompensaSaldo()` — stub, spec Recompensas |
 | rewardActions | hasMany RewardAction | legacy `recompensasAcoes()` — stub |
 | rewardMovements | hasMany RewardMovement | legacy `recompensasMovimentacoes()` — stub |
@@ -97,14 +96,12 @@ Módulo de gestão de clientes (pessoas físicas e jurídicas) e leads de intere
 | notes | String? @db.Text | YES | — | z.string() | legacy `observacoes` | |
 | status | InterestStatus (enum) | NO | WAITING | z.enum | legacy `status` | |
 | createdById | String? @db.Uuid | YES | — | — | legacy `usuario_cadastro_id` | FK → User |
-| customerId | String? @db.Uuid | YES | — | — | **novo** | FK → Customer (quando lead é convertido) |
 | createdAt | DateTime @default(now()) | NO | now() | — | | |
 | updatedAt | DateTime @updatedAt | NO | — | — | | |
 
 **Relações:**
 - `tenant` belongsTo Tenant
 - `createdBy` belongsTo User?
-- `customer` belongsTo Customer? (novo — permite vincular lead a cliente quando convertido)
 - `interactions` hasMany InterestInteraction
 
 **Índices:**
@@ -214,7 +211,7 @@ enum InteractionType {
 2. **Endereço** — CEP, logradouro, número, complemento, bairro, cidade, estado
 3. **Tabs:**
    - **OS do cliente** — Últimas 10 OS ordenadas por data_entrada desc. Colunas: número, status, equipamento, valor, data. // origem: legacy `show()` eager load
-   - **Interesses/Leads** — Lista de interests vinculados (via `customerId`) com status e interações
+   - **Interesses/Leads** — Não vinculado diretamente (Interest é autônomo, sem FK). Tab pode buscar por telefone/CPF do cliente como heurística, ou ser removida. // Q3: sem vínculo
    - **Recompensas/Cashback** — Saldo disponível, ações recentes, histórico de movimentações. // origem: legacy relações recompensa. Dados lidos do módulo Recompensas (stub).
 
 **Ações:**
@@ -327,7 +324,7 @@ Status inicial: WAITING // origem: legacy `'status' => 'Em espera'`
 
 | # | Regra | Origem |
 |---|-------|--------|
-| RN-1 | CPF é único por tenant entre clientes não-excluídos. CNPJ idem. Verificação em create e update. | legacy StoreClienteRequest `unique:clientes,cpf` |
+| RN-1 | CPF é único por tenant entre clientes **não-excluídos** (partial unique index `WHERE deletedAt IS NULL`). CNPJ idem. Permite reuso de CPF/CNPJ após soft delete. Verificação em create e update. | legacy StoreClienteRequest `unique:clientes,cpf` + Q1 decisão B |
 | RN-2 | Cliente type=PF DEVE ter CPF preenchido. Cliente type=PJ DEVE ter CNPJ preenchido. Exceção: se `customerId` em um Interest aponta para este Customer e ele ainda não tem documento formal, CPF/CNPJ pode ser null (lead convertido parcialmente). | realidade#1 |
 | RN-3 | CPF validado por dígito verificador algoritmicamente. CPFs all-same-digits (000.000.000-00 etc.) são inválidos. CNPJ idem. | realidade#4 |
 | RN-4 | CPF armazenado apenas dígitos (11 chars). Formatação é responsabilidade da UI/accessor. | legacy controller `preg_replace('/[^0-9]/', '', $validated['cpf'])` |
