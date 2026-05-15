@@ -34,6 +34,7 @@ import {
   MessageSquare,
   Undo2,
   Puzzle,
+  Clock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -99,19 +100,23 @@ export const appNavGroups: NavGroup[] = [
       { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine },
       { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag },
       { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp },
-      { label: "Relatorio de Estoque", href: "/stock/report", icon: BarChart3 },
+      { label: "Relatorios", href: "/stock/reports", icon: BarChart3 },
+      { label: "Importar CSV", href: "/stock/import", icon: Download },
     ],
   },
   {
     title: "Caixa",
     items: [
       { label: "Caixa", href: "/cashier", icon: Banknote },
+      { label: "Conferencias", href: "/cashier/reviews", icon: CheckSquare },
     ],
   },
   {
     title: "Financeiro",
     items: [
       { label: "Financeiro", href: "/financial", icon: Wallet },
+      { label: "Recebimentos", href: "/financial/receivables", icon: Receipt },
+      { label: "Pendentes", href: "/financial/pending", icon: Clock },
       { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt },
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt },
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp },

@@ -12,6 +12,8 @@ import {
   overdueSchema,
   dreSchema,
   projectedCashFlowSchema,
+  listReceivablesSchema,
+  listPendingSchema,
 } from "@/lib/validators/financial";
 
 // ── Helpers ──
@@ -898,6 +900,148 @@ export const financialRouter = createTRPCRouter({
             projectedBalance: totalReceivable - totalPayable,
           },
           days: input.days,
+        };
+      });
+    }),
+
+  /**
+   * Receivables: paid transactions (completed receivables).
+   * Maps to Laravel's FinanceiroController@recebimentos.
+   */
+  receivables: tenantProcedure
+    .input(listReceivablesSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const page = input.page ?? 0;
+        const pageSize = input.pageSize ?? 20;
+
+        const where: Record<string, unknown> = {
+          type: "RECEIVABLE",
+          status: "PAID",
+          deletedAt: null,
+        };
+
+        if (input.search) {
+          where.OR = [
+            { description: { contains: input.search, mode: "insensitive" } },
+            { customerName: { contains: input.search, mode: "insensitive" } },
+          ];
+        }
+
+        if (input.dateFrom || input.dateTo) {
+          const paidAt: Record<string, Date> = {};
+          if (input.dateFrom) paidAt.gte = new Date(input.dateFrom);
+          if (input.dateTo) {
+            const end = new Date(input.dateTo);
+            end.setHours(23, 59, 59, 999);
+            paidAt.lte = end;
+          }
+          where.paidAt = paidAt;
+        }
+
+        if (input.paymentMethod) {
+          where.paymentMethod = input.paymentMethod;
+        }
+
+        const [data, total, totals] = await Promise.all([
+          tx.financialTransaction.findMany({
+            where,
+            orderBy: { paidAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.financialTransaction.count({ where }),
+          tx.financialTransaction.aggregate({
+            where: {
+              type: "RECEIVABLE",
+              status: "PAID",
+              deletedAt: null,
+              ...(input.dateFrom || input.dateTo
+                ? {
+                    paidAt: {
+                      ...(input.dateFrom ? { gte: new Date(input.dateFrom) } : {}),
+                      ...(input.dateTo ? { lte: (() => { const e = new Date(input.dateTo); e.setHours(23, 59, 59, 999); return e; })() } : {}),
+                    },
+                  }
+                : {}),
+            },
+            _sum: { totalAmount: true, paidAmount: true },
+            _count: true,
+          }),
+        ]);
+
+        return {
+          data: data.map(serializeTransaction),
+          total,
+          pageCount: Math.ceil(total / pageSize),
+          totals: {
+            totalReceived: decimalToCents(totals._sum.paidAmount),
+            count: totals._count,
+          },
+        };
+      });
+    }),
+
+  /**
+   * Pending payments: receivables that have not been fully paid.
+   * Maps to Laravel's FinanceiroController@pendentes.
+   */
+  pending: tenantProcedure
+    .input(listPendingSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const page = input.page ?? 0;
+        const pageSize = input.pageSize ?? 20;
+
+        const where: Record<string, unknown> = {
+          type: "RECEIVABLE",
+          status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+          deletedAt: null,
+        };
+
+        if (input.status) {
+          where.status = input.status;
+        }
+
+        if (input.search) {
+          where.OR = [
+            { description: { contains: input.search, mode: "insensitive" } },
+            { customerName: { contains: input.search, mode: "insensitive" } },
+          ];
+        }
+
+        const [data, total, totals] = await Promise.all([
+          tx.financialTransaction.findMany({
+            where,
+            include: { installments: { orderBy: { number: "asc" } } },
+            orderBy: { createdAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.financialTransaction.count({ where }),
+          tx.financialTransaction.aggregate({
+            where: {
+              type: "RECEIVABLE",
+              status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+              deletedAt: null,
+            },
+            _sum: { totalAmount: true, paidAmount: true },
+            _count: true,
+          }),
+        ]);
+
+        const totalPending = decimalToCents(totals._sum.totalAmount) - decimalToCents(totals._sum.paidAmount);
+
+        return {
+          data: data.map(serializeTransaction),
+          total,
+          pageCount: Math.ceil(total / pageSize),
+          totals: {
+            totalPending,
+            totalAmount: decimalToCents(totals._sum.totalAmount),
+            totalPaid: decimalToCents(totals._sum.paidAmount),
+            count: totals._count,
+          },
         };
       });
     }),

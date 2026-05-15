@@ -106,3 +106,13 @@ export const cashRegisterHistorySchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
 });
+
+/** Review a pending cash register (conferencia) */
+export const reviewCashRegisterSchema = z.object({
+  /** Cash register ID to review */
+  cashRegisterId: z.string().uuid(),
+  /** Reported balance in centavos (contagem em dinheiro) */
+  reportedBalance: z.number().int().min(0, "Saldo informado deve ser >= 0"),
+  /** Optional observation from the reviewer */
+  notes: z.string().max(500).optional(),
+});

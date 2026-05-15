@@ -17,6 +17,16 @@ import {
   listCategoriesSchema,
   stockEntrySchema,
   stockExitSchema,
+  posicaoEstoqueSchema,
+  movimentacoesReportSchema,
+  curvaAbcSchema,
+  estoqueMinSchema,
+  vendasPeriodoSchema,
+  vendasProdutoSchema,
+  vendasVendedorSchema,
+  upgradesSchema,
+  csvImportSchema,
+  reportDateRangeSchema,
 } from "@/lib/validators/stock";
 import { Prisma } from "@prisma/client";
 
@@ -838,7 +848,7 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /** Stock dashboard stats with alerts */
+  /** Stock dashboard stats with alerts (enhanced) */
   stockDashboard: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const products = await tx.product.findMany({
@@ -878,6 +888,65 @@ export const stockRouter = createTRPCRouter({
         },
       });
 
+      // Today stats
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const [entriesToday, salesToday] = await Promise.all([
+        tx.stockMovement.aggregate({
+          where: { type: "ENTRY", createdAt: { gte: todayStart, lte: todayEnd } },
+          _sum: { quantity: true },
+        }),
+        tx.sale.findMany({
+          where: {
+            status: "COMPLETED",
+            saleDate: { gte: todayStart, lte: todayEnd },
+          },
+          select: { totalAmount: true },
+        }),
+      ]);
+
+      const vendasHojeQtd = salesToday.length;
+      const vendasHojeValor = salesToday.reduce((s, v) => s + Number(v.totalAmount), 0);
+      const ticketMedio = vendasHojeQtd > 0 ? vendasHojeValor / vendasHojeQtd : 0;
+
+      // Top 5 products this week
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+
+      const weekSales = await tx.saleItem.findMany({
+        where: {
+          sale: { status: "COMPLETED", saleDate: { gte: weekStart } },
+        },
+        select: {
+          productId: true,
+          description: true,
+          quantity: true,
+          total: true,
+        },
+      });
+
+      const topProductsMap = new Map<string, { name: string; qty: number; total: number }>();
+      for (const item of weekSales) {
+        const existing = topProductsMap.get(item.productId);
+        if (existing) {
+          existing.qty += item.quantity;
+          existing.total += Number(item.total);
+        } else {
+          topProductsMap.set(item.productId, {
+            name: item.description,
+            qty: item.quantity,
+            total: Number(item.total),
+          });
+        }
+      }
+      const topProducts = Array.from(topProductsMap.values())
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+
       return {
         totalProducts,
         totalItems,
@@ -886,7 +955,734 @@ export const stockRouter = createTRPCRouter({
         lowStockProducts,
         outOfStockProducts,
         recentMovements,
+        entriesToday: entriesToday._sum.quantity ?? 0,
+        vendasHojeQtd,
+        vendasHojeValor: Math.round(vendasHojeValor * 100),
+        ticketMedio: Math.round(ticketMedio * 100),
+        topProducts,
       };
+    });
+  }),
+
+  // ═══════════════════════════════════════
+  // REPORTS (8 types like Laravel)
+  // ═══════════════════════════════════════
+
+  /** 1. Posicao de Estoque */
+  reportPosicao: tenantProcedure
+    .input(posicaoEstoqueSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductWhereInput = { deletedAt: null, active: true };
+
+        if (input.categoryId) {
+          where.categoryId = input.categoryId;
+        }
+
+        const products = await tx.product.findMany({
+          where,
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            currentStock: true,
+            minStock: true,
+            costPrice: true,
+            salePrice: true,
+            unit: true,
+            category: { select: { name: true } },
+          },
+        });
+
+        const filtered = input.onlyWithStock
+          ? products.filter((p) => p.currentStock > 0)
+          : products;
+
+        const totalQtd = filtered.reduce((s, p) => s + p.currentStock, 0);
+        const totalValor = filtered.reduce(
+          (s, p) => s + p.currentStock * Number(p.salePrice),
+          0,
+        );
+
+        return {
+          products: filtered,
+          totals: { quantity: totalQtd, value: Math.round(totalValor * 100) },
+        };
+      });
+    }),
+
+  /** 2. Movimentacoes por periodo */
+  reportMovimentacoes: tenantProcedure
+    .input(movimentacoesReportSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.StockMovementWhereInput = {};
+        if (input.type) where.type = input.type;
+        if (input.productId) where.productId = input.productId;
+        if (input.dateFrom || input.dateTo) {
+          where.createdAt = {};
+          if (input.dateFrom) where.createdAt.gte = new Date(input.dateFrom);
+          if (input.dateTo) where.createdAt.lte = new Date(input.dateTo + "T23:59:59");
+        }
+
+        const movements = await tx.stockMovement.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: 500,
+          include: {
+            product: { select: { id: true, name: true, sku: true } },
+          },
+        });
+
+        const entries = movements
+          .filter((m) => m.type === "ENTRY")
+          .reduce((s, m) => s + m.quantity, 0);
+        const exits = movements
+          .filter((m) => m.type === "EXIT" || m.type === "SALE")
+          .reduce((s, m) => s + m.quantity, 0);
+
+        return { movements, totals: { entries, exits } };
+      });
+    }),
+
+  /** 3. Curva ABC */
+  reportCurvaAbc: tenantProcedure
+    .input(curvaAbcSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        // Get sale items from completed sales in period
+        const saleItemsWhere: Prisma.SaleItemWhereInput = {
+          sale: {
+            status: "COMPLETED",
+            saleDate: { gte: dateFrom, lte: dateTo },
+          },
+        };
+
+        const saleItems = await tx.saleItem.findMany({
+          where: saleItemsWhere,
+          select: {
+            productId: true,
+            description: true,
+            quantity: true,
+            total: true,
+          },
+        });
+
+        // Aggregate by product
+        const productMap = new Map<
+          string,
+          { id: string; name: string; quantity: number; total: number }
+        >();
+
+        for (const item of saleItems) {
+          const existing = productMap.get(item.productId);
+          if (existing) {
+            existing.quantity += item.quantity;
+            existing.total += Number(item.total);
+          } else {
+            productMap.set(item.productId, {
+              id: item.productId,
+              name: item.description,
+              quantity: item.quantity,
+              total: Number(item.total),
+            });
+          }
+        }
+
+        // If category filter, filter products
+        let productsList = Array.from(productMap.values());
+        if (input.categoryId) {
+          const productsInCat = await tx.product.findMany({
+            where: { categoryId: input.categoryId, deletedAt: null },
+            select: { id: true },
+          });
+          const catIds = new Set(productsInCat.map((p) => p.id));
+          productsList = productsList.filter((p) => catIds.has(p.id));
+        }
+
+        // Sort by total desc
+        productsList.sort((a, b) => b.total - a.total);
+
+        const totalGeral = productsList.reduce((s, p) => s + p.total, 0);
+
+        if (totalGeral <= 0) {
+          return {
+            products: [],
+            totals: { A: 0, B: 0, C: 0 },
+            counts: { A: 0, B: 0, C: 0 },
+            totalGeral: 0,
+          };
+        }
+
+        let acumulado = 0;
+        const classified = productsList.map((p) => {
+          const pct = (p.total / totalGeral) * 100;
+          acumulado += pct;
+          const classe = acumulado <= 80 ? "A" : acumulado <= 95 ? "B" : "C";
+          return {
+            ...p,
+            total: Math.round(p.total * 100),
+            percentual: Math.round(pct * 100) / 100,
+            percentualAcumulado: Math.round(acumulado * 100) / 100,
+            classe,
+          };
+        });
+
+        const totals = { A: 0, B: 0, C: 0 };
+        const counts = { A: 0, B: 0, C: 0 };
+        for (const p of classified) {
+          const c = p.classe as "A" | "B" | "C";
+          totals[c] += p.total;
+          counts[c]++;
+        }
+
+        return {
+          products: classified,
+          totals,
+          counts,
+          totalGeral: Math.round(totalGeral * 100),
+        };
+      });
+    }),
+
+  /** 4. Estoque minimo */
+  reportEstoqueMin: tenantProcedure
+    .input(estoqueMinSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductWhereInput = {
+          deletedAt: null,
+          active: true,
+          minStock: { gt: 0 },
+        };
+
+        if (input.categoryId) where.categoryId = input.categoryId;
+
+        const products = await tx.product.findMany({
+          where,
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            currentStock: true,
+            minStock: true,
+            category: { select: { name: true } },
+          },
+        });
+
+        const withStatus = products.map((p) => ({
+          ...p,
+          diff: p.currentStock - p.minStock,
+          status: p.currentStock < p.minStock ? ("below" as const) : ("ok" as const),
+        }));
+
+        const filtered =
+          input.onlyBelowMin !== false
+            ? withStatus.filter((p) => p.status === "below")
+            : withStatus;
+
+        const belowCount = withStatus.filter((p) => p.status === "below").length;
+        const okCount = withStatus.filter((p) => p.status === "ok").length;
+
+        return {
+          products: filtered,
+          totals: { total: withStatus.length, below: belowCount, ok: okCount },
+        };
+      });
+    }),
+
+  /** 5. Vendas por periodo */
+  reportVendasPeriodo: tenantProcedure
+    .input(vendasPeriodoSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        const where: Prisma.SaleWhereInput = {
+          status: "COMPLETED",
+          saleDate: { gte: dateFrom, lte: dateTo },
+        };
+
+        if (input.sellerId) where.sellerId = input.sellerId;
+
+        const sales = await tx.sale.findMany({
+          where,
+          orderBy: { saleDate: "desc" },
+          select: {
+            id: true,
+            number: true,
+            saleDate: true,
+            totalAmount: true,
+            discountAmount: true,
+            sellerId: true,
+            customerId: true,
+            paymentDetails: true,
+            items: {
+              select: {
+                costPrice: true,
+                quantity: true,
+              },
+            },
+          },
+        });
+
+        let totalVendido = 0;
+        let totalDesconto = 0;
+        let totalCusto = 0;
+
+        const salesData = sales.map((s) => {
+          const valor = Number(s.totalAmount);
+          const desconto = Number(s.discountAmount);
+          const custo = s.items.reduce(
+            (sum, i) => sum + Number(i.costPrice) * i.quantity,
+            0,
+          );
+          totalVendido += valor;
+          totalDesconto += desconto;
+          totalCusto += custo;
+
+          return {
+            id: s.id,
+            number: s.number,
+            saleDate: s.saleDate,
+            totalAmount: Math.round(valor * 100),
+            discountAmount: Math.round(desconto * 100),
+            costTotal: Math.round(custo * 100),
+            profit: Math.round((valor - custo) * 100),
+            sellerId: s.sellerId,
+            customerId: s.customerId,
+          };
+        });
+
+        const qtd = salesData.length;
+        return {
+          sales: salesData,
+          totals: {
+            quantity: qtd,
+            totalVendido: Math.round(totalVendido * 100),
+            totalDesconto: Math.round(totalDesconto * 100),
+            lucroBruto: Math.round((totalVendido - totalCusto) * 100),
+            ticketMedio: qtd > 0 ? Math.round((totalVendido / qtd) * 100) : 0,
+          },
+        };
+      });
+    }),
+
+  /** 6. Vendas por produto */
+  reportVendasProduto: tenantProcedure
+    .input(vendasProdutoSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        const saleItems = await tx.saleItem.findMany({
+          where: {
+            sale: {
+              status: "COMPLETED",
+              saleDate: { gte: dateFrom, lte: dateTo },
+            },
+          },
+          select: {
+            productId: true,
+            description: true,
+            quantity: true,
+            total: true,
+            costPrice: true,
+            saleId: true,
+          },
+        });
+
+        // Aggregate
+        const map = new Map<
+          string,
+          {
+            id: string;
+            name: string;
+            qty: number;
+            total: number;
+            cost: number;
+            salesSet: Set<string>;
+          }
+        >();
+
+        for (const item of saleItems) {
+          const existing = map.get(item.productId);
+          if (existing) {
+            existing.qty += item.quantity;
+            existing.total += Number(item.total);
+            existing.cost += Number(item.costPrice) * item.quantity;
+            existing.salesSet.add(item.saleId);
+          } else {
+            map.set(item.productId, {
+              id: item.productId,
+              name: item.description,
+              qty: item.quantity,
+              total: Number(item.total),
+              cost: Number(item.costPrice) * item.quantity,
+              salesSet: new Set([item.saleId]),
+            });
+          }
+        }
+
+        let productsList = Array.from(map.values());
+
+        // Category filter
+        if (input.categoryId) {
+          const productsInCat = await tx.product.findMany({
+            where: { categoryId: input.categoryId, deletedAt: null },
+            select: { id: true },
+          });
+          const catIds = new Set(productsInCat.map((p) => p.id));
+          productsList = productsList.filter((p) => catIds.has(p.id));
+        }
+
+        // Fetch categories for products
+        const productIds = productsList.map((p) => p.id);
+        const productsWithCat = await tx.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, category: { select: { name: true } } },
+        });
+        const catMap = new Map(
+          productsWithCat.map((p) => [p.id, p.category?.name ?? null]),
+        );
+
+        productsList.sort((a, b) => b.qty - a.qty);
+
+        const result = productsList.map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: catMap.get(p.id) ?? null,
+          quantity: p.qty,
+          numSales: p.salesSet.size,
+          totalAmount: Math.round(p.total * 100),
+          costTotal: Math.round(p.cost * 100),
+          profit: Math.round((p.total - p.cost) * 100),
+        }));
+
+        const totalQtd = result.reduce((s, p) => s + p.quantity, 0);
+        const totalValor = result.reduce((s, p) => s + p.totalAmount, 0);
+        const totalLucro = result.reduce((s, p) => s + p.profit, 0);
+
+        return {
+          products: result,
+          totals: { quantity: totalQtd, totalAmount: totalValor, profit: totalLucro },
+        };
+      });
+    }),
+
+  /** 7. Vendas por vendedor */
+  reportVendasVendedor: tenantProcedure
+    .input(vendasVendedorSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        const sales = await tx.sale.findMany({
+          where: {
+            status: "COMPLETED",
+            saleDate: { gte: dateFrom, lte: dateTo },
+          },
+          select: {
+            sellerId: true,
+            totalAmount: true,
+            discountAmount: true,
+            items: {
+              select: { costPrice: true, quantity: true },
+            },
+          },
+        });
+
+        // Group by seller
+        const sellerMap = new Map<
+          string,
+          { qty: number; total: number; discount: number; cost: number }
+        >();
+
+        for (const s of sales) {
+          const existing = sellerMap.get(s.sellerId);
+          const cost = s.items.reduce(
+            (sum, i) => sum + Number(i.costPrice) * i.quantity,
+            0,
+          );
+          if (existing) {
+            existing.qty++;
+            existing.total += Number(s.totalAmount);
+            existing.discount += Number(s.discountAmount);
+            existing.cost += cost;
+          } else {
+            sellerMap.set(s.sellerId, {
+              qty: 1,
+              total: Number(s.totalAmount),
+              discount: Number(s.discountAmount),
+              cost,
+            });
+          }
+        }
+
+        // Fetch seller names
+        const sellerIds = Array.from(sellerMap.keys());
+        const users = await tx.$queryRawUnsafe<
+          Array<{ id: string; name: string }>
+        >(
+          `SELECT id, name FROM users WHERE id = ANY($1::uuid[])`,
+          sellerIds,
+        );
+        const nameMap = new Map(users.map((u) => [u.id, u.name]));
+
+        const result = Array.from(sellerMap.entries())
+          .map(([sellerId, data]) => ({
+            sellerId,
+            sellerName: nameMap.get(sellerId) ?? "Sem vendedor",
+            quantity: data.qty,
+            totalAmount: Math.round(data.total * 100),
+            discountAmount: Math.round(data.discount * 100),
+            ticketMedio:
+              data.qty > 0 ? Math.round((data.total / data.qty) * 100) : 0,
+            profit: Math.round((data.total - data.cost) * 100),
+          }))
+          .sort((a, b) => b.totalAmount - a.totalAmount);
+
+        const totalQtd = result.reduce((s, v) => s + v.quantity, 0);
+        const totalValor = result.reduce((s, v) => s + v.totalAmount, 0);
+        const totalLucro = result.reduce((s, v) => s + v.profit, 0);
+
+        return {
+          sellers: result,
+          totals: { quantity: totalQtd, totalAmount: totalValor, profit: totalLucro },
+        };
+      });
+    }),
+
+  /** 8. Upgrades (device purchases = trade-ins) */
+  reportUpgrades: tenantProcedure
+    .input(upgradesSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        const purchases = await tx.devicePurchase.findMany({
+          where: {
+            createdAt: { gte: dateFrom, lte: dateTo },
+          },
+          orderBy: { createdAt: "desc" },
+          include: {
+            product: { select: { id: true, name: true } },
+          },
+        });
+
+        const totalQtd = purchases.length;
+        const totalAvaliado = purchases.reduce(
+          (s, p) => s + Number(p.purchasePrice),
+          0,
+        );
+        const totalVenda = purchases.reduce(
+          (s, p) => s + Number(p.salePrice ?? 0),
+          0,
+        );
+
+        return {
+          purchases: purchases.map((p) => ({
+            ...p,
+            purchasePrice: Math.round(Number(p.purchasePrice) * 100),
+            salePrice: p.salePrice != null ? Math.round(Number(p.salePrice) * 100) : null,
+          })),
+          totals: {
+            quantity: totalQtd,
+            totalPurchaseValue: Math.round(totalAvaliado * 100),
+            totalSaleValue: Math.round(totalVenda * 100),
+          },
+        };
+      });
+    }),
+
+  /** Reports summary (for index page) */
+  reportsSummary: tenantProcedure
+    .input(reportDateRangeSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const dateFrom = input.dateFrom
+          ? new Date(input.dateFrom)
+          : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const dateTo = input.dateTo
+          ? new Date(input.dateTo + "T23:59:59")
+          : new Date();
+
+        const [sales, entries, exits, purchases] = await Promise.all([
+          tx.sale.aggregate({
+            where: {
+              status: "COMPLETED",
+              saleDate: { gte: dateFrom, lte: dateTo },
+            },
+            _count: true,
+            _sum: { totalAmount: true },
+          }),
+          tx.stockMovement.aggregate({
+            where: {
+              type: "ENTRY",
+              createdAt: { gte: dateFrom, lte: dateTo },
+            },
+            _sum: { quantity: true },
+          }),
+          tx.stockMovement.aggregate({
+            where: {
+              type: { in: ["EXIT", "SALE"] },
+              createdAt: { gte: dateFrom, lte: dateTo },
+            },
+            _sum: { quantity: true },
+          }),
+          tx.devicePurchase.count({
+            where: { createdAt: { gte: dateFrom, lte: dateTo } },
+          }),
+        ]);
+
+        return {
+          vendas: {
+            quantidade: sales._count,
+            valorTotal: Math.round(Number(sales._sum.totalAmount ?? 0) * 100),
+          },
+          estoque: {
+            entradas: entries._sum.quantity ?? 0,
+            saidas: exits._sum.quantity ?? 0,
+          },
+          upgrades: purchases,
+        };
+      });
+    }),
+
+  /** CSV Import - process lines */
+  importCsv: tenantProcedure
+    .input(csvImportSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        let productsCreated = 0;
+        let stockEntries = 0;
+        let categoriesCreated = 0;
+        const errors: string[] = [];
+        const categoryCache = new Map<string, string>();
+
+        for (let i = 0; i < input.lines.length; i++) {
+          const line = input.lines[i]!;
+          try {
+            // Resolve category
+            let categoryId: string | null = null;
+            if (line.category) {
+              const catKey = line.category.toLowerCase().trim();
+              if (categoryCache.has(catKey)) {
+                categoryId = categoryCache.get(catKey)!;
+              } else {
+                // Try find existing
+                const existing = await tx.productCategory.findFirst({
+                  where: { name: { equals: line.category, mode: "insensitive" }, deletedAt: null },
+                });
+                if (existing) {
+                  categoryId = existing.id;
+                } else {
+                  const created = await tx.productCategory.create({
+                    data: { tenantId: ctx.tenantId, name: line.category },
+                  });
+                  categoryId = created.id;
+                  categoriesCreated++;
+                }
+                categoryCache.set(catKey, categoryId);
+              }
+            }
+
+            // Create product
+            const product = await tx.product.create({
+              data: {
+                tenantId: ctx.tenantId,
+                name: line.name,
+                sku: line.sku || null,
+                barcode: line.barcode || null,
+                brand: line.brand || null,
+                description: line.description || null,
+                isDevice: line.isDevice ?? false,
+                costPrice: new Prisma.Decimal((line.costPrice ?? 0) / 100),
+                salePrice: new Prisma.Decimal((line.salePrice ?? 0) / 100),
+                promotionalPrice: line.promotionalPrice != null
+                  ? new Prisma.Decimal(line.promotionalPrice / 100)
+                  : null,
+                minStock: line.minStock ?? 0,
+                currentStock: line.quantity ?? 0,
+                categoryId,
+                active: true,
+              },
+            });
+            productsCreated++;
+
+            // Create stock entry if quantity > 0
+            if (line.quantity && line.quantity > 0) {
+              await tx.stockMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  productId: product.id,
+                  type: "ENTRY",
+                  quantity: line.quantity,
+                  reason: "Importacao CSV em lote",
+                  userId: ctx.session.user.id,
+                },
+              });
+              stockEntries += line.quantity;
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            errors.push(`Linha ${i + 1} (${line.name}): ${msg}`);
+          }
+        }
+
+        return {
+          productsCreated,
+          stockEntries,
+          categoriesCreated,
+          errors,
+          success: errors.length === 0,
+        };
+      });
+    }),
+
+  /** List sellers for filters */
+  listSellers: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const sellers = await tx.$queryRawUnsafe<
+        Array<{ id: string; name: string }>
+      >(
+        `SELECT DISTINCT u.id, u.name
+         FROM users u
+         INNER JOIN user_tenants ut ON ut.user_id = u.id
+         WHERE ut.tenant_id = current_setting('app.current_tenant_id')::uuid
+         AND u.active = true
+         ORDER BY u.name`,
+      );
+      return sellers;
     });
   }),
 });

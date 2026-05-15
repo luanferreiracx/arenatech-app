@@ -8,6 +8,7 @@ import {
   withdrawalSchema,
   depositSchema,
   cashRegisterHistorySchema,
+  reviewCashRegisterSchema,
 } from "@/lib/validators/cashier";
 
 /**
@@ -368,6 +369,172 @@ export const cashierRouter = createTRPCRouter({
         };
       });
     }),
+
+  /**
+   * List closed cash registers that have not been reviewed (conferencia pendente).
+   * Closed registers with no closingBalance (auto-closed) or with null difference
+   * are considered pending review.
+   */
+  pendingReviews: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const pendingRegisters = await tx.cashRegister.findMany({
+        where: {
+          status: "CLOSED",
+          // A register is pending review if closingBalance was not verified
+          // i.e. difference is null or closingDetails contains no review marker
+          OR: [
+            { difference: null },
+            {
+              closingDetails: {
+                path: ["reviewed"],
+                equals: Prisma.DbNull,
+              },
+            },
+          ],
+        },
+        orderBy: { closedAt: "desc" },
+        take: 50,
+      });
+
+      // Resolve user names
+      const userIds = [...new Set(pendingRegisters.map((r) => r.userId))];
+      const users = userIds.length > 0
+        ? await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+      return pendingRegisters.map((r) => ({
+        ...serializeRegister(r),
+        userName: userMap.get(r.userId) ?? "Operador",
+      }));
+    });
+  }),
+
+  /**
+   * Review (conferir) a closed cash register.
+   * Sets the reported balance, calculates difference, and marks as reviewed.
+   */
+  review: tenantProcedure
+    .input(reviewCashRegisterSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const register = await tx.cashRegister.findUnique({
+          where: { id: input.cashRegisterId },
+          include: { movements: true },
+        });
+
+        if (!register) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Caixa nao encontrado",
+          });
+        }
+
+        if (register.status !== "CLOSED") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas caixas fechados podem ser conferidos",
+          });
+        }
+
+        // Check if already reviewed
+        const details = register.closingDetails as Record<string, unknown> | null;
+        if (details?.["reviewed"] === true) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Este caixa ja foi conferido",
+          });
+        }
+
+        const summary = buildSummary(register);
+        const systemBalance = summary.expectedCashBalance;
+        const differenceCents = input.reportedBalance - systemBalance;
+
+        const existingNotes = register.notes ?? "";
+        const reviewerName = ctx.session.user.name ?? "Conferente";
+        const reviewNote = input.notes
+          ? `[Conferencia ${new Date().toLocaleDateString("pt-BR")} por ${reviewerName}] ${input.notes}`
+          : "";
+        const finalNotes = existingNotes
+          ? (reviewNote ? `${existingNotes}\n\n${reviewNote}` : existingNotes)
+          : reviewNote;
+
+        await tx.cashRegister.update({
+          where: { id: input.cashRegisterId },
+          data: {
+            closingBalance: centsToPrismaDecimal(input.reportedBalance),
+            expectedBalance: centsToPrismaDecimal(systemBalance),
+            difference: centsToPrismaDecimal(differenceCents),
+            notes: finalNotes || null,
+            closingDetails: {
+              ...(details ?? {}),
+              reviewed: true,
+              reviewedAt: new Date().toISOString(),
+              reviewedBy: ctx.session.user.id,
+            },
+          },
+        });
+
+        return {
+          success: true,
+          systemBalance,
+          reportedBalance: input.reportedBalance,
+          difference: differenceCents,
+        };
+      });
+    }),
+
+  /**
+   * Check if current user has an open cash register (for PDV polling).
+   * Returns minimal data without heavy queries.
+   */
+  statusCheck: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const userId = ctx.session.user.id;
+      const openRegister = await tx.cashRegister.findFirst({
+        where: { userId, status: "OPEN" },
+        select: { id: true, openedAt: true },
+      });
+
+      return {
+        isOpen: !!openRegister,
+        registerId: openRegister?.id ?? null,
+        openedAt: openRegister?.openedAt ?? null,
+      };
+    });
+  }),
+
+  /**
+   * List all currently open cash registers across all users (for users
+   * without their own register to select which one to use).
+   */
+  openCashiers: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const openRegisters = await tx.cashRegister.findMany({
+        where: { status: "OPEN" },
+        select: { id: true, userId: true, openedAt: true },
+      });
+
+      if (openRegisters.length === 0) return [];
+
+      const userIds = [...new Set(openRegisters.map((r) => r.userId))];
+      const users = await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true },
+      });
+      const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+      return openRegisters.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userName: userMap.get(r.userId) ?? "Operador",
+        openedAt: r.openedAt,
+      }));
+    });
+  }),
 });
 
 // ── Helpers ──

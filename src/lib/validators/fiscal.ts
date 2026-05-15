@@ -206,3 +206,11 @@ export const createEntradaSchema = z.object({
   additionalInfo: z.string().max(5000).optional().nullable(),
 });
 export type CreateEntradaInput = z.infer<typeof createEntradaSchema>;
+
+// ── Send Email ──
+
+export const sendInvoiceEmailSchema = z.object({
+  invoiceId: z.string().uuid(),
+  email: z.string().email("Email invalido"),
+});
+export type SendInvoiceEmailInput = z.infer<typeof sendInvoiceEmailSchema>;

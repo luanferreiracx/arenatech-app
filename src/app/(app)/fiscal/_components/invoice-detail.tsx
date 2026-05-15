@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Download, XCircle, CheckCircle, Edit } from "lucide-react";
+import { FileText, Download, XCircle, CheckCircle, Edit, Mail } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
@@ -29,13 +30,16 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
   const queryClient = useQueryClient();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
 
   const invoiceQuery = useQuery(trpc.fiscal.getById.queryOptions({ id: invoiceId }));
   const authorizeMutation = useMutation(trpc.fiscal.authorize.mutationOptions());
   const cancelMutation = useMutation(trpc.fiscal.cancel.mutationOptions());
   const correctionMutation = useMutation(trpc.fiscal.correctionLetter.mutationOptions());
+  const sendEmailMutation = useMutation(trpc.fiscal.sendEmail.mutationOptions());
 
   const invoice = invoiceQuery.data;
 
@@ -77,6 +81,20 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           toast.success("Carta de correcao enviada");
           setShowCorrectionDialog(false);
           queryClient.invalidateQueries({ queryKey: trpc.fiscal.getById.queryKey({ id: invoiceId }) });
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleSendEmail = () => {
+    sendEmailMutation.mutate(
+      { invoiceId, email: emailAddress },
+      {
+        onSuccess: () => {
+          toast.success("Email enviado com sucesso");
+          setShowEmailDialog(false);
+          setEmailAddress("");
         },
         onError: (err) => toast.error(err.message),
       },
@@ -164,16 +182,24 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             {authorizeMutation.isPending ? "Autorizando..." : "Autorizar"}
           </Button>
         )}
-        {invoice.status === "AUTHORIZED" && (
+        {(invoice.status === "AUTHORIZED" || invoice.status === "CORRECTION_LETTER") && (
           <>
-            <Button variant="destructive" onClick={() => setShowCancelDialog(true)}>
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancelar Nota
+            <Button variant="outline" onClick={() => setShowEmailDialog(true)}>
+              <Mail className="mr-2 h-4 w-4" />
+              Enviar por Email
             </Button>
-            <Button variant="outline" onClick={() => setShowCorrectionDialog(true)}>
-              <Edit className="mr-2 h-4 w-4" />
-              Carta de Correcao
-            </Button>
+            {invoice.status === "AUTHORIZED" && (
+              <>
+                <Button variant="destructive" onClick={() => setShowCancelDialog(true)}>
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Cancelar Nota
+                </Button>
+                <Button variant="outline" onClick={() => setShowCorrectionDialog(true)}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Carta de Correcao
+                </Button>
+              </>
+            )}
           </>
         )}
         <Button variant="outline" onClick={() => router.push("/fiscal")}>
@@ -216,6 +242,36 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             <Button variant="outline" onClick={() => setShowCorrectionDialog(false)}>Voltar</Button>
             <Button onClick={handleCorrection} disabled={correctionReason.length < 15 || correctionMutation.isPending}>
               Enviar Correcao
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar NF-e por Email</DialogTitle>
+            <DialogDescription>Informe o email do destinatario</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>Email</Label>
+            <Input
+              type="email"
+              placeholder="email@exemplo.com"
+              value={emailAddress}
+              onChange={(e) => setEmailAddress(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEmailDialog(false)}>Cancelar</Button>
+            <Button
+              onClick={handleSendEmail}
+              disabled={!emailAddress || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress) || sendEmailMutation.isPending}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              {sendEmailMutation.isPending ? "Enviando..." : "Enviar Email"}
             </Button>
           </DialogFooter>
         </DialogContent>

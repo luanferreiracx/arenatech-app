@@ -171,6 +171,87 @@ export const stockExitSchema = z.object({
 
 export type StockExitInput = z.infer<typeof stockExitSchema>;
 
+// ── Report schemas ──
+
+export const reportDateRangeSchema = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+export type ReportDateRangeInput = z.infer<typeof reportDateRangeSchema>;
+
+export const posicaoEstoqueSchema = z.object({
+  categoryId: z.string().uuid().optional(),
+  onlyWithStock: z.boolean().optional(),
+});
+
+export type PosicaoEstoqueInput = z.infer<typeof posicaoEstoqueSchema>;
+
+export const movimentacoesReportSchema = reportDateRangeSchema.extend({
+  type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "SALE", "RETURN", "TRANSFER"]).optional(),
+  productId: z.string().uuid().optional(),
+});
+
+export type MovimentacoesReportInput = z.infer<typeof movimentacoesReportSchema>;
+
+export const curvaAbcSchema = reportDateRangeSchema.extend({
+  categoryId: z.string().uuid().optional(),
+});
+
+export type CurvaAbcInput = z.infer<typeof curvaAbcSchema>;
+
+export const estoqueMinSchema = z.object({
+  categoryId: z.string().uuid().optional(),
+  onlyBelowMin: z.boolean().optional(),
+});
+
+export type EstoqueMinInput = z.infer<typeof estoqueMinSchema>;
+
+export const vendasPeriodoSchema = reportDateRangeSchema.extend({
+  sellerId: z.string().uuid().optional(),
+});
+
+export type VendasPeriodoInput = z.infer<typeof vendasPeriodoSchema>;
+
+export const vendasProdutoSchema = reportDateRangeSchema.extend({
+  categoryId: z.string().uuid().optional(),
+});
+
+export type VendasProdutoInput = z.infer<typeof vendasProdutoSchema>;
+
+export const vendasVendedorSchema = reportDateRangeSchema;
+
+export type VendasVendedorInput = z.infer<typeof vendasVendedorSchema>;
+
+export const upgradesSchema = reportDateRangeSchema.extend({
+  sellerId: z.string().uuid().optional(),
+});
+
+export type UpgradesInput = z.infer<typeof upgradesSchema>;
+
+export const csvImportLineSchema = z.object({
+  name: z.string().min(1, "Nome obrigatorio"),
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
+  brand: z.string().optional(),
+  category: z.string().optional(),
+  costPrice: z.number().min(0).optional(),
+  salePrice: z.number().min(0, "Preco de venda obrigatorio"),
+  promotionalPrice: z.number().min(0).optional(),
+  minStock: z.number().int().min(0).optional(),
+  quantity: z.number().int().min(0).optional(),
+  isDevice: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
+export type CsvImportLineInput = z.infer<typeof csvImportLineSchema>;
+
+export const csvImportSchema = z.object({
+  lines: z.array(csvImportLineSchema).min(1, "Pelo menos uma linha obrigatoria"),
+});
+
+export type CsvImportInput = z.infer<typeof csvImportSchema>;
+
 // ── Labels ──
 
 export const stockMovementTypeLabels: Record<string, string> = {

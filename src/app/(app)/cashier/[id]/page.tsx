@@ -2,7 +2,7 @@
 
 import { use } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Printer } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -118,13 +118,22 @@ export default function CashierDetailPage({
         title="Relatorio de Fechamento"
         subtitle={formatDateTime(register.openedAt)}
         actions={
-          <Button
-            variant="outline"
-            onClick={() => router.push("/cashier/history")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/api/cashier/report?id=${id}`, "_blank")}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Imprimir PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => router.push("/cashier/history")}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+          </div>
         }
       />
 

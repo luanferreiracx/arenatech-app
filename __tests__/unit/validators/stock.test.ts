@@ -300,6 +300,180 @@ describe("listDevicePurchasesSchema", () => {
   });
 });
 
+// ── Report schemas ──
+
+import {
+  posicaoEstoqueSchema,
+  movimentacoesReportSchema,
+  curvaAbcSchema,
+  estoqueMinSchema,
+  vendasPeriodoSchema,
+  vendasProdutoSchema,
+  vendasVendedorSchema,
+  upgradesSchema,
+  csvImportSchema,
+  reportDateRangeSchema,
+} from "@/lib/validators/stock";
+
+describe("reportDateRangeSchema", () => {
+  it("aceita input vazio", () => {
+    expect(reportDateRangeSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("aceita datas validas", () => {
+    const r = reportDateRangeSchema.safeParse({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-12-31",
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("posicaoEstoqueSchema", () => {
+  it("aceita input vazio", () => {
+    expect(posicaoEstoqueSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("aceita categoryId valido", () => {
+    const r = posicaoEstoqueSchema.safeParse({
+      categoryId: "550e8400-e29b-41d4-a716-446655440000",
+      onlyWithStock: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejeita categoryId invalido", () => {
+    expect(posicaoEstoqueSchema.safeParse({ categoryId: "abc" }).success).toBe(false);
+  });
+});
+
+describe("movimentacoesReportSchema", () => {
+  it("aceita input vazio", () => {
+    expect(movimentacoesReportSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("aceita tipo ENTRY", () => {
+    expect(movimentacoesReportSchema.safeParse({ type: "ENTRY" }).success).toBe(true);
+  });
+
+  it("rejeita tipo invalido", () => {
+    expect(movimentacoesReportSchema.safeParse({ type: "INVALID" }).success).toBe(false);
+  });
+});
+
+describe("curvaAbcSchema", () => {
+  it("aceita input vazio", () => {
+    expect(curvaAbcSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("aceita datas e categoria", () => {
+    const r = curvaAbcSchema.safeParse({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-03-31",
+      categoryId: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("estoqueMinSchema", () => {
+  it("aceita input vazio", () => {
+    expect(estoqueMinSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("aceita onlyBelowMin", () => {
+    expect(estoqueMinSchema.safeParse({ onlyBelowMin: true }).success).toBe(true);
+  });
+});
+
+describe("vendasPeriodoSchema", () => {
+  it("aceita datas e vendedor", () => {
+    const r = vendasPeriodoSchema.safeParse({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-01-31",
+      sellerId: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejeita sellerId invalido", () => {
+    expect(vendasPeriodoSchema.safeParse({ sellerId: "abc" }).success).toBe(false);
+  });
+});
+
+describe("vendasProdutoSchema", () => {
+  it("aceita input vazio", () => {
+    expect(vendasProdutoSchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("vendasVendedorSchema", () => {
+  it("aceita input vazio", () => {
+    expect(vendasVendedorSchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("upgradesSchema", () => {
+  it("aceita input com datas e vendedor", () => {
+    const r = upgradesSchema.safeParse({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-12-31",
+      sellerId: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("csvImportSchema", () => {
+  it("aceita importacao valida", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [
+        { name: "Pelicula", salePrice: 2500 },
+        { name: "Capinha", salePrice: 3500, category: "Capinhas", brand: "Gen" },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejeita array vazio", () => {
+    expect(csvImportSchema.safeParse({ lines: [] }).success).toBe(false);
+  });
+
+  it("rejeita linha sem nome", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [{ name: "", salePrice: 2500 }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejeita preco negativo", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [{ name: "Produto", salePrice: -100 }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("aceita linha completa", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [{
+        name: "iPhone 15",
+        sku: "IP15-128",
+        barcode: "7891234567890",
+        brand: "Apple",
+        category: "Smartphones",
+        costPrice: 180000,
+        salePrice: 249900,
+        promotionalPrice: 229900,
+        minStock: 3,
+        quantity: 5,
+        isDevice: true,
+        description: "Smartphone Apple",
+      }],
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
 // ── Labels ──
 
 describe("labels", () => {

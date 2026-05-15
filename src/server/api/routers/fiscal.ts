@@ -15,6 +15,7 @@ import {
   removeInvoiceItemSchema,
   inutilizarSchema,
   createEntradaSchema,
+  sendInvoiceEmailSchema,
 } from "@/lib/validators/fiscal";
 import {
   createAndAuthorizeInvoice,
@@ -22,6 +23,7 @@ import {
   sendCorrectionLetter,
   getInvoiceDocumentUrls,
 } from "@/lib/services/fiscal-service";
+import { sendEmail } from "@/lib/services/email-service";
 import { logger } from "@/lib/logger";
 
 // ── Helpers ──
@@ -660,6 +662,111 @@ export const fiscalRouter = createTRPCRouter({
 
         logger.info("NF-e de entrada criada", { invoiceId: invoice.id });
         return { id: invoice.id };
+      });
+    }),
+
+  /** Send invoice by email */
+  sendEmail: tenantProcedure
+    .input(sendInvoiceEmailSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: input.invoiceId, deletedAt: null },
+          include: { items: true },
+        });
+        if (!invoice) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
+        }
+        if (invoice.status !== "AUTHORIZED" && invoice.status !== "CORRECTION_LETTER") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas notas autorizadas podem ser enviadas por email",
+          });
+        }
+
+        const typeLabel = invoice.type === "NFCE" ? "NFC-e" : invoice.type === "NFSE" ? "NFS-e" : "NF-e";
+        const numberStr = invoice.number ? `#${invoice.number}` : `#${invoice.id.slice(0, 8)}`;
+        const totalFormatted = (Number(invoice.totalAmount) || 0).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+
+        // Build HTML email
+        const itemRows = invoice.items
+          .map(
+            (item) =>
+              `<tr>
+                <td style="padding:6px 8px;border:1px solid #ddd;">${item.description}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${Number(item.quantity)}</td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">
+                  ${(Number(item.unitPrice) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                </td>
+                <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">
+                  ${(Number(item.total) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                </td>
+              </tr>`,
+          )
+          .join("");
+
+        const html = `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2 style="color:#c9a55c;">${typeLabel} ${numberStr}</h2>
+            <p>Segue em anexo sua nota fiscal eletronica.</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr>
+                <td style="padding:4px 0;color:#666;">Destinatario:</td>
+                <td style="padding:4px 0;font-weight:bold;">${invoice.recipientName}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#666;">CPF/CNPJ:</td>
+                <td style="padding:4px 0;">${invoice.recipientCpfCnpj || "-"}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#666;">Valor Total:</td>
+                <td style="padding:4px 0;font-weight:bold;color:#22c55e;">${totalFormatted}</td>
+              </tr>
+              ${invoice.accessKey ? `<tr><td style="padding:4px 0;color:#666;">Chave de Acesso:</td><td style="padding:4px 0;font-family:monospace;font-size:11px;">${invoice.accessKey}</td></tr>` : ""}
+            </table>
+            <h3 style="margin-top:20px;">Itens</h3>
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#f5f5f5;">
+                  <th style="padding:6px 8px;border:1px solid #ddd;text-align:left;">Descricao</th>
+                  <th style="padding:6px 8px;border:1px solid #ddd;text-align:center;">Qtd</th>
+                  <th style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Preco Unit.</th>
+                  <th style="padding:6px 8px;border:1px solid #ddd;text-align:right;">Total</th>
+                </tr>
+              </thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+            <p style="margin-top:20px;font-size:12px;color:#999;">
+              Este email foi enviado automaticamente pelo sistema Arena Tech.
+            </p>
+          </div>
+        `;
+
+        const subject = `${typeLabel} ${numberStr} - Arena Tech`;
+        const result = await sendEmail(input.email, subject, html);
+
+        if (!result.success) {
+          logger.error("Failed to send invoice email", {
+            invoiceId: input.invoiceId,
+            email: input.email,
+            error: result.error,
+          });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: result.error ?? "Erro ao enviar email",
+          });
+        }
+
+        logger.info("Invoice email sent", {
+          invoiceId: input.invoiceId,
+          email: input.email,
+          messageId: result.messageId,
+        });
+
+        return { success: true, messageId: result.messageId };
       });
     }),
 
