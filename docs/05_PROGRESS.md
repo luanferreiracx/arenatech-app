@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Auditoria de modulos concluida. Fase 14 (Recompensas) adiada.
+**Fase atual:** Sprint 4+5 concluido (Prestadores MEI + Observacoes Servico + Consulta CPF/CNPJ). Fase 14 (Recompensas) adiada.
 **Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 1
+**Commits desde ultimo deploy:** 3
 
 ---
 
@@ -259,6 +259,38 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-15 — Sprint 4+5: Prestadores MEI completo + Modulos menores
+
+- **Implementado:**
+  - **Prestadores MEI/CLT (Sprint 4):**
+    - Schema Prisma: 6 novas tabelas (providers, provider_contracts, provider_commission_rules, provider_apuracoes, provider_reversals, provider_uncovered_days) + 4 enums (ProviderProfile, ProviderBondType, ProviderApuracaoStatus, ProviderReversalType)
+    - RLS habilitado em todas as 6 tabelas via migration SQL
+    - Validators Zod: provider-commission.ts (13 schemas + labels)
+    - tRPC router: providerCommissionRouter (12 procedures: listProviders, createProvider, updateProvider, createContract, updateRules, getDetail, calculate, closeApuracao, createReversal, deleteReversal, toggleUncoveredDay, listAvailableUsers)
+    - Motor de calculo: faixas progressivas estilo IR por categoria+escopo, rateio proporcional, ajuda de custo proporcional (dias efetivos), estornos, fechamento com geracao de conta a pagar (FinancialTransaction PAYABLE)
+    - Paginas: /commissions/providers (listagem MEI/CLT), /commissions/providers/new (form com selecao de usuario, perfil, vinculo, CNPJ/razao social), /commissions/providers/[id] (ficha completa com apuracao, memoria de calculo, estornos, dias nao cobertos)
+  - **Observacoes de Servico (Sprint 5):**
+    - Schema Prisma: 1 nova tabela (service_observations) com serviceTypes/deviceModels como JSON
+    - RLS habilitado
+    - Validators Zod: 3 schemas (create, update, list)
+    - 5 procedures no catalogRouter: listServiceObservations (com filtro por tipo/modelo), createServiceObservation, updateServiceObservation, toggleServiceObservation, deleteServiceObservation
+  - **Consulta CPF/CNPJ (Sprint 5):**
+    - 2 procedures no customerRouter: lookupCpf, lookupCnpj
+    - Integracao DirectD API (Receita Federal) com token via env var DIRECTD_TOKEN
+    - Verifica se CPF/CNPJ ja existe no sistema antes de consultar API
+    - Mock automatico quando token nao configurado (retorna lookupUnavailable)
+  - **Assinatura Tenant (Sprint 5):** Verificado no Laravel — controller desativado (Asaas removido, DePix em desenvolvimento). Nao implementado no Next.js pois ja esta coberto por /settings/subscription existente.
+  - Testes: 47 novos unit tests (35 provider-commission + 12 service-observation), total 445
+  - typecheck ok | build ok | test ok
+- **Decisoes:**
+  - Prestadores MEI redesenhados com schema proprio (vs ServiceProvider da Fase 11 que era generico) — Provider tem contrato, faixas progressivas, apuracao mensal, estornos, dias nao cobertos
+  - Calculo usa faixas progressivas estilo IR (como Laravel) em vez de taxa fixa (como CommissionRule da Fase 10)
+  - 5 categorias de comissao: produto_acessorio, produto_aparelho, servico_at_sem_peca, servico_at_com_peca, intermediacao_at
+  - Ajuda de custo proporcional: (diaria_refeicao + deslocamento) * dias_efetivos + celular, limitado pelo teto do contrato
+  - Fechamento de apuracao gera FinancialTransaction PAYABLE automaticamente
+  - CPF/CNPJ lookup via DirectD API (mesma do Laravel) com cache client-side via TanStack Query
+- **Proximo:** Fase 14 (Recompensas) quando decisao de produto for tomada
 
 ### 2026-05-15 — Auditoria de 7 modulos (Estoque, Configuracoes, Avaliacoes, Comissoes, Clientes, Checklist, Simulador)
 
@@ -698,10 +730,10 @@ _(vazio)_
 
 | Métrica | Valor |
 |---|---|
-| Linhas de codigo | ~25400 |
-| Cobertura de testes | 360 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 45 (42 anteriores + depix_withdrawals + quick_sales + interest_interactions) |
-| Procedures tRPC | 176 (168 anteriores + depixWithdraw.7 + report.1) |
+| Linhas de codigo | ~27500 |
+| Cobertura de testes | 445 unit + 6 integration + 25 e2e |
+| Tabelas no schema | 52 (45 anteriores + providers + provider_contracts + provider_commission_rules + provider_apuracoes + provider_reversals + provider_uncovered_days + service_observations) |
+| Procedures tRPC | 195 (176 anteriores + providerCommission.12 + catalog.5 + customer.2) |
 | Paginas | 96+ (86 anteriores + depix 3 + reports 1 + pay 1 + receipt 1 + register 3 + api/simulator/pdf 1) |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
