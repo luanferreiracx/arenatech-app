@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Sprint 4+5 concluido (Prestadores MEI + Observacoes Servico + Consulta CPF/CNPJ). Fase 14 (Recompensas) adiada.
+**Fase atual:** Sprint 6 concluido (PDF recibos, Admin Addons/Refunds CRUD, verificacao sidebar). Fase 14 (Recompensas) adiada.
 **Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 3
+**Commits desde ultimo deploy:** 4
 
 ---
 
@@ -259,6 +259,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-15 — Sprint 6: Lacunas finais (PDF recibos, Admin CRUD, sidebar)
+
+- **Implementado:**
+  - **Quick Sales PDF recibo:** API route `/api/quick-sales/[id]/recibo` (HTML receipt para vendas pagas, fiel ao Laravel vendas-avulsas/pdf/recibo.blade.php)
+  - **DePix Comprovante PDF:** API route `/api/depix/withdrawals/[id]/comprovante` (HTML transfer receipt para saques SENT, fiel ao Laravel saques-depix/pdf/comprovante.blade.php)
+  - **Botoes PDF:** Botao "Recibo" na tela de detalhe de venda avulsa (status PAID), Botao "Comprovante" na tela de detalhe de saque DePix (status SENT)
+  - **Admin Addons CRUD completo:** Schema Prisma (addons, addon_purchases — 2 tabelas globais sem RLS), validators Zod (createAddon, updateAddon, listAddons, assignAddon), 8 procedures admin (listAddons, getAddon, createAddon, updateAddon, toggleAddon, deleteAddon, assignAddon, addonStats), pagina com DataTable + dialog criar/editar + toggle ativo/inativo + excluir + stats cards
+  - **Admin Refunds CRUD completo:** Schema Prisma (refunds — 1 tabela global sem RLS), validators Zod (listRefunds, processRefund, cancelRefund), 5 procedures admin (listRefunds, getRefund, processRefund, cancelRefund, refundStats), pagina com DataTable + filtro status + dialog processar/cancelar + stats cards
+  - **Sidebar verificado:** Todos os 33 links do sidebar app e 8 links do sidebar admin apontam para paginas existentes
+  - Migration: 20260515115419_add_addons_and_refunds
+  - typecheck ok | build ok | 120 paginas
+- **Decisoes:**
+  - Addons e Refunds sao tabelas GLOBAIS (sem tenant_id RLS, sem RLS policies) — acessadas via adminProcedure + withAdmin
+  - AddonPurchase tem tenant_id para tracking mas sem RLS (dados acessados apenas pelo super admin)
+  - PDFs implementados como HTML com window.print() (mesmo padrao do simulador e recibos de OS)
+  - Sidebar 100% funcional — nenhum link morto encontrado
+- **Proximo:** Fase 14 (Recompensas) quando decisao de produto for tomada
 
 ### 2026-05-15 — Sprint 4+5: Prestadores MEI completo + Modulos menores
 
@@ -732,9 +750,9 @@ _(vazio)_
 |---|---|
 | Linhas de codigo | ~27500 |
 | Cobertura de testes | 445 unit + 6 integration + 25 e2e |
-| Tabelas no schema | 52 (45 anteriores + providers + provider_contracts + provider_commission_rules + provider_apuracoes + provider_reversals + provider_uncovered_days + service_observations) |
-| Procedures tRPC | 195 (176 anteriores + providerCommission.12 + catalog.5 + customer.2) |
-| Paginas | 96+ (86 anteriores + depix 3 + reports 1 + pay 1 + receipt 1 + register 3 + api/simulator/pdf 1) |
+| Tabelas no schema | 55 (52 anteriores + addons + addon_purchases + refunds) |
+| Procedures tRPC | 208 (195 anteriores + admin addon 8 + admin refund 5) |
+| Paginas | 120 |
 | Componentes shadcn/ui | 24 (+ tooltip, calendar) |
 | Componentes de domínio | 15 (DataTable, StatusBadge, EntitySelector, ConfirmDialog, PageHeader, EmptyState, LoadingState, FormSection, FormActions, MoneyInput, CnpjInput, PhoneInput, CepInput, DatePicker, DateRangePicker) |
 | Tabelas inventariadas do Laravel | ~55 tabelas tenant + ~20 tabelas central |
