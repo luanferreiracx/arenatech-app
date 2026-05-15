@@ -41,3 +41,9 @@ test-results/
 # Misc
 *.log
 .cache/
+.claude/settings.previous.bak
+.claude/settings.unrestricted.json
+.claude/settings.previous.bak
+.claude/settings.unrestricted.json
+.claude/settings.previous.bak
+.claude/settings.unrestricted.json
