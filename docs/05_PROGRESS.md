@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Etapa 0 (Varredura Legacy) COMPLETA. Pronto para SPECs.
+**Fase atual:** SPEC Clientes v1.0 produzida, aguardando revisão do dono. 5 perguntas pendentes em QUESTIONS.md.
 **Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 9
+**Commits desde ultimo deploy:** 10
 
 ---
 
@@ -294,6 +294,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
   - Auto-encerramento de conversas com 3 critérios
   - NF-e de entrada com parse XML e vinculação de itens
 - **Próximo:** SPEC rigorosa do módulo OS (Prompt 2)
+
+### 2026-05-15 — SPEC Clientes v1.0
+
+- **Produzido:**
+  - `docs/specs/clientes/SPEC.md` — 15 seções, ~900 linhas
+  - `docs/specs/clientes/QUESTIONS.md` — 5 perguntas pendentes
+  - `docs/specs/clientes/ASSUMPTIONS.md` — 7 premissas documentadas
+  - 4 ADRs (0005-0008): PF+PJ unificado, soft delete, endereço campos separados, RBAC
+- **Descobertas do código real vs inventário:**
+  - Interest NÃO tem FK para Cliente (entidade autônoma com dados próprios)
+  - Tipos de interesse reais: Compra/Venda/Troca/Reparo (não aparelho/servico/acessorio como inventário dizia)
+  - Status reais: Em espera/Contatado/Finalizado/Cancelado
+  - Tipos de interação reais: Telefone/WhatsApp/E-mail/Presencial/Outro (5 tipos, dono reduziu para 3)
+  - CPF é required no StoreClienteRequest (inventário dizia nullable)
+- **Decisões tomadas:**
+  - Endereço: campos separados (ADR 0007) — compatibilidade NF-e
+  - RBAC: 3 papéis (operator/manager/owner) para controle de ações destrutivas
+  - Partial unique index para CPF/CNPJ (permite reuso após soft delete) — sujeito a Q1
+- **Próximo:** Revisão do dono da SPEC + respostas às 5 perguntas
 
 ### 2026-05-15 — Sprint 6: Lacunas finais (PDF recibos, Admin CRUD, sidebar)
 
