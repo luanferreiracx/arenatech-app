@@ -1,42 +1,48 @@
+// ─── Customer module (SPEC v1.0) ───────────────────────────────────
+// ADR 0005: PF+PJ unified model
+// ADR 0006: Soft delete via deletedAt
+// ADR 0007: Address as separate fields
+// ADR 0008: RBAC (operator/manager/owner)
+
 enum CustomerType {
   PF
   PJ
 }
 
 model Customer {
-  id         String       @id @default(uuid()) @db.Uuid
-  tenantId   String       @map("tenant_id") @db.Uuid
-  type       CustomerType @default(PF)
-  name       String
-  cpf        String?
-  cnpj       String?
-  email      String?
-  phone      String?
-  phone2     String?
-  birthDate  DateTime? @map("birth_date") @db.Date
-  address    Json?
-  notes      String?
-  consentAt  DateTime?    @map("consent_at")
-  deletedAt  DateTime?    @map("deleted_at")
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  type           CustomerType @default(PF)
+  cpf            String?      @db.VarChar(11)
+  cnpj           String?      @db.VarChar(14)
+  name           String       @db.VarChar(255)
+  tradeName      String?      @map("trade_name") @db.VarChar(255)
+  birthDate      DateTime?    @map("birth_date") @db.Date
+  phone          String       @db.VarChar(20)
+  phoneSecondary String?      @map("phone_secondary") @db.VarChar(20)
+  email          String?      @db.VarChar(255)
+  zipCode        String?      @map("zip_code") @db.VarChar(9)
+  street         String?      @db.VarChar(255)
+  streetNumber   String?      @map("street_number") @db.VarChar(20)
+  complement     String?      @db.VarChar(100)
+  neighborhood   String?      @db.VarChar(100)
+  city           String?      @db.VarChar(100)
+  state          String?      @db.VarChar(2)
+  notes          String?      @db.Text
+  createdById    String?      @map("created_by_id") @db.Uuid
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  interests  CustomerInterest[]
-
+  // Partial unique indexes defined via raw SQL migration (Prisma cannot express WHERE clause)
+  // See: 20260515_rls_customers migration
   @@index([tenantId, name])
-  @@index([tenantId, cpf])
-  @@index([tenantId, cnpj])
   @@index([tenantId, phone])
   @@index([tenantId, deletedAt])
   @@map("customers")
 }
 
-enum InterestStatus {
-  WAITING
-  CONTACTED
-  FINISHED
-  CANCELLED
-}
+// ─── Interest (Lead) — autonomous entity, no FK to Customer (Q3) ───
 
 enum InterestType {
   PURCHASE
@@ -45,45 +51,54 @@ enum InterestType {
   REPAIR
 }
 
-model CustomerInterest {
-  id                 String          @id @default(uuid()) @db.Uuid
-  tenantId           String          @map("tenant_id") @db.Uuid
-  customerId         String          @map("customer_id") @db.Uuid
-  description        String
-  product            String?
-  estimatedValue     Decimal?        @map("estimated_value") @db.Decimal(10, 2)
-  status             InterestStatus  @default(WAITING)
-  interestType       InterestType    @default(PURCHASE) @map("interest_type")
-  priority           String          @default("media")
-  assignedUserId     String?         @map("assigned_user_id") @db.Uuid
-  notes              String?
-  followUpAt         DateTime?       @map("follow_up_at")
-  resolved           Boolean         @default(false)
-  statusChangeReason String?         @map("status_change_reason")
-  deletedAt          DateTime?       @map("deleted_at")
-  createdAt          DateTime        @default(now()) @map("created_at")
-  updatedAt          DateTime        @updatedAt @map("updated_at")
+enum InterestStatus {
+  WAITING
+  CONTACTED
+  COMPLETED
+  CANCELLED
+}
 
-  customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  interactions       InterestInteraction[]
+model Interest {
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  customerName String         @map("customer_name") @db.VarChar(150)
+  phone        String?        @db.VarChar(20)
+  cpf          String?        @db.VarChar(14)
+  email        String?        @db.VarChar(255)
+  type         InterestType   @default(PURCHASE)
+  desiredModel String?        @map("desired_model") @db.VarChar(200)
+  notes        String?        @db.Text
+  status       InterestStatus @default(WAITING)
+  createdById  String?        @map("created_by_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
 
-  @@index([tenantId, customerId])
+  interactions InterestInteraction[]
+
   @@index([tenantId, status])
-  @@index([tenantId, interestType])
-  @@index([tenantId, followUpAt])
-  @@map("customer_interests")
+  @@index([tenantId, type])
+  @@index([tenantId, customerName])
+  @@map("interests")
+}
+
+// ─── Interest Interaction ──────────────────────────────────────────
+
+enum InteractionType {
+  PHONE
+  WHATSAPP
+  IN_STORE
 }
 
 model InterestInteraction {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  interestId      String   @map("interest_id") @db.Uuid
-  interactionType String   @map("interaction_type")
-  description     String
-  userId          String   @map("user_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at")
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @map("tenant_id") @db.Uuid
+  interestId  String          @map("interest_id") @db.Uuid
+  userId      String?         @map("user_id") @db.Uuid
+  type        InteractionType
+  description String          @db.Text
+  occurredAt  DateTime        @default(now()) @map("occurred_at")
 
-  interest        CustomerInterest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+  interest Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, interestId])
   @@map("interest_interactions")

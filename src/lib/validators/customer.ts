@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { normalizeCpf, validateCpf } from "@/lib/validators/cpf";
 
-// ── CNPJ validation ──
+// ── CNPJ validation (SPEC RN-3, RN-5) ──
 
 export function normalizeCnpj(cnpj: string): string {
   return cnpj.replace(/\D/g, "");
@@ -12,7 +12,6 @@ export function validateCnpj(cnpj: string): boolean {
   if (digits.length !== 14) return false;
   if (/^(\d)\1{13}$/.test(digits)) return false;
 
-  // First verification digit
   const weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
   let sum = 0;
   for (let i = 0; i < 12; i++) {
@@ -22,7 +21,6 @@ export function validateCnpj(cnpj: string): boolean {
   const d1 = remainder < 2 ? 0 : 11 - remainder;
   if (Number(digits[12]) !== d1) return false;
 
-  // Second verification digit
   const weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
   sum = 0;
   for (let i = 0; i < 13; i++) {
@@ -37,50 +35,70 @@ export function validateCnpj(cnpj: string): boolean {
 
 export const cnpjSchema = z
   .string()
-  .min(1, "CNPJ obrigatorio")
+  .min(1, "CNPJ obrigatório")
   .transform(normalizeCnpj)
-  .refine(validateCnpj, { message: "CNPJ invalido" });
+  .refine(validateCnpj, { message: "CNPJ inválido" });
 
-// ── Address schema ──
+// ── Customer type enum ──
 
-export const addressSchema = z.object({
-  cep: z.string().max(8).optional(),
-  logradouro: z.string().max(200).optional(),
-  numero: z.string().max(20).optional(),
-  complemento: z.string().max(100).optional(),
-  bairro: z.string().max(100).optional(),
-  cidade: z.string().max(100).optional(),
-  uf: z.string().max(2).optional(),
-});
+export const customerTypeSchema = z.enum(["PF", "PJ"]);
 
-export type AddressData = z.infer<typeof addressSchema>;
+// ── Label maps (SPEC: português apenas em UI) ──
 
-// ── Customer type ──
+export const CUSTOMER_TYPE_LABELS: Record<string, string> = {
+  PF: "Pessoa Física",
+  PJ: "Pessoa Jurídica",
+};
 
-const customerTypeSchema = z.enum(["PF", "PJ"]);
+export const INTEREST_STATUS_LABELS: Record<string, string> = {
+  WAITING: "Em Espera",
+  CONTACTED: "Contatado",
+  COMPLETED: "Finalizado",
+  CANCELLED: "Cancelado",
+};
 
-// ── Create customer ──
+export const INTEREST_TYPE_LABELS: Record<string, string> = {
+  PURCHASE: "Compra",
+  SALE: "Venda",
+  TRADE: "Troca",
+  REPAIR: "Reparo",
+};
+
+export const INTERACTION_TYPE_LABELS: Record<string, string> = {
+  PHONE: "Ligação",
+  WHATSAPP: "WhatsApp",
+  IN_STORE: "Em Loja",
+};
+
+// ── Create customer (SPEC 3.1 + 7) ──
 
 export const createCustomerSchema = z
   .object({
     type: customerTypeSchema,
-    name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(200),
+    name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(255),
     cpf: z.string().optional(),
     cnpj: z.string().optional(),
-    email: z.string().email("Email invalido").max(200).optional().or(z.literal("")),
-    phone: z.string().max(11).optional(),
-    phone2: z.string().max(11).optional(),
+    tradeName: z.string().max(255).optional(),
     birthDate: z.string().optional(),
-    address: addressSchema.optional(),
-    notes: z.string().max(2000).optional(),
-    consentLgpd: z.boolean().optional(),
+    phone: z.string().min(10, "Telefone deve ter ao menos 10 dígitos").max(20),
+    phoneSecondary: z.string().max(20).optional(),
+    email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
+    zipCode: z.string().max(9).optional(),
+    street: z.string().max(255).optional(),
+    streetNumber: z.string().max(20).optional(),
+    complement: z.string().max(100).optional(),
+    neighborhood: z.string().max(100).optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().length(2, "UF deve ter 2 caracteres").optional().or(z.literal("")),
+    notes: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    // SPEC RN-2: PF must have CPF, PJ must have CNPJ
     if (data.type === "PF") {
       if (!data.cpf || data.cpf.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "CPF obrigatorio para Pessoa Fisica",
+          message: "CPF é obrigatório para pessoa física",
           path: ["cpf"],
         });
       } else {
@@ -88,7 +106,7 @@ export const createCustomerSchema = z
         if (!validateCpf(normalized)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "CPF invalido",
+            message: "CPF inválido",
             path: ["cpf"],
           });
         }
@@ -98,7 +116,7 @@ export const createCustomerSchema = z
       if (!data.cnpj || data.cnpj.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "CNPJ obrigatorio para Pessoa Juridica",
+          message: "CNPJ é obrigatório para pessoa jurídica",
           path: ["cnpj"],
         });
       } else {
@@ -106,39 +124,53 @@ export const createCustomerSchema = z
         if (!validateCnpj(normalized)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "CNPJ invalido",
+            message: "CNPJ inválido",
             path: ["cnpj"],
           });
         }
       }
+    }
+    // SPEC 7 cross-field: tradeName only for PJ
+    if (data.type === "PF" && data.tradeName && data.tradeName.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Nome fantasia é exclusivo para pessoa jurídica",
+        path: ["tradeName"],
+      });
     }
   });
 
 export type CreateCustomerInput = z.input<typeof createCustomerSchema>;
 
-// ── Update customer ──
+// ── Update customer (SPEC 4.4) ──
 
 export const updateCustomerSchema = z
   .object({
     id: z.string().uuid(),
     type: customerTypeSchema,
-    name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(200),
+    name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(255),
     cpf: z.string().optional(),
     cnpj: z.string().optional(),
-    email: z.string().email("Email invalido").max(200).optional().or(z.literal("")),
-    phone: z.string().max(11).optional(),
-    phone2: z.string().max(11).optional(),
+    tradeName: z.string().max(255).optional(),
     birthDate: z.string().optional(),
-    address: addressSchema.optional(),
-    notes: z.string().max(2000).optional(),
-    consentLgpd: z.boolean().optional(),
+    phone: z.string().min(10, "Telefone deve ter ao menos 10 dígitos").max(20),
+    phoneSecondary: z.string().max(20).optional(),
+    email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
+    zipCode: z.string().max(9).optional(),
+    street: z.string().max(255).optional(),
+    streetNumber: z.string().max(20).optional(),
+    complement: z.string().max(100).optional(),
+    neighborhood: z.string().max(100).optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().length(2, "UF deve ter 2 caracteres").optional().or(z.literal("")),
+    notes: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === "PF") {
       if (!data.cpf || data.cpf.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "CPF obrigatorio para Pessoa Fisica",
+          message: "CPF é obrigatório para pessoa física",
           path: ["cpf"],
         });
       } else {
@@ -146,7 +178,7 @@ export const updateCustomerSchema = z
         if (!validateCpf(normalized)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "CPF invalido",
+            message: "CPF inválido",
             path: ["cpf"],
           });
         }
@@ -156,7 +188,7 @@ export const updateCustomerSchema = z
       if (!data.cnpj || data.cnpj.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "CNPJ obrigatorio para Pessoa Juridica",
+          message: "CNPJ é obrigatório para pessoa jurídica",
           path: ["cnpj"],
         });
       } else {
@@ -164,17 +196,24 @@ export const updateCustomerSchema = z
         if (!validateCnpj(normalized)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "CNPJ invalido",
+            message: "CNPJ inválido",
             path: ["cnpj"],
           });
         }
       }
     }
+    if (data.type === "PF" && data.tradeName && data.tradeName.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Nome fantasia é exclusivo para pessoa jurídica",
+        path: ["tradeName"],
+      });
+    }
   });
 
 export type UpdateCustomerInput = z.input<typeof updateCustomerSchema>;
 
-// ── List customers ──
+// ── List customers (SPEC 4.1) ──
 
 export const listCustomersSchema = z.object({
   search: z.string().optional(),
@@ -188,88 +227,61 @@ export const listCustomersSchema = z.object({
 
 export type ListCustomersInput = z.infer<typeof listCustomersSchema>;
 
-// ── Interest schemas ──
+// ── Interest schemas (SPEC 3.2) ──
 
-export const interestStatusEnum = z.enum(["WAITING", "CONTACTED", "FINISHED", "CANCELLED"]);
-export type InterestStatus = z.infer<typeof interestStatusEnum>;
+export const interestStatusEnum = z.enum(["WAITING", "CONTACTED", "COMPLETED", "CANCELLED"]);
+export type InterestStatusValue = z.infer<typeof interestStatusEnum>;
 
 export const interestTypeEnum = z.enum(["PURCHASE", "SALE", "TRADE", "REPAIR"]);
-export type InterestType = z.infer<typeof interestTypeEnum>;
+export type InterestTypeValue = z.infer<typeof interestTypeEnum>;
 
-export const INTEREST_STATUS_LABELS: Record<string, string> = {
-  WAITING: "Em Espera",
-  CONTACTED: "Contatado",
-  FINISHED: "Finalizado",
-  CANCELLED: "Cancelado",
-};
-
-export const INTEREST_TYPE_LABELS: Record<string, string> = {
-  PURCHASE: "Compra",
-  SALE: "Venda",
-  TRADE: "Troca",
-  REPAIR: "Reparo",
-};
-
-export const INTEREST_PRIORITY_LABELS: Record<string, string> = {
-  baixa: "Baixa",
-  media: "Media",
-  alta: "Alta",
-};
+export const interactionTypeEnum = z.enum(["PHONE", "WHATSAPP", "IN_STORE"]);
+export type InteractionTypeValue = z.infer<typeof interactionTypeEnum>;
 
 export const createInterestSchema = z.object({
-  customerId: z.string().uuid(),
-  description: z.string().min(1, "Descricao obrigatoria").max(1000),
-  product: z.string().max(255).optional().nullable(),
-  estimatedValue: z.number().int().min(0).optional().nullable(), // centavos
-  interestType: interestTypeEnum.optional(),
-  priority: z.enum(["baixa", "media", "alta"]).optional(),
-  assignedUserId: z.string().uuid().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  followUpAt: z.string().optional(),
+  customerName: z.string().min(1, "Nome do cliente é obrigatório").max(150),
+  phone: z.string().min(1, "Telefone é obrigatório").max(20),
+  cpf: z.string().max(14).optional(),
+  email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
+  type: interestTypeEnum,
+  desiredModel: z.string().min(1, "Modelo desejado é obrigatório").max(200),
+  notes: z.string().optional(),
 });
 
 export type CreateInterestInput = z.infer<typeof createInterestSchema>;
 
-export const updateInterestSchema = z.object({
+export const updateInterestStatusSchema = z.object({
   id: z.string().uuid(),
-  description: z.string().min(1, "Descricao obrigatoria").max(1000).optional(),
-  product: z.string().max(255).optional().nullable(),
-  estimatedValue: z.number().int().min(0).optional().nullable(),
-  interestType: interestTypeEnum.optional(),
-  priority: z.enum(["baixa", "media", "alta"]).optional(),
-  status: interestStatusEnum.optional(),
-  assignedUserId: z.string().uuid().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  followUpAt: z.string().optional().nullable(),
-  resolved: z.boolean().optional(),
-  statusChangeReason: z.string().max(1000).optional().nullable(),
+  status: interestStatusEnum,
 });
 
-export type UpdateInterestInput = z.infer<typeof updateInterestSchema>;
+export type UpdateInterestStatusInput = z.infer<typeof updateInterestStatusSchema>;
 
 export const listInterestsSchema = z.object({
-  customerId: z.string().uuid().optional(),
-  status: interestStatusEnum.optional(),
-  interestType: interestTypeEnum.optional(),
   search: z.string().optional(),
+  status: interestStatusEnum.optional(),
+  type: interestTypeEnum.optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
 
 export type ListInterestsInput = z.infer<typeof listInterestsSchema>;
 
+// ── Interaction schemas (SPEC 3.3) ──
+
 export const addInteractionSchema = z.object({
   interestId: z.string().uuid(),
-  interactionType: z.string().min(1, "Tipo obrigatorio"),
-  description: z.string().min(1, "Descricao obrigatoria").max(2000),
+  type: interactionTypeEnum,
+  description: z.string().min(1, "Descrição é obrigatória"),
 });
 
 export type AddInteractionInput = z.infer<typeof addInteractionSchema>;
 
-export const changeInterestStatusSchema = z.object({
-  id: z.string().uuid(),
-  status: interestStatusEnum,
-  reason: z.string().min(10, "Motivo deve ter no minimo 10 caracteres").max(1000),
+// ── Send batch (SPEC 9 Fluxo 7, RN-11) ──
+
+export const sendBatchSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(5, "Máximo 5 destinatários por envio"),
+  message: z.string().min(10, "Mensagem é obrigatória (mínimo 10 caracteres)"),
 });
 
-export type ChangeInterestStatusInput = z.infer<typeof changeInterestStatusSchema>;
+export type SendBatchInput = z.infer<typeof sendBatchSchema>;
