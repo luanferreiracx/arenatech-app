@@ -1,38 +1,25 @@
 "use client";
 
-import { Search, Eye, Trash2 } from "lucide-react";
+import { Search, Eye, Trash2, Plus } from "lucide-react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/domain/data-table";
 import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/lib/toast";
+import {
+  PROVIDER_PROFILE_LABELS,
+  PROVIDER_BOND_TYPE_LABELS,
+} from "@/lib/validators/provider-commission";
 
 export function ProvidersList() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
 
   const listQuery = useQuery(
-    trpc.operation.listServiceProviders.queryOptions({ active: true }),
+    trpc.providerCommission.listProviders.queryOptions({ active: true }),
   );
-  const deleteMutation = useMutation(trpc.operation.deleteServiceProvider.mutationOptions());
-
-  const handleDelete = (id: string) => {
-    if (!confirm("Tem certeza que deseja remover este prestador?")) return;
-    deleteMutation.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          toast.success("Prestador removido");
-          queryClient.invalidateQueries({ queryKey: trpc.operation.listServiceProviders.queryKey() });
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    );
-  };
 
   if (listQuery.isLoading) {
     return <Skeleton className="h-64 w-full" />;
@@ -44,8 +31,16 @@ export function ProvidersList() {
     return (
       <EmptyState
         title="Nenhum prestador cadastrado"
-        description="Cadastre prestadores de servico para gerenciar comissoes"
+        description="Cadastre prestadores MEI/CLT para gerenciar comissoes com faixas progressivas"
         icon={Search}
+        action={
+          <Button asChild>
+            <Link href="/commissions/providers/new">
+              <Plus className="h-4 w-4 mr-2" />
+              Novo prestador
+            </Link>
+          </Button>
+        }
       />
     );
   }
@@ -54,46 +49,70 @@ export function ProvidersList() {
     <DataTable
       data={providers}
       columns={[
-        { header: "Nome", accessorKey: "name" },
-        { header: "Tipo", accessorKey: "type" },
-        { header: "CPF/CNPJ", accessorKey: "cpfCnpj" },
-        { header: "Telefone", accessorKey: "phone" },
         {
-          header: "Comissao %",
-          accessorKey: "commissionRate",
-          cell: ({ row }) => {
-            const rate = row.original.commissionRate;
-            return rate ? `${rate}%` : "—";
-          },
+          header: "Nome",
+          accessorKey: "userName",
+          cell: ({ row }) => (
+            <div>
+              <span className="font-medium">{row.original.userName}</span>
+              {row.original.razaoSocial && (
+                <span className="block text-xs text-muted-foreground">{row.original.razaoSocial}</span>
+              )}
+            </div>
+          ),
         },
         {
-          header: "Status",
-          accessorKey: "active",
+          header: "Perfil",
+          accessorKey: "profile",
           cell: ({ row }) => (
-            <StatusBadge variant={row.original.active ? "success" : "default"}>
-              {row.original.active ? "Ativo" : "Inativo"}
+            <StatusBadge variant={row.original.profile === "TECHNICIAN" ? "warning" : "info"}>
+              {PROVIDER_PROFILE_LABELS[row.original.profile] ?? row.original.profile}
             </StatusBadge>
           ),
+        },
+        {
+          header: "Vinculo",
+          accessorKey: "bondType",
+          cell: ({ row }) => (
+            <StatusBadge variant={row.original.bondType === "MEI" ? "success" : "info"}>
+              {PROVIDER_BOND_TYPE_LABELS[row.original.bondType] ?? row.original.bondType}
+            </StatusBadge>
+          ),
+        },
+        {
+          header: "CPF / CNPJ",
+          id: "document",
+          cell: ({ row }) => (
+            <span className="text-xs text-muted-foreground">
+              {row.original.cnpjMei ?? row.original.cpf ?? "—"}
+            </span>
+          ),
+        },
+        {
+          header: "Contrato vigente",
+          id: "contract",
+          cell: ({ row }) => {
+            const contract = row.original.currentContract;
+            if (!contract) {
+              return <span className="text-xs text-red-400">sem contrato</span>;
+            }
+            return (
+              <span className="text-xs text-muted-foreground">
+                desde {new Date(contract.startDate).toLocaleDateString("pt-BR")}
+              </span>
+            );
+          },
         },
         {
           header: "Acoes",
           id: "actions",
           cell: ({ row }) => (
-            <div className="flex gap-1">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/commissions/providers/${row.original.id}`}>
-                  <Eye className="h-4 w-4" />
-                </Link>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive"
-                onClick={() => handleDelete(row.original.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/commissions/providers/${row.original.id}`}>
+                <Eye className="h-4 w-4 mr-1" />
+                Abrir
+              </Link>
+            </Button>
           ),
         },
       ]}

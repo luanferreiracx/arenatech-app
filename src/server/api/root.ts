@@ -20,6 +20,7 @@ import { settingsRouter } from "@/server/api/routers/settings";
 import { valuationRouter } from "@/server/api/routers/valuation";
 import { adminRouter } from "@/server/api/routers/admin";
 import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
+import { providerCommissionRouter } from "@/server/api/routers/provider-commission";
 import { reportRouter } from "@/server/api/routers/report";
 
 export const appRouter = createTRPCRouter({
@@ -37,6 +38,7 @@ export const appRouter = createTRPCRouter({
   imei: imeiRouter,
   interest: interestRouter,
   operation: operationRouter,
+  providerCommission: providerCommissionRouter,
   quickSale: quickSaleRouter,
   sale: saleRouter,
   serviceOrder: serviceOrderRouter,

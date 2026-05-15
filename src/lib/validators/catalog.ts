@@ -129,3 +129,25 @@ export const listDevicesSchema = z.object({
 });
 
 export type ListDevicesInput = z.infer<typeof listDevicesSchema>;
+
+// ── ServiceObservation schemas ──
+
+export const createServiceObservationSchema = z.object({
+  title: z.string().min(1, "Titulo obrigatorio").max(100),
+  observation: z.string().min(1, "Observacao obrigatoria"),
+  serviceTypes: z.array(z.string()).optional().nullable(),
+  deviceModels: z.array(z.string()).optional().nullable(),
+});
+export type CreateServiceObservationInput = z.infer<typeof createServiceObservationSchema>;
+
+export const updateServiceObservationSchema = createServiceObservationSchema.extend({
+  id: z.string().uuid(),
+});
+export type UpdateServiceObservationInput = z.infer<typeof updateServiceObservationSchema>;
+
+export const listServiceObservationsSchema = z.object({
+  active: z.boolean().optional(),
+  serviceType: z.string().optional(),
+  deviceModel: z.string().optional(),
+});
+export type ListServiceObservationsInput = z.infer<typeof listServiceObservationsSchema>;

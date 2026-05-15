@@ -17,6 +17,9 @@ import {
   createDeviceSchema,
   updateDeviceSchema,
   listDevicesSchema,
+  createServiceObservationSchema,
+  updateServiceObservationSchema,
+  listServiceObservationsSchema,
 } from "@/lib/validators/catalog";
 import { Prisma } from "@prisma/client";
 import { sendTextMessage, formatPhone } from "@/lib/services/whatsapp-service";
@@ -754,6 +757,106 @@ export const catalogRouter = createTRPCRouter({
           where: { id: input.id },
           data: { deletedAt: new Date() },
         });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SERVICE OBSERVATIONS
+  // ═══════════════════════════════════════
+
+  listServiceObservations: tenantProcedure
+    .input(listServiceObservationsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ServiceObservationWhereInput = {};
+        if (input.active !== undefined) where.active = input.active;
+
+        const observations = await tx.serviceObservation.findMany({
+          where,
+          orderBy: { title: "asc" },
+        });
+
+        // Filter by service type and device model client-side (JSON fields)
+        return observations.filter((obs) => {
+          if (input.serviceType) {
+            const types = obs.serviceTypes as string[] | null;
+            if (types && types.length > 0 && !types.includes(input.serviceType)) {
+              return false;
+            }
+          }
+          if (input.deviceModel) {
+            const models = obs.deviceModels as string[] | null;
+            if (models && models.length > 0 && !models.includes(input.deviceModel)) {
+              return false;
+            }
+          }
+          return true;
+        });
+      });
+    }),
+
+  createServiceObservation: tenantProcedure
+    .input(createServiceObservationSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const obs = await tx.serviceObservation.create({
+          data: {
+            tenantId: ctx.tenantId,
+            title: input.title,
+            observation: input.observation,
+            serviceTypes: input.serviceTypes ?? Prisma.JsonNull,
+            deviceModels: input.deviceModels ?? Prisma.JsonNull,
+          },
+        });
+        return { id: obs.id };
+      });
+    }),
+
+  updateServiceObservation: tenantProcedure
+    .input(updateServiceObservationSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.serviceObservation.findUnique({ where: { id: input.id } });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Observacao nao encontrada" });
+        }
+
+        await tx.serviceObservation.update({
+          where: { id: input.id },
+          data: {
+            title: input.title,
+            observation: input.observation,
+            serviceTypes: input.serviceTypes ?? Prisma.JsonNull,
+            deviceModels: input.deviceModels ?? Prisma.JsonNull,
+          },
+        });
+        return { success: true };
+      });
+    }),
+
+  toggleServiceObservation: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const obs = await tx.serviceObservation.findUnique({ where: { id: input.id } });
+        if (!obs) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Observacao nao encontrada" });
+        }
+
+        await tx.serviceObservation.update({
+          where: { id: input.id },
+          data: { active: !obs.active },
+        });
+        return { success: true, active: !obs.active };
+      });
+    }),
+
+  deleteServiceObservation: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        await tx.serviceObservation.delete({ where: { id: input.id } });
         return { success: true };
       });
     }),

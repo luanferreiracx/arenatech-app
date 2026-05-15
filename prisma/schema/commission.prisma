@@ -51,3 +51,166 @@ model Commission {
   @@index([tenantId, referenceId])
   @@map("commissions")
 }
+
+// ═══════════════════════════════════════
+// PROVIDER (Prestador MEI/CLT) COMMISSION
+// ═══════════════════════════════════════
+
+enum ProviderProfile {
+  SELLER
+  TECHNICIAN
+}
+
+enum ProviderBondType {
+  MEI
+  CLT
+}
+
+enum ProviderApuracaoStatus {
+  OPEN
+  CLOSED
+  PAID
+  CANCELLED
+}
+
+enum ProviderReversalType {
+  RETURN_SAME_MONTH
+  RETURN_LATER_MONTH
+  CHARGEBACK_PROVIDER
+  CHARGEBACK_FRAUD
+  DEFAULT_60D
+  WARRANTY_REFUND
+  WARRANTY_PARTIAL
+  MANUAL_ADJUSTMENT
+}
+
+model Provider {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  cpf           String?
+  whatsapp      String?
+  profile       ProviderProfile
+  bondType      ProviderBondType @default(MEI) @map("bond_type")
+  cnpjMei       String?          @map("cnpj_mei")
+  razaoSocial   String?          @map("razao_social")
+  cnaePrincipal String?          @map("cnae_principal")
+  active        Boolean          @default(true)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  contracts     ProviderContract[]
+  apuracoes     ProviderApuracao[]
+  reversals     ProviderReversal[]
+  uncoveredDays ProviderUncoveredDay[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId, active])
+  @@map("providers")
+}
+
+model ProviderContract {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  providerId     String    @map("provider_id") @db.Uuid
+  version        Int       @default(1)
+  startDate      DateTime  @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  allowanceCap   Decimal?  @map("allowance_cap") @db.Decimal(10, 2)
+  dailyMeal      Decimal?  @map("daily_meal") @db.Decimal(10, 2)
+  dailyTransport Decimal?  @map("daily_transport") @db.Decimal(10, 2)
+  monthlyCellphone Decimal? @map("monthly_cellphone") @db.Decimal(10, 2)
+  notes          String?
+  signedAt       DateTime? @map("signed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  provider       Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  rules          ProviderCommissionRule[]
+
+  @@index([tenantId, providerId])
+  @@map("provider_contracts")
+}
+
+model ProviderCommissionRule {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  contractId String   @map("contract_id") @db.Uuid
+  category   String
+  scope      String   @default("normal")
+  rangeMin   Decimal  @map("range_min") @db.Decimal(10, 2)
+  rangeMax   Decimal? @map("range_max") @db.Decimal(10, 2)
+  rate       Decimal  @db.Decimal(7, 4)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  contract   ProviderContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, contractId])
+  @@map("provider_commission_rules")
+}
+
+model ProviderApuracao {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  tenantId             String                  @map("tenant_id") @db.Uuid
+  providerId           String                  @map("provider_id") @db.Uuid
+  year                 Int
+  month                Int
+  status               ProviderApuracaoStatus  @default(OPEN)
+  grossCommission      Decimal                 @default(0) @map("gross_commission") @db.Decimal(10, 2)
+  totalReversals       Decimal                 @default(0) @map("total_reversals") @db.Decimal(10, 2)
+  totalAllowance       Decimal                 @default(0) @map("total_allowance") @db.Decimal(10, 2)
+  capReduction         Decimal                 @default(0) @map("cap_reduction") @db.Decimal(10, 2)
+  netAmount            Decimal                 @default(0) @map("net_amount") @db.Decimal(10, 2)
+  memoryJson           Json?                   @map("memory_json")
+  closedAt             DateTime?               @map("closed_at")
+  closedById           String?                 @map("closed_by_id") @db.Uuid
+  paidAt               DateTime?               @map("paid_at")
+  financialTransactionId String?               @map("financial_transaction_id") @db.Uuid
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+
+  provider             Provider                @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  reversals            ProviderReversal[]
+
+  @@unique([tenantId, providerId, year, month])
+  @@index([tenantId, providerId])
+  @@map("provider_apuracoes")
+}
+
+model ProviderReversal {
+  id            String               @id @default(uuid()) @db.Uuid
+  tenantId      String               @map("tenant_id") @db.Uuid
+  providerId    String               @map("provider_id") @db.Uuid
+  apuracaoId    String?              @map("apuracao_id") @db.Uuid
+  factDate      DateTime             @map("fact_date") @db.Date
+  type          ProviderReversalType
+  referenceType String?              @map("reference_type")
+  referenceId   String?              @map("reference_id") @db.Uuid
+  amount        Decimal              @db.Decimal(10, 2)
+  description   String?
+  registeredById String              @map("registered_by_id") @db.Uuid
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  provider      Provider             @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  apuracao      ProviderApuracao?    @relation(fields: [apuracaoId], references: [id])
+
+  @@index([tenantId, providerId])
+  @@index([tenantId, factDate])
+  @@map("provider_reversals")
+}
+
+model ProviderUncoveredDay {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  providerId String   @map("provider_id") @db.Uuid
+  day        DateTime @db.Date
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, providerId, day])
+  @@index([tenantId, providerId])
+  @@map("provider_uncovered_days")
+}

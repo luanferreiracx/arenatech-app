@@ -383,4 +383,121 @@ export const customerRouter = createTRPCRouter({
         return { success: true };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // CPF/CNPJ LOOKUP
+  // ═══════════════════════════════════════
+
+  /** Lookup CPF via DirectD API */
+  lookupCpf: tenantProcedure
+    .input(z.object({ cpf: z.string().min(11).max(14) }))
+    .query(async ({ ctx, input }) => {
+      const digits = input.cpf.replace(/\D/g, "");
+      if (digits.length !== 11) {
+        return { found: false, error: "CPF invalido" };
+      }
+
+      // Check if already registered
+      const existing = await ctx.withTenant(async (tx) => {
+        return tx.customer.findFirst({
+          where: { cpf: digits, deletedAt: null },
+          select: { id: true, name: true },
+        });
+      });
+
+      if (existing) {
+        return {
+          found: false,
+          alreadyRegistered: true,
+          error: "Este CPF ja esta cadastrado no sistema",
+          customer: existing,
+        };
+      }
+
+      // Call DirectD API
+      const token = process.env.DIRECTD_TOKEN;
+      if (!token) {
+        return { found: false, lookupUnavailable: true };
+      }
+
+      try {
+        const url = `https://apiv3.directd.com.br/api/ReceitaFederalPessoaFisica?Cpf=${digits}&Token=${token}`;
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) {
+          return { found: false, error: "Erro na consulta" };
+        }
+
+        const data = await response.json();
+        if (data?.nome) {
+          return {
+            found: true,
+            name: data.nome as string,
+            birthDate: (data.dataNascimento ?? null) as string | null,
+            situation: (data.situacao ?? null) as string | null,
+          };
+        }
+
+        return { found: false, error: "CPF nao encontrado na Receita Federal" };
+      } catch {
+        return { found: false, error: "Timeout na consulta" };
+      }
+    }),
+
+  /** Lookup CNPJ via DirectD API */
+  lookupCnpj: tenantProcedure
+    .input(z.object({ cnpj: z.string().min(14).max(18) }))
+    .query(async ({ ctx, input }) => {
+      const digits = input.cnpj.replace(/\D/g, "");
+      if (digits.length !== 14) {
+        return { found: false, error: "CNPJ invalido" };
+      }
+
+      // Check if already registered
+      const existing = await ctx.withTenant(async (tx) => {
+        return tx.customer.findFirst({
+          where: { cnpj: digits, deletedAt: null },
+          select: { id: true, name: true },
+        });
+      });
+
+      if (existing) {
+        return {
+          found: false,
+          alreadyRegistered: true,
+          error: "Este CNPJ ja esta cadastrado no sistema",
+          customer: existing,
+        };
+      }
+
+      // Call DirectD API
+      const token = process.env.DIRECTD_TOKEN;
+      if (!token) {
+        return { found: false, lookupUnavailable: true };
+      }
+
+      try {
+        const url = `https://apiv3.directd.com.br/api/ReceitaFederalPessoaJuridica?Cnpj=${digits}&Token=${token}`;
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) {
+          return { found: false, error: "Erro na consulta" };
+        }
+
+        const data = await response.json();
+        if (data?.razaoSocial || data?.nomeFantasia) {
+          return {
+            found: true,
+            razaoSocial: (data.razaoSocial ?? null) as string | null,
+            nomeFantasia: (data.nomeFantasia ?? null) as string | null,
+            situacao: (data.situacao ?? null) as string | null,
+            endereco: data.endereco ?? null,
+            telefone: (data.telefone ?? null) as string | null,
+            email: (data.email ?? null) as string | null,
+          };
+        }
+
+        return { found: false, error: "CNPJ nao encontrado na Receita Federal" };
+      } catch {
+        return { found: false, error: "Timeout na consulta" };
+      }
+    }),
 });

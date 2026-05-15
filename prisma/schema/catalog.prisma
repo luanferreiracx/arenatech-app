@@ -64,3 +64,18 @@ model Device {
   @@index([tenantId, active])
   @@map("devices")
 }
+
+model ServiceObservation {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  title           String
+  observation     String
+  serviceTypes    Json?     @map("service_types")
+  deviceModels    Json?     @map("device_models")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@map("service_observations")
+}
