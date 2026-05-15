@@ -340,6 +340,101 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
+  // Sprint 1A mutations
+  const sendTrackingMut = useMutation(
+    trpc.serviceOrder.sendTracking.mutationOptions({
+      onSuccess: () => { toast.success("Link de rastreamento enviado!"); setTrackingDialog(false); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const sendDeliveryTermMut = useMutation(
+    trpc.serviceOrder.sendDeliveryTerm.mutationOptions({
+      onSuccess: (data) => {
+        toast.success("Termo de entrega enviado!");
+        setDeliveryTermDialog(false);
+        if (data.signatureLink) window.open(data.signatureLink, "_blank");
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const confirmPhysicalDeliveryTermMut = useMutation(
+    trpc.serviceOrder.confirmPhysicalDeliveryTerm.mutationOptions({
+      onSuccess: () => { toast.success("Termo de entrega confirmado e OS entregue!"); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const checkDeliveryTermStatusMut = useMutation(
+    trpc.serviceOrder.checkDeliveryTermStatus.mutationOptions({
+      onSuccess: (data) => {
+        if (data.signed) toast.success("Termo de entrega assinado! OS entregue.");
+        else toast.info("Termo de entrega ainda nao foi assinado.");
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const sendReturnTermMut = useMutation(
+    trpc.serviceOrder.sendReturnTerm.mutationOptions({
+      onSuccess: (data) => {
+        toast.success("Termo de devolucao enviado!");
+        setReturnTermDialog(false);
+        if (data.signatureLink) window.open(data.signatureLink, "_blank");
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const confirmPhysicalReturnTermMut = useMutation(
+    trpc.serviceOrder.confirmPhysicalReturnTerm.mutationOptions({
+      onSuccess: () => { toast.success("Termo de devolucao confirmado! OS cancelada."); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const checkReturnTermStatusMut = useMutation(
+    trpc.serviceOrder.checkReturnTermStatus.mutationOptions({
+      onSuccess: (data) => {
+        if (data.signed && data.cancelled) toast.success("Termo assinado e OS cancelada!");
+        else if (data.signed) toast.success("Termo assinado!");
+        else toast.info("Termo de devolucao ainda nao assinado.");
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const sendQuoteWhatsAppMut = useMutation(
+    trpc.serviceOrder.sendQuoteWhatsApp.mutationOptions({
+      onSuccess: () => { toast.success("Orcamento enviado por WhatsApp!"); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateTechnicalInfoMut = useMutation(
+    trpc.serviceOrder.updateTechnicalInfo.mutationOptions({
+      onSuccess: () => { toast.success("Informacoes tecnicas atualizadas!"); setTechInfoDialog(false); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateTechnicianMut = useMutation(
+    trpc.serviceOrder.updateTechnician.mutationOptions({
+      onSuccess: () => { toast.success("Tecnico atualizado!"); setChangeTechDialog(false); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  // Query for technicians list (for change technician dialog)
+  const techniciansQuery = useQuery(
+    trpc.serviceOrder.listTechnicians.queryOptions()
+  );
+
   if (isLoading || !order) {
     return <div className="animate-pulse space-y-4"><div className="h-8 w-48 bg-muted rounded" /><div className="h-64 bg-muted rounded" /></div>;
   }
@@ -492,6 +587,123 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             >
               <Send className="mr-1 h-3 w-3" />Enviar Status Atual por WhatsApp
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setTrackingPhone(order.customer?.phone ?? ""); setTrackingDialog(true); }}
+            >
+              <Navigation className="mr-1 h-3 w-3" />Enviar Rastreamento
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Delivery Term */}
+      {!isCancelled && !isRefunded && ["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+        <div className={`rounded-lg border-2 p-4 mb-6 ${order.deliveryTermSigned ? "border-success bg-success/10" : "border-emerald-500 bg-emerald-500/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${order.deliveryTermSigned ? "text-success" : "text-emerald-400"}`}>
+            <Truck className="h-5 w-5" />
+            Termo de Entrega {order.deliveryTermSigned ? "- Assinado" : ""}
+          </h3>
+          {order.deliveryTermLink && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Enviado em {order.deliveryTermSentAt ? format(new Date(order.deliveryTermSentAt), "dd/MM/yyyy HH:mm") : "-"}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {!order.deliveryTermSigned && !order.deliveryTermAutentiqueId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setDeliveryTermPhone(order.customer?.phone ?? ""); setDeliveryTermDialog(true); }}
+              >
+                <Send className="mr-1 h-3 w-3" />Enviar Termo de Entrega
+              </Button>
+            )}
+            {order.deliveryTermAutentiqueId && !order.deliveryTermSigned && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={checkDeliveryTermStatusMut.isPending}
+                  onClick={() => checkDeliveryTermStatusMut.mutate({ orderId: id })}
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
+                </Button>
+                {order.deliveryTermLink && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={order.deliveryTermLink as string} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="mr-1 h-3 w-3" />Ver Documento
+                    </a>
+                  </Button>
+                )}
+              </>
+            )}
+            {!order.deliveryTermSigned && status !== "DELIVERED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => confirmPhysicalDeliveryTermMut.mutate({ orderId: id })}
+                disabled={confirmPhysicalDeliveryTermMut.isPending}
+              >
+                <Check className="mr-1 h-3 w-3" />Confirmar Entrega Fisica
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Return Term */}
+      {!isRefunded && !isDelivered && (
+        <div className={`rounded-lg border-2 p-4 mb-6 ${order.returnTermSigned ? "border-destructive bg-destructive/10" : "border-orange-500 bg-orange-500/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${order.returnTermSigned ? "text-destructive" : "text-orange-400"}`}>
+            <RotateCcw className="h-5 w-5" />
+            Termo de Devolucao {order.returnTermSigned ? "- Assinado (OS Cancelada)" : ""}
+          </h3>
+          {order.returnTermLink && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Enviado em {order.returnTermSentAt ? format(new Date(order.returnTermSentAt), "dd/MM/yyyy HH:mm") : "-"}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {!order.returnTermSigned && !order.returnTermAutentiqueId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setReturnTermPhone(order.customer?.phone ?? ""); setReturnTermReason("Equipamento devolvido ao cliente"); setReturnTermDialog(true); }}
+              >
+                <Send className="mr-1 h-3 w-3" />Enviar Termo de Devolucao
+              </Button>
+            )}
+            {order.returnTermAutentiqueId && !order.returnTermSigned && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={checkReturnTermStatusMut.isPending}
+                  onClick={() => checkReturnTermStatusMut.mutate({ orderId: id })}
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
+                </Button>
+                {order.returnTermLink && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={order.returnTermLink as string} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="mr-1 h-3 w-3" />Ver Documento
+                    </a>
+                  </Button>
+                )}
+              </>
+            )}
+            {!order.returnTermSigned && !isCancelled && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => confirmPhysicalReturnTermMut.mutate({ orderId: id })}
+                disabled={confirmPhysicalReturnTermMut.isPending}
+              >
+                <Check className="mr-1 h-3 w-3" />Confirmar Devolucao Fisica
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -516,6 +728,19 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div className="flex gap-2">
             <Button size="sm" onClick={() => approveQuoteMut.mutate({ orderId: id })}>
               <Check className="mr-1 h-3 w-3" />Aprovar Manual
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={sendQuoteWhatsAppMut.isPending}
+              onClick={() => sendQuoteWhatsAppMut.mutate({ orderId: id })}
+            >
+              <MessageCircle className="mr-1 h-3 w-3" />Enviar por WhatsApp
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <a href={`/api/service-orders/${id}/quote-pdf`} target="_blank" rel="noopener noreferrer">
+                <FileText className="mr-1 h-3 w-3" />PDF Orcamento
+              </a>
             </Button>
             <Button size="sm" variant="destructive" onClick={() => cancelQuoteMut.mutate({ orderId: id })}>
               <X className="mr-1 h-3 w-3" />Cancelar Orcamento
@@ -595,7 +820,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
           {/* Problem & Diagnostics */}
           <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Problema e Diagnostico</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Problema e Diagnostico</h3>
+              {!isCancelled && !isRefunded && !["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+                <Button size="sm" variant="ghost" onClick={() => { setTechDiagnosed(order.diagnosedProblem ?? ""); setTechNotes(order.internalNotes ?? ""); setTechInfoDialog(true); }}>
+                  <Wrench className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             <div className="space-y-3 text-sm">
               <div><p className="text-muted-foreground text-xs">Problema Relatado</p><p>{order.reportedProblem ?? "—"}</p></div>
               {order.diagnosedProblem && <div><p className="text-muted-foreground text-xs">Defeito Constatado</p><p>{order.diagnosedProblem}</p></div>}
@@ -769,7 +1001,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
           {/* Responsible */}
           <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Responsaveis</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Responsaveis</h3>
+              {!isCancelled && !isRefunded && (
+                <Button size="sm" variant="ghost" onClick={() => { setSelectedTechId(order.technicianId ?? ""); setChangeTechDialog(true); }}>
+                  <UserCog className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Tecnico</span><span>{order.technicianName ?? "—"}</span></div>
               {order.vendorName && <div className="flex justify-between"><span className="text-muted-foreground">Vendedor</span><span>{order.vendorName}</span></div>}
@@ -923,6 +1162,90 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuoteDialog(false)}>Cancelar</Button>
             <Button disabled={!quoteReason || createQuoteMut.isPending} onClick={() => createQuoteMut.mutate({ orderId: id, newServiceAmount: quoteServiceAmount, newPartsAmount: quotePartsAmount, newDiscount: quoteDiscount, reason: quoteReason, additionalServices: quoteAdditional || null })}>Criar Orcamento</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tracking Dialog */}
+      <Dialog open={trackingDialog} onOpenChange={setTrackingDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Enviar Rastreamento via WhatsApp</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Telefone</Label><Input value={trackingPhone} onChange={(e) => setTrackingPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTrackingDialog(false)}>Cancelar</Button>
+            <Button disabled={!trackingPhone || sendTrackingMut.isPending} onClick={() => sendTrackingMut.mutate({ orderId: id, phone: trackingPhone })}>Enviar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delivery Term Dialog */}
+      <Dialog open={deliveryTermDialog} onOpenChange={setDeliveryTermDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Enviar Termo de Entrega</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">O termo sera enviado para assinatura digital via Autentique e notificado por WhatsApp.</p>
+            <div><Label>Telefone do Cliente</Label><Input value={deliveryTermPhone} onChange={(e) => setDeliveryTermPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeliveryTermDialog(false)}>Cancelar</Button>
+            <Button disabled={sendDeliveryTermMut.isPending} onClick={() => sendDeliveryTermMut.mutate({ orderId: id, phone: deliveryTermPhone || null })}>Enviar Termo</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return Term Dialog */}
+      <Dialog open={returnTermDialog} onOpenChange={setReturnTermDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Enviar Termo de Devolucao</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">O termo sera enviado para assinatura digital. Apos assinado, a OS sera cancelada automaticamente.</p>
+            <div><Label>Telefone do Cliente</Label><Input value={returnTermPhone} onChange={(e) => setReturnTermPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
+            <div><Label>Motivo da Devolucao</Label><Textarea value={returnTermReason} onChange={(e) => setReturnTermReason(e.target.value)} rows={2} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnTermDialog(false)}>Cancelar</Button>
+            <Button disabled={sendReturnTermMut.isPending} onClick={() => sendReturnTermMut.mutate({ orderId: id, phone: returnTermPhone || null, reason: returnTermReason || null })}>Enviar Termo</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Technical Info Dialog */}
+      <Dialog open={techInfoDialog} onOpenChange={setTechInfoDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Informacoes Tecnicas</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Defeito Constatado</Label><Textarea value={techDiagnosed} onChange={(e) => setTechDiagnosed(e.target.value)} rows={3} placeholder="Descreva o defeito encontrado..." /></div>
+            <div><Label>Observacoes Internas</Label><Textarea value={techNotes} onChange={(e) => setTechNotes(e.target.value)} rows={3} placeholder="Observacoes internas da equipe..." /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTechInfoDialog(false)}>Cancelar</Button>
+            <Button disabled={updateTechnicalInfoMut.isPending} onClick={() => updateTechnicalInfoMut.mutate({ orderId: id, diagnosedProblem: techDiagnosed || null, internalNotes: techNotes || null })}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Technician Dialog */}
+      <Dialog open={changeTechDialog} onOpenChange={setChangeTechDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Alterar Tecnico Responsavel</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Tecnico</Label>
+              <Select value={selectedTechId} onValueChange={setSelectedTechId}>
+                <SelectTrigger><SelectValue placeholder="Selecione um tecnico" /></SelectTrigger>
+                <SelectContent>
+                  {(techniciansQuery.data ?? []).map((t: { id: string; name: string; role: string }) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name} ({t.role})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChangeTechDialog(false)}>Cancelar</Button>
+            <Button disabled={!selectedTechId || updateTechnicianMut.isPending} onClick={() => updateTechnicianMut.mutate({ orderId: id, technicianId: selectedTechId })}>Alterar Tecnico</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
