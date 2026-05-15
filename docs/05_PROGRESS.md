@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Sprint 6 concluido (PDF recibos, Admin Addons/Refunds CRUD, verificacao sidebar). Fase 14 (Recompensas) adiada.
+**Fase atual:** Etapa 0 (Varredura Legacy) COMPLETA. Pronto para SPECs.
 **Ultima atualizacao:** 2026-05-15
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 4
+**Commits desde ultimo deploy:** 9
 
 ---
 
@@ -259,6 +259,41 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-15 — Etapa 0: Varredura Legacy Completa
+
+- **Implementado:**
+  - **20 módulos inventariados** em `docs/legacy/`:
+    1. Ordens de Serviço (OS) — 3100+ linhas controller, 5 models, Autentique, DePix, WhatsApp
+    2. PDV — Carrinho session, split payment, upgrade aparelhos, DePix
+    3. Clientes — CRUD, interesses/leads, CPF/CNPJ lookup (DirectD)
+    4. Catálogo — Serviços, avaliações (tabela preços), simulador, checklist, catálogo público (e-commerce)
+    5. Estoque — Dual model (Produto counter + EstoqueItem individual), IMEI, NF-e import, compras aparelhos
+    6. Caixa — Abertura/fechamento, sangria/suprimento, conferência, fechamento automático
+    7. Financeiro — Contas pagar/receber com parcelas, DRE, fluxo de caixa, formas de pagamento configuráveis
+    8. Comissões — Prestadores MEI/CLT, faixas progressivas estilo IR, 5 categorias, ajuda de custo proporcional
+    9. Fiscal — NF-e/NFC-e com Strategy Pattern (Nuvem Fiscal + Focus NFe), DANFE, inutilização
+    10. Operação — Entregadores (CRUD simples), lab externo via flags na OS
+    11. Consulta IMEI — API externa com quota mensal por tenant
+    12. Comunicação — WhatsApp (Meta Cloud API + Evolution), Chatwoot (CRM), Chatbot Lia (Claude AI), VendaBot, Instagram bridge
+    13. Recompensas — Cashback completo: ações (story/reels), campanhas, saldo, utilização, relatórios
+    14. Configurações — 4 tabelas (geral, assistência, parcelamento, recebimento)
+    15. Admin Central — SaaS: tenants, planos, addons, pré-cadastros, estornos
+    16. Autenticação — 2 guards (web/tenant), login CPF, troca senha obrigatória, 4 roles
+    17. Multi-tenancy — stancl/tenancy com banco MySQL separado por tenant
+    18. Notificações — Sem sistema nativo, tudo via WhatsApp/Chatwoot
+    19. Jobs/Queues — 12 jobs, 9 scheduled tasks, queue driver database
+    20. Eventos/Listeners — 1 listener (SeedTenantDatabase), observers inline, 5 webhooks
+  - **INDEX.md** com: mapa de dependências, 13 integrações externas consolidadas, 14 TODOs/hacks, 5 features código morto, 8 descobertas
+  - 5 commits em lotes de 4 módulos
+- **Descobertas surpreendentes:**
+  - Chatbot Lia muito mais complexo que esperado (~700 linhas, tool calls Claude, VendaBot integrado)
+  - Strategy Pattern no fiscal (2 providers implementados)
+  - Upgrade de aparelhos com trade-in completo no PDV
+  - Orçamento adicional com aprovação via link público
+  - Auto-encerramento de conversas com 3 critérios
+  - NF-e de entrada com parse XML e vinculação de itens
+- **Próximo:** SPEC rigorosa do módulo OS (Prompt 2)
 
 ### 2026-05-15 — Sprint 6: Lacunas finais (PDF recibos, Admin CRUD, sidebar)
 
