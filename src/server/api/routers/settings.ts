@@ -37,6 +37,10 @@ export const settingsRouter = createTRPCRouter({
   updateGeneral: tenantProcedure
     .input(updateGeneralSettingsSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações gerais" });
+      }
       return ctx.withTenant(async (tx) => {
         const data = {
           tradeName: input.tradeName,
@@ -79,6 +83,10 @@ export const settingsRouter = createTRPCRouter({
   createPaymentMethod: tenantProcedure
     .input(createPaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.create({
           data: {
@@ -96,6 +104,10 @@ export const settingsRouter = createTRPCRouter({
   updatePaymentMethod: tenantProcedure
     .input(updatePaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.update({
           where: { id: input.id },
@@ -110,6 +122,10 @@ export const settingsRouter = createTRPCRouter({
   deletePaymentMethod: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.delete({
           where: { id: input.id },
@@ -120,6 +136,10 @@ export const settingsRouter = createTRPCRouter({
   upsertInstallmentRules: tenantProcedure
     .input(upsertInstallmentRulesSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar regras de parcelamento" });
+      }
       return ctx.withTenant(async (tx) => {
         // Delete existing rules first
         await tx.installmentRule.deleteMany({
@@ -445,41 +465,73 @@ export const settingsRouter = createTRPCRouter({
 
   getFiscalSettings: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const settings = await tx.tenantSettings.findUnique({
+      const fiscal = await tx.tenantFiscalSettings.findUnique({
         where: { tenantId: ctx.tenantId },
       });
-      // Return the fiscal config from the address JSON field or defaults
-      const fiscal = (settings?.address as Record<string, unknown> | null)?.fiscal as Record<string, unknown> | undefined;
-      return fiscal ?? {};
+      if (!fiscal) return {};
+      // Map to the format the frontend page expects (PT field names)
+      return {
+        razaoSocial: fiscal.legalName,
+        nomeFantasia: fiscal.tradeName,
+        cnpj: fiscal.cnpj,
+        inscricaoEstadual: fiscal.ie,
+        cnae: fiscal.cnae,
+        regimeTributario: fiscal.taxRegime?.toString(),
+        cep: fiscal.zipCode,
+        logradouro: fiscal.street,
+        numero: fiscal.streetNumber,
+        complemento: fiscal.complement,
+        bairro: fiscal.neighborhood,
+        cidade: fiscal.city,
+        uf: fiscal.state,
+        codigoMunicipio: fiscal.municipalityCode,
+        nfeSerie: fiscal.nfeSeries ? parseInt(fiscal.nfeSeries) : undefined,
+        nfceSerie: fiscal.nfceSeries ? parseInt(fiscal.nfceSeries) : undefined,
+        nfeAmbiente: fiscal.nfeEnvironment?.toString(),
+        habilitado: fiscal.enabled,
+        emitirNfAutomatico: fiscal.autoIssue,
+      };
     });
   }),
 
   updateFiscalSettings: tenantProcedure
     .input(updateFiscalSettingsSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar configurações fiscais" });
+      }
+      const data = {
+        legalName: input.razaoSocial,
+        tradeName: input.nomeFantasia,
+        cnpj: input.cnpj,
+        ie: input.inscricaoEstadual,
+        cnae: input.cnae,
+        taxRegime: input.regimeTributario ? parseInt(input.regimeTributario) : undefined,
+        zipCode: input.cep,
+        street: input.logradouro,
+        streetNumber: input.numero,
+        complement: input.complemento,
+        neighborhood: input.bairro,
+        city: input.cidade,
+        state: input.uf,
+        municipalityCode: input.codigoMunicipio,
+        nfeEnvironment: input.nfeAmbiente ? parseInt(input.nfeAmbiente) : undefined,
+        nfeSeries: input.nfeSerie?.toString(),
+        nfceSeries: input.nfceSerie?.toString(),
+        enabled: input.habilitado,
+        autoIssue: input.emitirNfAutomatico,
+      };
+      // Remove undefined values
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([, v]) => v !== undefined)
+      );
       return ctx.withTenant(async (tx) => {
-        const settings = await tx.tenantSettings.findUnique({
+        return tx.tenantFiscalSettings.upsert({
           where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, ...cleanData },
+          update: cleanData,
         });
-
-        const existingAddress = (settings?.address as Record<string, unknown> | null) ?? {};
-        const updatedAddress = {
-          ...existingAddress,
-          fiscal: input,
-        };
-
-        await tx.tenantSettings.upsert({
-          where: { tenantId: ctx.tenantId },
-          create: {
-            tenantId: ctx.tenantId,
-            address: updatedAddress as Prisma.InputJsonValue,
-          },
-          update: {
-            address: updatedAddress as Prisma.InputJsonValue,
-          },
-        });
-
-        return { success: true };
       });
     }),
 

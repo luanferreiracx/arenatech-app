@@ -6,13 +6,15 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { label: "Geral", href: "/settings/general" },
+  { label: "Assistência", href: "/settings/assistance" },
+  { label: "Fiscal", href: "/settings/fiscal" },
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
-  { label: "Taxas de Parcelamento", href: "/settings/installments" },
-  { label: "Entregadores", href: "/settings/delivery-persons" },
+  { label: "Parcelamento", href: "/settings/installments" },
+  { label: "Recebimento", href: "/settings/receiving" },
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Usuarios", href: "/settings/users" },
   { label: "Equipe", href: "/settings/team" },
-  { label: "Fiscal", href: "/settings/fiscal" },
+  { label: "Entregadores", href: "/settings/delivery-persons" },
   { label: "Assinatura", href: "/settings/subscription" },
   { label: "Logs", href: "/settings/logs" },
   { label: "Seguranca", href: "/settings/security" },
