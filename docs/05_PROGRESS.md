@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Estoque-A IMPLEMENTADO (schema + services + procedures + UI + testes). Aguardando revisão.
+**Fase atual:** Estoque-B IMPLEMENTADO (StockItem + movimentações + IMEI Luhn + máquina de estados). Estoque-A revisado com modelo híbrido.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Estoque-B (Posição, Movimentações, IMEI)
+
+- **Implementado:**
+  - **FASE 0 (revisão Estoque-A):** Product.currentStock reintroduzido para modelo híbrido (D1). ADR 0016 atualizado. ProductService.getAvailableQuantity híbrido. PATTERNS.md atualizado.
+  - **Schema:** StockItem (22 campos, 4 índices, RLS), StockMovement refatorado (+quantityBefore/After, +stockItemId, -unitCost). Enums: StockItemStatus (6), StockItemCondition (4), StockMovementType (5 novos valores).
+  - **Validators:** IMEI Luhn (export validateImei), stock-item.ts (10 schemas + labels + state machine)
+  - **Services:** stock-item.service.ts (entrySerializedItems, entryNonSerialized, exitNonSerialized, adjustInventory, changeItemStatus)
+  - **tRPC:** +10 procedures (listStockItems, getStockItem, entrySerializedItems, entryQuantity, writeOff, adjustInventory, changeItemStatus, searchByImei, getImeiHistory, getAvailableQuantity)
+  - **RBAC:** operator read-only, manager CRUD, owner bloqueio/desbloqueio
+  - **ADRs:** 0021 (state machine), 0022 (IMEI Luhn), 0023 (append-only movements), 0024 (RBAC)
+  - **Testes:** 42 novos (IMEI, state machine, validators)
+  - typecheck ✓ | test ✓ (549) | build ✓
+- **Decisões aplicadas:** D1 (modelo híbrido), D2 (5 tipos movement), D3 (reserva), D4 (6 status), D5 (Luhn), D6 (IMEI history), D7 (RBAC), D8 (anti-escopo)
+- **Próximo:** Página UI de Estoque-B (se solicitado) ou próximo módulo
+
+---
 
 ### 2026-05-16 — IMPLEMENT Estoque-A contra SPEC v1.0
 
