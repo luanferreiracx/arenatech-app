@@ -1,24 +1,17 @@
 "use client";
 
-import { type ComponentProps, forwardRef, useState } from "react";
+import { type ComponentProps, forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchAddressByCep, isViaCEPError, type AddressResult } from "@/lib/integrations/viacep";
 
-export interface ViaCEPResponse {
-  cep: string;
-  logradouro: string;
-  complemento: string;
-  bairro: string;
-  localidade: string;
-  uf: string;
-  erro?: boolean;
-}
+export type { AddressResult };
 
 type CepInputProps = Omit<ComponentProps<typeof Input>, "onChange" | "value"> & {
   value?: string;
   onValueChange?: (raw: string) => void;
-  onAddressFound?: (address: ViaCEPResponse) => void;
+  onAddressFound?: (address: AddressResult) => void;
 };
 
 function formatCep(value: string): string {
@@ -30,48 +23,71 @@ function formatCep(value: string): string {
 export const CepInput = forwardRef<HTMLInputElement, CepInputProps>(
   function CepInput({ value = "", onValueChange, onAddressFound, className, ...props }, ref) {
     const [loading, setLoading] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleBlur = async () => {
-      const digits = value.replace(/\D/g, "");
-      if (digits.length !== 8 || !onAddressFound) return;
+    const lookup = useCallback(
+      async (digits: string) => {
+        if (digits.length !== 8 || !onAddressFound) return;
 
-      setLoading(true);
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
-        if (res.ok) {
-          const data = (await res.json()) as ViaCEPResponse;
-          if (!data.erro) {
-            onAddressFound(data);
-          }
+        setLoading(true);
+        setErrorMsg(null);
+
+        const result = await fetchAddressByCep(digits);
+
+        if (isViaCEPError(result)) {
+          setErrorMsg(result.error);
+        } else {
+          onAddressFound(result);
         }
-      } catch {
-        // Silently fail — user can fill manually
-      } finally {
+
         setLoading(false);
+      },
+      [onAddressFound],
+    );
+
+    useEffect(() => {
+      return () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+      };
+    }, []);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value.replace(/\D/g, "").slice(0, 8);
+      onValueChange?.(raw);
+      setErrorMsg(null);
+
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+
+      if (raw.length === 8) {
+        debounceRef.current = setTimeout(() => {
+          void lookup(raw);
+        }, 500);
       }
     };
 
     return (
-      <div className="relative">
-        <Input
-          {...props}
-          ref={ref}
-          type="text"
-          inputMode="numeric"
-          maxLength={9}
-          value={formatCep(value)}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/\D/g, "").slice(0, 8);
-            onValueChange?.(raw);
-          }}
-          onBlur={handleBlur}
-          placeholder="00000-000"
-          className={cn(loading && "pr-9", className)}
-        />
-        {loading && (
-          <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
+      <div className="space-y-1">
+        <div className="relative">
+          <Input
+            {...props}
+            ref={ref}
+            type="text"
+            inputMode="numeric"
+            maxLength={9}
+            value={formatCep(value)}
+            onChange={handleChange}
+            placeholder="00000-000"
+            className={cn(loading && "pr-9", className)}
+          />
+          {loading && (
+            <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+        {errorMsg && (
+          <p className="text-xs text-muted-foreground">{errorMsg}</p>
         )}
       </div>
     );
