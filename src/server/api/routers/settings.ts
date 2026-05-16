@@ -593,4 +593,72 @@ export const settingsRouter = createTRPCRouter({
 
       return { success: true };
     }),
+
+  // ═══════════════════════════════════════
+  // ASSISTANCE SETTINGS
+  // ═══════════════════════════════════════
+
+  getAssistance: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      return tx.tenantAssistanceSettings.findUnique({
+        where: { tenantId: ctx.tenantId },
+      });
+    });
+  }),
+
+  updateAssistance: tenantProcedure
+    .input(z.object({
+      termsOfService: z.string().optional(),
+      warrantyPolicy: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações de assistência" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.tenantAssistanceSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, ...input },
+          update: input,
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // RECEIVING SETTINGS
+  // ═══════════════════════════════════════
+
+  getReceiving: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      return tx.tenantReceivingSettings.findUnique({
+        where: { tenantId: ctx.tenantId },
+      });
+    });
+  }),
+
+  updateReceiving: tenantProcedure
+    .input(z.object({
+      defaultPolicyDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]).optional(),
+      defaultPolicyNonDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]).optional(),
+      minInstallmentAmount: z.number().int().min(0).optional(),
+      requireCpfAbove: z.number().int().min(0).optional(),
+      autoCloseTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+      monthlySalesGoal: z.number().int().min(0).nullable().optional(),
+      defaultDasRate: z.number().min(0).max(100).nullable().optional(),
+      defaultIcmsDiffRate: z.number().min(0).max(100).nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar configurações de recebimento" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.tenantReceivingSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, ...input },
+          update: input,
+        });
+      });
+    }),
 });
