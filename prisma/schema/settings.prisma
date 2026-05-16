@@ -1,17 +1,84 @@
 model TenantSettings {
+  tenantId           String   @id @map("tenant_id") @db.Uuid
+  tradeName          String?  @map("trade_name")
+  legalName          String?  @map("legal_name")
+  cnpj               String?
+  ie                 String?
+  phone              String?
+  email              String?
+  address            Json?
+  logoUrl            String?  @map("logo_url")
+  zipCode            String?  @map("zip_code")
+  street             String?
+  streetNumber       String?  @map("street_number")
+  complement         String?
+  neighborhood       String?
+  city               String?
+  state              String?
+  warrantyNewMonths  Int      @default(12) @map("warranty_new_months")
+  warrantyUsedMonths Int      @default(3) @map("warranty_used_months")
+  businessHours      String?  @map("business_hours")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_settings")
+}
+
+model TenantFiscalSettings {
+  tenantId             String    @id @map("tenant_id") @db.Uuid
+  legalName            String?   @map("legal_name")
+  tradeName            String?   @map("trade_name")
+  cnpj                 String?
+  ie                   String?
+  cnae                 String?
+  taxRegime            Int       @default(1) @map("tax_regime")
+  zipCode              String?   @map("zip_code")
+  street               String?
+  streetNumber         String?   @map("street_number")
+  complement           String?
+  neighborhood         String?
+  city                 String?
+  state                String?
+  municipalityCode     String?   @map("municipality_code")
+  nfeEnvironment       Int       @default(2) @map("nfe_environment")
+  nfeSeries            String    @default("1") @map("nfe_series")
+  nfceSeries           String    @default("1") @map("nfce_series")
+  defaultCsosn         String?   @default("102") @map("default_csosn")
+  enabled              Boolean   @default(false)
+  autoIssue            Boolean   @default(false) @map("auto_issue")
+  certificateUrl       String?   @map("certificate_url")
+  certificateUploadedAt DateTime? @map("certificate_uploaded_at")
+  certificateExpiresAt DateTime?  @map("certificate_expires_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("tenant_fiscal_settings")
+}
+
+model TenantAssistanceSettings {
   tenantId        String   @id @map("tenant_id") @db.Uuid
-  tradeName       String?  @map("trade_name")
-  legalName       String?  @map("legal_name")
-  cnpj            String?
-  ie              String?
-  phone           String?
-  email           String?
-  address         Json?
-  logoUrl         String?  @map("logo_url")
+  termsOfService  String?  @map("terms_of_service") @db.Text
+  warrantyPolicy  String?  @map("warranty_policy") @db.Text
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  @@map("tenant_settings")
+  @@map("tenant_assistance_settings")
+}
+
+model TenantReceivingSettings {
+  tenantId               String   @id @map("tenant_id") @db.Uuid
+  defaultPolicyDevice    String   @default("CUSTOMER_PAYS") @map("default_policy_device")
+  defaultPolicyNonDevice String   @default("STORE_ABSORBS") @map("default_policy_non_device")
+  minInstallmentAmount   Int      @default(5000) @map("min_installment_amount")
+  requireCpfAbove        Int      @default(50000) @map("require_cpf_above")
+  autoCloseTime          String?  @map("auto_close_time")
+  monthlySalesGoal       Int?     @map("monthly_sales_goal")
+  defaultDasRate         Decimal? @map("default_das_rate") @db.Decimal(5, 2)
+  defaultIcmsDiffRate    Decimal? @map("default_icms_diff_rate") @db.Decimal(5, 2)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_receiving_settings")
 }
 
 model PaymentMethod {
