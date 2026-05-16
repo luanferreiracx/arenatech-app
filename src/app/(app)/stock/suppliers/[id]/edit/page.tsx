@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PhoneInput } from "@/components/inputs/phone-input";
-import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { updateSupplierSchema, type UpdateSupplierInput } from "@/lib/validators/stock";
@@ -145,11 +145,11 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
               <CepInput
                 value={form.watch("address.zipCode") ?? ""}
                 onValueChange={(v: string) => form.setValue("address.zipCode", v)}
-                onAddressFound={(addr: ViaCEPResponse) => {
+                onAddressFound={(addr: AddressResult) => {
                   form.setValue("address.street", addr.logradouro);
                   form.setValue("address.neighborhood", addr.bairro);
-                  form.setValue("address.city", addr.localidade);
-                  form.setValue("address.state", addr.uf);
+                  form.setValue("address.city", addr.cidade);
+                  form.setValue("address.state", addr.estado);
                 }}
               />
             </div>

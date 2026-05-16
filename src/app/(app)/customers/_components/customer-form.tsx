@@ -15,6 +15,7 @@ import { FormActions } from "@/components/domain/forms/form-actions";
 import { CpfInput } from "@/components/inputs/cpf-input";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -184,12 +185,21 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
         </div>
       </FormSection>
 
-      {/* Endereço (ADR 0007: campos separados) */}
+      {/* Endereço (ADR 0007: campos separados, ADR 0009: ViaCEP) */}
       <FormSection title="Endereço">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>CEP</Label>
-            <Input {...form.register("zipCode")} placeholder="00000-000" maxLength={9} />
+            <CepInput
+              value={form.watch("zipCode") ?? ""}
+              onValueChange={(raw) => form.setValue("zipCode", raw)}
+              onAddressFound={(address: AddressResult) => {
+                form.setValue("street", address.logradouro);
+                form.setValue("neighborhood", address.bairro);
+                form.setValue("city", address.cidade);
+                form.setValue("state", address.estado);
+              }}
+            />
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label>Logradouro</Label>

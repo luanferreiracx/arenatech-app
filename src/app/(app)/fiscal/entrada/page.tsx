@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PhoneInput } from "@/components/inputs/phone-input";
-import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { toast } from "@/lib/toast";
@@ -129,11 +129,11 @@ export default function EntradaPage() {
                 <CepInput
                   value={form.watch("zipCode") ?? ""}
                   onValueChange={(v: string) => form.setValue("zipCode", v)}
-                  onAddressFound={(addr: ViaCEPResponse) => {
+                  onAddressFound={(addr: AddressResult) => {
                     form.setValue("street", addr.logradouro);
                     form.setValue("neighborhood", addr.bairro);
-                    form.setValue("city", addr.localidade);
-                    form.setValue("state", addr.uf);
+                    form.setValue("city", addr.cidade);
+                    form.setValue("state", addr.estado);
                   }}
                 />
               </div>

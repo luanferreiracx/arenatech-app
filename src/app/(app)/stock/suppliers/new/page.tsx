@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PhoneInput } from "@/components/inputs/phone-input";
-import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { toast } from "@/lib/toast";
 import { createSupplierSchema, type CreateSupplierInput } from "@/lib/validators/stock";
 import Link from "next/link";
@@ -148,11 +148,11 @@ export default function NewSupplierPage() {
               <CepInput
                 value={form.watch("address.zipCode") ?? ""}
                 onValueChange={(v: string) => form.setValue("address.zipCode", v)}
-                onAddressFound={(addr: ViaCEPResponse) => {
+                onAddressFound={(addr: AddressResult) => {
                   form.setValue("address.street", addr.logradouro);
                   form.setValue("address.neighborhood", addr.bairro);
-                  form.setValue("address.city", addr.localidade);
-                  form.setValue("address.state", addr.uf);
+                  form.setValue("address.city", addr.cidade);
+                  form.setValue("address.state", addr.estado);
                 }}
               />
             </div>

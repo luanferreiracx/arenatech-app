@@ -24,7 +24,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
-import { CepInput, type ViaCEPResponse } from "@/components/inputs/cep-input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -86,11 +86,11 @@ export default function GeneralSettingsPage() {
     mutation.mutate(data);
   };
 
-  const handleAddressFound = (addr: ViaCEPResponse) => {
+  const handleAddressFound = (addr: AddressResult) => {
     form.setValue("address.logradouro", addr.logradouro);
     form.setValue("address.bairro", addr.bairro);
-    form.setValue("address.cidade", addr.localidade);
-    form.setValue("address.uf", addr.uf);
+    form.setValue("address.cidade", addr.cidade);
+    form.setValue("address.uf", addr.estado);
   };
 
   if (isLoading) {
