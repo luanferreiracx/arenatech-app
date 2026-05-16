@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Configurações IMPLEMENTADO (SPEC + schema + RBAC + fiscal tipado + assistance + receiving). Lacuna menor: upload certificado .pfx encriptado (adiado para quando módulo Fiscal precisar).
+**Fase atual:** Estoque-A SPEC v1.0 pronta para revisão. Configurações encerrado.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — SPEC Estoque-A (Catálogo de Produtos) v1.0
+
+- **Produzido:**
+  - `docs/specs/estoque-a/SPEC.md` — 16 seções, ~1060 linhas
+  - `docs/specs/estoque-a/QUESTIONS.md` — 9 perguntas pendentes
+  - `docs/specs/estoque-a/ASSUMPTIONS.md` — 10 premissas documentadas
+  - 5 ADRs (0016-0020): single source of truth, MinIO+Sharp, BrasilAPI NCM, variações modelo, RBAC
+- **Modelos especificados:** Product (26 campos + 3 computed), ProductCategory, ProductCategoryPivot, ProductAttribute, ProductAttributeValue, ProductVariation, ProductVariationAttribute, ProductAttributeConfig, ProductPhoto, Supplier (22 campos)
+- **Descobertas do código real:**
+  - `eh_aparelho` e `controla_imei` sempre setados juntos → unificados em `isSerialized`
+  - Multi-categoria existe via pivot `produto_categorias_pivot` com flag `principal`
+  - Fornecedor NÃO tem FK direta para Product (relação é via EstoqueItem)
+  - Supplier.address no schema atual é JSON — precisa migrar para campos separados (ADR 0007)
+  - Schema atual tem `currentStock` — será removido (ADR 0016)
+  - MAX_FOTOS = 3 é constante do legacy
+  - Geração de SKU é automatizada via `gerarCodigoInterno()`
+  - NCM tem mapa curado de ~45 categorias hardcoded no controller
+- **Próximo:** Revisão do dono → IMPLEMENT Estoque-A
+
+---
 
 ### 2026-05-16 — IMPLEMENT Configurações contra SPEC v1.0
 
