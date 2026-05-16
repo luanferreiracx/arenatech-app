@@ -7,8 +7,8 @@
 
 ## Estado atual
 
-**Fase atual:** Módulo Clientes IMPLEMENTADO contra SPEC v1.0. Aguardando validação cruzada.
-**Ultima atualizacao:** 2026-05-15
+**Fase atual:** Dívida técnica ViaCEP resolvida. Pronto para SPEC de Configurações.
+**Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
 
@@ -259,6 +259,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — Dívida técnica: ViaCEP reincorporado em Clientes
+
+- **Implementado:**
+  - SPEC atualizada: ViaCEP removido do anti-escopo, adicionado RN-16, testes T-23/T-24
+  - `src/lib/integrations/viacep.ts` — lógica extraída com timeout 5s e degradação graciosa
+  - `cep-input.tsx` reescrito: debounce 500ms (era onBlur), mensagem de erro inline
+  - `customer-form.tsx` agora usa CepInput com onAddressFound (preenche logradouro/bairro/cidade/estado)
+  - 4 consumidores existentes (fiscal/entrada, settings/general, stock/suppliers new+edit) migrados de ViaCEPResponse para AddressResult
+  - 6 testes unitários do viacep.ts (mock fetch, erro, timeout, CEP malformado, resposta ok, strips chars)
+  - ADR 0009: integração ViaCEP em formulários de endereço
+  - PATTERNS.md: seção "Formulários de endereço" com padrão reusável
+- **Decisões:**
+  - AddressResult usa nomes em português normalizado (logradouro, bairro, cidade, estado) em vez de nomes raw da API ViaCEP (localidade, uf)
+  - Debounce 500ms no onChange (8 dígitos) em vez de onBlur — UX mais responsiva
+  - Mensagem de erro discreta em text-muted-foreground (não vermelha/destructive) — é situação esperada, não erro do usuário
+- **Próximo:** SPEC de Configurações
+
+---
 
 ### 2026-05-15 — Etapa 0: Varredura Legacy Completa
 

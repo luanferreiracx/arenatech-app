@@ -376,3 +376,33 @@ export const updateSchema = z.object({ ... }).partial equivalent manually
 ```
 
 ---
+
+## Formulários de endereço
+
+Todo formulário que coleta endereço brasileiro usa o componente `CepInput` com callback `onAddressFound` integrado. **Não duplicar lógica de consulta ViaCEP em outros componentes.**
+
+```tsx
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
+
+<CepInput
+  value={form.watch("zipCode") ?? ""}
+  onValueChange={(raw) => form.setValue("zipCode", raw)}
+  onAddressFound={(address: AddressResult) => {
+    form.setValue("street", address.logradouro);
+    form.setValue("neighborhood", address.bairro);
+    form.setValue("city", address.cidade);
+    form.setValue("state", address.estado);
+  }}
+/>
+```
+
+**Comportamento:**
+- Debounce de 500ms após 8 dígitos digitados
+- Loading spinner no input durante consulta
+- Se ViaCEP falhar: mensagem discreta "CEP não encontrado, preencha manualmente"
+- Campos preenchidos automaticamente ficam editáveis (nunca disabled)
+- Lógica de fetch em `src/lib/integrations/viacep.ts` (reusável fora de componentes React)
+
+**ADR:** docs/decisions/0009-viacep-integration.md
+
+---
