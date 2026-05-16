@@ -45,20 +45,19 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
           type: supplierQuery.data.type as "PF" | "PJ",
           name: supplierQuery.data.name,
           tradeName: supplierQuery.data.tradeName ?? "",
-          cpfCnpj: supplierQuery.data.cpfCnpj ?? "",
+          cpf: supplierQuery.data.cpf ?? "",
+          cnpj: supplierQuery.data.cnpj ?? "",
           phone: supplierQuery.data.phone ?? "",
           email: supplierQuery.data.email ?? "",
           notes: supplierQuery.data.notes ?? "",
           active: supplierQuery.data.active,
-          address: (supplierQuery.data.address as Record<string, string> | null) ?? {
-            zipCode: "",
-            street: "",
-            number: "",
-            complement: "",
-            neighborhood: "",
-            city: "",
-            state: "",
-          },
+          zipCode: supplierQuery.data.zipCode ?? "",
+          street: supplierQuery.data.street ?? "",
+          streetNumber: supplierQuery.data.streetNumber ?? "",
+          complement: supplierQuery.data.complement ?? "",
+          neighborhood: supplierQuery.data.neighborhood ?? "",
+          city: supplierQuery.data.city ?? "",
+          state: supplierQuery.data.state ?? "",
         }
       : undefined,
   });
@@ -111,7 +110,7 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
             </div>
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
-              <Input {...form.register("cpfCnpj")} />
+              <Input {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")} />
             </div>
             <div className="space-y-2">
               <Label>Razao Social / Nome *</Label>
@@ -143,41 +142,41 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
             <div className="space-y-2">
               <Label>CEP</Label>
               <CepInput
-                value={form.watch("address.zipCode") ?? ""}
-                onValueChange={(v: string) => form.setValue("address.zipCode", v)}
+                value={form.watch("zipCode") ?? ""}
+                onValueChange={(v: string) => form.setValue("zipCode", v)}
                 onAddressFound={(addr: AddressResult) => {
-                  form.setValue("address.street", addr.logradouro);
-                  form.setValue("address.neighborhood", addr.bairro);
-                  form.setValue("address.city", addr.cidade);
-                  form.setValue("address.state", addr.estado);
+                  form.setValue("street", addr.logradouro);
+                  form.setValue("neighborhood", addr.bairro);
+                  form.setValue("city", addr.cidade);
+                  form.setValue("state", addr.estado);
                 }}
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>Logradouro</Label>
-              <Input {...form.register("address.street")} />
+              <Input {...form.register("street")} />
             </div>
             <div className="space-y-2">
               <Label>Numero</Label>
-              <Input {...form.register("address.number")} />
+              <Input {...form.register("streetNumber")} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-4">
             <div className="space-y-2">
               <Label>Complemento</Label>
-              <Input {...form.register("address.complement")} />
+              <Input {...form.register("complement")} />
             </div>
             <div className="space-y-2">
               <Label>Bairro</Label>
-              <Input {...form.register("address.neighborhood")} />
+              <Input {...form.register("neighborhood")} />
             </div>
             <div className="space-y-2">
               <Label>Cidade</Label>
-              <Input {...form.register("address.city")} />
+              <Input {...form.register("city")} />
             </div>
             <div className="space-y-2">
               <Label>UF</Label>
-              <Input {...form.register("address.state")} maxLength={2} className="uppercase" />
+              <Input {...form.register("state")} maxLength={2} className="uppercase" />
             </div>
           </div>
         </FormSection>

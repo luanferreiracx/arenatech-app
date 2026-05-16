@@ -35,7 +35,7 @@ function parseCsvContent(text: string, separator = ";"): { lines: ParsedLine[]; 
     preco_promocional: "promotionalPrice", promotional_price: "promotionalPrice",
     estoque_minimo: "minStock", min_stock: "minStock",
     quantidade: "quantity", qtd: "quantity", qty: "quantity",
-    eh_aparelho: "isDevice", is_device: "isDevice", aparelho: "isDevice",
+    eh_aparelho: "isSerialized", is_device: "isSerialized", aparelho: "isSerialized",
     descricao: "description", description: "description",
   };
 
@@ -84,7 +84,7 @@ function parseCsvContent(text: string, separator = ";"): { lines: ParsedLine[]; 
       promotionalPrice: obj.promotionalPrice ? parseBrPrice(obj.promotionalPrice) : undefined,
       minStock: obj.minStock ? parseInt(obj.minStock, 10) : undefined,
       quantity: obj.quantity ? parseInt(obj.quantity, 10) : undefined,
-      isDevice: obj.isDevice ? parseBool(obj.isDevice) : undefined,
+      isSerialized: obj.isSerialized ? parseBool(obj.isSerialized) : undefined,
       description: obj.description || undefined,
     };
 

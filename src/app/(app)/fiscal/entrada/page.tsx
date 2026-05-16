@@ -93,7 +93,7 @@ export default function EntradaPage() {
                   trpc.stock.searchSuppliers.queryOptions({ search }),
                 );
               }}
-              getOptionLabel={(s) => `${s.tradeName || s.name}${s.cpfCnpj ? ` — ${s.cpfCnpj}` : ""}`}
+              getOptionLabel={(s) => `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`}
               getOptionValue={(s) => s.id}
               placeholder="Buscar fornecedor..."
             />

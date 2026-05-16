@@ -167,25 +167,13 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // Check stock
-        if (product.currentStock < input.quantity) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Estoque insuficiente. Disponivel: ${product.currentStock}`,
-          });
-        }
+        // TODO: Estoque-B will handle stock validation via StockItem
 
         // Check if product already in cart
         const existingItem = sale.items.find((i) => i.productId === input.productId);
 
         if (existingItem) {
           const newQty = existingItem.quantity + input.quantity;
-          if (product.currentStock < newQty) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Estoque insuficiente. Disponivel: ${product.currentStock}, no carrinho: ${existingItem.quantity}`,
-            });
-          }
 
           const unitPriceCents = input.unitPrice || decimalToCents(existingItem.unitPrice);
           const totalCents = unitPriceCents * newQty;
@@ -239,13 +227,7 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
         }
 
-        const product = await tx.product.findUnique({ where: { id: item.productId } });
-        if (product && product.currentStock < input.quantity) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Estoque insuficiente. Disponivel: ${product.currentStock}`,
-          });
-        }
+        // TODO: Estoque-B will handle stock validation via StockItem
 
         const unitPriceCents = decimalToCents(item.unitPrice);
         const totalCents = unitPriceCents * input.quantity;
@@ -418,23 +400,9 @@ export const saleRouter = createTRPCRouter({
         }
         const saleNumber = `${prefix}${String(seq).padStart(5, "0")}`;
 
-        // Decrement stock for each item
+        // Create stock movements for each item
+        // TODO: Estoque-B will handle stock tracking via StockItem
         for (const item of sale.items) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (!product) continue;
-
-          if (product.currentStock < item.quantity) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Estoque insuficiente para ${product.name}. Disponivel: ${product.currentStock}`,
-            });
-          }
-
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { currentStock: { decrement: item.quantity } },
-          });
-
           await tx.stockMovement.create({
             data: {
               tenantId: ctx.tenantId,
@@ -682,13 +650,9 @@ export const saleRouter = createTRPCRouter({
         }
 
         // Return stock if requested
+        // TODO: Estoque-B will handle stock tracking via StockItem
         if (input.returnStock !== false) {
           for (const item of sale.items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { currentStock: { increment: item.quantity } },
-            });
-
             await tx.stockMovement.create({
               data: {
                 tenantId: ctx.tenantId,
@@ -1025,9 +989,7 @@ export const saleRouter = createTRPCRouter({
           ],
         };
 
-        if (input.withStock) {
-          where.currentStock = { gt: 0 };
-        }
+        // TODO: Estoque-B will handle stock filtering via StockItem
 
         const products = await tx.product.findMany({
           where,
@@ -1042,7 +1004,7 @@ export const saleRouter = createTRPCRouter({
           barcode: p.barcode,
           salePrice: decimalToCents(p.salePrice),
           costPrice: decimalToCents(p.costPrice),
-          currentStock: p.currentStock,
+          currentStock: 0, // TODO: Estoque-B will provide real stock
         }));
       });
     }),

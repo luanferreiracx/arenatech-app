@@ -37,20 +37,19 @@ export default function NewSupplierPage() {
       type: "PJ",
       name: "",
       tradeName: "",
-      cpfCnpj: "",
+      cpf: "",
+      cnpj: "",
       phone: "",
       email: "",
       notes: "",
       active: true,
-      address: {
-        zipCode: "",
-        street: "",
-        number: "",
-        complement: "",
-        neighborhood: "",
-        city: "",
-        state: "",
-      },
+      zipCode: "",
+      street: "",
+      streetNumber: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
     },
   });
 
@@ -103,7 +102,7 @@ export default function NewSupplierPage() {
             </div>
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
-              <Input {...form.register("cpfCnpj")} placeholder="00.000.000/0000-00" />
+              <Input {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")} placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"} />
             </div>
             <div className="space-y-2 sm:col-span-1">
               <Label>Razao Social / Nome *</Label>
@@ -146,41 +145,41 @@ export default function NewSupplierPage() {
             <div className="space-y-2">
               <Label>CEP</Label>
               <CepInput
-                value={form.watch("address.zipCode") ?? ""}
-                onValueChange={(v: string) => form.setValue("address.zipCode", v)}
+                value={form.watch("zipCode") ?? ""}
+                onValueChange={(v: string) => form.setValue("zipCode", v)}
                 onAddressFound={(addr: AddressResult) => {
-                  form.setValue("address.street", addr.logradouro);
-                  form.setValue("address.neighborhood", addr.bairro);
-                  form.setValue("address.city", addr.cidade);
-                  form.setValue("address.state", addr.estado);
+                  form.setValue("street", addr.logradouro);
+                  form.setValue("neighborhood", addr.bairro);
+                  form.setValue("city", addr.cidade);
+                  form.setValue("state", addr.estado);
                 }}
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>Logradouro</Label>
-              <Input {...form.register("address.street")} />
+              <Input {...form.register("street")} />
             </div>
             <div className="space-y-2">
               <Label>Numero</Label>
-              <Input {...form.register("address.number")} />
+              <Input {...form.register("streetNumber")} />
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-4">
             <div className="space-y-2">
               <Label>Complemento</Label>
-              <Input {...form.register("address.complement")} />
+              <Input {...form.register("complement")} />
             </div>
             <div className="space-y-2">
               <Label>Bairro</Label>
-              <Input {...form.register("address.neighborhood")} />
+              <Input {...form.register("neighborhood")} />
             </div>
             <div className="space-y-2">
               <Label>Cidade</Label>
-              <Input {...form.register("address.city")} />
+              <Input {...form.register("city")} />
             </div>
             <div className="space-y-2">
               <Label>UF</Label>
-              <Input {...form.register("address.state")} maxLength={2} className="uppercase" />
+              <Input {...form.register("state")} maxLength={2} className="uppercase" />
             </div>
           </div>
         </FormSection>

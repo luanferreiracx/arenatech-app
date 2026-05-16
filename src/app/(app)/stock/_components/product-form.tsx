@@ -43,7 +43,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       name: "",
       description: "",
       brand: "",
-      isDevice: false,
+      isSerialized: false,
       costPrice: 0,
       salePrice: 0,
       promotionalPrice: null,
@@ -257,7 +257,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
           <div className="space-y-4">
             <FormField
               control={form.control}
-              name="isDevice"
+              name="isSerialized"
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                   <div className="space-y-0.5">

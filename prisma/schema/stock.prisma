@@ -1,70 +1,220 @@
 model Product {
-  id              String    @id @default(uuid()) @db.Uuid
-  tenantId        String    @map("tenant_id") @db.Uuid
-  sku             String?
-  barcode         String?
-  name            String
-  description     String?
-  brand           String?
-  isDevice        Boolean   @default(false) @map("is_device")
-  promotionalPrice Decimal? @map("promotional_price") @db.Decimal(10, 2)
-  costPrice       Decimal   @default(0) @map("cost_price") @db.Decimal(10, 2)
-  salePrice       Decimal   @default(0) @map("sale_price") @db.Decimal(10, 2)
-  currentStock    Int       @default(0) @map("current_stock")
-  minStock        Int       @default(0) @map("min_stock")
-  unit            String    @default("un")
-  active          Boolean   @default(true)
-  categoryId      String?   @map("category_id") @db.Uuid
-  imageUrl        String?   @map("image_url")
-  deletedAt       DateTime? @map("deleted_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  categoryId       String?   @map("category_id") @db.Uuid
+  sku              String?
+  barcode          String?
+  name             String
+  description      String?   @db.Text
+  brand            String?
+  ncm              String?
+  cest             String?
+  isSerialized     Boolean   @default(false) @map("is_serialized")
+  isPremium        Boolean   @default(false) @map("is_premium")
+  hasVariations    Boolean   @default(false) @map("has_variations")
+  icmsDifferentialRate Decimal? @map("icms_differential_rate") @db.Decimal(5, 2)
+  costPrice        Decimal   @default(0) @map("cost_price") @db.Decimal(10, 2)
+  salePrice        Decimal   @default(0) @map("sale_price") @db.Decimal(10, 2)
+  promotionalPrice Decimal?  @map("promotional_price") @db.Decimal(10, 2)
+  defaultMargin    Decimal?  @map("default_margin") @db.Decimal(5, 2)
+  minStock         Int       @default(0) @map("min_stock")
+  unit             String    @default("un")
+  imageUrl         String?   @map("image_url")
+  active           Boolean   @default(true)
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  movements StockMovement[]
-  purchases DevicePurchase[]
-  category  ProductCategory? @relation(fields: [categoryId], references: [id])
+  category         ProductCategory?       @relation(fields: [categoryId], references: [id])
+  categories       ProductCategoryPivot[]
+  photos           ProductPhoto[]
+  variations       ProductVariation[]
+  attributeConfigs ProductAttributeConfig[]
+  movements        StockMovement[]
+  purchases        DevicePurchase[]
 
   @@index([tenantId, active])
   @@index([tenantId, sku])
   @@index([tenantId, barcode])
   @@index([tenantId, name])
   @@index([tenantId, categoryId])
+  @@index([tenantId, brand])
   @@map("products")
 }
 
 model ProductCategory {
-  id        String    @id @default(uuid()) @db.Uuid
-  tenantId  String    @map("tenant_id") @db.Uuid
-  name      String
-  deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  badgeColor  String    @default("#6c757d") @map("badge_color")
+  active      Boolean   @default(true)
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  products Product[]
+  products    Product[]
+  pivots      ProductCategoryPivot[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("product_categories")
 }
 
-model Supplier {
+model ProductCategoryPivot {
+  id         String  @id @default(uuid()) @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
+  productId  String  @map("product_id") @db.Uuid
+  categoryId String  @map("category_id") @db.Uuid
+  isPrimary  Boolean @default(false) @map("is_primary")
+
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category ProductCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([productId, categoryId])
+  @@index([categoryId])
+  @@index([tenantId])
+  @@map("product_category_pivots")
+}
+
+model ProductAttribute {
   id        String    @id @default(uuid()) @db.Uuid
   tenantId  String    @map("tenant_id") @db.Uuid
-  type      String    @default("PJ") // PF or PJ
-  name      String                    // razao social or nome
-  tradeName String?   @map("trade_name") // nome fantasia
-  cpfCnpj   String?   @map("cpf_cnpj")
-  phone     String?
-  email     String?
-  address   Json?
-  notes     String?
+  name      String
+  slug      String
+  order     Int       @default(0)
   active    Boolean   @default(true)
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
+  values         ProductAttributeValue[]
+  productConfigs ProductAttributeConfig[]
+
+  @@unique([tenantId, slug])
   @@index([tenantId, active])
-  @@index([tenantId, cpfCnpj])
+  @@map("product_attributes")
+}
+
+model ProductAttributeValue {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  attributeId  String    @map("attribute_id") @db.Uuid
+  value        String
+  displayValue String?   @map("display_value")
+  code         String?
+  order        Int       @default(0)
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  attribute  ProductAttribute            @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  variations ProductVariationAttribute[]
+
+  @@unique([attributeId, value])
+  @@index([tenantId, attributeId])
+  @@map("product_attribute_values")
+}
+
+model ProductVariation {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  productId        String    @map("product_id") @db.Uuid
+  sku              String?
+  barcode          String?
+  costPrice        Decimal?  @map("cost_price") @db.Decimal(10, 2)
+  salePrice        Decimal?  @map("sale_price") @db.Decimal(10, 2)
+  promotionalPrice Decimal?  @map("promotional_price") @db.Decimal(10, 2)
+  minStock         Int       @default(0) @map("min_stock")
+  imageUrl         String?   @map("image_url")
+  active           Boolean   @default(true)
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  product         Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeValues ProductVariationAttribute[]
+
+  @@index([tenantId, productId])
+  @@index([tenantId, sku])
+  @@map("product_variations")
+}
+
+model ProductVariationAttribute {
+  id               String @id @default(uuid()) @db.Uuid
+  variationId      String @map("variation_id") @db.Uuid
+  attributeValueId String @map("attribute_value_id") @db.Uuid
+
+  variation      ProductVariation      @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  attributeValue ProductAttributeValue @relation(fields: [attributeValueId], references: [id])
+
+  @@unique([variationId, attributeValueId])
+  @@map("product_variation_attributes")
+}
+
+model ProductAttributeConfig {
+  id          String @id @default(uuid()) @db.Uuid
+  productId   String @map("product_id") @db.Uuid
+  attributeId String @map("attribute_id") @db.Uuid
+  order       Int    @default(0)
+
+  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attribute ProductAttribute @relation(fields: [attributeId], references: [id])
+
+  @@unique([productId, attributeId])
+  @@map("product_attribute_configs")
+}
+
+model ProductPhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  url       String
+  thumbUrl  String?  @map("thumb_url")
+  mediumUrl String?  @map("medium_url")
+  order     Int      @default(0)
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, productId, order])
+  @@index([tenantId, productId, isPrimary])
+  @@map("product_photos")
+}
+
+enum SupplierType {
+  PF
+  PJ
+}
+
+model Supplier {
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  type         SupplierType @default(PJ)
+  name         String
+  tradeName    String?      @map("trade_name")
+  cpf          String?
+  cnpj         String?
+  phone        String?
+  email        String?
+  zipCode      String?      @map("zip_code")
+  street       String?
+  streetNumber String?      @map("street_number")
+  complement   String?
+  neighborhood String?
+  city         String?
+  state        String?
+  notes        String?      @db.Text
+  active       Boolean      @default(true)
+  deletedAt    DateTime?    @map("deleted_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@index([tenantId, cpf])
+  @@index([tenantId, cnpj])
   @@index([tenantId, name])
   @@map("suppliers")
 }
@@ -114,11 +264,11 @@ model DevicePurchase {
   serial        String?
   brand         String?
   model         String?
-  condition      DeviceCondition @default(USED)
-  batteryHealth  Int?            @map("battery_health")
-  purchasePrice  Decimal         @map("purchase_price") @db.Decimal(10, 2)
-  salePrice      Decimal?        @map("sale_price") @db.Decimal(10, 2)
-  notes          String?
+  condition     DeviceCondition @default(USED)
+  batteryHealth Int?            @map("battery_health")
+  purchasePrice Decimal         @map("purchase_price") @db.Decimal(10, 2)
+  salePrice     Decimal?        @map("sale_price") @db.Decimal(10, 2)
+  notes         String?
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 

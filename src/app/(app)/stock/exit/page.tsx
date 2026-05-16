@@ -51,7 +51,7 @@ export default function StockExitPage() {
                   trpc.stock.searchProducts.queryOptions({ search }),
                 );
               }}
-              getOptionLabel={(p) => `${p.name} — Estoque: ${p.currentStock}`}
+              getOptionLabel={(p) => `${p.name}`}
               getOptionValue={(p) => p.id}
               placeholder="Buscar produto..."
             />

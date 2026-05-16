@@ -62,9 +62,8 @@ export const stockRouter = createTRPCRouter({
 
         if (input.lowStock) {
           where.minStock = { gt: 0 };
-          where.currentStock = { lte: Prisma.DbNull } as unknown as Prisma.IntFilter;
-          // We'll filter in JS since Prisma can't compare two columns directly
-          delete where.currentStock;
+          // TODO: Estoque-B will handle stock tracking via StockItem
+          // For now we can't filter by stock level at the DB level
         }
 
         const [data, total] = await Promise.all([
@@ -77,10 +76,11 @@ export const stockRouter = createTRPCRouter({
           tx.product.count({ where }),
         ]);
 
-        // Filter low stock in JS if needed (Prisma can't compare columns)
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+        const withStock = data.map((p) => ({ ...p, currentStock: 0 }));
         const filtered = input.lowStock
-          ? data.filter((p) => p.minStock > 0 && p.currentStock <= p.minStock)
-          : data;
+          ? withStock.filter((p) => p.minStock > 0)
+          : withStock;
 
         return {
           data: filtered,
@@ -109,7 +109,8 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        return product;
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+        return { ...product, currentStock: 0 };
       });
     }),
 
@@ -126,7 +127,7 @@ export const stockRouter = createTRPCRouter({
             name: input.name,
             description: input.description || null,
             brand: input.brand || null,
-            isDevice: input.isDevice ?? false,
+            isSerialized: input.isSerialized ?? false,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
             promotionalPrice: input.promotionalPrice != null
@@ -159,7 +160,7 @@ export const stockRouter = createTRPCRouter({
             name: input.name,
             description: input.description || null,
             brand: input.brand || null,
-            isDevice: input.isDevice ?? false,
+            isSerialized: input.isSerialized ?? false,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
             promotionalPrice: input.promotionalPrice != null
@@ -196,7 +197,7 @@ export const stockRouter = createTRPCRouter({
   // STOCK ADJUSTMENT (atomic)
   // ═══════════════════════════════════════
 
-  /** Adjust stock atomically — creates a StockMovement and updates currentStock */
+  /** Adjust stock atomically — creates a StockMovement */
   adjustStock: tenantProcedure
     .input(adjustStockSchema)
     .mutation(async ({ ctx, input }) => {
@@ -206,35 +207,20 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        const newStock = product.currentStock + input.quantity;
-        if (newStock < 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Estoque insuficiente. Atual: ${product.currentStock}, ajuste: ${input.quantity}`,
-          });
-        }
+        // TODO: Estoque-B will handle stock tracking via StockItem
+        // For now, just create the movement record
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            type: input.quantity > 0 ? "ENTRY" : "EXIT",
+            quantity: Math.abs(input.quantity),
+            reason: input.reason,
+            userId: ctx.session.user.id,
+          },
+        });
 
-        // Atomic: update stock + create movement in same transaction
-        const [updatedProduct] = await Promise.all([
-          tx.product.update({
-            where: { id: input.productId },
-            data: {
-              currentStock: { increment: input.quantity },
-            },
-          }),
-          tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: input.productId,
-              type: input.quantity > 0 ? "ENTRY" : "EXIT",
-              quantity: Math.abs(input.quantity),
-              reason: input.reason,
-              userId: ctx.session.user.id,
-            },
-          }),
-        ]);
-
-        return updatedProduct;
+        return product;
       });
     }),
 
@@ -380,27 +366,22 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // If linked to a product, increment stock and create movement
+        // If linked to a product, create movement record
+        // TODO: Estoque-B will handle stock tracking via StockItem
         if (input.productId) {
-          await Promise.all([
-            tx.product.update({
-              where: { id: input.productId },
-              data: { currentStock: { increment: 1 } },
-            }),
-            tx.stockMovement.create({
-              data: {
-                tenantId: ctx.tenantId,
-                productId: input.productId,
-                type: "ENTRY",
-                quantity: 1,
-                unitCost: new Prisma.Decimal(input.purchasePrice).div(100),
-                reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
-                referenceId: purchase.id,
-                referenceType: "device_purchase",
-                userId: ctx.session.user.id,
-              },
-            }),
-          ]);
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              type: "ENTRY",
+              quantity: 1,
+              unitCost: new Prisma.Decimal(input.purchasePrice).div(100),
+              reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
+              referenceId: purchase.id,
+              referenceType: "device_purchase",
+              userId: ctx.session.user.id,
+            },
+          });
         }
 
         return purchase;
@@ -421,7 +402,6 @@ export const stockRouter = createTRPCRouter({
           id: true,
           name: true,
           sku: true,
-          currentStock: true,
           minStock: true,
           costPrice: true,
           salePrice: true,
@@ -429,23 +409,20 @@ export const stockRouter = createTRPCRouter({
         },
       });
 
-      const totalProducts = products.length;
-      const totalItems = products.reduce((sum, p) => sum + p.currentStock, 0);
-      const totalCostValue = products.reduce(
-        (sum, p) => sum + p.currentStock * Number(p.costPrice),
-        0,
-      );
-      const totalSaleValue = products.reduce(
-        (sum, p) => sum + p.currentStock * Number(p.salePrice),
-        0,
-      );
-      const lowStockCount = products.filter(
-        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
+      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+      const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+
+      const totalProducts = productsWithStock.length;
+      const totalItems = 0;
+      const totalCostValue = 0;
+      const totalSaleValue = 0;
+      const lowStockCount = productsWithStock.filter(
+        (p) => p.minStock > 0,
       ).length;
-      const outOfStockCount = products.filter((p) => p.currentStock === 0).length;
+      const outOfStockCount = productsWithStock.length;
 
       return {
-        products,
+        products: productsWithStock,
         summary: {
           totalProducts,
           totalItems,
@@ -467,49 +444,36 @@ export const stockRouter = createTRPCRouter({
           active: true,
           minStock: { gt: 0 },
         },
-        orderBy: { currentStock: "asc" },
+        orderBy: { name: "asc" },
         select: {
           id: true,
           name: true,
           sku: true,
-          currentStock: true,
           minStock: true,
         },
       });
 
-      return products.filter((p) => p.currentStock <= p.minStock);
+      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+      return products.map((p) => ({ ...p, currentStock: 0 }));
     });
   }),
 
   /** Stats for dashboard cards */
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const [totalProducts, totalValue, lowStock] = await Promise.all([
+      const [totalProducts, lowStock] = await Promise.all([
         tx.product.count({ where: { deletedAt: null, active: true } }),
-        tx.product.findMany({
-          where: { deletedAt: null, active: true },
-          select: { currentStock: true, salePrice: true },
-        }),
-        tx.product.findMany({
+        tx.product.count({
           where: { deletedAt: null, active: true, minStock: { gt: 0 } },
-          select: { currentStock: true, minStock: true },
         }),
       ]);
 
-      const totalItems = totalValue.reduce((sum, p) => sum + p.currentStock, 0);
-      const saleValue = totalValue.reduce(
-        (sum, p) => sum + p.currentStock * Number(p.salePrice),
-        0,
-      );
-      const lowStockCount = lowStock.filter(
-        (p) => p.currentStock <= p.minStock,
-      ).length;
-
+      // TODO: Estoque-B will handle stock tracking via StockItem — stub values as 0
       return {
         totalProducts,
-        totalItems,
-        totalSaleValue: saleValue,
-        lowStockCount,
+        totalItems: 0,
+        totalSaleValue: 0,
+        lowStockCount: lowStock,
       };
     });
   }),
@@ -519,7 +483,7 @@ export const stockRouter = createTRPCRouter({
     .input(z.object({ search: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        return tx.product.findMany({
+        const products = await tx.product.findMany({
           where: {
             deletedAt: null,
             active: true,
@@ -535,10 +499,11 @@ export const stockRouter = createTRPCRouter({
             id: true,
             name: true,
             sku: true,
-            currentStock: true,
             salePrice: true,
           },
         });
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+        return products.map((p) => ({ ...p, currentStock: 0 }));
       });
     }),
 
@@ -562,7 +527,8 @@ export const stockRouter = createTRPCRouter({
           where.OR = [
             { name: { contains: term, mode: "insensitive" } },
             { tradeName: { contains: term, mode: "insensitive" } },
-            { cpfCnpj: { contains: term, mode: "insensitive" } },
+            { cpf: { contains: term, mode: "insensitive" } },
+            { cnpj: { contains: term, mode: "insensitive" } },
           ];
         }
 
@@ -604,10 +570,17 @@ export const stockRouter = createTRPCRouter({
             type: input.type,
             name: input.name,
             tradeName: input.tradeName || null,
-            cpfCnpj: input.cpfCnpj || null,
+            cpf: input.cpf || null,
+            cnpj: input.cnpj || null,
             phone: input.phone || null,
             email: input.email || null,
-            address: input.address ? (input.address as Prisma.InputJsonValue) : Prisma.JsonNull,
+            zipCode: input.zipCode || null,
+            street: input.street || null,
+            streetNumber: input.streetNumber || null,
+            complement: input.complement || null,
+            neighborhood: input.neighborhood || null,
+            city: input.city || null,
+            state: input.state || null,
             notes: input.notes || null,
             active: input.active ?? true,
           },
@@ -631,10 +604,17 @@ export const stockRouter = createTRPCRouter({
             type: input.type,
             name: input.name,
             tradeName: input.tradeName || null,
-            cpfCnpj: input.cpfCnpj || null,
+            cpf: input.cpf || null,
+            cnpj: input.cnpj || null,
             phone: input.phone || null,
             email: input.email || null,
-            address: input.address ? (input.address as Prisma.InputJsonValue) : Prisma.JsonNull,
+            zipCode: input.zipCode || null,
+            street: input.street || null,
+            streetNumber: input.streetNumber || null,
+            complement: input.complement || null,
+            neighborhood: input.neighborhood || null,
+            city: input.city || null,
+            state: input.state || null,
             notes: input.notes || null,
             active: input.active ?? true,
           },
@@ -671,12 +651,13 @@ export const stockRouter = createTRPCRouter({
             OR: [
               { name: { contains: input.search, mode: "insensitive" } },
               { tradeName: { contains: input.search, mode: "insensitive" } },
-              { cpfCnpj: { contains: input.search, mode: "insensitive" } },
+              { cpf: { contains: input.search, mode: "insensitive" } },
+              { cnpj: { contains: input.search, mode: "insensitive" } },
             ],
           },
           orderBy: { name: "asc" },
           take: 15,
-          select: { id: true, name: true, tradeName: true, cpfCnpj: true },
+          select: { id: true, name: true, tradeName: true, cpf: true, cnpj: true },
         });
       });
     }),
@@ -783,27 +764,22 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        await Promise.all([
-          tx.product.update({
-            where: { id: input.productId },
-            data: { currentStock: { increment: input.quantity } },
-          }),
-          tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: input.productId,
-              type: "ENTRY",
-              quantity: input.quantity,
-              unitCost: input.unitCost
-                ? new Prisma.Decimal(input.unitCost).div(100)
-                : null,
-              reason: input.reason,
-              referenceId: input.supplierId || null,
-              referenceType: input.supplierId ? "supplier" : null,
-              userId: ctx.session.user.id,
-            },
-          }),
-        ]);
+        // TODO: Estoque-B will handle stock tracking via StockItem
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            type: "ENTRY",
+            quantity: input.quantity,
+            unitCost: input.unitCost
+              ? new Prisma.Decimal(input.unitCost).div(100)
+              : null,
+            reason: input.reason,
+            referenceId: input.supplierId || null,
+            referenceType: input.supplierId ? "supplier" : null,
+            userId: ctx.session.user.id,
+          },
+        });
 
         return { success: true };
       });
@@ -820,29 +796,17 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        if (product.currentStock < input.quantity) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Estoque insuficiente. Atual: ${product.currentStock}`,
-          });
-        }
-
-        await Promise.all([
-          tx.product.update({
-            where: { id: input.productId },
-            data: { currentStock: { decrement: input.quantity } },
-          }),
-          tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: input.productId,
-              type: "EXIT",
-              quantity: input.quantity,
-              reason: input.reason,
-              userId: ctx.session.user.id,
-            },
-          }),
-        ]);
+        // TODO: Estoque-B will handle stock validation via StockItem
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            type: "EXIT",
+            quantity: input.quantity,
+            reason: input.reason,
+            userId: ctx.session.user.id,
+          },
+        });
 
         return { success: true };
       });
@@ -857,27 +821,23 @@ export const stockRouter = createTRPCRouter({
           id: true,
           name: true,
           sku: true,
-          currentStock: true,
           minStock: true,
           costPrice: true,
           salePrice: true,
         },
       });
 
-      const totalProducts = products.length;
-      const totalItems = products.reduce((s, p) => s + p.currentStock, 0);
-      const totalCostValue = products.reduce(
-        (s, p) => s + p.currentStock * Number(p.costPrice),
-        0,
+      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+      const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+
+      const totalProducts = productsWithStock.length;
+      const totalItems = 0;
+      const totalCostValue = 0;
+      const totalSaleValue = 0;
+      const lowStockProducts = productsWithStock.filter(
+        (p) => p.minStock > 0,
       );
-      const totalSaleValue = products.reduce(
-        (s, p) => s + p.currentStock * Number(p.salePrice),
-        0,
-      );
-      const lowStockProducts = products.filter(
-        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
-      );
-      const outOfStockProducts = products.filter((p) => p.currentStock === 0);
+      const outOfStockProducts = productsWithStock;
 
       // Recent movements
       const recentMovements = await tx.stockMovement.findMany({
@@ -986,7 +946,6 @@ export const stockRouter = createTRPCRouter({
             id: true,
             name: true,
             sku: true,
-            currentStock: true,
             minStock: true,
             costPrice: true,
             salePrice: true,
@@ -995,9 +954,12 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
+        const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+
         const filtered = input.onlyWithStock
-          ? products.filter((p) => p.currentStock > 0)
-          : products;
+          ? productsWithStock.filter((p) => p.currentStock > 0)
+          : productsWithStock;
 
         const totalQtd = filtered.reduce((s, p) => s + p.currentStock, 0);
         const totalValor = filtered.reduce(
@@ -1173,16 +1135,17 @@ export const stockRouter = createTRPCRouter({
             id: true,
             name: true,
             sku: true,
-            currentStock: true,
             minStock: true,
             category: { select: { name: true } },
           },
         });
 
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
         const withStatus = products.map((p) => ({
           ...p,
-          diff: p.currentStock - p.minStock,
-          status: p.currentStock < p.minStock ? ("below" as const) : ("ok" as const),
+          currentStock: 0,
+          diff: 0 - p.minStock,
+          status: 0 < p.minStock ? ("below" as const) : ("ok" as const),
         }));
 
         const filtered =
@@ -1625,14 +1588,14 @@ export const stockRouter = createTRPCRouter({
                 barcode: line.barcode || null,
                 brand: line.brand || null,
                 description: line.description || null,
-                isDevice: line.isDevice ?? false,
+                isSerialized: line.isSerialized ?? false,
                 costPrice: new Prisma.Decimal((line.costPrice ?? 0) / 100),
                 salePrice: new Prisma.Decimal((line.salePrice ?? 0) / 100),
                 promotionalPrice: line.promotionalPrice != null
                   ? new Prisma.Decimal(line.promotionalPrice / 100)
                   : null,
                 minStock: line.minStock ?? 0,
-                currentStock: line.quantity ?? 0,
+                // TODO: Estoque-B will handle stock tracking via StockItem
                 categoryId,
                 active: true,
               },

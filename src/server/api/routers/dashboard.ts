@@ -61,11 +61,12 @@ export const dashboardRouter = createTRPCRouter({
             deletedAt: null,
           },
         }),
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub as count of all active products
         tx.product.count({
           where: {
-            currentStock: { lte: 5 },
             active: true,
             deletedAt: null,
+            minStock: { gt: 0 },
           },
         }),
       ]);
@@ -226,17 +227,17 @@ export const dashboardRouter = createTRPCRouter({
       const now = new Date();
 
       const [lowStockProducts, overdueFinancials, lateOrders] = await Promise.all([
-        // Low stock products
+        // TODO: Estoque-B will handle stock tracking via StockItem — stub as products with minStock > 0
         tx.product.findMany({
           where: {
-            currentStock: { lte: 5 },
             active: true,
             deletedAt: null,
+            minStock: { gt: 0 },
           },
-          select: { id: true, name: true, currentStock: true, minStock: true },
-          orderBy: { currentStock: "asc" },
+          select: { id: true, name: true, minStock: true },
+          orderBy: { name: "asc" },
           take: 10,
-        }),
+        }).then((products) => products.map((p) => ({ ...p, currentStock: 0 }))),
 
         // Overdue financial transactions
         tx.financialTransaction.findMany({

@@ -1777,8 +1777,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const limit = input.limit ?? 20;
         const where: Prisma.ProductWhereInput = {
           active: true,
-          isDevice: false,
-          currentStock: { gt: 0 },
+          isSerialized: false,
           deletedAt: null,
         };
 
@@ -1802,7 +1801,7 @@ export const serviceOrderRouter = createTRPCRouter({
           name: p.name,
           brand: p.brand,
           sku: p.sku,
-          stock: p.currentStock,
+          stock: 0, // TODO: Estoque-B will provide real stock
           costPrice: decimalToCents(p.costPrice),
           salePrice: decimalToCents(p.salePrice),
         }));

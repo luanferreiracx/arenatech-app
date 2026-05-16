@@ -28,13 +28,13 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
   const supplier = query.data;
   if (!supplier) return <p className="text-muted-foreground">Fornecedor nao encontrado</p>;
 
-  const address = supplier.address as Record<string, string> | null;
+  const address = { street: supplier.street, number: supplier.streetNumber, complement: supplier.complement, neighborhood: supplier.neighborhood, city: supplier.city, state: supplier.state, zipCode: supplier.zipCode };
 
   return (
     <div>
       <PageHeader
         title={supplier.tradeName || supplier.name}
-        subtitle={supplier.cpfCnpj || supplier.type === "PF" ? "Pessoa Fisica" : "Pessoa Juridica"}
+        subtitle={(supplier.cpf || supplier.cnpj) || (supplier.type === "PF" ? "Pessoa Fisica" : "Pessoa Juridica")}
         actions={
           <div className="flex gap-2">
             <Button variant="outline" asChild>
@@ -65,7 +65,7 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
             </div>
             <div className="flex justify-between border-b pb-2">
               <span className="text-muted-foreground">CPF/CNPJ</span>
-              <span>{supplier.cpfCnpj || "-"}</span>
+              <span>{supplier.cpf || supplier.cnpj || "-"}</span>
             </div>
             <div className="flex justify-between border-b pb-2">
               <span className="text-muted-foreground">Razao Social</span>

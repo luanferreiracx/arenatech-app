@@ -58,7 +58,7 @@ export default function StockEntryPage() {
                   trpc.stock.searchProducts.queryOptions({ search }),
                 );
               }}
-              getOptionLabel={(p) => `${p.name}${p.sku ? ` (${p.sku})` : ""} — Est: ${p.currentStock}`}
+              getOptionLabel={(p) => `${p.name}${p.sku ? ` (${p.sku})` : ""}`}
               getOptionValue={(p) => p.id}
               placeholder="Buscar produto..."
             />
@@ -98,7 +98,7 @@ export default function StockEntryPage() {
                     trpc.stock.searchSuppliers.queryOptions({ search }),
                   );
                 }}
-                getOptionLabel={(s) => `${s.tradeName || s.name}${s.cpfCnpj ? ` — ${s.cpfCnpj}` : ""}`}
+                getOptionLabel={(s) => `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`}
                 getOptionValue={(s) => s.id}
                 placeholder="Buscar fornecedor..."
               />

@@ -8,7 +8,7 @@ export const createProductSchema = z.object({
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres").max(200),
   description: z.string().max(2000).optional().nullable(),
   brand: z.string().max(100).optional().nullable(),
-  isDevice: z.boolean().optional(),
+  isSerialized: z.boolean().optional(),
   costPrice: z.number().int().min(0, "Preco de custo deve ser positivo"), // centavos
   salePrice: z.number().int().min(0, "Preco de venda deve ser positivo"), // centavos
   promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
@@ -32,7 +32,7 @@ export const listProductsSchema = z.object({
   lowStock: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
-  sortBy: z.enum(["name", "currentStock", "salePrice", "createdAt"]).optional(),
+  sortBy: z.enum(["name", "salePrice", "createdAt"]).optional(),
   sortOrder: z.enum(["asc", "desc"]).optional(),
 });
 
@@ -96,20 +96,19 @@ export const createSupplierSchema = z.object({
   type: z.enum(["PF", "PJ"]),
   name: z.string().min(2, "Nome e obrigatorio").max(200),
   tradeName: z.string().max(200).optional().nullable(),
-  cpfCnpj: z.string().max(18).optional().nullable(),
+  cpf: z.string().max(14).optional().nullable(),
+  cnpj: z.string().max(18).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   email: z.string().email("Email invalido").max(200).optional().nullable().or(z.literal("")),
   notes: z.string().max(2000).optional().nullable(),
   active: z.boolean().optional(),
-  address: z.object({
-    zipCode: z.string().max(10).optional().nullable(),
-    street: z.string().max(200).optional().nullable(),
-    number: z.string().max(20).optional().nullable(),
-    complement: z.string().max(200).optional().nullable(),
-    neighborhood: z.string().max(100).optional().nullable(),
-    city: z.string().max(100).optional().nullable(),
-    state: z.string().max(2).optional().nullable(),
-  }).optional().nullable(),
+  zipCode: z.string().max(10).optional().nullable(),
+  street: z.string().max(200).optional().nullable(),
+  streetNumber: z.string().max(20).optional().nullable(),
+  complement: z.string().max(200).optional().nullable(),
+  neighborhood: z.string().max(100).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  state: z.string().max(2).optional().nullable(),
 });
 
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;
@@ -240,7 +239,7 @@ export const csvImportLineSchema = z.object({
   promotionalPrice: z.number().min(0).optional(),
   minStock: z.number().int().min(0).optional(),
   quantity: z.number().int().min(0).optional(),
-  isDevice: z.boolean().optional(),
+  isSerialized: z.boolean().optional(),
   description: z.string().optional(),
 });
 

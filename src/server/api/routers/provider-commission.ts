@@ -816,8 +816,8 @@ async function collectProviderEvents(
 
         if (lbc <= 0) continue;
 
-        const isDevice = item.isDevice ?? false;
-        const category = isDevice ? "produto_aparelho" : "produto_acessorio";
+        // SaleItem does not carry isSerialized; default to acessorio
+        const category = "produto_acessorio";
 
         events.push({
           tipo: "venda",

@@ -19,7 +19,7 @@ interface ProductRow {
   id: string;
   name: string;
   sku: string | null;
-  currentStock: number;
+  currentStock: number; // TODO: Estoque-B — stub as 0
   minStock: number;
   costPrice: { toNumber?: () => number } | number | string;
   salePrice: { toNumber?: () => number } | number | string;

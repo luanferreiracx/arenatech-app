@@ -137,7 +137,7 @@ export default function SuppliersPage() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{supplier.cpfCnpj || "-"}</TableCell>
+                      <TableCell>{supplier.cpf || supplier.cnpj || "-"}</TableCell>
                       <TableCell>{supplier.phone || "-"}</TableCell>
                       <TableCell>{supplier.email || "-"}</TableCell>
                       <TableCell>
