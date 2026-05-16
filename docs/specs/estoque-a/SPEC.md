@@ -1,6 +1,6 @@
 # SPEC: Estoque-A (Catálogo de Produtos)
 
-> **Status:** rascunho aguardando revisão
+> **Status:** aprovada pelo dono (QUESTIONS respondidas 2026-05-16)
 > **Base:** docs/legacy/estoque.md + leitura direta do código Laravel (Models, Controllers, Migrations, Views) + decisões registradas em PROMPT
 > **Versão:** 1.0
 
@@ -595,7 +595,7 @@ Quando `hasVariations=true`:
 | RN-19 | Campo `isSerialized` unifica `eh_aparelho` + `controla_imei` do legacy. No código real, ambos são sempre setados juntos. | análise do controller: `$produto->controla_imei = $request->eh_aparelho` |
 | RN-20 | Upload de foto gera 3 versões automaticamente: thumb (200x200, WebP q80), medium (600x600, WebP q85), original (max 2000x2000, WebP q90). | M2 |
 | RN-21 | Geração automática de SKU: remove caracteres especiais do nome, pega primeiras 3 letras + timestamp parcial para unicidade. | legacy: `gerarCodigoInterno()` |
-| RN-22 | MultiCategoria: produto pode pertencer a N categorias, mas exatamente 1 deve ser marcada como `isPrimary`. A primeira selecionada é a principal por default. | legacy: pivot com campo `principal` |
+| RN-22 | MultiCategoria: produto pode pertencer a no máximo 3 categorias, exatamente 1 deve ser marcada como `isPrimary`. A primeira selecionada é a principal por default. | legacy: pivot com campo `principal` + decisão dono Q5 |
 | RN-23 | Fornecedor PJ: CNPJ obrigatório. Fornecedor PF: ao menos telefone OU CPF obrigatório. | legacy: validation `required_if` + custom |
 | RN-24 | Variação herda automaticamente todas as categorias do produto pai. Não tem categorias próprias. | legacy: sem categoria em variação |
 | RN-25 | Na listagem, `effectivePrice` exibe `promotionalPrice` quando existir (com indicação visual de desconto). | legacy: accessor `precoEfetivo` |
@@ -645,7 +645,7 @@ Quando `hasVariations=true`:
 | icmsDifferentialRate | optional, numeric, 0-100 | legacy `min:0, max:100` |
 | minStock | integer, >= 0 | legacy `min:0` |
 | imagens | array, max 3 itens, cada max 10MB, formatos jpg/png/webp | legacy validation |
-| categoryIds | array, min 1, cada exists em ProductCategory | legacy `exists:produto_categorias,id` |
+| categoryIds | array, min 1, max 3, cada exists em ProductCategory | legacy `exists:produto_categorias,id` + decisão dono Q5 |
 
 ### 7.2 ProductVariation
 

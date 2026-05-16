@@ -1,6 +1,6 @@
 # QUESTIONS — Estoque-A (Catálogo de Produtos)
 
-> Ambiguidades reais que requerem decisão do dono antes da implementação.
+> ✓ Todas respondidas em 2026-05-16. Decisão: aceitar recomendações (exceto Q5 = max 3).
 
 ---
 
@@ -13,7 +13,7 @@
 - B) Gerar SKU mais legível (ex: "PROD-0001" sequencial por tenant)
 - C) SKU sempre manual (sem auto-geração, campo obrigatório)
 
-**Recomendação:** Opção A para fidelidade. Pode ser melhorado depois.
+**Decisão do dono:** Opção A (replicar algoritmo legacy).
 
 ---
 
@@ -25,7 +25,7 @@
 - A) BrasilAPI `https://brasilapi.com.br/api/cnpj/v1/{cnpj}` (gratuita, sem auth, mesma que NCM)
 - B) ReceitaWS `https://receitaws.com.br/v1/cnpj/{cnpj}` (gratuita com limite 3/minuto)
 
-**Recomendação:** Opção A (BrasilAPI). Já é dependência do NCM, sem auth, sem rate limit rígido.
+**Decisão do dono:** Opção A (BrasilAPI).
 
 ---
 
@@ -37,7 +37,7 @@
 - A) Unique constraint (impede duplicação, mais seguro)
 - B) Index simples (permite duplicação, mais flexível para cenários edge)
 
-**Recomendação:** Opção B. Variações podem compartilhar EAN do produto pai, e produtos importados de NF-e podem ter duplicação legítima.
+**Decisão do dono:** Opção B (index simples, sem unique).
 
 ---
 
@@ -47,7 +47,7 @@
 
 **Pergunta:** Manter o unique parcial (permite reuso após delete) ou absoluto (nome nunca repete mesmo excluído)?
 
-**Recomendação:** Parcial (manter SPEC atual). Mesmo padrão de CPF/CNPJ em Clientes (ADR confirmado).
+**Decisão do dono:** Parcial (manter SPEC atual).
 
 ---
 
@@ -57,7 +57,7 @@
 
 **Pergunta:** Definir limite máximo (ex: 5) ou ilimitado?
 
-**Recomendação:** Sem limite explícito. Validação de bom-senso na UI (max 10 seria razoável como sanity check).
+**Decisão do dono:** Máximo 3 categorias por produto. Quantidade razoável para o negócio.
 
 ---
 
@@ -67,7 +67,7 @@
 
 **Pergunta:** O campo é realmente usado em produção? Se sim, em que contexto exato? Se não, remover do schema?
 
-**Recomendação:** Manter (custo zero, pode ter uso que não encontrei no código). Mas confirmar com dono se é feature ativa.
+**Decisão do dono:** Manter o campo.
 
 ---
 
@@ -77,7 +77,7 @@
 
 **Pergunta:** Variações mantêm 1 imagem apenas (como legacy) ou ganham galeria (como produtos)?
 
-**Recomendação:** 1 imagem por variação (fidelidade ao legacy). Galeria é over-engineering para este caso de uso.
+**Decisão do dono:** 1 imagem por variação (fidelidade ao legacy).
 
 ---
 
@@ -89,7 +89,7 @@
 - A) `/stock/products`, `/stock/categories`, `/stock/attributes`, `/stock/suppliers`
 - B) `/products`, `/categories`, `/attributes`, `/suppliers` (top-level)
 
-**Recomendação:** Opção A. Consistente com o que já existe no Next.js (sidebar já usa `/stock`).
+**Decisão do dono:** Opção A (`/stock/products`, `/stock/categories`, etc.).
 
 ---
 
@@ -101,4 +101,4 @@
 - A) Definir uma margem desejada e sugerir preço de venda a partir do custo?
 - B) Apenas exibição (sempre calculada a partir de custo/venda reais)?
 
-**Recomendação:** Opção A (input editável que sugere preço de venda). Mais útil operacionalmente.
+**Decisão do dono:** Opção A (input editável que sugere preço de venda).
