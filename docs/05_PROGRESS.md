@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Estoque-A SPEC v1.0 pronta para revisão. Configurações encerrado.
+**Fase atual:** Estoque-A IMPLEMENTADO (schema + services + procedures + UI + testes). Aguardando revisão.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,29 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Estoque-A contra SPEC v1.0
+
+- **Implementado:**
+  - Schema Prisma: +7 tabelas (ProductCategoryPivot, ProductAttribute, ProductAttributeValue, ProductVariation, ProductVariationAttribute, ProductAttributeConfig, ProductPhoto) + Supplier expandido + Product expandido
+  - Migration: expand_stock_catalog_estoque_a + RLS em 5 tabelas
+  - Product: +ncm, cest, isSerialized, isPremium, hasVariations, icmsDifferentialRate, defaultMargin; -currentStock (ADR 0016), -isDevice
+  - Supplier: address JSON → 7 campos separados (ADR 0007), cpfCnpj → cpf + cnpj separados, type enum
+  - BrasilAPI NCM: mapa curado ~45 categorias + fallback API + timeout 5s
+  - BrasilAPI CNPJ: lookup de fornecedor com degradação graciosa
+  - Product Image Service: Sharp (3 versões WebP) + MinIO upload/delete
+  - API route /api/products/upload para multipart form-data
+  - tRPC: +15 procedures (attributes CRUD, values CRUD, variations CRUD, photos CRUD, NCM search, CNPJ lookup, duplicate product)
+  - RBAC: operator bloqueado em todas as mutations (padrão ctx.session.availableTenants)
+  - Product form expandido: seção fiscal, isPremium, hasVariations, defaultMargin, categoria select
+  - Página /stock/attributes: CRUD atributos com valores inline (expand row)
+  - 51 testes unitários novos (38 validators + 13 BrasilAPI NCM)
+  - typecheck ✓ | test ✓ (507) | build ✓
+- **Dependências adicionadas:** sharp, @aws-sdk/client-s3
+- **22 arquivos corrigidos** para referências quebradas (currentStock→stub 0, isDevice→isSerialized, cpfCnpj→cpf/cnpj)
+- **Próximo:** Revisão do dono → SPEC Estoque-B (StockItem, movimentações)
+
+---
 
 ### 2026-05-16 — SPEC Estoque-A (Catálogo de Produtos) v1.0
 
