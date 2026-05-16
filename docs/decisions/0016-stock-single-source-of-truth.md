@@ -1,8 +1,8 @@
-# ADR 0016 — Estoque: Single Source of Truth (sem dual model)
+# ADR 0016 — Modelo Híbrido de Estoque: counter para não-serializados, StockItem para serializados
 
-**Status:** aceito
+**Status:** revisado
 **Data:** 2026-05-16
-**Contexto:** Estoque-A (Catálogo de Produtos)
+**Contexto:** Estoque-A + Estoque-B
 
 ## Problema
 
@@ -10,36 +10,45 @@ O Laravel usa **dual model de estoque**:
 1. `Produto.quantidade_estoque` — contador rápido (denormalizado)
 2. `EstoqueItem` — registro individual por unidade (com IMEI, status, fornecedor)
 
-Isso causa inconsistências: o counter pode divergir dos items reais (ex: bugs em transações, imports parciais).
+## Decisão original (superseded)
 
-## Decisão
+Remover `currentStock` completamente. Tudo via count(StockItem).
 
-**Remover o campo `quantidade_estoque` persistido.** O "estoque disponível" é SEMPRE computed:
+## Atualização pós-revisão (2026-05-16)
 
-```sql
-SELECT COUNT(*) FROM stock_items
-WHERE product_id = ? AND status = 'AVAILABLE' AND tenant_id = ?
-```
+O dono revisou a decisão após análise prática:
+- 200 capinhas gerando 200 linhas em StockItem é desperdício (sem IMEI, sem rastreio individual)
+- Apenas produtos serializados (IMEI) precisam rastreio individual real
 
-- Product NÃO tem campo `currentStock`
-- `availableQuantity` é computed field via query ao módulo Estoque-B
-- Até Estoque-B ser implementado, o computed retorna 0 (stub)
+### Decisão final: MODELO HÍBRIDO
 
-## Justificativa
+| Tipo de produto | Fonte da verdade | Como funciona |
+|----------------|-----------------|---------------|
+| `isSerialized = false` | `Product.currentStock` (counter) | Movimentações incrementam/decrementam o campo |
+| `isSerialized = true` | `count(StockItem WHERE status=AVAILABLE)` | StockItem individual rastreado por IMEI/série |
 
-- **Fonte única de verdade**: StockItem é o registro canônico
-- **Sem inconsistência**: impossível divergir (é derivado, não duplicado)
-- **Complexidade reduzida**: sem trigger/event para sincronizar counter
-- **Performance**: materializar via query com index `(product_id, status)` é O(1) com count index scan
-- **Trade-off aceito**: listagem precisa de JOIN/subquery em vez de read direto. Mitigado com index e, se necessário futuro, cache Redis.
+### Regras
 
-## Impacto
+- Um produto NUNCA usa ambos simultaneamente
+- `isSerialized` é definido na criação e não muda (ou migra com procedimento manual)
+- `ProductService.getAvailableQuantity()` é a ÚNICA interface pública — resolve internamente qual fonte consultar
+- Movimentações SEMPRE criam StockMovement (log) independente do tipo
 
-- PDV e OS que hoje leem `Product.currentStock` precisarão usar o service computed
-- Schema `stock.prisma` terá campo `currentStock` removido na migration de Estoque-A
-- Módulo Estoque-B definirá o StockItem e o service que resolve `availableQuantity`
+## Justificativa da revisão
+
+- **Pragmatismo**: 80% dos produtos (capas, cabos, películas) não precisam de rastreio individual
+- **Performance**: counter é O(1) para leitura, sem JOIN
+- **Sem risco de inconsistência**: as duas fontes nunca operam no mesmo produto
+- **Fidelidade ao legacy**: o Laravel faz exatamente isso (controla_imei decide o modelo)
+
+## Trade-offs aceitos
+
+- Duas "fontes de verdade" coexistem — mas nunca para o mesmo produto
+- `currentStock` pode divergir em caso de bug — mitigado por ajuste de inventário
+- Service `getAvailableQuantity` precisa ser usado SEMPRE (não ler diretamente)
 
 ## Alternativas descartadas
 
-- Manter dual model com trigger: complexidade + risco de inconsistência
-- Cache Redis do count: premature optimization — avaliar em Estoque-B se necessário
+- Tudo via StockItem (decisão original): overhead para não-serializados
+- Cache Redis do count: prematura ��� count com index é suficiente
+- Campo computed virtual no Prisma: não suportado nativamente
