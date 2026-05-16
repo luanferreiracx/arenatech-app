@@ -63,8 +63,11 @@ Módulo de catálogo de produtos da assistência técnica. Gerencia o cadastro d
 | createdAt | DateTime @default(now()) | NO | now() | — | `produtos.criado_em` | |
 | updatedAt | DateTime @updatedAt | NO | — | — | `produtos.atualizado_em` | |
 
+**Campo condicional:**
+- `currentStock: Int @default(0)` — Persistido APENAS para produtos não-serializados (isSerialized=false). Movimentações de Estoque-B atualizam este campo. Para isSerialized=true, ignorado (fonte da verdade é count(StockItem.status=AVAILABLE) via ProductService).
+
 **Computed fields (não persistidos):**
-- `availableQuantity: Int` — count de StockItem com status=AVAILABLE para este produto. **Stub retorna 0** até Estoque-B existir (M1).
+- `availableQuantity: Int` — resolvido via `ProductService.getAvailableQuantity()`: se isSerialized=false retorna Product.currentStock; se isSerialized=true retorna count(StockItem.status=AVAILABLE).
 - `effectivePrice: Decimal` — `promotionalPrice ?? salePrice` (replicando accessor `precoEfetivo` do legacy).
 - `isLowStock: Boolean` — `availableQuantity <= minStock` (replicando scope `estoqueBaixo`).
 

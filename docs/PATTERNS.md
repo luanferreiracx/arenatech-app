@@ -406,3 +406,27 @@ import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 **ADR:** docs/decisions/0009-viacep-integration.md
 
 ---
+
+## Modelo híbrido de estoque
+
+O estoque usa modelo híbrido baseado no campo `Product.isSerialized`:
+
+| isSerialized | Fonte da verdade | Mecanismo |
+|---|---|---|
+| `false` (capas, cabos) | `Product.currentStock` | Movimentações incrementam/decrementam counter |
+| `true` (aparelhos com IMEI) | `count(StockItem WHERE status=AVAILABLE)` | Rastreio individual por IMEI/série |
+
+**Regra:** nunca leia `Product.currentStock` diretamente para determinar disponibilidade. Use sempre `ProductService.getAvailableQuantity(tx, tenantId, productId)` — ele resolve internamente qual fonte consultar.
+
+```typescript
+// src/server/services/product.service.ts
+async function getAvailableQuantity(tx, tenantId, productId): Promise<number> {
+  const product = await tx.product.findUnique({ where: { id: productId }, select: { isSerialized: true, currentStock: true } })
+  if (!product.isSerialized) return product.currentStock  // counter
+  return tx.stockItem.count({ where: { tenantId, productId, status: "AVAILABLE", deletedAt: null } })  // computed
+}
+```
+
+**ADR:** docs/decisions/0016-stock-single-source-of-truth.md
+
+---
