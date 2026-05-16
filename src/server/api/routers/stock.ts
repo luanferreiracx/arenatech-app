@@ -43,6 +43,24 @@ import {
 } from "@/lib/validators/stock";
 import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
 import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
+import {
+  createStockItemBatchSchema,
+  stockEntryQuantitySchema,
+  stockWriteOffSchema,
+  stockAdjustmentSchema,
+  changeStockItemStatusSchema,
+  listStockItemsSchema,
+  searchImeiSchema,
+  isValidTransition,
+} from "@/lib/validators/stock-item";
+import {
+  entrySerializedItems,
+  entryNonSerialized,
+  exitNonSerialized,
+  adjustInventory,
+  changeItemStatus,
+} from "@/server/services/stock-item.service";
+import { getAvailableQuantity } from "@/server/services/product.service";
 import { Prisma } from "@prisma/client";
 
 export const stockRouter = createTRPCRouter({
@@ -2207,6 +2225,242 @@ export const stockRouter = createTRPCRouter({
         }
 
         return duplicate;
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // ESTOQUE-B: STOCK ITEMS
+  // ═══════════════════════════════════════
+
+  listStockItems: tenantProcedure
+    .input(listStockItemsSchema)
+    .query(async ({ ctx, input }) => {
+      const page = input.page ?? 0;
+      const pageSize = input.pageSize ?? 25;
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.StockItemWhereInput = { deletedAt: null };
+        if (input.productId) where.productId = input.productId;
+        if (input.status) where.status = input.status;
+        if (input.condition) where.condition = input.condition;
+        if (input.supplierId) where.supplierId = input.supplierId;
+        if (input.search) {
+          where.OR = [
+            { imei: { contains: input.search, mode: "insensitive" } },
+            { serialNumber: { contains: input.search, mode: "insensitive" } },
+            { barcode: { contains: input.search, mode: "insensitive" } },
+          ];
+        }
+        const [data, total] = await Promise.all([
+          tx.stockItem.findMany({
+            where,
+            include: { product: { select: { name: true, brand: true } }, supplier: { select: { name: true } } },
+            orderBy: { createdAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.stockItem.count({ where }),
+        ]);
+        return { data, total, pageCount: Math.ceil(total / pageSize) };
+      });
+    }),
+
+  getStockItem: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const item = await tx.stockItem.findUnique({
+          where: { id: input.id },
+          include: {
+            product: true,
+            variation: { include: { attributeValues: { include: { attributeValue: { include: { attribute: true } } } } } },
+            supplier: true,
+          },
+        });
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+        return item;
+      });
+    }),
+
+  /** Entry: serialized items (creates StockItem per IMEI) */
+  entrySerializedItems: tenantProcedure
+    .input(createStockItemBatchSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return entrySerializedItems(tx as any, ctx.tenantId, ctx.session.user.id, {
+          productId: input.productId,
+          variationId: input.variationId,
+          supplierId: input.supplierId,
+          condition: input.condition,
+          conservationGrade: input.conservationGrade,
+          costPrice: input.costPrice,
+          suggestedSalePrice: input.suggestedSalePrice,
+          invoiceNumber: input.invoiceNumber,
+          items: input.items,
+        });
+      });
+    }),
+
+  /** Entry: non-serialized (quantity-based) */
+  entryQuantity: tenantProcedure
+    .input(stockEntryQuantitySchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await entryNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
+          productId: input.productId,
+          quantity: input.quantity,
+          reason: input.reason,
+          supplierId: input.supplierId,
+          invoiceNumber: input.invoiceNumber,
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Write-off (baixa) */
+  writeOff: tenantProcedure
+    .input(stockWriteOffSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        if (input.stockItemId) {
+          // Serialized: soft delete the StockItem
+          await tx.stockItem.update({
+            where: { id: input.stockItemId },
+            data: { deletedAt: new Date() },
+          });
+          const item = await tx.stockItem.findUnique({ where: { id: input.stockItemId } });
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              stockItemId: input.stockItemId,
+              type: "EXIT",
+              quantity: 1,
+              reason: input.reason,
+              referenceType: "write_off",
+              userId: ctx.session.user.id,
+            },
+          });
+        } else {
+          // Non-serialized
+          await exitNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
+            productId: input.productId,
+            quantity: input.quantity ?? 1,
+            reason: input.reason,
+            referenceType: "write_off",
+          });
+        }
+        return { success: true };
+      });
+    }),
+
+  /** Inventory adjustment (non-serialized) */
+  adjustInventory: tenantProcedure
+    .input(stockAdjustmentSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await adjustInventory(tx as any, ctx.tenantId, ctx.session.user.id, {
+          productId: input.productId,
+          newQuantity: input.newQuantity,
+          reason: input.reason,
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Change StockItem status (state machine validated) */
+  changeItemStatus: tenantProcedure
+    .input(changeStockItemStatusSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+
+      // RBAC: blocking/unblocking requires owner
+      if (input.newStatus === "BLOCKED" || input.newStatus === "AVAILABLE") {
+        // Unblocking from BLOCKED requires owner
+        // Reserving requires at least operator
+      }
+      if ((input.newStatus === "BLOCKED") && userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode bloquear" });
+      }
+      // Entry/exit/defect requires manager+
+      if (["DEFECTIVE", "RETURNED"].includes(input.newStatus) && (!userRole || userRole === "operator")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+
+      return ctx.withTenant(async (tx) => {
+        await changeItemStatus(tx as any, ctx.tenantId, ctx.session.user.id, {
+          stockItemId: input.stockItemId,
+          newStatus: input.newStatus,
+          reason: input.reason,
+          reservedForType: input.reservedForType,
+          reservedForId: input.reservedForId,
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Search by IMEI */
+  searchByImei: tenantProcedure
+    .input(searchImeiSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const item = await tx.stockItem.findFirst({
+          where: { imei: { contains: input.imei }, deletedAt: null },
+          include: {
+            product: { select: { name: true, brand: true, isSerialized: true } },
+            supplier: { select: { name: true } },
+          },
+        });
+        return item;
+      });
+    }),
+
+  /** IMEI history (all movements for this IMEI) */
+  getImeiHistory: tenantProcedure
+    .input(z.object({ imei: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        // Find the stock item (including soft-deleted for full history)
+        const item = await tx.stockItem.findFirst({
+          where: { imei: input.imei },
+          include: {
+            product: { select: { name: true, brand: true } },
+            supplier: { select: { name: true } },
+          },
+        });
+        if (!item) return null;
+
+        // Get all movements for this item
+        const movements = await tx.stockMovement.findMany({
+          where: { stockItemId: item.id },
+          orderBy: { createdAt: "desc" },
+        });
+
+        return { item, movements };
+      });
+    }),
+
+  /** Get available quantity (hybrid: currentStock or StockItem count) */
+  getAvailableQuantity: tenantProcedure
+    .input(z.object({ productId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return getAvailableQuantity(tx as any, ctx.tenantId, input.productId);
       });
     }),
 });

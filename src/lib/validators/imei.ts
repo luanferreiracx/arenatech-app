@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // ── IMEI Validation (Luhn algorithm) ──
 
-function isValidLuhn(value: string): boolean {
+export function isValidLuhn(value: string): boolean {
   const digits = value.replace(/\D/g, "");
   if (digits.length !== 15) return false;
 
@@ -17,6 +17,9 @@ function isValidLuhn(value: string): boolean {
   }
   return sum % 10 === 0;
 }
+
+/** Alias for clarity in stock module */
+export const validateImei = isValidLuhn;
 
 export const imeiSchema = z
   .string()
