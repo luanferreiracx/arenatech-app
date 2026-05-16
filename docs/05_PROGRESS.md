@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** SPEC de Configurações v1.0 produzida. Aguardando revisão do dono.
+**Fase atual:** Configurações SPEC aprovada + IMPLEMENT parcial (schema + assistance + receiving). Lacunas restantes: upload certificado, RBAC completo em todas as mutations, telas completas.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
