@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Configurações SPEC aprovada + IMPLEMENT parcial (schema + assistance + receiving). Lacunas restantes: upload certificado, RBAC completo em todas as mutations, telas completas.
+**Fase atual:** Configurações IMPLEMENTADO (SPEC + schema + RBAC + fiscal tipado + assistance + receiving). Lacuna menor: upload certificado .pfx encriptado (adiado para quando módulo Fiscal precisar).
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Configurações contra SPEC v1.0
+
+- **Implementado:**
+  - Schema Prisma: TenantFiscalSettings (24 campos), TenantAssistanceSettings (2 campos), TenantReceivingSettings (8 campos) — todos com RLS
+  - TenantSettings expandido: campos endereço separados (ADR 0007), warrantyNewMonths, warrantyUsedMonths, businessHours
+  - RBAC granular em TODAS as mutations de settings:
+    - updateGeneral: manager + owner
+    - updateFiscalSettings, createPaymentMethod, updatePaymentMethod, deletePaymentMethod, upsertInstallmentRules, updateReceiving: owner only
+    - updateAssistance: manager + owner
+  - getFiscalSettings/updateFiscalSettings migrado de hack JSON (address.fiscal) para modelo TenantFiscalSettings tipado com mapeamento PT↔EN
+  - Página /settings/assistance: termos de serviço + política garantia (textarea)
+  - Página /settings/receiving: políticas, mín parcelamento, CPF, caixa auto, metas, alíquotas DAS/ICMS
+  - Sidebar reorganizada com tabs na ordem correta (Geral, Assistência, Fiscal, Pagamento, Parcelamento, Recebimento, ...)
+  - typecheck ✓ | test ✓ (456) | build ✓
+- **Lacunas aceitas (dívida técnica):**
+  - Upload certificado .pfx encriptado → adiado para quando módulo Fiscal precisar realmente decifrar
+  - Testes E2E dos 17 cenários da SPEC → batch de testes no final
+- **Próximo:** SPEC do próximo módulo (Estoque ou Catálogo)
+
+---
 
 ### 2026-05-16 — SPEC Configurações v1.0
 
