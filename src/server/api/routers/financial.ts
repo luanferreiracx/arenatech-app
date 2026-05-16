@@ -410,38 +410,27 @@ export const financialRouter = createTRPCRouter({
         // Recalculate transaction status (faithful to Laravel recalcularStatus)
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
-        // If cash register is open, create a cash movement
+        // If cash session is open, create a cash movement
         const userId = ctx.session.user.id;
-        const openRegister = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
-          include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
         });
 
-        if (openRegister) {
-          const lastMovement = openRegister.movements[0];
-          const currentBalance = lastMovement
-            ? decimalToCents(lastMovement.currentBalance)
-            : decimalToCents(openRegister.openingBalance);
-
+        if (openSession) {
           const isReceivable = installment.transaction.type === "RECEIVABLE";
-          const newBalance = isReceivable
-            ? currentBalance + input.amountPaid
-            : currentBalance - input.amountPaid;
 
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              cashRegisterId: openRegister.id,
+              cashSessionId: openSession.id,
               type: isReceivable ? "SALE" : "EXPENSE",
               amount: centsToPrismaDecimal(input.amountPaid),
-              nature: isReceivable ? "INFLOW" : "OUTFLOW",
+              nature: isReceivable ? "INCOME" : "OUTCOME",
               paymentMethod: input.paymentMethod ?? "outros",
               description: `Baixa parcela #${installment.number} - ${installment.transaction.type === "RECEIVABLE" ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
               referenceType: "installment",
               referenceId: installment.id,
-              userId,
-              previousBalance: centsToPrismaDecimal(currentBalance),
-              currentBalance: centsToPrismaDecimal(newBalance),
+              createdByUserId: userId,
             },
           });
         }
@@ -487,39 +476,28 @@ export const financialRouter = createTRPCRouter({
 
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
-        // Reverse cash movement if register is open
+        // Reverse cash movement if session is open
         const userId = ctx.session.user.id;
-        const openRegister = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
-          include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
         });
 
-        if (openRegister && reversedAmount > 0) {
-          const lastMovement = openRegister.movements[0];
-          const currentBalance = lastMovement
-            ? decimalToCents(lastMovement.currentBalance)
-            : decimalToCents(openRegister.openingBalance);
-
+        if (openSession && reversedAmount > 0) {
           const isReceivable = installment.transaction.type === "RECEIVABLE";
-          // Reversal: receivable reversal = outflow, payable reversal = inflow
-          const newBalance = isReceivable
-            ? currentBalance - reversedAmount
-            : currentBalance + reversedAmount;
 
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              cashRegisterId: openRegister.id,
-              type: isReceivable ? "REFUND" : "ADJUSTMENT",
+              cashSessionId: openSession.id,
+              // Receivable reversal = withdrawal (money going out), Payable reversal = deposit (money coming back)
+              type: isReceivable ? "WITHDRAWAL" : "DEPOSIT",
               amount: centsToPrismaDecimal(reversedAmount),
-              nature: isReceivable ? "OUTFLOW" : "INFLOW",
+              nature: isReceivable ? "OUTCOME" : "INCOME",
               paymentMethod: originalPaymentMethod ?? "outros",
               description: `Estorno parcela #${installment.number} - ${isReceivable ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
               referenceType: "installment_reversal",
               referenceId: installment.id,
-              userId,
-              previousBalance: centsToPrismaDecimal(currentBalance),
-              currentBalance: centsToPrismaDecimal(newBalance),
+              createdByUserId: userId,
             },
           });
         }

@@ -102,37 +102,9 @@ export default function CloseCashierPage() {
   );
 
   function handleClose() {
-    // Build closing details
-    const closingDetails: Record<
-      string,
-      { systemAmount: number; reportedAmount: number; verified: boolean; difference: number }
-    > = {};
-
-    // Dinheiro
-    closingDetails.dinheiro = {
-      systemAmount: summary.expectedCashBalance,
-      reportedAmount: reportedBalance,
-      verified: true,
-      difference: reportedBalance - summary.expectedCashBalance,
-    };
-
-    // Other methods
-    for (const [method, data] of Object.entries(paymentMethodSummary)) {
-      if (method === "dinheiro") continue;
-      const isVerified = verifiedMethods[method] ?? false;
-      const reported = isVerified ? data.total : (methodAmounts[method] ?? data.total);
-      closingDetails[method] = {
-        systemAmount: data.total,
-        reportedAmount: reported,
-        verified: isVerified,
-        difference: reported - data.total,
-      };
-    }
-
     closeMutation.mutate({
-      reportedBalance,
-      notes: notes || undefined,
-      closingDetails,
+      declaredBalance: reportedBalance,
+      closingNote: notes || undefined,
     });
   }
 

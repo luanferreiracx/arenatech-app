@@ -425,43 +425,27 @@ export const saleRouter = createTRPCRouter({
           paymentMethod = "misto";
         }
 
-        // Create CashMovement for each payment (if user has open register)
-        const openRegister = await tx.cashRegister.findFirst({
-          where: { userId: ctx.session.user.id, status: "OPEN" },
-          include: { movements: true },
+        // Create CashMovement for each payment (if user has open session)
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
         });
 
-        if (openRegister) {
+        if (openSession) {
           for (const payment of input.payments) {
-            // Calculate current balance from last movement
-            const sorted = [...openRegister.movements].sort(
-              (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-            );
-            const lastMovement = sorted[0];
-            const currentBalance = lastMovement
-              ? Math.round(Number(lastMovement.currentBalance) * 100)
-              : Math.round(Number(openRegister.openingBalance) * 100);
-            const newBalance = currentBalance + payment.amount;
-
-            const movement = await tx.cashMovement.create({
+            await tx.cashMovement.create({
               data: {
                 tenantId: ctx.tenantId,
-                cashRegisterId: openRegister.id,
+                cashSessionId: openSession.id,
                 type: "SALE",
                 amount: centsToPrisma(payment.amount),
-                nature: "INFLOW",
+                nature: "INCOME",
                 paymentMethod: payment.method,
                 description: `Venda ${saleNumber}`,
                 referenceId: sale.id,
                 referenceType: "SALE",
-                userId: ctx.session.user.id,
-                previousBalance: centsToPrisma(currentBalance),
-                currentBalance: centsToPrisma(newBalance),
+                createdByUserId: ctx.session.user.id,
               },
             });
-
-            // Add to movements array for subsequent balance calculations
-            openRegister.movements.push(movement);
           }
         }
 
@@ -667,37 +651,26 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // Create refund CashMovement if register is open
-        const openRegister = await tx.cashRegister.findFirst({
-          where: { userId: ctx.session.user.id, status: "OPEN" },
-          include: { movements: true },
+        // Create refund CashMovement if session is open
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
         });
 
-        if (openRegister) {
+        if (openSession) {
           const totalCents = decimalToCents(sale.totalAmount);
-          const sorted = [...openRegister.movements].sort(
-            (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-          );
-          const lastMovement = sorted[0];
-          const currentBalance = lastMovement
-            ? Math.round(Number(lastMovement.currentBalance) * 100)
-            : Math.round(Number(openRegister.openingBalance) * 100);
-          const newBalance = currentBalance - totalCents;
 
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              cashRegisterId: openRegister.id,
-              type: "REFUND",
+              cashSessionId: openSession.id,
+              type: "WITHDRAWAL",
               amount: centsToPrisma(totalCents),
-              nature: "OUTFLOW",
+              nature: "OUTCOME",
               paymentMethod: null,
               description: `Estorno venda ${sale.number}`,
               referenceId: sale.id,
               referenceType: "SALE_REFUND",
-              userId: ctx.session.user.id,
-              previousBalance: centsToPrisma(currentBalance),
-              currentBalance: centsToPrisma(newBalance),
+              createdByUserId: ctx.session.user.id,
             },
           });
         }

@@ -1,64 +1,71 @@
-enum CashRegisterStatus {
-  OPEN
-  CLOSED
-}
-
-model CashRegister {
-  id               String             @id @default(uuid()) @db.Uuid
-  tenantId         String             @map("tenant_id") @db.Uuid
-  userId           String             @map("user_id") @db.Uuid
-  status           CashRegisterStatus @default(OPEN)
-  openingBalance   Decimal            @map("opening_balance") @db.Decimal(10, 2)
-  closingBalance   Decimal?           @map("closing_balance") @db.Decimal(10, 2)
-  expectedBalance  Decimal?           @map("expected_balance") @db.Decimal(10, 2)
-  difference       Decimal?           @db.Decimal(10, 2)
-  openingNotes     String?            @map("opening_notes")
-  notes            String?
-  closingDetails   Json?              @map("closing_details")
-  openedAt         DateTime           @default(now()) @map("opened_at")
-  closedAt         DateTime?          @map("closed_at")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
-
-  movements CashMovement[]
-
-  @@index([tenantId, status])
-  @@index([tenantId, userId])
-  @@index([tenantId, openedAt])
-  @@map("cash_registers")
+enum CashSessionCloseType {
+  MANUAL
+  AUTOMATIC
 }
 
 enum CashMovementType {
   SALE
-  SERVICE_ORDER
-  WITHDRAWAL
   DEPOSIT
-  ADJUSTMENT
+  WITHDRAWAL
   EXPENSE
-  REFUND
-  OPENING
-  CLOSING
+}
+
+enum CashMovementNature {
+  INCOME
+  OUTCOME
+}
+
+model CashSession {
+  id                String                @id @default(uuid()) @db.Uuid
+  tenantId          String                @map("tenant_id") @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
+  initialBalance    Decimal               @default(0) @map("initial_balance") @db.Decimal(10, 2)
+  calculatedBalance Decimal?              @map("calculated_balance") @db.Decimal(10, 2)
+  declaredBalance   Decimal?              @map("declared_balance") @db.Decimal(10, 2)
+  difference        Decimal?              @db.Decimal(10, 2)
+  openingNote       String?               @map("opening_note")
+  closingNote       String?               @map("closing_note")
+  closeType         CashSessionCloseType? @map("close_type")
+  closedByUserId    String?               @map("closed_by_user_id") @db.Uuid
+  verified          Boolean               @default(false)
+  verifiedAt        DateTime?             @map("verified_at")
+  verifiedByUserId  String?               @map("verified_by_user_id") @db.Uuid
+  verifiedNote      String?               @map("verified_note")
+  openedAt          DateTime              @default(now()) @map("opened_at")
+  closedAt          DateTime?             @map("closed_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  movements CashMovement[]
+
+  // K5: only 1 open session per user per tenant
+  @@unique([tenantId, userId, closedAt])
+  @@index([tenantId, userId, openedAt])
+  @@index([tenantId, closedAt])
+  @@index([tenantId, verified, closeType])
+  @@map("cash_sessions")
 }
 
 model CashMovement {
-  id              String           @id @default(uuid()) @db.Uuid
-  tenantId        String           @map("tenant_id") @db.Uuid
-  cashRegisterId  String           @map("cash_register_id") @db.Uuid
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  cashSessionId   String              @map("cash_session_id") @db.Uuid
   type            CashMovementType
-  amount          Decimal          @db.Decimal(10, 2)
-  nature          String           @default("INFLOW")
-  paymentMethod   String?          @map("payment_method")
+  nature          CashMovementNature
+  amount          Decimal             @db.Decimal(10, 2)
+  paymentMethod   String?             @map("payment_method")
+  paymentMethodId String?             @map("payment_method_id") @db.Uuid
   description     String?
-  referenceId     String?          @map("reference_id") @db.Uuid
-  referenceType   String?          @map("reference_type")
-  userId          String           @map("user_id") @db.Uuid
-  previousBalance Decimal?         @map("previous_balance") @db.Decimal(10, 2)
-  currentBalance  Decimal?         @map("current_balance") @db.Decimal(10, 2)
-  createdAt       DateTime         @default(now()) @map("created_at")
+  referenceType   String?             @map("reference_type")
+  referenceId     String?             @map("reference_id") @db.Uuid
+  createdByUserId String              @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
 
-  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id])
+  cashSession CashSession @relation(fields: [cashSessionId], references: [id])
 
-  @@index([tenantId, cashRegisterId])
-  @@index([tenantId, createdAt])
+  @@index([tenantId, cashSessionId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@index([tenantId, paymentMethod, createdAt])
+  @@index([tenantId, referenceType, referenceId])
   @@map("cash_movements")
 }

@@ -535,32 +535,23 @@ export const serviceOrderRouter = createTRPCRouter({
           if (paidCents > 0) {
             // Cash movement
             const userId = ctx.session.user.id;
-            const openRegister = await tx.cashRegister.findFirst({
-              where: { userId, status: "OPEN" },
-              include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+            const openSession = await tx.cashSession.findFirst({
+              where: { userId, closedAt: null },
             });
 
-            if (openRegister) {
-              const lastMov = openRegister.movements[0];
-              const curBal = lastMov
-                ? decimalToCents(lastMov.currentBalance)
-                : decimalToCents(openRegister.openingBalance);
-              const newBal = curBal + paidCents;
-
+            if (openSession) {
               await tx.cashMovement.create({
                 data: {
                   tenantId: ctx.tenantId,
-                  cashRegisterId: openRegister.id,
-                  type: "SERVICE_ORDER",
+                  cashSessionId: openSession.id,
+                  type: "SALE",
                   amount: centsToPrisma(paidCents),
-                  nature: "INFLOW",
+                  nature: "INCOME",
                   paymentMethod: paymentMethodUsed,
                   description: `Pagamento OS ${order.number}`,
                   referenceType: "service_order",
                   referenceId: order.id,
-                  userId,
-                  previousBalance: centsToPrisma(curBal),
-                  currentBalance: centsToPrisma(newBal),
+                  createdByUserId: userId,
                 },
               });
             }
@@ -885,32 +876,23 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // ── Register cash movement (parity with Laravel CaixaService) ──
         const userId = ctx.session.user.id;
-        const openRegister = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
-          include: { movements: { orderBy: { createdAt: "desc" }, take: 1 } },
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
         });
 
-        if (openRegister) {
-          const lastMovement = openRegister.movements[0];
-          const currentBalance = lastMovement
-            ? decimalToCents(lastMovement.currentBalance)
-            : decimalToCents(openRegister.openingBalance);
-          const newBalance = currentBalance + input.paidAmount;
-
+        if (openSession) {
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              cashRegisterId: openRegister.id,
-              type: "SERVICE_ORDER",
+              cashSessionId: openSession.id,
+              type: "SALE",
               amount: centsToPrisma(input.paidAmount),
-              nature: "INFLOW",
+              nature: "INCOME",
               paymentMethod: input.paymentMethod,
               description: `Pagamento OS ${order.number}`,
               referenceType: "service_order",
               referenceId: order.id,
-              userId,
-              previousBalance: centsToPrisma(currentBalance),
-              currentBalance: centsToPrisma(newBalance),
+              createdByUserId: userId,
             },
           });
         }

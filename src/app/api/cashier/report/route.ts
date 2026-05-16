@@ -16,7 +16,7 @@ function formatCents(cents: number): string {
 }
 
 /**
- * GET /api/cashier/report?id={cashRegisterId}
+ * GET /api/cashier/report?id={cashSessionId}
  *
  * Generates an HTML page suitable for printing as PDF (Ctrl+P).
  * Requires authenticated user with access to the tenant.
@@ -27,8 +27,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
   }
 
-  const registerId = req.nextUrl.searchParams.get("id");
-  if (!registerId) {
+  const sessionId = req.nextUrl.searchParams.get("id");
+  if (!sessionId) {
     return NextResponse.json({ error: "ID do caixa obrigatorio" }, { status: 400 });
   }
 
@@ -38,32 +38,32 @@ export async function GET(req: NextRequest) {
   }
 
   const result = await withTenant(tenantId, async (tx) => {
-    const register = await tx.cashRegister.findUnique({
-      where: { id: registerId },
+    const cashSession = await tx.cashSession.findUnique({
+      where: { id: sessionId },
       include: {
         movements: { orderBy: { createdAt: "asc" } },
       },
     });
 
-    if (!register) return null;
+    if (!cashSession) return null;
 
     // Resolve user name
     const user = await (tx as unknown as { user: { findUnique: (a: Record<string, unknown>) => Promise<{ name: string } | null> } }).user.findUnique({
-      where: { id: register.userId },
+      where: { id: cashSession.userId },
       select: { name: true },
     });
 
-    return { register, userName: user?.name ?? "Operador" };
+    return { cashSession, userName: user?.name ?? "Operador" };
   });
 
   if (!result) {
     return NextResponse.json({ error: "Caixa nao encontrado" }, { status: 404 });
   }
 
-  const { register, userName } = result;
+  const { cashSession, userName } = result;
 
   // Build summary
-  const opening = decimalToCents(register.openingBalance);
+  const opening = decimalToCents(cashSession.initialBalance);
   let totalSales = 0;
   let totalSalesCash = 0;
   let totalWithdrawals = 0;
@@ -73,11 +73,10 @@ export async function GET(req: NextRequest) {
 
   const paymentSummary: Record<string, { count: number; total: number }> = {};
 
-  for (const m of register.movements) {
+  for (const m of cashSession.movements) {
     const amount = decimalToCents(m.amount);
     switch (m.type) {
       case "SALE":
-      case "SERVICE_ORDER":
         totalSales += amount;
         salesCount++;
         if (m.paymentMethod === "dinheiro") totalSalesCash += amount;
@@ -101,7 +100,7 @@ export async function GET(req: NextRequest) {
   }
 
   const expectedCash = opening + totalSalesCash + totalDeposits - totalWithdrawals - totalExpenses;
-  const reportedBalance = register.closingBalance ? decimalToCents(register.closingBalance) : 0;
+  const reportedBalance = cashSession.declaredBalance ? decimalToCents(cashSession.declaredBalance) : 0;
   const difference = reportedBalance - expectedCash;
 
   const methodLabels: Record<string, string> = {
@@ -128,11 +127,11 @@ export async function GET(req: NextRequest) {
     )
     .join("");
 
-  const openedAt = register.openedAt
-    ? new Date(register.openedAt).toLocaleString("pt-BR")
+  const openedAt = cashSession.openedAt
+    ? new Date(cashSession.openedAt).toLocaleString("pt-BR")
     : "-";
-  const closedAt = register.closedAt
-    ? new Date(register.closedAt).toLocaleString("pt-BR")
+  const closedAt = cashSession.closedAt
+    ? new Date(cashSession.closedAt).toLocaleString("pt-BR")
     : "-";
 
   const diffClass = difference < 0 ? "danger" : difference > 0 ? "warning" : "success";
@@ -176,7 +175,7 @@ export async function GET(req: NextRequest) {
 <body>
   <div class="header">
     <h1>RELATORIO DE FECHAMENTO DE CAIXA</h1>
-    <p>${new Date(register.openedAt).toLocaleDateString("pt-BR")}</p>
+    <p>${new Date(cashSession.openedAt).toLocaleDateString("pt-BR")}</p>
   </div>
 
   <div class="section">
@@ -252,7 +251,7 @@ export async function GET(req: NextRequest) {
         <tr><td class="label">Diferenca:</td><td class="value ${difference < 0 ? "text-danger" : difference > 0 ? "text-success" : ""}">R$ ${formatCents(difference)} ${diffLabel}</td></tr>
       </table>
     </div>
-    ${register.notes ? `<div style="margin-top:15px;padding:10px;background:#f9f9f9;border:1px solid #ddd;"><strong>Observacao:</strong><br>${register.notes}</div>` : ""}
+    ${cashSession.closingNote ? `<div style="margin-top:15px;padding:10px;background:#f9f9f9;border:1px solid #ddd;"><strong>Observacao:</strong><br>${cashSession.closingNote}</div>` : ""}
   </div>
 
   <div class="footer">

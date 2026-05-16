@@ -302,15 +302,15 @@ export const dashboardRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       const userId = ctx.session.user.id;
 
-      const openCashier = await tx.cashRegister.findFirst({
+      const openSession = await tx.cashSession.findFirst({
         where: {
           userId,
-          status: "OPEN",
+          closedAt: null,
         },
         select: {
           id: true,
           openedAt: true,
-          openingBalance: true,
+          initialBalance: true,
           movements: {
             select: { amount: true, nature: true },
           },
@@ -318,18 +318,18 @@ export const dashboardRouter = createTRPCRouter({
         orderBy: { openedAt: "desc" },
       });
 
-      if (!openCashier) {
+      if (!openSession) {
         return { isOpen: false as const };
       }
 
-      // Count sales in this register
-      const salesCount = openCashier.movements.filter((m) => m.nature === "INFLOW").length;
+      // Count sales in this session
+      const salesCount = openSession.movements.filter((m) => m.nature === "INCOME").length;
 
-      // Calculate balance: opening + inflows - outflows
-      let balance = decimalToCents(openCashier.openingBalance);
-      for (const m of openCashier.movements) {
+      // Calculate balance: opening + incomes - outcomes
+      let balance = decimalToCents(openSession.initialBalance);
+      for (const m of openSession.movements) {
         const amount = decimalToCents(m.amount);
-        if (m.nature === "INFLOW") {
+        if (m.nature === "INCOME") {
           balance += amount;
         } else {
           balance -= amount;
@@ -338,8 +338,8 @@ export const dashboardRouter = createTRPCRouter({
 
       return {
         isOpen: true as const,
-        id: openCashier.id,
-        openedAt: openCashier.openedAt,
+        id: openSession.id,
+        openedAt: openSession.openedAt,
         salesCount,
         balanceCents: balance,
       };

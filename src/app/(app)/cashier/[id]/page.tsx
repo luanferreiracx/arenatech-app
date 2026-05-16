@@ -101,16 +101,6 @@ export default function CashierDetailPage({
   const { register, movements, summary, paymentMethodSummary } =
     detailQuery.data;
 
-  const closingDetails =
-    register.closingDetails as Record<
-      string,
-      {
-        systemAmount: number;
-        reportedAmount: number;
-        verified: boolean;
-        difference: number;
-      }
-    > | null;
 
   return (
     <div>
@@ -275,7 +265,6 @@ export default function CashierDetailPage({
                     <TableHead>Descricao</TableHead>
                     <TableHead>Forma</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="text-right">Saldo</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -297,7 +286,7 @@ export default function CashierDetailPage({
                         <TableCell>
                           <Badge
                             variant={
-                              m.nature === "INFLOW" ? "default" : "secondary"
+                              m.nature === "INCOME" ? "default" : "secondary"
                             }
                           >
                             {MOVEMENT_TYPE_LABELS[m.type] ?? m.type}
@@ -314,18 +303,13 @@ export default function CashierDetailPage({
                         </TableCell>
                         <TableCell
                           className={`text-right font-mono text-sm ${
-                            m.nature === "INFLOW"
+                            m.nature === "INCOME"
                               ? "text-green-600"
                               : "text-destructive"
                           }`}
                         >
-                          {m.nature === "INFLOW" ? "+" : "-"}{" "}
+                          {m.nature === "INCOME" ? "+" : "-"}{" "}
                           {formatCents(m.amount)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {m.currentBalance != null
-                            ? formatCents(m.currentBalance)
-                            : "-"}
                         </TableCell>
                       </TableRow>
                     ))
@@ -485,69 +469,6 @@ export default function CashierDetailPage({
             </Card>
           )}
 
-          {/* Per-method verification details */}
-          {closingDetails && Object.keys(closingDetails).length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Conferencia por Forma de Pagamento
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Forma</TableHead>
-                      <TableHead className="text-right">Sistema</TableHead>
-                      <TableHead className="text-right">Informado</TableHead>
-                      <TableHead className="text-right">Diferenca</TableHead>
-                      <TableHead className="text-center">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {Object.entries(closingDetails).map(([method, conf]) => (
-                      <TableRow key={method}>
-                        <TableCell>
-                          {PAYMENT_METHOD_LABELS[method] ?? method}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatCents(conf.systemAmount)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatCents(conf.reportedAmount)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right font-mono ${
-                            conf.difference < 0
-                              ? "text-destructive"
-                              : conf.difference > 0
-                                ? "text-green-600"
-                                : ""
-                          }`}
-                        >
-                          {formatCents(conf.difference)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {Math.abs(conf.difference) < 1 ? (
-                            <Badge
-                              variant="default"
-                              className="bg-green-600"
-                            >
-                              OK
-                            </Badge>
-                          ) : conf.difference > 0 ? (
-                            <Badge variant="secondary">Sobra</Badge>
-                          ) : (
-                            <Badge variant="destructive">Falta</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>

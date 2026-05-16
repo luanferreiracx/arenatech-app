@@ -17,7 +17,6 @@ import {
  */
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
-  // Decimal stores reais (e.g. 150.00). Convert to centavos (15000).
   return Math.round(Number(v) * 100);
 }
 
@@ -27,16 +26,16 @@ function centsToPrismaDecimal(cents: number): Prisma.Decimal {
 
 export const cashierRouter = createTRPCRouter({
   /**
-   * Get the current user's open cash register (if any).
-   * Also returns recent history when no register is open.
+   * Get the current user's open cash session (if any).
+   * Also returns recent history when no session is open.
    */
   current: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const userId = ctx.session.user.id;
 
-      // Check for open register
-      const openRegister = await tx.cashRegister.findFirst({
-        where: { userId, status: "OPEN" },
+      // Check for open session (closedAt is null = open)
+      const openSession = await tx.cashSession.findFirst({
+        where: { userId, closedAt: null },
         include: {
           movements: {
             orderBy: { createdAt: "desc" },
@@ -44,18 +43,18 @@ export const cashierRouter = createTRPCRouter({
         },
       });
 
-      if (openRegister) {
-        const summary = buildSummary(openRegister);
+      if (openSession) {
+        const summary = buildSummary(openSession);
         return {
           isOpen: true as const,
-          register: serializeRegister(openRegister),
-          movements: openRegister.movements.map(serializeMovement),
+          register: serializeSession(openSession),
+          movements: openSession.movements.map(serializeMovement),
           summary,
         };
       }
 
-      // No open register - return recent history
-      const recentRegisters = await tx.cashRegister.findMany({
+      // No open session - return recent history
+      const recentSessions = await tx.cashSession.findMany({
         where: { userId },
         orderBy: { openedAt: "desc" },
         take: 5,
@@ -66,21 +65,21 @@ export const cashierRouter = createTRPCRouter({
         register: null,
         movements: [],
         summary: null,
-        recentRegisters: recentRegisters.map(serializeRegister),
+        recentRegisters: recentSessions.map(serializeSession),
       };
     });
   }),
 
-  /** Open a new cash register */
+  /** Open a new cash session */
   open: tenantProcedure
     .input(openCashRegisterSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const userId = ctx.session.user.id;
 
-        // Only 1 open register per user
-        const existing = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
+        // Only 1 open session per user
+        const existing = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
         });
         if (existing) {
           throw new TRPCError({
@@ -89,94 +88,69 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        const openingDecimal = centsToPrismaDecimal(input.openingBalance);
+        const initialDecimal = centsToPrismaDecimal(input.initialBalance);
 
-        const register = await tx.cashRegister.create({
+        const session = await tx.cashSession.create({
           data: {
             tenantId: ctx.tenantId,
             userId,
-            status: "OPEN",
-            openingBalance: openingDecimal,
-            openingNotes: input.openingNotes ?? null,
+            initialBalance: initialDecimal,
+            openingNote: input.openingNote ?? null,
           },
         });
 
-        // Create opening movement
+        // Create opening deposit movement
         await tx.cashMovement.create({
           data: {
             tenantId: ctx.tenantId,
-            cashRegisterId: register.id,
-            type: "OPENING",
-            amount: openingDecimal,
-            nature: "INFLOW",
+            cashSessionId: session.id,
+            type: "DEPOSIT",
+            amount: initialDecimal,
+            nature: "INCOME",
             description: "Abertura de caixa",
-            userId,
-            previousBalance: new Prisma.Decimal(0),
-            currentBalance: openingDecimal,
+            createdByUserId: userId,
           },
         });
 
-        return serializeRegister(register);
+        return serializeSession(session);
       });
     }),
 
-  /** Close the current cash register */
+  /** Close the current cash session */
   close: tenantProcedure
     .input(closeCashRegisterSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const userId = ctx.session.user.id;
 
-        const register = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
+        const session = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
           include: { movements: true },
         });
 
-        if (!register) {
+        if (!session) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Nenhum caixa aberto encontrado",
           });
         }
 
-        const summary = buildSummary(register);
-        const expectedCents = summary.expectedCashBalance;
-        const reportedCents = input.reportedBalance;
-        const differenceCents = reportedCents - expectedCents;
+        const summary = buildSummary(session);
+        const calculatedCents = summary.expectedCashBalance;
+        const declaredCents = input.declaredBalance;
+        const differenceCents = declaredCents - calculatedCents;
 
-        // Create closing movement
-        const lastMovement = register.movements.sort(
-          (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-        )[0];
-        const currentBalance = lastMovement
-          ? decimalToCents(lastMovement.currentBalance)
-          : decimalToCents(register.openingBalance);
-
-        await tx.cashMovement.create({
+        // Update session to close it
+        await tx.cashSession.update({
+          where: { id: session.id },
           data: {
-            tenantId: ctx.tenantId,
-            cashRegisterId: register.id,
-            type: "CLOSING",
-            amount: new Prisma.Decimal(0),
-            nature: "OUTFLOW",
-            description: "Fechamento de caixa",
-            userId,
-            previousBalance: centsToPrismaDecimal(currentBalance),
-            currentBalance: centsToPrismaDecimal(currentBalance),
-          },
-        });
-
-        // Update register
-        await tx.cashRegister.update({
-          where: { id: register.id },
-          data: {
-            status: "CLOSED",
-            closingBalance: centsToPrismaDecimal(reportedCents),
-            expectedBalance: centsToPrismaDecimal(expectedCents),
-            difference: centsToPrismaDecimal(differenceCents),
-            notes: input.notes ?? null,
-            closingDetails: input.closingDetails ?? Prisma.JsonNull,
             closedAt: new Date(),
+            closedByUserId: userId,
+            closeType: "MANUAL",
+            declaredBalance: centsToPrismaDecimal(declaredCents),
+            calculatedBalance: centsToPrismaDecimal(calculatedCents),
+            difference: centsToPrismaDecimal(differenceCents),
+            closingNote: input.closingNote ?? null,
           },
         });
 
@@ -191,19 +165,19 @@ export const cashierRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const userId = ctx.session.user.id;
 
-        const register = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
+        const session = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
           include: { movements: true },
         });
 
-        if (!register) {
+        if (!session) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Nenhum caixa aberto encontrado",
           });
         }
 
-        const summary = buildSummary(register);
+        const summary = buildSummary(session);
         if (input.amount > summary.expectedCashBalance) {
           const available = (summary.expectedCashBalance / 100).toLocaleString(
             "pt-BR",
@@ -215,21 +189,16 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        const currentBalance = getCurrentBalance(register);
-        const newBalance = currentBalance - input.amount;
-
         await tx.cashMovement.create({
           data: {
             tenantId: ctx.tenantId,
-            cashRegisterId: register.id,
+            cashSessionId: session.id,
             type: "WITHDRAWAL",
             amount: centsToPrismaDecimal(input.amount),
-            nature: "OUTFLOW",
+            nature: "OUTCOME",
             paymentMethod: "dinheiro",
             description: input.description,
-            userId,
-            previousBalance: centsToPrismaDecimal(currentBalance),
-            currentBalance: centsToPrismaDecimal(newBalance),
+            createdByUserId: userId,
           },
         });
 
@@ -244,33 +213,28 @@ export const cashierRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const userId = ctx.session.user.id;
 
-        const register = await tx.cashRegister.findFirst({
-          where: { userId, status: "OPEN" },
+        const session = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
           include: { movements: true },
         });
 
-        if (!register) {
+        if (!session) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Nenhum caixa aberto encontrado",
           });
         }
 
-        const currentBalance = getCurrentBalance(register);
-        const newBalance = currentBalance + input.amount;
-
         await tx.cashMovement.create({
           data: {
             tenantId: ctx.tenantId,
-            cashRegisterId: register.id,
+            cashSessionId: session.id,
             type: "DEPOSIT",
             amount: centsToPrismaDecimal(input.amount),
-            nature: "INFLOW",
+            nature: "INCOME",
             paymentMethod: "dinheiro",
             description: input.description,
-            userId,
-            previousBalance: centsToPrismaDecimal(currentBalance),
-            currentBalance: centsToPrismaDecimal(newBalance),
+            createdByUserId: userId,
           },
         });
 
@@ -278,17 +242,17 @@ export const cashierRouter = createTRPCRouter({
       });
     }),
 
-  /** Summary for the current open register (for closing screen) */
+  /** Summary for the current open session (for closing screen) */
   closingSummary: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const userId = ctx.session.user.id;
 
-      const register = await tx.cashRegister.findFirst({
-        where: { userId, status: "OPEN" },
+      const session = await tx.cashSession.findFirst({
+        where: { userId, closedAt: null },
         include: { movements: true },
       });
 
-      if (!register) {
+      if (!session) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Nenhum caixa aberto encontrado",
@@ -296,20 +260,23 @@ export const cashierRouter = createTRPCRouter({
       }
 
       return {
-        register: serializeRegister(register),
-        summary: buildSummary(register),
-        paymentMethodSummary: buildPaymentMethodSummary(register.movements),
+        register: serializeSession(session),
+        summary: buildSummary(session),
+        paymentMethodSummary: buildPaymentMethodSummary(session.movements),
       };
     });
   }),
 
-  /** History of closed registers with pagination and date filter */
+  /** History of closed sessions with pagination and date filter */
   history: tenantProcedure
     .input(cashRegisterHistorySchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const userId = ctx.session.user.id;
-        const where: Record<string, unknown> = { userId };
+        const where: Record<string, unknown> = {
+          userId,
+          closedAt: { not: null },
+        };
 
         if (input.dateFrom || input.dateTo) {
           const openedAt: Record<string, Date> = {};
@@ -323,29 +290,29 @@ export const cashierRouter = createTRPCRouter({
         }
 
         const [data, total] = await Promise.all([
-          tx.cashRegister.findMany({
+          tx.cashSession.findMany({
             where,
             orderBy: { openedAt: "desc" },
             skip: input.page * input.pageSize,
             take: input.pageSize,
           }),
-          tx.cashRegister.count({ where }),
+          tx.cashSession.count({ where }),
         ]);
 
         return {
-          data: data.map(serializeRegister),
+          data: data.map(serializeSession),
           total,
           pageCount: Math.ceil(total / input.pageSize),
         };
       });
     }),
 
-  /** Detail of a specific cash register (for report) */
+  /** Detail of a specific cash session (for report) */
   byId: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const register = await tx.cashRegister.findUnique({
+        const session = await tx.cashSession.findUnique({
           where: { id: input.id },
           include: {
             movements: {
@@ -354,7 +321,7 @@ export const cashierRouter = createTRPCRouter({
           },
         });
 
-        if (!register) {
+        if (!session) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Caixa nao encontrado",
@@ -362,42 +329,31 @@ export const cashierRouter = createTRPCRouter({
         }
 
         return {
-          register: serializeRegister(register),
-          movements: register.movements.map(serializeMovement),
-          summary: buildSummary(register),
-          paymentMethodSummary: buildPaymentMethodSummary(register.movements),
+          register: serializeSession(session),
+          movements: session.movements.map(serializeMovement),
+          summary: buildSummary(session),
+          paymentMethodSummary: buildPaymentMethodSummary(session.movements),
         };
       });
     }),
 
   /**
-   * List closed cash registers that have not been reviewed (conferencia pendente).
-   * Closed registers with no closingBalance (auto-closed) or with null difference
-   * are considered pending review.
+   * List closed cash sessions pending review.
+   * A session is pending review if `verified` is false.
    */
   pendingReviews: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const pendingRegisters = await tx.cashRegister.findMany({
+      const pendingSessions = await tx.cashSession.findMany({
         where: {
-          status: "CLOSED",
-          // A register is pending review if closingBalance was not verified
-          // i.e. difference is null or closingDetails contains no review marker
-          OR: [
-            { difference: null },
-            {
-              closingDetails: {
-                path: ["reviewed"],
-                equals: Prisma.DbNull,
-              },
-            },
-          ],
+          closedAt: { not: null },
+          verified: false,
         },
         orderBy: { closedAt: "desc" },
         take: 50,
       });
 
       // Resolve user names
-      const userIds = [...new Set(pendingRegisters.map((r) => r.userId))];
+      const userIds = [...new Set(pendingSessions.map((r) => r.userId))];
       const users = userIds.length > 0
         ? await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
             where: { id: { in: userIds } },
@@ -406,75 +362,61 @@ export const cashierRouter = createTRPCRouter({
         : [];
       const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-      return pendingRegisters.map((r) => ({
-        ...serializeRegister(r),
+      return pendingSessions.map((r) => ({
+        ...serializeSession(r),
         userName: userMap.get(r.userId) ?? "Operador",
       }));
     });
   }),
 
   /**
-   * Review (conferir) a closed cash register.
-   * Sets the reported balance, calculates difference, and marks as reviewed.
+   * Review (conferir) a closed cash session.
+   * Sets the reported balance, calculates difference, and marks as verified.
    */
   review: tenantProcedure
     .input(reviewCashRegisterSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const register = await tx.cashRegister.findUnique({
-          where: { id: input.cashRegisterId },
+        const session = await tx.cashSession.findUnique({
+          where: { id: input.cashSessionId },
           include: { movements: true },
         });
 
-        if (!register) {
+        if (!session) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Caixa nao encontrado",
           });
         }
 
-        if (register.status !== "CLOSED") {
+        if (session.closedAt === null) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Apenas caixas fechados podem ser conferidos",
           });
         }
 
-        // Check if already reviewed
-        const details = register.closingDetails as Record<string, unknown> | null;
-        if (details?.["reviewed"] === true) {
+        if (session.verified) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Este caixa ja foi conferido",
           });
         }
 
-        const summary = buildSummary(register);
+        const summary = buildSummary(session);
         const systemBalance = summary.expectedCashBalance;
         const differenceCents = input.reportedBalance - systemBalance;
 
-        const existingNotes = register.notes ?? "";
-        const reviewerName = ctx.session.user.name ?? "Conferente";
-        const reviewNote = input.notes
-          ? `[Conferencia ${new Date().toLocaleDateString("pt-BR")} por ${reviewerName}] ${input.notes}`
-          : "";
-        const finalNotes = existingNotes
-          ? (reviewNote ? `${existingNotes}\n\n${reviewNote}` : existingNotes)
-          : reviewNote;
-
-        await tx.cashRegister.update({
-          where: { id: input.cashRegisterId },
+        await tx.cashSession.update({
+          where: { id: input.cashSessionId },
           data: {
-            closingBalance: centsToPrismaDecimal(input.reportedBalance),
-            expectedBalance: centsToPrismaDecimal(systemBalance),
+            declaredBalance: centsToPrismaDecimal(input.reportedBalance),
+            calculatedBalance: centsToPrismaDecimal(systemBalance),
             difference: centsToPrismaDecimal(differenceCents),
-            notes: finalNotes || null,
-            closingDetails: {
-              ...(details ?? {}),
-              reviewed: true,
-              reviewedAt: new Date().toISOString(),
-              reviewedBy: ctx.session.user.id,
-            },
+            verified: true,
+            verifiedAt: new Date(),
+            verifiedByUserId: ctx.session.user.id,
+            verifiedNote: input.notes ?? null,
           },
         });
 
@@ -488,46 +430,45 @@ export const cashierRouter = createTRPCRouter({
     }),
 
   /**
-   * Check if current user has an open cash register (for PDV polling).
+   * Check if current user has an open cash session (for PDV polling).
    * Returns minimal data without heavy queries.
    */
   statusCheck: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const userId = ctx.session.user.id;
-      const openRegister = await tx.cashRegister.findFirst({
-        where: { userId, status: "OPEN" },
+      const openSession = await tx.cashSession.findFirst({
+        where: { userId, closedAt: null },
         select: { id: true, openedAt: true },
       });
 
       return {
-        isOpen: !!openRegister,
-        registerId: openRegister?.id ?? null,
-        openedAt: openRegister?.openedAt ?? null,
+        isOpen: !!openSession,
+        registerId: openSession?.id ?? null,
+        openedAt: openSession?.openedAt ?? null,
       };
     });
   }),
 
   /**
-   * List all currently open cash registers across all users (for users
-   * without their own register to select which one to use).
+   * List all currently open cash sessions across all users.
    */
   openCashiers: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const openRegisters = await tx.cashRegister.findMany({
-        where: { status: "OPEN" },
+      const openSessions = await tx.cashSession.findMany({
+        where: { closedAt: null },
         select: { id: true, userId: true, openedAt: true },
       });
 
-      if (openRegisters.length === 0) return [];
+      if (openSessions.length === 0) return [];
 
-      const userIds = [...new Set(openRegisters.map((r) => r.userId))];
+      const userIds = [...new Set(openSessions.map((r) => r.userId))];
       const users = await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true },
       });
       const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-      return openRegisters.map((r) => ({
+      return openSessions.map((r) => ({
         id: r.id,
         userId: r.userId,
         userName: userMap.get(r.userId) ?? "Operador",
@@ -539,30 +480,19 @@ export const cashierRouter = createTRPCRouter({
 
 // ── Helpers ──
 
-interface RegisterWithMovements {
+interface SessionWithMovements {
   id: string;
-  openingBalance: Prisma.Decimal;
-  closingBalance: Prisma.Decimal | null;
-  expectedBalance: Prisma.Decimal | null;
+  initialBalance: Prisma.Decimal;
+  declaredBalance: Prisma.Decimal | null;
+  calculatedBalance: Prisma.Decimal | null;
   difference: Prisma.Decimal | null;
   movements: Array<{
     type: string;
     amount: Prisma.Decimal;
     nature: string;
     paymentMethod: string | null;
-    currentBalance: Prisma.Decimal | null;
     createdAt: Date;
   }>;
-}
-
-function getCurrentBalance(register: RegisterWithMovements): number {
-  const sorted = [...register.movements].sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-  );
-  if (sorted.length > 0) {
-    return decimalToCents(sorted[0]!.currentBalance);
-  }
-  return decimalToCents(register.openingBalance);
 }
 
 interface Summary {
@@ -574,15 +504,13 @@ interface Summary {
   totalWithdrawals: number;
   totalDeposits: number;
   totalExpenses: number;
-  totalRefunds: number;
   salesCount: number;
   /** Expected cash in drawer: opening + cash sales + deposits - withdrawals - expenses */
   expectedCashBalance: number;
-  currentBalance: number;
 }
 
-function buildSummary(register: RegisterWithMovements): Summary {
-  const opening = decimalToCents(register.openingBalance);
+function buildSummary(session: SessionWithMovements): Summary {
+  const opening = decimalToCents(session.initialBalance);
   let totalSales = 0;
   let totalSalesCash = 0;
   let totalSalesCard = 0;
@@ -590,14 +518,12 @@ function buildSummary(register: RegisterWithMovements): Summary {
   let totalWithdrawals = 0;
   let totalDeposits = 0;
   let totalExpenses = 0;
-  let totalRefunds = 0;
   let salesCount = 0;
 
-  for (const m of register.movements) {
+  for (const m of session.movements) {
     const amount = decimalToCents(m.amount);
     switch (m.type) {
       case "SALE":
-      case "SERVICE_ORDER":
         totalSales += amount;
         salesCount++;
         if (m.paymentMethod === "dinheiro") totalSalesCash += amount;
@@ -617,9 +543,6 @@ function buildSummary(register: RegisterWithMovements): Summary {
       case "EXPENSE":
         totalExpenses += amount;
         break;
-      case "REFUND":
-        totalRefunds += amount;
-        break;
     }
   }
 
@@ -635,10 +558,8 @@ function buildSummary(register: RegisterWithMovements): Summary {
     totalWithdrawals,
     totalDeposits,
     totalExpenses,
-    totalRefunds,
     salesCount,
     expectedCashBalance,
-    currentBalance: getCurrentBalance(register),
   };
 }
 
@@ -653,7 +574,7 @@ function buildPaymentMethodSummary(
 ): Record<string, { count: number; total: number }> {
   const result: Record<string, { count: number; total: number }> = {};
   for (const m of movements) {
-    if (m.type !== "SALE" && m.type !== "SERVICE_ORDER") continue;
+    if (m.type !== "SALE") continue;
     const method = m.paymentMethod ?? "outros";
     if (!result[method]) result[method] = { count: 0, total: 0 };
     result[method]!.count++;
@@ -662,37 +583,41 @@ function buildPaymentMethodSummary(
   return result;
 }
 
-interface SerializableRegister {
+interface SerializableSession {
   id: string;
   tenantId: string;
   userId: string;
-  status: string;
-  openingBalance: Prisma.Decimal;
-  closingBalance: Prisma.Decimal | null;
-  expectedBalance: Prisma.Decimal | null;
+  initialBalance: Prisma.Decimal;
+  declaredBalance: Prisma.Decimal | null;
+  calculatedBalance: Prisma.Decimal | null;
   difference: Prisma.Decimal | null;
-  openingNotes: string | null;
-  notes: string | null;
-  closingDetails: Prisma.JsonValue;
+  openingNote: string | null;
+  closingNote: string | null;
+  closeType: string | null;
+  verified: boolean;
+  verifiedAt: Date | null;
+  verifiedByUserId: string | null;
+  verifiedNote: string | null;
   openedAt: Date;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-function serializeRegister(r: SerializableRegister) {
+function serializeSession(r: SerializableSession) {
   return {
     id: r.id,
     tenantId: r.tenantId,
     userId: r.userId,
-    status: r.status,
-    openingBalance: decimalToCents(r.openingBalance),
-    closingBalance: r.closingBalance != null ? decimalToCents(r.closingBalance) : null,
-    expectedBalance: r.expectedBalance != null ? decimalToCents(r.expectedBalance) : null,
+    // Keep "status" field in API response for backward compat with UI
+    status: r.closedAt ? "CLOSED" : "OPEN",
+    openingBalance: decimalToCents(r.initialBalance),
+    closingBalance: r.declaredBalance != null ? decimalToCents(r.declaredBalance) : null,
+    expectedBalance: r.calculatedBalance != null ? decimalToCents(r.calculatedBalance) : null,
     difference: r.difference != null ? decimalToCents(r.difference) : null,
-    openingNotes: r.openingNotes,
-    notes: r.notes,
-    closingDetails: r.closingDetails as Record<string, unknown> | null,
+    openingNotes: r.openingNote,
+    notes: r.closingNote,
+    verified: r.verified,
     openedAt: r.openedAt,
     closedAt: r.closedAt,
     createdAt: r.createdAt,
@@ -709,9 +634,7 @@ interface SerializableMovement {
   description: string | null;
   referenceId: string | null;
   referenceType: string | null;
-  userId: string;
-  previousBalance: Prisma.Decimal | null;
-  currentBalance: Prisma.Decimal | null;
+  createdByUserId: string;
   createdAt: Date;
 }
 
@@ -725,9 +648,7 @@ function serializeMovement(m: SerializableMovement) {
     description: m.description,
     referenceId: m.referenceId,
     referenceType: m.referenceType,
-    userId: m.userId,
-    previousBalance: m.previousBalance != null ? decimalToCents(m.previousBalance as Prisma.Decimal) : null,
-    currentBalance: m.currentBalance != null ? decimalToCents(m.currentBalance as Prisma.Decimal) : null,
+    userId: m.createdByUserId,
     createdAt: m.createdAt,
   };
 }

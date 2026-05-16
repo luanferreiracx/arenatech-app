@@ -67,7 +67,7 @@ export function PendingReviewsList() {
     if (!selectedId) return;
     reviewMutation.mutate(
       {
-        cashRegisterId: selectedId,
+        cashSessionId: selectedId,
         reportedBalance,
         notes: notes || undefined,
       },

@@ -2,23 +2,10 @@ import { z } from "zod";
 
 // ── Enums ──
 
-export const cashRegisterStatusEnum = z.enum(["OPEN", "CLOSED"]);
-export type CashRegisterStatus = z.infer<typeof cashRegisterStatusEnum>;
-
-export const cashMovementTypeEnum = z.enum([
-  "OPENING",
-  "SALE",
-  "SERVICE_ORDER",
-  "WITHDRAWAL",
-  "DEPOSIT",
-  "ADJUSTMENT",
-  "EXPENSE",
-  "REFUND",
-  "CLOSING",
-]);
+export const cashMovementTypeEnum = z.enum(["SALE", "DEPOSIT", "WITHDRAWAL", "EXPENSE"]);
 export type CashMovementType = z.infer<typeof cashMovementTypeEnum>;
 
-export const cashMovementNatureEnum = z.enum(["INFLOW", "OUTFLOW"]);
+export const cashMovementNatureEnum = z.enum(["INCOME", "OUTCOME"]);
 export type CashMovementNature = z.infer<typeof cashMovementNatureEnum>;
 
 export const paymentMethodEnum = z.enum([
@@ -46,43 +33,26 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 export const MOVEMENT_TYPE_LABELS: Record<string, string> = {
-  OPENING: "Abertura",
   SALE: "Venda",
-  SERVICE_ORDER: "Ordem de Servico",
   WITHDRAWAL: "Sangria",
   DEPOSIT: "Suprimento",
-  ADJUSTMENT: "Ajuste",
   EXPENSE: "Despesa",
-  REFUND: "Estorno",
-  CLOSING: "Fechamento",
 };
 
 // ── Input Schemas ──
 
-/** Open a cash register */
-export const openCashRegisterSchema = z.object({
+/** Open a cash session */
+export const openCashSessionSchema = z.object({
   /** Opening balance in centavos */
-  openingBalance: z.number().int().min(0, "Saldo inicial deve ser >= 0"),
-  openingNotes: z.string().max(500).optional(),
+  initialBalance: z.number().int().min(0, "Saldo inicial deve ser >= 0"),
+  openingNote: z.string().max(500).optional(),
 });
 
-/** Close a cash register */
-export const closeCashRegisterSchema = z.object({
-  /** Reported balance in centavos */
-  reportedBalance: z.number().int().min(0, "Saldo informado deve ser >= 0"),
-  notes: z.string().max(500).optional(),
-  /** Per-payment-method verification details */
-  closingDetails: z
-    .record(
-      z.string(),
-      z.object({
-        systemAmount: z.number().int(),
-        reportedAmount: z.number().int(),
-        verified: z.boolean(),
-        difference: z.number().int(),
-      }),
-    )
-    .optional(),
+/** Close a cash session */
+export const closeCashSessionSchema = z.object({
+  /** Declared balance in centavos (reported by operator) */
+  declaredBalance: z.number().int().min(0, "Saldo informado deve ser >= 0"),
+  closingNote: z.string().max(500).optional(),
 });
 
 /** Withdrawal (sangria) */
@@ -100,19 +70,29 @@ export const depositSchema = z.object({
 });
 
 /** History filter */
-export const cashRegisterHistorySchema = z.object({
+export const cashSessionHistorySchema = z.object({
   page: z.number().int().min(0).default(0),
   pageSize: z.number().int().min(1).max(100).default(10),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
 });
 
-/** Review a pending cash register (conferencia) */
-export const reviewCashRegisterSchema = z.object({
-  /** Cash register ID to review */
-  cashRegisterId: z.string().uuid(),
+/** Review a pending cash session (conferencia) */
+export const reviewCashSessionSchema = z.object({
+  /** Cash session ID to review */
+  cashSessionId: z.string().uuid(),
   /** Reported balance in centavos (contagem em dinheiro) */
   reportedBalance: z.number().int().min(0, "Saldo informado deve ser >= 0"),
   /** Optional observation from the reviewer */
   notes: z.string().max(500).optional(),
 });
+
+// ── Keep old export names as aliases for backward compat at import sites ──
+/** @deprecated Use openCashSessionSchema */
+export const openCashRegisterSchema = openCashSessionSchema;
+/** @deprecated Use closeCashSessionSchema */
+export const closeCashRegisterSchema = closeCashSessionSchema;
+/** @deprecated Use cashSessionHistorySchema */
+export const cashRegisterHistorySchema = cashSessionHistorySchema;
+/** @deprecated Use reviewCashSessionSchema */
+export const reviewCashRegisterSchema = reviewCashSessionSchema;

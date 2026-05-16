@@ -232,8 +232,8 @@ export function CashierDashboard() {
           isPending={openMutation.isPending}
           onSubmit={() => {
             openMutation.mutate({
-              openingBalance,
-              openingNotes: openingNotes || undefined,
+              initialBalance: openingBalance,
+              openingNote: openingNotes || undefined,
             });
           }}
         />
@@ -328,7 +328,7 @@ export function CashierDashboard() {
                   <TableHead>Descricao</TableHead>
                   <TableHead>Forma</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-right">Saldo</TableHead>
+                  <TableHead className="text-right">Obs</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -361,18 +361,16 @@ export function CashierDashboard() {
                       </TableCell>
                       <TableCell
                         className={`text-right font-mono text-sm ${
-                          m.nature === "INFLOW"
+                          m.nature === "INCOME"
                             ? "text-green-600"
                             : "text-destructive"
                         }`}
                       >
-                        {m.nature === "INFLOW" ? "+" : "-"}{" "}
+                        {m.nature === "INCOME" ? "+" : "-"}{" "}
                         {formatCents(m.amount)}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {m.currentBalance != null
-                          ? formatCents(m.currentBalance)
-                          : "-"}
+                      <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                        {m.description ?? "-"}
                       </TableCell>
                     </TableRow>
                   ))
@@ -427,15 +425,13 @@ export function CashierDashboard() {
 
 function MovementTypeBadge({ type }: { type: string }) {
   const variant =
-    type === "SALE" || type === "SERVICE_ORDER"
+    type === "SALE"
       ? "default"
       : type === "WITHDRAWAL"
         ? "secondary"
         : type === "DEPOSIT"
           ? "outline"
-          : type === "OPENING" || type === "CLOSING"
-            ? "secondary"
-            : "destructive";
+          : "destructive";
 
   return <Badge variant={variant}>{MOVEMENT_TYPE_LABELS[type] ?? type}</Badge>;
 }
@@ -449,7 +445,7 @@ function PaymentMethodSummaryCard({
 }) {
   const summary: Record<string, { count: number; total: number }> = {};
   for (const m of movements) {
-    if (m.type !== "SALE" && m.type !== "SERVICE_ORDER") continue;
+    if (m.type !== "SALE") continue;
     const method = m.paymentMethod ?? "outros";
     if (!summary[method]) summary[method] = { count: 0, total: 0 };
     summary[method]!.count++;
