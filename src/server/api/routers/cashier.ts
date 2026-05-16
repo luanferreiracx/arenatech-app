@@ -450,7 +450,7 @@ export const cashierRouter = createTRPCRouter({
   }),
 
   /**
-   * List all currently open cash sessions across all users.
+   * List all currently open cash sessions across all users. (Manager+)
    */
   openCashiers: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
@@ -476,6 +476,187 @@ export const cashierRouter = createTRPCRouter({
       }));
     });
   }),
+
+  // ═══════════════════════════════════════
+  // PUBLIC API — Consumed by PDV/OS modules
+  // ═══════════════════════════════════════
+
+  /**
+   * @public-api Consumed by PDV module.
+   * Returns the open session for a given user (or current user if omitted).
+   */
+  getOpenSession: tenantProcedure
+    .input(z.object({ userId: z.string().uuid().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = input?.userId ?? ctx.session.user.id;
+      return ctx.withTenant(async (tx) => {
+        return tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
+          select: { id: true, userId: true, openedAt: true, initialBalance: true },
+        });
+      });
+    }),
+
+  /**
+   * @public-api Consumed by PDV module.
+   * Records a sale with split payments (K7: one movement per payment method).
+   * TODO: substituir por chamada real do PDV módulo quando implementado.
+   */
+  recordSale: tenantProcedure
+    .input(z.object({
+      saleId: z.string().uuid(),
+      payments: z.array(z.object({
+        method: z.string(),
+        amount: z.number().int().min(1), // centavos
+      })).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (!session) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
+        }
+
+        for (const payment of input.payments) {
+          await tx.cashMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              cashSessionId: session.id,
+              type: "SALE",
+              nature: "INCOME",
+              amount: new Prisma.Decimal(payment.amount).div(100),
+              paymentMethod: payment.method,
+              description: `Venda`,
+              referenceType: "sale",
+              referenceId: input.saleId,
+              createdByUserId: ctx.session.user.id,
+            },
+          });
+        }
+
+        return { success: true };
+      });
+    }),
+
+  /**
+   * @public-api Consumed by OS module.
+   * Records a service order payment.
+   * TODO: substituir por chamada real do OS módulo quando implementado.
+   */
+  recordServiceOrderPayment: tenantProcedure
+    .input(z.object({
+      serviceOrderId: z.string().uuid(),
+      payments: z.array(z.object({
+        method: z.string(),
+        amount: z.number().int().min(1),
+      })).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (!session) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
+        }
+
+        for (const payment of input.payments) {
+          await tx.cashMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              cashSessionId: session.id,
+              type: "SALE",
+              nature: "INCOME",
+              amount: new Prisma.Decimal(payment.amount).div(100),
+              paymentMethod: payment.method,
+              description: `Pagamento OS`,
+              referenceType: "service_order",
+              referenceId: input.serviceOrderId,
+              createdByUserId: ctx.session.user.id,
+            },
+          });
+        }
+
+        return { success: true };
+      });
+    }),
+
+  /** Register expense (despesa avulsa) */
+  expense: tenantProcedure
+    .input(z.object({
+      amount: z.number().int().min(1),
+      paymentMethod: z.string().min(1),
+      description: z.string().min(3).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (!session) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
+        }
+
+        await tx.cashMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            cashSessionId: session.id,
+            type: "EXPENSE",
+            nature: "OUTCOME",
+            amount: new Prisma.Decimal(input.amount).div(100),
+            paymentMethod: input.paymentMethod,
+            description: input.description,
+            referenceType: "manual",
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  /** Force close another user's session (Manager+) */
+  forceClose: tenantProcedure
+    .input(z.object({
+      sessionId: z.string().uuid(),
+      reason: z.string().min(3).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode forcar fechamento" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { id: input.sessionId, closedAt: null },
+        });
+        if (!session) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Sessao nao encontrada ou ja fechada" });
+        }
+
+        // Calculate balance and close
+        const { calculateSessionBalance } = await import("@/server/services/cash-session.service");
+        const calculatedBalance = await calculateSessionBalance(tx as any, session.id);
+
+        await tx.cashSession.update({
+          where: { id: session.id },
+          data: {
+            calculatedBalance: new Prisma.Decimal(calculatedBalance),
+            declaredBalance: new Prisma.Decimal(calculatedBalance),
+            difference: new Prisma.Decimal(0),
+            closeType: "MANUAL",
+            closedByUserId: ctx.session.user.id,
+            closedAt: new Date(),
+            closingNote: `Fechamento forcado: ${input.reason}`,
+            verified: false,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
 });
 
 // ── Helpers ──
