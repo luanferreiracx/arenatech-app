@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import {
   createProductSchema,
@@ -43,16 +43,29 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       name: "",
       description: "",
       brand: "",
+      ncm: null,
+      cest: null,
       isSerialized: false,
+      isPremium: false,
+      hasVariations: false,
+      icmsDifferentialRate: null,
       costPrice: 0,
       salePrice: 0,
       promotionalPrice: null,
+      defaultMargin: null,
       minStock: 0,
       unit: "un",
       active: true,
       categoryId: null,
+      categoryIds: [],
     },
   });
+
+  const hasVariations = form.watch("hasVariations");
+
+  const { data: categories } = useQuery(
+    trpc.stock.listCategories.queryOptions({ pageSize: 100 })
+  );
 
   const createMutation = useMutation(
     trpc.stock.create.mutationOptions({
@@ -146,49 +159,49 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="categoryId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Categoria</FormLabel>
+                  <FormControl>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value || null)}
+                    >
+                      <option value="">Sem categoria</option>
+                      {categories?.data?.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         </FormSection>
 
-        <FormSection title="Precos e Estoque">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <FormSection title="Classificacao Fiscal">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <FormField
               control={form.control}
-              name="costPrice"
+              name="ncm"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Preco de Custo</FormLabel>
+                  <FormLabel>NCM</FormLabel>
                   <FormControl>
-                    <MoneyInput value={field.value} onChange={field.onChange} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="salePrice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Preco de Venda *</FormLabel>
-                  <FormControl>
-                    <MoneyInput value={field.value} onChange={field.onChange} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="promotionalPrice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Preco Promocional</FormLabel>
-                  <FormControl>
-                    <MoneyInput
-                      value={field.value ?? 0}
-                      onChange={(v) => field.onChange(v > 0 ? v : null)}
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value || null)}
+                      placeholder="8 digitos (ex: 85171200)"
+                      maxLength={8}
                     />
                   </FormControl>
                   <FormMessage />
@@ -198,32 +211,40 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
 
             <FormField
               control={form.control}
-              name="minStock"
+              name="cest"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Estoque Minimo</FormLabel>
+                  <FormLabel>CEST</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value || null)}
+                      placeholder="Opcional"
+                      maxLength={10}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="icmsDifferentialRate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Aliquota ICMS Diferencial (%)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
-                      {...field}
-                      value={field.value ?? 0}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                      placeholder="0"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                      placeholder="0.00"
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="unit"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Unidade</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? "un"} placeholder="un" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -231,6 +252,113 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
             />
           </div>
         </FormSection>
+
+        {!hasVariations && (
+          <FormSection title="Precos e Estoque">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <FormField
+                control={form.control}
+                name="costPrice"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Preco de Custo</FormLabel>
+                    <FormControl>
+                      <MoneyInput value={field.value} onChange={field.onChange} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="salePrice"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Preco de Venda *</FormLabel>
+                    <FormControl>
+                      <MoneyInput value={field.value} onChange={field.onChange} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="promotionalPrice"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Preco Promocional</FormLabel>
+                    <FormControl>
+                      <MoneyInput
+                        value={field.value ?? 0}
+                        onChange={(v) => field.onChange(v > 0 ? v : null)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="defaultMargin"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Margem Padrao (%)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        placeholder="0.00"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="minStock"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Estoque Minimo</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        {...field}
+                        value={field.value ?? 0}
+                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        placeholder="0"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="unit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Unidade</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value ?? "un"} placeholder="un" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </FormSection>
+        )}
 
         <FormSection title="Descricao">
           <FormField
@@ -261,9 +389,51 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                   <div className="space-y-0.5">
-                    <FormLabel className="text-base">E Aparelho</FormLabel>
+                    <FormLabel className="text-base">Produto Serializado</FormLabel>
                     <p className="text-sm text-muted-foreground">
-                      Aparelhos usam entrada via Compra de Aparelhos (com IMEI, condicao, bateria)
+                      Ativar para produtos com IMEI ou numero de serie (aparelhos)
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="isPremium"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Produto Premium</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Afeta calculo de comissoes
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="hasVariations"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Usa Variacoes</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Habilitar para produtos com variantes (cor, armazenamento). Precos definidos por variacao.
                     </p>
                   </div>
                   <FormControl>
