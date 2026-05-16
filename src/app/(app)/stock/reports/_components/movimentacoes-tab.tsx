@@ -44,9 +44,9 @@ export function MovimentacoesTab({ dateFrom, dateTo }: Props) {
                 <option value="">Todos</option>
                 <option value="ENTRY">Entrada</option>
                 <option value="EXIT">Saida</option>
-                <option value="SALE">Venda</option>
                 <option value="ADJUSTMENT">Ajuste</option>
-                <option value="RETURN">Devolucao</option>
+                <option value="RESERVE">Reserva</option>
+                <option value="RELEASE">Liberacao</option>
               </select>
             </div>
           </div>
@@ -91,9 +91,9 @@ export function MovimentacoesTab({ dateFrom, dateTo }: Props) {
                       <TableCell>
                         <StatusBadge
                           variant={
-                            m.type === "ENTRY" || m.type === "RETURN"
+                            m.type === "ENTRY" || m.type === "RELEASE"
                               ? "success"
-                              : m.type === "EXIT" || m.type === "SALE"
+                              : m.type === "EXIT"
                                 ? "destructive"
                                 : "default"
                           }

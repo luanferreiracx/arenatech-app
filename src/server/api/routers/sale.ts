@@ -407,12 +407,11 @@ export const saleRouter = createTRPCRouter({
             data: {
               tenantId: ctx.tenantId,
               productId: item.productId,
-              type: "SALE",
-              quantity: -item.quantity,
-              unitCost: item.costPrice,
+              type: "EXIT",
+              quantity: item.quantity,
               reason: `Venda ${saleNumber}`,
               referenceId: sale.id,
-              referenceType: "SALE",
+              referenceType: "sale",
               userId: ctx.session.user.id,
             },
           });
@@ -657,7 +656,7 @@ export const saleRouter = createTRPCRouter({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
-                type: "RETURN",
+                type: "ENTRY",
                 quantity: item.quantity,
                 reason: `Estorno venda ${sale.number}`,
                 referenceId: sale.id,

@@ -35,6 +35,7 @@ model Product {
   attributeConfigs ProductAttributeConfig[]
   movements        StockMovement[]
   purchases        DevicePurchase[]
+  stockItems       StockItem[]
 
   @@index([tenantId, active])
   @@index([tenantId, sku])
@@ -137,6 +138,7 @@ model ProductVariation {
 
   product         Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
   attributeValues ProductVariationAttribute[]
+  stockItems      StockItem[]
 
   @@index([tenantId, productId])
   @@index([tenantId, sku])
@@ -215,6 +217,8 @@ model Supplier {
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
+  stockItems   StockItem[]
+
   @@index([tenantId, active])
   @@index([tenantId, cpf])
   @@index([tenantId, cnpj])
@@ -226,28 +230,32 @@ enum StockMovementType {
   ENTRY
   EXIT
   ADJUSTMENT
-  SALE
-  RETURN
-  TRANSFER
+  RESERVE
+  RELEASE
 }
 
 model StockMovement {
-  id            String            @id @default(uuid()) @db.Uuid
-  tenantId      String            @map("tenant_id") @db.Uuid
-  productId     String            @map("product_id") @db.Uuid
-  type          StockMovementType
-  quantity      Int
-  unitCost      Decimal?          @map("unit_cost") @db.Decimal(10, 2)
-  reason        String?
-  referenceId   String?           @map("reference_id") @db.Uuid
-  referenceType String?           @map("reference_type")
-  userId        String            @map("user_id") @db.Uuid
-  createdAt     DateTime          @default(now()) @map("created_at")
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  productId      String            @map("product_id") @db.Uuid
+  variationId    String?           @map("variation_id") @db.Uuid
+  stockItemId    String?           @map("stock_item_id") @db.Uuid
+  type           StockMovementType
+  quantity       Int
+  quantityBefore Int?              @map("quantity_before")
+  quantityAfter  Int?              @map("quantity_after")
+  reason         String?
+  notes          String?           @db.Text
+  referenceType  String?           @map("reference_type")
+  referenceId    String?           @map("reference_id") @db.Uuid
+  userId         String            @map("user_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
 
   product Product @relation(fields: [productId], references: [id])
 
-  @@index([tenantId, productId])
-  @@index([tenantId, createdAt])
+  @@index([tenantId, productId, createdAt])
+  @@index([tenantId, stockItemId, createdAt])
+  @@index([tenantId, type, createdAt])
   @@map("stock_movements")
 }
 

@@ -463,7 +463,6 @@ export const stockRouter = createTRPCRouter({
               productId: input.productId,
               type: "ENTRY",
               quantity: 1,
-              unitCost: new Prisma.Decimal(input.purchasePrice).div(100),
               reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
               referenceId: purchase.id,
               referenceType: "device_purchase",
@@ -859,9 +858,6 @@ export const stockRouter = createTRPCRouter({
             productId: input.productId,
             type: "ENTRY",
             quantity: input.quantity,
-            unitCost: input.unitCost
-              ? new Prisma.Decimal(input.unitCost).div(100)
-              : null,
             reason: input.reason,
             referenceId: input.supplierId || null,
             referenceType: input.supplierId ? "supplier" : null,
@@ -1089,7 +1085,7 @@ export const stockRouter = createTRPCRouter({
           .filter((m) => m.type === "ENTRY")
           .reduce((s, m) => s + m.quantity, 0);
         const exits = movements
-          .filter((m) => m.type === "EXIT" || m.type === "SALE")
+          .filter((m) => m.type === "EXIT")
           .reduce((s, m) => s + m.quantity, 0);
 
         return { movements, totals: { entries, exits } };
@@ -1605,7 +1601,7 @@ export const stockRouter = createTRPCRouter({
           }),
           tx.stockMovement.aggregate({
             where: {
-              type: { in: ["EXIT", "SALE"] },
+              type: { in: ["EXIT"] },
               createdAt: { gte: dateFrom, lte: dateTo },
             },
             _sum: { quantity: true },

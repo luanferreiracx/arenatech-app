@@ -182,9 +182,9 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell>
                       <StatusBadge
                         variant={
-                          mov.type === "ENTRY" || mov.type === "RETURN"
+                          mov.type === "ENTRY" || mov.type === "RELEASE"
                             ? "success"
-                            : mov.type === "EXIT" || mov.type === "SALE"
+                            : mov.type === "EXIT"
                               ? "destructive"
                               : "warning"
                         }
@@ -193,7 +193,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                       </StatusBadge>
                     </TableCell>
                     <TableCell className="font-mono">
-                      {mov.type === "EXIT" || mov.type === "SALE" ? "-" : "+"}
+                      {mov.type === "EXIT" || mov.type === "RESERVE" ? "-" : "+"}
                       {mov.quantity}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">

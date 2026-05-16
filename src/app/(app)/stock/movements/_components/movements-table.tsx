@@ -46,7 +46,7 @@ export function MovementsTable() {
 
   const { data, isLoading } = useQuery(
     trpc.stock.listMovements.queryOptions({
-      type: type as "ENTRY" | "EXIT" | "ADJUSTMENT" | "SALE" | "RETURN" | "TRANSFER" | undefined,
+      type: type as "ENTRY" | "EXIT" | "ADJUSTMENT" | "RESERVE" | "RELEASE" | undefined,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       page,
@@ -82,9 +82,9 @@ export function MovementsTable() {
       cell: ({ row }) => (
         <StatusBadge
           variant={
-            row.original.type === "ENTRY" || row.original.type === "RETURN"
+            row.original.type === "ENTRY" || row.original.type === "RELEASE"
               ? "success"
-              : row.original.type === "EXIT" || row.original.type === "SALE"
+              : row.original.type === "EXIT"
                 ? "destructive"
                 : "warning"
           }
@@ -98,7 +98,7 @@ export function MovementsTable() {
       header: "Quantidade",
       cell: ({ row }) => (
         <span className="font-mono">
-          {row.original.type === "EXIT" || row.original.type === "SALE" ? "-" : "+"}
+          {row.original.type === "EXIT" || row.original.type === "RESERVE" ? "-" : "+"}
           {row.original.quantity}
         </span>
       ),

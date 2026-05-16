@@ -1,0 +1,54 @@
+enum StockItemStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+  DEFECTIVE
+  RETURNED
+  BLOCKED
+}
+
+enum StockItemCondition {
+  NEW
+  SEMI_NEW
+  USED
+  DISPLAY
+}
+
+model StockItem {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tenantId           String             @map("tenant_id") @db.Uuid
+  productId          String             @map("product_id") @db.Uuid
+  variationId        String?            @map("variation_id") @db.Uuid
+  supplierId         String?            @map("supplier_id") @db.Uuid
+  imei               String?
+  serialNumber       String?            @map("serial_number")
+  barcode            String?
+  condition          StockItemCondition  @default(NEW)
+  conservationGrade  String?            @map("conservation_grade")
+  batteryHealth      Int?               @map("battery_health")
+  warrantyMonths     Int?               @map("warranty_months")
+  costPrice          Decimal            @default(0) @map("cost_price") @db.Decimal(10, 2)
+  suggestedSalePrice Decimal?           @map("suggested_sale_price") @db.Decimal(10, 2)
+  invoiceNumber      String?            @map("invoice_number")
+  entryDate          DateTime           @default(now()) @map("entry_date")
+  status             StockItemStatus    @default(AVAILABLE)
+  reservedForType    String?            @map("reserved_for_type")
+  reservedForId      String?            @map("reserved_for_id") @db.Uuid
+  reservedAt         DateTime?          @map("reserved_at")
+  saleId             String?            @map("sale_id") @db.Uuid
+  soldAt             DateTime?          @map("sold_at")
+  notes              String?            @db.Text
+  deletedAt          DateTime?          @map("deleted_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  product   Product           @relation(fields: [productId], references: [id])
+  variation ProductVariation? @relation(fields: [variationId], references: [id])
+  supplier  Supplier?         @relation(fields: [supplierId], references: [id])
+
+  @@index([tenantId, productId, status])
+  @@index([tenantId, imei])
+  @@index([tenantId, serialNumber])
+  @@index([tenantId, status])
+  @@map("stock_items")
+}

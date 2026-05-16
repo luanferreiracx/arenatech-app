@@ -59,7 +59,7 @@ export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
 
 export const listMovementsSchema = z.object({
   productId: z.string().uuid().optional(),
-  type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "SALE", "RETURN", "TRANSFER"]).optional(),
+  type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "RESERVE", "RELEASE"]).optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   page: z.number().int().min(0).optional(),
@@ -197,7 +197,7 @@ export const posicaoEstoqueSchema = z.object({
 export type PosicaoEstoqueInput = z.infer<typeof posicaoEstoqueSchema>;
 
 export const movimentacoesReportSchema = reportDateRangeSchema.extend({
-  type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "SALE", "RETURN", "TRANSFER"]).optional(),
+  type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "RESERVE", "RELEASE"]).optional(),
   productId: z.string().uuid().optional(),
 });
 
@@ -267,9 +267,8 @@ export const stockMovementTypeLabels: Record<string, string> = {
   ENTRY: "Entrada",
   EXIT: "Saida",
   ADJUSTMENT: "Ajuste",
-  SALE: "Venda",
-  RETURN: "Devolucao",
-  TRANSFER: "Transferencia",
+  RESERVE: "Reserva",
+  RELEASE: "Liberacao",
 };
 
 export const deviceConditionLabels: Record<string, string> = {

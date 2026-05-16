@@ -481,9 +481,8 @@ describe("labels", () => {
     expect(stockMovementTypeLabels.ENTRY).toBe("Entrada");
     expect(stockMovementTypeLabels.EXIT).toBe("Saida");
     expect(stockMovementTypeLabels.ADJUSTMENT).toBe("Ajuste");
-    expect(stockMovementTypeLabels.SALE).toBe("Venda");
-    expect(stockMovementTypeLabels.RETURN).toBe("Devolucao");
-    expect(stockMovementTypeLabels.TRANSFER).toBe("Transferencia");
+    expect(stockMovementTypeLabels.RESERVE).toBe("Reserva");
+    expect(stockMovementTypeLabels.RELEASE).toBe("Liberacao");
   });
 
   it("deviceConditionLabels tem todas as chaves", () => {

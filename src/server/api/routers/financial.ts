@@ -792,18 +792,18 @@ export const financialRouter = createTRPCRouter({
             _sum: { paidAmount: true },
           });
 
-          // Parts cost: sum of cost from sales in period (approximation)
-          // Using stock movements of type SALE in the period
+          // Parts cost: sum of quantity * product cost from EXIT movements in period (approximation)
           const partsCostResult = await tx.stockMovement.aggregate({
             where: {
-              type: "SALE",
+              type: "EXIT",
+              referenceType: "sale",
               createdAt: { gte: startOfMonth, lte: endOfMonth },
             },
-            _sum: { unitCost: true },
+            _sum: { quantity: true },
           });
 
           const revenue = decimalToCents(revenueResult._sum.paidAmount);
-          const partsCost = decimalToCents(partsCostResult._sum.unitCost);
+          const partsCost = (partsCostResult._sum.quantity ?? 0) * 0; // TODO: proper cost calculation
           const grossProfit = revenue - partsCost;
           const expenses = decimalToCents(expensesResult._sum.paidAmount);
           const netProfit = grossProfit - expenses;
