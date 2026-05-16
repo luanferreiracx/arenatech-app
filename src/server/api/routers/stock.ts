@@ -27,7 +27,22 @@ import {
   upgradesSchema,
   csvImportSchema,
   reportDateRangeSchema,
+  createAttributeSchema,
+  updateAttributeSchema,
+  listAttributesSchema,
+  createAttributeValueSchema,
+  updateAttributeValueSchema,
+  createVariationSchema,
+  updateVariationSchema,
+  listVariationsSchema,
+  createPhotoSchema,
+  setPrimaryPhotoSchema,
+  searchNcmSchema,
+  lookupCnpjSchema,
+  duplicateProductSchema,
 } from "@/lib/validators/stock";
+import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
+import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
 import { Prisma } from "@prisma/client";
 
 export const stockRouter = createTRPCRouter({
@@ -90,7 +105,7 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /** Get product by ID with recent movements */
+  /** Get product by ID with relations */
   getById: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -98,6 +113,16 @@ export const stockRouter = createTRPCRouter({
         const product = await tx.product.findUnique({
           where: { id: input.id },
           include: {
+            category: true,
+            categories: { include: { category: true } },
+            photos: { orderBy: { order: "asc" } },
+            variations: {
+              where: { deletedAt: null },
+              include: {
+                attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
+              },
+            },
+            attributeConfigs: { include: { attribute: true }, orderBy: { order: "asc" } },
             movements: {
               orderBy: { createdAt: "desc" },
               take: 20,
@@ -118,8 +143,14 @@ export const stockRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createProductSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
       return ctx.withTenant(async (tx) => {
-        return tx.product.create({
+        const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || null;
+
+        const product = await tx.product.create({
           data: {
             tenantId: ctx.tenantId,
             sku: input.sku || null,
@@ -127,18 +158,42 @@ export const stockRouter = createTRPCRouter({
             name: input.name,
             description: input.description || null,
             brand: input.brand || null,
+            ncm: input.ncm || null,
+            cest: input.cest || null,
             isSerialized: input.isSerialized ?? false,
+            isPremium: input.isPremium ?? false,
+            hasVariations: input.hasVariations ?? false,
+            icmsDifferentialRate: input.icmsDifferentialRate != null
+              ? new Prisma.Decimal(input.icmsDifferentialRate)
+              : null,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
             promotionalPrice: input.promotionalPrice != null
               ? new Prisma.Decimal(input.promotionalPrice).div(100)
               : null,
+            defaultMargin: input.defaultMargin != null
+              ? new Prisma.Decimal(input.defaultMargin)
+              : null,
             minStock: input.minStock ?? 0,
             unit: input.unit ?? "un",
             active: input.active ?? true,
-            categoryId: input.categoryId || null,
+            categoryId: primaryCategoryId,
           },
         });
+
+        // Create category pivots
+        if (input.categoryIds && input.categoryIds.length > 0) {
+          await tx.productCategoryPivot.createMany({
+            data: input.categoryIds.map((catId, idx) => ({
+              tenantId: ctx.tenantId,
+              productId: product.id,
+              categoryId: catId,
+              isPrimary: idx === 0,
+            })),
+          });
+        }
+
+        return product;
       });
     }),
 
@@ -146,13 +201,19 @@ export const stockRouter = createTRPCRouter({
   update: tenantProcedure
     .input(updateProductSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.product.findUnique({ where: { id: input.id } });
         if (!existing || existing.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        return tx.product.update({
+        const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || existing.categoryId;
+
+        const product = await tx.product.update({
           where: { id: input.id },
           data: {
             sku: input.sku || null,
@@ -160,18 +221,45 @@ export const stockRouter = createTRPCRouter({
             name: input.name,
             description: input.description || null,
             brand: input.brand || null,
+            ncm: input.ncm || null,
+            cest: input.cest || null,
             isSerialized: input.isSerialized ?? false,
+            isPremium: input.isPremium ?? false,
+            hasVariations: input.hasVariations ?? false,
+            icmsDifferentialRate: input.icmsDifferentialRate != null
+              ? new Prisma.Decimal(input.icmsDifferentialRate)
+              : null,
             costPrice: new Prisma.Decimal(input.costPrice).div(100),
             salePrice: new Prisma.Decimal(input.salePrice).div(100),
             promotionalPrice: input.promotionalPrice != null
               ? new Prisma.Decimal(input.promotionalPrice).div(100)
               : null,
+            defaultMargin: input.defaultMargin != null
+              ? new Prisma.Decimal(input.defaultMargin)
+              : null,
             minStock: input.minStock ?? 0,
             unit: input.unit ?? "un",
             active: input.active ?? true,
-            categoryId: input.categoryId || null,
+            categoryId: primaryCategoryId,
           },
         });
+
+        // Sync category pivots if provided
+        if (input.categoryIds) {
+          await tx.productCategoryPivot.deleteMany({ where: { productId: input.id } });
+          if (input.categoryIds.length > 0) {
+            await tx.productCategoryPivot.createMany({
+              data: input.categoryIds.map((catId, idx) => ({
+                tenantId: ctx.tenantId,
+                productId: input.id,
+                categoryId: catId,
+                isPrimary: idx === 0,
+              })),
+            });
+          }
+        }
+
+        return product;
       });
     }),
 
@@ -1648,4 +1736,481 @@ export const stockRouter = createTRPCRouter({
       return sellers;
     });
   }),
+
+  // ═══════════════════════════════════════
+  // PRODUCT ATTRIBUTES (Estoque-A)
+  // ═══════════════════════════════════════
+
+  listAttributes: tenantProcedure
+    .input(listAttributesSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductAttributeWhereInput = { deletedAt: null };
+        if (input.active !== undefined) where.active = input.active;
+        return tx.productAttribute.findMany({
+          where,
+          include: { values: { where: { active: true }, orderBy: { order: "asc" } } },
+          orderBy: { order: "asc" },
+        });
+      });
+    }),
+
+  createAttribute: tenantProcedure
+    .input(createAttributeSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const slug = input.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        return tx.productAttribute.create({
+          data: {
+            tenantId: ctx.tenantId,
+            name: input.name,
+            slug,
+            order: input.order ?? 0,
+            active: input.active ?? true,
+          },
+        });
+      });
+    }),
+
+  updateAttribute: tenantProcedure
+    .input(updateAttributeSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productAttribute.update({
+          where: { id: input.id },
+          data: {
+            name: input.name,
+            order: input.order,
+            active: input.active,
+          },
+        });
+      });
+    }),
+
+  deleteAttribute: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productAttribute.update({
+          where: { id: input.id },
+          data: { deletedAt: new Date() },
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PRODUCT ATTRIBUTE VALUES (Estoque-A)
+  // ═══════════════════════════════════════
+
+  createAttributeValue: tenantProcedure
+    .input(createAttributeValueSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productAttributeValue.create({
+          data: {
+            tenantId: ctx.tenantId,
+            attributeId: input.attributeId,
+            value: input.value,
+            displayValue: input.displayValue || input.value,
+            code: input.code,
+            order: input.order ?? 0,
+            active: input.active ?? true,
+          },
+        });
+      });
+    }),
+
+  updateAttributeValue: tenantProcedure
+    .input(updateAttributeValueSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const { id, ...data } = input;
+        return tx.productAttributeValue.update({ where: { id }, data });
+      });
+    }),
+
+  deleteAttributeValue: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productAttributeValue.update({
+          where: { id: input.id },
+          data: { active: false },
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PRODUCT VARIATIONS (Estoque-A)
+  // ═══════════════════════════════════════
+
+  listVariations: tenantProcedure
+    .input(listVariationsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductVariationWhereInput = {
+          productId: input.productId,
+          deletedAt: null,
+        };
+        if (input.active !== undefined) where.active = input.active;
+        return tx.productVariation.findMany({
+          where,
+          include: {
+            attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+      });
+    }),
+
+  createVariation: tenantProcedure
+    .input(createVariationSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const variation = await tx.productVariation.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            sku: input.sku,
+            barcode: input.barcode,
+            costPrice: input.costPrice ? input.costPrice / 100 : null,
+            salePrice: input.salePrice ? input.salePrice / 100 : null,
+            promotionalPrice: input.promotionalPrice ? input.promotionalPrice / 100 : null,
+            minStock: input.minStock ?? 0,
+            active: input.active ?? true,
+            attributeValues: {
+              create: input.attributeValueIds.map((avId) => ({
+                attributeValueId: avId,
+              })),
+            },
+          },
+          include: {
+            attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
+          },
+        });
+        return variation;
+      });
+    }),
+
+  updateVariation: tenantProcedure
+    .input(updateVariationSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const { id, attributeValueIds, ...data } = input;
+        const updateData: Prisma.ProductVariationUpdateInput = {};
+        if (data.sku !== undefined) updateData.sku = data.sku;
+        if (data.barcode !== undefined) updateData.barcode = data.barcode;
+        if (data.costPrice !== undefined) updateData.costPrice = data.costPrice ? data.costPrice / 100 : null;
+        if (data.salePrice !== undefined) updateData.salePrice = data.salePrice ? data.salePrice / 100 : null;
+        if (data.promotionalPrice !== undefined) updateData.promotionalPrice = data.promotionalPrice ? data.promotionalPrice / 100 : null;
+        if (data.minStock !== undefined) updateData.minStock = data.minStock;
+        if (data.active !== undefined) updateData.active = data.active;
+
+        if (attributeValueIds) {
+          await tx.productVariationAttribute.deleteMany({ where: { variationId: id } });
+          await tx.productVariationAttribute.createMany({
+            data: attributeValueIds.map((avId) => ({ variationId: id, attributeValueId: avId })),
+          });
+        }
+
+        return tx.productVariation.update({
+          where: { id },
+          data: updateData,
+          include: {
+            attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
+          },
+        });
+      });
+    }),
+
+  deleteVariation: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productVariation.update({
+          where: { id: input.id },
+          data: { deletedAt: new Date() },
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PRODUCT PHOTOS (Estoque-A)
+  // ═══════════════════════════════════════
+
+  listPhotos: tenantProcedure
+    .input(z.object({ productId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.productPhoto.findMany({
+          where: { productId: input.productId },
+          orderBy: { order: "asc" },
+        });
+      });
+    }),
+
+  createPhoto: tenantProcedure
+    .input(createPhotoSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        // Check max 3 photos
+        const count = await tx.productPhoto.count({ where: { productId: input.productId } });
+        if (count >= 3) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Maximo de 3 fotos por produto" });
+        }
+
+        const photo = await tx.productPhoto.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: input.productId,
+            url: input.url,
+            thumbUrl: input.thumbUrl,
+            mediumUrl: input.mediumUrl,
+            order: input.order ?? count,
+            isPrimary: input.isPrimary ?? count === 0, // first photo is primary by default
+          },
+        });
+
+        // Denormalize imageUrl on product
+        if (photo.isPrimary) {
+          await tx.product.update({
+            where: { id: input.productId },
+            data: { imageUrl: photo.thumbUrl || photo.url },
+          });
+        }
+
+        return photo;
+      });
+    }),
+
+  deletePhoto: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), productId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const photo = await tx.productPhoto.findUnique({ where: { id: input.id } });
+        if (!photo) throw new TRPCError({ code: "NOT_FOUND" });
+
+        await tx.productPhoto.delete({ where: { id: input.id } });
+
+        // If deleted photo was primary, make first remaining photo primary
+        if (photo.isPrimary) {
+          const first = await tx.productPhoto.findFirst({
+            where: { productId: input.productId },
+            orderBy: { order: "asc" },
+          });
+          if (first) {
+            await tx.productPhoto.update({ where: { id: first.id }, data: { isPrimary: true } });
+            await tx.product.update({
+              where: { id: input.productId },
+              data: { imageUrl: first.thumbUrl || first.url },
+            });
+          } else {
+            await tx.product.update({ where: { id: input.productId }, data: { imageUrl: null } });
+          }
+        }
+
+        return { success: true };
+      });
+    }),
+
+  setPrimaryPhoto: tenantProcedure
+    .input(setPrimaryPhotoSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        // Reset all photos for this product
+        await tx.productPhoto.updateMany({
+          where: { productId: input.productId },
+          data: { isPrimary: false },
+        });
+        // Set the chosen one as primary
+        const photo = await tx.productPhoto.update({
+          where: { id: input.photoId },
+          data: { isPrimary: true },
+        });
+        // Denormalize
+        await tx.product.update({
+          where: { id: input.productId },
+          data: { imageUrl: photo.thumbUrl || photo.url },
+        });
+        return photo;
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // NCM SEARCH (Estoque-A)
+  // ═══════════════════════════════════════
+
+  searchNcm: tenantProcedure
+    .input(searchNcmSchema)
+    .query(async ({ input }) => {
+      return searchNcm(input.term);
+    }),
+
+  getNcmByCode: tenantProcedure
+    .input(z.object({ code: z.string().length(8) }))
+    .query(async ({ input }) => {
+      return getNcmByCode(input.code);
+    }),
+
+  // ═══════════════════════════════════════
+  // CNPJ LOOKUP (Estoque-A)
+  // ═══════════════════════════════════════
+
+  lookupCnpj: tenantProcedure
+    .input(lookupCnpjSchema)
+    .query(async ({ input }) => {
+      return lookupCnpjApi(input.cnpj);
+    }),
+
+  // ═══════════════════════════════════════
+  // DUPLICATE PRODUCT (Estoque-A)
+  // ═══════════════════════════════════════
+
+  duplicateProduct: tenantProcedure
+    .input(duplicateProductSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const source = await tx.product.findUnique({
+          where: { id: input.productId },
+          include: {
+            categories: true,
+            variations: { include: { attributeValues: true } },
+            attributeConfigs: true,
+          },
+        });
+        if (!source) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const newName = input.newName || `${source.name} (copia)`;
+
+        // Create duplicate product
+        const duplicate = await tx.product.create({
+          data: {
+            tenantId: ctx.tenantId,
+            categoryId: source.categoryId,
+            sku: input.newSku || null,
+            barcode: null,
+            name: newName,
+            description: source.description,
+            brand: source.brand,
+            ncm: source.ncm,
+            cest: source.cest,
+            isSerialized: source.isSerialized,
+            isPremium: source.isPremium,
+            hasVariations: source.hasVariations,
+            icmsDifferentialRate: source.icmsDifferentialRate,
+            costPrice: source.costPrice,
+            salePrice: source.salePrice,
+            promotionalPrice: source.promotionalPrice,
+            defaultMargin: source.defaultMargin,
+            minStock: source.minStock,
+            unit: source.unit,
+            active: true,
+          },
+        });
+
+        // Copy category pivots
+        if (source.categories.length > 0) {
+          await tx.productCategoryPivot.createMany({
+            data: source.categories.map((c) => ({
+              tenantId: ctx.tenantId,
+              productId: duplicate.id,
+              categoryId: c.categoryId,
+              isPrimary: c.isPrimary,
+            })),
+          });
+        }
+
+        // Copy attribute configs
+        if (source.attributeConfigs.length > 0) {
+          await tx.productAttributeConfig.createMany({
+            data: source.attributeConfigs.map((ac) => ({
+              productId: duplicate.id,
+              attributeId: ac.attributeId,
+              order: ac.order,
+            })),
+          });
+        }
+
+        // Copy variations (without SKUs)
+        for (const v of source.variations) {
+          await tx.productVariation.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: duplicate.id,
+              sku: null, // SKU must be new
+              barcode: null,
+              costPrice: v.costPrice,
+              salePrice: v.salePrice,
+              promotionalPrice: v.promotionalPrice,
+              minStock: v.minStock,
+              active: v.active,
+              attributeValues: {
+                create: v.attributeValues.map((av) => ({
+                  attributeValueId: av.attributeValueId,
+                })),
+              },
+            },
+          });
+        }
+
+        return duplicate;
+      });
+    }),
 });

@@ -8,14 +8,21 @@ export const createProductSchema = z.object({
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres").max(200),
   description: z.string().max(2000).optional().nullable(),
   brand: z.string().max(100).optional().nullable(),
+  ncm: z.string().regex(/^\d{8}$/, "NCM deve ter 8 digitos").optional().nullable(),
+  cest: z.string().max(10).optional().nullable(),
   isSerialized: z.boolean().optional(),
+  isPremium: z.boolean().optional(),
+  hasVariations: z.boolean().optional(),
+  icmsDifferentialRate: z.number().min(0).max(100).optional().nullable(),
   costPrice: z.number().int().min(0, "Preco de custo deve ser positivo"), // centavos
   salePrice: z.number().int().min(0, "Preco de venda deve ser positivo"), // centavos
   promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
+  defaultMargin: z.number().min(0).max(100).optional().nullable(),
   minStock: z.number().int().min(0).optional(),
   unit: z.string().max(10).optional(),
   active: z.boolean().optional(),
   categoryId: z.string().uuid().optional().nullable(),
+  categoryIds: z.array(z.string().uuid()).min(1).max(3).optional(),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
@@ -132,6 +139,9 @@ export type ListSuppliersInput = z.infer<typeof listSuppliersSchema>;
 
 export const createCategorySchema = z.object({
   name: z.string().min(1, "Nome e obrigatorio").max(100),
+  description: z.string().max(500).optional().nullable(),
+  badgeColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor invalida").optional(),
+  active: z.boolean().optional(),
 });
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
@@ -268,3 +278,139 @@ export const deviceConditionLabels: Record<string, string> = {
   REFURBISHED: "Recondicionado",
   DEFECTIVE: "Defeituoso",
 };
+
+// ── Product Attribute schemas ──
+
+export const createAttributeSchema = z.object({
+  name: z.string().min(1, "Nome e obrigatorio").max(50),
+  order: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+});
+
+export type CreateAttributeInput = z.infer<typeof createAttributeSchema>;
+
+export const updateAttributeSchema = createAttributeSchema.extend({
+  id: z.string().uuid(),
+});
+
+export type UpdateAttributeInput = z.infer<typeof updateAttributeSchema>;
+
+export const listAttributesSchema = z.object({
+  active: z.boolean().optional(),
+});
+
+export type ListAttributesInput = z.infer<typeof listAttributesSchema>;
+
+// ── Product Attribute Value schemas ──
+
+export const createAttributeValueSchema = z.object({
+  attributeId: z.string().uuid(),
+  value: z.string().min(1, "Valor e obrigatorio").max(100),
+  displayValue: z.string().max(100).optional().nullable(),
+  code: z.string().max(20).optional().nullable(),
+  order: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+});
+
+export type CreateAttributeValueInput = z.infer<typeof createAttributeValueSchema>;
+
+export const updateAttributeValueSchema = z.object({
+  id: z.string().uuid(),
+  value: z.string().min(1).max(100).optional(),
+  displayValue: z.string().max(100).optional().nullable(),
+  code: z.string().max(20).optional().nullable(),
+  order: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+});
+
+export type UpdateAttributeValueInput = z.infer<typeof updateAttributeValueSchema>;
+
+// ── Product Variation schemas ──
+
+export const createVariationSchema = z.object({
+  productId: z.string().uuid(),
+  sku: z.string().max(50).optional().nullable(),
+  barcode: z.string().max(50).optional().nullable(),
+  costPrice: z.number().int().min(0).optional().nullable(), // centavos
+  salePrice: z.number().int().min(0).optional().nullable(), // centavos
+  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
+  minStock: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+  attributeValueIds: z.array(z.string().uuid()).min(1, "Selecione ao menos 1 valor de atributo"),
+});
+
+export type CreateVariationInput = z.infer<typeof createVariationSchema>;
+
+export const updateVariationSchema = z.object({
+  id: z.string().uuid(),
+  sku: z.string().max(50).optional().nullable(),
+  barcode: z.string().max(50).optional().nullable(),
+  costPrice: z.number().int().min(0).optional().nullable(),
+  salePrice: z.number().int().min(0).optional().nullable(),
+  promotionalPrice: z.number().int().min(0).optional().nullable(),
+  minStock: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+  attributeValueIds: z.array(z.string().uuid()).min(1).optional(),
+});
+
+export type UpdateVariationInput = z.infer<typeof updateVariationSchema>;
+
+export const listVariationsSchema = z.object({
+  productId: z.string().uuid(),
+  active: z.boolean().optional(),
+});
+
+export type ListVariationsInput = z.infer<typeof listVariationsSchema>;
+
+// ── Product Photo schemas ──
+
+export const createPhotoSchema = z.object({
+  productId: z.string().uuid(),
+  url: z.string().url(),
+  thumbUrl: z.string().url().optional().nullable(),
+  mediumUrl: z.string().url().optional().nullable(),
+  order: z.number().int().min(0).optional(),
+  isPrimary: z.boolean().optional(),
+});
+
+export type CreatePhotoInput = z.infer<typeof createPhotoSchema>;
+
+export const reorderPhotosSchema = z.object({
+  productId: z.string().uuid(),
+  photoIds: z.array(z.string().uuid()),
+});
+
+export type ReorderPhotosInput = z.infer<typeof reorderPhotosSchema>;
+
+export const setPrimaryPhotoSchema = z.object({
+  productId: z.string().uuid(),
+  photoId: z.string().uuid(),
+});
+
+export type SetPrimaryPhotoInput = z.infer<typeof setPrimaryPhotoSchema>;
+
+// ── NCM search schema ──
+
+export const searchNcmSchema = z.object({
+  term: z.string().min(3, "Minimo 3 caracteres").max(100),
+});
+
+export type SearchNcmInput = z.infer<typeof searchNcmSchema>;
+
+// ── CNPJ lookup schema ──
+
+export const lookupCnpjSchema = z.object({
+  cnpj: z.string().min(14).max(18),
+});
+
+export type LookupCnpjInput = z.infer<typeof lookupCnpjSchema>;
+
+// ── Duplicate product schema ──
+
+export const duplicateProductSchema = z.object({
+  productId: z.string().uuid(),
+  newSku: z.string().max(50).optional().nullable(),
+  newName: z.string().min(2).max(200).optional(),
+});
+
+export type DuplicateProductInput = z.infer<typeof duplicateProductSchema>;
