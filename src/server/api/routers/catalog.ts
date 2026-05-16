@@ -860,4 +860,414 @@ export const catalogRouter = createTRPCRouter({
         return { success: true };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // SERVICE TYPES (Catálogo)
+  // ═══════════════════════════════════════
+
+  listServiceTypesWithCount: tenantProcedure
+    .input(z.object({ active: z.boolean().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: any = { deletedAt: null };
+        if (input?.active !== undefined) where.active = input.active;
+        return tx.serviceType.findMany({
+          where,
+          orderBy: { name: "asc" },
+          include: { _count: { select: { services: true } } },
+        });
+      });
+    }),
+
+  createServiceType: tenantProcedure
+    .input(z.object({ name: z.string().min(2).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const slug = input.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        return tx.serviceType.create({
+          data: { tenantId: ctx.tenantId, name: input.name, slug },
+        });
+      });
+    }),
+
+  renameServiceType: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), newName: z.string().min(2).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const slug = input.newName
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        return tx.serviceType.update({
+          where: { id: input.id },
+          data: { name: input.newName, slug },
+        });
+      });
+    }),
+
+  duplicateServiceType: tenantProcedure
+    .input(z.object({ sourceId: z.string().uuid(), newName: z.string().min(2).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const slug = input.newName
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+
+        const newType = await tx.serviceType.create({
+          data: { tenantId: ctx.tenantId, name: input.newName, slug },
+        });
+
+        const sourceServices = await tx.service.findMany({
+          where: { serviceTypeId: input.sourceId, deletedAt: null },
+        });
+
+        for (const s of sourceServices) {
+          await tx.service.create({
+            data: {
+              tenantId: ctx.tenantId,
+              serviceTypeId: newType.id,
+              serviceType: input.newName,
+              deviceModel: s.deviceModel,
+              name: s.name,
+              description: s.description,
+              basePrice: s.basePrice,
+              estimatedTime: s.estimatedTime,
+              active: true,
+            },
+          });
+        }
+
+        return { type: newType, copiedCount: sourceServices.length };
+      });
+    }),
+
+  deleteServiceType: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const now = new Date();
+        await tx.service.updateMany({
+          where: { serviceTypeId: input.id, deletedAt: null },
+          data: { deletedAt: now },
+        });
+        await tx.serviceType.update({
+          where: { id: input.id },
+          data: { deletedAt: now },
+        });
+        return { success: true };
+      });
+    }),
+
+  bulkAdjustPrices: tenantProcedure
+    .input(z.object({
+      serviceTypeId: z.string().uuid().optional(),
+      adjustmentPercent: z.number().min(-100).max(1000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const where: any = { deletedAt: null };
+        if (input.serviceTypeId) where.serviceTypeId = input.serviceTypeId;
+
+        const services = await tx.service.findMany({ where });
+        const factor = 1 + (input.adjustmentPercent / 100);
+        let count = 0;
+
+        for (const s of services) {
+          const newPrice = Math.max(0, Number(s.basePrice) * factor);
+          await tx.service.update({
+            where: { id: s.id },
+            data: { basePrice: Math.round(newPrice * 100) / 100 },
+          });
+          count++;
+        }
+
+        return { adjustedCount: count };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // CATALOG DEVICES (Catálogo)
+  // ═══════════════════════════════════════
+
+  listCatalogDevices: tenantProcedure
+    .input(z.object({
+      categoryId: z.string().uuid().optional(),
+      available: z.boolean().optional(),
+      featured: z.boolean().optional(),
+      search: z.string().optional(),
+      page: z.number().int().min(0).optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const page = input?.page ?? 0;
+      const pageSize = input?.pageSize ?? 25;
+      return ctx.withTenant(async (tx) => {
+        const where: any = { deletedAt: null };
+        if (input?.categoryId) where.categoryId = input.categoryId;
+        if (input?.available !== undefined) where.available = input.available;
+        if (input?.featured !== undefined) where.featured = input.featured;
+        if (input?.search) {
+          where.name = { contains: input.search, mode: "insensitive" };
+        }
+        const [data, total] = await Promise.all([
+          tx.catalogDevice.findMany({
+            where,
+            include: { category: true },
+            orderBy: { order: "asc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.catalogDevice.count({ where }),
+        ]);
+        return { data, total, pageCount: Math.ceil(total / pageSize) };
+      });
+    }),
+
+  getCatalogDevice: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.catalogDevice.findUnique({
+          where: { id: input.id },
+          include: { category: true },
+        });
+      });
+    }),
+
+  createCatalogDevice: tenantProcedure
+    .input(z.object({
+      categoryId: z.string().uuid().optional().nullable(),
+      name: z.string().min(2).max(200),
+      condition: z.string().max(50).optional().nullable(),
+      description: z.string().max(2000).optional().nullable(),
+      price: z.number().min(0).optional().nullable(),
+      promotionalPrice: z.number().min(0).optional().nullable(),
+      imageUrl: z.string().optional().nullable(),
+      available: z.boolean().optional(),
+      featured: z.boolean().optional(),
+      order: z.number().int().min(0).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.catalogDevice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            categoryId: input.categoryId || null,
+            name: input.name,
+            condition: input.condition || null,
+            description: input.description || null,
+            price: input.price ?? null,
+            promotionalPrice: input.promotionalPrice ?? null,
+            imageUrl: input.imageUrl || null,
+            available: input.available ?? true,
+            featured: input.featured ?? false,
+            order: input.order ?? 0,
+            priceUpdatedAt: input.price ? new Date() : null,
+          },
+        });
+      });
+    }),
+
+  updateCatalogDevice: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      categoryId: z.string().uuid().optional().nullable(),
+      name: z.string().min(2).max(200).optional(),
+      condition: z.string().max(50).optional().nullable(),
+      description: z.string().max(2000).optional().nullable(),
+      price: z.number().min(0).optional().nullable(),
+      promotionalPrice: z.number().min(0).optional().nullable(),
+      imageUrl: z.string().optional().nullable(),
+      available: z.boolean().optional(),
+      featured: z.boolean().optional(),
+      order: z.number().int().min(0).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const { id, ...data } = input;
+        const existing = await tx.catalogDevice.findUnique({ where: { id } });
+        const updateData: any = { ...data };
+        // Update priceUpdatedAt if price changed
+        if (data.price !== undefined && existing && Number(existing.price) !== data.price) {
+          updateData.priceUpdatedAt = new Date();
+        }
+        return tx.catalogDevice.update({ where: { id }, data: updateData });
+      });
+    }),
+
+  deleteCatalogDevice: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await tx.catalogDevice.update({ where: { id: input.id }, data: { deletedAt: new Date() } });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // CATALOG DEVICE CATEGORIES (Catálogo)
+  // ═══════════════════════════════════════
+
+  listCatalogCategories: tenantProcedure
+    .query(async ({ ctx }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.catalogDeviceCategory.findMany({
+          where: { deletedAt: null },
+          orderBy: { order: "asc" },
+          include: { _count: { select: { devices: true } } },
+        });
+      });
+    }),
+
+  createCatalogCategory: tenantProcedure
+    .input(z.object({ name: z.string().min(2).max(100), order: z.number().int().min(0).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const slug = input.name
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        return tx.catalogDeviceCategory.create({
+          data: { tenantId: ctx.tenantId, name: input.name, slug, order: input.order ?? 0 },
+        });
+      });
+    }),
+
+  updateCatalogCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), name: z.string().min(2).max(100).optional(), order: z.number().int().min(0).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const data: any = {};
+        if (input.name) {
+          data.name = input.name;
+          data.slug = input.name
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
+        }
+        if (input.order !== undefined) data.order = input.order;
+        return tx.catalogDeviceCategory.update({ where: { id: input.id }, data });
+      });
+    }),
+
+  deleteCatalogCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await tx.catalogDeviceCategory.update({ where: { id: input.id }, data: { deletedAt: new Date() } });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // INSTALLMENT SIMULATOR (Catálogo)
+  // ═══════════════════════════════════════
+
+  simulateInstallments: tenantProcedure
+    .input(z.object({
+      totalAmount: z.number().min(0.01, "Valor deve ser positivo"),
+      downPayment: z.number().min(0).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const amountToFinance = Math.max(0, input.totalAmount - (input.downPayment ?? 0));
+        if (amountToFinance <= 0) return { parcelas: [], amountToFinance: 0 };
+
+        // Load installment rules from settings
+        const rules = await tx.installmentRule.findMany({
+          orderBy: { installments: "asc" },
+        });
+
+        const parcelas: Array<{
+          installments: number
+          rate: number
+          totalWithInterest: number
+          installmentValue: number
+        }> = [];
+
+        // Add cash/debit (1x, rate 0)
+        parcelas.push({
+          installments: 1,
+          rate: 0,
+          totalWithInterest: amountToFinance,
+          installmentValue: amountToFinance,
+        });
+
+        for (const r of rules) {
+          const rate = Number(r.feePercent);
+          if (rate <= 0) continue; // Skip zero-rate (legacy rule RN-10)
+
+          // Gross up formula from legacy: bruto = base * 100 / (100 - taxa)
+          const totalWithInterest = amountToFinance * 100 / (100 - rate);
+          const installmentValue = totalWithInterest / r.installments;
+
+          parcelas.push({
+            installments: r.installments,
+            rate,
+            totalWithInterest: Math.round(totalWithInterest * 100) / 100,
+            installmentValue: Math.round(installmentValue * 100) / 100,
+          });
+        }
+
+        return { parcelas, amountToFinance };
+      });
+    }),
 });
