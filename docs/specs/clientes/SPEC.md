@@ -247,7 +247,7 @@ enum InteractionType {
 | notes | Observações | Não | textarea | legacy |
 
 **SEM botão "Consultar CPF/CNPJ"** // origem: realidade#6 (anti-escopo DirectD)
-**SEM auto-fill de endereço por CEP** // origem: realidade#7 (anti-escopo ViaCEP)
+**COM auto-fill de endereço por CEP (ViaCEP)** // origem: decisão revisada do dono (ver RN-16)
 
 **Resposta AJAX:** Se requisição é JSON/AJAX, retorna dados do cliente criado (usado por OS/PDV para cadastro rápido inline). // origem: legacy store() linhas 138-153
 
@@ -339,6 +339,7 @@ Status inicial: WAITING // origem: legacy `'status' => 'Em espera'`
 | RN-13 | Exclusão de interesse: hard delete com cascata de interações. Apenas owner (admin no legacy). | legacy destroy: `$interesse->interacoes()->delete(); $interesse->delete()` |
 | RN-14 | Exclusão de interação: apenas o criador ou admin/owner pode excluir. | legacy deleteInteracao: `$this->getUser()->role !== 'admin' && $interacao->usuario_id !== $this->getUser()->id` |
 | RN-15 | Cliente com OS vinculadas NÃO pode ser hard-deleted (apenas soft delete). | implícito: FK constraints de ServiceOrder.customerId |
+| RN-16 | Auto-preenchimento de endereço por CEP: ao digitar CEP de 8 dígitos no form, sistema consulta API ViaCEP. Se válido, preenche logradouro, bairro, cidade, estado automaticamente. Campos preenchidos ficam editáveis. Se ViaCEP retornar erro ou CEP inválido, mostra "CEP não encontrado, preencha manualmente" e mantém form editável. | decisão revisada do dono |
 
 ---
 
@@ -405,8 +406,16 @@ Status inicial: WAITING // origem: legacy `'status' => 'Em espera'`
 
 ## 8. Integrações
 
-### NÃO usa integrações externas diretas
-// origem: realidade#6 e #7
+### ViaCEP (auto-preenchimento de endereço)
+// origem: decisão revisada do dono (ViaCEP reincorporado — era anti-escopo, revertido)
+
+- **Endpoint:** `GET https://viacep.com.br/ws/{cep}/json/`
+- **Trigger:** ao digitar CEP de 8 dígitos no form de cliente (debounce 500ms)
+- **Sucesso:** preenche logradouro, bairro, cidade, estado automaticamente. Campos ficam editáveis.
+- **Falha (CEP inválido ou ViaCEP indisponível):** mostra mensagem inline "CEP não encontrado, preencha manualmente". Form continua editável.
+- **Timeout:** 5 segundos
+- **Sem retry agressivo:** 1 tentativa; se falhar, preenchimento manual.
+- **Degradação graciosa:** ViaCEP é serviço externo gratuito sem SLA. Falha nunca bloqueia o form.
 
 **Contrato com módulo Comunicação (WhatsApp):**
 O envio em lote para interesses chama o serviço de comunicação. Contrato:
@@ -573,6 +582,8 @@ interface CashbackBalance {
 | T-20 | Excluir interação de outro (sendo operator) → erro | RN-14 |
 | T-21 | Excluir interesse (manager) com cascata de interações | RN-13 |
 | T-22 | Criar cliente via AJAX retorna JSON | Fluxo 1 step 7 |
+| T-23 | Digitar CEP válido no form → campos de endereço preenchidos automaticamente | RN-16 |
+| T-24 | Digitar CEP inválido (00000-000) → mensagem "CEP não encontrado", form continua editável | RN-16 |
 
 ---
 
@@ -589,7 +600,7 @@ interface CashbackBalance {
 | # | Feature removida | Justificativa | Origem |
 |---|------------------|---------------|--------|
 | 1 | Integração DirectD (consulta Receita Federal) | Decisão do dono | realidade#6 |
-| 2 | Auto-fill ViaCEP por CEP | Decisão do dono | realidade#7 |
+| 2 | ~~Auto-fill ViaCEP por CEP~~ | **REVERTIDO** — ViaCEP reincorporado por decisão revisada do dono (ver RN-16, seção 8) | — |
 | 3 | Tipo de interação "nota" (E-mail, Presencial, Outro, Cancelamento, Finalização) | Reduzido para 3 tipos | realidade#9 |
 | 4 | Comando `AtualizarClientesReceitaCommand` | Depende de DirectD | consequência de #1 |
 | 5 | Campo `ativo` boolean | Substituído por soft delete `deletedAt` | mudança#2 |
