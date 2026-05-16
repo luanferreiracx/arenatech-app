@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Catálogo IMPLEMENTADO (ServiceType + CatalogDevice + Simulador). Estoque-A/B completos.
+**Fase atual:** Caixa IMPLEMENTADO (CashSession refatorado + services + procedures PDV/OS). Catálogo, Estoque-A/B completos.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Caixa (Sessão + Movimentações + Auto-close)
+
+- **Implementado:**
+  - Schema refatorado: CashRegister→CashSession, CashMovement simplificado (4 tipos K2, nature enum)
+  - CashSession: 18 campos incluindo verificação, closeType, partial unique K5
+  - Migration + RLS em 2 tabelas
+  - Service: calculateBalance, calculateCashOnHand, getPaymentMethodSummary, closeSession, autoCloseAbandonedSessions (idempotente)
+  - tRPC: +5 procedures públicas (@PDV getOpenSession, recordSale; @OS recordServiceOrderPayment; expense, forceClose)
+  - Refatorados 11 arquivos existentes (sale.ts, financial.ts, dashboard.ts, service-order.ts, cashier.ts, validators, UI)
+  - ADRs: 0028 (sessão por usuário K1), 0029 (auto-close sem Job externo K3)
+  - SPEC: docs/specs/caixa/SPEC.md
+  - Testes: 17 novos (validators, cálculos, regras K4-K7)
+  - typecheck ✓ | test ✓ (566) | build ✓
+- **Decisões aplicadas:** K1-K11 todas implementadas ou documentadas como anti-escopo
+- **Próximo:** Módulo Financeiro ou próxima prioridade do dono
+
+---
 
 ### 2026-05-16 — IMPLEMENT Catálogo (Serviços + Aparelhos + Simulador)
 
