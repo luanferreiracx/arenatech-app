@@ -17,6 +17,9 @@ model Product {
   salePrice        Decimal   @default(0) @map("sale_price") @db.Decimal(10, 2)
   promotionalPrice Decimal?  @map("promotional_price") @db.Decimal(10, 2)
   defaultMargin    Decimal?  @map("default_margin") @db.Decimal(5, 2)
+  // Persistido apenas para produtos não-serializados (isSerialized=false).
+  // Para isSerialized=true, quantidade disponível é computed via count(StockItem.status=AVAILABLE).
+  currentStock     Int       @default(0) @map("current_stock")
   minStock         Int       @default(0) @map("min_stock")
   unit             String    @default("un")
   imageUrl         String?   @map("image_url")
