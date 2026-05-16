@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Dívida técnica ViaCEP resolvida. Pronto para SPEC de Configurações.
+**Fase atual:** SPEC de Configurações v1.0 produzida. Aguardando revisão do dono.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,30 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — SPEC Configurações v1.0
+
+- **Produzido:**
+  - `docs/specs/configuracoes/KEY_VALUE_INVENTORY.md` — 38 chaves inventariadas, 4 famílias
+  - `docs/specs/configuracoes/SPEC.md` — 15 seções, ~650 linhas
+  - `docs/specs/configuracoes/QUESTIONS.md` — 5 perguntas pendentes
+  - `docs/specs/configuracoes/ASSUMPTIONS.md` — 7 premissas documentadas
+  - 6 ADRs (0010-0015): modelos tipados, InstallmentRate relacional, fiscal scope, certificado encriptado, payment methods híbridas, RBAC por tab
+- **Descobertas do código real:**
+  - Legacy tem `FormaPagamento` + `FormaPagamentoTaxa` como tabelas reais (não apenas key-value JSON)
+  - Taxas são granulares: por parcela + por tipo (aparelho/não-aparelho) + política (loja absorve vs cliente paga)
+  - ConfiguracaoAssistencia duplica campos de identidade com key-value (nome, cnpj, telefone, logo)
+  - Senha do certificado digital armazenada em PLAINTEXT no banco (corrigido: não armazenar no novo)
+  - 8 formas de pagamento no legacy (Dinheiro, PIX, DePix, Cartão Crédito, Cartão Débito, Parcelado, Crediário, Misto)
+- **Decisões tomadas:**
+  - 6 modelos tipados substituem 38 chaves + 4 tabelas legacy
+  - RBAC granular: Owner-only para Fiscal/Pagamento/Parcelamento/Recebimento
+  - 4 formas fixas + customizadas (híbrido)
+  - Certificado .pfx encriptado AES-256-GCM em MinIO, senha nunca armazenada
+  - Sem cache Redis por enquanto (performance ok com singleton reads)
+- **Próximo:** Revisão do dono → IMPLEMENT Configurações
+
+---
 
 ### 2026-05-16 — Dívida técnica: ViaCEP reincorporado em Clientes
 
