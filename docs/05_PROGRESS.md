@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Estoque-B IMPLEMENTADO (StockItem + movimentações + IMEI Luhn + máquina de estados). Estoque-A revisado com modelo híbrido.
+**Fase atual:** Catálogo IMPLEMENTADO (ServiceType + CatalogDevice + Simulador). Estoque-A/B completos.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Catálogo (Serviços + Aparelhos + Simulador)
+
+- **Implementado:**
+  - ADR 0025 (estratégia migração Big Bang no cutover)
+  - Schema: ServiceType (name, slug, active), Service expandido (+serviceTypeId FK), CatalogDevice (14 campos), CatalogDeviceCategory
+  - Migration + RLS em 3 tabelas
+  - tRPC: +14 procedures no catalogRouter:
+    - ServiceType: listWithCount, create, rename, duplicate (copia services), delete (cascata soft)
+    - bulkAdjustPrices: aplica % sobre basePrice filtrado
+    - CatalogDevice: list (paginado+filtros), get, create, update, delete
+    - CatalogDeviceCategory: list, create, update, delete
+    - simulateInstallments: gross up formula do legacy usando InstallmentRule
+  - RBAC: operator read-only, manager+ CRUD
+  - ADRs: 0025 (migração), 0026 (ServiceType refactoring), 0027 (CatalogDevice separado de Product)
+  - SPEC: docs/specs/catalogo/SPEC.md (7 seções, modelos, regras, anti-escopo)
+  - typecheck ✓ | test ✓ (549) | build ✓
+- **Decisões aplicadas:** D1 (sem e-commerce público), D2 (avaliações para Estoque-C), D3 (checklist anti-escopo), D4 (simulador), D5 (ServiceType), D6 (CatalogDevice separado), D7 (anti-escopo), D8 (RBAC)
+- **Próximo:** Módulo Caixa ou próxima prioridade do dono
+
+---
 
 ### 2026-05-16 — IMPLEMENT Estoque-B (Posição, Movimentações, IMEI)
 
