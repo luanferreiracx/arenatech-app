@@ -454,9 +454,46 @@ Cada módulo define matriz papel × ação na SPEC. Implementação:
 - Procedures gerenciais verificam `role !== "operator"` (ou `role === "owner"` para operações críticas)
 - Owner herda permissões de Manager
 
-**Aplicado em:** Caixa, Estoque-A, Estoque-B, Catálogo
-**Futuros:** PDV, OS, Financeiro
+**Aplicado em:** Caixa, Estoque-A, Estoque-B, Catálogo, Financeiro
+**Futuros:** PDV, OS
 
 **ADR:** docs/decisions/0031-cash-rbac-granular.md
+
+---
+
+## Modelo unificado com discriminador
+
+Usado quando 2 entidades têm 80%+ schema comum e mesma lógica de negócio:
+- Campo discriminador (type, kind) preserva semântica
+- Procedures filtram por type quando contexto exige
+- RBAC pode ser aplicado via filtro de type por role
+- Queries explicitam WHERE type=X para clareza
+
+**Aplicado em:** FinancialTransaction (RECEIVABLE/PAYABLE)
+**ADR:** docs/decisions/0032-financial-transaction-unified.md
+
+---
+
+## Status derivado vs persistido
+
+- Status persistido: para transições reais com efeito colateral (PENDING → PAID via baixa)
+- Status computed: para estados função-pura de schema + tempo (VENCIDA = PENDING + dueDate < now)
+- Sem jobs para manter — query no momento da consulta
+- Índice em (status, dueDate) cobre queries eficientemente
+
+**Aplicado em:** Installment.status (VENCIDA é computed)
+**ADR:** docs/decisions/0033-installment-overdue-computed.md
+
+---
+
+## Híbrido sistema-tenant (FIXED + CUSTOM)
+
+- FIXED: seeded com sistema, code imutável, não deletável (apenas desativável Owner)
+- CUSTOM: criado pelo tenant, CRUD livre Manager+, code gerado de slug
+- Procedures @public-api referenciam FIXED por code estável
+- Tenant init service garante FIXED em todo tenant novo (idempotente)
+
+**Aplicado em:** FinancialCategory, PaymentMethod
+**ADR:** docs/decisions/0034-financial-categories-hybrid.md
 
 ---

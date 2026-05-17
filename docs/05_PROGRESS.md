@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Financeiro IMPLEMENTADO (categorias FIXED/CUSTOM + procedures @PDV/@OS + installment generator). Caixa, Catálogo, Estoque-A/B completos.
+**Fase atual:** Financeiro COMPLETO (RBAC F8 + tenant init + ADRs 0032-0034 + PATTERNS). Caixa, Catálogo, Estoque-A/B completos.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,16 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — Financeiro: fechamento completo
+
+- ADRs 0032 (modelo unificado), 0033 (VENCIDO computed), 0034 (categorias FIXED+CUSTOM) criados
+- RBAC F8 implementado: operator vê só RECEIVABLE, bloqueado em PAYABLE
+- Tenant init service ativo: 8 FIXED categories criadas automaticamente no approve de tenant
+- PATTERNS.md: 3 novos padrões (modelo unificado, status derivado, híbrido sistema-tenant)
+- Dívidas restantes: 4 páginas UI faltantes, integration tests, 5 E2E críticos
+
+---
 
 ### 2026-05-16 — IMPLEMENT Financeiro (Categorias + Procedures @PDV/@OS)
 
