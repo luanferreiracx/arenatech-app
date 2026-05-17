@@ -75,7 +75,7 @@ test("@business cria cliente PF e verifica na listagem", async ({ page }) => {
 ### Passo 4 — Validar
 ```bash
 # Rodar testes do módulo
-pnpm test:e2e --grep "<modulo>" --workers=2
+pnpm test:e2e --grep "<modulo>"  # workers=2 é padrão (ADR 0039)
 
 # Rodar linter
 pnpm test:e2e:lint
