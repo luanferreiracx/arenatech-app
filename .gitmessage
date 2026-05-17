@@ -1,0 +1,22 @@
+# <tipo>(<escopo>): <descrição curta>
+
+# Tipos: feat, fix, refactor, test, docs, chore, db
+# Escopo: módulo afetado (clientes, caixa, fiscal, estoque, catalogo, financeiro, etc.)
+
+# ---
+# Mudanças:
+# -
+# -
+
+# ---
+# E2E results (obrigatório se módulo foi tocado):
+#
+# Cole aqui a saída de: pnpm test:e2e --reporter=list
+# Exemplo:
+#   ✓ should create new client (1.2s)
+#   ✓ should deny access without permission (0.4s)
+#   N passed (Xs)
+
+# ---
+# ADRs relacionadas (se aplicável):
+# - ADR-XXXX

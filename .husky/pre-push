@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Pre-push hook: bloqueia push se E2E falhar
+# Justificativa: ADR-0035 (E2E obrigatório antes de push)
+
+echo "🔍 Rodando validação completa antes do push..."
+
+# 1. Typecheck (rápido, falha cedo)
+echo "→ Typecheck..."
+pnpm typecheck || {
+  echo "❌ Typecheck falhou. Push bloqueado."
+  exit 1
+}
+
+# 2. Unit tests (Vitest)
+echo "→ Unit tests..."
+pnpm test || {
+  echo "❌ Unit tests falharam. Push bloqueado."
+  exit 1
+}
+
+# 3. E2E (Playwright) — o que estava sendo pulado
+echo "→ E2E tests (Playwright)..."
+pnpm test:e2e --reporter=list || {
+  echo "❌ E2E tests falharam. Push bloqueado."
+  echo "💡 Dica: verifique se dev server está rodando em outra aba."
+  exit 1
+}
+
+echo "✅ Tudo verde. Push liberado."

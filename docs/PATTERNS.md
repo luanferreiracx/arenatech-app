@@ -497,3 +497,33 @@ Usado quando 2 entidades têm 80%+ schema comum e mesma lógica de negócio:
 **ADR:** docs/decisions/0034-financial-categories-hybrid.md
 
 ---
+
+## Definition of Done — Critérios obrigatórios por módulo
+
+Nenhum módulo é considerado entregue (status ✓) sem atender TODOS os critérios abaixo.
+
+| # | Critério | Como validar |
+|---|----------|--------------|
+| 1 | Typecheck verde | `pnpm typecheck` exit 0 |
+| 2 | Unit tests verdes | `pnpm test` exit 0 |
+| 3 | **E2E executado contra server real** | `pnpm test:e2e --reporter=list` exit 0 |
+| 4 | Build de produção verde | `pnpm build` exit 0 |
+| 5 | RBAC validado em E2E | Pelo menos 1 cenário negativo (403/redirect) |
+
+### Cobertura mínima de E2E por módulo
+
+- **CRUDs:** criar, editar, deletar, listar (4 cenários mínimo)
+- **Fluxos transacionais:** happy path + 1 caso de erro (2 cenários mínimo por fluxo)
+- **Configurações de tenant:** salvar + tentar sem permissão (2 cenários mínimo)
+
+### Proibido
+
+- Marcar módulo como ✓ baseado apenas em typecheck + unit
+- Reportar "test ✓" sem especificar se é unit ou E2E
+- Commitar `*.spec.ts` sem ter executado ao menos 1x localmente
+- Usar `--passWithNoTests` ou flags que mascarem ausência de testes
+
+**ADR:** docs/decisions/0035-e2e-obrigatorio-antes-de-push.md
+**Enforcement:** Husky pre-push hook (.husky/pre-push)
+
+---
