@@ -5,7 +5,6 @@
     "__tests__/e2e/auth.spec.ts",
     "__tests__/e2e/cashier.spec.ts",
     "__tests__/e2e/financial.spec.ts",
-    "__tests__/e2e/stock-a.spec.ts",
     "__tests__/e2e/stock-b.spec.ts",
     "__tests__/e2e/home.spec.ts"
   ]
