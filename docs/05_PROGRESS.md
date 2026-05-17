@@ -260,6 +260,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-17 — Caixa: dívidas zeradas (16 E2E + CSS print). Módulo 100% completo.
+
+- 16 cenários E2E com Playwright (helpers + todos os cenários da SPEC seção 11)
+- CSS @media print: layout A4, brand Arena Tech, área de assinatura, botão Imprimir (no-print)
+- Relatório enhanced com cabeçalho, conferência e assinaturas
+- Dívidas: ZERO (módulo Caixa 100% completo)
+
+---
+
 ### 2026-05-17 — Financeiro: fechamento 100% completo
 
 - 4 páginas faltantes implementadas: dashboard (4 cards), categorias (CRUD FIXED/CUSTOM), parcelas-pendentes (consolidada com cards), contas-receber/criar e contas-pagar/criar (forms separados com preview de parcelas)
@@ -1023,8 +1032,6 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 - **Configurações: upload certificado .pfx encriptado** — adiado para quando módulo Fiscal precisar decifrar. Campo `certificateUrl` existe no schema.
 - **Configurações: 17 cenários E2E adiados** — para batch final do projeto. Cobertura atual = unit + integration.
 - **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel (`horario_funcionamento` no key-value). Mantido como réplica fiel.
-- **Caixa: 16 cenários E2E adiados** — batch final de testes E2E do projeto.
-- **Caixa: CSS @media print do relatório** — layout de impressão com padrão Arena Tech + espaço para assinatura pendente.
 
 ---
 
