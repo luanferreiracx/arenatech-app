@@ -17,3 +17,13 @@ Certificado digital A1 (.pfx) contém chave privada do emitente. No legacy, arma
 - UX: owner precisa lembrar a senha do certificado (ou usar gerenciador de senhas)
 - Operacional: se `CERTIFICATE_ENCRYPTION_KEY` for perdida, certificados ficam irrecuperáveis (mitigação: backup da env var)
 - Módulo Fiscal: ao emitir NF-e, decifera o .pfx com env var e então abre com senha fornecida pelo owner na hora
+
+## Status: IMPLEMENTADO em 2026-05-17
+
+### Arquivos
+- `src/server/services/pfx-encryption.service.ts` — AES-256-GCM (IV 12 bytes, key 256 bits)
+- `src/server/services/pfx-validator.service.ts` — validação .pfx com node-forge (extrai subject, issuer, expiresAt)
+- `src/server/api/routers/settings.ts` — procedures `updateFiscalCertificate` (owner, upload encriptado) + `removeFiscalCertificate`
+- Schema: `certificateUrl`, `certificateIv`, `certificateAuthTag`, `certificateExpiresAt`, `certificateUploadedAt` em TenantFiscalSettings
+- Env var: `PFX_ENCRYPTION_KEY` (não `CERTIFICATE_ENCRYPTION_KEY` como previsto — renomeado por clareza)
+- Testes: 9 unit encryption + 5 unit validator
