@@ -140,8 +140,8 @@ function main() {
   }
 
   if (businessPercent < MIN_BUSINESS_PERCENT && total > 0) {
-    console.log(`\n⚠️  Business coverage ${businessPercent}% is below minimum ${MIN_BUSINESS_PERCENT}%`)
-    // Warning only for now — will become error after refactoring existing tests
+    console.log(`\n❌ Business coverage ${businessPercent}% is below minimum ${MIN_BUSINESS_PERCENT}%`)
+    hasError = true
   }
 
   if (!hasError) {
