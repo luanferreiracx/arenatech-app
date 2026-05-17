@@ -1048,7 +1048,6 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Dívida técnica
 
-- **Configurações: upload certificado .pfx encriptado** — adiado para quando módulo Fiscal precisar decifrar. Campo `certificateUrl` existe no schema.
 - **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel. Campo no schema sem UI. Mantido como feature futura.
 
 ---
