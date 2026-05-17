@@ -13,12 +13,20 @@ export const USERS = {
 export async function loginAs(page: Page, role: "operator" | "manager" | "owner") {
   const creds = USERS[role];
   await page.goto("/login");
+  await page.waitForLoadState("domcontentloaded");
   const cpfInput = page.getByLabel("CPF");
+  await cpfInput.waitFor({ state: "visible", timeout: 15000 });
   await cpfInput.click();
   await cpfInput.fill(creds.cpf);
   await page.getByLabel("Senha").fill(creds.password);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await page.waitForURL(/\/(dashboard|select-tenant|cashier)/, { timeout: 10000 });
+  await page.waitForLoadState("networkidle", { timeout: 15000 });
+
+  // Multi-tenant user (manager/owner) lands on /select-tenant — pick first tenant
+  if (await page.getByText("Selecione a loja").isVisible({ timeout: 2000 }).catch(() => false)) {
+    await page.getByText("Arena Tech").first().click();
+    await page.waitForLoadState("networkidle", { timeout: 10000 });
+  }
 }
 
 /**
