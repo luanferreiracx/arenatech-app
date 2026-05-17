@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-test("unauthenticated user is redirected to /login", async ({ page }) => {
+test("@smoke unauthenticated user is redirected to /login", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("login page shows CPF and password fields", async ({ page }) => {
+test("@smoke login page shows CPF and password fields", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByLabel("CPF")).toBeVisible();
   await expect(page.getByLabel("Senha")).toBeVisible();

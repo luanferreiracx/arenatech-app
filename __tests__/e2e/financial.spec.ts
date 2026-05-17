@@ -18,7 +18,7 @@ async function loginAsOperator(page: Page) {
 }
 
 test.describe("Financial E2E", () => {
-  test("E2E 1 — Manager cria conta a receber manual com 3 parcelas", async ({ page }) => {
+  test("@smoke E2E 1 — Manager cria conta a receber manual com 3 parcelas", async ({ page }) => {
     await loginAsOperator(page);
     await page.goto("/financial/contas-receber/criar");
     await page.waitForLoadState("networkidle");
@@ -26,7 +26,7 @@ test.describe("Financial E2E", () => {
     await expect(page.locator("body")).toContainText(/[Cc]onta.*[Rr]eceber|[Vv]alor|[Pp]arcela/);
   });
 
-  test("E2E 2 — Operator dá baixa em parcela (caixa aberto required)", async ({ page }) => {
+  test("@smoke E2E 2 — Operator dá baixa em parcela (caixa aberto required)", async ({ page }) => {
     await loginAsOperator(page);
     await page.goto("/financial");
     await page.waitForLoadState("networkidle");
@@ -34,21 +34,21 @@ test.describe("Financial E2E", () => {
     await expect(page.locator("body")).toContainText(/[Ff]inanceiro|[Cc]onta|[Rr]eceber/);
   });
 
-  test("E2E 3 — Manager estorna parcela paga", async ({ page }) => {
+  test("@smoke E2E 3 — Manager estorna parcela paga", async ({ page }) => {
     await loginAsOperator(page);
     await page.goto("/financial");
     await page.waitForLoadState("networkidle");
     await expect(page.locator("body")).toContainText(/[Ff]inanceiro|[Cc]onta/);
   });
 
-  test("E2E 4 — Manager cancela conta com parcelas mistas", async ({ page }) => {
+  test("@smoke E2E 4 — Manager cancela conta com parcelas mistas", async ({ page }) => {
     await loginAsOperator(page);
     await page.goto("/financial");
     await page.waitForLoadState("networkidle");
     await expect(page.locator("body")).toContainText(/[Ff]inanceiro|[Cc]onta/);
   });
 
-  test("E2E 5 — RBAC: Operator não vê contas a pagar", async ({ page }) => {
+  test("@smoke E2E 5 — RBAC: Operator não vê contas a pagar", async ({ page }) => {
     await loginAsOperator(page);
     await page.goto("/financial");
     await page.waitForLoadState("networkidle");

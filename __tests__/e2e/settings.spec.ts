@@ -25,13 +25,13 @@ test.describe("Settings — Tab Geral", () => {
     await login(page);
   });
 
-  test("S-1 Acessar tab Geral e ver campos do tenant", async ({ page }) => {
+  test("@smoke S-1 Acessar tab Geral e ver campos do tenant", async ({ page }) => {
     await page.goto("/settings/general");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Gg]eral|[Nn]ome|CNPJ|[Tt]elefone/);
   });
 
-  test("S-2 Editar nome do tenant e salvar", async ({ page }) => {
+  test("@smoke S-2 Editar nome do tenant e salvar", async ({ page }) => {
     await page.goto("/settings/general");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Gg]eral|[Ss]alvar/);
@@ -43,13 +43,13 @@ test.describe("Settings — Tab Assistência", () => {
     await login(page);
   });
 
-  test("S-3 Acessar tab Assistência e ver campos", async ({ page }) => {
+  test("@smoke S-3 Acessar tab Assistência e ver campos", async ({ page }) => {
     await page.goto("/settings/assistance");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Aa]ssist|[Tt]ermos|[Gg]arantia/);
   });
 
-  test("S-4 Salvar termos de serviço", async ({ page }) => {
+  test("@smoke S-4 Salvar termos de serviço", async ({ page }) => {
     await page.goto("/settings/assistance");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Aa]ssist/);
@@ -61,13 +61,13 @@ test.describe("Settings — Tab Fiscal", () => {
     await login(page);
   });
 
-  test("S-5 Acessar tab Fiscal e ver campos NF-e", async ({ page }) => {
+  test("@smoke S-5 Acessar tab Fiscal e ver campos NF-e", async ({ page }) => {
     await page.goto("/settings/fiscal");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Ff]iscal|[Rr]azão|CNAE|NF/);
   });
 
-  test("S-6 Campos de certificado digital visíveis", async ({ page }) => {
+  test("@smoke S-6 Campos de certificado digital visíveis", async ({ page }) => {
     await page.goto("/settings/fiscal");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Ff]iscal/);
@@ -79,13 +79,13 @@ test.describe("Settings — Tab Pagamento", () => {
     await login(page);
   });
 
-  test("S-7 Listar formas de pagamento ativas", async ({ page }) => {
+  test("@smoke S-7 Listar formas de pagamento ativas", async ({ page }) => {
     await page.goto("/settings/payment-methods");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Pp]agamento|[Ff]orma/);
   });
 
-  test("S-8 Botão criar nova forma de pagamento visível", async ({ page }) => {
+  test("@smoke S-8 Botão criar nova forma de pagamento visível", async ({ page }) => {
     await page.goto("/settings/payment-methods");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Pp]agamento/);
@@ -97,13 +97,13 @@ test.describe("Settings — Tab Parcelamento", () => {
     await login(page);
   });
 
-  test("S-9 Acessar tab Parcelamento e ver tabela de taxas", async ({ page }) => {
+  test("@smoke S-9 Acessar tab Parcelamento e ver tabela de taxas", async ({ page }) => {
     await page.goto("/settings/installments");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Pp]arcelamento|[Tt]axa|[Pp]arcela/);
   });
 
-  test("S-10 Editar taxa de parcelamento", async ({ page }) => {
+  test("@smoke S-10 Editar taxa de parcelamento", async ({ page }) => {
     await page.goto("/settings/installments");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Pp]arcelamento/);
@@ -115,7 +115,7 @@ test.describe("Settings — Tab Recebimento", () => {
     await login(page);
   });
 
-  test("S-11 Acessar tab Recebimento e ver configurações", async ({ page }) => {
+  test("@smoke S-11 Acessar tab Recebimento e ver configurações", async ({ page }) => {
     await page.goto("/settings/receiving");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Rr]ecebimento|[Pp]olítica|CPF/);
@@ -127,13 +127,13 @@ test.describe("Settings — Usuários", () => {
     await login(page);
   });
 
-  test("S-12 Listar usuários do tenant", async ({ page }) => {
+  test("@smoke S-12 Listar usuários do tenant", async ({ page }) => {
     await page.goto("/settings/users");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Uu]suário|[Oo]perador|[Nn]ome/);
   });
 
-  test("S-13 Acessar form de novo usuário", async ({ page }) => {
+  test("@smoke S-13 Acessar form de novo usuário", async ({ page }) => {
     await page.goto("/settings/users/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Uu]suário|CPF|[Cc]onvidar/);
@@ -145,7 +145,7 @@ test.describe("Settings — RBAC", () => {
     await login(page);
   });
 
-  test("S-14 Operator não consegue editar Fiscal (owner only)", async ({ page }) => {
+  test("@smoke S-14 Operator não consegue editar Fiscal (owner only)", async ({ page }) => {
     // Operator role — fiscal should be read-only or blocked
     await page.goto("/settings/fiscal");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
@@ -153,7 +153,7 @@ test.describe("Settings — RBAC", () => {
     await expect(page.locator("body")).toContainText(/[Ff]iscal/);
   });
 
-  test("S-15 Operator não consegue criar forma de pagamento (owner only)", async ({ page }) => {
+  test("@smoke S-15 Operator não consegue criar forma de pagamento (owner only)", async ({ page }) => {
     await page.goto("/settings/payment-methods");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Pp]agamento/);
@@ -165,13 +165,13 @@ test.describe("Settings — Integrações e Logs", () => {
     await login(page);
   });
 
-  test("S-16 Acessar integrações", async ({ page }) => {
+  test("@smoke S-16 Acessar integrações", async ({ page }) => {
     await page.goto("/settings/integrations");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Ii]ntegra/);
   });
 
-  test("S-17 Acessar logs de auditoria", async ({ page }) => {
+  test("@smoke S-17 Acessar logs de auditoria", async ({ page }) => {
     await page.goto("/settings/logs");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Ll]og|[Aa]uditoria|[Hh]istórico/);

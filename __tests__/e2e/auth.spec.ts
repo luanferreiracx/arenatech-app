@@ -16,7 +16,7 @@ async function login(page: Page, cpf: string, password: string) {
   await page.getByRole("button", { name: "Entrar" }).click();
 }
 
-test("login with invalid CPF shows error", async ({ page }) => {
+test("@business login with invalid CPF shows error", async ({ page }) => {
   await page.goto("/login");
   const cpfInput = page.getByLabel("CPF");
   await cpfInput.fill("11111111111");
@@ -26,7 +26,7 @@ test("login with invalid CPF shows error", async ({ page }) => {
   await expect(page.getByText("CPF ou senha inválidos")).toBeVisible({ timeout: 5000 });
 });
 
-test("login with wrong password shows generic error", async ({ page }) => {
+test("@business login with wrong password shows generic error", async ({ page }) => {
   await page.goto("/login");
   const cpfInput = page.getByLabel("CPF");
   await cpfInput.fill(SINGLE_TENANT.cpf);
@@ -36,7 +36,7 @@ test("login with wrong password shows generic error", async ({ page }) => {
   await expect(page.getByText("CPF ou senha inválidos")).toBeVisible({ timeout: 5000 });
 });
 
-test("single-tenant user logs in and goes to dashboard", async ({ page }) => {
+test("@smoke single-tenant user logs in and goes to dashboard", async ({ page }) => {
   await login(page, SINGLE_TENANT.cpf, SINGLE_TENANT.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
@@ -44,7 +44,7 @@ test("single-tenant user logs in and goes to dashboard", async ({ page }) => {
   await expect(page.locator("body")).toContainText(/[Bb]em-vindo|[Dd]ashboard|Arena/, { timeout: 10000 });
 });
 
-test("multi-tenant user logs in and goes to select-tenant", async ({ page }) => {
+test("@business multi-tenant user logs in and goes to select-tenant", async ({ page }) => {
   await login(page, MULTI_TENANT.cpf, MULTI_TENANT.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
@@ -59,7 +59,7 @@ test("multi-tenant user logs in and goes to select-tenant", async ({ page }) => 
   await expect(page.locator("body")).toContainText(/[Bb]em-vindo|[Dd]ashboard|Arena/, { timeout: 10000 });
 });
 
-test("super admin logs in and goes to admin", async ({ page }) => {
+test("@smoke super admin logs in and goes to admin", async ({ page }) => {
   await login(page, SUPER_ADMIN.cpf, SUPER_ADMIN.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
@@ -67,7 +67,7 @@ test("super admin logs in and goes to admin", async ({ page }) => {
   await expect(page.locator("body")).toContainText(/[Aa]dmin|[Ss]elecione|[Dd]ashboard/, { timeout: 15000 });
 });
 
-test("logout clears session", async ({ page }) => {
+test("@smoke logout clears session", async ({ page }) => {
   await login(page, SINGLE_TENANT.cpf, SINGLE_TENANT.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
