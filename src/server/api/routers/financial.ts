@@ -2,6 +2,18 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+
+// RBAC helper: operator can only see RECEIVABLE (F8, ADR 0032)
+function getUserRole(ctx: { session: { availableTenants: Array<{ id: string; role: string }> }; tenantId: string }): string {
+  return ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "operator";
+}
+
+function applyTypeFilter(role: string, where: any): any {
+  if (role === "operator") {
+    return { ...where, type: "RECEIVABLE" };
+  }
+  return where;
+}
 import {
   createTransactionSchema,
   updateTransactionSchema,
@@ -153,9 +165,10 @@ export const financialRouter = createTRPCRouter({
         const pageSize = input.pageSize ?? 20;
         const sortBy = input.sortBy ?? "createdAt";
         const sortOrder = input.sortOrder ?? "desc";
+        const role = getUserRole(ctx);
 
         const where: Record<string, unknown> = {
-          type: input.type,
+          type: role === "operator" ? "RECEIVABLE" : input.type,
           deletedAt: null,
         };
 
@@ -218,6 +231,12 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        // RBAC F8: operator cannot see PAYABLE
+        const role = getUserRole(ctx);
+        if (role === "operator" && transaction.type === "PAYABLE") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+        }
+
         return serializeTransaction(transaction);
       });
     }),
@@ -226,6 +245,14 @@ export const financialRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createTransactionSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC F8: operator cannot create PAYABLE
+      const role = getUserRole(ctx);
+      if (role === "operator" && input.type === "PAYABLE") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para criar conta a pagar" });
+      }
+      if (role === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
       return ctx.withTenant(async (tx) => {
         const emissionDate = new Date(input.emissionDate);
         const firstDueDate = input.firstDueDate

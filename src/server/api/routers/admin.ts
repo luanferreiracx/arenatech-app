@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
+import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
 import {
   createPlanSchema,
   updatePlanSchema,
@@ -305,6 +306,9 @@ export const adminRouter = createTRPCRouter({
             role: "admin",
           },
         });
+
+        // Seed FIXED financial categories (ADR 0034)
+        await tenantFinancialInit(tx as any, tenant.id);
 
         // Update pre-registration
         await tx.preRegistration.update({
