@@ -7,8 +7,8 @@
 
 ## Estado atual
 
-**Fase atual:** Financeiro COMPLETO (RBAC F8 + tenant init + ADRs 0032-0034 + PATTERNS). Caixa, Catálogo, Estoque-A/B completos.
-**Ultima atualizacao:** 2026-05-16
+**Fase atual:** Financeiro 100% COMPLETO. Caixa, Catálogo, Estoque-A/B completos. Pronto para OS.
+**Ultima atualizacao:** 2026-05-17
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
 
@@ -260,13 +260,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
-### 2026-05-16 — Financeiro: fechamento completo
+### 2026-05-17 — Financeiro: fechamento 100% completo
+
+- 4 páginas faltantes implementadas: dashboard (4 cards), categorias (CRUD FIXED/CUSTOM), parcelas-pendentes (consolidada com cards), contas-receber/criar e contas-pagar/criar (forms separados com preview de parcelas)
+- 39 integration tests (listagem, criação, baixa, estorno, cancelamento, RBAC F8, stubs @public-api, tenant init)
+- 5 E2E críticos com Playwright (criar manual, baixa, estorno, cancelamento, RBAC operator)
+- TODAS dívidas do Financeiro pagas — módulo 100% completo
+- typecheck ✓ | test ✓ (615) | build ✓
+
+---
+
+### 2026-05-16 — Financeiro: ADRs + RBAC + tenant init
 
 - ADRs 0032 (modelo unificado), 0033 (VENCIDO computed), 0034 (categorias FIXED+CUSTOM) criados
 - RBAC F8 implementado: operator vê só RECEIVABLE, bloqueado em PAYABLE
 - Tenant init service ativo: 8 FIXED categories criadas automaticamente no approve de tenant
 - PATTERNS.md: 3 novos padrões (modelo unificado, status derivado, híbrido sistema-tenant)
-- Dívidas restantes: 4 páginas UI faltantes, integration tests, 5 E2E críticos
 
 ---
 
