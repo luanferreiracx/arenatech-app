@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Estoque-A 100% COMPLETO (19 E2E verdes). Configurações, Clientes, Financeiro, Caixa, Catálogo, Estoque-B completos. Pronto para OS.
+**Fase atual:** Estoque-B 100% COMPLETO (15 E2E verdes). Todos módulos base 100%. Pronto para OS.
 **Ultima atualizacao:** 2026-05-17
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-17 — Estoque-B: auditoria + fechamento 100%
+
+- Audit: 0 bugs. 10 procedures, 42 unit tests, 5 páginas — tudo funcional.
+- stock-b.spec.ts: 15 cenários E2E verdes (23.1s)
+- Total E2E projeto: 103 passed (2.0m)
+- AUDIT_REPORT.md criado
+
+---
 
 ### 2026-05-17 — Estoque-A: auditoria + fechamento 100%
 
