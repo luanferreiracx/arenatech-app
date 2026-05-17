@@ -1023,4 +1023,239 @@ export const financialRouter = createTRPCRouter({
         };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // FINANCIAL CATEGORIES (F7)
+  // ═══════════════════════════════════════
+
+  listCategories: tenantProcedure
+    .input(z.object({ type: z.enum(["RECEITA", "DESPESA"]).optional(), active: z.boolean().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: any = {};
+        if (input?.type) where.type = input.type;
+        if (input?.active !== undefined) where.active = input.active;
+        return tx.financialCategory.findMany({ where, orderBy: { name: "asc" } });
+      });
+    }),
+
+  createCategory: tenantProcedure
+    .input(z.object({
+      name: z.string().min(2).max(100),
+      type: z.enum(["RECEITA", "DESPESA"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const code = input.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        return tx.financialCategory.create({
+          data: { tenantId: ctx.tenantId, name: input.name, code, type: input.type, kind: "CUSTOM" },
+        });
+      });
+    }),
+
+  toggleCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const cat = await tx.financialCategory.findUnique({ where: { id: input.id } });
+        if (!cat) throw new TRPCError({ code: "NOT_FOUND" });
+        // FIXED categories: only owner can deactivate
+        if (cat.kind === "FIXED" && userRole !== "owner") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode desativar categoria do sistema" });
+        }
+        return tx.financialCategory.update({ where: { id: input.id }, data: { active: input.active } });
+      });
+    }),
+
+  deleteCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const cat = await tx.financialCategory.findUnique({ where: { id: input.id } });
+        if (!cat) throw new TRPCError({ code: "NOT_FOUND" });
+        if (cat.kind === "FIXED") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Categoria do sistema não pode ser excluída — apenas desativada" });
+        }
+        await tx.financialCategory.delete({ where: { id: input.id } });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PUBLIC API — Consumed by PDV/OS (F4)
+  // ═══════════════════════════════════════
+
+  /**
+   * @public-api Consumed by PDV module.
+   * Creates receivables from a completed sale with installment generation.
+   * TODO: substituir por chamada real do PDV módulo quando implementado.
+   */
+  createReceivablesFromSale: tenantProcedure
+    .input(z.object({
+      saleId: z.string().uuid(),
+      customerId: z.string().uuid(),
+      totalAmount: z.number().int().min(1), // centavos
+      paymentMethod: z.string(),
+      installments: z.number().int().min(1).max(36),
+      firstDueDate: z.string(), // ISO date
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const { generateInstallments } = await import("@/server/services/installment-generator.service");
+        const totalDecimal = input.totalAmount / 100;
+        const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
+
+        const transaction = await tx.financialTransaction.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: "RECEIVABLE",
+            status: input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod) ? "PAID" : "PENDING",
+            description: `Venda`,
+            totalAmount: totalDecimal,
+            paidAmount: input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod) ? totalDecimal : 0,
+            installmentsTotal: input.installments,
+            dueDate: new Date(input.firstDueDate),
+            paymentMethod: input.paymentMethod,
+            customerId: input.customerId,
+            saleId: input.saleId,
+            isManual: false,
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        for (const p of parcelas) {
+          const isPaidImmediate = input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod);
+          await tx.installment.create({
+            data: {
+              tenantId: ctx.tenantId,
+              transactionId: transaction.id,
+              number: p.number,
+              amount: p.amount,
+              dueDate: p.dueDate,
+              status: isPaidImmediate ? "PAID" : "PENDING",
+              paidAmount: isPaidImmediate ? p.amount : 0,
+              paidAt: isPaidImmediate ? new Date() : null,
+              paymentMethod: input.paymentMethod,
+            },
+          });
+        }
+
+        return { transactionId: transaction.id };
+      });
+    }),
+
+  /**
+   * @public-api Consumed by OS module.
+   * TODO: substituir por chamada real do OS módulo quando implementado.
+   */
+  createReceivablesFromServiceOrder: tenantProcedure
+    .input(z.object({
+      serviceOrderId: z.string().uuid(),
+      customerId: z.string().uuid(),
+      totalAmount: z.number().int().min(1),
+      paymentMethod: z.string(),
+      installments: z.number().int().min(1).max(36),
+      firstDueDate: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const { generateInstallments } = await import("@/server/services/installment-generator.service");
+        const totalDecimal = input.totalAmount / 100;
+        const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
+
+        const transaction = await tx.financialTransaction.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: "RECEIVABLE",
+            status: "PENDING",
+            description: `Ordem de Serviço`,
+            totalAmount: totalDecimal,
+            installmentsTotal: input.installments,
+            dueDate: new Date(input.firstDueDate),
+            paymentMethod: input.paymentMethod,
+            customerId: input.customerId,
+            serviceOrderId: input.serviceOrderId,
+            isManual: false,
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        for (const p of parcelas) {
+          await tx.installment.create({
+            data: {
+              tenantId: ctx.tenantId,
+              transactionId: transaction.id,
+              number: p.number,
+              amount: p.amount,
+              dueDate: p.dueDate,
+              status: "PENDING",
+            },
+          });
+        }
+
+        return { transactionId: transaction.id };
+      });
+    }),
+
+  /**
+   * @public-api Consumed by PDV module (cancel sale → cancel receivables).
+   */
+  cancelReceivablesFromSale: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid(), reason: z.string().min(3).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const transactions = await tx.financialTransaction.findMany({
+          where: { saleId: input.saleId, status: { not: "CANCELLED" } },
+        });
+
+        for (const t of transactions) {
+          await tx.installment.updateMany({
+            where: { transactionId: t.id, status: "PENDING" },
+            data: { status: "CANCELLED" },
+          });
+          await tx.financialTransaction.update({
+            where: { id: t.id },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: input.reason,
+            },
+          });
+        }
+
+        return { cancelledCount: transactions.length };
+      });
+    }),
+
+  /** Get customer open balance (useful for PDV) */
+  getCustomerOpenBalance: tenantProcedure
+    .input(z.object({ customerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const result = await tx.financialTransaction.aggregate({
+          where: {
+            customerId: input.customerId,
+            type: "RECEIVABLE",
+            status: { in: ["PENDING", "PARTIALLY_PAID"] },
+          },
+          _sum: { totalAmount: true, paidAmount: true },
+        });
+        const total = Number(result._sum.totalAmount ?? 0);
+        const paid = Number(result._sum.paidAmount ?? 0);
+        return { openBalance: Math.round((total - paid) * 100) }; // centavos
+      });
+    }),
 });
