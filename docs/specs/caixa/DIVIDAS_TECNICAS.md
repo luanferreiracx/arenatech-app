@@ -58,9 +58,9 @@ ADRs 0030 (append-only model) e 0031 (RBAC granular) NÃO foram criados. Ficaram
 
 | Item | Status | Ação necessária |
 |------|--------|-----------------|
-| ADR 0030 (append-only) | Pendente | Criar arquivo em docs/decisions/ |
-| ADR 0031 (RBAC granular) | Pendente | Criar arquivo em docs/decisions/ |
+| ADR 0030 (append-only) | ✓ Pago | docs/decisions/0030-cash-movement-append-only.md |
+| ADR 0031 (RBAC granular) | ✓ Pago | docs/decisions/0031-cash-rbac-granular.md |
 | 16 cenários E2E | Pendente | Batch final de testes E2E |
-| Endpoint /api/cron/close-cash | Pendente | Criar API route com auth por secret |
+| Endpoint /api/cron/close-cash | ✓ Pago | src/app/api/cron/close-abandoned-cash-sessions/route.ts |
 | CSS @media print relatório | Pendente | Implementar layout de impressão |
 | Página dedicada /caixa/abertos | Não necessária | Integrada no painel existente |
