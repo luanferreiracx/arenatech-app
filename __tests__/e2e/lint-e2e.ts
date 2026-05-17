@@ -1,11 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * E2E Quality Linter (ADR 0036 — revisado para 100% @business)
+ * E2E Quality Linter (ADR 0036 — 100% @business per-file with whitelist)
  *
- * Validates that ALL test() blocks in __tests__/e2e/*.spec.ts are tagged
- * with @business and contain real action + specific assertion.
- *
- * @smoke is NO LONGER a valid category. Every test must be @business.
+ * Validates that ALL test() blocks are tagged @business with real action + assertion.
+ * Files in lint-e2e.config.json::pendingRefactor are reported as warnings (not errors).
+ * Files NOT in whitelist must be 100% @business or linter fails.
  *
  * Run: npx tsx __tests__/e2e/lint-e2e.ts
  * Exit 0 = pass, Exit 1 = fail
@@ -15,16 +14,27 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 
 const E2E_DIR = join(__dirname, ".")
-const MIN_BUSINESS_PERCENT = 100
 
-// Patterns that indicate real business logic (not just "page loaded")
+interface LintConfig {
+  pendingRefactor: string[]
+}
+
+function loadConfig(): LintConfig {
+  try {
+    const raw = readFileSync(join(E2E_DIR, "lint-e2e.config.json"), "utf-8")
+    return JSON.parse(raw) as LintConfig
+  } catch {
+    return { pendingRefactor: [] }
+  }
+}
+
 const BUSINESS_ACTION_PATTERNS = [
-  /\.fill\(/,        // filling a form field
-  /\.click\(/,       // clicking (could be submit)
-  /\.check\(/,       // checking a checkbox
-  /\.selectOption\(/, // selecting from dropdown
-  /page\.request\.(post|put|patch|delete)\(/, // API calls
-  /\.press\(/,       // keyboard input
+  /\.fill\(/,
+  /\.click\(/,
+  /\.check\(/,
+  /\.selectOption\(/,
+  /page\.request\.(post|put|patch|delete)\(/,
+  /\.press\(/,
 ]
 
 const BUSINESS_ASSERT_PATTERNS = [
@@ -43,7 +53,7 @@ const BUSINESS_ASSERT_PATTERNS = [
   /expect\(.*\)\.toHaveProperty\(/,
   /expect\(.*\)\.toMatch\(/,
   /expect\(url\)/,
-  /getByText\(["'][^/].*\)\.toBeVisible/, // specific text (not regex) + toBeVisible
+  /getByText\(["'][^/].*\)\.toBeVisible/,
   /\.first\(\)\.toBeVisible/,
 ]
 
@@ -84,7 +94,6 @@ function extractTests(filePath: string): TestInfo[] {
 
     const hasAction = BUSINESS_ACTION_PATTERNS.some((p) => p.test(body))
     const hasSpecificAssert = BUSINESS_ASSERT_PATTERNS.some((p) => p.test(body))
-
     const valid = tag === "business" && hasAction && hasSpecificAssert
 
     tests.push({ file: fileName, name, tag, line: lineNum, hasAction, hasSpecificAssert, valid })
@@ -94,73 +103,81 @@ function extractTests(filePath: string): TestInfo[] {
 }
 
 function main() {
+  const config = loadConfig()
+  const whitelistSet = new Set(config.pendingRefactor.map((p) => p.split("/").pop()!))
+
   const specFiles = readdirSync(E2E_DIR)
     .filter((f) => f.endsWith(".spec.ts"))
     .map((f) => join(E2E_DIR, f))
 
   const allTests: TestInfo[] = []
+  const fileResults: Map<string, { tests: TestInfo[]; whitelisted: boolean }> = new Map()
+
   for (const file of specFiles) {
-    allTests.push(...extractTests(file))
+    const tests = extractTests(file)
+    const fileName = file.split("/").pop()!
+    const whitelisted = whitelistSet.has(fileName)
+    allTests.push(...tests)
+    fileResults.set(fileName, { tests, whitelisted })
   }
 
-  const total = allTests.length
-  const untagged = allTests.filter((t) => t.tag === "untagged")
-  const business = allTests.filter((t) => t.tag === "business")
-  const smoke = allTests.filter((t) => t.tag === "smoke")
-  const invalidBusiness = business.filter((t) => !t.valid)
-  const businessPercent = total > 0 ? Math.round((business.length / total) * 100) : 0
+  const totalTests = allTests.length
+  const totalBusiness = allTests.filter((t) => t.tag === "business" && t.valid).length
 
-  console.log("\n📊 E2E Quality Lint Report (ADR 0036 — 100% @business)")
-  console.log("═".repeat(55))
-  console.log(`Total tests:       ${total}`)
-  console.log(`@business:         ${business.length} (${businessPercent}%)`)
-  console.log(`@smoke (invalid):  ${smoke.length}`)
-  console.log(`Untagged:          ${untagged.length}`)
-  console.log(`Invalid @business: ${invalidBusiness.length}`)
-  console.log(`Required:          ${MIN_BUSINESS_PERCENT}% @business`)
-  console.log("═".repeat(55))
+  console.log("\n📊 E2E Quality Lint Report (ADR 0036 — per-file + whitelist)")
+  console.log("═".repeat(60))
 
   let hasError = false
 
-  if (smoke.length > 0) {
-    console.log(`\n❌ ${smoke.length} test(s) tagged @smoke — category no longer accepted.`)
-    console.log(`   Every test() must be @business with real action + specific assertion.`)
-    console.log(`   Refactor to @business or remove if page has no testable logic.`)
-    for (const t of smoke.slice(0, 10)) {
-      console.log(`   ${t.file}:${t.line} — "${t.name}"`)
+  // Validated files (NOT whitelisted)
+  const whitelistedFiles: string[] = []
+
+  for (const [fileName, { tests, whitelisted }] of fileResults) {
+    if (whitelisted) {
+      whitelistedFiles.push(fileName)
+      continue
     }
-    if (smoke.length > 10) {
-      console.log(`   ... and ${smoke.length - 10} more`)
+
+    const businessCount = tests.filter((t) => t.tag === "business" && t.valid).length
+    const nonBusiness = tests.filter((t) => t.tag !== "business" || !t.valid)
+
+    if (nonBusiness.length > 0) {
+      console.log(`\n❌ ${fileName}: ${businessCount}/${tests.length} @business — FAIL`)
+      for (const t of nonBusiness) {
+        console.log(`   :${t.line} "${t.name}" (tag=${t.tag}, action=${t.hasAction}, assert=${t.hasSpecificAssert})`)
+      }
+      hasError = true
+    } else if (tests.length > 0) {
+      console.log(`\n✅ ${fileName}: ${businessCount}/${tests.length} @business`)
     }
-    hasError = true
   }
 
-  if (untagged.length > 0) {
-    console.log(`\n❌ ${untagged.length} test(s) without tag:`)
-    for (const t of untagged.slice(0, 10)) {
-      console.log(`   ${t.file}:${t.line} — "${t.name}"`)
+  // Whitelisted files (warnings only)
+  if (whitelistedFiles.length > 0) {
+    console.log(`\n${"─".repeat(60)}`)
+    console.log(`📋 Whitelist (refatoração pendente): ${whitelistedFiles.length} arquivos`)
+    console.log(`${"─".repeat(60)}`)
+
+    for (const fileName of whitelistedFiles) {
+      const { tests } = fileResults.get(fileName)!
+      const businessCount = tests.filter((t) => t.tag === "business" && t.valid).length
+      const pct = tests.length > 0 ? Math.round((businessCount / tests.length) * 100) : 0
+
+      if (businessCount === tests.length && tests.length > 0) {
+        console.log(`\n✨ ${fileName}: ${businessCount}/${tests.length} (${pct}%) — PRONTO`)
+        console.log(`   → Remova de lint-e2e.config.json::pendingRefactor`)
+      } else {
+        console.log(`   ⚠️  ${fileName}: ${businessCount}/${tests.length} (${pct}%)`)
+      }
     }
-    if (untagged.length > 10) {
-      console.log(`   ... and ${untagged.length - 10} more`)
-    }
-    hasError = true
   }
 
-  if (invalidBusiness.length > 0) {
-    console.log(`\n❌ ${invalidBusiness.length} @business test(s) missing action or specific assert:`)
-    for (const t of invalidBusiness) {
-      console.log(`   ${t.file}:${t.line} — "${t.name}" (action=${t.hasAction}, assert=${t.hasSpecificAssert})`)
-    }
-    hasError = true
-  }
-
-  if (businessPercent < MIN_BUSINESS_PERCENT && total > 0) {
-    console.log(`\n❌ Business coverage ${businessPercent}% is below required ${MIN_BUSINESS_PERCENT}%`)
-    hasError = true
-  }
+  console.log(`\n${"═".repeat(60)}`)
+  console.log(`📈 Progresso: ${totalBusiness}/${totalTests} @business (${Math.round((totalBusiness / totalTests) * 100)}%)`)
+  console.log(`📋 Whitelist: ${whitelistedFiles.length} arquivos pendentes`)
 
   if (!hasError) {
-    console.log("\n✅ All E2E tests are @business with real action + assertion.")
+    console.log(`\n✅ Arquivos validados estão 100% @business. Push liberado.`)
   }
 
   process.exit(hasError ? 1 : 0)

@@ -260,6 +260,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-17 — LINTER E2E PASSA A SER POR-ARQUIVO
+
+Threshold mudou de agregado para por-arquivo + whitelist explícita (lint-e2e.config.json).
+ADR 0036 ganhou Revisão 2.
+Whitelist atual: 8 arquivos pendentes de refatoração.
+Sem --no-verify esperado a partir de agora.
+
+---
+
 ### 2026-05-17 — LINTER E2E ENDURECIDO PARA 100% BUSINESS
 
 Threshold revisado de 60% para 100% @business. Tag @smoke removida como categoria aceita. Razão: smoke virou muleta — 99 de 103 testes eram "página carrega" disfarçados de lógica de negócio.

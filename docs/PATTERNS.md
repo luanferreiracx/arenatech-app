@@ -537,6 +537,10 @@ Todo `test()` em `__tests__/e2e/` DEVE começar com `@business` e cumprir crité
 - Commitar `*.spec.ts` sem ter executado ao menos 1x localmente
 - Usar `--passWithNoTests` ou flags que mascarem ausência de testes
 
+### Whitelist de refatoração pendente
+
+Durante a refatoração inicial (maio/2026), arquivos legados estão listados em `__tests__/e2e/lint-e2e.config.json::pendingRefactor`. Conforme cada módulo é refatorado para 100% @business, deve ser removido da whitelist. Quando criar novo arquivo .spec.ts, NÃO adicionar à whitelist.
+
 **ADRs:** docs/decisions/0035-e2e-obrigatorio-antes-de-push.md, docs/decisions/0036-e2e-business-vs-smoke.md
 **Enforcement:** Husky pre-push hook + pnpm test:e2e:lint
 

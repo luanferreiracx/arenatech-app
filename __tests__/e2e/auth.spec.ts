@@ -36,7 +36,7 @@ test("@business login with wrong password shows generic error", async ({ page })
   await expect(page.getByText("CPF ou senha inválidos")).toBeVisible({ timeout: 5000 });
 });
 
-test("@smoke single-tenant user logs in and goes to dashboard", async ({ page }) => {
+test("@smoke login de usuário single-tenant carrega dashboard", async ({ page }) => {
   await login(page, SINGLE_TENANT.cpf, SINGLE_TENANT.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
@@ -59,7 +59,7 @@ test("@business multi-tenant user logs in and goes to select-tenant", async ({ p
   await expect(page.locator("body")).toContainText(/[Bb]em-vindo|[Dd]ashboard|Arena/, { timeout: 10000 });
 });
 
-test("@smoke super admin logs in and goes to admin", async ({ page }) => {
+test("@smoke login de super admin carrega página pós-login", async ({ page }) => {
   await login(page, SUPER_ADMIN.cpf, SUPER_ADMIN.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 
@@ -67,7 +67,7 @@ test("@smoke super admin logs in and goes to admin", async ({ page }) => {
   await expect(page.locator("body")).toContainText(/[Aa]dmin|[Ss]elecione|[Dd]ashboard/, { timeout: 15000 });
 });
 
-test("@smoke logout clears session", async ({ page }) => {
+test("@smoke usuário autenticado não permanece em /login", async ({ page }) => {
   await login(page, SINGLE_TENANT.cpf, SINGLE_TENANT.password);
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 

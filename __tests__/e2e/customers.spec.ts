@@ -25,25 +25,27 @@ test.describe("Customers — CRUD básico", () => {
     await login(page);
   });
 
-  test("@smoke T-1 Criar cliente PF com CPF válido → sucesso", async ({ page }) => {
+  test("@smoke T-1 página de novo cliente carrega", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Cc]liente|[Cc]adastro/);
   });
 
-  test("@smoke T-4 Criar cliente PJ com CNPJ válido → sucesso", async ({ page }) => {
+  // TODO: redundante com T-1 — substituir por @business na refatoração
+  test("@smoke T-4 página de novo cliente carrega", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Cc]liente|[Cc]adastro/);
   });
 
-  test("@smoke T-9 Soft delete: cliente desaparece da listagem", async ({ page }) => {
+  test("@smoke T-9 listagem de clientes renderiza tabela", async ({ page }) => {
     await page.goto("/customers");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
   });
 
-  test("@smoke T-10 Restauração de cliente excluído", async ({ page }) => {
+  // TODO: redundante com T-9 — substituir por @business na refatoração
+  test("@smoke T-10 listagem de clientes renderiza tabela", async ({ page }) => {
     await page.goto("/customers");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
@@ -55,26 +57,29 @@ test.describe("Customers — Validações", () => {
     await login(page);
   });
 
-  test("@smoke T-2 CPF inválido (dígito verificador) → erro", async ({ page }) => {
+  test("@smoke T-2 formulário de novo cliente exibe menção a CPF", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     // Page should show customer form
     await expect(page.locator("body")).toContainText(/[Cc]liente|[Cc]PF/);
   });
 
-  test("@smoke T-3 CPF all-same-digits → erro", async ({ page }) => {
+  // TODO: redundante com T-1 — substituir por @business na refatoração
+  test("@smoke T-3 página de novo cliente carrega", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Cc]liente/);
   });
 
-  test("@smoke T-5 Criar PJ sem CNPJ → erro", async ({ page }) => {
+  // TODO: redundante com T-1 — substituir por @business na refatoração
+  test("@smoke T-5 página de novo cliente carrega", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Cc]liente/);
   });
 
-  test("@smoke T-6 CPF duplicado no tenant → erro", async ({ page }) => {
+  // TODO: redundante com T-1 — substituir por @business na refatoração
+  test("@smoke T-6 página de novo cliente carrega", async ({ page }) => {
     await page.goto("/customers/new");
     await page.waitForLoadState("networkidle", { timeout: 20000 });
     await expect(page.locator("body")).toContainText(/[Cc]liente/);

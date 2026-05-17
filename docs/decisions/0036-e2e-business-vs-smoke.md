@@ -71,3 +71,19 @@ Threshold revisado de 60% para **100% @business**.
 
 **Ordem planejada de refatoração:**
 Clientes (23) → Configurações (17) → Caixa (14) → Financeiro (4) → Estoque-A (19) → Estoque-B (15) → Auth/Home (5)
+
+## Revisão 2 em 2026-05-17
+
+Threshold agregado de 100% trocado por **threshold POR-ARQUIVO com whitelist explícita**.
+
+**Motivo:** refatoração de 99 testes em 8 arquivos não pode bloquear push do projeto inteiro até estar 100% completa. Mudança permite push limpo a cada módulo refatorado.
+
+**Mecânica:**
+- `lint-e2e.config.json` lista arquivos com refatoração pendente
+- Arquivos NA whitelist: linter reporta warnings mas não bloqueia
+- Arquivos FORA da whitelist: 100% @business obrigatório
+- Conforme cada módulo é refatorado, item é removido da whitelist
+- Objetivo: zerar whitelist completamente
+- Linter sugere remoção quando arquivo whitelisted atinge 100% @business
+
+Sem `--no-verify` esperado a partir de agora.
