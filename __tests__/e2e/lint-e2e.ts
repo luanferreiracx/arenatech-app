@@ -35,6 +35,11 @@ const BUSINESS_ACTION_PATTERNS = [
   /\.selectOption\(/,
   /page\.request\.(post|put|patch|delete)\(/,
   /\.press\(/,
+  /fillField\(/,          // form.helper.ts
+  /fillTextarea\(/,       // form.helper.ts
+  /fillByPlaceholder\(/,  // form.helper.ts
+  /\.dispatchEvent\(/,    // Radix UI radio/checkbox
+  /gotoAndWait\(/,        // navigation.helper.ts
 ]
 
 const BUSINESS_ASSERT_PATTERNS = [
@@ -55,6 +60,10 @@ const BUSINESS_ASSERT_PATTERNS = [
   /expect\(url\)/,
   /getByText\(["'][^/].*\)\.toBeVisible/,
   /\.first\(\)\.toBeVisible/,
+  /\.toHaveAttribute\(/,
+  /\.not\.toHaveValue\(/,
+  /\.toHaveURL\(/,
+  /locator\(.*\).*\.toBeVisible/,   // specific locator + toBeVisible
 ]
 
 interface TestInfo {

@@ -3,7 +3,6 @@
   "_audit": "Estado em 2026-05-17: 99 testes @smoke distribuídos em 8 arquivos. Refatoração planejada começa por customers.spec.ts.",
   "pendingRefactor": [
     "__tests__/e2e/auth.spec.ts",
-    "__tests__/e2e/customers.spec.ts",
     "__tests__/e2e/settings.spec.ts",
     "__tests__/e2e/cashier.spec.ts",
     "__tests__/e2e/financial.spec.ts",
