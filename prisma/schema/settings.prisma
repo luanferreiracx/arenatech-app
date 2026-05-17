@@ -47,6 +47,8 @@ model TenantFiscalSettings {
   enabled              Boolean   @default(false)
   autoIssue            Boolean   @default(false) @map("auto_issue")
   certificateUrl       String?   @map("certificate_url")
+  certificateIv        String?   @map("certificate_iv") @db.VarChar(24)
+  certificateAuthTag   String?   @map("certificate_auth_tag") @db.VarChar(24)
   certificateUploadedAt DateTime? @map("certificate_uploaded_at")
   certificateExpiresAt DateTime?  @map("certificate_expires_at")
   createdAt            DateTime  @default(now()) @map("created_at")

@@ -713,4 +713,136 @@ export const settingsRouter = createTRPCRouter({
         });
       });
     }),
+
+  // ═══════════════════════════════════════
+  // CERTIFICATE MANAGEMENT (.pfx)
+  // ═══════════════════════════════════════
+
+  /** Upload encrypted .pfx certificate (Owner only) */
+  updateFiscalCertificate: tenantProcedure
+    .input(z.object({
+      pfxBase64: z.string().min(1, "Certificado obrigatório"),
+      password: z.string().min(1, "Senha do certificado obrigatória"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem gerenciar certificados" });
+      }
+
+      const { encryptPfx } = await import("@/server/services/pfx-encryption.service");
+      const { randomUUID } = await import("node:crypto");
+
+      // Decode base64
+      const pfxBuffer = Buffer.from(input.pfxBase64, "base64");
+      if (pfxBuffer.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo de certificado vazio" });
+      }
+
+      // Encrypt
+      const { encrypted, iv, authTag } = encryptPfx(pfxBuffer);
+
+      // Upload to MinIO
+      const certId = randomUUID();
+      const key = `tenants/${ctx.tenantId}/certificates/${certId}.pfx.enc`;
+
+      try {
+        const { uploadProductImage } = await import("@/lib/product-image-service");
+        // Reuse MinIO upload infrastructure (upload raw encrypted buffer)
+        const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+        const client = new S3Client({
+          region: "us-east-1",
+          endpoint: process.env.S3_ENDPOINT || "http://localhost:9000",
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
+            secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
+          },
+        });
+        await client.send(new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET || "arenatech",
+          Key: key,
+          Body: encrypted,
+          ContentType: "application/octet-stream",
+        }));
+      } catch (error) {
+        if (process.env.NODE_ENV !== "development") throw error;
+        // Dev mode: MinIO may not be available, continue with URL placeholder
+      }
+
+      const certificateUrl = `${process.env.S3_ENDPOINT || "http://localhost:9000"}/${process.env.S3_BUCKET || "arenatech"}/${key}`;
+
+      // Update fiscal settings
+      return ctx.withTenant(async (tx) => {
+        return tx.tenantFiscalSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: {
+            tenantId: ctx.tenantId,
+            certificateUrl,
+            certificateIv: iv,
+            certificateAuthTag: authTag,
+            certificateUploadedAt: new Date(),
+          },
+          update: {
+            certificateUrl,
+            certificateIv: iv,
+            certificateAuthTag: authTag,
+            certificateUploadedAt: new Date(),
+          },
+        });
+      });
+    }),
+
+  /** Remove certificate (Owner only) */
+  removeFiscalCertificate: tenantProcedure
+    .mutation(async ({ ctx }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      return ctx.withTenant(async (tx) => {
+        const settings = await tx.tenantFiscalSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+
+        if (settings?.certificateUrl) {
+          // Try to delete from MinIO
+          try {
+            const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+            const client = new S3Client({
+              region: "us-east-1",
+              endpoint: process.env.S3_ENDPOINT || "http://localhost:9000",
+              forcePathStyle: true,
+              credentials: {
+                accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
+                secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
+              },
+            });
+            const bucket = process.env.S3_BUCKET || "arenatech";
+            const url = settings.certificateUrl;
+            const keyIdx = url.indexOf(`/${bucket}/`);
+            if (keyIdx !== -1) {
+              await client.send(new DeleteObjectCommand({
+                Bucket: bucket,
+                Key: url.slice(keyIdx + bucket.length + 2),
+              }));
+            }
+          } catch {
+            // Ignore MinIO errors in dev
+          }
+        }
+
+        return tx.tenantFiscalSettings.update({
+          where: { tenantId: ctx.tenantId },
+          data: {
+            certificateUrl: null,
+            certificateIv: null,
+            certificateAuthTag: null,
+            certificateUploadedAt: null,
+            certificateExpiresAt: null,
+          },
+        });
+      });
+    }),
 });
