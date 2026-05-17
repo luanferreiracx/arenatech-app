@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Clientes 100% COMPLETO (23 E2E verdes). Financeiro, Caixa, Catálogo, Estoque-A/B completos. Pronto para OS.
+**Fase atual:** Configurações 100% COMPLETO (17 E2E verdes). Clientes, Financeiro, Caixa, Catálogo, Estoque-A/B completos. Pronto para OS.
 **Ultima atualizacao:** 2026-05-17
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-17 — Configurações: auditoria + fechamento 100%
+
+- Audit: 0 bugs. 22 procedures, 16 páginas — tudo funcional.
+- settings.spec.ts: 17 cenários E2E rodando verde (25.8s)
+- Dívidas mantidas (aceitas em CLOSE.md): .pfx encryption, businessHours sem UI
+- AUDIT_REPORT.md criado
+
+---
 
 ### 2026-05-17 — Clientes: auditoria + fechamento 100%
 
@@ -1040,8 +1049,7 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ## Dívida técnica
 
 - **Configurações: upload certificado .pfx encriptado** — adiado para quando módulo Fiscal precisar decifrar. Campo `certificateUrl` existe no schema.
-- **Configurações: 17 cenários E2E adiados** — para batch final do projeto. Cobertura atual = unit + integration.
-- **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel (`horario_funcionamento` no key-value). Mantido como réplica fiel.
+- **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel. Campo no schema sem UI. Mantido como feature futura.
 
 ---
 
