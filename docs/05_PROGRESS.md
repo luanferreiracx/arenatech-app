@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Estoque-B 100% COMPLETO (15 E2E verdes). Todos módulos base 100%. Pronto para OS.
+**Fase atual:** LINTER ENDURECIDO 100% @business. 99 testes @smoke precisam refatoração. Push bloqueado até resolução.
 **Ultima atualizacao:** 2026-05-17
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-17 — LINTER E2E ENDURECIDO PARA 100% BUSINESS
+
+Threshold revisado de 60% para 100% @business. Tag @smoke removida como categoria aceita. Razão: smoke virou muleta — 99 de 103 testes eram "página carrega" disfarçados de lógica de negócio.
+
+Estado atual:
+- 4 testes @business reais (auth: login invalid CPF, login wrong password, multi-tenant select; cashier: cron endpoint)
+- 99 testes @smoke (categoria não mais aceita) — precisam ser refatorados para @business OU removidos
+- Linter bloqueia push (4% < 100%)
+- ADR 0036 revisado
+
+Próximas sessões: refatoração módulo a módulo. Cada test() vira @business real com ação + assertion ou é deletado.
+Ordem planejada: Clientes (23) → Configurações (17) → Caixa (14) → Financeiro (4) → Estoque-A (19) → Estoque-B (15) → Auth/Home (5).
+
+---
 
 ### 2026-05-17 — Estoque-B: auditoria + fechamento 100%
 

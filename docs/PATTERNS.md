@@ -506,24 +506,38 @@ Nenhum módulo é considerado entregue (status ✓) sem atender TODOS os critér
 |---|----------|--------------|
 | 1 | Typecheck verde | `pnpm typecheck` exit 0 |
 | 2 | Unit tests verdes | `pnpm test` exit 0 |
-| 3 | **E2E executado contra server real** | `pnpm test:e2e --reporter=list` exit 0 |
-| 4 | Build de produção verde | `pnpm build` exit 0 |
-| 5 | RBAC validado em E2E | Pelo menos 1 cenário negativo (403/redirect) |
+| 3 | **E2E @business contra server real** | `pnpm test:e2e --reporter=list` exit 0 |
+| 4 | **E2E linter verde** | `pnpm test:e2e:lint` exit 0 (100% @business) |
+| 5 | Build de produção verde | `pnpm build` exit 0 |
+
+### Convenção de E2E tests
+
+Todo `test()` em `__tests__/e2e/` DEVE começar com `@business` e cumprir critérios:
+
+**Critérios de @business (todos obrigatórios):**
+- Faz pelo menos UMA mutation: click em ação, form fill + submit, ou chamada a API/procedure
+- Faz pelo menos UMA assertion específica: toHaveValue, toHaveCount, toHaveText, toHaveURL, toBeDisabled, toBe, toEqual, toHaveProperty, toMatch, response.ok/json, ou getByText("texto específico").toBeVisible
+- toContainText com regex genérico NÃO basta sozinho
+
+**@smoke não é categoria aceita.** Todo teste deve ter lógica de negócio.
+
+**Páginas sem lógica (404, institucionais):** não devem ter E2E. Se necessário testar "página carrega", é coberto incidentalmente por @business que navega pra ela.
 
 ### Cobertura mínima de E2E por módulo
 
-- **CRUDs:** criar, editar, deletar, listar (4 cenários mínimo)
-- **Fluxos transacionais:** happy path + 1 caso de erro (2 cenários mínimo por fluxo)
-- **Configurações de tenant:** salvar + tentar sem permissão (2 cenários mínimo)
+- **CRUDs:** criar + verificar dados, editar + verificar mudança, deletar + verificar ausência (3 cenários mínimo)
+- **Validação:** input inválido → mensagem de erro específica (1 cenário mínimo)
+- **RBAC:** user sem permissão → 403 ou redirect (1 cenário mínimo)
+- **Fluxos transacionais:** happy path com side effect verificado (1 cenário mínimo)
 
 ### Proibido
 
 - Marcar módulo como ✓ baseado apenas em typecheck + unit
-- Reportar "test ✓" sem especificar se é unit ou E2E
+- Usar tag @smoke (categoria removida — ADR 0036 revisado)
 - Commitar `*.spec.ts` sem ter executado ao menos 1x localmente
 - Usar `--passWithNoTests` ou flags que mascarem ausência de testes
 
-**ADR:** docs/decisions/0035-e2e-obrigatorio-antes-de-push.md
-**Enforcement:** Husky pre-push hook (.husky/pre-push)
+**ADRs:** docs/decisions/0035-e2e-obrigatorio-antes-de-push.md, docs/decisions/0036-e2e-business-vs-smoke.md
+**Enforcement:** Husky pre-push hook + pnpm test:e2e:lint
 
 ---
