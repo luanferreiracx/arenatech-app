@@ -51,3 +51,23 @@ Todos devem ser verdadeiros:
 - Code review manual: não escala
 - Coverage de assertions: técnico demais, falso positivo alto
 - Limitar quantidade de toContainText por teste: contornável
+
+## Revisão em 2026-05-17
+
+Threshold revisado de 60% para **100% @business**.
+
+**Razão:** smoke tests viraram muleta na prática. Sessão anterior renomeou 99 testes para @smoke pra evitar refatoração real. Para sistema de gestão de negócio real (Arena Tech: financeiro, estoque, vendas, OS), cada cenário tem lógica de negócio testável — smoke é desnecessário.
+
+**Mudanças:**
+- Tag @smoke removida como categoria válida — linter reporta erro
+- Apenas @business aceito
+- Páginas sem lógica de negócio (404, institucionais) não devem ter E2E
+- Se necessário testar "página carrega", isso é coberto incidentalmente por qualquer @business que navegue pra essa página
+
+**Consequência imediata:**
+- 99 testes @smoke existentes precisam ser refatorados para @business OU removidos
+- Linter bloqueia push até 100% atingido
+- Estimativa: ~25-30h para refatorar todos os módulos
+
+**Ordem planejada de refatoração:**
+Clientes (23) → Configurações (17) → Caixa (14) → Financeiro (4) → Estoque-A (19) → Estoque-B (15) → Auth/Home (5)
