@@ -7,8 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** LINTER ENDURECIDO 100% @business. 99 testes @smoke precisam refatoração. Push bloqueado até resolução.
+**Fase atual:** 3 módulos E2E 100% @business Nível 2. 5 arquivos na whitelist. Push aceito.
 **Ultima atualizacao:** 2026-05-17
+**Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19 + 7 dívida documentada)
+**Progresso E2E:** 60/100 @business (60%), whitelist 5 arquivos
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
 
@@ -1102,6 +1104,7 @@ Ordem planejada: Clientes (23) → Configurações (17) → Caixa (14) → Finan
 ## Dívida técnica
 
 - **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel. Campo no schema sem UI. Mantido como feature futura.
+- **Stock-A: 7 cenários E2E adicionais (T-20 a T-26)** — upload foto, NCM modal, variações multi-step, RBAC negativo, duplicar, soft delete, ViaCEP supplier. Cada um depende de investigação da UI antes de implementação. 19 testes Nível 2 cobrem fluxo principal. 7 adicionais ficam como dívida aceita.
 
 ---
 
