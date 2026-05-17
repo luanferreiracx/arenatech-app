@@ -739,7 +739,14 @@ export const settingsRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo de certificado vazio" });
       }
 
-      // Encrypt
+      // Validate .pfx with password (password is NOT stored)
+      const { validatePfx } = await import("@/server/services/pfx-validator.service");
+      const validation = validatePfx(pfxBuffer, input.password);
+      if (!validation.valid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: validation.error ?? "Certificado inválido" });
+      }
+
+      // Encrypt (password is discarded after validation)
       const { encrypted, iv, authTag } = encryptPfx(pfxBuffer);
 
       // Upload to MinIO
@@ -772,7 +779,7 @@ export const settingsRouter = createTRPCRouter({
 
       const certificateUrl = `${process.env.S3_ENDPOINT || "http://localhost:9000"}/${process.env.S3_BUCKET || "arenatech"}/${key}`;
 
-      // Update fiscal settings
+      // Update fiscal settings (include metadata from validation)
       return ctx.withTenant(async (tx) => {
         return tx.tenantFiscalSettings.upsert({
           where: { tenantId: ctx.tenantId },
@@ -782,12 +789,14 @@ export const settingsRouter = createTRPCRouter({
             certificateIv: iv,
             certificateAuthTag: authTag,
             certificateUploadedAt: new Date(),
+            certificateExpiresAt: validation.expiresAt ?? null,
           },
           update: {
             certificateUrl,
             certificateIv: iv,
             certificateAuthTag: authTag,
             certificateUploadedAt: new Date(),
+            certificateExpiresAt: validation.expiresAt ?? null,
           },
         });
       });
