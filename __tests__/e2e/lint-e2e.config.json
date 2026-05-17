@@ -7,7 +7,5 @@
     "__tests__/e2e/financial.spec.ts",
     "__tests__/e2e/home.spec.ts"
   ],
-  "pendingLevelUpgrade": [
-    "__tests__/e2e/stock-b.spec.ts"
-  ]
+  "pendingLevelUpgrade": []
 }
