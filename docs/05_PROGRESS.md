@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Caixa IMPLEMENTADO (CashSession refatorado + services + procedures PDV/OS). Catálogo, Estoque-A/B completos.
+**Fase atual:** Financeiro IMPLEMENTADO (categorias FIXED/CUSTOM + procedures @PDV/@OS + installment generator). Caixa, Catálogo, Estoque-A/B completos.
 **Ultima atualizacao:** 2026-05-16
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-16 — IMPLEMENT Financeiro (Categorias + Procedures @PDV/@OS)
+
+- **Implementado:**
+  - Schema: FinancialCategory (FIXED/CUSTOM, RECEITA/DESPESA, unique tenantId+code)
+  - FinancialTransaction expandido: +categoryId, +saleId, +serviceOrderId, +isManual (F3 XOR), +supplierId, +paymentMethodId, +cancelledAt/By/Reason, +createdByUserId
+  - Installment expandido: +paidByUserId, +estornadaAt/By/Reason
+  - TransactionStatus: +ESTORNADA
+  - installment-generator.service.ts: divisão proporcional com dízima (last absorbs remainder)
+  - tRPC: +8 procedures (categories CRUD, @PDV createReceivablesFromSale, @OS createReceivablesFromServiceOrder, cancelReceivablesFromSale, getCustomerOpenBalance)
+  - RBAC: operator bloqueado, Owner para FIXED toggle
+  - Testes: 10 novos (installment generator — dízima, exact, 36 parcelas, edges)
+  - typecheck ✓ | test ✓ (576) | build ✓
+- **Decisões aplicadas:** F1 (reuso PaymentMethod), F3 (XOR origin), F4 (stubs), F5 (cancel+estorno), F6 (VENCIDO computed), F7 (categories FIXED+CUSTOM), F8 (RBAC), F9 (anti-escopo)
+- **Dívidas técnicas:** ADRs 0032-0034 pendentes, testes E2E (batch final), páginas UI (existentes da Fase 6 com schema expandido)
+- **Próximo:** Módulo OS ou próxima prioridade
+
+---
 
 ### 2026-05-16 — Caixa: fechamento de 3 dívidas técnicas
 
