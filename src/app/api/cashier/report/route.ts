@@ -143,12 +143,19 @@ export async function GET(req: NextRequest) {
   <meta charset="UTF-8">
   <title>Relatorio de Fechamento de Caixa</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { margin: 15mm; size: A4 portrait; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.4; color: #333; }
+    body { font-family: 'Inter', Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.4; color: #000; }
+    .no-print { display: inline-block; margin-bottom: 20px; padding: 8px 16px; background: #c9a55c; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+    @media print {
+      .no-print { display: none !important; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
+    }
     .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
-    .header h1 { font-size: 16pt; margin-bottom: 5px; }
-    .header p { font-size: 10pt; color: #666; }
+    .header h1 { font-size: 14pt; margin-bottom: 3px; letter-spacing: 2px; }
+    .header .brand { font-size: 18pt; font-weight: bold; margin-bottom: 5px; }
+    .header p { font-size: 9pt; color: #333; }
     .section { margin-bottom: 15px; }
     .section-title { background-color: #f0f0f0; padding: 5px 10px; font-weight: bold; font-size: 11pt; border-bottom: 1px solid #000; margin-bottom: 10px; }
     .info-table { width: 100%; border-collapse: collapse; }
@@ -169,11 +176,17 @@ export async function GET(req: NextRequest) {
     .highlight-box.danger { border-color: #dc3545; background-color: #f8d7da; }
     .total-row { font-size: 12pt; }
     .divider { border-top: 1px dashed #999; margin: 15px 0; }
-    .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8pt; color: #666; padding-top: 10px; border-top: 1px solid #ddd; }
+    .signature-area { margin-top: 40px; page-break-inside: avoid; }
+    .signature-line { border-top: 1px solid #000; margin: 40px 0 5px 0; width: 60%; }
+    .signature-label { font-size: 9pt; color: #333; }
+    .footer { margin-top: 30px; text-align: center; font-size: 8pt; color: #666; padding-top: 10px; border-top: 1px solid #ddd; }
   </style>
 </head>
 <body>
+  <button class="no-print" onclick="window.print()">Imprimir (Ctrl+P)</button>
+
   <div class="header">
+    <div class="brand">ARENA·TECH</div>
     <h1>RELATORIO DE FECHAMENTO DE CAIXA</h1>
     <p>${new Date(cashSession.openedAt).toLocaleDateString("pt-BR")}</p>
   </div>
@@ -252,6 +265,15 @@ export async function GET(req: NextRequest) {
       </table>
     </div>
     ${cashSession.closingNote ? `<div style="margin-top:15px;padding:10px;background:#f9f9f9;border:1px solid #ddd;"><strong>Observacao:</strong><br>${cashSession.closingNote}</div>` : ""}
+  </div>
+
+  <div class="signature-area">
+    <div class="signature-line"></div>
+    <p class="signature-label">Conferido por: ____________________</p>
+    <div class="signature-line" style="margin-top: 30px;"></div>
+    <p class="signature-label">Data: ____/____ /________</p>
+    <div class="signature-line" style="margin-top: 30px;"></div>
+    <p class="signature-label">Assinatura: ____________________</p>
   </div>
 
   <div class="footer">
