@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * E2E Quality Linter (ADR 0036)
+ * E2E Quality Linter (ADR 0036 — revisado para 100% @business)
  *
- * Validates that all test() blocks in __tests__/e2e/*.spec.ts are tagged
- * with @business or @smoke, and that @business tests contain real assertions.
+ * Validates that ALL test() blocks in __tests__/e2e/*.spec.ts are tagged
+ * with @business and contain real action + specific assertion.
+ *
+ * @smoke is NO LONGER a valid category. Every test must be @business.
  *
  * Run: npx tsx __tests__/e2e/lint-e2e.ts
  * Exit 0 = pass, Exit 1 = fail
@@ -13,7 +15,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 
 const E2E_DIR = join(__dirname, ".")
-const MIN_BUSINESS_PERCENT = 60
+const MIN_BUSINESS_PERCENT = 100
 
 // Patterns that indicate real business logic (not just "page loaded")
 const BUSINESS_ACTION_PATTERNS = [
@@ -41,9 +43,8 @@ const BUSINESS_ASSERT_PATTERNS = [
   /expect\(.*\)\.toHaveProperty\(/,
   /expect\(.*\)\.toMatch\(/,
   /expect\(url\)/,
-  /getByText\(["'][^/].*\)\.toBeVisible/, // specific text (not regex) + toBeVisible = business
-  /\.first\(\)\.toBeVisible/, // specific element selection
-  /not\.toMatch\(/,
+  /getByText\(["'][^/].*\)\.toBeVisible/, // specific text (not regex) + toBeVisible
+  /\.first\(\)\.toBeVisible/,
 ]
 
 interface TestInfo {
@@ -61,7 +62,6 @@ function extractTests(filePath: string): TestInfo[] {
   const fileName = filePath.split("/").pop() ?? filePath
   const tests: TestInfo[] = []
 
-  // Find test blocks by splitting on test(" pattern
   const testRegex = /test\(\s*["'`](.+?)["'`]/g
   let match: RegExpExecArray | null
   const matches: Array<{ name: string; pos: number; lineNum: number }> = []
@@ -74,7 +74,6 @@ function extractTests(filePath: string): TestInfo[] {
 
   for (let i = 0; i < matches.length; i++) {
     const { name, lineNum } = matches[i]!
-    // Body = text from this test to the next test (or EOF)
     const bodyStart = matches[i]!.pos
     const bodyEnd = i + 1 < matches.length ? matches[i + 1]!.pos : content.length
     const body = content.substring(bodyStart, bodyEnd)
@@ -86,7 +85,7 @@ function extractTests(filePath: string): TestInfo[] {
     const hasAction = BUSINESS_ACTION_PATTERNS.some((p) => p.test(body))
     const hasSpecificAssert = BUSINESS_ASSERT_PATTERNS.some((p) => p.test(body))
 
-    const valid = tag === "smoke" || (tag === "business" && hasAction && hasSpecificAssert) || tag === "untagged"
+    const valid = tag === "business" && hasAction && hasSpecificAssert
 
     tests.push({ file: fileName, name, tag, line: lineNum, hasAction, hasSpecificAssert, valid })
   }
@@ -111,22 +110,38 @@ function main() {
   const invalidBusiness = business.filter((t) => !t.valid)
   const businessPercent = total > 0 ? Math.round((business.length / total) * 100) : 0
 
-  console.log("\n📊 E2E Quality Lint Report")
-  console.log("═".repeat(50))
-  console.log(`Total tests:     ${total}`)
-  console.log(`@business:       ${business.length} (${businessPercent}%)`)
-  console.log(`@smoke:          ${smoke.length}`)
-  console.log(`Untagged:        ${untagged.length}`)
+  console.log("\n📊 E2E Quality Lint Report (ADR 0036 — 100% @business)")
+  console.log("═".repeat(55))
+  console.log(`Total tests:       ${total}`)
+  console.log(`@business:         ${business.length} (${businessPercent}%)`)
+  console.log(`@smoke (invalid):  ${smoke.length}`)
+  console.log(`Untagged:          ${untagged.length}`)
   console.log(`Invalid @business: ${invalidBusiness.length}`)
-  console.log(`Min business %:  ${MIN_BUSINESS_PERCENT}%`)
-  console.log("═".repeat(50))
+  console.log(`Required:          ${MIN_BUSINESS_PERCENT}% @business`)
+  console.log("═".repeat(55))
 
   let hasError = false
 
-  if (untagged.length > 0) {
-    console.log(`\n❌ ${untagged.length} test(s) without @business or @smoke tag:`)
-    for (const t of untagged) {
+  if (smoke.length > 0) {
+    console.log(`\n❌ ${smoke.length} test(s) tagged @smoke — category no longer accepted.`)
+    console.log(`   Every test() must be @business with real action + specific assertion.`)
+    console.log(`   Refactor to @business or remove if page has no testable logic.`)
+    for (const t of smoke.slice(0, 10)) {
       console.log(`   ${t.file}:${t.line} — "${t.name}"`)
+    }
+    if (smoke.length > 10) {
+      console.log(`   ... and ${smoke.length - 10} more`)
+    }
+    hasError = true
+  }
+
+  if (untagged.length > 0) {
+    console.log(`\n❌ ${untagged.length} test(s) without tag:`)
+    for (const t of untagged.slice(0, 10)) {
+      console.log(`   ${t.file}:${t.line} — "${t.name}"`)
+    }
+    if (untagged.length > 10) {
+      console.log(`   ... and ${untagged.length - 10} more`)
     }
     hasError = true
   }
@@ -140,16 +155,14 @@ function main() {
   }
 
   if (businessPercent < MIN_BUSINESS_PERCENT && total > 0) {
-    console.log(`\n❌ Business coverage ${businessPercent}% is below minimum ${MIN_BUSINESS_PERCENT}%`)
+    console.log(`\n❌ Business coverage ${businessPercent}% is below required ${MIN_BUSINESS_PERCENT}%`)
     hasError = true
   }
 
   if (!hasError) {
-    console.log("\n✅ All E2E tests properly tagged and valid.")
+    console.log("\n✅ All E2E tests are @business with real action + assertion.")
   }
 
-  // Exit with error only for untagged or invalid business tests
-  // Business % threshold is a warning until existing tests are refactored
   process.exit(hasError ? 1 : 0)
 }
 
