@@ -260,6 +260,19 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-16 — Caixa: fechamento de 3 dívidas técnicas
+
+- ADR 0030 (CashMovement append-only) criado
+- ADR 0031 (RBAC granular) criado com matriz completa
+- Endpoint cron POST /api/cron/close-abandoned-cash-sessions com CRON_SECRET auth
+- autoCloseAbandonedSessions refatorado para multi-tenant (sem tenantId param)
+- CRON_SECRET adicionado a .env.example
+- docs/operations/cron-setup.md: systemd timer + GitHub Actions schedule
+- PATTERNS.md: seções "Event log append-only" e "RBAC granular por procedure"
+- Dívidas restantes: 16 E2E (batch final) + CSS print relatório
+
+---
+
 ### 2026-05-16 — IMPLEMENT Caixa (Sessão + Movimentações + Auto-close)
 
 - **Implementado:**
@@ -973,6 +986,8 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 - **Configurações: upload certificado .pfx encriptado** — adiado para quando módulo Fiscal precisar decifrar. Campo `certificateUrl` existe no schema.
 - **Configurações: 17 cenários E2E adiados** — para batch final do projeto. Cobertura atual = unit + integration.
 - **Configurações: campo `businessHours` em TenantSettings** — origem validada contra Laravel (`horario_funcionamento` no key-value). Mantido como réplica fiel.
+- **Caixa: 16 cenários E2E adiados** — batch final de testes E2E do projeto.
+- **Caixa: CSS @media print do relatório** — layout de impressão com padrão Arena Tech + espaço para assinatura pendente.
 
 ---
 

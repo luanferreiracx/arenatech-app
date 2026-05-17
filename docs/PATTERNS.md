@@ -430,3 +430,33 @@ async function getAvailableQuantity(tx, tenantId, productId): Promise<number> {
 **ADR:** docs/decisions/0016-stock-single-source-of-truth.md
 
 ---
+
+## Event log append-only
+
+Registros financeiros e de auditoria são imutáveis:
+- Sem update procedure
+- Soft delete só em casos excepcionais (administrativo)
+- Correções via novos eventos em sentido contrário (ex: estorno é movimento adicional, não edição)
+- Histórico completo preservado — saldo é determinístico (soma de eventos)
+
+**Aplicado em:** CashMovement (Caixa), StockMovement (Estoque-B)
+**Futuros:** AccountingEntry (Financeiro), AuditLog
+
+**ADR:** docs/decisions/0030-cash-movement-append-only.md
+
+---
+
+## RBAC granular por procedure
+
+Cada módulo define matriz papel × ação na SPEC. Implementação:
+- `tenantProcedure` + checagem manual para "próprio recurso" (`ctx.session.user.id === resource.userId`)
+- Checagem de role via `ctx.session.availableTenants.find(t => t.id === ctx.tenantId)?.role`
+- Procedures gerenciais verificam `role !== "operator"` (ou `role === "owner"` para operações críticas)
+- Owner herda permissões de Manager
+
+**Aplicado em:** Caixa, Estoque-A, Estoque-B, Catálogo
+**Futuros:** PDV, OS, Financeiro
+
+**ADR:** docs/decisions/0031-cash-rbac-granular.md
+
+---
