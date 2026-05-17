@@ -123,42 +123,49 @@ export async function closeSession(
   })
 }
 
+export interface AutoCloseResult {
+  closedCount: number
+  sessions: Array<{ id: string; userId: string; hoursOpen: number }>
+}
+
 /**
  * Auto-close abandoned sessions (K3).
  * Idempotent: only closes sessions that are still open and older than maxHours.
+ * Runs across ALL tenants (cron context, no RLS).
  */
 export async function autoCloseAbandonedSessions(
   tx: PrismaClient,
-  tenantId: string,
   maxHours: number = 18
-): Promise<{ closed: number }> {
+): Promise<AutoCloseResult> {
   const cutoff = new Date(Date.now() - maxHours * 60 * 60 * 1000)
 
   const openSessions = await tx.cashSession.findMany({
     where: {
-      tenantId,
       closedAt: null,
       openedAt: { lt: cutoff },
     },
   })
 
-  let closed = 0
+  const closedSessions: AutoCloseResult["sessions"] = []
+
   for (const session of openSessions) {
     const calculatedBalance = await calculateSessionBalance(tx, session.id)
+    const hoursOpen = Math.round((Date.now() - session.openedAt.getTime()) / (1000 * 60 * 60))
 
     await tx.cashSession.update({
       where: { id: session.id },
       data: {
         calculatedBalance: new Prisma.Decimal(calculatedBalance),
-        declaredBalance: new Prisma.Decimal(calculatedBalance), // assume declared = calculated for auto
+        declaredBalance: new Prisma.Decimal(calculatedBalance),
         difference: new Prisma.Decimal(0),
         closeType: "AUTOMATIC",
         closedAt: new Date(),
-        verified: false, // requires manager verification
+        verified: false,
       },
     })
-    closed++
+
+    closedSessions.push({ id: session.id, userId: session.userId, hoursOpen })
   }
 
-  return { closed }
+  return { closedCount: closedSessions.length, sessions: closedSessions }
 }
