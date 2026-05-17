@@ -57,6 +57,7 @@ const BUSINESS_ASSERT_PATTERNS = [
   /expect\(.*\)\.toEqual\(/,
   /expect\(.*\)\.toHaveProperty\(/,
   /expect\(.*\)\.toMatch\(/,
+  /\.toContainText\(/,   // specific text content check
   /expect\(url\)/,
   /getByText\(["'][^/].*\)\.toBeVisible/,
   /\.first\(\)\.toBeVisible/,
