@@ -16,6 +16,44 @@ ADR 0036 (Revisão 2):
 - Whitelist em `__tests__/e2e/lint-e2e.config.json` lista arquivos pendentes
 - Conforme refatoração completa, módulo sai da whitelist
 
+## Níveis de cobertura E2E (CRÍTICO — ADR 0040)
+
+Cada test() @business DEVE ser Nível 2. Nível 1 NÃO é aceitável mesmo passando no linter.
+
+### Nível 1 — Form aceita input (INSUFICIENTE)
+- Preenche campo, verifica que aceitou
+- NÃO submete mutation
+- NÃO verifica resultado
+
+❌ EVITAR:
+```typescript
+await fillField(page, "name", "Produto");
+await expect(page.locator('input[name="name"]')).toHaveValue("Produto");
+```
+
+### Nível 2 — E2E completo via UI (OBRIGATÓRIO)
+- Faz mutation completa (fill + submit)
+- Verifica resultado via UI: redirect, listagem mostra entidade, status mudou
+- Não usa Prisma direto (projeto tem RLS)
+
+✓ USAR:
+```typescript
+await fillField(page, "name", "Produto");
+await page.locator('button[type="submit"]').click();
+await expect(page).toHaveURL(/\/stock\/[a-z0-9-]+$/);
+await gotoAndWait(page, "/stock");
+await expect(page.locator('text="Produto"')).toBeVisible();
+```
+
+### Nível 3 — Integration test (NÃO É E2E)
+- Verifica via Prisma direto — pertence a __tests__/integration/
+- NÃO criar em arquivos .spec.ts de E2E
+
+### Auto-validação durante refatoração
+1. Há mutation (submit, delete, click em ação)? Se não → Nível 1, refazer
+2. Há verificação APÓS mutation (redirect, entidade aparece/sumiu)? Se não → Nível 1, refazer
+3. Verificação é via UI (não Prisma)? Sim → OK, é Nível 2
+
 ## Critérios de @business (linter valida)
 
 Cada test() DEVE conter:
