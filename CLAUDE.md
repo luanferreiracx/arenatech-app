@@ -33,6 +33,13 @@ Antes de **qualquer** trabalho que envolva criação de arquivo ou código pesad
 
 Skills do usuário em `/mnt/skills/user/` também devem ser consideradas — sempre que aparecer uma, prefira a do usuário em caso de conflito com as públicas.
 
+### Skills customizadas do projeto
+
+- **`.claude/skills/arenatech-module-audit/SKILL.md`** — protocolo de auditoria de módulo (diagnóstico → AUDIT_REPORT → correções → documentação)
+- **`.claude/skills/arenatech-module-refactor/SKILL.md`** — refatoração de testes @smoke em @business reais (ADR 0036)
+
+Usar quando o dono pedir "auditar módulo X" ou "refatorar E2E do módulo X".
+
 **Regra de ouro:** se você não tem certeza se uma skill é relevante, leia o SKILL.md. É mais barato ler do que assumir errado.
 
 ---

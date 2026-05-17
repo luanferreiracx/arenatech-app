@@ -260,6 +260,17 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-17 — SKILLS CUSTOMIZADAS CRIADAS
+
+2 skills criadas em `.claude/skills/`:
+1. `arenatech-module-audit` — protocolo de auditoria (diagnóstico → AUDIT_REPORT → correções)
+2. `arenatech-module-refactor` — refatoração @smoke → @business (ADR 0036)
+
+CLAUDE.md atualizado com referências.
+Próximas sessões: "refatorar E2E do módulo X" dispara a skill automaticamente.
+
+---
+
 ### 2026-05-17 — LINTER E2E PASSA A SER POR-ARQUIVO
 
 Threshold mudou de agregado para por-arquivo + whitelist explícita (lint-e2e.config.json).
