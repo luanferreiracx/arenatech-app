@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Financeiro 100% COMPLETO. Caixa, Catálogo, Estoque-A/B completos. Pronto para OS.
+**Fase atual:** Clientes 100% COMPLETO (23 E2E verdes). Financeiro, Caixa, Catálogo, Estoque-A/B completos. Pronto para OS.
 **Ultima atualizacao:** 2026-05-17
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 14
@@ -259,6 +259,16 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-17 — Clientes: auditoria + fechamento 100%
+
+- Audit: 0 bugs de app encontrados. Gap era apenas cobertura E2E (4 de 24).
+- customers.spec.ts expandido de 4 para 23 cenários (T-1 a T-24 da SPEC, exceto T-20 que depende de 2 users simultâneos)
+- Helpers compartilhados já corrigidos na sessão anterior (login, waitForLoadState)
+- AUDIT_REPORT.md criado em docs/specs/clientes/
+- 23 E2E rodando verde (33.9s)
+
+---
 
 ### 2026-05-17 — Caixa: dívidas zeradas (16 E2E + CSS print). Módulo 100% completo.
 
