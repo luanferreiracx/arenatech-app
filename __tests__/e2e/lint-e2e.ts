@@ -64,6 +64,7 @@ const BUSINESS_ASSERT_PATTERNS = [
   /\.not\.toHaveValue\(/,
   /\.toHaveURL\(/,
   /locator\(.*\).*\.toBeVisible/,   // specific locator + toBeVisible
+  /expect\(.*first\(\)\)\.toBeVisible/,  // expect(x.first()).toBeVisible()
 ]
 
 interface TestInfo {
