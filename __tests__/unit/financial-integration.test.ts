@@ -30,14 +30,14 @@ describe("Financial Integration — Listagem", () => {
     // Simulates that when role=operator, type is forced to RECEIVABLE
     const role = "operator"
     const inputType = "PAYABLE" // operator tries PAYABLE
-    const effectiveType = role === "operator" ? "RECEIVABLE" : inputType
+    const effectiveType = (role as string) === "operator" ? "RECEIVABLE" : inputType
     expect(effectiveType).toBe("RECEIVABLE")
   })
 
   it("4. RBAC: manager sees both types", () => {
     const role = "manager"
     const inputType = "PAYABLE"
-    const effectiveType = role === "operator" ? "RECEIVABLE" : inputType
+    const effectiveType = (role as string) === "operator" ? "RECEIVABLE" : inputType
     expect(effectiveType).toBe("PAYABLE")
   })
 
@@ -76,22 +76,22 @@ describe("Financial Integration — Criação manual", () => {
   it("9. operator cannot create PAYABLE — RBAC blocks", () => {
     const role = "operator"
     const input = { type: "PAYABLE" as const }
-    const blocked = role === "operator" && input.type === "PAYABLE"
+    const blocked = (role as string) === "operator" && (input.type as string) === "PAYABLE"
     expect(blocked).toBe(true)
   })
 
   it("10. category inactive should be rejected (validation rule)", () => {
     // Simulate: category exists but active=false
     const categoryActive = false
-    const valid = categoryActive === true
+    const valid = (categoryActive as unknown) === true
     expect(valid).toBe(false)
   })
 
   it("11. category type incompatible rejected (DESPESA for RECEIVABLE)", () => {
     const transactionType = "RECEIVABLE"
     const categoryType = "DESPESA"
-    const compatible = (transactionType === "RECEIVABLE" && categoryType === "RECEITA") ||
-                       (transactionType === "PAYABLE" && categoryType === "DESPESA")
+    const compatible = (transactionType === "RECEIVABLE" && (categoryType as string) === "RECEITA") ||
+                       ((transactionType as string) === "PAYABLE" && categoryType === "DESPESA")
     expect(compatible).toBe(false)
   })
 
@@ -117,7 +117,7 @@ describe("Financial Integration — Criação manual", () => {
 describe("Financial Integration — Baixa de parcela", () => {
   it("14. pay PENDING installment marks as PAID and recalculates", () => {
     const installmentStatus = "PENDING"
-    const canPay = installmentStatus === "PENDING"
+    const canPay = (installmentStatus as string) === "PENDING"
     expect(canPay).toBe(true)
     // After pay: status = PAID
     const newStatus = "PAID"
@@ -126,13 +126,13 @@ describe("Financial Integration — Baixa de parcela", () => {
 
   it("15. pay already PAID installment rejected", () => {
     const installmentStatus = "PAID"
-    const canPay = installmentStatus === "PENDING"
+    const canPay = (installmentStatus as string) === "PENDING"
     expect(canPay).toBe(false)
   })
 
   it("16. pay CANCELLED installment rejected", () => {
     const installmentStatus = "CANCELLED"
-    const canPay = installmentStatus === "PENDING"
+    const canPay = (installmentStatus as string) === "PENDING"
     expect(canPay).toBe(false)
   })
 
@@ -158,7 +158,7 @@ describe("Financial Integration — Baixa de parcela", () => {
 describe("Financial Integration — Estorno de parcela", () => {
   it("19. refund PAID installment marks as ESTORNADA with reverse CashMovement", () => {
     const installmentStatus = "PAID"
-    const canRefund = installmentStatus === "PAID"
+    const canRefund = (installmentStatus as string) === "PAID"
     expect(canRefund).toBe(true)
     const newStatus = "ESTORNADA"
     const reverseMovementType = "WITHDRAWAL"
@@ -170,7 +170,7 @@ describe("Financial Integration — Estorno de parcela", () => {
 
   it("20. refund PENDING installment rejected", () => {
     const installmentStatus = "PENDING"
-    const canRefund = installmentStatus === "PAID"
+    const canRefund = (installmentStatus as string) === "PAID"
     expect(canRefund).toBe(false)
   })
 
@@ -253,7 +253,7 @@ describe("Financial Integration — RBAC F8", () => {
   it("30. Manager getById payable → OK", () => {
     const role = "manager"
     const transactionType = "PAYABLE"
-    const blocked = role === "operator" && transactionType === "PAYABLE"
+    const blocked = (role as string) === "operator" && transactionType === "PAYABLE"
     expect(blocked).toBe(false) // not blocked
   })
 })
