@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** PDV completado (OS payment, signatures, receipt, E2E). Push aceito.
+**Fase atual:** Auditoria completa todos os módulos vs Laravel. Gaps corrigidos. Push aceito.
 **Ultima atualizacao:** 2026-05-18
 **Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19), OS (14), PDV (11)
-**Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 4 arquivos
+**Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 5 arquivos
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 15
 
@@ -261,6 +261,43 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-18 — AUDITORIA COMPLETA TODOS OS MÓDULOS VS LARAVEL
+
+Auditoria módulo a módulo comparando com Laravel original. Gaps corrigidos:
+
+**Financial (+3 procedures):**
+- `payMultipleInstallments`: baixa em lote de parcelas
+- `getDashboardComparison`: comparativo com período anterior
+- `createPayableDowngrade`: conta a pagar para downgrade
+
+**Cashier (+2 procedures):**
+- `recordReversal`: estorno de venda no caixa
+- `manualAdjustment`: ajuste manual (manager only)
+
+**Stock (+3 procedures):**
+- `getPurchaseById`: detalhe da compra de aparelho
+- `cancelPurchase`: cancelamento com reversão de estoque
+- `updatePurchaseDate`: atualizar data da compra
+- Schema: purchaseDate, cancelledAt, cancellationReason no DevicePurchase
+
+**Dashboard (+2 procedures):**
+- `stockDashboard`: métricas de estoque (total, ativos, baixo estoque, top produtos)
+- `detailedAlerts`: alertas avançados (financeiro, caixa, OS, estoque)
+
+**Módulos verificados sem gaps críticos:**
+- Fiscal: 17 procedures cobrem emissão/cancelamento/correção/inutilização
+- Catalog: 48 procedures cobrem services, devices, categories, observations
+- Commissions: 22 procedures (10 + 12 provider) cobrem regras, cálculo, apuração
+- Communication: WhatsApp + Email integrados
+
+**Gaps aceitos como scope futuro:**
+- Fiscal: NF-e import XML (workflow de UI complexo)
+- Catalog: E-commerce público (checkout, cart, frete) — scope diferente
+- Commissions: Export PDF/CSV (funcionalidade de UI)
+- Recompensas: Phase 14 — pendente decisão de produto
+
+---
 
 ### 2026-05-18 — COMPLETAR PDV (PONTO DE VENDA)
 
