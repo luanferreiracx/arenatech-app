@@ -1,0 +1,38 @@
+/// Checklist de avaliação de aparelho. Faithful to Laravel ChecklistController.
+/// Stores completed checklists with device info and evaluation results.
+model Checklist {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+
+  // Aparelho
+  deviceType      String   @map("device_type") // smartphone, notebook, console, etc.
+  brand           String?
+  model           String?
+  imei            String?
+  serialNumber    String?  @map("serial_number")
+
+  // Cliente (opcional)
+  customerId      String?  @map("customer_id") @db.Uuid
+  customerName    String?  @map("customer_name")
+
+  // Resultado da avaliação (JSON com os campos do template)
+  results         Json     @default("{}")
+
+  // Valor e observações
+  offeredValue    Decimal? @map("offered_value") @db.Decimal(10, 2)
+  evaluatorNotes  String?  @map("evaluator_notes") @db.Text
+
+  // Vinculação (OS ou compra)
+  serviceOrderId  String?  @map("service_order_id") @db.Uuid
+  purchaseId      String?  @map("purchase_id") @db.Uuid
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, deviceType])
+  @@index([tenantId, customerId])
+  @@index([tenantId, imei])
+  @@map("checklists")
+}
