@@ -1,0 +1,68 @@
+/// Chatbot — Conversas e mensagens WhatsApp. Faithful to Laravel ChatbotConversa/ChatbotMensagem.
+
+enum ChatbotConversationStatus {
+  OPEN
+  BOT_ACTIVE
+  HUMAN_TAKEOVER
+  RESOLVED
+}
+
+model ChatbotConversation {
+  id                String                     @id @default(uuid()) @db.Uuid
+  tenantId          String                     @map("tenant_id") @db.Uuid
+  externalId        String?                    @map("external_id") // Chatwoot conversation ID
+  contactPhone      String                     @map("contact_phone")
+  contactName       String?                    @map("contact_name")
+  customerId        String?                    @map("customer_id") @db.Uuid
+  status            ChatbotConversationStatus  @default(OPEN)
+  assignedAgentId   String?                    @map("assigned_agent_id") @db.Uuid
+  lastMessageAt     DateTime?                  @map("last_message_at")
+  resolvedAt        DateTime?                  @map("resolved_at")
+  metadata          Json?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  messages          ChatbotMessage[]
+
+  @@unique([tenantId, contactPhone])
+  @@index([tenantId, status])
+  @@index([tenantId, externalId])
+  @@map("chatbot_conversations")
+}
+
+model ChatbotMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  conversationId    String   @map("conversation_id") @db.Uuid
+  direction         String   // incoming, outgoing
+  senderType        String   @map("sender_type") // customer, bot, agent
+  content           String   @db.Text
+  contentType       String   @default("text") @map("content_type") // text, image, document, audio
+  mediaUrl          String?  @map("media_url")
+  externalId        String?  @map("external_id") // Chatwoot message ID
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  conversation      ChatbotConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@index([tenantId, createdAt])
+  @@map("chatbot_messages")
+}
+
+/// Follow-up agendado para reengajamento
+model ChatbotFollowUp {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  conversationId    String   @map("conversation_id") @db.Uuid
+  scheduledAt       DateTime @map("scheduled_at")
+  executedAt        DateTime? @map("executed_at")
+  cancelled         Boolean  @default(false)
+  templateName      String?  @map("template_name")
+  message           String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, scheduledAt])
+  @@index([tenantId, conversationId])
+  @@map("chatbot_follow_ups")
+}

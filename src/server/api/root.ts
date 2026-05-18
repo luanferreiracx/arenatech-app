@@ -25,12 +25,14 @@ import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
 import { checklistRouter } from "@/server/api/routers/checklist";
 import { rewardRouter } from "@/server/api/routers/reward";
+import { chatbotRouter } from "@/server/api/routers/chatbot";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
   nfeImport: nfeImportRouter,
   checklist: checklistRouter,
   reward: rewardRouter,
+  chatbot: chatbotRouter,
   depixWithdraw: depixWithdrawRouter,
   auth: authRouter,
   cashier: cashierRouter,
