@@ -7,10 +7,10 @@
 
 ## Estado atual
 
-**Fase atual:** Auditoria módulo OS concluída. Gaps P0/P1 corrigidos. Push aceito.
+**Fase atual:** PDV completado (OS payment, signatures, receipt, E2E). Push aceito.
 **Ultima atualizacao:** 2026-05-18
-**Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19 + 7 dívida documentada)
-**Progresso E2E:** 89/114 @business (78%), Nível 2: 10/114 (9%), whitelist 4 arquivos
+**Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19), OS (14), PDV (11)
+**Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 4 arquivos
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 15
 
@@ -261,6 +261,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-18 — COMPLETAR PDV (PONTO DE VENDA)
+
+**Procedures adicionados ao sale.ts:**
+- `updateItemPrice`: override de preço por item
+- `createFromOS` + `cancelOSMode`: venda originada de OS
+- `sendReceipt`: envio de recibo via WhatsApp
+- `sendForSignature` / `checkSignatureStatus` / `confirmPhysicalSignature`: assinatura Autentique
+
+**Schema:** serviceOrderId, isOSPayment, signature fields, receipt fields (migration manual)
+**Fix:** searchProducts retorna currentStock real (não mais hardcoded 0)
+**E2E:** 11/11 @business passando
+**ADR:** 0042 (PDV ↔ OS integration)
+
+---
 
 ### 2026-05-18 — AUDITORIA MÓDULO OS (SERVICE ORDERS)
 
