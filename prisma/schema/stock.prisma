@@ -267,21 +267,24 @@ enum DeviceCondition {
 }
 
 model DevicePurchase {
-  id            String          @id @default(uuid()) @db.Uuid
-  tenantId      String          @map("tenant_id") @db.Uuid
-  productId     String?         @map("product_id") @db.Uuid
-  customerId    String?         @map("customer_id") @db.Uuid
-  imei          String?
-  serial        String?
-  brand         String?
-  model         String?
-  condition     DeviceCondition @default(USED)
-  batteryHealth Int?            @map("battery_health")
-  purchasePrice Decimal         @map("purchase_price") @db.Decimal(10, 2)
-  salePrice     Decimal?        @map("sale_price") @db.Decimal(10, 2)
-  notes         String?
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  productId           String?         @map("product_id") @db.Uuid
+  customerId          String?         @map("customer_id") @db.Uuid
+  imei                String?
+  serial              String?
+  brand               String?
+  model               String?
+  condition           DeviceCondition @default(USED)
+  batteryHealth       Int?            @map("battery_health")
+  purchasePrice       Decimal         @map("purchase_price") @db.Decimal(10, 2)
+  salePrice           Decimal?        @map("sale_price") @db.Decimal(10, 2)
+  notes               String?
+  purchaseDate        DateTime        @default(now()) @map("purchase_date")
+  cancelledAt         DateTime?       @map("cancelled_at")
+  cancellationReason  String?         @map("cancellation_reason")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
 
   product Product? @relation(fields: [productId], references: [id])
 

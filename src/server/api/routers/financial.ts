@@ -1285,4 +1285,204 @@ export const financialRouter = createTRPCRouter({
         return { openBalance: Math.round((total - paid) * 100) }; // centavos
       });
     }),
+
+  // ═══════════════════════════════════════
+  // BATCH PAYMENT (baixa em lote)
+  // ═══════════════════════════════════════
+
+  /** Pay multiple installments at once (baixa em lote) */
+  payMultipleInstallments: tenantProcedure
+    .input(z.object({
+      installmentIds: z.array(z.string().uuid()).min(1).max(50),
+      paymentMethod: z.string().min(1).optional(),
+      notes: z.string().max(500).optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const installments = await tx.installment.findMany({
+          where: { id: { in: input.installmentIds } },
+          include: { transaction: true },
+        });
+
+        if (installments.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma parcela encontrada" });
+        }
+
+        const payable = installments.filter((i) =>
+          ["PENDING", "OVERDUE"].includes(i.status)
+        );
+
+        if (payable.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma parcela pendente selecionada" });
+        }
+
+        // Get open cash session
+        const userId = ctx.session.user.id;
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
+        });
+
+        let totalPaid = 0;
+
+        for (const installment of payable) {
+          const amountDue = Number(installment.amount) - Number(installment.paidAmount);
+          const amountCents = Math.round(amountDue * 100);
+
+          await tx.installment.update({
+            where: { id: installment.id },
+            data: {
+              paidAmount: installment.amount,
+              paidAt: new Date(),
+              paymentMethod: input.paymentMethod ?? null,
+              notes: input.notes ?? null,
+              status: "PAID",
+            },
+          });
+
+          await recalculateTransactionStatus(tx as never, installment.transactionId);
+
+          if (openSession) {
+            const isReceivable = installment.transaction.type === "RECEIVABLE";
+            await tx.cashMovement.create({
+              data: {
+                tenantId: ctx.tenantId,
+                cashSessionId: openSession.id,
+                type: isReceivable ? "SALE" : "EXPENSE",
+                amount: new Prisma.Decimal(amountDue),
+                nature: isReceivable ? "INCOME" : "OUTCOME",
+                paymentMethod: input.paymentMethod ?? "outros",
+                description: `Baixa lote - parcela #${installment.number}`,
+                referenceType: "installment",
+                referenceId: installment.id,
+                createdByUserId: userId,
+              },
+            });
+          }
+
+          totalPaid += amountCents;
+        }
+
+        return { success: true, paidCount: payable.length, totalPaidCents: totalPaid };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // DASHBOARD COMPARISON (comparativo período)
+  // ═══════════════════════════════════════
+
+  /** Get dashboard stats with comparison to previous period */
+  getDashboardComparison: tenantProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const now = new Date();
+        const to = input.dateTo ? new Date(input.dateTo) : now;
+        const from = input.dateFrom ? new Date(input.dateFrom) : new Date(to.getFullYear(), to.getMonth(), 1);
+
+        // Calculate previous period (same duration, shifted back)
+        const durationMs = to.getTime() - from.getTime();
+        const prevTo = new Date(from.getTime() - 1);
+        const prevFrom = new Date(prevTo.getTime() - durationMs);
+
+        async function periodStats(dateFrom: Date, dateTo: Date) {
+          const [receivables, payables] = await Promise.all([
+            tx.financialTransaction.aggregate({
+              where: {
+                type: "RECEIVABLE",
+                status: { in: ["PAID", "PARTIALLY_PAID"] },
+                createdAt: { gte: dateFrom, lte: dateTo },
+              },
+              _sum: { paidAmount: true },
+              _count: true,
+            }),
+            tx.financialTransaction.aggregate({
+              where: {
+                type: "PAYABLE",
+                status: { in: ["PAID", "PARTIALLY_PAID"] },
+                createdAt: { gte: dateFrom, lte: dateTo },
+              },
+              _sum: { paidAmount: true },
+              _count: true,
+            }),
+          ]);
+
+          const revenue = Math.round(Number(receivables._sum.paidAmount ?? 0) * 100);
+          const expenses = Math.round(Number(payables._sum.paidAmount ?? 0) * 100);
+
+          return {
+            revenue,
+            expenses,
+            profit: revenue - expenses,
+            transactionCount: (receivables._count ?? 0) + (payables._count ?? 0),
+          };
+        }
+
+        const [current, previous] = await Promise.all([
+          periodStats(from, to),
+          periodStats(prevFrom, prevTo),
+        ]);
+
+        const pctChange = (curr: number, prev: number) =>
+          prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100);
+
+        return {
+          current,
+          previous,
+          comparison: {
+            revenueChange: pctChange(current.revenue, previous.revenue),
+            expensesChange: pctChange(current.expenses, previous.expenses),
+            profitChange: pctChange(current.profit, previous.profit),
+          },
+        };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // DOWNGRADE PAYABLE (conta a pagar para downgrade)
+  // ═══════════════════════════════════════
+
+  /** Create a payable account for a downgrade refund (faithful to Laravel gerarPagavelDowngrade) */
+  createPayableDowngrade: tenantProcedure
+    .input(z.object({
+      saleId: z.string().uuid(),
+      customerId: z.string().uuid(),
+      amount: z.number().int().min(1), // centavos
+      reason: z.string().min(1).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const transaction = await tx.financialTransaction.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: "PAYABLE",
+            status: "PENDING",
+            customerId: input.customerId,
+            description: `Devolucao downgrade - Venda ${input.saleId.slice(0, 8)}`,
+            notes: input.reason,
+            totalAmount: centsToPrismaDecimal(input.amount),
+            paidAmount: new Prisma.Decimal(0),
+            dueDate: new Date(),
+            referenceType: "sale",
+            referenceId: input.saleId,
+          },
+        });
+
+        await tx.installment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            transactionId: transaction.id,
+            number: 1,
+            amount: centsToPrismaDecimal(input.amount),
+            paidAmount: new Prisma.Decimal(0),
+            dueDate: new Date(),
+            status: "PENDING",
+          },
+        });
+
+        return { id: transaction.id };
+      });
+    }),
 });

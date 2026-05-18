@@ -657,6 +657,90 @@ export const cashierRouter = createTRPCRouter({
         return { success: true };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // SALE REVERSAL (estorno de venda)
+  // ═══════════════════════════════════════
+
+  /** Record sale reversal in open cash session (faithful to Laravel registrarEstorno) */
+  recordReversal: tenantProcedure
+    .input(z.object({
+      saleId: z.string().uuid(),
+      amount: z.number().int().min(1), // centavos
+      description: z.string().max(300).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+
+        if (!session) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
+        }
+
+        await tx.cashMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            cashSessionId: session.id,
+            type: "SALE",
+            amount: new Prisma.Decimal(input.amount / 100),
+            nature: "OUTCOME",
+            paymentMethod: "estorno",
+            description: input.description ?? `Estorno venda ${input.saleId.slice(0, 8)}`,
+            referenceType: "sale_reversal",
+            referenceId: input.saleId,
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // MANUAL ADJUSTMENT (ajuste manual)
+  // ═══════════════════════════════════════
+
+  /** Register manual cash adjustment (faithful to Laravel registrarAjuste) */
+  manualAdjustment: tenantProcedure
+    .input(z.object({
+      amount: z.number().int().min(1), // centavos
+      nature: z.enum(["INCOME", "OUTCOME"]),
+      reason: z.string().min(3, "Motivo obrigatorio").max(300),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode fazer ajuste manual" });
+      }
+
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+
+        if (!session) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
+        }
+
+        await tx.cashMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            cashSessionId: session.id,
+            type: "DEPOSIT",
+            amount: new Prisma.Decimal(input.amount / 100),
+            nature: input.nature,
+            paymentMethod: "ajuste_manual",
+            description: `[AJUSTE] ${input.reason}`,
+            referenceType: "manual_adjustment",
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        return { success: true };
+      });
+    }),
 });
 
 // ── Helpers ──

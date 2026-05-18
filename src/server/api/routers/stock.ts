@@ -493,6 +493,82 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
+  /** Get device purchase by ID */
+  getPurchaseById: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({
+          where: { id: input.id },
+        });
+        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...purchase,
+          purchasePrice: Math.round(Number(purchase.purchasePrice) * 100),
+          salePrice: purchase.salePrice ? Math.round(Number(purchase.salePrice) * 100) : null,
+        };
+      });
+    }),
+
+  /** Cancel device purchase (faithful to Laravel cancelar) */
+  cancelPurchase: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      reason: z.string().min(3).max(300),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({ where: { id: input.id } });
+        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (purchase.cancelledAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Compra ja cancelada" });
+        }
+
+        await tx.devicePurchase.update({
+          where: { id: input.id },
+          data: {
+            cancelledAt: new Date(),
+            cancellationReason: input.reason,
+          },
+        });
+
+        // Reverse stock movement if exists
+        if (purchase.productId) {
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: purchase.productId,
+              type: "EXIT",
+              quantity: 1,
+              reason: `Cancelamento compra — ${input.reason}`,
+              referenceId: purchase.id,
+              referenceType: "device_purchase_cancel",
+              userId: ctx.session.user.id,
+            },
+          });
+        }
+
+        return { success: true };
+      });
+    }),
+
+  /** Update device purchase date */
+  updatePurchaseDate: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      purchaseDate: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        await tx.devicePurchase.update({
+          where: { id: input.id },
+          data: { purchaseDate: new Date(input.purchaseDate) },
+        });
+        return { success: true };
+      });
+    }),
+
   // ═══════════════════════════════════════
   // REPORTS
   // ═══════════════════════════════════════
