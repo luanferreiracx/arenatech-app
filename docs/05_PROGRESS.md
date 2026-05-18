@@ -10,7 +10,7 @@
 **Fase atual:** Auditoria módulo OS concluída. Gaps P0/P1 corrigidos. Push aceito.
 **Ultima atualizacao:** 2026-05-18
 **Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19 + 7 dívida documentada)
-**Progresso E2E:** 75/100 @business (75%), whitelist 4 arquivos
+**Progresso E2E:** 89/114 @business (78%), Nível 2: 10/114 (9%), whitelist 4 arquivos
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 15
 
@@ -276,7 +276,11 @@ Auditoria completa do módulo OS existente (6.250+ linhas, 42 procedures, 5-step
 
 **Gaps aceitos como dívida:**
 - P2: DEPIX/PIX QR generation (adiado — integração Pixpay pendente)
-- P2: E2E tests para OS (módulo crítico, zero cobertura)
+
+**E2E OS:** 14 @business tests (4 Nível 2) implementados.
+- Customer criado via tRPC API (CpfInput/PhoneInput não respondem a fillField — ver bug)
+- EntitySelector interaction via [cmdk-input]/[cmdk-item]
+- Edit page E2E não funciona (Turbopack compilation timeout) — aceito como dívida
 
 **Decisões:** ADR 0041 (OS stock reservation)
 **Próximo:** E2E tests para OS ou próximo módulo conforme orientação do dono
