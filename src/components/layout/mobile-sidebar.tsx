@@ -43,9 +43,8 @@ export function MobileSidebar({ userName, multiTenant, tenantName, isSuperAdmin 
     <Sheet open={open} onOpenChange={(o) => { if (!o) toggle(); }}>
       <SheetContent side="left" className="w-64 p-0 bg-sidebar border-r border-sidebar-border">
         <SheetHeader className="h-14 px-4 border-b border-sidebar-border flex flex-row items-center justify-between">
-          <SheetTitle asChild>
-            <Logo size="sm" variant="full" />
-          </SheetTitle>
+          <SheetTitle className="sr-only">Menu de navegacao</SheetTitle>
+          <Logo size="sm" variant="full" />
         </SheetHeader>
 
         <nav className="flex-1 overflow-y-auto py-2 px-2">
