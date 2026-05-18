@@ -345,4 +345,143 @@ export const dashboardRouter = createTRPCRouter({
       };
     });
   }),
+
+  // ═══════════════════════════════════════
+  // STOCK DASHBOARD (faithful to DashboardEstoqueController)
+  // ═══════════════════════════════════════
+
+  /** Stock inventory dashboard with metrics, alerts, and top products */
+  stockDashboard: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      // Cards metrics
+      const [
+        totalProducts,
+        totalActiveProducts,
+        lowStockProducts,
+        outOfStockProducts,
+        totalStockValue,
+      ] = await Promise.all([
+        tx.product.count({ where: { deletedAt: null } }),
+        tx.product.count({ where: { active: true, deletedAt: null } }),
+        tx.product.count({
+          where: {
+            active: true,
+            deletedAt: null,
+            isSerialized: false,
+            currentStock: { gt: 0, lte: 5 },
+          },
+        }),
+        tx.product.count({
+          where: {
+            active: true,
+            deletedAt: null,
+            isSerialized: false,
+            currentStock: 0,
+          },
+        }),
+        tx.product.aggregate({
+          where: { active: true, deletedAt: null, isSerialized: false },
+          _sum: {
+            currentStock: true,
+          },
+        }),
+      ]);
+
+      // Top products sold last 7 days
+      const recentSaleItems = await tx.saleItem.findMany({
+        where: {
+          sale: { status: "COMPLETED", saleDate: { gte: sevenDaysAgo } },
+        },
+        select: { productId: true, description: true, quantity: true, total: true },
+      });
+
+      const productSales = new Map<string, { description: string; quantity: number; total: number }>();
+      for (const item of recentSaleItems) {
+        const existing = productSales.get(item.productId) ?? {
+          description: item.description,
+          quantity: 0,
+          total: 0,
+        };
+        existing.quantity += item.quantity;
+        existing.total += Number(item.total);
+        productSales.set(item.productId, existing);
+      }
+
+      const topProducts = Array.from(productSales.entries())
+        .sort((a, b) => b[1].quantity - a[1].quantity)
+        .slice(0, 10)
+        .map(([productId, data]) => ({
+          productId,
+          description: data.description,
+          quantity: data.quantity,
+          totalCents: Math.round(data.total * 100),
+        }));
+
+      return {
+        metrics: {
+          totalProducts,
+          totalActiveProducts,
+          lowStockProducts,
+          outOfStockProducts,
+          totalStockUnits: totalStockValue._sum.currentStock ?? 0,
+        },
+        topProductsWeek: topProducts,
+      };
+    });
+  }),
+
+  // ═══════════════════════════════════════
+  // ADVANCED ALERTS
+  // ═══════════════════════════════════════
+
+  /** Detailed alerts for the dashboard (faithful to Laravel coletarAlertas) */
+  detailedAlerts: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const now = new Date();
+
+      const [
+        overdueCount,
+        pendingVerification,
+        lateOrdersCount,
+        lowStockCount,
+      ] = await Promise.all([
+        // Financial: overdue receivables
+        tx.installment.count({
+          where: { status: "OVERDUE" },
+        }),
+        // Cashier: sessions pending verification
+        tx.cashSession.count({
+          where: { closedAt: { not: null }, verified: false },
+        }),
+        // OS: orders past estimated date and not completed
+        tx.serviceOrder.count({
+          where: {
+            status: { in: ["OPEN", "IN_DIAGNOSIS", "IN_PROGRESS", "WAITING_PARTS"] },
+            estimatedDate: { lt: now },
+            deletedAt: null,
+          },
+        }),
+        // Stock: products with zero stock
+        tx.product.count({
+          where: {
+            active: true,
+            deletedAt: null,
+            isSerialized: false,
+            currentStock: 0,
+          },
+        }),
+      ]);
+
+      return {
+        overdueReceivables: overdueCount,
+        pendingCashierVerification: pendingVerification,
+        lateServiceOrders: lateOrdersCount,
+        outOfStockProducts: lowStockCount,
+        totalAlerts: overdueCount + pendingVerification + lateOrdersCount + lowStockCount,
+      };
+    });
+  }),
 });
