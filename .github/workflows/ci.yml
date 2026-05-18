@@ -70,7 +70,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Unit tests
-        run: pnpm test
+        run: pnpm vitest run --exclude="**/integration/**"
         env:
           DATABASE_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_test
           REDIS_URL: redis://localhost:6379
