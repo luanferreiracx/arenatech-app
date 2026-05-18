@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -30,6 +30,7 @@ import {
   type DeviceInfoData,
   type UpdateServiceOrderInput,
 } from "@/lib/validators/service-order";
+import { Check, X, Minus } from "lucide-react";
 
 export default function EditServiceOrderPage({
   params,
@@ -96,8 +97,18 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
     },
   });
 
-  const checklist = (order.entryChecklist ?? {}) as ChecklistData;
+  const entryChecklist = (order.entryChecklist ?? {}) as ChecklistData;
   const deviceInfo = (order.deviceInfo ?? {}) as DeviceInfoData;
+
+  const [exitChecklist, setExitChecklist] = useState<ChecklistData>(
+    (order.exitChecklist ?? {}) as ChecklistData
+  );
+
+  function cycleChecklistValue(current: boolean | null | undefined): boolean | null {
+    if (current === true) return false;
+    if (current === false) return null;
+    return true;
+  }
 
   const doSubmit = handleSubmit((values) => {
     onSubmit({
@@ -118,7 +129,8 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
       nfseIssued: values.nfseIssued,
       nfseNumber: values.nfseNumber || null,
       estimatedDate: values.estimatedDate || null,
-      entryChecklist: checklist,
+      entryChecklist: entryChecklist,
+      exitChecklist,
       deviceInfo,
     });
   });
@@ -178,6 +190,36 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
             </div>
             <div className="space-y-2"><Label>Prazo Garantia (meses)</Label><Input type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} /></div>
             <div className="space-y-2"><Label>Data Prevista</Label><Input type="date" {...register("estimatedDate")} /></div>
+          </div>
+        </div>
+
+        {/* Exit Checklist */}
+        <div className="rounded-lg border border-border p-6">
+          <h3 className="text-lg font-semibold mb-4">Checklist de Saida</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Clique para alternar: <Check className="inline h-3 w-3 text-green-500" /> OK, <X className="inline h-3 w-3 text-red-500" /> NOK, <Minus className="inline h-3 w-3 text-gray-400" /> N/A
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {CHECKLIST_ITEMS.map(({ key, label }) => {
+              const val = exitChecklist[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setExitChecklist((prev) => ({ ...prev, [key]: cycleChecklistValue(prev[key]) }))}
+                  className={`flex items-center gap-2 p-2 rounded-md border text-sm transition-colors ${
+                    val === true ? "border-green-300 bg-green-50 dark:bg-green-950" :
+                    val === false ? "border-red-300 bg-red-50 dark:bg-red-950" :
+                    "border-border bg-muted/50"
+                  }`}
+                >
+                  {val === true ? <Check className="h-4 w-4 text-green-500" /> :
+                   val === false ? <X className="h-4 w-4 text-red-500" /> :
+                   <Minus className="h-4 w-4 text-muted-foreground" />}
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

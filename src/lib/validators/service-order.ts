@@ -482,3 +482,9 @@ export const updateTechnicianSchema = z.object({
 export const getByCustomerSchema = z.object({
   customerId: z.string().uuid(),
 });
+
+/** Send receipt via WhatsApp */
+export const sendReceiptSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});

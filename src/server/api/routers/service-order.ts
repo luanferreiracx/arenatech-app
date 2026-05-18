@@ -37,11 +37,17 @@ import {
   updateTechnicalInfoSchema,
   updateTechnicianSchema,
   getByCustomerSchema,
+  sendReceiptSchema,
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
+import {
+  reserveStockForOsItem,
+  releaseStockForOsItem,
+  releaseAllOsItems,
+} from "@/server/services/os-stock.service";
 // ── Helpers ──
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -386,6 +392,18 @@ export const serviceOrderRouter = createTRPCRouter({
               total: centsToPrisma(item.unitPrice * item.quantity),
             })),
           });
+
+          // Reserve stock for product items
+          for (const item of input.items) {
+            if (item.type === "PRODUCT" && item.productId) {
+              await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+                productId: item.productId,
+                quantity: item.quantity,
+                orderId: order.id,
+                itemDescription: item.description,
+              });
+            }
+          }
         }
 
         // Create history entry
@@ -633,6 +651,9 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // Release all reserved product stock
+        const releasedCount = await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -648,7 +669,9 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: "CANCELLED",
-            notes: input.reason,
+            notes: releasedCount > 0
+              ? `${input.reason} (${releasedCount} item(ns) de estoque liberado(s))`
+              : input.reason,
           },
         });
 
@@ -758,6 +781,16 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const itemTotal = input.unitPrice * input.quantity;
 
+        // Reserve stock for product items
+        if (input.type === "PRODUCT" && input.productId) {
+          await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+            productId: input.productId,
+            quantity: input.quantity,
+            orderId: input.orderId,
+            itemDescription: input.description,
+          });
+        }
+
         await tx.serviceOrderItem.create({
           data: {
             tenantId: ctx.tenantId,
@@ -826,6 +859,16 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const item = await tx.serviceOrderItem.findUnique({ where: { id: input.id } });
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Release stock for product items
+        if (item.type === "PRODUCT" && item.productId) {
+          await releaseStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+            productId: item.productId,
+            quantity: Number(item.quantity),
+            orderId: item.orderId,
+            reason: `Item removido da OS: ${item.description}`,
+          });
+        }
 
         await tx.serviceOrderItem.delete({ where: { id: input.id } });
         await recalculateOrderTotals(tx, item.orderId, item.tenantId);
@@ -2406,6 +2449,75 @@ export const serviceOrderRouter = createTRPCRouter({
         });
 
         return { success: true };
+      });
+    }),
+
+  // ── 15. SEND RECEIPT via WhatsApp ──
+  sendReceipt: tenantProcedure
+    .input(sendReceiptSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          include: {
+            items: true,
+          },
+        });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Recibo so pode ser enviado apos pagamento.",
+          });
+        }
+
+        // Get customer phone
+        let phone = input.phone;
+        if (!phone) {
+          const customer = await tx.customer.findUnique({
+            where: { id: order.customerId },
+            select: { phone: true },
+          });
+          phone = customer?.phone ?? null;
+        }
+
+        if (!phone) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cliente nao possui telefone cadastrado.",
+          });
+        }
+
+        // Send receipt PDF via WhatsApp (using public link URL)
+        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const receiptUrl = `${baseUrl}/api/service-orders/${input.orderId}/recibo`;
+
+        const result = await sendMediaMessage(phone, receiptUrl, `Recibo OS ${order.number}`);
+        const sent = result.success;
+
+        if (sent) {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: {
+              receiptSent: true,
+              receiptSentAt: new Date(),
+            },
+          });
+
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: input.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: order.status,
+              newStatus: order.status,
+              notes: "Recibo enviado via WhatsApp",
+            },
+          });
+        }
+
+        return { success: true, sent };
       });
     }),
 });
