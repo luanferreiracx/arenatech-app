@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -37,29 +37,26 @@ export function CatalogList() {
   const [category, setCategory] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const didFetch = useRef(false)
 
-  // Load products on mount
-  useState(() => {
-    void loadProducts()
-  })
-
-  async function loadProducts() {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/catalog/public?" + new URLSearchParams({
-        ...(search ? { search } : {}),
-        ...(category ? { category } : {}),
-      }))
-      if (res.ok) {
-        const data = await res.json() as { products: CatalogProduct[] }
+  useEffect(() => {
+    if (didFetch.current) return
+    didFetch.current = true
+    fetch("/api/catalog/public?" + new URLSearchParams({
+      ...(search ? { search } : {}),
+      ...(category ? { category } : {}),
+    }))
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data: { products: CatalogProduct[] }) => {
         setProducts(data.products)
-      }
-    } catch {
-      setError("Erro ao carregar produtos")
-    } finally {
-      setLoading(false)
-    }
-  }
+      })
+      .catch(() => {
+        setError("Erro ao carregar produtos")
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  })
 
   const filteredProducts = useMemo(() => {
     if (!search.trim()) return products

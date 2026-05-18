@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
@@ -355,7 +356,7 @@ export default function StockImportPage() {
                 Nova Importacao
               </Button>
               <Button variant="outline" asChild>
-                <a href="/stock">Ver Produtos</a>
+                <Link href="/stock">Ver Produtos</Link>
               </Button>
             </div>
           </CardContent>

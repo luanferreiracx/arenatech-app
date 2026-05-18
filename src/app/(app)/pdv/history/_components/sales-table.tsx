@@ -128,7 +128,7 @@ export function SalesTable() {
     setPage(0);
   };
 
-  const SortIndicator = ({ field }: { field: SortField }) => {
+  const renderSortIcon = (field: SortField) => {
     if (sortBy !== field) return null;
     return (
       <svg
@@ -309,7 +309,7 @@ export function SalesTable() {
                     onClick={() => toggleSort("number")}
                   >
                     Venda
-                    <SortIndicator field="number" />
+                    {renderSortIcon("number")}
                   </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -319,7 +319,7 @@ export function SalesTable() {
                     onClick={() => toggleSort("saleDate")}
                   >
                     Data
-                    <SortIndicator field="saleDate" />
+                    {renderSortIcon("saleDate")}
                   </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -338,7 +338,7 @@ export function SalesTable() {
                     onClick={() => toggleSort("totalAmount")}
                   >
                     Valor
-                    <SortIndicator field="totalAmount" />
+                    {renderSortIcon("totalAmount")}
                   </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

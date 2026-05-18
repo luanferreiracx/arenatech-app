@@ -114,7 +114,10 @@ export function PdvScreen() {
   }, []);
 
   useEffect(() => {
-    initDraft();
+    // Wrap in queueMicrotask to avoid synchronous setState warning
+    queueMicrotask(() => {
+      initDraft();
+    });
   }, [initDraft]);
 
   // -- Get Draft --
