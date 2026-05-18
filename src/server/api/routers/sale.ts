@@ -20,6 +20,7 @@ import {
 } from "@/lib/validators/sale";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createDocumentWithLink, getDocumentStatus } from "@/lib/services/autentique-service";
+import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
 
 // ── Helpers ──
@@ -1278,6 +1279,60 @@ export const saleRouter = createTRPCRouter({
 
         return { success: true };
       });
+    }),
+
+  // ═══════════════════════════════════════
+  // DEPIX / PIX INTEGRATION
+  // ═══════════════════════════════════════
+
+  /** Generate PIX QR code for a sale (faithful to Laravel gerarPixPdv) */
+  generatePix: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber PIX neste status" });
+        }
+
+        const totalAmount = Number(sale.totalAmount);
+        if (totalAmount <= 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da venda deve ser maior que zero" });
+        }
+
+        const result = await createPixPayment(
+          totalAmount,
+          `Venda ${sale.number}`,
+          sale.id
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+        }
+
+        return {
+          transactionId: result.transactionId,
+          qrCode: result.qrCode,
+          qrCodeBase64: result.qrCodeBase64,
+          pixKey: result.pixKey,
+        };
+      });
+    }),
+
+  /** Cancel a pending PIX payment for a sale */
+  cancelPix: tenantProcedure
+    .input(z.object({
+      saleId: z.string().uuid(),
+      transactionId: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await cancelPixPayment(input.transactionId);
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao cancelar PIX" });
+      }
+      return { success: true };
     }),
 });
 

@@ -43,6 +43,7 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
+import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import {
   reserveStockForOsItem,
   releaseStockForOsItem,
@@ -2518,6 +2519,89 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         return { success: true, sent };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // DEPIX / PIX INTEGRATION
+  // ═══════════════════════════════════════
+
+  /** Generate PIX QR code for OS payment (faithful to Laravel gerarPixDepix) */
+  generatePix: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!["COMPLETED"].includes(order.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "PIX so pode ser gerado para OS concluida" });
+        }
+
+        const totalAmount = Number(order.totalAmount);
+        if (totalAmount <= 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da OS deve ser maior que zero" });
+        }
+
+        const result = await createPixPayment(
+          totalAmount,
+          `OS ${order.number}`,
+          order.id
+        );
+
+        if (!result.success) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+        }
+
+        // Update OS with DEPIX transaction info
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            depixTransactionId: result.transactionId ?? null,
+            depixStatus: "pending",
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "PIX gerado para pagamento",
+          },
+        });
+
+        return {
+          transactionId: result.transactionId,
+          qrCode: result.qrCode,
+          qrCodeBase64: result.qrCodeBase64,
+          pixKey: result.pixKey,
+        };
+      });
+    }),
+
+  /** Cancel pending PIX for OS */
+  cancelPix: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!order.depixTransactionId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum PIX pendente para esta OS" });
+        }
+
+        const result = await cancelPixPayment(order.depixTransactionId);
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { depixStatus: "cancelled" },
+        });
+
+        return { success: result.success };
       });
     }),
 });
