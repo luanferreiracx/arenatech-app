@@ -115,6 +115,18 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d
 
             echo "=> Running migrations..."
-            docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy
+            docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || {
+              echo "=> Migration failed. Attempting to resolve..."
+              # Mark failed migration as rolled back and retry
+              FAILED_MIGRATION=$(docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate status 2>&1 | grep "failed" | head -1 | awk '{print $NF}' || true)
+              if [ -n "$FAILED_MIGRATION" ]; then
+                echo "=> Resolving failed migration: $FAILED_MIGRATION"
+                docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate resolve --rolled-back "$FAILED_MIGRATION"
+                docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy
+              else
+                echo "=> Could not auto-resolve. Manual intervention needed."
+                exit 1
+              fi
+            }
 
             echo "=> Deploy completed at $(date)"
