@@ -7,12 +7,12 @@
 
 ## Estado atual
 
-**Fase atual:** 3 módulos E2E 100% @business Nível 2. 5 arquivos na whitelist. Push aceito.
-**Ultima atualizacao:** 2026-05-17
+**Fase atual:** Auditoria módulo OS concluída. Gaps P0/P1 corrigidos. Push aceito.
+**Ultima atualizacao:** 2026-05-18
 **Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19 + 7 dívida documentada)
-**Progresso E2E:** 60/100 @business (60%), whitelist 5 arquivos
+**Progresso E2E:** 75/100 @business (75%), whitelist 4 arquivos
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 14
+**Commits desde ultimo deploy:** 15
 
 ---
 
@@ -261,6 +261,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-18 — AUDITORIA MÓDULO OS (SERVICE ORDERS)
+
+Auditoria completa do módulo OS existente (6.250+ linhas, 42 procedures, 5-step wizard).
+
+**Gaps encontrados e corrigidos:**
+- P0: Stock reservation/release — criado `os-stock.service.ts` (ADR 0041)
+  - `reserveStockForOsItem()` em create/addItem
+  - `releaseStockForOsItem()` em removeItem
+  - `releaseAllOsItems()` em cancel
+- P1: `sendReceipt` procedure — envio de recibo via WhatsApp
+- P1: Exit checklist editável na página de edição
+
+**Gaps aceitos como dívida:**
+- P2: DEPIX/PIX QR generation (adiado — integração Pixpay pendente)
+- P2: E2E tests para OS (módulo crítico, zero cobertura)
+
+**Decisões:** ADR 0041 (OS stock reservation)
+**Próximo:** E2E tests para OS ou próximo módulo conforme orientação do dono
+
+---
 
 ### 2026-05-17 — SKILLS CUSTOMIZADAS CRIADAS
 
