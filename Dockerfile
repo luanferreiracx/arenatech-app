@@ -1,7 +1,7 @@
 # Stage 1: Dependencies
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 COPY package.json pnpm-lock.yaml .npmrc* ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm approve-builds prisma @prisma/engines esbuild sharp unrs-resolver 2>/dev/null || true
@@ -10,7 +10,7 @@ RUN pnpm rebuild
 # Stage 2: Build
 FROM node:22-alpine AS builder
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Prisma generate (dummy DATABASE_URL — only needed for client generation, not connection)
