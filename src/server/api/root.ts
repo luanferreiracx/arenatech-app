@@ -22,9 +22,11 @@ import { adminRouter } from "@/server/api/routers/admin";
 import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
 import { providerCommissionRouter } from "@/server/api/routers/provider-commission";
 import { reportRouter } from "@/server/api/routers/report";
+import { nfeImportRouter } from "@/server/api/routers/nfe-import";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
+  nfeImport: nfeImportRouter,
   depixWithdraw: depixWithdrawRouter,
   auth: authRouter,
   cashier: cashierRouter,

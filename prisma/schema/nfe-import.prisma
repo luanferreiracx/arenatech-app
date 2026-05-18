@@ -1,0 +1,127 @@
+enum NfeImportStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  ERROR
+  CANCELLED
+}
+
+enum NfeItemStatus {
+  PENDING
+  LINKED
+  IMPORTED
+  IGNORED
+}
+
+/// NF-e importada de XML/PDF. Faithful to Laravel nfe_importacoes.
+model NfeImport {
+  id                    String          @id @default(uuid()) @db.Uuid
+  tenantId              String          @map("tenant_id") @db.Uuid
+  userId                String          @map("user_id") @db.Uuid
+
+  // Chave e identificacao
+  accessKey             String          @map("access_key")
+  nfNumber              String?         @map("nf_number")
+  series                String?
+  issueDate             DateTime?       @map("issue_date")
+  entryDate             DateTime        @default(now()) @map("entry_date")
+
+  // Emitente (fornecedor)
+  supplierId            String?         @map("supplier_id") @db.Uuid
+  issuerCnpj            String?         @map("issuer_cnpj")
+  issuerName            String?         @map("issuer_name")
+  issuerTradeName       String?         @map("issuer_trade_name")
+  issuerIe              String?         @map("issuer_ie")
+
+  // Destinatario
+  recipientCnpj        String?         @map("recipient_cnpj")
+  recipientName         String?         @map("recipient_name")
+
+  // Valores informados na NF
+  totalProductsValue    Decimal         @default(0) @map("total_products_value") @db.Decimal(10, 2)
+  freightValue          Decimal         @default(0) @map("freight_value") @db.Decimal(10, 2)
+  insuranceValue        Decimal         @default(0) @map("insurance_value") @db.Decimal(10, 2)
+  discountValue         Decimal         @default(0) @map("discount_value") @db.Decimal(10, 2)
+  otherExpensesValue    Decimal         @default(0) @map("other_expenses_value") @db.Decimal(10, 2)
+
+  // Custos efetivos (editaveis pelo usuario)
+  effectiveFreight      Decimal         @default(0) @map("effective_freight") @db.Decimal(10, 2)
+  effectiveInsurance    Decimal         @default(0) @map("effective_insurance") @db.Decimal(10, 2)
+  effectiveOtherExpenses Decimal        @default(0) @map("effective_other_expenses") @db.Decimal(10, 2)
+
+  // Impostos
+  icmsValue             Decimal         @default(0) @map("icms_value") @db.Decimal(10, 2)
+  ipiValue              Decimal         @default(0) @map("ipi_value") @db.Decimal(10, 2)
+  pisValue              Decimal         @default(0) @map("pis_value") @db.Decimal(10, 2)
+  cofinsValue           Decimal         @default(0) @map("cofins_value") @db.Decimal(10, 2)
+
+  // Status e processamento
+  status                NfeImportStatus @default(PENDING)
+  processedById         String?         @map("processed_by_id") @db.Uuid
+  processedAt           DateTime?       @map("processed_at")
+  errorMessage          String?         @map("error_message")
+
+  // Conteudo
+  xmlOriginal           String?         @map("xml_original") @db.Text
+  notes                 String?
+
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+
+  items                 NfeImportItem[]
+
+  @@unique([tenantId, accessKey])
+  @@index([tenantId, status])
+  @@index([tenantId, issuerCnpj])
+  @@index([tenantId, entryDate])
+  @@map("nfe_imports")
+}
+
+/// Item de NF-e importada. Faithful to Laravel nfe_itens.
+model NfeImportItem {
+  id                    String        @id @default(uuid()) @db.Uuid
+  tenantId              String        @map("tenant_id") @db.Uuid
+  nfeImportId           String        @map("nfe_import_id") @db.Uuid
+  itemNumber            Int           @map("item_number")
+
+  // Dados da NF
+  productCode           String?       @map("product_code")
+  barcode               String?
+  description           String
+  ncm                   String?
+  cest                  String?
+  cfop                  String?
+  unit                  String?
+
+  // Quantidades e precos
+  quantity              Decimal       @default(1) @db.Decimal(10, 4)
+  unitPrice             Decimal       @default(0) @map("unit_price") @db.Decimal(10, 4)
+  customUnitPrice       Decimal?      @map("custom_unit_price") @db.Decimal(10, 4)
+  totalValue            Decimal       @default(0) @map("total_value") @db.Decimal(10, 2)
+  discountValue         Decimal       @default(0) @map("discount_value") @db.Decimal(10, 2)
+
+  // Custos alocados (rateio de frete/seguro/outras despesas)
+  allocatedFreight      Decimal       @default(0) @map("allocated_freight") @db.Decimal(10, 4)
+  allocatedInsurance    Decimal       @default(0) @map("allocated_insurance") @db.Decimal(10, 4)
+  allocatedOtherExpenses Decimal      @default(0) @map("allocated_other_expenses") @db.Decimal(10, 4)
+  totalUnitCost         Decimal?      @map("total_unit_cost") @db.Decimal(10, 4)
+
+  // Impostos
+  icmsValue             Decimal       @default(0) @map("icms_value") @db.Decimal(10, 2)
+  ipiValue              Decimal       @default(0) @map("ipi_value") @db.Decimal(10, 2)
+
+  // Vinculacao com produto
+  productId             String?       @map("product_id") @db.Uuid
+  variationId           String?       @map("variation_id") @db.Uuid
+  condition             String?       // novo, seminovo, usado, defeito
+
+  // Status e observacoes
+  status                NfeItemStatus @default(PENDING)
+  notes                 String?
+
+  nfeImport             NfeImport     @relation(fields: [nfeImportId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, nfeImportId])
+  @@index([tenantId, productId])
+  @@map("nfe_import_items")
+}
