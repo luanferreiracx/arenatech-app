@@ -117,6 +117,48 @@ export const listSalesSchema = z.object({
 
 export type ListSalesInput = z.infer<typeof listSalesSchema>;
 
+// ── Update Item Price (override) ──
+
+export const updateItemPriceSchema = z.object({
+  saleId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
+});
+
+export type UpdateItemPriceInput = z.infer<typeof updateItemPriceSchema>;
+
+// ── Create Sale from OS (pagamento de OS via PDV) ──
+
+export const createFromOSSchema = z.object({
+  serviceOrderId: z.string().uuid(),
+});
+
+export type CreateFromOSInput = z.infer<typeof createFromOSSchema>;
+
+// ── Send Receipt via WhatsApp ──
+
+export const sendSaleReceiptSchema = z.object({
+  saleId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
+
+export type SendSaleReceiptInput = z.infer<typeof sendSaleReceiptSchema>;
+
+// ── Signature (Autentique + physical) ──
+
+export const sendSaleSignatureSchema = z.object({
+  saleId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
+
+export const confirmSalePhysicalSignatureSchema = z.object({
+  saleId: z.string().uuid(),
+});
+
+export const checkSaleSignatureStatusSchema = z.object({
+  saleId: z.string().uuid(),
+});
+
 // ── Search Products (for PDV) ──
 
 export const searchProductsSchema = z.object({

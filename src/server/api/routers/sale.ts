@@ -6,13 +6,20 @@ import { withAdmin } from "@/server/db";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
+  updateItemPriceSchema,
   applyDiscountSchema,
   finalizeSaleSchema,
   cancelSaleSchema,
   refundSaleSchema,
   listSalesSchema,
   searchProductsSchema,
+  createFromOSSchema,
+  sendSaleReceiptSchema,
+  confirmSalePhysicalSignatureSchema,
+  checkSaleSignatureStatusSchema,
 } from "@/lib/validators/sale";
+import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
+import { createDocumentWithLink, getDocumentStatus } from "@/lib/services/autentique-service";
 import { logger } from "@/lib/logger";
 
 // ── Helpers ──
@@ -978,6 +985,298 @@ export const saleRouter = createTRPCRouter({
           costPrice: decimalToCents(p.costPrice),
           currentStock: 0, // TODO: Estoque-B will provide real stock
         }));
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // UPDATE ITEM PRICE (override)
+  // ═══════════════════════════════════════
+
+  /** Override unit price for an item in cart (manager/admin) */
+  updateItemPrice: tenantProcedure
+    .input(updateItemPriceSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || sale.status !== "DRAFT") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao encontrada ou nao esta em rascunho" });
+        }
+        if (sale.isOSPayment) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Nao e possivel alterar preco em pagamento de OS" });
+        }
+
+        const item = await tx.saleItem.findUnique({ where: { id: input.itemId } });
+        if (!item || item.saleId !== input.saleId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
+        }
+
+        const totalCents = input.unitPrice * item.quantity;
+
+        await tx.saleItem.update({
+          where: { id: input.itemId },
+          data: {
+            unitPrice: centsToPrisma(input.unitPrice),
+            total: centsToPrisma(totalCents),
+          },
+        });
+
+        return recalculateSale(tx, input.saleId, ctx.tenantId);
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // OS-ORIGINATED SALE
+  // ═══════════════════════════════════════
+
+  /** Create a sale from a Service Order (pagamento de OS via PDV) */
+  createFromOS: tenantProcedure
+    .input(createFromOSSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        // Load the OS with items
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.serviceOrderId },
+          include: { items: true },
+        });
+
+        if (!order || order.deletedAt) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        }
+
+        if (!["COMPLETED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas OS concluidas podem ser pagas via PDV",
+          });
+        }
+
+        // Check if there's already a sale for this OS
+        const existingSale = await tx.sale.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            serviceOrderId: input.serviceOrderId,
+            status: { in: ["DRAFT", "COMPLETED"] },
+            deletedAt: null,
+          },
+        });
+
+        if (existingSale) {
+          if (existingSale.status === "DRAFT") {
+            // Reuse existing draft
+            const sale = await tx.sale.findUnique({
+              where: { id: existingSale.id },
+              include: { items: true },
+            });
+            return serializeSale(sale as unknown as Record<string, unknown>);
+          }
+          throw new TRPCError({ code: "CONFLICT", message: "Esta OS ja possui uma venda finalizada" });
+        }
+
+        // Create draft sale linked to OS
+        const draftNumber = `DRAFT-OS-${order.number}-${Date.now()}`;
+        const sale = await tx.sale.create({
+          data: {
+            tenantId: ctx.tenantId,
+            number: draftNumber,
+            sellerId: ctx.session.user.id,
+            customerId: order.customerId,
+            status: "DRAFT",
+            serviceOrderId: order.id,
+            isOSPayment: true,
+            publicLink: generatePublicLink(),
+          },
+        });
+
+        // Copy OS items as sale items
+        const osItems = order.items;
+        if (osItems.length > 0) {
+          await tx.saleItem.createMany({
+            data: osItems.map((item) => ({
+              tenantId: ctx.tenantId,
+              saleId: sale.id,
+              productId: item.serviceId ?? item.productId ?? item.id, // fallback
+              description: item.description,
+              quantity: Math.max(1, Math.round(Number(item.quantity))),
+              unitPrice: item.unitPrice,
+              costPrice: item.costPrice,
+              total: item.total,
+            })),
+          });
+        }
+
+        return recalculateSale(tx, sale.id, ctx.tenantId);
+      });
+    }),
+
+  /** Cancel OS payment mode — abandons the draft linked to the OS */
+  cancelOSMode: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || sale.status !== "DRAFT" || !sale.isOSPayment) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao e pagamento de OS em rascunho" });
+        }
+
+        // Delete sale items and the draft
+        await tx.saleItem.deleteMany({ where: { saleId: input.saleId } });
+        await tx.sale.delete({ where: { id: input.saleId } });
+
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // RECEIPT (send via WhatsApp)
+  // ═══════════════════════════════════════
+
+  /** Send receipt PDF via WhatsApp */
+  sendReceipt: tenantProcedure
+    .input(sendSaleReceiptSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || !["COMPLETED"].includes(sale.status)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Recibo so pode ser enviado apos finalizar" });
+        }
+
+        // Get customer phone
+        let phone = input.phone;
+        if (!phone && sale.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: sale.customerId },
+            select: { phone: true },
+          });
+          phone = customer?.phone ?? null;
+        }
+
+        if (!phone) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Telefone nao informado e cliente sem telefone cadastrado" });
+        }
+
+        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const receiptUrl = `${baseUrl}/api/pdv/${input.saleId}/recibo`;
+
+        const result = await sendMediaMessage(phone, receiptUrl, `Recibo Venda ${sale.number}`);
+
+        if (result.success) {
+          await tx.sale.update({
+            where: { id: input.saleId },
+            data: { receiptSent: true, receiptSentAt: new Date() },
+          });
+        }
+
+        return { success: result.success };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SIGNATURE (Autentique + physical)
+  // ═══════════════════════════════════════
+
+  /** Send sale document for digital signature via Autentique */
+  sendForSignature: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || sale.status !== "COMPLETED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas podem ser assinadas" });
+        }
+
+        if (sale.signatureDocumentId) {
+          throw new TRPCError({ code: "CONFLICT", message: "Documento ja enviado para assinatura" });
+        }
+
+        // Generate PDF
+        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const pdfRes = await fetch(`${baseUrl}/api/pdv/${input.saleId}/recibo`);
+        if (!pdfRes.ok) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gerar PDF" });
+        }
+
+        const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+        const pdfBase64 = pdfBuffer.toString("base64");
+
+        // Get customer info for signer
+        let signerName = "Cliente";
+        let signerEmail: string | undefined;
+        if (sale.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: sale.customerId },
+            select: { name: true, email: true },
+          });
+          if (customer?.name) signerName = customer.name;
+          if (customer?.email) signerEmail = customer.email;
+        }
+
+        const doc = await createDocumentWithLink(
+          `Recibo Venda ${sale.number}`,
+          [{ name: signerName, whatsapp: "" }],
+          pdfBuffer,
+        );
+
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: {
+            signatureDocumentId: doc.documentId,
+            signatureUrl: doc.signatureLink,
+            signatureSentAt: new Date(),
+          },
+        });
+
+        return { documentId: doc.documentId, signatureLink: doc.signatureLink };
+      });
+    }),
+
+  /** Check digital signature status */
+  checkSignatureStatus: tenantProcedure
+    .input(checkSaleSignatureStatusSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (!sale.signatureDocumentId) {
+          return { signed: false, pending: false };
+        }
+
+        if (sale.signatureSignedAt) {
+          return { signed: true, pending: false };
+        }
+
+        const status = await getDocumentStatus(sale.signatureDocumentId);
+
+        if (status.signed) {
+          await tx.sale.update({
+            where: { id: input.saleId },
+            data: { signatureSignedAt: new Date() },
+          });
+        }
+
+        return { signed: status.signed, pending: true };
+      });
+    }),
+
+  /** Confirm physical signature (in-store) */
+  confirmPhysicalSignature: tenantProcedure
+    .input(confirmSalePhysicalSignatureSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || sale.status !== "COMPLETED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas" });
+        }
+
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: {
+            physicalSignature: true,
+            signatureSignedAt: new Date(),
+          },
+        });
+
+        return { success: true };
       });
     }),
 });
