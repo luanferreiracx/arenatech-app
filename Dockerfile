@@ -38,6 +38,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules/.pnpm/prisma@*/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines ./node_modules/@prisma/engines
+
+# Install prisma CLI for migrate deploy (minimal install)
+RUN corepack enable && corepack prepare pnpm@11.0.8 --activate && \
+    npm install -g prisma@7.8.0 2>/dev/null || true
 
 USER nextjs
 EXPOSE 3000
