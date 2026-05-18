@@ -983,7 +983,7 @@ export const saleRouter = createTRPCRouter({
           barcode: p.barcode,
           salePrice: decimalToCents(p.salePrice),
           costPrice: decimalToCents(p.costPrice),
-          currentStock: 0, // TODO: Estoque-B will provide real stock
+          currentStock: p.isSerialized ? 0 : p.currentStock,
         }));
       });
     }),
