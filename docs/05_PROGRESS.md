@@ -7,9 +7,9 @@
 
 ## Estado atual
 
-**Fase atual:** Auditoria completa todos os módulos vs Laravel. Gaps corrigidos. Push aceito.
+**Fase atual:** 100% dos módulos Laravel migrados para Next.js. Todos os gaps corrigidos.
 **Ultima atualizacao:** 2026-05-18
-**Módulos refatorados:** Clientes (20), Configurações (17), Stock-A (19), OS (14), PDV (11)
+**Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 5 arquivos
 **Branch atual:** `main`
 **Commits desde ultimo deploy:** 15
@@ -261,6 +261,33 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-18 — MIGRAÇÃO 100% COMPLETA — TODOS OS GAPS CORRIGIDOS
+
+Todos os módulos que existiam no Laravel foram migrados para Next.js:
+
+**NF-e Import (novo):** Schema + Service + Router (15 procedures)
+- Upload XML, parse, vincular produtos, alocar custos, importar estoque
+
+**Checklist (novo backend):** Schema + Router (8 procedures)
+- UI já existia, agora persiste no banco
+
+**DEPIX/PIX (completado):** Procedures em sale.ts + service-order.ts
+- generatePix, cancelPix em ambos os módulos
+
+**Recompensas (novo):** Schema + Router (16 procedures)
+- Campanhas, ações, aprovação/rejeição, cashback, expiração
+
+**Chatbot WhatsApp (novo):** Schema + Router (12 procedures) + Webhook
+- Conversas, mensagens, follow-ups, webhook Chatwoot
+
+**PagBank Webhook (novo):** Webhook receiver
+- Confirmação de pagamento de vendas rápidas
+
+**Catálogo Público (novo):** Páginas + API pública
+- Listagem, busca, detalhe de produto sem auth
+
+---
 
 ### 2026-05-18 — AUDITORIA COMPLETA TODOS OS MÓDULOS VS LARAVEL
 
