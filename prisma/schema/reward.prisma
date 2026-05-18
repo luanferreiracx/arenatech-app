@@ -1,0 +1,119 @@
+/// Recompensas — Sistema de fidelidade. Faithful to Laravel Recompensa models.
+
+enum RewardActionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  USED
+}
+
+enum RewardType {
+  DISCOUNT_PERCENTAGE
+  DISCOUNT_FIXED
+  CASHBACK
+  GIFT
+}
+
+/// Campanha de recompensa (promoções temporárias ou permanentes)
+model RewardCampaign {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  name                  String
+  description           String?
+  publicationType       String?   @map("publication_type") // story, reel, post
+  startDate             DateTime? @map("start_date")
+  endDate               DateTime? @map("end_date")
+  validityDays          Int       @default(30) @map("validity_days")
+  rewardType            RewardType @map("reward_type")
+  value                 Decimal   @default(0) @db.Decimal(10, 2)
+  percentage            Decimal   @default(0) @db.Decimal(5, 2)
+  maxCap                Decimal?  @map("max_cap") @db.Decimal(10, 2)
+  participantLimit      Int?      @map("participant_limit")
+  rewardLimit           Int?      @map("reward_limit")
+  totalParticipants     Int       @default(0) @map("total_participants")
+  totalRewardsGenerated Int       @default(0) @map("total_rewards_generated")
+  rules                 Json?
+  active                Boolean   @default(true)
+  createdById           String    @map("created_by_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  actions               RewardAction[]
+
+  @@index([tenantId, active])
+  @@index([tenantId, startDate, endDate])
+  @@map("reward_campaigns")
+}
+
+/// Ação de recompensa (claim de um cliente)
+model RewardAction {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  customerId      String             @map("customer_id") @db.Uuid
+  campaignId      String?            @map("campaign_id") @db.Uuid
+  status          RewardActionStatus @default(PENDING)
+  rewardType      RewardType         @map("reward_type")
+  value           Decimal            @default(0) @db.Decimal(10, 2)
+  percentage      Decimal            @default(0) @db.Decimal(5, 2)
+  expiresAt       DateTime?          @map("expires_at")
+  usedAt          DateTime?          @map("used_at")
+  usedInSaleId    String?            @map("used_in_sale_id") @db.Uuid
+  validatedById   String?            @map("validated_by_id") @db.Uuid
+  validatedAt     DateTime?          @map("validated_at")
+  rejectionReason String?            @map("rejection_reason")
+  notes           String?
+  metadata        Json?
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  campaign        RewardCampaign?    @relation(fields: [campaignId], references: [id])
+
+  @@index([tenantId, customerId])
+  @@index([tenantId, status])
+  @@index([tenantId, campaignId])
+  @@map("reward_actions")
+}
+
+/// Saldo de cashback do cliente
+model RewardBalance {
+  id                      String   @id @default(uuid()) @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  customerId              String   @unique @map("customer_id") @db.Uuid
+  totalBalance            Decimal  @default(0) @map("total_balance") @db.Decimal(10, 2)
+  lockedBalance           Decimal  @default(0) @map("locked_balance") @db.Decimal(10, 2)
+  availableBalance        Decimal  @default(0) @map("available_balance") @db.Decimal(10, 2)
+  referenceMonth          String?  @map("reference_month") // YYYY-MM
+  totalCreditedMonth      Decimal  @default(0) @map("total_credited_month") @db.Decimal(10, 2)
+  totalCreditedHistorical Decimal  @default(0) @map("total_credited_historical") @db.Decimal(10, 2)
+  totalUsedHistorical     Decimal  @default(0) @map("total_used_historical") @db.Decimal(10, 2)
+  totalExpiredHistorical  Decimal  @default(0) @map("total_expired_historical") @db.Decimal(10, 2)
+  totalRewardsReceived    Int      @default(0) @map("total_rewards_received")
+  totalRewardsUsed        Int      @default(0) @map("total_rewards_used")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  movements               RewardMovement[]
+
+  @@index([tenantId])
+  @@map("reward_balances")
+}
+
+/// Movimentação de saldo de recompensa
+model RewardMovement {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  balanceId       String   @map("balance_id") @db.Uuid
+  type            String   // credit, debit, lock, unlock, expire
+  amount          Decimal  @db.Decimal(10, 2)
+  description     String
+  referenceType   String?  @map("reference_type") // reward_action, sale, expiration
+  referenceId     String?  @map("reference_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  balance         RewardBalance @relation(fields: [balanceId], references: [id])
+
+  @@index([tenantId, balanceId])
+  @@map("reward_movements")
+}

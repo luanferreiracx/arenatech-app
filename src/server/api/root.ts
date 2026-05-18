@@ -24,11 +24,13 @@ import { providerCommissionRouter } from "@/server/api/routers/provider-commissi
 import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
 import { checklistRouter } from "@/server/api/routers/checklist";
+import { rewardRouter } from "@/server/api/routers/reward";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
   nfeImport: nfeImportRouter,
   checklist: checklistRouter,
+  reward: rewardRouter,
   depixWithdraw: depixWithdrawRouter,
   auth: authRouter,
   cashier: cashierRouter,
