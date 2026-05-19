@@ -31,6 +31,7 @@ interface OrderRow {
   customerName: string;
   customerCpf: string | null;
   customerPhone: string | null;
+  customerPhoneSecondary: string | null;
   deviceType: string | null;
   deviceModel: string | null;
   technicianName: string | null;
@@ -82,6 +83,9 @@ const columns: ColumnDef<OrderRow>[] = [
         )}
         {row.original.customerPhone && (
           <p className="text-xs text-muted-foreground">{formatPhone(row.original.customerPhone)}</p>
+        )}
+        {row.original.customerPhoneSecondary && (
+          <p className="text-xs text-muted-foreground">{formatPhone(row.original.customerPhoneSecondary)} (alt)</p>
         )}
       </div>
     ),
@@ -187,6 +191,8 @@ export function ServiceOrdersTable() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [techFilter, setTechFilter] = useState("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const techQuery = useQuery(
     trpc.serviceOrder.listTechnicians.queryOptions()
@@ -201,6 +207,8 @@ export function ServiceOrdersTable() {
       search: search || undefined,
       status: statusFilter !== "ALL" ? (statusFilter as ServiceOrderStatus) : undefined,
       technicianId: techFilter !== "ALL" ? techFilter : undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
     })
   );
   const isLoading = listQuery.isLoading;
@@ -256,6 +264,23 @@ export function ServiceOrdersTable() {
             ))}
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            className="w-[150px]"
+            placeholder="De"
+          />
+          <span className="text-muted-foreground text-xs">ate</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            className="w-[150px]"
+            placeholder="Ate"
+          />
+        </div>
       </div>
 
       <DataTable

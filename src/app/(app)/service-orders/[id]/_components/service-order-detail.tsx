@@ -139,6 +139,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [notifyDeliveryDialog, setNotifyDeliveryDialog] = useState(false);
   const [notifyDeliveryContext, setNotifyDeliveryContext] = useState<"retirada" | "envio" | "generico">("retirada");
   const [notifyDeliveryMessage, setNotifyDeliveryMessage] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState(false);
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
@@ -446,6 +447,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const isRefunded = status === "REFUNDED";
   const isDelivered = status === "DELIVERED";
   const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+  const isAdmin = order.viewerIsAdmin === true;
   const checklist = (order.entryChecklist ?? {}) as ChecklistData;
   const deviceInfo = (order.deviceInfo ?? {}) as DeviceInfoData;
   const pendingQuote = order.quotes?.find((q: { status: string }) => q.status === "pending");
@@ -505,6 +507,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             {isCancelled && (
               <Button variant="outline" onClick={() => setUncancelDialog(true)}>
                 <Undo2 className="mr-2 h-4 w-4" />Descancelar
+              </Button>
+            )}
+            {/* Excluir permanente: admin only, OS cancelada — paridade Laravel show.blade.php:582-590 */}
+            {isCancelled && isAdmin && (
+              <Button variant="destructive" size="sm" onClick={() => setDeleteDialog(true)}>
+                <Trash2 className="mr-2 h-4 w-4" />Excluir
               </Button>
             )}
             {isDelivered && !isRefunded && (
@@ -1125,6 +1133,35 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
 
+          {/* Card Datas — paridade Laravel show.blade.php:1666-1691 */}
+          <div className="rounded-lg border border-border p-4">
+            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Datas</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Entrada</span>
+                <span>{format(new Date(order.entryDate), "dd/MM/yyyy HH:mm")}</span>
+              </div>
+              {order.estimatedDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Previsao</span>
+                  <span>{format(new Date(order.estimatedDate), "dd/MM/yyyy")}</span>
+                </div>
+              )}
+              {order.completedDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Conclusao</span>
+                  <span>{format(new Date(order.completedDate), "dd/MM/yyyy HH:mm")}</span>
+                </div>
+              )}
+              {order.deliveredDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Entrega</span>
+                  <span>{format(new Date(order.deliveredDate), "dd/MM/yyyy HH:mm")}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Costs & Profit */}
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1302,6 +1339,32 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               }}
             >
               Confirmar Cancelamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog (admin only, OS cancelada) */}
+      <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Excluir OS permanentemente</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>Esta acao remove a OS <strong>#{order.number}</strong> de forma permanente (soft delete).</p>
+            <p className="text-destructive">
+              Voce so deve excluir uma OS por erro de cadastro. Para fluxo normal, prefira <strong>Cancelar</strong>.
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Se esta OS for referenciada como OS original em garantias/retornos, a exclusao sera bloqueada.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog(false)}>Voltar</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMut.isPending}
+              onClick={() => { deleteMut.mutate({ id }); setDeleteDialog(false); }}
+            >
+              Excluir permanentemente
             </Button>
           </DialogFooter>
         </DialogContent>
