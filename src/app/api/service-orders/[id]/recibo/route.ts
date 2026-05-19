@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
+import { formatCnpj, formatCpf } from "@/lib/utils";
 import { valorPorExtenso } from "@/lib/valor-por-extenso";
 
 /**
@@ -64,7 +65,7 @@ export async function GET(
     ]);
 
     const nomeLoja = settings?.tradeName ?? tenant?.name ?? "Arena Tech";
-    const cnpjLoja = settings?.cnpj ?? tenant?.cnpj ?? "";
+    const cnpjLoja = formatCnpj(settings?.cnpj ?? tenant?.cnpj ?? "");
     const telefoneLoja = settings?.phone ?? "";
 
     const esc = (s: string | null | undefined) => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -183,7 +184,7 @@ export async function GET(
 
   <div class="corpo">
     Recebi(emos) de <strong>${esc(customer?.name)}</strong>,
-    portador(a) do CPF <strong>${esc(customer?.cpf)}</strong>,
+    portador(a) do CPF <strong>${esc(formatCpf(customer?.cpf))}</strong>,
     a quantia de <strong>${fmt(valorPago)}</strong>
     (${extenso})${descontoPagamento > 0 ? `, com desconto de ${fmt(descontoPagamento)} sobre o valor original de ${fmt(valorTotal)}` : ""},
     referente ao(s) servico(s) de assistencia tecnica prestado(s) conforme

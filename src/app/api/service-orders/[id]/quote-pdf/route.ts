@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
+import { formatCpf } from "@/lib/utils";
 
 /**
  * GET /api/service-orders/[id]/quote-pdf
@@ -140,7 +141,7 @@ export async function GET(
   <div class="section">
     <div class="section-title">DADOS DO CLIENTE</div>
     <div class="row"><span class="label">Cliente:</span> <span class="value">${esc(customer?.name)}</span></div>
-    ${customer?.cpf ? `<div class="row"><span class="label">CPF:</span> <span>${esc(customer.cpf)}</span></div>` : ""}
+    ${customer?.cpf ? `<div class="row"><span class="label">CPF:</span> <span>${esc(formatCpf(customer.cpf))}</span></div>` : ""}
     ${customer?.phone ? `<div class="row"><span class="label">Telefone:</span> <span>${esc(customer.phone)}</span></div>` : ""}
   </div>
 
@@ -151,47 +152,69 @@ export async function GET(
     ${order.imei ? `<div class="row"><span class="label">IMEI:</span> <span>${esc(order.imei)}</span></div>` : ""}
   </div>
 
-  ${itemsHtml ? `<div class="section"><div class="section-title">ITENS ATUAIS</div>${itemsHtml}</div>` : ""}
-
+  ${itemsHtml ? `
   <div class="section">
-    <div class="section-title">COMPARATIVO DE VALORES</div>
-    <div class="comparison">
-      <div class="col previous">
-        <h3>Valores Anteriores</h3>
-        <div class="row"><span class="label">Servicos:</span> <span>${fmt(quote.previousServiceAmount)}</span></div>
-        <div class="row"><span class="label">Pecas:</span> <span>${fmt(quote.previousPartsAmount)}</span></div>
-        <div class="row"><span class="label">Desconto:</span> <span>${fmt(quote.previousDiscount)}</span></div>
-        <div class="row"><span class="label">Total:</span> <span class="value">${fmt(quote.previousTotal)}</span></div>
-      </div>
-      <div class="col new">
-        <h3>Novos Valores</h3>
-        <div class="row"><span class="label">Servicos:</span> <span>${fmt(quote.newServiceAmount)}</span></div>
-        <div class="row"><span class="label">Pecas:</span> <span>${fmt(quote.newPartsAmount)}</span></div>
-        <div class="row"><span class="label">Desconto:</span> <span>${fmt(quote.newDiscount)}</span></div>
-        <div class="row"><span class="label">Total:</span> <span class="value">${fmt(quote.newTotal)}</span></div>
+    <div class="section-title">SERVICOS JA APROVADOS (orcamento original)</div>
+    <div style="background: #e8f5e9; border: 2px solid #28a745; border-radius: 6px; padding: 10px;">
+      ${itemsHtml}
+      <div class="row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #28a745;">
+        <span class="value">Total ja aprovado:</span>
+        <span class="value">${fmt(quote.previousTotal)}</span>
       </div>
     </div>
-    <div class="total-new">NOVO VALOR TOTAL: ${fmt(quote.newTotal)}</div>
-  </div>
+  </div>` : ""}
 
   <div class="section">
-    <div class="section-title">MOTIVO DA ALTERACAO</div>
-    <div class="reason">${esc(quote.reason)}</div>
-    ${quote.additionalServices ? `<p style="font-size: 9pt; margin-top: 4px;"><strong>Servicos adicionais:</strong> ${esc(quote.additionalServices)}</p>` : ""}
+    <div class="section-title">SERVICOS ADICIONAIS — AGUARDANDO APROVACAO</div>
+    <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 6px; padding: 10px;">
+      <div class="reason"><strong>Motivo:</strong> ${esc(quote.reason)}</div>
+      ${quote.additionalServices ? `<p style="font-size: 9pt; margin-top: 4px;"><strong>Detalhes:</strong> ${esc(quote.additionalServices)}</p>` : ""}
+      <div class="comparison" style="margin-top: 10px;">
+        <div class="col previous">
+          <h3>Valores Anteriores</h3>
+          <div class="row"><span class="label">Servicos:</span> <span>${fmt(quote.previousServiceAmount)}</span></div>
+          <div class="row"><span class="label">Pecas:</span> <span>${fmt(quote.previousPartsAmount)}</span></div>
+          <div class="row"><span class="label">Desconto:</span> <span>${fmt(quote.previousDiscount)}</span></div>
+          <div class="row"><span class="label">Total:</span> <span class="value">${fmt(quote.previousTotal)}</span></div>
+        </div>
+        <div class="col new">
+          <h3>Novos Valores</h3>
+          <div class="row"><span class="label">Servicos:</span> <span>${fmt(quote.newServiceAmount)}</span></div>
+          <div class="row"><span class="label">Pecas:</span> <span>${fmt(quote.newPartsAmount)}</span></div>
+          <div class="row"><span class="label">Desconto:</span> <span>${fmt(quote.newDiscount)}</span></div>
+          <div class="row"><span class="label">Total:</span> <span class="value">${fmt(quote.newTotal)}</span></div>
+        </div>
+      </div>
+      <div class="total-new">NOVO VALOR TOTAL: ${fmt(quote.newTotal)}</div>
+    </div>
   </div>
 
+  ${quote.status === "approved" ? `
   <div class="section">
-    <div class="section-title">STATUS</div>
-    <div class="row"><span class="label">Status:</span> <span class="value">${quote.status === "approved" ? "APROVADO" : quote.status === "rejected" ? "REJEITADO" : "PENDENTE"}</span></div>
-    <div class="row"><span class="label">Criado em:</span> <span>${fmtDate(quote.createdAt)}</span></div>
-    ${quote.approvedAt ? `<div class="row"><span class="label">Aprovado em:</span> <span>${fmtDate(quote.approvedAt)}</span></div>` : ""}
-    ${quote.rejectedAt ? `<div class="row"><span class="label">Rejeitado em:</span> <span>${fmtDate(quote.rejectedAt)}</span></div>` : ""}
-  </div>
+    <div style="background: #d4edda; border: 2px solid #28a745; border-radius: 6px; padding: 12px; text-align: center;">
+      <p style="font-weight: bold; font-size: 11pt; color: #155724; margin-bottom: 6px;">APROVADO</p>
+      <p style="font-style: italic; font-size: 10pt;">
+        Eu, ${esc(customer?.name)}, portador(a) do CPF ${esc(formatCpf(customer?.cpf))},
+        APROVO os servicos adicionais descritos acima e autorizo o prosseguimento
+        no novo valor total de ${fmt(quote.newTotal)}.
+      </p>
+      ${quote.approvedAt ? `<p style="font-size: 9pt; color: #155724; margin-top: 6px;">Aprovado em: ${fmtDate(quote.approvedAt)}</p>` : ""}
+    </div>
+  </div>` : ""}
+
+  ${quote.status === "rejected" ? `
+  <div class="section">
+    <div style="background: #f8d7da; border: 2px solid #dc3545; border-radius: 6px; padding: 12px; text-align: center;">
+      <p style="font-weight: bold; font-size: 11pt; color: #721c24;">REJEITADO</p>
+      ${quote.rejectedAt ? `<p style="font-size: 9pt; color: #721c24; margin-top: 6px;">Rejeitado em: ${fmtDate(quote.rejectedAt)}</p>` : ""}
+    </div>
+  </div>` : ""}
 
   ${quote.status === "pending" ? `
   <div class="approval-link">
     <p>Para aprovar ou rejeitar este orcamento, acesse:</p>
     <a href="${approvalLink}">${approvalLink}</a>
+    <p style="font-size: 9pt; color: #155724; margin-top: 6px;">Criado em: ${fmtDate(quote.createdAt)}</p>
   </div>` : ""}
 
   <div class="footer">

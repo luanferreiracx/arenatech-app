@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
+import { formatCnpj, formatCpf } from "@/lib/utils";
 
 /**
  * GET /api/service-orders/[id]/termo-devolucao
@@ -54,7 +55,7 @@ export async function GET(
     ]);
 
     const nomeLoja = settings?.tradeName ?? tenant?.name ?? "Arena Tech";
-    const cnpjLoja = settings?.cnpj ?? tenant?.cnpj ?? "";
+    const cnpjLoja = formatCnpj(settings?.cnpj ?? tenant?.cnpj ?? "");
     const telefoneLoja = settings?.phone ?? "";
 
     const esc = (s: string | null | undefined) => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -96,7 +97,7 @@ export async function GET(
     <div class="info-row"><span class="label">Ordem de Servico:</span> ${esc(order.number)}</div>
     <div class="info-row"><span class="label">Data de Devolucao:</span> ${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
     <div class="info-row"><span class="label">Cliente:</span> ${esc(customer?.name)}</div>
-    <div class="info-row"><span class="label">CPF:</span> ${esc(customer?.cpf)}</div>
+    <div class="info-row"><span class="label">CPF:</span> ${esc(formatCpf(customer?.cpf))}</div>
     <div class="info-row"><span class="label">Telefone:</span> ${esc(customer?.phone)}</div>
   </div>
 
@@ -123,7 +124,7 @@ export async function GET(
     <div class="linha-assinatura">Assinatura do Cliente</div>
     <p style="font-size: 9pt; color: #666; margin-top: 5px;">
       ${esc(customer?.name)}<br>
-      CPF: ${esc(customer?.cpf)}
+      CPF: ${esc(formatCpf(customer?.cpf))}
     </p>
   </div>
 

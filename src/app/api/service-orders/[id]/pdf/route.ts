@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
+import { formatCnpj, formatCpf } from "@/lib/utils";
 
 /**
  * GET /api/service-orders/[id]/pdf
@@ -74,7 +75,7 @@ export async function GET(
     const userMap = new Map(users.map((u) => [u.id, u.name]));
 
     const nomeLoja = settings?.tradeName ?? tenant?.name ?? "ARENA TECH";
-    const cnpjLoja = settings?.cnpj ?? tenant?.cnpj ?? "";
+    const cnpjLoja = formatCnpj(settings?.cnpj ?? tenant?.cnpj ?? "");
     const telefoneLoja = settings?.phone ?? "";
 
     const fmt = (v: unknown) => {
@@ -234,7 +235,7 @@ export async function GET(
     <div class="grid-2">
       <div class="col">
         <div class="field"><span class="field-label">Nome:</span><div class="field-value">${esc(customer?.name)}</div></div>
-        <div class="field"><span class="field-label">CPF:</span><div class="field-value">${esc(customer?.cpf) || "Nao informado"}</div></div>
+        <div class="field"><span class="field-label">CPF:</span><div class="field-value">${esc(formatCpf(customer?.cpf)) || "Nao informado"}</div></div>
       </div>
       <div class="col">
         <div class="field"><span class="field-label">Telefone:</span><div class="field-value">${esc(customer?.phone) || "-"}</div></div>
@@ -276,9 +277,12 @@ export async function GET(
       <div class="col">
         <div class="field"><span class="field-label">Subtotal Servicos:</span><div class="field-value">${fmt(order.serviceAmount)}</div></div>
         <div class="field"><span class="field-label">Valor Pecas:</span><div class="field-value">${fmt(order.partsAmount)}</div></div>
+        ${order.technicianId ? `<div class="field"><span class="field-label">Tecnico Responsavel:</span><div class="field-value">${esc(userMap.get(order.technicianId) ?? "—")}</div></div>` : ""}
       </div>
       <div class="col">
         <div class="field"><span class="field-label">Desconto:</span><div class="field-value">${fmt(order.discount)}</div></div>
+        ${order.paymentMethod ? `<div class="field"><span class="field-label">Forma de Pagamento:</span><div class="field-value">${esc(order.paymentMethod)}</div></div>` : ""}
+        ${order.completedDate ? `<div class="field"><span class="field-label">Conclusao:</span><div class="field-value">${fmtDate(order.completedDate)}</div></div>` : ""}
         <div class="total">TOTAL: ${fmt(order.totalAmount)}</div>
       </div>
     </div>
@@ -299,7 +303,7 @@ export async function GET(
   <div class="assinatura-box">
     <strong>ASSINATURA DO CLIENTE</strong><br>
     ${esc(customer?.name)}<br>
-    CPF: ${esc(customer?.cpf)}
+    CPF: ${esc(formatCpf(customer?.cpf))}
   </div>
 
   <div style="text-align: center; margin-top: 20px; font-size: 8pt; color: #666;">
