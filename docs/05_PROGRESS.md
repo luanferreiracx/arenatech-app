@@ -262,6 +262,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — CLIENTES: 5 gaps Laravel fechados (Onda 1, modulo 1/6)
+
+Inicio da auditoria sistematica dos módulos restantes. Cliente é o primeiro da Onda 1 (críticos com dados reais). Comparacao contra `ClienteController.php` + views Laravel.
+
+- **G1 — Duplicidade inline:** `customer.checkDuplicate({cpf?, cnpj?})` + alerta inline com link clicável para cliente existente. Bloqueia submit. Paridade Laravel `consultarCpf`/`consultarCnpj` (parte de duplicidade). DirectD adiado.
+- **G2 — Tab OS do cliente:** `byId` carrega 20 OS recentes; UI renderiza tabela compacta com link para `/service-orders/[id]`. Antes mostrava só contador.
+- **G3 — Tab Cashback removida:** era placeholder confuso. Integração futura quando `reward` for auditado.
+- **G4+G5 — Toggle Ativos/Inativos + Restaurar (admin only):** nova `customer.viewerInfo` expondo `isAdmin`. Selector Ativos/Inativos aparece só para admin. Botão Restaurar nas linhas com `deletedAt`. Procedure restore existia mas estava órfa de UI.
+
+**Schema NextJs superior ao Laravel:** modelo `PF/PJ` explícito + campos `cpf`/`cnpj`/`tradeName` separados (Laravel usa 1 string para ambos). Não exigiu mudanças.
+
+**Sweep extra:** nada crítico encontrado além dos 5 gaps. CRUD, soft-delete + restore, paginacao, busca multi-campo (nome/cpf/cnpj/telefone/email), filtros tipo, páginas list/new/edit/detail — todos OK.
+
+**Validação:** typecheck ✓ | 20/20 E2E customers ✓ | 14/14 E2E OS ✓ | build ✓
+**Commits:** 1 (1 backend + 3 UI)
+
+---
+
 ### 2026-05-19 — OS: edicao com escopo correto + stepper exige assinatura (7a rodada)
 
 Refino pos-audit baseado em revisao manual:
