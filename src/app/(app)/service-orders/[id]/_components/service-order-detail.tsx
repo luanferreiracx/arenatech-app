@@ -862,9 +862,24 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Status</h3>
             <StatusStepper status={status} />
 
+            {/* Bloqueio: nao avancar status enquanto OS nao foi assinada */}
+            {!isSigned && !isCancelled && !isRefunded && nextOptions.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
+                  <strong className="text-warning">Assinatura de entrada pendente.</strong>
+                  <p className="text-muted-foreground mt-1">
+                    Confirme a assinatura do cliente (Autentique ou fisica) antes de avancar
+                    o status da OS. O aparelho fica sob responsabilidade da loja apenas
+                    apos a assinatura.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Action buttons — paridade com Laravel: so o proximo status do fluxo
-                (e o seguinte se o proximo for opcional). PAID abre dialog de pagamento. */}
-            {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && (
+                (e o seguinte se o proximo for opcional). PAID abre dialog de pagamento.
+                Bloqueado enquanto OS nao for assinada. */}
+            {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && isSigned && (
               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                 {nextOptions.map((s) => {
                   if (s === "PAID") {

@@ -456,23 +456,29 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const { id, ...data } = input;
 
-        // OS assinada => bloquear edicao de equipamento/IMEI/problema relatado/
-        // entryChecklist/deviceInfo (paridade Laravel `$osAssinada`).
+        // Paridade Laravel `update`:
+        // - osAssinada → bloqueia equipamento/IMEI/problema relatado/entryChecklist/deviceInfo
+        // - osConcluida → bloqueia ADICIONALMENTE diagnosedProblem/internalNotes/warrantyMonths
         const isSigned = !!order.signatureSignedAt || order.physicalSignature;
-        const lockedFields = isSigned
-          ? new Set([
-              "deviceType",
-              "deviceBrand",
-              "deviceModel",
-              "serialNumber",
-              "imei",
-              "devicePassword",
-              "accessories",
-              "reportedProblem",
-              "entryChecklist",
-              "deviceInfo",
-            ])
-          : new Set<string>();
+        const isCompleted = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
+        const lockedFields = new Set<string>();
+        if (isSigned) {
+          lockedFields.add("deviceType");
+          lockedFields.add("deviceBrand");
+          lockedFields.add("deviceModel");
+          lockedFields.add("serialNumber");
+          lockedFields.add("imei");
+          lockedFields.add("devicePassword");
+          lockedFields.add("accessories");
+          lockedFields.add("reportedProblem");
+          lockedFields.add("entryChecklist");
+          lockedFields.add("deviceInfo");
+        }
+        if (isCompleted) {
+          lockedFields.add("diagnosedProblem");
+          lockedFields.add("internalNotes");
+          lockedFields.add("warrantyMonths");
+        }
 
         // Build update data, converting dates and handling null
 
@@ -535,6 +541,21 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: `Transicao de ${currentStatus} para ${newStatus} nao permitida`,
+          });
+        }
+
+        // Exigir assinatura de entrada (Autentique OU fisica) antes de avancar o
+        // status para alem de OPEN. Cancelamento e estados especiais sao excecao.
+        // Paridade com regra do Laravel: aparelho na loja exige assinatura antes
+        // de iniciar o fluxo de servico.
+        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        const isCancelOrSpecial =
+          newStatus === "CANCELLED" || newStatus === "REFUNDED" || newStatus === "IN_WARRANTY";
+        if (!isSigned && !isCancelOrSpecial) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Confirme a assinatura de entrada do cliente antes de avancar o status da OS.",
           });
         }
 

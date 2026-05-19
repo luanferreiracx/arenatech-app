@@ -76,10 +76,14 @@ export default function EditServiceOrderPage({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; isPending: boolean; id: string }) {
-  // OS assinada = entrada com Autentique confirmada OU assinatura fisica.
-  // Quando assinada, equipamento/IMEI/problema relatado/checklist entrada
-  // viram readonly (paridade Laravel `$osAssinada`).
+  // Paridade Laravel:
+  // - $osAssinada (entrada confirmada) → bloqueia equipamento, IMEI, problema
+  //   relatado, checklist entrada e info adicionais
+  // - $osConcluida (status in concluida/aguardando_retirada/entregue) →
+  //   bloqueia ALEM disso: defeito constatado, observacoes internas, prazo
+  //   garantia
   const isSigned: boolean = !!order.signatureSignedAt || !!order.physicalSignature;
+  const isCompleted: boolean = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
 
   const { register, handleSubmit, watch, setValue } = useForm({
     defaultValues: {
@@ -115,9 +119,12 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
     return true;
   }
 
+  // Estado local de deviceInfo (6 checkboxes), editavel enquanto OS nao assinada.
+  const [editedDeviceInfo, setEditedDeviceInfo] = useState<DeviceInfoData>(deviceInfo);
+
   const doSubmit = handleSubmit((values) => {
-    // Quando OS esta assinada, preservamos os valores originais dos campos
-    // bloqueados (defesa em profundidade — o input ja e readonly).
+    // Defesa em profundidade — campos bloqueados sao preservados independente
+    // do que vier do form (inputs ja sao readonly).
     onSubmit({
       id,
       deviceType: isSigned ? order.deviceType : (values.deviceType || null),
@@ -128,17 +135,20 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
       devicePassword: isSigned ? order.devicePassword : (values.devicePassword || null),
       accessories: isSigned ? order.accessories : (values.accessories || null),
       reportedProblem: isSigned ? order.reportedProblem : (values.reportedProblem || undefined),
-      diagnosedProblem: values.diagnosedProblem || null,
-      internalNotes: values.internalNotes || null,
+      // Bloqueados apos conclusao (paridade $osConcluida)
+      diagnosedProblem: isCompleted ? order.diagnosedProblem : (values.diagnosedProblem || null),
+      internalNotes: isCompleted ? order.internalNotes : (values.internalNotes || null),
+      warrantyMonths: isCompleted ? order.warrantyMonths : values.warrantyMonths,
+      // Sempre editaveis
       customerNotes: values.customerNotes || null,
       isWarranty: values.isWarranty,
-      warrantyMonths: values.warrantyMonths,
       nfseIssued: values.nfseIssued,
       nfseNumber: values.nfseNumber || null,
       estimatedDate: values.estimatedDate || null,
       entryChecklist: isSigned ? entryChecklist : entryChecklist,
       exitChecklist,
-      deviceInfo: isSigned ? deviceInfo : deviceInfo,
+      // deviceInfo: editavel apenas enquanto OS nao foi assinada
+      deviceInfo: isSigned ? deviceInfo : editedDeviceInfo,
     });
   });
 
@@ -187,30 +197,63 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
         <div className="rounded-lg border border-border p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Problema e Diagnostico</h3>
-            {isSigned && (
-              <span className="text-xs text-muted-foreground">
-                🔒 Problema relatado bloqueado apos assinatura
-              </span>
-            )}
+            <div className="flex flex-col items-end gap-1 text-xs text-muted-foreground">
+              {isSigned && <span>🔒 Problema relatado bloqueado apos assinatura</span>}
+              {isCompleted && <span>🔒 Diagnostico e notas internas bloqueados apos conclusao</span>}
+            </div>
           </div>
           <div className="space-y-4">
             <div className="space-y-2"><Label>Problema Relatado</Label><Textarea {...register("reportedProblem")} rows={3} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>Defeito Constatado</Label><Textarea {...register("diagnosedProblem")} rows={3} /></div>
-            <div className="space-y-2"><Label>Observacoes Internas</Label><Textarea {...register("internalNotes")} rows={3} /></div>
+            <div className="space-y-2"><Label>Defeito Constatado</Label><Textarea {...register("diagnosedProblem")} rows={3} readOnly={isCompleted} /></div>
+            <div className="space-y-2"><Label>Observacoes Internas</Label><Textarea {...register("internalNotes")} rows={3} readOnly={isCompleted} /></div>
             <div className="space-y-2"><Label>Observacoes para o Cliente</Label><Textarea {...register("customerNotes")} rows={2} /></div>
           </div>
         </div>
 
         {/* Warranty */}
         <div className="rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold mb-4">Garantia e Previsao</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Garantia e Previsao</h3>
+            {isCompleted && (
+              <span className="text-xs text-muted-foreground">🔒 Prazo de garantia bloqueado apos conclusao</span>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex items-center gap-3">
               <Checkbox id="isWarranty" checked={watch("isWarranty")} onCheckedChange={(v) => setValue("isWarranty", !!v)} />
               <Label htmlFor="isWarranty">OS de Garantia</Label>
             </div>
-            <div className="space-y-2"><Label>Prazo Garantia (meses)</Label><Input type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} /></div>
+            <div className="space-y-2"><Label>Prazo Garantia (meses)</Label><Input type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} readOnly={isCompleted} /></div>
             <div className="space-y-2"><Label>Data Prevista</Label><Input type="date" {...register("estimatedDate")} /></div>
+          </div>
+        </div>
+
+        {/* Device Info — paridade Laravel `info_*` (editavel ate assinatura) */}
+        <div className="rounded-lg border border-border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Informacoes Adicionais</h3>
+            {isSigned && (
+              <span className="text-xs text-muted-foreground">🔒 Bloqueado apos assinatura do cliente</span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {DEVICE_INFO_ITEMS.map(({ key, label }) => (
+              <label
+                key={key}
+                className={`flex items-center gap-3 p-3 rounded-md border ${
+                  editedDeviceInfo[key] ? "border-primary bg-primary/5" : "border-border bg-muted/50"
+                } ${isSigned ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                <Checkbox
+                  checked={!!editedDeviceInfo[key]}
+                  disabled={isSigned}
+                  onCheckedChange={(v) =>
+                    setEditedDeviceInfo((prev) => ({ ...prev, [key]: !!v }))
+                  }
+                />
+                <span className="text-sm">{label}</span>
+              </label>
+            ))}
           </div>
         </div>
 
