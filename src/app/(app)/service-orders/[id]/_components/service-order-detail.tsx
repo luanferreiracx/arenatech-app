@@ -133,6 +133,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [techNotes, setTechNotes] = useState("");
   const [changeTechDialog, setChangeTechDialog] = useState(false);
   const [selectedTechId, setSelectedTechId] = useState("");
+  // Laboratorio Externo
+  const [sendLabDialog, setSendLabDialog] = useState(false);
+  const [labDeliveryPersonId, setLabDeliveryPersonId] = useState<string>("");
+  const [notifyDeliveryDialog, setNotifyDeliveryDialog] = useState(false);
+  const [notifyDeliveryContext, setNotifyDeliveryContext] = useState<"retirada" | "envio" | "generico">("retirada");
+  const [notifyDeliveryMessage, setNotifyDeliveryMessage] = useState("");
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
@@ -297,6 +303,43 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       onError: (e) => toast.error(e.message),
     })
   );
+
+  // ── Laboratorio Externo ──
+  const sendToLabMut = useMutation(
+    trpc.serviceOrder.sendToLab.mutationOptions({
+      onSuccess: () => { toast.success("Aparelho enviado ao laboratorio."); setSendLabDialog(false); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+  const receiveFromLabMut = useMutation(
+    trpc.serviceOrder.receiveFromLab.mutationOptions({
+      onSuccess: () => { toast.success("Recebimento confirmado."); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+  const cancelLabMut = useMutation(
+    trpc.serviceOrder.cancelLab.mutationOptions({
+      onSuccess: () => { toast.success("Envio cancelado."); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+  const notifyDeliveryPersonMut = useMutation(
+    trpc.serviceOrder.notifyDeliveryPerson.mutationOptions({
+      onSuccess: (data: { whatsappSent: boolean }) => {
+        toast.success(data.whatsappSent ? "Entregador notificado." : "Entregador atualizado (WhatsApp indisponivel).");
+        setNotifyDeliveryDialog(false);
+        invalidateOrder();
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  // Lista de entregadores ativos para os dialogs
+  const deliveryPersonsQuery = useQuery(
+    trpc.operation.listDeliveryPersons.queryOptions({ active: true }),
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deliveryPersons = (deliveryPersonsQuery.data as any[] | undefined) ?? [];
 
   const sendDeliveryTermMut = useMutation(
     trpc.serviceOrder.sendDeliveryTerm.mutationOptions({
@@ -701,12 +744,51 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Lab External */}
-      {order.sentToLab && !order.labReceived && !isCancelled && (
-        <div className="rounded-lg border-2 border-warning bg-warning/10 p-4 mb-6">
-          <h3 className="font-semibold text-warning flex items-center gap-2">
-            <FlaskConical className="h-5 w-5" />Laboratorio Externo — Aguardando Retorno
+      {/* Lab External — paridade Laravel: 4 acoes (enviar, receber, cancelar, notificar entregador).
+          Mostra card de envio quando OS esta em andamento (nao iniciada, nao cancelada).
+          Aparece tambem para registrar/cancelar envio sem assistencia externa concreta. */}
+      {!isCancelled && !isRefunded && !isDelivered && !["PAID", "READY_FOR_PICKUP"].includes(status) && (
+        <div className={`rounded-lg border-2 p-4 mb-6 ${order.sentToLab && !order.labReceived ? "border-warning bg-warning/10" : "border-border bg-muted/30"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${order.sentToLab && !order.labReceived ? "text-warning" : "text-muted-foreground"}`}>
+            <FlaskConical className="h-5 w-5" />
+            Laboratorio Externo
+            {order.sentToLab && !order.labReceived && <span className="text-xs font-normal">— Aguardando Retorno</span>}
+            {order.sentToLab && order.labReceived && <span className="text-xs font-normal text-success">— Recebido</span>}
           </h3>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {!order.sentToLab && (
+              <Button size="sm" variant="outline" onClick={() => { setLabDeliveryPersonId(""); setSendLabDialog(true); }}>
+                <Send className="mr-1 h-3 w-3" />Enviar para Laboratorio
+              </Button>
+            )}
+            {order.sentToLab && !order.labReceived && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={receiveFromLabMut.isPending}
+                  onClick={() => receiveFromLabMut.mutate({ orderId: id })}
+                >
+                  <Check className="mr-1 h-3 w-3" />Confirmar Recebimento
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { setNotifyDeliveryContext("retirada"); setNotifyDeliveryMessage(`Por favor, retirar a OS ${order.number} no laboratorio externo.`); setNotifyDeliveryDialog(true); }}
+                >
+                  <MessageCircle className="mr-1 h-3 w-3" />Notificar Entregador
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={cancelLabMut.isPending}
+                  onClick={() => cancelLabMut.mutate({ orderId: id })}
+                >
+                  <X className="mr-1 h-3 w-3" />Cancelar Envio
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -1082,13 +1164,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar OS</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {isSigned && !order.returnTermSigned && !order.returnTermPhysical && (
+            {!order.returnTermSigned && !order.returnTermPhysical && (
               <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
                 <strong className="text-warning">Termo de devolucao pendente.</strong>
                 <p className="text-muted-foreground mt-1">
-                  Esta OS ja foi assinada pelo cliente (o aparelho esta na loja). E necessario
-                  enviar e confirmar o termo de devolucao antes do cancelamento. Administradores
-                  podem forcar o cancelamento marcando a opcao abaixo.
+                  Toda OS exige termo de devolucao assinado antes do cancelamento — o aparelho
+                  esta sob responsabilidade da loja. Envie o termo ou confirme a devolucao
+                  fisica. Administradores podem forcar o cancelamento marcando a opcao abaixo.
                 </p>
                 <label className="flex items-center gap-2 mt-2">
                   <input
@@ -1160,6 +1242,83 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuoteDialog(false)}>Cancelar</Button>
             <Button disabled={!quoteReason || createQuoteMut.isPending} onClick={() => createQuoteMut.mutate({ orderId: id, newServiceAmount: quoteServiceAmount, newPartsAmount: quotePartsAmount, newDiscount: quoteDiscount, reason: quoteReason, additionalServices: quoteAdditional || null })}>Criar Orcamento</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send to Lab Dialog */}
+      <Dialog open={sendLabDialog} onOpenChange={setSendLabDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Enviar para Laboratorio Externo</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Marca a OS como enviada ao laboratorio externo. Opcionalmente associa um entregador
+              responsavel pela retirada/entrega.
+            </p>
+            <div>
+              <Label>Entregador (opcional)</Label>
+              <Select value={labDeliveryPersonId} onValueChange={setLabDeliveryPersonId}>
+                <SelectTrigger><SelectValue placeholder="Sem entregador" /></SelectTrigger>
+                <SelectContent>
+                  {deliveryPersons.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendLabDialog(false)}>Cancelar</Button>
+            <Button
+              disabled={sendToLabMut.isPending}
+              onClick={() => sendToLabMut.mutate({ orderId: id, deliveryPersonId: labDeliveryPersonId || null })}
+            >
+              Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Notify Delivery Person Dialog */}
+      <Dialog open={notifyDeliveryDialog} onOpenChange={setNotifyDeliveryDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Notificar Entregador via WhatsApp</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Entregador *</Label>
+              <Select value={labDeliveryPersonId} onValueChange={setLabDeliveryPersonId}>
+                <SelectTrigger><SelectValue placeholder="Selecione um entregador" /></SelectTrigger>
+                <SelectContent>
+                  {deliveryPersons.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}{p.phone ? ` — ${p.phone}` : " (sem WhatsApp)"}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Mensagem</Label>
+              <Textarea
+                value={notifyDeliveryMessage}
+                onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotifyDeliveryDialog(false)}>Cancelar</Button>
+            <Button
+              disabled={!labDeliveryPersonId || !notifyDeliveryMessage || notifyDeliveryPersonMut.isPending}
+              onClick={() =>
+                notifyDeliveryPersonMut.mutate({
+                  orderId: id,
+                  deliveryPersonId: labDeliveryPersonId,
+                  message: notifyDeliveryMessage,
+                  context: notifyDeliveryContext,
+                })
+              }
+            >
+              Enviar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
