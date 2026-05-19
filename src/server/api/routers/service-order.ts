@@ -505,8 +505,54 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-         
+        // OS sem valor (cortesia) ou de garantia podem pular o fluxo de PDV
+        const totalAmountNum = Number(order.totalAmount);
+        const canSkipPdv = totalAmountNum <= 0 || order.isWarranty;
+        const isAdmin = ctx.session.user.isSuperAdmin === true;
+
+        // C2: Bloquear PAID via updateStatus direto. Pagamento deve passar por
+        // `registerPayment` (que registra caixa + financeiro). Excecoes:
+        // OS de garantia / sem valor; admin com flag `force`.
+        if (newStatus === "PAID" && !canSkipPdv && !input.force) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Pagamento de OS deve ser registrado via PDV. Use 'Receber Pagamento' para prosseguir.",
+          });
+        }
+        if (newStatus === "PAID" && input.force && !isAdmin) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Apenas administradores podem forcar status=PAID fora do PDV.",
+          });
+        }
+
+        // C4: Bloquear DELIVERED sem termo de entrega assinado (admin pode bypassar)
+        if (newStatus === "DELIVERED" && !canSkipPdv) {
+          const termSigned = order.deliveryTermSigned || order.deliveryTermPhysical;
+          if (!termSigned && !(input.force && isAdmin)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "O termo de entrega deve ser assinado antes de avancar para entregue. Envie o termo ou registre assinatura fisica.",
+            });
+          }
+        }
+
+        // C5: Se ha termo de devolucao em curso (enviado mas nao assinado) e o
+        // usuario decide retomar a OS, limpar os campos do termo.
+        const interruptingReturnTerm =
+          order.returnTermSent && !order.returnTermSigned && newStatus !== "CANCELLED";
+
+
         const updateData: any = { status: newStatus };
+
+        if (interruptingReturnTerm) {
+          updateData.returnTermSent = false;
+          updateData.returnTermSentAt = null;
+          updateData.returnTermAutentiqueId = null;
+          updateData.returnTermLink = null;
+        }
 
         if (newStatus === "COMPLETED") {
           updateData.completedDate = new Date();
@@ -627,6 +673,25 @@ export const serviceOrderRouter = createTRPCRouter({
                   status: instantPay ? "PAID" : "PENDING",
                 },
               });
+            }
+          }
+        }
+
+        // C8: Notificar conclusao via WhatsApp (best-effort, nao bloqueia).
+        // Paridade com Laravel `enviarNotificacaoConclusaoWhatsApp`.
+        if (newStatus === "COMPLETED" && input.notifyWhatsapp) {
+          const customer = await tx.customer.findUnique({
+            where: { id: order.customerId },
+            select: { name: true, phone: true },
+          });
+          const phone = input.notifyPhone ?? customer?.phone ?? null;
+          if (phone) {
+            const name = customer?.name ?? "Cliente";
+            const text = `Ola, ${name}!\n\nSua Ordem de Servico ${order.number} foi concluida e ja esta pronta para retirada.\n\nArena Tech`;
+            try {
+              await sendTextMessage(phone, text);
+            } catch {
+              // best-effort
             }
           }
         }
@@ -759,6 +824,20 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // C6: Bloquear se ha OS de garantia/retorno que referencia esta como
+        // originalOrderId. Paridade com Laravel destroy().
+        const linkedOrders = await tx.serviceOrder.findMany({
+          where: { originalOrderId: input.id, deletedAt: null },
+          select: { number: true },
+        });
+        if (linkedOrders.length > 0) {
+          const numbers = linkedOrders.map((o) => o.number).join(", ");
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Nao e possivel excluir esta OS pois ela e referenciada como OS Original pelas seguintes OS de garantia/retorno: ${numbers}. Exclua primeiro as OS vinculadas ou remova o vinculo.`,
+          });
+        }
 
         // Soft delete
         await tx.serviceOrder.update({
@@ -893,7 +972,75 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        const discount = input.paymentDiscount ?? 0;
+        const userId = ctx.session.user.id;
+        const isAdmin = ctx.session.user.isSuperAdmin === true;
+        const orderTotal = Number(order.totalAmount);
+        const canSkipPdv = orderTotal <= 0 || order.isWarranty;
+
+        // C3: Exigir caixa aberto para pagamentos via PDV.
+        // Excecoes: garantia / OS sem valor; admin com flag `force`.
+        const openSession = await tx.cashSession.findFirst({
+          where: { userId, closedAt: null },
+        });
+
+        if (!openSession && !canSkipPdv && !(input.force && isAdmin)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Voce precisa abrir o caixa antes de registrar um recebimento.",
+          });
+        }
+
+        // C7: Aplicar desconto de recompensa, se fornecido.
+        // Carrega RewardAction, valida (APPROVED, nao expirado, cliente bate),
+        // calcula desconto adicional e marca como USED.
+        let rewardDiscountCents = 0;
+        let rewardNote = "";
+        if (input.rewardActionId) {
+          const action = await tx.rewardAction.findUnique({
+            where: { id: input.rewardActionId },
+          });
+          if (!action) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa nao encontrada." });
+          }
+          if (action.customerId !== order.customerId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Recompensa pertence a outro cliente.",
+            });
+          }
+          if (action.status !== "APPROVED") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Recompensa nao esta disponivel.",
+            });
+          }
+          if (action.expiresAt && action.expiresAt < new Date()) {
+            await tx.rewardAction.update({
+              where: { id: action.id },
+              data: { status: "EXPIRED" },
+            });
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa expirada." });
+          }
+
+          // Calcular desconto. Aceita DISCOUNT (com percentage) ou CASHBACK (value).
+          const percent = Number(action.percentage);
+          const value = Number(action.value);
+          const discountFromPercent = percent > 0 ? Math.round((orderTotal * percent) / 100 * 100) : 0;
+          const discountFromValue = value > 0 ? Math.round(value * 100) : 0;
+          rewardDiscountCents = Math.max(discountFromPercent, discountFromValue);
+          rewardNote = ` | Desconto recompensa: ${percent > 0 ? `${percent}%` : `R$ ${value.toFixed(2)}`}`;
+
+          await tx.rewardAction.update({
+            where: { id: action.id },
+            data: {
+              status: "USED",
+              usedAt: new Date(),
+              usedInOsId: order.id,
+            },
+          });
+        }
+
+        const discount = (input.paymentDiscount ?? 0) + rewardDiscountCents;
 
         await tx.serviceOrder.update({
           where: { id: input.id },
@@ -902,7 +1049,7 @@ export const serviceOrderRouter = createTRPCRouter({
             paymentMethod: input.paymentMethod,
             paidAmount: centsToPrisma(input.paidAmount),
             paymentDiscount: centsToPrisma(discount),
-            paymentNotes: input.paymentNotes ?? null,
+            paymentNotes: (input.paymentNotes ?? "") + rewardNote || null,
             paymentDate: new Date(),
           },
         });
@@ -911,19 +1058,14 @@ export const serviceOrderRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.id,
-            userId: ctx.session.user.id,
+            userId,
             previousStatus: order.status,
             newStatus: "PAID",
-            notes: `Pagamento registrado: ${input.paymentMethod}`,
+            notes: `Pagamento registrado: ${input.paymentMethod}${rewardNote}`,
           },
         });
 
         // ── Register cash movement (parity with Laravel CaixaService) ──
-        const userId = ctx.session.user.id;
-        const openSession = await tx.cashSession.findFirst({
-          where: { userId, closedAt: null },
-        });
-
         if (openSession) {
           await tx.cashMovement.create({
             data: {

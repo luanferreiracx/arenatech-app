@@ -60,6 +60,7 @@ model RewardAction {
   expiresAt       DateTime?          @map("expires_at")
   usedAt          DateTime?          @map("used_at")
   usedInSaleId    String?            @map("used_in_sale_id") @db.Uuid
+  usedInOsId      String?            @map("used_in_os_id") @db.Uuid
   validatedById   String?            @map("validated_by_id") @db.Uuid
   validatedAt     DateTime?          @map("validated_at")
   rejectionReason String?            @map("rejection_reason")
