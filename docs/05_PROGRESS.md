@@ -262,6 +262,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — CATÁLOGO: cleanup órfãos + config assistência + observações UI (Onda 1, modulo 2/6)
+
+Auditoria do módulo Catálogo (servicos + dispositivos + categorias). Escopo limitado: `CatalogoController.php` (e-commerce) confirmado fora pela decisão D1. `ProdutoCategoriaController` é catálogo de produtos (Estoque). `CategoriaDashboardController` é menu admin (fora). Foco: `ServicoController` + `AparelhoCatalogoController` + observações.
+
+**Schema NextJs era superior** ao Laravel: 7 modelos vs 2. Tinha 3 entidades órfãs sem UI nem demanda do Laravel: `DiagnosticTemplate`, `DeviceCategory`, `Device`. Decisão: remover.
+
+- **G3 — Cleanup órfãos:** DROP tables + remoção de 13 procedures + remoção de schemas Zod + remoção de 3 describes de testes. Migration `20260519100000_catalog_cleanup_assistance_config`. Reduz superfície sem perder paridade.
+- **G4 — TenantAssistanceSettings + 2 campos:** `installmentsNoInterest` (default 12) e `pixDiscount` (default 5%). Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros` + `.desconto_pix`. `settings.updateAssistance` aceita novos campos.
+- **G1 — `sendServiceWhatsApp` refatorado:** antes `pixDiscount=5` hardcoded e `maxInstallments` do `paymentMethod`. Agora ambos do `TenantAssistanceSettings`. Inclui **observações ativas** concatenadas (filtradas por serviceType/deviceModel). Nome da loja vem de `tradeName`. Paridade Laravel `enviarOrcamentoWhatsApp`.
+- **G2 — UI Observações em `/services/manage`:** novo componente `ServiceObservationsManager` com CRUD completo (criar, editar, toggle ativa, excluir). Conecta com 5 procedures que já existiam mas estavam órfãs de UI.
+- **UI Settings/Assistance:** seção "Orçamentos de serviço (WhatsApp)" com inputs para instalments + PIX discount.
+
+**PDF do orçamento de serviço:** adiado (decisão: usuário pode usar PDF da OS quando virar OS real).
+
+**Validação:** typecheck ✓ | 620 unit ✓ | E2E em andamento | build ✓
+**Commits:** 2 (backend cleanup + schema, UI obs + settings)
+
+---
+
 ### 2026-05-19 — CLIENTES: 5 gaps Laravel fechados (Onda 1, modulo 1/6)
 
 Inicio da auditoria sistematica dos módulos restantes. Cliente é o primeiro da Onda 1 (críticos com dados reais). Comparacao contra `ClienteController.php` + views Laravel.
