@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: 6 DIVERGENCIAS DE NEGOCIO RESOLVIDAS (3a rodada)
+
+Terceira rodada de auditoria após testes manuais. Investigação via skill `investigate`, implementação direta:
+
+- **P1 stepper com ícones**: novo `SERVICE_ORDER_STATUS_ICON` no validator + componente `StatusStepper` standalone com lucide-react (equivalentes FA do Laravel). Tooltip ao hover, barra de progresso horizontal entre os círculos.
+- **P2 PDF com termos**: PDF da OS agora lê `TenantAssistanceSettings.termsOfService` + `.warrantyPolicy` e injeta antes da assinatura. Campos já existiam mas estavam órfãos.
+- **P3 pagamento via PDV**: detalhe da OS substitui Payment Dialog por botão "Receber Pagamento (PDV)" que chama `sale.createFromOS` e navega para `/pdv?saleId=...`. `pdv-screen` aceita `?saleId=` e pula `createDraft`. Bug corrigido: `sale.finalize` agora marca OS como `PAID` quando `isOSPayment=true` (antes ficava em `COMPLETED`). OS sem valor / garantia continuam pulando PDV com botão "Marcar como Paga".
+- **P4 bloqueio pós-assinatura**: edit page detecta `isSigned` e torna readonly equipamento/IMEI/problema relatado/checklist entrada. Continuam editáveis: defeito constatado, garantia, checklist saída, NFS-e. Defesa em profundidade no backend: `service-order.update` ignora silenciosamente esses campos quando OS assinada.
+- **P5 cancel via termo**: cancel agora exige termo de devolução assinado (Autentique ou físico) quando OS está assinada (aparelho na loja). Admin pode forçar via `input.force=true` — registrado como `[FORCADO SEM TERMO DE DEVOLUCAO]` no histórico. UI mostra alerta + checkbox quando aplicável.
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 45/45 E2E (service-orders + customers + pdv) ✓ | build ✓
+**Commits:** 4 (stepper visual, PDF termos, pagamento PDV, edit lock + cancel termo)
+
+---
+
 ### 2026-05-19 — OS: 5 BUGS DE UX/COMPORTAMENTO CORRIGIDOS
 
 Após o dono testar manualmente o módulo OS, identificou 5 divergências de comportamento vs Laravel. Investigação via skill `investigate`, depois implementação:
