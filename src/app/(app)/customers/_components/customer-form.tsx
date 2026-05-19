@@ -3,8 +3,9 @@
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createCustomerSchema,
   type CreateCustomerInput,
@@ -60,6 +61,29 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
   });
 
   const watchType = form.watch("type");
+  const watchCpf = form.watch("cpf");
+  const watchCnpj = form.watch("cnpj");
+
+  // Detectar duplicidade ao digitar CPF (PF) ou CNPJ (PJ) — paridade Laravel
+  // `consultarCpf`/`consultarCnpj` (parte de duplicidade). Sem chamada DirectD.
+  // Skip em modo edit quando documento nao mudou.
+  const cpfDigits = (watchCpf ?? "").replace(/\D/g, "");
+  const cnpjDigits = (watchCnpj ?? "").replace(/\D/g, "");
+  const originalCpf = (defaultValues?.cpf ?? "").replace(/\D/g, "");
+  const originalCnpj = (defaultValues?.cnpj ?? "").replace(/\D/g, "");
+  const docChanged =
+    watchType === "PF"
+      ? cpfDigits.length === 11 && cpfDigits !== originalCpf
+      : cnpjDigits.length === 14 && cnpjDigits !== originalCnpj;
+
+  const dupQuery = useQuery({
+    ...trpc.customer.checkDuplicate.queryOptions(
+      watchType === "PF" ? { cpf: cpfDigits } : { cnpj: cnpjDigits },
+    ),
+    enabled: docChanged,
+    staleTime: 30_000,
+  });
+  const duplicate = dupQuery.data?.duplicate ? dupQuery.data : null;
 
   const createMutation = useMutation(
     trpc.customer.create.mutationOptions({
@@ -95,9 +119,14 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
     }),
   );
 
-  const isLoading = createMutation.isPending || updateMutation.isPending;
+  const isLoading = createMutation.isPending || updateMutation.isPending || dupQuery.isLoading;
+  const submitBlocked = !!duplicate;
 
   function onSubmit(data: CreateCustomerInput) {
+    if (submitBlocked) {
+      toast.error("Documento ja cadastrado. Resolva a duplicidade antes de salvar.");
+      return;
+    }
     if (mode === "create") {
       createMutation.mutate(data);
     } else {
@@ -159,6 +188,14 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
               {form.formState.errors.cpf && (
                 <p className="text-sm text-destructive">{form.formState.errors.cpf.message}</p>
               )}
+              {duplicate && (
+                <p className="text-sm text-destructive">
+                  Este CPF ja esta cadastrado.{" "}
+                  <Link href={`/customers/${duplicate.customer.id}`} className="underline">
+                    Ver {duplicate.customer.name}
+                  </Link>
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
@@ -172,6 +209,14 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
               />
               {form.formState.errors.cnpj && (
                 <p className="text-sm text-destructive">{form.formState.errors.cnpj.message}</p>
+              )}
+              {duplicate && (
+                <p className="text-sm text-destructive">
+                  Este CNPJ ja esta cadastrado.{" "}
+                  <Link href={`/customers/${duplicate.customer.id}`} className="underline">
+                    Ver {duplicate.customer.name}
+                  </Link>
+                </p>
               )}
             </div>
           )}

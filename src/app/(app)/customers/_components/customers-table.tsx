@@ -3,9 +3,9 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil, RotateCcw } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
 import { DataTableToolbar } from "@/components/domain/data-table/data-table-toolbar";
 import { StatusBadge } from "@/components/domain/status-badge";
@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "@/lib/toast";
 
 interface CustomerRow {
   id: string;
@@ -49,7 +50,12 @@ function formatPhone(phone: string): string {
   return phone;
 }
 
-const columns: ColumnDef<CustomerRow>[] = [
+function buildColumns(
+  isAdmin: boolean,
+  onRestore: (id: string) => void,
+  isRestorePending: boolean,
+): ColumnDef<CustomerRow>[] {
+  return [
   {
     accessorKey: "name",
     header: "Nome",
@@ -123,23 +129,41 @@ const columns: ColumnDef<CustomerRow>[] = [
             <Pencil className="h-4 w-4" />
           </Link>
         </Button>
+        {isAdmin && row.original.deletedAt && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-success"
+            disabled={isRestorePending}
+            onClick={() => onRestore(row.original.id)}
+            title="Restaurar cliente"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     ),
   },
-];
+  ];
+}
 
 export function CustomersTable() {
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "PF" | "PJ">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
+
+  // Flag admin para mostrar toggle inativos + botao Restaurar
+  const viewerQuery = useQuery(trpc.customer.viewerInfo.queryOptions());
+  const isAdmin = viewerQuery.data?.isAdmin === true;
 
   // Debounce search
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
-    // Simple debounce using setTimeout
     const timeoutId = setTimeout(() => {
       setDebouncedSearch(value);
       setPage(0);
@@ -147,19 +171,43 @@ export function CustomersTable() {
     return () => clearTimeout(timeoutId);
   }, []);
 
+  const includeDeleted = isAdmin && statusFilter === "INACTIVE";
+
   const { data, isLoading } = useQuery(
     trpc.customer.list.queryOptions({
       search: debouncedSearch || undefined,
       type: typeFilter,
       page,
       pageSize,
+      includeDeleted,
     }),
+  );
+
+  const restoreMutation = useMutation(
+    trpc.customer.restore.mutationOptions({
+      onSuccess: () => {
+        toast.success("Cliente restaurado.");
+        void queryClient.invalidateQueries({ queryKey: trpc.customer.list.queryKey() });
+      },
+      onError: (e: { message: string }) => toast.error(e.message),
+    }),
+  );
+
+  // Quando vendo INACTIVE, filtra so quem tem deletedAt
+  const rows = ((data?.data ?? []) as CustomerRow[]).filter((c) =>
+    includeDeleted ? c.deletedAt !== null : true,
+  );
+
+  const columns = buildColumns(
+    isAdmin,
+    (id) => restoreMutation.mutate({ id }),
+    restoreMutation.isPending,
   );
 
   return (
     <DataTable
       columns={columns}
-      data={(data?.data ?? []) as CustomerRow[]}
+      data={rows}
       pageCount={data?.pageCount ?? 0}
       pageIndex={page}
       pageSize={pageSize}
@@ -176,22 +224,41 @@ export function CustomersTable() {
           onSearchChange={handleSearchChange}
           searchPlaceholder="Buscar por nome, CPF, CNPJ, telefone, email..."
           actions={
-            <Select
-              value={typeFilter}
-              onValueChange={(v) => {
-                setTypeFilter(v as "ALL" | "PF" | "PJ");
-                setPage(0);
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Todos</SelectItem>
-                <SelectItem value="PF">Pessoa Fisica</SelectItem>
-                <SelectItem value="PJ">Pessoa Juridica</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex gap-2">
+              <Select
+                value={typeFilter}
+                onValueChange={(v) => {
+                  setTypeFilter(v as "ALL" | "PF" | "PJ");
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todos</SelectItem>
+                  <SelectItem value="PF">Pessoa Fisica</SelectItem>
+                  <SelectItem value="PJ">Pessoa Juridica</SelectItem>
+                </SelectContent>
+              </Select>
+              {isAdmin && (
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => {
+                    setStatusFilter(v as "ACTIVE" | "INACTIVE");
+                    setPage(0);
+                  }}
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Ativos</SelectItem>
+                    <SelectItem value="INACTIVE">Inativos</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           }
         />
       }

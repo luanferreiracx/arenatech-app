@@ -85,17 +85,50 @@ export const customerRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
         }
 
-        // SPEC 4.2: count service orders
+        // Lista de OS do cliente (paridade Laravel show.blade — secao "Ordens
+        // de Servico"). Inclui as 20 mais recentes para a tabela de detalhe.
+        let serviceOrders: Array<{
+          id: string;
+          number: string;
+          status: string;
+          deviceType: string | null;
+          deviceModel: string | null;
+          totalAmount: number;
+          entryDate: Date;
+        }> = [];
         let serviceOrderCount = 0;
         try {
           serviceOrderCount = await tx.serviceOrder.count({
-            where: { customerId: input.id },
+            where: { customerId: input.id, deletedAt: null },
           });
+          const orders = await tx.serviceOrder.findMany({
+            where: { customerId: input.id, deletedAt: null },
+            orderBy: { entryDate: "desc" },
+            take: 20,
+            select: {
+              id: true,
+              number: true,
+              status: true,
+              deviceType: true,
+              deviceModel: true,
+              totalAmount: true,
+              entryDate: true,
+            },
+          });
+          serviceOrders = orders.map((o) => ({
+            ...o,
+            totalAmount: Math.round(Number(o.totalAmount) * 100), // centavos
+          }));
         } catch {
           // table may not exist yet
         }
 
-        return { ...customer, serviceOrderCount };
+        return {
+          ...customer,
+          serviceOrderCount,
+          serviceOrders,
+          viewerIsAdmin: ctx.session.user.isSuperAdmin === true,
+        };
       });
     }),
 
@@ -301,6 +334,54 @@ export const customerRouter = createTRPCRouter({
         });
 
         return { success: true };
+      });
+    }),
+
+  /**
+   * Retorna flag admin do viewer atual. Usado pela UI da listagem para mostrar
+   * controles restritos (toggle inativos, botao restaurar) sem precisar de
+   * SessionProvider no client.
+   */
+  viewerInfo: tenantProcedure.query(({ ctx }) => {
+    return { isAdmin: ctx.session.user.isSuperAdmin === true };
+  }),
+
+  /**
+   * Checa duplicidade de CPF ou CNPJ no tenant (entre nao-deletados).
+   * Paridade com Laravel `consultarCpf`/`consultarCnpj` (parte de duplicidade).
+   * Usado pela UI do formulario para detectar inline antes de salvar.
+   */
+  checkDuplicate: tenantProcedure
+    .input(
+      z.object({
+        cpf: z.string().optional(),
+        cnpj: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const cpf = input.cpf ? normalizeCpf(input.cpf) : null;
+        const cnpj = input.cnpj ? normalizeCnpj(input.cnpj) : null;
+
+        // Validar comprimento minimo antes de consultar
+        if (cpf && cpf.length !== 11) return { duplicate: false as const };
+        if (cnpj && cnpj.length !== 14) return { duplicate: false as const };
+        if (!cpf && !cnpj) return { duplicate: false as const };
+
+        const existing = await tx.customer.findFirst({
+          where: {
+            deletedAt: null,
+            ...(cpf ? { cpf } : {}),
+            ...(cnpj ? { cnpj } : {}),
+          },
+          select: { id: true, name: true },
+        });
+
+        if (!existing) return { duplicate: false as const };
+        return {
+          duplicate: true as const,
+          customer: existing,
+        };
       });
     }),
 });

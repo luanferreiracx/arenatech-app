@@ -225,25 +225,53 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <Tabs defaultValue="os">
         <TabsList>
           <TabsTrigger value="os">OS do cliente ({customer.serviceOrderCount})</TabsTrigger>
-          <TabsTrigger value="cashback">Cashback</TabsTrigger>
         </TabsList>
         <TabsContent value="os">
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">
-                {customer.serviceOrderCount > 0
-                  ? `${customer.serviceOrderCount} ordem(s) de serviço vinculada(s).`
-                  : "Nenhuma ordem de serviço vinculada."}
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="cashback">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">
-                Saldo de cashback: R$ 0,00 (módulo Recompensas não implementado)
-              </p>
+              {customer.serviceOrders && customer.serviceOrders.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-2 pr-4">Numero</th>
+                        <th className="py-2 pr-4">Equipamento</th>
+                        <th className="py-2 pr-4">Status</th>
+                        <th className="py-2 pr-4 text-right">Total</th>
+                        <th className="py-2 pr-4">Entrada</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customer.serviceOrders.map((o: { id: string; number: string; status: string; deviceType: string | null; deviceModel: string | null; totalAmount: number; entryDate: string | Date }) => (
+                        <tr key={o.id} className="border-b border-border/50 hover:bg-muted/30">
+                          <td className="py-2 pr-4 font-mono">
+                            <Link href={`/service-orders/${o.id}`} className="text-primary hover:underline">
+                              {o.number}
+                            </Link>
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {[o.deviceType, o.deviceModel].filter(Boolean).join(" ") || "—"}
+                          </td>
+                          <td className="py-2 pr-4">{o.status}</td>
+                          <td className="py-2 pr-4 text-right font-mono">
+                            {(o.totalAmount / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {format(new Date(o.entryDate), "dd/MM/yyyy", { locale: ptBR })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {customer.serviceOrderCount > customer.serviceOrders.length && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Mostrando {customer.serviceOrders.length} de {customer.serviceOrderCount}.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nenhuma ordem de servico vinculada.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
