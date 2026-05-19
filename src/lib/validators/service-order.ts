@@ -447,6 +447,8 @@ export const confirmPhysicalSignatureSchema = z.object({
 export const sendToLabSchema = z.object({
   orderId: z.string().uuid(),
   deliveryPersonId: z.string().uuid().optional().nullable(),
+  /** Mensagem WhatsApp opcional para o entregador (paridade Laravel `entregador_solicitacao`). */
+  message: z.string().max(1000).optional().nullable(),
 });
 
 export const receiveFromLabSchema = z.object({

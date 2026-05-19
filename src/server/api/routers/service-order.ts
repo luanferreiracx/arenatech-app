@@ -300,6 +300,17 @@ export const serviceOrderRouter = createTRPCRouter({
           userMap = new Map(users.map((u) => [u.id, u.name]));
         }
 
+        // Sale vinculada (se OS foi paga via PDV). Paridade Laravel `os->pdv_venda_id`.
+        const linkedSale = await tx.sale.findFirst({
+          where: {
+            serviceOrderId: order.id,
+            status: "COMPLETED",
+            deletedAt: null,
+          },
+          select: { id: true, number: true, saleDate: true },
+          orderBy: { saleDate: "desc" },
+        });
+
         return {
           ...serializeOrder(order),
           customer,
@@ -307,6 +318,7 @@ export const serviceOrderRouter = createTRPCRouter({
           technicianName: order.technicianId ? (userMap.get(order.technicianId) ?? null) : null,
           vendorName: order.vendorId ? (userMap.get(order.vendorId) ?? null) : null,
           refundedByName: order.refundedById ? (userMap.get(order.refundedById) ?? null) : null,
+          linkedSale,
           history: order.history.map((h) => ({
             ...h,
             userName: userMap.get(h.userId) ?? "Sistema",
@@ -418,6 +430,11 @@ export const serviceOrderRouter = createTRPCRouter({
             notes: "Ordem de servico criada",
           },
         });
+
+        // TODO H2: notificar tecnico via WhatsApp ao criar OS (paridade
+        // Laravel `enviarNotificacaoTecnicoWhatsApp`). Bloqueado: User model
+        // nao tem campo `phone` ainda. Quando schema for atualizado, carregar
+        // technician.phone e disparar sendTextMessage best-effort aqui.
 
         return { id: order.id, number: order.number };
       });
@@ -1260,12 +1277,20 @@ export const serviceOrderRouter = createTRPCRouter({
           data.signatureSignedAt = new Date();
           note = "Assinatura fisica de entrada confirmada";
         } else if (input.type === "delivery") {
+          // Paridade Laravel `confirmarTermoEntregaFisico` (OrdemServicoController:1046):
+          // exige status in [PAID, READY_FOR_PICKUP] antes de marcar entregue.
+          // Caso contrario, registra a assinatura fisica mas NAO avanca para DELIVERED
+          // (defesa contra pular o fluxo de pagamento via "assinatura fisica").
+          if (["PAID", "READY_FOR_PICKUP"].includes(order.status)) {
+            data.status = "DELIVERED";
+            data.deliveredDate = new Date();
+            note = "Assinatura fisica do termo de entrega confirmada — equipamento entregue";
+          } else {
+            note = "Assinatura fisica do termo de entrega registrada (aguardando pagamento para entregar)";
+          }
           data.deliveryTermSigned = true;
           data.deliveryTermPhysical = true;
           data.deliveryTermSignedAt = new Date();
-          data.status = "DELIVERED";
-          data.deliveredDate = new Date();
-          note = "Assinatura fisica do termo de entrega confirmada — equipamento entregue";
         } else if (input.type === "return") {
           data.returnTermSigned = true;
           data.returnTermPhysical = true;
@@ -1306,6 +1331,23 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
+        // Paridade Laravel `enviarParaLaboratorio` (OrdemServicoController:2780-2820):
+        // dispara WhatsApp para o entregador atribuido. Best-effort.
+        let whatsappSent = false;
+        if (input.deliveryPersonId && input.message) {
+          const deliveryPerson = await tx.deliveryPerson.findUnique({
+            where: { id: input.deliveryPersonId },
+          });
+          if (deliveryPerson?.phone) {
+            try {
+              const result = await sendTextMessage(deliveryPerson.phone, input.message);
+              whatsappSent = result.success;
+            } catch {
+              // best-effort
+            }
+          }
+        }
+
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -1313,11 +1355,13 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: null,
             newStatus: "IN_PROGRESS",
-            notes: "Aparelho enviado ao laboratorio externo",
+            notes: whatsappSent
+              ? "Aparelho enviado ao laboratorio externo (entregador notificado via WhatsApp)"
+              : "Aparelho enviado ao laboratorio externo",
           },
         });
 
-        return { success: true };
+        return { success: true, whatsappSent };
       });
     }),
 
