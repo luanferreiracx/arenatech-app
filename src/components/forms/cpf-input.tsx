@@ -1,7 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { type ComponentProps } from "react";
+import { type ComponentProps, forwardRef } from "react";
 
 function formatCpf(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -17,19 +17,22 @@ type CpfInputProps = Omit<ComponentProps<typeof Input>, "onChange" | "value"> & 
   onValueChange?: (raw: string) => void;
 };
 
-export function CpfInput({ value = "", onValueChange, ...props }: CpfInputProps) {
-  return (
-    <Input
-      {...props}
-      type="text"
-      inputMode="numeric"
-      maxLength={14}
-      value={formatCpf(value)}
-      onChange={(e) => {
-        const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
-        onValueChange?.(raw);
-      }}
-      placeholder="000.000.000-00"
-    />
-  );
-}
+export const CpfInput = forwardRef<HTMLInputElement, CpfInputProps>(
+  function CpfInput({ value = "", onValueChange, ...props }, ref) {
+    return (
+      <Input
+        {...props}
+        ref={ref}
+        type="text"
+        inputMode="numeric"
+        maxLength={14}
+        value={formatCpf(value)}
+        onChange={(e) => {
+          const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
+          onValueChange?.(raw);
+        }}
+        placeholder="000.000.000-00"
+      />
+    );
+  },
+);

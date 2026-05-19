@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
@@ -137,7 +137,13 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
           {watchType === "PF" ? (
             <div className="space-y-2">
               <Label>CPF *</Label>
-              <CpfInput {...form.register("cpf")} />
+              <Controller
+                control={form.control}
+                name="cpf"
+                render={({ field }) => (
+                  <CpfInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                )}
+              />
               {form.formState.errors.cpf && (
                 <p className="text-sm text-destructive">{form.formState.errors.cpf.message}</p>
               )}
@@ -145,7 +151,13 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
           ) : (
             <div className="space-y-2">
               <Label>CNPJ *</Label>
-              <CnpjInput {...form.register("cnpj")} />
+              <Controller
+                control={form.control}
+                name="cnpj"
+                render={({ field }) => (
+                  <CnpjInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                )}
+              />
               {form.formState.errors.cnpj && (
                 <p className="text-sm text-destructive">{form.formState.errors.cnpj.message}</p>
               )}
@@ -166,14 +178,26 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label>WhatsApp *</Label>
-            <PhoneInput {...form.register("phone")} />
+            <Controller
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <PhoneInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+              )}
+            />
             {form.formState.errors.phone && (
               <p className="text-sm text-destructive">{form.formState.errors.phone.message}</p>
             )}
           </div>
           <div className="space-y-2">
             <Label>Telefone alternativo</Label>
-            <PhoneInput {...form.register("phoneSecondary")} />
+            <Controller
+              control={form.control}
+              name="phoneSecondary"
+              render={({ field }) => (
+                <PhoneInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+              )}
+            />
           </div>
           <div className="space-y-2">
             <Label>E-mail</Label>
