@@ -35,6 +35,27 @@ export const SERVICE_ORDER_STATUS_LABELS: Record<ServiceOrderStatus, string> = {
   REFUNDED: "Estornada",
 };
 
+/**
+ * Mapping de cada status para um nome de icone lucide-react.
+ * Espelha o `$statusConfig` do Laravel (FA → lucide equivalente).
+ * Os componentes consumidores fazem import dinamico desses icones.
+ */
+export const SERVICE_ORDER_STATUS_ICON: Record<ServiceOrderStatus, string> = {
+  OPEN: "PlayCircle",          // fa-play-circle
+  IN_DIAGNOSIS: "Search",       // fa-search
+  WAITING_APPROVAL: "Clock",    // fa-clock
+  APPROVED: "CheckCircle2",     // fa-check-circle
+  WAITING_PARTS: "Package",     // fa-box
+  IN_PROGRESS: "Wrench",        // fa-tools
+  COMPLETED: "CheckCheck",      // fa-check-double
+  PAID: "DollarSign",           // fa-dollar-sign
+  READY_FOR_PICKUP: "Clock",    // fa-clock
+  DELIVERED: "Handshake",       // fa-handshake
+  IN_WARRANTY: "ShieldCheck",   // fa-shield-alt
+  CANCELLED: "XCircle",         // fa-times-circle
+  REFUNDED: "Undo2",            // fa-undo-alt
+};
+
 export const SERVICE_ORDER_STATUS_VARIANT: Record<ServiceOrderStatus, "default" | "success" | "warning" | "destructive" | "info"> = {
   OPEN: "default",
   IN_DIAGNOSIS: "info",

@@ -71,75 +71,13 @@ import {
   type DeviceInfoData,
 } from "@/lib/validators/service-order";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
+import { StatusStepper } from "./status-stepper";
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
-}
-
-// ── Status Stepper ──
-
-function StatusStepper({ status }: { status: ServiceOrderStatus }) {
-  const isSpecial = SPECIAL_STATUSES.includes(status);
-  const currentIndex = STATUS_FLOW.indexOf(status);
-
-  if (isSpecial) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <StatusBadge variant={SERVICE_ORDER_STATUS_VARIANT[status]} className="text-base px-4 py-2">
-          {SERVICE_ORDER_STATUS_LABELS[status]}
-        </StatusBadge>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1 overflow-x-auto pb-2">
-      {STATUS_FLOW.map((s, i) => {
-        const isCompleted = currentIndex >= 0 && i < currentIndex;
-        const isCurrent = i === currentIndex;
-        const isOptional = OPTIONAL_STATUSES.includes(s);
-
-        return (
-          <div key={s} className="flex items-center">
-            <div
-              className={`flex flex-col items-center min-w-[60px] ${
-                isOptional ? "opacity-70" : ""
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
-                  isCompleted
-                    ? "bg-success border-success text-white"
-                    : isCurrent
-                      ? "border-primary text-primary bg-primary/10"
-                      : "border-border text-muted-foreground"
-                }`}
-              >
-                {isCompleted ? <Check className="w-4 h-4" /> : i + 1}
-              </div>
-              <span
-                className={`text-[10px] mt-1 text-center leading-tight ${
-                  isCurrent ? "text-primary font-semibold" : "text-muted-foreground"
-                }`}
-              >
-                {SERVICE_ORDER_STATUS_LABELS[s]}
-              </span>
-            </div>
-            {i < STATUS_FLOW.length - 1 && (
-              <div
-                className={`w-4 h-0.5 mt-[-12px] ${
-                  isCompleted ? "bg-success" : "bg-border"
-                }`}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 // ── Main Component ──
@@ -159,6 +97,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // Dialogs
   const [cancelDialog, setCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelForce, setCancelForce] = useState(false);
   const [uncancelDialog, setUncancelDialog] = useState(false);
   const [uncancelReason, setUncancelReason] = useState("");
   const [refundDialog, setRefundDialog] = useState(false);
@@ -253,6 +192,19 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     trpc.serviceOrder.registerPayment.mutationOptions({
       onSuccess: () => { toast.success("Pagamento registrado!"); setPaymentDialog(false); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
+    })
+  );
+
+  // Cria/reusa rascunho de Sale para pagamento da OS e navega pro PDV.
+  // Substitui o registerPayment direto da OS (ADR 0042: PDV-OS integration).
+  // O retorno tipado pelo tRPC e a Sale completa; extraimos `id`.
+  const createFromOSMut = useMutation(
+    trpc.sale.createFromOS.mutationOptions({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onSuccess: (sale: any) => {
+        if (sale?.id) router.push(`/pdv?saleId=${sale.id}`);
+      },
+      onError: (e: { message: string }) => toast.error(e.message),
     })
   );
 
@@ -798,9 +750,33 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                 {nextOptions.map((s) => {
                   if (s === "PAID") {
+                    // OS sem valor ou garantia: pula PDV e registra direto via
+                    // registerPayment (paridade com Laravel `podePularPdv`).
+                    const skipPdv = Number(order.totalAmount) <= 0 || order.isWarranty;
+                    if (skipPdv) {
+                      return (
+                        <Button
+                          key={s}
+                          size="sm"
+                          onClick={() => registerPaymentMut.mutate({
+                            id,
+                            paymentMethod: order.isWarranty ? "garantia" : "cortesia",
+                            paidAmount: order.totalAmount,
+                          })}
+                          disabled={registerPaymentMut.isPending}
+                        >
+                          <DollarSign className="mr-1 h-3 w-3" />Marcar como Paga
+                        </Button>
+                      );
+                    }
                     return (
-                      <Button key={s} size="sm" onClick={() => setPaymentDialog(true)}>
-                        <DollarSign className="mr-1 h-3 w-3" />Registrar Pagamento
+                      <Button
+                        key={s}
+                        size="sm"
+                        onClick={() => createFromOSMut.mutate({ serviceOrderId: id })}
+                        disabled={createFromOSMut.isPending}
+                      >
+                        <DollarSign className="mr-1 h-3 w-3" />Receber Pagamento (PDV)
                       </Button>
                     );
                   }
@@ -1105,10 +1081,42 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar OS</DialogTitle></DialogHeader>
-          <div><Label>Motivo do Cancelamento</Label><Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Informe o motivo..." rows={3} /></div>
+          <div className="space-y-4">
+            {isSigned && !order.returnTermSigned && !order.returnTermPhysical && (
+              <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
+                <strong className="text-warning">Termo de devolucao pendente.</strong>
+                <p className="text-muted-foreground mt-1">
+                  Esta OS ja foi assinada pelo cliente (o aparelho esta na loja). E necessario
+                  enviar e confirmar o termo de devolucao antes do cancelamento. Administradores
+                  podem forcar o cancelamento marcando a opcao abaixo.
+                </p>
+                <label className="flex items-center gap-2 mt-2">
+                  <input
+                    type="checkbox"
+                    checked={cancelForce}
+                    onChange={(e) => setCancelForce(e.target.checked)}
+                  />
+                  <span className="text-sm">Forcar cancelamento sem termo (apenas admin)</span>
+                </label>
+              </div>
+            )}
+            <div>
+              <Label>Motivo do Cancelamento</Label>
+              <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Informe o motivo..." rows={3} />
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
-            <Button variant="destructive" disabled={!cancelReason || cancelMut.isPending} onClick={() => { cancelMut.mutate({ id, reason: cancelReason }); setCancelDialog(false); }}>Confirmar Cancelamento</Button>
+            <Button
+              variant="destructive"
+              disabled={!cancelReason || cancelMut.isPending}
+              onClick={() => {
+                cancelMut.mutate({ id, reason: cancelReason, force: cancelForce });
+                setCancelDialog(false);
+              }}
+            >
+              Confirmar Cancelamento
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
