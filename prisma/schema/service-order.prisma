@@ -78,6 +78,8 @@ model ServiceOrder {
   // NFS-e manual
   nfseIssued          Boolean             @default(false) @map("nfse_issued")
   nfseNumber          String?             @map("nfse_number")
+  nfseIssuedAt        DateTime?           @map("nfse_issued_at")
+  nfseAttachmentPath  String?             @map("nfse_attachment_path")
 
   // Pagamento
   paymentMethod       String?             @map("payment_method")

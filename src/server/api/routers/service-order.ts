@@ -196,7 +196,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const customerIds = [...new Set(orders.map((o) => o.customerId))];
         const customers = await tx.customer.findMany({
           where: { id: { in: customerIds } },
-          select: { id: true, name: true, cpf: true, phone: true },
+          select: { id: true, name: true, cpf: true, phone: true, phoneSecondary: true },
         });
         const customerMap = new Map(customers.map((c) => [c.id, c]));
 
@@ -219,6 +219,7 @@ export const serviceOrderRouter = createTRPCRouter({
             customerName: customerMap.get(order.customerId)?.name ?? "—",
             customerCpf: customerMap.get(order.customerId)?.cpf ?? null,
             customerPhone: customerMap.get(order.customerId)?.phone ?? null,
+            customerPhoneSecondary: customerMap.get(order.customerId)?.phoneSecondary ?? null,
             technicianName: order.technicianId ? (techMap.get(order.technicianId) ?? "—") : null,
           })),
           total,
@@ -319,6 +320,9 @@ export const serviceOrderRouter = createTRPCRouter({
           vendorName: order.vendorId ? (userMap.get(order.vendorId) ?? null) : null,
           refundedByName: order.refundedById ? (userMap.get(order.refundedById) ?? null) : null,
           linkedSale,
+          // Expose admin flag para UI poder mostrar botões restritos sem
+          // depender de useSession no client.
+          viewerIsAdmin: ctx.session.user.isSuperAdmin === true,
           history: order.history.map((h) => ({
             ...h,
             userName: userMap.get(h.userId) ?? "Sistema",
@@ -483,6 +487,15 @@ export const serviceOrderRouter = createTRPCRouter({
           } else {
             updateData[key] = value;
           }
+        }
+
+        // M3: registrar timestamp na transicao false -> true de nfseIssued
+        // (paridade Laravel OrdemServicoController:351-361).
+        if (updateData.nfseIssued === true && !order.nfseIssued) {
+          updateData.nfseIssuedAt = new Date();
+        }
+        if (updateData.nfseIssued === false && order.nfseIssued) {
+          updateData.nfseIssuedAt = null;
         }
 
         await tx.serviceOrder.update({ where: { id }, data: updateData });
