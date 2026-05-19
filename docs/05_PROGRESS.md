@@ -7,12 +7,12 @@
 
 ## Estado atual
 
-**Fase atual:** 100% dos módulos Laravel migrados para Next.js. Todos os gaps corrigidos.
-**Ultima atualizacao:** 2026-05-18
+**Fase atual:** Auditoria módulo a módulo antes da migração de dados. Módulo OS auditado (ADR 0043).
+**Ultima atualizacao:** 2026-05-19
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 5 arquivos
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 15
+**Commits desde ultimo deploy:** 18
 
 ---
 
@@ -261,6 +261,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-19 — AUDITORIA MÓDULO OS — GAPS LARAVEL CORRIGIDOS
+
+Auditoria sistemática (skill `arenatech-module-audit`) do módulo de Ordens de Serviço antes da migração de dados do Laravel. 47 procedures + 7 checklist + 6 páginas + 5 rotas PDF + 14 E2E @business mapeados e validados.
+
+**Gaps identificados e corrigidos (AUDIT_REPORT + ADR 0043):**
+- P0 G1 — Checklist: rebatizada com 15 itens 1:1 do Laravel (aparelhoLiga, vidroTraseiro, carregamentoCabo, imaMagsafe etc.). Wizard, edit, detalhe e PDF herdam labels via constante única.
+- P1 G3 — `updateStatus` bloqueia PAID via fluxo direto; admin pode `force` para corrigir OS legadas.
+- P1 G4 — `registerPayment` exige `CashSession` aberta; garantia/sem valor / admin bypassam.
+- P1 G5 — `updateStatus → DELIVERED` exige termo assinado (físico ou Autentique).
+- P2 G6 — `updateStatus → COMPLETED` com `notifyWhatsapp` dispara mensagem (best-effort).
+- P2 G7 — `updateStatus` limpa `returnTerm*` se OS estava em cancelamento e usuário retoma.
+- P2 G8 — `delete` bloqueia se há OS de garantia/retorno vinculadas (lista os números).
+- P2 G9 — `registerPayment` aceita `rewardActionId`: valida APPROVED, não expirada, dono igual customer; aplica desconto e marca como USED em novo campo `RewardAction.usedInOsId`.
+
+**Migration:** `20260518040000_add_used_in_os_id_to_reward_action`
+**ADR:** 0043 (decisões + mapeamento Laravel → NextJs)
+**Validação:** typecheck ✓ | test 629/629 ✓ | E2E 14/14 OS ✓ | build ✓
+**Commits:** 3 (refactor checklist, feat bloqueios+rewards, docs)
+
+---
 
 ### 2026-05-18 — MIGRAÇÃO 100% COMPLETA — TODOS OS GAPS CORRIGIDOS
 
