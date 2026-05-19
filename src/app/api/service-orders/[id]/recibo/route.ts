@@ -32,7 +32,12 @@ export async function GET(
     const order = await withTenant(tenantId, async (tx) => {
       return tx.serviceOrder.findUnique({
         where: { id },
-        include: { items: { orderBy: { createdAt: "asc" } } },
+        include: {
+          items: { orderBy: { createdAt: "asc" } },
+          // Orcamentos aprovados — exibidos como "Servicos Adicionais" no recibo
+          // (paridade Laravel `gerarPdfRecibo` linhas 1002-1052).
+          quotes: { where: { status: "approved" }, orderBy: { createdAt: "asc" } },
+        },
       });
     });
 
@@ -54,7 +59,7 @@ export async function GET(
       })),
       withTenant(tenantId, async (tx) => tx.tenantSettings.findUnique({
         where: { tenantId },
-        select: { tradeName: true, cnpj: true, phone: true },
+        select: { tradeName: true, cnpj: true, phone: true, logoUrl: true },
       })),
     ]);
 
@@ -103,6 +108,22 @@ export async function GET(
       itensHtml = "<p><strong>Assistencia Tecnica</strong></p>";
     }
 
+    // Servicos adicionais (orcamentos aprovados) — paridade Laravel.
+    if (order.quotes && order.quotes.length > 0) {
+      itensHtml += '<div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed #ccc;">';
+      itensHtml += '<p style="font-weight: bold; margin-bottom: 6px;">Servicos Adicionais (orcamentos aprovados):</p>';
+      itensHtml += '<ul style="margin: 4px 0; padding-left: 20px;">';
+      for (const q of order.quotes) {
+        const newTotal = Number(q.newTotal);
+        itensHtml += `<li style="margin: 4px 0;"><strong>${esc(q.reason)}</strong> — ${fmt(newTotal)}`;
+        if (q.additionalServices) {
+          itensHtml += `<br><span style="font-size: 9pt; color: #666;">${esc(q.additionalServices)}</span>`;
+        }
+        itensHtml += `</li>`;
+      }
+      itensHtml += '</ul></div>';
+    }
+
     // Parts cost
     const partsCost = Number(order.partsAmount ?? 0);
     if (partsCost > 0) {
@@ -138,6 +159,7 @@ export async function GET(
 </head><body>
   <div class="cabecalho">
     <table style="width: 100%; border: none;"><tr>
+      ${settings?.logoUrl ? `<td style="vertical-align: middle; width: 90px; padding-right: 12px;"><img src="${esc(settings.logoUrl)}" alt="Logo" style="max-height: 50px; max-width: 80px;"></td>` : ""}
       <td style="vertical-align: middle;">
         <div style="font-size: 11pt; font-weight: bold;">${esc(nomeLoja)}${cnpjLoja ? ` - CNPJ: ${esc(cnpjLoja)}` : ""}</div>
         <div style="font-size: 9pt; color: #666;">Assistencia Tecnica Especializada</div>

@@ -210,7 +210,8 @@ export async function GET(
 </head><body>
   <div class="header">
     <table class="header-table"><tr>
-      <td class="header-left">
+      <td class="header-left" style="vertical-align: middle;">
+        ${settings?.logoUrl ? `<img src="${esc(settings.logoUrl)}" alt="Logo" style="max-height: 48px; max-width: 180px; margin-bottom: 4px;">` : ""}
         <h1>${esc(nomeLoja)}</h1>
         <div class="subtitulo">Assistencia Tecnica Especializada</div>
       </td>

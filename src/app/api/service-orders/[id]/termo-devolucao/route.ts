@@ -49,7 +49,7 @@ export async function GET(
       })),
       withTenant(tenantId, async (tx) => tx.tenantSettings.findUnique({
         where: { tenantId },
-        select: { tradeName: true, cnpj: true, phone: true },
+        select: { tradeName: true, cnpj: true, phone: true, logoUrl: true },
       })),
     ]);
 
@@ -81,6 +81,7 @@ export async function GET(
 </head><body>
   <div class="cabecalho">
     <table style="width: 100%; border: none;"><tr>
+      ${settings?.logoUrl ? `<td style="vertical-align: middle; width: 90px; padding-right: 12px;"><img src="${esc(settings.logoUrl)}" alt="Logo" style="max-height: 50px; max-width: 80px;"></td>` : ""}
       <td style="vertical-align: middle;">
         <div style="font-size: 11pt; font-weight: bold; color: #FF6B35;">${esc(nomeLoja)}${cnpjLoja ? ` - CNPJ: ${esc(cnpjLoja)}` : ""}</div>
         <div style="font-size: 9pt; color: #666;">Assistencia Tecnica Especializada</div>

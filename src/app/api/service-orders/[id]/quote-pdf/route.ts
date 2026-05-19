@@ -60,7 +60,7 @@ export async function GET(
       })),
       withTenant(tenantId, async (tx) => tx.tenantSettings.findUnique({
         where: { tenantId },
-        select: { tradeName: true, phone: true },
+        select: { tradeName: true, phone: true, logoUrl: true },
       })),
     ]);
 
@@ -131,6 +131,7 @@ export async function GET(
 </style></head>
 <body>
   <div class="header">
+    ${settings?.logoUrl ? `<img src="${esc(settings.logoUrl)}" alt="Logo" style="max-height: 50px; max-width: 180px; margin-bottom: 6px;">` : ""}
     <h1>${esc(nomeLoja)}</h1>
     <h2>ORCAMENTO - OS #${esc(order.number)}</h2>
     ${telefoneLoja ? `<p style="font-size: 9pt; color: #666;">${esc(telefoneLoja)}</p>` : ""}
