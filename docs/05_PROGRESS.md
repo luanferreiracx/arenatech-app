@@ -262,6 +262,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: 5 BUGS DE UX/COMPORTAMENTO CORRIGIDOS
+
+Após o dono testar manualmente o módulo OS, identificou 5 divergências de comportamento vs Laravel. Investigação via skill `investigate`, depois implementação:
+
+- **Cadastro inline de cliente**: step-customer abria nova aba para `/customers/new`. Agora abre Sheet (drawer lateral) com CustomerForm completo. CustomerForm aceita `onSuccess`/`onCancel` opcionais. EntitySelector aceita `initialLabel` para mostrar o cliente recém-criado.
+- **IMEI sem validador**: criado `ImeiInput` (digits-only, max 15, valida Luhn) usado no step-device. Vazio não dispara erro.
+- **Itens — default invertido**: `manualMode` agora é `false` quando o item é novo (busca catálogo). Só fica `true` se já tem `description` sem `serviceId`/`productId` (item legado digitado manual).
+- **Pendências contextuais**: as 4 divs (Signature/Communication/DeliveryTerm/ReturnTerm) eram empilhadas todas no topo da OS recém-criada. Agora aparecem só no estado certo: Signature antes do pagamento, Communication após COMPLETED, DeliveryTerm em PAID/READY_FOR_PICKUP, ReturnTerm só durante cancelamento em curso.
+- **Stepper Laravel-style**: removido o dialog que exigia observação para mudar status. Novo helper `getNextStatusOptions(current)` em validators retorna o próximo do `STATUS_FLOW` (e o seguinte se for opcional). Botões "Avancar para X" disparam direto. PAID continua via Payment Dialog.
+
+**Bonus (sessão anterior):** bug crítico no `customer-form` — CpfInput/CnpjInput/PhoneInput não eram compatíveis com `form.register()` do RHF. Substituído por `<Controller>` nos 4 campos especializados. Não impacta os 18 outros usos desses inputs no app.
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 14/14 E2E OS ✓ | 20/20 E2E customers ✓ | build ✓
+**Commits:** 5 (sheet a11y, customer fix, customer inline, IMEI+items, stepper+contextual)
+
+---
+
 ### 2026-05-19 — AUDITORIA MÓDULO OS — GAPS LARAVEL CORRIGIDOS
 
 Auditoria sistemática (skill `arenatech-module-audit`) do módulo de Ordens de Serviço antes da migração de dados do Laravel. 47 procedures + 7 checklist + 6 páginas + 5 rotas PDF + 14 E2E @business mapeados e validados.
