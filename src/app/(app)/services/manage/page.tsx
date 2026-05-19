@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { ServicesManageTable } from "../_components/services-table";
+import { ServiceObservationsManager } from "../_components/service-observations-manager";
 
 export const metadata = {
   title: "Gerenciar Servicos | Arena Tech",
@@ -25,9 +26,12 @@ export default function ManageServicesPage() {
           </Button>
         }
       />
-      <Suspense fallback={<LoadingState variant="table" />}>
-        <ServicesManageTable />
-      </Suspense>
+      <div className="space-y-6">
+        <Suspense fallback={<LoadingState variant="table" />}>
+          <ServicesManageTable />
+        </Suspense>
+        <ServiceObservationsManager />
+      </div>
     </div>
   );
 }

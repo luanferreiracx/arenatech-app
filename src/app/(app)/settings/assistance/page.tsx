@@ -11,11 +11,14 @@ import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { LoadingState } from "@/components/domain/loading-state";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const assistanceSchema = z.object({
   termsOfService: z.string().optional(),
   warrantyPolicy: z.string().optional(),
+  installmentsNoInterest: z.number().int().min(1).max(24),
+  pixDiscount: z.number().min(0).max(100),
 });
 
 type AssistanceInput = z.infer<typeof assistanceSchema>;
@@ -32,6 +35,8 @@ export default function AssistanceSettingsPage() {
       ? {
           termsOfService: data.termsOfService ?? "",
           warrantyPolicy: data.warrantyPolicy ?? "",
+          installmentsNoInterest: data.installmentsNoInterest ?? 12,
+          pixDiscount: Number(data.pixDiscount ?? 5),
         }
       : undefined,
   });
@@ -75,6 +80,36 @@ export default function AssistanceSettingsPage() {
               rows={8}
               placeholder="Descreva a política de garantia..."
             />
+          </div>
+        </FormSection>
+
+        <FormSection title="Orçamentos de serviço (WhatsApp)">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Parcelas sem juros (até)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                {...form.register("installmentsNoInterest", { valueAsNumber: true })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Numero maximo de parcelas sem juros oferecidas nos orcamentos enviados via WhatsApp.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Desconto PIX (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                {...form.register("pixDiscount", { valueAsNumber: true })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Percentual de desconto a vista (PIX/especie) exibido no orcamento.
+              </p>
+            </div>
           </div>
         </FormSection>
 
