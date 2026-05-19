@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — ESTOQUE+IMEI: termo compra + supplier duplicate + filtros (Onda 1, modulo 3/6)
+
+Módulo grande (70 procedures + IMEI router). Schema é muito completo (Product, DevicePurchase, Supplier, Category, Attribute, AttributeValue, ProductVariation, ProductPhoto, StockItem, StockMovement, ImeiQuery, ImeiQuota). 3 gaps reais vs Laravel.
+
+- **G1 — Termo de Responsabilidade + Autentique em compras (paridade `CompraAparelhoController`):** schema `DevicePurchase` ganhou 9 campos (`supplierId`, `sellerType`, `termSigned*`, `autentique*`). Migration `20260519110000_purchase_term_signature`. 3 procedures (`confirmPurchasePhysicalSignature`, `sendPurchaseTermAutentique`, `checkPurchaseSignatureStatus`). Route `/api/purchases/[id]/termo-responsabilidade` gera HTML do termo com dados do vendedor (customer ou supplier conforme `sellerType`), aparelho, declaração formal. Tabela de compras ganhou coluna "Termo" com badge (Assinado físico/digital) ou 3 botões inline (PDF + Autentique + confirmação física).
+- **G2 — Supplier duplicate inline:** `checkSupplierDuplicate({cpf?, cnpj?})` + alerta inline no form de fornecedor com link clicável para o existente. Reuso do padrão Cliente.
+- **G3 — `listStockItems` com filtros expandidos:** `productSearch` (busca por nome/marca via relação) + `availableOnly` (atalho `status=AVAILABLE`). Paridade `EstoqueController::buscarItensDisponiveis`.
+
+**Sweep — tudo OK:** Produtos (fotos múltiplas, variações, atributos, NCM, CSV), movimentações, IMEI (com quota mensal + cache), 8+ relatórios (posição, movimentações, curva ABC, mín, vendas múltiplas dimensões) — vai bem além do Laravel.
+
+**Validação:** typecheck ✓ | 620 unit ✓ | 68/68 E2E (OS+customers+stock) ✓ | build ✓
+**Commits:** 1 (7 arquivos, 639 inserções)
+
+---
+
 ### 2026-05-19 — CATÁLOGO: cleanup órfãos + config assistência + observações UI (Onda 1, modulo 2/6)
 
 Auditoria do módulo Catálogo (servicos + dispositivos + categorias). Escopo limitado: `CatalogoController.php` (e-commerce) confirmado fora pela decisão D1. `ProdutoCategoriaController` é catálogo de produtos (Estoque). `CategoriaDashboardController` é menu admin (fora). Foco: `ServicoController` + `AparelhoCatalogoController` + observações.
