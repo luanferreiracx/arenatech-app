@@ -566,6 +566,35 @@ export const saleRouter = createTRPCRouter({
           include: { items: true },
         });
 
+        // Se a Sale e um pagamento de OS (isOSPayment), avancar a OS para PAID
+        // e propagar pagamento + reciveis (paridade com Laravel `gerarRecebiveisOS`).
+        if (sale.isOSPayment && sale.serviceOrderId) {
+          const order = await tx.serviceOrder.findUnique({
+            where: { id: sale.serviceOrderId },
+          });
+          if (order && order.status === "COMPLETED") {
+            await tx.serviceOrder.update({
+              where: { id: sale.serviceOrderId },
+              data: {
+                status: "PAID",
+                paidAmount: centsToPrisma(totalCents),
+                paymentMethod,
+                paymentDate: new Date(),
+              },
+            });
+            await tx.serviceOrderHistory.create({
+              data: {
+                tenantId: ctx.tenantId,
+                orderId: sale.serviceOrderId,
+                userId: ctx.session.user.id,
+                previousStatus: order.status,
+                newStatus: "PAID",
+                notes: `Pagamento via PDV - venda ${saleNumber}`,
+              },
+            });
+          }
+        }
+
         logger.info("Sale finalized", {
           saleId: sale.id,
           number: saleNumber,

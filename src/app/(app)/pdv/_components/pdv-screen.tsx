@@ -78,8 +78,14 @@ export function PdvScreen() {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // Quando vem com ?saleId=xxx (ex.: pagamento de OS), pular createDraft e
+  // carregar diretamente essa Sale.
+  const initialSaleId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("saleId")
+      : null;
 
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(initialSaleId);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
@@ -114,11 +120,13 @@ export function PdvScreen() {
   }, []);
 
   useEffect(() => {
+    // Se ja recebemos saleId via query (pagamento de OS), pula createDraft.
+    if (initialSaleId) return;
     // Wrap in queueMicrotask to avoid synchronous setState warning
     queueMicrotask(() => {
       initDraft();
     });
-  }, [initDraft]);
+  }, [initDraft, initialSaleId]);
 
   // -- Get Draft --
   const draftQuery = useQuery(
