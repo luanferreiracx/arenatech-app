@@ -262,6 +262,26 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: 7 HIGHS DA AUDITORIA FINAL RESOLVIDOS (5a rodada)
+
+Após os 4 críticos, atacados os 7 highs do `/review-project`. 6 implementados, 1 com TODO documentado:
+
+- **H1 — confirmPhysicalSignature delivery com guard**: só avança para `DELIVERED` se status atual é `PAID` ou `READY_FOR_PICKUP`. Senão registra a assinatura física mas mantém o status (paridade `OrdemServicoController:1046`). Evita pular pagamento via "assinatura física do termo".
+- **H2 — Notificar técnico ao criar OS (BLOQUEADO/TODO)**: `User` model não tem campo `phone`. TODO documentado no código. Atacar quando schema for atualizado.
+- **H3 — `sendToLab` aceita mensagem WhatsApp**: novo campo `message` opcional no schema. Quando preenchido + `deliveryPersonId`, dispara `sendTextMessage` best-effort ao entregador. Histórico registra envio. UI: dialog mostra textarea quando entregador selecionado.
+- **H4 — `getById` retorna `linkedSale`**: carrega `Sale` finalizada vinculada via `serviceOrderId`. UI mostra link clicável "Ver venda #X" no card Pagamento. Também adiciona linha destacada "Valor Pendente" em warning quando `paidAmount < totalAmount - paymentDiscount`.
+- **H5 — Botões Recibo no header**: quando status ∈ `PAID/READY_FOR_PICKUP/DELIVERED`, exibe "Recibo" (link PDF) + "Enviar/Reenviar Recibo" (via `sendReceipt` WhatsApp). Paridade `show.blade.php:537-547`.
+- **H6 — Timeline com eventos de assinatura**: histórico mescla `serviceOrderHistory` com `signatureSignedAt`, `deliveryTermSignedAt`, `returnTermSignedAt`. Eventos de assinatura têm círculo âmbar para distinção. Ordem cronológica decrescente.
+- **H7 — Logo nos 5 PDFs**: todos os routes (pdf principal, recibo, termo-entrega, termo-devolução, quote-pdf) agora carregam `TenantSettings.logoUrl` e renderizam `<img>` no header quando disponível.
+- **H8 — Recibo com serviços adicionais**: orçamentos aprovados (`ServiceOrderQuote.status='approved'`) renderizados como "Serviços Adicionais" abaixo dos itens originais com motivo + valor novo + descrição. Paridade `gerarPdfRecibo:1002-1052`.
+
+**Pendente:** 7 mediums + H2 (bloqueado por schema).
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 14/14 E2E OS ✓ | build ✓
+**Commits:** 3 (backend procedures, UI detail, PDFs)
+
+---
+
 ### 2026-05-19 — OS: 4 CRÍTICOS DA AUDITORIA FINAL + LISTAGEM/GARANTIA (4a rodada)
 
 Quarta rodada após auditoria sistemática via `/review-project` (3 subagents paralelos). Identificados 4 críticos + 7 highs + 7 mediums. **Críticos todos resolvidos:**
