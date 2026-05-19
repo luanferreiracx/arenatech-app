@@ -74,14 +74,14 @@ describe("warrantyTypeEnum", () => {
 describe("checklistSchema", () => {
   it("accepts valid checklist with 3 states", () => {
     const result = checklistSchema.parse({
-      display: true,     // OK
-      touchscreen: false, // NOK
-      battery: null,      // N/A
-      wifi: undefined,    // not filled
+      aparelhoLiga: true,      // OK
+      aparelhoVibra: false,    // NOK
+      botoes: null,            // N/A
+      wifi: undefined,         // not filled
     });
-    expect(result.display).toBe(true);
-    expect(result.touchscreen).toBe(false);
-    expect(result.battery).toBeNull();
+    expect(result.aparelhoLiga).toBe(true);
+    expect(result.aparelhoVibra).toBe(false);
+    expect(result.botoes).toBeNull();
   });
 
   it("accepts empty checklist", () => {

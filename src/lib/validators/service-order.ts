@@ -117,43 +117,46 @@ export const WARRANTY_TYPE_LABELS: Record<string, string> = {
 
 /**
  * Checklist item: true=OK, false=NOK, null=N/A
+ *
+ * Os 15 itens espelham 1:1 as colunas `check_entrada_*` / `check_saida_*` do
+ * Laravel — preserva fidelidade total na migracao de dados (ADR 0043).
  */
 export const checklistSchema = z.object({
-  display: z.boolean().nullable().optional(),            // Display / Tela
-  touchscreen: z.boolean().nullable().optional(),        // Touchscreen
-  battery: z.boolean().nullable().optional(),            // Bateria
-  charging: z.boolean().nullable().optional(),           // Carregamento
-  wifi: z.boolean().nullable().optional(),               // Wi-Fi
-  bluetooth: z.boolean().nullable().optional(),          // Bluetooth
-  camera: z.boolean().nullable().optional(),             // Camera
-  speaker: z.boolean().nullable().optional(),            // Alto-falante
-  microphone: z.boolean().nullable().optional(),         // Microfone
-  buttons: z.boolean().nullable().optional(),            // Botoes
-  biometrics: z.boolean().nullable().optional(),         // Biometria
-  faceId: z.boolean().nullable().optional(),             // Face ID
-  gps: z.boolean().nullable().optional(),                // GPS
-  cellular: z.boolean().nullable().optional(),           // Rede Celular
-  sensors: z.boolean().nullable().optional(),            // Sensores
+  aparelhoLiga: z.boolean().nullable().optional(),         // check_entrada_aparelho_liga
+  aparelhoVibra: z.boolean().nullable().optional(),        // check_entrada_aparelho_vibra
+  botoes: z.boolean().nullable().optional(),               // check_entrada_botoes_ok
+  bluetooth: z.boolean().nullable().optional(),            // check_entrada_bluetooth_ok
+  wifi: z.boolean().nullable().optional(),                 // check_entrada_wifi_ok
+  vidroTraseiro: z.boolean().nullable().optional(),        // check_entrada_vidro_traseiro_ok
+  audio: z.boolean().nullable().optional(),                // check_entrada_audio_ok
+  microfone: z.boolean().nullable().optional(),            // check_entrada_microfone_ok
+  camerasFlash: z.boolean().nullable().optional(),         // check_entrada_cameras_flash_ok
+  touchFaceId: z.boolean().nullable().optional(),          // check_entrada_touch_faceid_ok
+  aparelhoCarrega: z.boolean().nullable().optional(),      // check_entrada_aparelho_carrega
+  telaFrontal: z.boolean().nullable().optional(),          // check_entrada_tela_frontal_ok
+  carregamentoCabo: z.boolean().nullable().optional(),     // check_entrada_carregamento_cabo
+  carregamentoInducao: z.boolean().nullable().optional(),  // check_entrada_carregamento_inducao
+  imaMagsafe: z.boolean().nullable().optional(),           // check_entrada_ima_magsafe
 });
 
 export type ChecklistData = z.infer<typeof checklistSchema>;
 
 export const CHECKLIST_ITEMS: { key: keyof ChecklistData; label: string }[] = [
-  { key: "display", label: "Display / Tela" },
-  { key: "touchscreen", label: "Touchscreen" },
-  { key: "battery", label: "Bateria" },
-  { key: "charging", label: "Carregamento" },
-  { key: "wifi", label: "Wi-Fi" },
+  { key: "aparelhoLiga", label: "Aparelho liga" },
+  { key: "aparelhoVibra", label: "Aparelho vibra" },
+  { key: "botoes", label: "Botoes" },
   { key: "bluetooth", label: "Bluetooth" },
-  { key: "camera", label: "Camera" },
-  { key: "speaker", label: "Alto-falante" },
-  { key: "microphone", label: "Microfone" },
-  { key: "buttons", label: "Botoes" },
-  { key: "biometrics", label: "Biometria" },
-  { key: "faceId", label: "Face ID" },
-  { key: "gps", label: "GPS" },
-  { key: "cellular", label: "Rede Celular" },
-  { key: "sensors", label: "Sensores" },
+  { key: "wifi", label: "Wi-Fi" },
+  { key: "vidroTraseiro", label: "Vidro traseiro" },
+  { key: "audio", label: "Audio" },
+  { key: "microfone", label: "Microfone" },
+  { key: "camerasFlash", label: "Cameras e flash" },
+  { key: "touchFaceId", label: "Touch / Face ID" },
+  { key: "aparelhoCarrega", label: "Aparelho carrega" },
+  { key: "telaFrontal", label: "Tela frontal" },
+  { key: "carregamentoCabo", label: "Carregamento por cabo" },
+  { key: "carregamentoInducao", label: "Carregamento por inducao" },
+  { key: "imaMagsafe", label: "Ima / MagSafe" },
 ];
 
 // ── Device Info (additional info checkboxes) ──
@@ -268,6 +271,8 @@ export const updateStatusSchema = z.object({
   paymentDiscount: z.number().int().min(0).optional(), // centavos
   notifyWhatsapp: z.boolean().optional(),
   notifyPhone: z.string().max(30).optional().nullable(),
+  // Admin bypass: forca PAID fora do PDV / forca DELIVERED sem termo assinado
+  force: z.boolean().optional(),
 });
 
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
@@ -304,6 +309,10 @@ export const registerPaymentSchema = z.object({
   paidAmount: z.number().int().min(0), // centavos
   paymentDiscount: z.number().int().min(0).optional(), // centavos
   paymentNotes: z.string().max(500).optional().nullable(),
+  // C7: aplicacao de recompensa (RewardAction APPROVED) como desconto
+  rewardActionId: z.string().uuid().optional().nullable(),
+  // C3: admin pode bypassar exigencia de caixa aberto (raro, p/ correcao legada)
+  force: z.boolean().optional(),
 });
 
 export type RegisterPaymentInput = z.infer<typeof registerPaymentSchema>;
