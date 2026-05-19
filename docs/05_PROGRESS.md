@@ -262,6 +262,29 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: 4 CRÍTICOS DA AUDITORIA FINAL + LISTAGEM/GARANTIA (4a rodada)
+
+Quarta rodada após auditoria sistemática via `/review-project` (3 subagents paralelos). Identificados 4 críticos + 7 highs + 7 mediums. **Críticos todos resolvidos:**
+
+- **Listagem ordem determinística** (P1a): backend `serviceOrder.list` agora usa `[entryDate desc, number desc]` para desempate. `dashboard.recentOrders` idem. 5 links quebrados no dashboard apontavam para `/services/*` em vez de `/service-orders/*` — corrigidos.
+
+- **Garantia/retorno (P2)**: `warrantyTypeEnum` reescrito para 3 valores Laravel (`return`, `sold_product`, `manufacturer`); `extended` removido. Wizard step-device agora tem checkbox "Este equipamento está em garantia" no topo, com tipo + select de OS Original (carregada via `getByCustomer`) + prazo. Em `retorno_servico` + OS original selecionada, herda equipamento (tipo/marca/modelo/serial/IMEI/senha) e bloqueia campos com readonly. Step-summary tem resumo readonly.
+
+- **C1 cancel exige termo SEMPRE**: antes só quando assinada — divergia do Laravel `OrdemServicoController:652-664` que exige para toda OS (aparelho está sob responsabilidade da loja). Admin força via `input.force`.
+
+- **C2 addItem com status guard**: bloqueia `PAID/DELIVERED/CANCELLED/REFUNDED`. Paridade `OrdemServicoController:2990`. Estava permitindo adicionar item em OS finalizada, corrompendo totais.
+
+- **C3 removeItem+updateItem com status guard**: `removeItem` bloqueia `PAID/DELIVERED` (paridade Laravel:3049). `updateItem` ganhou guard equivalente para consistência. `cancelLab` agora cria entrada no histórico.
+
+- **C4 Lab Externo UI ativa**: card antes era alerta passivo "Aguardando Retorno". Agora tem 4 ações (paridade Laravel `show.blade.php:828-867`): Enviar para Laboratório (selector de entregador), Confirmar Recebimento, Notificar Entregador (WhatsApp via `notifyDeliveryPerson`), Cancelar Envio. Usa `operation.listDeliveryPersons`.
+
+**Pendente (7 highs + 7 mediums do AUDIT):** notificação WhatsApp ao criar OS com técnico, sendToLab com mensagem WhatsApp, confirmPhysicalSignature delivery com status guard, link "Ver venda" no card pagamento, recibo PDF botão no header, histórico timeline com eventos de assinatura, logo nos PDFs (5x), CNPJ formatado, recibo com serviços de orçamentos aprovados, layout quote-pdf paridade, etc.
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 14/14 E2E OS + 20/20 E2E customers ✓ | build ✓
+**Commits:** 6 (dashboard fix, warranty enum, garantia UI, backend guards, lab UI, progress)
+
+---
+
 ### 2026-05-19 — OS: 6 DIVERGENCIAS DE NEGOCIO RESOLVIDAS (3a rodada)
 
 Terceira rodada de auditoria após testes manuais. Investigação via skill `investigate`, implementação direta:
