@@ -67,6 +67,25 @@ export const STATUS_FLOW: ServiceOrderStatus[] = [
 export const OPTIONAL_STATUSES: ServiceOrderStatus[] = ["WAITING_PARTS"];
 export const SPECIAL_STATUSES: ServiceOrderStatus[] = ["CANCELLED", "REFUNDED", "IN_WARRANTY"];
 
+/**
+ * Calcula os proximos status mostrados no stepper (paridade com Laravel).
+ * Mostra apenas o proximo do fluxo principal. Se o proximo for opcional
+ * (WAITING_PARTS), mostra tambem o seguinte para permitir pular o opcional.
+ *
+ * Retorna [] se OS esta em estado terminal/especial.
+ */
+export function getNextStatusOptions(current: ServiceOrderStatus): ServiceOrderStatus[] {
+  if (SPECIAL_STATUSES.includes(current)) return [];
+  const idx = STATUS_FLOW.indexOf(current);
+  if (idx === -1 || idx >= STATUS_FLOW.length - 1) return [];
+  const next: ServiceOrderStatus[] = [STATUS_FLOW[idx + 1]!];
+  // Se o proximo e opcional, exibe tambem o seguinte como alternativa.
+  if (OPTIONAL_STATUSES.includes(next[0]!) && idx + 2 < STATUS_FLOW.length) {
+    next.push(STATUS_FLOW[idx + 2]!);
+  }
+  return next;
+}
+
 /** Allowed status transitions. Key=current, value=allowed next statuses */
 export const ALLOWED_TRANSITIONS: Record<string, ServiceOrderStatus[]> = {
   OPEN: ["IN_DIAGNOSIS", "CANCELLED"],

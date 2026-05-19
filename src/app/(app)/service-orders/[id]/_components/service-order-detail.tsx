@@ -65,6 +65,7 @@ import {
   CHECKLIST_ITEMS,
   DEVICE_INFO_ITEMS,
   WARRANTY_TYPE_LABELS,
+  getNextStatusOptions,
   type ServiceOrderStatus,
   type ChecklistData,
   type DeviceInfoData,
@@ -156,9 +157,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const order = orderQuery.data as any;
 
   // Dialogs
-  const [statusDialog, setStatusDialog] = useState(false);
-  const [nextStatus, setNextStatus] = useState<ServiceOrderStatus | null>(null);
-  const [statusNotes, setStatusNotes] = useState("");
   const [cancelDialog, setCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [uncancelDialog, setUncancelDialog] = useState(false);
@@ -441,6 +439,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
   const status = order.status as ServiceOrderStatus;
   const allowed = ALLOWED_TRANSITIONS[status] ?? [];
+  const nextOptions = getNextStatusOptions(status);
   const isCancelled = status === "CANCELLED";
   const isRefunded = status === "REFUNDED";
   const isDelivered = status === "DELIVERED";
@@ -510,8 +509,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Signature Status */}
-      {!isCancelled && !isRefunded && (
+      {/* Signature Status — so antes do pagamento. Some apos assinatura confirmada. */}
+      {!isCancelled && !isRefunded && !isSigned && !["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
         <div className={`rounded-lg border-2 p-4 mb-6 ${isSigned ? "border-success bg-success/10" : "border-warning bg-warning/10"}`}>
           <h3 className={`font-semibold flex items-center gap-2 ${isSigned ? "text-success" : "text-warning"}`}>
             <FileSignature className="h-5 w-5" />
@@ -561,8 +560,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Communication */}
-      {!isCancelled && !isRefunded && order.customer?.phone && (
+      {/* Communication — so apos OS concluida (paridade com Laravel). */}
+      {!isCancelled && !isRefunded && order.customer?.phone && ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
         <div className="rounded-lg border-2 border-blue-500 bg-blue-500/10 p-4 mb-6">
           <h3 className="font-semibold text-blue-400 flex items-center gap-2">
             <MessageCircle className="h-5 w-5" />Comunicacao
@@ -598,8 +597,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Delivery Term */}
-      {!isCancelled && !isRefunded && ["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+      {/* Delivery Term — durante PAID/READY_FOR_PICKUP. Some apos DELIVERED. */}
+      {!isCancelled && !isRefunded && !isDelivered && ["PAID", "READY_FOR_PICKUP"].includes(status) && (
         <div className={`rounded-lg border-2 p-4 mb-6 ${order.deliveryTermSigned ? "border-success bg-success/10" : "border-emerald-500 bg-emerald-500/10"}`}>
           <h3 className={`font-semibold flex items-center gap-2 ${order.deliveryTermSigned ? "text-success" : "text-emerald-400"}`}>
             <Truck className="h-5 w-5" />
@@ -639,7 +638,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 )}
               </>
             )}
-            {!order.deliveryTermSigned && status !== "DELIVERED" && (
+            {!order.deliveryTermSigned && (
               <Button
                 size="sm"
                 variant="outline"
@@ -653,8 +652,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Return Term */}
-      {!isRefunded && !isDelivered && (
+      {/* Return Term — so se cancelamento em curso (termo enviado ou OS ja cancelada).
+          No fluxo normal nao aparece. Paridade com Laravel (mostrado apos `enviarTermoDevolucao`). */}
+      {!isRefunded && !isDelivered && (order.returnTermSent || isCancelled) && (
         <div className={`rounded-lg border-2 p-4 mb-6 ${order.returnTermSigned ? "border-destructive bg-destructive/10" : "border-orange-500 bg-orange-500/10"}`}>
           <h3 className={`font-semibold flex items-center gap-2 ${order.returnTermSigned ? "text-destructive" : "text-orange-400"}`}>
             <RotateCcw className="h-5 w-5" />
@@ -792,10 +792,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Status</h3>
             <StatusStepper status={status} />
 
-            {/* Action buttons */}
-            {allowed.length > 0 && !order.budgetPending && (
+            {/* Action buttons — paridade com Laravel: so o proximo status do fluxo
+                (e o seguinte se o proximo for opcional). PAID abre dialog de pagamento. */}
+            {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && (
               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-                {allowed.map((s) => {
+                {nextOptions.map((s) => {
                   if (s === "PAID") {
                     return (
                       <Button key={s} size="sm" onClick={() => setPaymentDialog(true)}>
@@ -807,13 +808,18 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     <Button
                       key={s}
                       size="sm"
-                      variant={s === "CANCELLED" ? "destructive" : "outline"}
-                      onClick={() => { setNextStatus(s); setStatusNotes(""); setStatusDialog(true); }}
+                      onClick={() => updateStatusMut.mutate({ id, status: s, notes: null })}
+                      disabled={updateStatusMut.isPending}
                     >
-                      {SERVICE_ORDER_STATUS_LABELS[s]}
+                      Avancar para: {SERVICE_ORDER_STATUS_LABELS[s]}
                     </Button>
                   );
                 })}
+              </div>
+            )}
+            {nextOptions.length === 0 && allowed.length === 0 && (
+              <div className="mt-4 pt-4 border-t border-border text-sm text-muted-foreground">
+                {SPECIAL_STATUSES.includes(status) ? "OS em estado especial." : "Sem transicoes disponiveis."}
               </div>
             )}
           </div>
@@ -1042,22 +1048,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </div>
 
       {/* ── Dialogs ── */}
-
-      {/* Status Change Dialog */}
-      <Dialog open={statusDialog} onOpenChange={setStatusDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Alterar Status para {nextStatus ? SERVICE_ORDER_STATUS_LABELS[nextStatus] : ""}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Observacao</Label><Textarea value={statusNotes} onChange={(e) => setStatusNotes(e.target.value)} placeholder="Observacao opcional..." rows={3} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusDialog(false)}>Cancelar</Button>
-            <Button onClick={() => { if (nextStatus) { updateStatusMut.mutate({ id, status: nextStatus, notes: statusNotes || null }); setStatusDialog(false); } }} disabled={updateStatusMut.isPending}>Confirmar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Payment Dialog */}
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
