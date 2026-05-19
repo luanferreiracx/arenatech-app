@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ImeiInput } from "@/components/inputs/imei-input";
 import { deviceTypeEnum } from "@/lib/validators/service-order";
 import type { CreateServiceOrderInput } from "@/lib/validators/service-order";
 
@@ -73,10 +74,9 @@ export function StepDevice({ data, onChange }: Props) {
 
         <div className="space-y-2">
           <Label>IMEI</Label>
-          <Input
+          <ImeiInput
             value={data.imei ?? ""}
-            onChange={(e) => onChange({ imei: e.target.value || null })}
-            placeholder="IMEI do aparelho"
+            onValueChange={(raw) => onChange({ imei: raw || null })}
           />
         </div>
 

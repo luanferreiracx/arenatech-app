@@ -53,7 +53,13 @@ function ItemRow({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [manualMode, setManualMode] = useState(!item.serviceId && !item.productId);
+  // Default = busca no catalogo (paridade com Laravel). Usuario pode alternar
+  // para "Digitar manual" se nao encontrar o item. Itens carregados de OS
+  // existente que tem description mas nao tem serviceId/productId mantem
+  // manual mode (provavel item digitado manualmente).
+  const [manualMode, setManualMode] = useState(
+    !!item.description && !item.serviceId && !item.productId,
+  );
 
   const searchServices = useCallback(
     async (query: string): Promise<ServiceOption[]> => {
