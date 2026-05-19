@@ -262,6 +262,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: edicao com escopo correto + stepper exige assinatura (7a rodada)
+
+Refino pos-audit baseado em revisao manual:
+
+- **Edit page com 2 niveis de bloqueio (paridade Laravel `$osAssinada` + `$osConcluida`):**
+  - `isSigned` bloqueia equipamento, IMEI, problema relatado, entryChecklist, deviceInfo (ja existia).
+  - `isCompleted` (COMPLETED/PAID/READY_FOR_PICKUP/DELIVERED/REFUNDED) bloqueia **adicionalmente** defeito constatado, observacoes internas e prazo garantia. Banners explicativos no UI.
+- **DeviceInfo (6 checkboxes "Cliente informou que...")** agora aparece no edit page como secao dedicada, editavel ate assinatura. Antes era so backend.
+- **Backend `update` locked fields** refatorado para considerar `isCompleted` (defesa em profundidade).
+- **Stepper exige assinatura**: backend `updateStatus` rejeita avancos enquanto OS nao assinada (excecao: CANCELLED/REFUNDED/IN_WARRANTY). UI mostra alerta amarelo "Assinatura de entrada pendente" no lugar dos botoes "Avancar para X".
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 14/14 E2E OS ✓ | build ✓
+**Commits:** 1
+
+---
+
 ### 2026-05-19 — OS: 7 MEDIUMS DA AUDITORIA FINAL RESOLVIDOS (6a rodada)
 
 Última camada de polimento da auditoria. Todos os 7 mediums implementados:
