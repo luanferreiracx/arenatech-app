@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PageHeader } from "@/components/domain/page-header";
@@ -63,7 +63,29 @@ export default function NewSupplierPage() {
     }),
   );
 
+  // Detecção inline de fornecedor duplicado (paridade Cliente).
+  const watchType = form.watch("type");
+  const watchCpf = form.watch("cpf");
+  const watchCnpj = form.watch("cnpj");
+  const cpfDigits = (watchCpf ?? "").replace(/\D/g, "");
+  const cnpjDigits = (watchCnpj ?? "").replace(/\D/g, "");
+  const docComplete =
+    watchType === "PF" ? cpfDigits.length === 11 : cnpjDigits.length === 14;
+
+  const dupQuery = useQuery({
+    ...trpc.stock.checkSupplierDuplicate.queryOptions(
+      watchType === "PF" ? { cpf: cpfDigits } : { cnpj: cnpjDigits },
+    ),
+    enabled: docComplete,
+    staleTime: 30_000,
+  });
+  const duplicate = dupQuery.data?.duplicate ? dupQuery.data : null;
+
   const onSubmit = form.handleSubmit((data) => {
+    if (duplicate) {
+      toast.error("Documento ja cadastrado em outro fornecedor.");
+      return;
+    }
     createMutation.mutate(data);
   });
 
@@ -103,6 +125,14 @@ export default function NewSupplierPage() {
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
               <Input {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")} placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"} />
+              {duplicate && (
+                <p className="text-xs text-destructive">
+                  Documento ja cadastrado em outro fornecedor:{" "}
+                  <Link href={`/stock/suppliers/${duplicate.supplier.id}`} className="underline">
+                    {duplicate.supplier.name}
+                  </Link>
+                </p>
+              )}
             </div>
             <div className="space-y-2 sm:col-span-1">
               <Label>Razao Social / Nome *</Label>

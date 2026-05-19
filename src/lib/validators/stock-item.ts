@@ -102,6 +102,10 @@ export const listStockItemsSchema = z.object({
   condition: stockItemConditionEnum.optional(),
   supplierId: z.string().uuid().optional(),
   search: z.string().optional(), // IMEI, serial, barcode
+  /** Busca por nome/marca do produto (paridade Laravel `buscarItensDisponiveis`). */
+  productSearch: z.string().optional(),
+  /** Atalho para status=AVAILABLE — util para PDV listar disponiveis. */
+  availableOnly: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 })

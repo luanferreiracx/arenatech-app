@@ -44,6 +44,12 @@ import {
 import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
 import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
 import {
+  createDocumentWithLink,
+  getDocumentStatus,
+  formatWhatsApp,
+} from "@/lib/services/autentique-service";
+import { logger } from "@/lib/logger";
+import {
   createStockItemBatchSchema,
   stockEntryQuantitySchema,
   stockWriteOffSchema,
@@ -570,6 +576,190 @@ export const stockRouter = createTRPCRouter({
     }),
 
   // ═══════════════════════════════════════
+  // PURCHASE TERM SIGNATURE (paridade Laravel)
+  // ═══════════════════════════════════════
+
+  /**
+   * Confirma assinatura fisica do termo de responsabilidade da compra.
+   * Apenas admin. Paridade `CompraAparelhoController::confirmarAssinaturaFisica`.
+   */
+  confirmPurchasePhysicalSignature: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const isAdmin = ctx.session.user.isSuperAdmin === true;
+      if (!isAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem confirmar assinatura fisica.",
+        });
+      }
+      return ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({
+          where: { id: input.id },
+        });
+        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+        if (purchase.termSigned) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
+        }
+        await tx.devicePurchase.update({
+          where: { id: input.id },
+          data: {
+            termSigned: true,
+            termSignedAt: new Date(),
+            termSignedVia: "physical",
+            termSignedByUserId: ctx.session.user.id,
+          },
+        });
+        return { success: true };
+      });
+    }),
+
+  /**
+   * Envia termo de responsabilidade para Autentique via WhatsApp.
+   * Paridade `CompraAparelhoController::enviarTermoAutentique`.
+   */
+  sendPurchaseTermAutentique: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({
+          where: { id: input.id },
+        });
+        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+        if (purchase.termSigned) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
+        }
+        if (purchase.autentiqueDocumentId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Termo ja foi enviado para Autentique.",
+          });
+        }
+
+        // Pega telefone + nome do vendedor (customer ou supplier).
+        let sellerName = "";
+        let sellerPhone: string | null = null;
+        if (purchase.sellerType === "customer" && purchase.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: purchase.customerId },
+            select: { name: true, phone: true },
+          });
+          if (customer) {
+            sellerName = customer.name;
+            sellerPhone = customer.phone;
+          }
+        } else if (purchase.sellerType === "supplier" && purchase.supplierId) {
+          const supplier = await tx.supplier.findUnique({
+            where: { id: purchase.supplierId },
+            select: { name: true, phone: true },
+          });
+          if (supplier) {
+            sellerName = supplier.name;
+            sellerPhone = supplier.phone;
+          }
+        }
+
+        if (!sellerPhone) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Vendedor sem telefone cadastrado para envio via Autentique.",
+          });
+        }
+
+        // Gera o PDF do termo (rota API interna).
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const pdfUrl = `${baseUrl}/api/purchases/${input.id}/termo-responsabilidade`;
+        let pdfBuffer: Buffer;
+        try {
+          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+          pdfBuffer = Buffer.from(await res.arrayBuffer());
+        } catch (err) {
+          logger.error("Failed to fetch purchase term PDF", { purchaseId: input.id, error: err });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Falha ao gerar PDF do termo para assinatura.",
+          });
+        }
+
+        const result = await createDocumentWithLink(
+          `Termo de Responsabilidade - Compra ${input.id.slice(0, 8)}`,
+          [{ name: sellerName, whatsapp: formatWhatsApp(sellerPhone) }],
+          pdfBuffer,
+        );
+
+        if (!result.success) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: result.error ?? "Erro ao enviar para Autentique",
+          });
+        }
+
+        await tx.devicePurchase.update({
+          where: { id: input.id },
+          data: {
+            autentiqueDocumentId: result.documentId ?? null,
+            autentiqueLink: result.signatureLink ?? null,
+            autentiqueSentAt: new Date(),
+          },
+        });
+
+        logger.info("Purchase term sent to Autentique", {
+          purchaseId: input.id,
+          documentId: result.documentId,
+        });
+
+        return { success: true, signatureLink: result.signatureLink };
+      });
+    }),
+
+  /**
+   * Consulta status do termo no Autentique e atualiza `termSigned` se assinado.
+   * Paridade `CompraAparelhoController::verificarAssinaturaCompra`.
+   */
+  checkPurchaseSignatureStatus: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({
+          where: { id: input.id },
+        });
+        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!purchase.autentiqueDocumentId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhum documento enviado para Autentique.",
+          });
+        }
+        if (purchase.termSigned) {
+          return { signed: true, status: "already_signed" };
+        }
+
+        const status = await getDocumentStatus(purchase.autentiqueDocumentId);
+        if (!status.success) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: status.error ?? "Erro ao consultar Autentique",
+          });
+        }
+
+        if (status.signed) {
+          await tx.devicePurchase.update({
+            where: { id: input.id },
+            data: {
+              termSigned: true,
+              termSignedAt: new Date(),
+              termSignedVia: "autentique",
+            },
+          });
+          return { signed: true, status: "signed" };
+        }
+
+        return { signed: false, status: "pending" };
+      });
+    }),
+
+  // ═══════════════════════════════════════
   // REPORTS
   // ═══════════════════════════════════════
 
@@ -818,6 +1008,34 @@ export const stockRouter = createTRPCRouter({
           data: { deletedAt: new Date() },
         });
         return { success: true };
+      });
+    }),
+
+  /**
+   * Checa duplicidade de CPF/CNPJ no fornecedor (paridade Cliente).
+   * Usado pela UI do form para alerta inline antes de salvar.
+   */
+  checkSupplierDuplicate: tenantProcedure
+    .input(z.object({ cpf: z.string().optional(), cnpj: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const cpf = input.cpf ? input.cpf.replace(/\D/g, "") : null;
+        const cnpj = input.cnpj ? input.cnpj.replace(/\D/g, "") : null;
+        if (cpf && cpf.length !== 11) return { duplicate: false as const };
+        if (cnpj && cnpj.length !== 14) return { duplicate: false as const };
+        if (!cpf && !cnpj) return { duplicate: false as const };
+
+        const existing = await tx.supplier.findFirst({
+          where: {
+            deletedAt: null,
+            ...(cpf ? { cpf } : {}),
+            ...(cnpj ? { cnpj } : {}),
+          },
+          select: { id: true, name: true },
+        });
+
+        if (!existing) return { duplicate: false as const };
+        return { duplicate: true as const, supplier: existing };
       });
     }),
 
@@ -2316,7 +2534,12 @@ export const stockRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const where: Prisma.StockItemWhereInput = { deletedAt: null };
         if (input.productId) where.productId = input.productId;
-        if (input.status) where.status = input.status;
+        // availableOnly tem prioridade sobre status (paridade Laravel `buscarItensDisponiveis`).
+        if (input.availableOnly) {
+          where.status = "AVAILABLE";
+        } else if (input.status) {
+          where.status = input.status;
+        }
         if (input.condition) where.condition = input.condition;
         if (input.supplierId) where.supplierId = input.supplierId;
         if (input.search) {
@@ -2325,6 +2548,16 @@ export const stockRouter = createTRPCRouter({
             { serialNumber: { contains: input.search, mode: "insensitive" } },
             { barcode: { contains: input.search, mode: "insensitive" } },
           ];
+        }
+        // Busca por nome/marca do produto via relacao
+        if (input.productSearch?.trim()) {
+          const term = input.productSearch.trim();
+          where.product = {
+            OR: [
+              { name: { contains: term, mode: "insensitive" } },
+              { brand: { contains: term, mode: "insensitive" } },
+            ],
+          };
         }
         const [data, total] = await Promise.all([
           tx.stockItem.findMany({

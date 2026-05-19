@@ -271,6 +271,10 @@ model DevicePurchase {
   tenantId            String          @map("tenant_id") @db.Uuid
   productId           String?         @map("product_id") @db.Uuid
   customerId          String?         @map("customer_id") @db.Uuid
+  supplierId          String?         @map("supplier_id") @db.Uuid
+  // Tipo do vendedor: "customer" (pessoa fisica) ou "supplier" (fornecedor PJ).
+  // Paridade Laravel `compra_aparelhos.tipo_vendedor`.
+  sellerType          String          @default("customer") @map("seller_type")
   imei                String?
   serial              String?
   brand               String?
@@ -283,6 +287,16 @@ model DevicePurchase {
   purchaseDate        DateTime        @default(now()) @map("purchase_date")
   cancelledAt         DateTime?       @map("cancelled_at")
   cancellationReason  String?         @map("cancellation_reason")
+  // Termo de responsabilidade (paridade Laravel `compra_aparelhos.termo_*`).
+  // Pode ser assinado fisicamente OU via Autentique. Sem termo, compra fica
+  // "pendente_assinatura" no status — paridade.
+  termSigned          Boolean         @default(false) @map("term_signed")
+  termSignedAt        DateTime?       @map("term_signed_at")
+  termSignedVia       String?         @map("term_signed_via") // "physical" | "autentique"
+  termSignedByUserId  String?         @map("term_signed_by_user_id") @db.Uuid
+  autentiqueDocumentId String?        @map("autentique_document_id")
+  autentiqueLink      String?         @map("autentique_link")
+  autentiqueSentAt    DateTime?       @map("autentique_sent_at")
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
 
@@ -290,5 +304,6 @@ model DevicePurchase {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, imei])
+  @@index([tenantId, supplierId])
   @@map("device_purchases")
 }
