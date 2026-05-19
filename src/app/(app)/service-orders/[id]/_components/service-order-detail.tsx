@@ -334,6 +334,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
+  const sendReceiptMut = useMutation(
+    trpc.serviceOrder.sendReceipt.mutationOptions({
+      onSuccess: () => toast.success("Recibo enviado via WhatsApp."),
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
   // Lista de entregadores ativos para os dialogs
   const deliveryPersonsQuery = useQuery(
     trpc.operation.listDeliveryPersons.queryOptions({ active: true }),
@@ -462,6 +469,27 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <FileText className="mr-2 h-4 w-4" />PDF
               </Link>
             </Button>
+            {/* Recibo PDF + reenvio WhatsApp — paridade Laravel: apos pagamento. */}
+            {["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+              <>
+                <Button variant="outline" asChild>
+                  <Link href={`/api/service-orders/${order.id}/recibo`} target="_blank">
+                    <FileText className="mr-2 h-4 w-4" />Recibo
+                  </Link>
+                </Button>
+                {order.customer?.phone && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={sendReceiptMut.isPending}
+                    onClick={() => sendReceiptMut.mutate({ orderId: id })}
+                  >
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    {order.receiptSent ? "Reenviar Recibo" : "Enviar Recibo"}
+                  </Button>
+                )}
+              </>
+            )}
             {!isCancelled && !isRefunded && (
               <Button variant="outline" asChild>
                 <Link href={`/service-orders/${order.id}/edit`}>
@@ -975,28 +1003,81 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* History Timeline */}
+          {/* History Timeline (mescla mudancas de status com eventos de assinatura,
+              paridade Laravel show.blade.php:1353-1413) */}
           <div className="rounded-lg border border-border p-4">
             <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Historico</h3>
             <div className="relative pl-6 space-y-4">
               <div className="absolute left-2 top-0 bottom-0 w-0.5 bg-border" />
-              {order.history.map((h: { id: string; newStatus: string; notes: string | null; userName: string; createdAt: Date }) => (
-                <div key={h.id} className="relative">
-                  <div className="absolute -left-4 top-1 w-3 h-3 rounded-full border-2 border-primary bg-card" />
-                  <div className="text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        {SERVICE_ORDER_STATUS_LABELS[h.newStatus as ServiceOrderStatus] ?? h.newStatus}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(h.createdAt), "dd/MM/yyyy HH:mm")}
-                      </span>
+              {(() => {
+                type TimelineEvent = {
+                  id: string;
+                  label: string;
+                  detail: string | null;
+                  date: Date;
+                  kind: "status" | "signature";
+                };
+                const events: TimelineEvent[] = [];
+                // Status changes
+                for (const h of order.history as Array<{ id: string; newStatus: string; notes: string | null; userName: string; createdAt: Date }>) {
+                  events.push({
+                    id: h.id,
+                    label: SERVICE_ORDER_STATUS_LABELS[h.newStatus as ServiceOrderStatus] ?? h.newStatus,
+                    detail: [h.userName, h.notes].filter(Boolean).join(" — ") || null,
+                    date: new Date(h.createdAt),
+                    kind: "status",
+                  });
+                }
+                // Eventos de assinatura — exibidos quando datados.
+                if (order.signatureSignedAt) {
+                  events.push({
+                    id: "sig-entry",
+                    label: "Assinatura de Entrada",
+                    detail: order.physicalSignature ? "Assinatura fisica confirmada" : "Assinatura digital (Autentique)",
+                    date: new Date(order.signatureSignedAt),
+                    kind: "signature",
+                  });
+                }
+                if (order.deliveryTermSignedAt) {
+                  events.push({
+                    id: "sig-delivery",
+                    label: "Termo de Entrega Assinado",
+                    detail: order.deliveryTermPhysical ? "Assinatura fisica" : "Assinatura digital (Autentique)",
+                    date: new Date(order.deliveryTermSignedAt),
+                    kind: "signature",
+                  });
+                }
+                if (order.returnTermSignedAt) {
+                  events.push({
+                    id: "sig-return",
+                    label: "Termo de Devolucao Assinado",
+                    detail: order.returnTermPhysical ? "Assinatura fisica" : "Assinatura digital (Autentique)",
+                    date: new Date(order.returnTermSignedAt),
+                    kind: "signature",
+                  });
+                }
+                // Ordem cronologica decrescente (mais recente primeiro)
+                events.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+                return events.map((e) => (
+                  <div key={e.id} className="relative">
+                    <div
+                      className={`absolute -left-4 top-1 w-3 h-3 rounded-full border-2 bg-card ${
+                        e.kind === "signature" ? "border-amber-500" : "border-primary"
+                      }`}
+                    />
+                    <div className="text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{e.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(e.date, "dd/MM/yyyy HH:mm")}
+                        </span>
+                      </div>
+                      {e.detail && <p className="text-xs text-muted-foreground italic mt-1">{e.detail}</p>}
                     </div>
-                    <p className="text-xs text-muted-foreground">{h.userName}</p>
-                    {h.notes && <p className="text-xs text-muted-foreground italic mt-1">{h.notes}</p>}
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
         </div>
@@ -1009,6 +1090,18 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Valor Total</span><span className="font-bold text-primary font-mono">{formatMoney(order.totalAmount)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Valor Pago</span><span className="font-mono text-success">{formatMoney(order.paidAmount)}</span></div>
+              {(() => {
+                const pending = Math.max(0, order.totalAmount - order.paidAmount - order.paymentDiscount);
+                if (pending > 0) {
+                  return (
+                    <div className="flex justify-between rounded bg-warning/10 px-2 py-1">
+                      <span className="text-warning font-semibold">Pendente</span>
+                      <span className="text-warning font-mono font-bold">{formatMoney(pending)}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               {order.paymentDiscount > 0 && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Desconto</span><span className="text-warning font-mono">{formatMoney(order.paymentDiscount)}</span></div>
               )}
@@ -1017,6 +1110,17 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               )}
               {order.paymentDate && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Data</span><span>{format(new Date(order.paymentDate), "dd/MM/yyyy")}</span></div>
+              )}
+              {order.linkedSale && (
+                <div className="flex justify-between border-t border-border pt-2 mt-2">
+                  <span className="text-muted-foreground">Venda PDV</span>
+                  <Link
+                    href={`/pdv/${order.linkedSale.id}`}
+                    className="text-primary hover:underline font-mono text-xs"
+                  >
+                    #{order.linkedSale.number}
+                  </Link>
+                </div>
               )}
             </div>
           </div>
@@ -1253,7 +1357,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Marca a OS como enviada ao laboratorio externo. Opcionalmente associa um entregador
-              responsavel pela retirada/entrega.
+              e envia mensagem via WhatsApp.
             </p>
             <div>
               <Label>Entregador (opcional)</Label>
@@ -1266,12 +1370,29 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 </SelectContent>
               </Select>
             </div>
+            {labDeliveryPersonId && (
+              <div>
+                <Label>Mensagem WhatsApp (opcional)</Label>
+                <Textarea
+                  value={notifyDeliveryMessage}
+                  onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
+                  placeholder={`Ex.: Por favor, entregar a OS ${order.number} no laboratorio X.`}
+                  rows={3}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSendLabDialog(false)}>Cancelar</Button>
             <Button
               disabled={sendToLabMut.isPending}
-              onClick={() => sendToLabMut.mutate({ orderId: id, deliveryPersonId: labDeliveryPersonId || null })}
+              onClick={() =>
+                sendToLabMut.mutate({
+                  orderId: id,
+                  deliveryPersonId: labDeliveryPersonId || null,
+                  message: labDeliveryPersonId && notifyDeliveryMessage ? notifyDeliveryMessage : null,
+                })
+              }
             >
               Enviar
             </Button>
