@@ -172,9 +172,9 @@ export const serviceOrderRouter = createTRPCRouter({
           ];
         }
 
-        // Determine ordering
-         
-        let orderBy: any = { entryDate: "desc" };
+        // Determine ordering. Default: mais recentes primeiro, com desempate por number desc.
+
+        let orderBy: any = [{ entryDate: "desc" }, { number: "desc" }];
         if (input.sortBy === "number") orderBy = { number: input.sortOrder ?? "desc" };
         if (input.sortBy === "totalAmount") orderBy = { totalAmount: input.sortOrder ?? "desc" };
         if (input.sortBy === "status") orderBy = { status: input.sortOrder ?? "asc" };

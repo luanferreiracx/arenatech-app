@@ -292,7 +292,7 @@ function RecentOrdersTable() {
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium">Ultimas OS</CardTitle>
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/services" className="text-xs">
+          <Link href="/service-orders" className="text-xs">
             Ver todas <ChevronRight className="ml-1 h-3 w-3" />
           </Link>
         </Button>
@@ -309,7 +309,7 @@ function RecentOrdersTable() {
             {data.map((order) => (
               <Link
                 key={order.id}
-                href={`/services/${order.id}`}
+                href={`/service-orders/${order.id}`}
                 className="flex items-center justify-between rounded-md border p-2 hover:bg-muted/50 transition-colors"
               >
                 <div className="min-w-0 flex-1">
@@ -365,7 +365,7 @@ function AlertsSection() {
               {alerts.lateOrders.map((o) => (
                 <Link
                   key={o.id}
-                  href={`/services/${o.id}`}
+                  href={`/service-orders/${o.id}`}
                   className="flex items-center justify-between text-sm hover:underline"
                 >
                   <span>
@@ -430,8 +430,8 @@ function QuickLinks() {
   const links = [
     { href: "/pdv?novo=1", label: "Nova Venda", icon: ShoppingCart, color: "text-primary" },
     { href: "/pdv", label: "Historico Vendas", icon: History, color: "text-yellow-600" },
-    { href: "/services/new", label: "Nova OS", icon: Plus, color: "text-amber-500" },
-    { href: "/services", label: "Ordens de Servico", icon: ClipboardList, color: "text-blue-500" },
+    { href: "/service-orders/new", label: "Nova OS", icon: Plus, color: "text-amber-500" },
+    { href: "/service-orders", label: "Ordens de Servico", icon: ClipboardList, color: "text-blue-500" },
     { href: "/stock", label: "Posicao Estoque", icon: Package, color: "text-green-500" },
     { href: "/cashier", label: "Historico Caixas", icon: Clock, color: "text-pink-500" },
   ];

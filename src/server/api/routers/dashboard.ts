@@ -123,7 +123,9 @@ export const dashboardRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       const orders = await tx.serviceOrder.findMany({
         where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
+        // Mais recentes primeiro; desempate por number desc para ordenacao determinista
+        // dentro do mesmo segundo (caso de criacao em lote).
+        orderBy: [{ createdAt: "desc" }, { number: "desc" }],
         take: 5,
         select: {
           id: true,
