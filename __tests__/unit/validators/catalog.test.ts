@@ -5,9 +5,6 @@ import {
   renameTypeSchema,
   duplicateTypeSchema,
   sendServiceWhatsAppSchema,
-  createDiagnosticTemplateSchema,
-  createDeviceCategorySchema,
-  createDeviceSchema,
 } from "@/lib/validators/catalog";
 
 describe("createServiceSchema", () => {
@@ -155,80 +152,6 @@ describe("sendServiceWhatsAppSchema", () => {
       serviceId: "550e8400-e29b-41d4-a716-446655440000",
       clientName: "Joao Silva",
       clientPhone: "11999999999",
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-describe("createDiagnosticTemplateSchema", () => {
-  it("rejeita titulo vazio", () => {
-    const result = createDiagnosticTemplateSchema.safeParse({
-      title: "",
-      content: "Conteudo do template",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejeita conteudo vazio", () => {
-    const result = createDiagnosticTemplateSchema.safeParse({
-      title: "Template Teste",
-      content: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("aceita template valido", () => {
-    const result = createDiagnosticTemplateSchema.safeParse({
-      title: "Checklist de Display",
-      content: "1. Verificar pixels mortos\n2. Testar touch",
-      category: "Tela",
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-describe("createDeviceCategorySchema", () => {
-  it("rejeita nome vazio", () => {
-    const result = createDeviceCategorySchema.safeParse({ name: "" });
-    expect(result.success).toBe(false);
-  });
-
-  it("aceita nome valido", () => {
-    const result = createDeviceCategorySchema.safeParse({ name: "Smartphones" });
-    expect(result.success).toBe(true);
-  });
-});
-
-describe("createDeviceSchema", () => {
-  it("rejeita marca vazia", () => {
-    const result = createDeviceSchema.safeParse({
-      brand: "",
-      model: "iPhone 15",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejeita modelo vazio", () => {
-    const result = createDeviceSchema.safeParse({
-      brand: "Apple",
-      model: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("aceita aparelho valido com categoria", () => {
-    const result = createDeviceSchema.safeParse({
-      brand: "Apple",
-      model: "iPhone 15 Pro",
-      categoryId: "550e8400-e29b-41d4-a716-446655440000",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("aceita aparelho valido sem categoria", () => {
-    const result = createDeviceSchema.safeParse({
-      brand: "Samsung",
-      model: "Galaxy S24",
     });
     expect(result.success).toBe(true);
   });

@@ -58,11 +58,16 @@ model TenantFiscalSettings {
 }
 
 model TenantAssistanceSettings {
-  tenantId        String   @id @map("tenant_id") @db.Uuid
-  termsOfService  String?  @map("terms_of_service") @db.Text
-  warrantyPolicy  String?  @map("warranty_policy") @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  tenantId              String   @id @map("tenant_id") @db.Uuid
+  termsOfService        String?  @map("terms_of_service") @db.Text
+  warrantyPolicy        String?  @map("warranty_policy") @db.Text
+  // Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros`.
+  // Usado nos orcamentos de servico via WhatsApp / PDF.
+  installmentsNoInterest Int     @default(12) @map("installments_no_interest")
+  // Paridade Laravel `configuracoes_assistencia.desconto_pix` (em pontos percentuais).
+  pixDiscount           Decimal  @default(5) @map("pix_discount") @db.Decimal(5, 2)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@map("tenant_assistance_settings")
 }

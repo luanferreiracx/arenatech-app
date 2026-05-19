@@ -662,6 +662,10 @@ export const settingsRouter = createTRPCRouter({
     .input(z.object({
       termsOfService: z.string().optional(),
       warrantyPolicy: z.string().optional(),
+      // Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros` / `desconto_pix`.
+      // Usados nos orcamentos de servico via WhatsApp.
+      installmentsNoInterest: z.number().int().min(1).max(24).optional(),
+      pixDiscount: z.number().min(0).max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;

@@ -9,14 +9,6 @@ import {
   renameTypeSchema,
   duplicateTypeSchema,
   sendServiceWhatsAppSchema,
-  createDiagnosticTemplateSchema,
-  updateDiagnosticTemplateSchema,
-  listDiagnosticTemplatesSchema,
-  createDeviceCategorySchema,
-  updateDeviceCategorySchema,
-  createDeviceSchema,
-  updateDeviceSchema,
-  listDevicesSchema,
   createServiceObservationSchema,
   updateServiceObservationSchema,
   listServiceObservationsSchema,
@@ -395,13 +387,35 @@ export const catalogRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
 
-        // Get installment info from settings
-        const creditCard = await tx.paymentMethod.findFirst({
-          where: { type: "CREDIT_CARD", active: true },
-          include: { installmentRules: { orderBy: { installments: "desc" }, take: 1 } },
+        // Paridade Laravel: ler installmentsNoInterest / pixDiscount do tenant
+        // (configuracoes_assistencia). Fallback para defaults razoaveis.
+        const assistance = await tx.tenantAssistanceSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+        const maxInstallments = assistance?.installmentsNoInterest ?? 12;
+        const pixDiscount = Number(assistance?.pixDiscount ?? 5);
+
+        // Observacoes ativas — todas vao concatenadas no orcamento, filtradas
+        // por serviceType/deviceModel quando aplicavel.
+        const observations = await tx.serviceObservation.findMany({
+          where: { tenantId: ctx.tenantId, active: true },
+          orderBy: { createdAt: "asc" },
+        });
+        const relevantObs = observations.filter((o) => {
+          const types = (o.serviceTypes as string[] | null) ?? [];
+          const models = (o.deviceModels as string[] | null) ?? [];
+          if (types.length === 0 && models.length === 0) return true;
+          const typeMatch = service.serviceType && types.includes(service.serviceType);
+          const modelMatch = service.deviceModel && models.includes(service.deviceModel);
+          return typeMatch || modelMatch;
         });
 
-        const maxInstallments = creditCard?.installmentRules[0]?.installments ?? 12;
+        // Nome da loja: TenantSettings.tradeName ou tenant.name
+        const settings = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+        });
+        const nomeLoja = settings?.tradeName ?? "Arena Tech";
+
         const priceCents = serviceToCents(service);
         const priceFormatted = (priceCents / 100).toLocaleString("pt-BR", {
           style: "currency",
@@ -411,25 +425,41 @@ export const catalogRouter = createTRPCRouter({
           style: "currency",
           currency: "BRL",
         });
-        const pixDiscount = 5;
         const pixPrice = ((priceCents * (100 - pixDiscount)) / 10000).toLocaleString("pt-BR", {
           style: "currency",
           currency: "BRL",
         });
 
-        const message = [
-          `Ola ${input.clientName}! Segue o orcamento da Arena Tech:`,
+        const messageLines = [
+          `Ola ${input.clientName}! Segue o orcamento da ${nomeLoja}:`,
           "",
           `\u{1F527} ORCAMENTO`,
           `\u{1F4F1} Servico: ${service.serviceType ?? service.name}`,
           `\u{1F4F2} Aparelho: ${service.deviceModel ?? "-"}`,
           `\u{1F4B0} Valor: ${priceFormatted}`,
-          `\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`,
-          `\u{1F4B5} Desconto PIX: ${pixDiscount}% = ${pixPrice}`,
-          `\u{2705} Valido por 48h`,
-          "",
-          "Arena Tech - Assistencia Tecnica",
-        ].join("\n");
+        ];
+
+        if (maxInstallments > 1) {
+          messageLines.push(`\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`);
+        }
+        if (pixDiscount > 0) {
+          messageLines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
+        }
+
+        // Observacoes aplicaveis ao orcamento (paridade Laravel).
+        if (relevantObs.length > 0) {
+          messageLines.push("");
+          messageLines.push("\u{1F4DD} Observacoes:");
+          for (const obs of relevantObs) {
+            messageLines.push(`\u{2022} ${obs.observation}`);
+          }
+        }
+
+        messageLines.push("");
+        messageLines.push("\u{2705} Valido por 48h");
+        messageLines.push(`${nomeLoja} - Assistencia Tecnica`);
+
+        const message = messageLines.join("\n");
 
         const result = await sendTextMessage(
           formatPhone(input.clientPhone),
@@ -444,320 +474,6 @@ export const catalogRouter = createTRPCRouter({
         }
 
         return { success: true, messageId: result.messageId };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // DIAGNOSTIC TEMPLATES
-  // ═══════════════════════════════════════
-
-  listDiagnosticTemplates: tenantProcedure
-    .input(listDiagnosticTemplatesSchema)
-    .query(async ({ ctx, input }) => {
-      const page = input.page ?? 0;
-      const pageSize = input.pageSize ?? 10;
-
-      return ctx.withTenant(async (tx) => {
-        const where: Prisma.DiagnosticTemplateWhereInput = { deletedAt: null };
-
-        if (input.active !== undefined) {
-          where.active = input.active;
-        }
-
-        if (input.category) {
-          where.category = input.category;
-        }
-
-        if (input.search?.trim()) {
-          const term = input.search.trim();
-          where.OR = [
-            { title: { contains: term, mode: "insensitive" } },
-            { content: { contains: term, mode: "insensitive" } },
-            { category: { contains: term, mode: "insensitive" } },
-          ];
-        }
-
-        const [data, total] = await Promise.all([
-          tx.diagnosticTemplate.findMany({
-            where,
-            orderBy: [{ category: "asc" }, { title: "asc" }],
-            skip: page * pageSize,
-            take: pageSize,
-          }),
-          tx.diagnosticTemplate.count({ where }),
-        ]);
-
-        return {
-          data,
-          total,
-          pageCount: Math.ceil(total / pageSize),
-        };
-      });
-    }),
-
-  getDiagnosticTemplate: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const template = await tx.diagnosticTemplate.findUnique({
-          where: { id: input.id },
-        });
-        if (!template || template.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Template nao encontrado" });
-        }
-        return template;
-      });
-    }),
-
-  createDiagnosticTemplate: tenantProcedure
-    .input(createDiagnosticTemplateSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        return tx.diagnosticTemplate.create({
-          data: {
-            tenantId: ctx.tenantId,
-            title: input.title,
-            content: input.content,
-            category: input.category || null,
-          },
-        });
-      });
-    }),
-
-  updateDiagnosticTemplate: tenantProcedure
-    .input(updateDiagnosticTemplateSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.diagnosticTemplate.findUnique({ where: { id: input.id } });
-        if (!existing || existing.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Template nao encontrado" });
-        }
-
-        return tx.diagnosticTemplate.update({
-          where: { id: input.id },
-          data: {
-            title: input.title,
-            content: input.content,
-            category: input.category || null,
-          },
-        });
-      });
-    }),
-
-  deleteDiagnosticTemplate: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.diagnosticTemplate.findUnique({ where: { id: input.id } });
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Template nao encontrado" });
-        }
-
-        await tx.diagnosticTemplate.update({
-          where: { id: input.id },
-          data: { deletedAt: new Date() },
-        });
-        return { success: true };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // DEVICE CATEGORIES
-  // ═══════════════════════════════════════
-
-  listDeviceCategories: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      return tx.deviceCategory.findMany({
-        orderBy: { name: "asc" },
-        include: { _count: { select: { devices: true } } },
-      });
-    });
-  }),
-
-  createDeviceCategory: tenantProcedure
-    .input(createDeviceCategorySchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.deviceCategory.findFirst({
-          where: { name: { equals: input.name, mode: "insensitive" } },
-        });
-        if (existing) {
-          throw new TRPCError({ code: "CONFLICT", message: "Categoria ja existe" });
-        }
-
-        return tx.deviceCategory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            name: input.name,
-          },
-        });
-      });
-    }),
-
-  updateDeviceCategory: tenantProcedure
-    .input(updateDeviceCategorySchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.deviceCategory.findUnique({ where: { id: input.id } });
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Categoria nao encontrada" });
-        }
-
-        // Check name uniqueness (exclude self)
-        const dup = await tx.deviceCategory.findFirst({
-          where: {
-            name: { equals: input.name, mode: "insensitive" },
-            id: { not: input.id },
-          },
-        });
-        if (dup) {
-          throw new TRPCError({ code: "CONFLICT", message: "Categoria ja existe" });
-        }
-
-        return tx.deviceCategory.update({
-          where: { id: input.id },
-          data: { name: input.name },
-        });
-      });
-    }),
-
-  deleteDeviceCategory: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.deviceCategory.findUnique({
-          where: { id: input.id },
-          include: { _count: { select: { devices: true } } },
-        });
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Categoria nao encontrada" });
-        }
-        if (existing._count.devices > 0) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Categoria possui ${existing._count.devices} aparelho(s) vinculado(s). Remova-os antes de excluir.`,
-          });
-        }
-
-        await tx.deviceCategory.delete({ where: { id: input.id } });
-        return { success: true };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // DEVICES
-  // ═══════════════════════════════════════
-
-  listDevices: tenantProcedure
-    .input(listDevicesSchema)
-    .query(async ({ ctx, input }) => {
-      const page = input.page ?? 0;
-      const pageSize = input.pageSize ?? 10;
-
-      return ctx.withTenant(async (tx) => {
-        const where: Prisma.DeviceWhereInput = { deletedAt: null };
-
-        if (input.active !== undefined) {
-          where.active = input.active;
-        }
-
-        if (input.categoryId) {
-          where.categoryId = input.categoryId;
-        }
-
-        if (input.search?.trim()) {
-          const term = input.search.trim();
-          where.OR = [
-            { brand: { contains: term, mode: "insensitive" } },
-            { model: { contains: term, mode: "insensitive" } },
-          ];
-        }
-
-        const [data, total] = await Promise.all([
-          tx.device.findMany({
-            where,
-            orderBy: [{ brand: "asc" }, { model: "asc" }],
-            skip: page * pageSize,
-            take: pageSize,
-            include: { category: true },
-          }),
-          tx.device.count({ where }),
-        ]);
-
-        return {
-          data,
-          total,
-          pageCount: Math.ceil(total / pageSize),
-        };
-      });
-    }),
-
-  getDevice: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const device = await tx.device.findUnique({
-          where: { id: input.id },
-          include: { category: true },
-        });
-        if (!device || device.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Aparelho nao encontrado" });
-        }
-        return device;
-      });
-    }),
-
-  createDevice: tenantProcedure
-    .input(createDeviceSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        return tx.device.create({
-          data: {
-            tenantId: ctx.tenantId,
-            categoryId: input.categoryId || null,
-            brand: input.brand,
-            model: input.model,
-            attributes: input.attributes ?? undefined,
-          },
-        });
-      });
-    }),
-
-  updateDevice: tenantProcedure
-    .input(updateDeviceSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.device.findUnique({ where: { id: input.id } });
-        if (!existing || existing.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Aparelho nao encontrado" });
-        }
-
-        return tx.device.update({
-          where: { id: input.id },
-          data: {
-            categoryId: input.categoryId || null,
-            brand: input.brand,
-            model: input.model,
-            attributes: input.attributes ?? undefined,
-          },
-        });
-      });
-    }),
-
-  deleteDevice: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.device.findUnique({ where: { id: input.id } });
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Aparelho nao encontrado" });
-        }
-
-        await tx.device.update({
-          where: { id: input.id },
-          data: { deletedAt: new Date() },
-        });
-        return { success: true };
       });
     }),
 
