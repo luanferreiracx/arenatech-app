@@ -76,6 +76,11 @@ export default function EditServiceOrderPage({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; isPending: boolean; id: string }) {
+  // OS assinada = entrada com Autentique confirmada OU assinatura fisica.
+  // Quando assinada, equipamento/IMEI/problema relatado/checklist entrada
+  // viram readonly (paridade Laravel `$osAssinada`).
+  const isSigned: boolean = !!order.signatureSignedAt || !!order.physicalSignature;
+
   const { register, handleSubmit, watch, setValue } = useForm({
     defaultValues: {
       deviceType: order.deviceType ?? "",
@@ -111,16 +116,18 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
   }
 
   const doSubmit = handleSubmit((values) => {
+    // Quando OS esta assinada, preservamos os valores originais dos campos
+    // bloqueados (defesa em profundidade — o input ja e readonly).
     onSubmit({
       id,
-      deviceType: values.deviceType || null,
-      deviceBrand: values.deviceBrand || null,
-      deviceModel: values.deviceModel || null,
-      serialNumber: values.serialNumber || null,
-      imei: values.imei || null,
-      devicePassword: values.devicePassword || null,
-      accessories: values.accessories || null,
-      reportedProblem: values.reportedProblem || undefined,
+      deviceType: isSigned ? order.deviceType : (values.deviceType || null),
+      deviceBrand: isSigned ? order.deviceBrand : (values.deviceBrand || null),
+      deviceModel: isSigned ? order.deviceModel : (values.deviceModel || null),
+      serialNumber: isSigned ? order.serialNumber : (values.serialNumber || null),
+      imei: isSigned ? order.imei : (values.imei || null),
+      devicePassword: isSigned ? order.devicePassword : (values.devicePassword || null),
+      accessories: isSigned ? order.accessories : (values.accessories || null),
+      reportedProblem: isSigned ? order.reportedProblem : (values.reportedProblem || undefined),
       diagnosedProblem: values.diagnosedProblem || null,
       internalNotes: values.internalNotes || null,
       customerNotes: values.customerNotes || null,
@@ -129,9 +136,9 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
       nfseIssued: values.nfseIssued,
       nfseNumber: values.nfseNumber || null,
       estimatedDate: values.estimatedDate || null,
-      entryChecklist: entryChecklist,
+      entryChecklist: isSigned ? entryChecklist : entryChecklist,
       exitChecklist,
-      deviceInfo,
+      deviceInfo: isSigned ? deviceInfo : deviceInfo,
     });
   });
 
@@ -151,29 +158,43 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
       <form onSubmit={doSubmit} className="space-y-6">
         {/* Equipment */}
         <div className="rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold mb-4">Equipamento</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Equipamento</h3>
+            {isSigned && (
+              <span className="text-xs text-muted-foreground">
+                🔒 Bloqueado apos assinatura do cliente
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Tipo</Label>
-              <Select value={watch("deviceType")} onValueChange={(v) => setValue("deviceType", v)}>
+              <Select value={watch("deviceType")} onValueChange={(v) => setValue("deviceType", v)} disabled={isSigned}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{deviceTypeEnum.options.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2"><Label>Marca</Label><Input {...register("deviceBrand")} /></div>
-            <div className="space-y-2"><Label>Modelo</Label><Input {...register("deviceModel")} /></div>
-            <div className="space-y-2"><Label>Serial</Label><Input {...register("serialNumber")} /></div>
-            <div className="space-y-2"><Label>IMEI</Label><Input {...register("imei")} /></div>
-            <div className="space-y-2"><Label>Senha</Label><Input {...register("devicePassword")} /></div>
-            <div className="space-y-2 md:col-span-3"><Label>Acessorios</Label><Textarea {...register("accessories")} rows={2} /></div>
+            <div className="space-y-2"><Label>Marca</Label><Input {...register("deviceBrand")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label>Modelo</Label><Input {...register("deviceModel")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label>Serial</Label><Input {...register("serialNumber")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label>IMEI</Label><Input {...register("imei")} readOnly={isSigned} /></div>
+            <div className="space-y-2"><Label>Senha</Label><Input {...register("devicePassword")} readOnly={isSigned} /></div>
+            <div className="space-y-2 md:col-span-3"><Label>Acessorios</Label><Textarea {...register("accessories")} rows={2} readOnly={isSigned} /></div>
           </div>
         </div>
 
         {/* Problem */}
         <div className="rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold mb-4">Problema e Diagnostico</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Problema e Diagnostico</h3>
+            {isSigned && (
+              <span className="text-xs text-muted-foreground">
+                🔒 Problema relatado bloqueado apos assinatura
+              </span>
+            )}
+          </div>
           <div className="space-y-4">
-            <div className="space-y-2"><Label>Problema Relatado</Label><Textarea {...register("reportedProblem")} rows={3} /></div>
+            <div className="space-y-2"><Label>Problema Relatado</Label><Textarea {...register("reportedProblem")} rows={3} readOnly={isSigned} /></div>
             <div className="space-y-2"><Label>Defeito Constatado</Label><Textarea {...register("diagnosedProblem")} rows={3} /></div>
             <div className="space-y-2"><Label>Observacoes Internas</Label><Textarea {...register("internalNotes")} rows={3} /></div>
             <div className="space-y-2"><Label>Observacoes para o Cliente</Label><Textarea {...register("customerNotes")} rows={2} /></div>

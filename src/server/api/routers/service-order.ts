@@ -435,11 +435,30 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const { id, ...data } = input;
 
+        // OS assinada => bloquear edicao de equipamento/IMEI/problema relatado/
+        // entryChecklist/deviceInfo (paridade Laravel `$osAssinada`).
+        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        const lockedFields = isSigned
+          ? new Set([
+              "deviceType",
+              "deviceBrand",
+              "deviceModel",
+              "serialNumber",
+              "imei",
+              "devicePassword",
+              "accessories",
+              "reportedProblem",
+              "entryChecklist",
+              "deviceInfo",
+            ])
+          : new Set<string>();
+
         // Build update data, converting dates and handling null
-         
+
         const updateData: any = {};
         for (const [key, value] of Object.entries(data)) {
           if (value === undefined) continue;
+          if (lockedFields.has(key)) continue; // ignora silenciosamente apos assinatura
           if (key === "estimatedDate") {
             updateData[key] = value ? new Date(value as string) : null;
           } else if (key === "entryChecklist" || key === "exitChecklist" || key === "deviceInfo") {
@@ -717,6 +736,31 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // Paridade Laravel: se OS foi assinada (aparelho na loja), exigir termo
+        // de devolucao assinado (Autentique OU fisico). Admin pode forcar
+        // via input.force - sera registrado no historico como '[FORCADO]'.
+        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        const termSigned = order.returnTermSigned || order.returnTermPhysical;
+        const isAdmin = ctx.session.user.isSuperAdmin === true;
+
+        let forced = false;
+        if (isSigned && !termSigned) {
+          if (!input.force) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "O termo de devolucao deve ser assinado antes do cancelamento. Envie o termo para assinatura ou confirme a devolucao fisica.",
+            });
+          }
+          if (!isAdmin) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Apenas administradores podem forcar cancelamento sem termo de devolucao.",
+            });
+          }
+          forced = true;
+        }
+
         // Release all reserved product stock
         const releasedCount = await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
 
@@ -728,6 +772,11 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
+        const noteParts: string[] = [];
+        if (forced) noteParts.push("[FORCADO SEM TERMO DE DEVOLUCAO]");
+        noteParts.push(input.reason);
+        if (releasedCount > 0) noteParts.push(`(${releasedCount} item(ns) de estoque liberado(s))`);
+
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -735,9 +784,7 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: "CANCELLED",
-            notes: releasedCount > 0
-              ? `${input.reason} (${releasedCount} item(ns) de estoque liberado(s))`
-              : input.reason,
+            notes: noteParts.join(" "),
           },
         });
 
