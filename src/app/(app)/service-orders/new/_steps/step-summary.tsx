@@ -6,16 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { EntitySelector } from "@/components/domain/entity-selector";
-import { WARRANTY_TYPE_LABELS, warrantyTypeEnum } from "@/lib/validators/service-order";
+import { WARRANTY_TYPE_LABELS } from "@/lib/validators/service-order";
 import type { CreateServiceOrderInput } from "@/lib/validators/service-order";
 
 interface Props {
@@ -99,54 +91,26 @@ export function StepSummary({ data, onChange }: Props) {
         </div>
       </div>
 
-      {/* Warranty */}
-      <div className="rounded-lg border border-border p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <Checkbox
-            id="isWarranty"
-            checked={data.isWarranty ?? false}
-            onCheckedChange={(v) => onChange({ isWarranty: !!v })}
-          />
-          <Label htmlFor="isWarranty" className="cursor-pointer">
-            Esta OS e de garantia / retorno
-          </Label>
-        </div>
-
-        {data.isWarranty && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            <div className="space-y-2">
-              <Label>Tipo de Garantia</Label>
-              <Select
-                value={data.warrantyType ?? "return"}
-                onValueChange={(v) => onChange({ warrantyType: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {warrantyTypeEnum.options.filter((o) => o !== "none").map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {WARRANTY_TYPE_LABELS[t]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      {/* Garantia (configurada no step Equipamento) — resumo readonly */}
+      {data.isWarranty && (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+          <p className="text-sm font-semibold text-warning mb-2">OS de Garantia / Retorno</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs">Tipo</p>
+              <p>{WARRANTY_TYPE_LABELS[data.warrantyType ?? "return"]}</p>
             </div>
-            <div className="space-y-2">
-              <Label>Prazo de Garantia (meses)</Label>
-              <Input
-                type="number"
-                min={0}
-                max={120}
-                value={data.warrantyMonths ?? 3}
-                onChange={(e) =>
-                  onChange({ warrantyMonths: parseInt(e.target.value) || 3 })
-                }
-              />
+            <div>
+              <p className="text-muted-foreground text-xs">OS Original</p>
+              <p>{data.originalOrderId ? "Vinculada" : "—"}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Prazo</p>
+              <p>{data.warrantyMonths ?? 3} meses</p>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Notes & Estimated Date */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

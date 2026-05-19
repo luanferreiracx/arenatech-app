@@ -61,11 +61,11 @@ describe("deviceTypeEnum", () => {
 });
 
 describe("warrantyTypeEnum", () => {
-  it("accepts valid warranty types", () => {
+  it("accepts valid warranty types (paridade Laravel)", () => {
     expect(warrantyTypeEnum.parse("none")).toBe("none");
     expect(warrantyTypeEnum.parse("return")).toBe("return");
+    expect(warrantyTypeEnum.parse("sold_product")).toBe("sold_product");
     expect(warrantyTypeEnum.parse("manufacturer")).toBe("manufacturer");
-    expect(warrantyTypeEnum.parse("extended")).toBe("extended");
   });
 });
 

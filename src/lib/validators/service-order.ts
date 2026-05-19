@@ -138,19 +138,27 @@ export const deviceTypeEnum = z.enum([
 ]);
 export type DeviceType = z.infer<typeof deviceTypeEnum>;
 
+/**
+ * Tipo de garantia da OS. Paridade 1:1 com Laravel `tipo_garantia`:
+ *   retorno_servico → "return"
+ *   produto_vendido → "sold_product"
+ *   fabricante      → "manufacturer"
+ *
+ * `none` continua disponivel para OS sem garantia (= `isWarranty=false`).
+ */
 export const warrantyTypeEnum = z.enum([
   "none",
-  "return",      // retorno de servico (garantia do proprio servico)
-  "manufacturer", // garantia de fabrica
-  "extended",     // garantia estendida
+  "return",        // Retorno de servico (a propria loja fez o servico anteriormente)
+  "sold_product",  // Produto vendido na loja
+  "manufacturer",  // Garantia de fabrica
 ]);
 export type WarrantyType = z.infer<typeof warrantyTypeEnum>;
 
 export const WARRANTY_TYPE_LABELS: Record<string, string> = {
   none: "Sem Garantia",
   return: "Retorno de Servico",
-  manufacturer: "Garantia de Fabrica",
-  extended: "Garantia Estendida",
+  sold_product: "Produto Vendido na Loja",
+  manufacturer: "Garantia de Fabricante",
 };
 
 // ── Checklist ──
