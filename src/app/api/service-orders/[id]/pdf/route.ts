@@ -47,7 +47,7 @@ export async function GET(
       });
     });
 
-    const [tenant, settings] = await Promise.all([
+    const [tenant, settings, assistance] = await Promise.all([
       withAdmin(async (tx) => tx.tenant.findUnique({
         where: { id: tenantId },
         select: { name: true, cnpj: true },
@@ -55,6 +55,12 @@ export async function GET(
       withTenant(tenantId, async (tx) => tx.tenantSettings.findUnique({
         where: { tenantId },
         select: { tradeName: true, cnpj: true, phone: true, logoUrl: true },
+      })),
+      // Termos de servico e politica de garantia configuraveis (paridade com
+      // Laravel `configuracoes.chave='termos_os'`).
+      withTenant(tenantId, async (tx) => tx.tenantAssistanceSettings.findUnique({
+        where: { tenantId },
+        select: { termsOfService: true, warrantyPolicy: true },
       })),
     ]);
 
@@ -276,6 +282,18 @@ export async function GET(
       </div>
     </div>
   </div>
+
+  ${assistance?.termsOfService ? `
+  <div class="section" style="margin-top: 10px;">
+    <div class="section-title">TERMOS E CONDICOES</div>
+    <div class="field-value" style="font-size: 7.5pt; line-height: 1.25; padding: 4px; white-space: pre-wrap;">${esc(assistance.termsOfService)}</div>
+  </div>` : ""}
+
+  ${assistance?.warrantyPolicy ? `
+  <div class="section" style="margin-top: 6px;">
+    <div class="section-title">POLITICA DE GARANTIA</div>
+    <div class="field-value" style="font-size: 7.5pt; line-height: 1.25; padding: 4px; white-space: pre-wrap;">${esc(assistance.warrantyPolicy)}</div>
+  </div>` : ""}
 
   <div class="assinatura-box">
     <strong>ASSINATURA DO CLIENTE</strong><br>
