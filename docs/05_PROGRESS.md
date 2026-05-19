@@ -262,6 +262,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-19 — OS: 7 MEDIUMS DA AUDITORIA FINAL RESOLVIDOS (6a rodada)
+
+Última camada de polimento da auditoria. Todos os 7 mediums implementados:
+
+- **M1 — CNPJ/CPF formatados nos PDFs**: novo helper `formatCnpj()` / `formatCpf()` em [src/lib/utils.ts](src/lib/utils.ts). Aplicado nos 5 PDFs (pdf principal, recibo, termo-entrega, termo-devolução, quote-pdf). Documentos oficiais agora têm formato `00.000.000/0000-00` e `000.000.000-00`.
+- **M2 — quote-pdf paridade Laravel**: layout reescrito com caixas temáticas dedicadas (verde "JÁ APROVADOS", amarelo "AGUARDANDO APROVAÇÃO", verde com texto declaratório "Eu, [nome], APROVO..." quando approved, vermelho quando rejected).
+- **M3 — Schema NFS-e timestamp**: novos campos `nfseIssuedAt` + `nfseAttachmentPath` no `ServiceOrder`. `update` captura transição `false→true` e seta `nfseIssuedAt = now()`. Migration aplicada.
+- **M4 — Tabela OS com filtros data + telefone alt**: inputs `<Input type="date">` (de/até) ligados ao backend `dateFrom`/`dateTo` que já existiam no schema. Coluna Cliente mostra `phoneSecondary` com sufixo "(alt)" quando preenchido.
+- **M5 — Card Datas consolidado**: novo card na coluna lateral do detalhe entre Pagamento e Custos com Entrada, Previsão, Conclusão e Entrega. Paridade `show.blade.php:1666-1691`.
+- **M6 — PDF principal com técnico/pagamento/conclusão**: seção SERVIÇOS E VALORES agora inclui Técnico Responsável, Forma de Pagamento e Data de Conclusão.
+- **M7 — Botão Excluir admin only**: quando OS está CANCELLED e usuário é admin (`viewerIsAdmin` do `getById`), botão "Excluir" aparece no header. Dialog de confirmação alerta sobre permanência. Paridade `show.blade.php:582-590`. Backend `delete` já bloqueia se há OS de garantia vinculada (C6 da rodada anterior).
+
+**Sweep extra adicionado:** `viewerIsAdmin` no return de `getById` para evitar `useSession` no client (SessionProvider não configurado).
+
+**Validação:** typecheck ✓ | 629 unit ✓ | 14/14 E2E OS ✓ | build ✓
+**Commits:** 4 (PDFs, schema+backend, UI tabela+detail, progress)
+
+**STATUS DA AUDIT FINAL:** 4 críticos + 7 highs (6 entregues + 1 TODO bloqueado) + 7 mediums = **17/18 issues resolvidos**. Único pendente: H2 (notificar técnico WhatsApp) aguarda `phone` no User schema.
+
+---
+
 ### 2026-05-19 — OS: 7 HIGHS DA AUDITORIA FINAL RESOLVIDOS (5a rodada)
 
 Após os 4 críticos, atacados os 7 highs do `/review-project`. 6 implementados, 1 com TODO documentado:
