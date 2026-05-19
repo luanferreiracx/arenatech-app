@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { UserPlus } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { EntitySelector } from "@/components/domain/entity-selector";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { CustomerForm } from "@/app/(app)/customers/_components/customer-form";
 import type { CreateServiceOrderInput } from "@/lib/validators/service-order";
 
 interface Props {
@@ -21,6 +29,8 @@ interface CustomerOption {
 export function StepCustomer({ data, onChange }: Props) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [justCreatedLabel, setJustCreatedLabel] = useState<string | null>(null);
 
   const searchCustomers = useCallback(
     async (query: string): Promise<CustomerOption[]> => {
@@ -37,7 +47,7 @@ export function StepCustomer({ data, onChange }: Props) {
         phone: c.phone,
       }));
     },
-    [trpc.customer.list, queryClient]
+    [trpc.customer.list, queryClient],
   );
 
   return (
@@ -57,14 +67,39 @@ export function StepCustomer({ data, onChange }: Props) {
           getOptionValue={(c) => c.id}
           placeholder="Buscar por nome, CPF ou telefone..."
           emptyMessage="Nenhum cliente encontrado."
+          initialLabel={justCreatedLabel}
         />
         <p className="text-sm text-muted-foreground mt-2">
           Cliente nao encontrado?{" "}
-          <a href="/customers/new" target="_blank" className="text-primary hover:underline">
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            className="text-primary hover:underline inline-flex items-center gap-1"
+          >
+            <UserPlus className="h-3 w-3" />
             Cadastre aqui
-          </a>
+          </button>
         </p>
       </div>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto p-6">
+          <SheetHeader>
+            <SheetTitle>Cadastrar novo cliente</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">
+            <CustomerForm
+              mode="create"
+              onSuccess={(customer) => {
+                onChange({ customerId: customer.id });
+                setJustCreatedLabel(customer.name);
+                setSheetOpen(false);
+              }}
+              onCancel={() => setSheetOpen(false)}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

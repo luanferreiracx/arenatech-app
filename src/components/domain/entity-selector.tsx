@@ -25,6 +25,8 @@ interface EntitySelectorProps<T> {
   placeholder?: string;
   emptyMessage?: string;
   className?: string;
+  /** Rotulo inicial para exibir quando o `value` ja existe mas o entity ainda nao foi carregado. */
+  initialLabel?: string | null;
 }
 
 export function EntitySelector<T>({
@@ -37,12 +39,13 @@ export function EntitySelector<T>({
   placeholder = "Selecionar...",
   emptyMessage = "Nenhum resultado.",
   className,
+  initialLabel,
 }: EntitySelectorProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(initialLabel ?? null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(
@@ -78,7 +81,7 @@ export function EntitySelector<T>({
     return found ? getOptionLabel(found) : null;
   }, [value, items, getOptionLabel, getOptionValue]);
 
-  const displayLabel = derivedLabel ?? selectedLabel;
+  const displayLabel = derivedLabel ?? selectedLabel ?? initialLabel ?? null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

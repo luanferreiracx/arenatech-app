@@ -38,9 +38,13 @@ interface CustomerFormProps {
   mode: "create" | "edit";
   customerId?: string;
   defaultValues?: Partial<CreateCustomerInput>;
+  /** Quando preenchido, chamado apos sucesso em vez de navegar. Util em modais. */
+  onSuccess?: (customer: { id: string; name: string }) => void;
+  /** Quando preenchido, substitui o botao "Cancelar" que vai para /customers. */
+  onCancel?: () => void;
 }
 
-export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormProps) {
+export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCancel }: CustomerFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const trpc = useTRPC();
@@ -59,10 +63,14 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
 
   const createMutation = useMutation(
     trpc.customer.create.mutationOptions({
-      onSuccess: (data: { id: string }) => {
+      onSuccess: (data: { id: string; name: string }) => {
         toast.success("Cliente cadastrado com sucesso!");
         void queryClient.invalidateQueries({ queryKey: trpc.customer.list.queryKey() });
-        router.push(`/customers/${data.id}`);
+        if (onSuccess) {
+          onSuccess(data);
+        } else {
+          router.push(`/customers/${data.id}`);
+        }
       },
       onError: (error: { message: string }) => {
         toast.error(error.message);
@@ -75,7 +83,11 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
       onSuccess: () => {
         toast.success("Cliente atualizado com sucesso!");
         void queryClient.invalidateQueries({ queryKey: trpc.customer.list.queryKey() });
-        router.push(`/customers/${customerId}`);
+        if (onSuccess && customerId) {
+          onSuccess({ id: customerId, name: form.getValues("name") });
+        } else {
+          router.push(`/customers/${customerId}`);
+        }
       },
       onError: (error: { message: string }) => {
         toast.error(error.message);
@@ -271,7 +283,7 @@ export function CustomerForm({ mode, customerId, defaultValues }: CustomerFormPr
 
       <FormActions
         submitLabel={mode === "create" ? "Cadastrar cliente" : "Salvar alterações"}
-        onCancel={() => router.push("/customers")}
+        onCancel={onCancel ?? (() => router.push("/customers"))}
         isLoading={isLoading}
       />
     </form>

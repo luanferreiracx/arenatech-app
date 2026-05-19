@@ -174,8 +174,8 @@ test.describe("OS — Wizard de Criação", () => {
     await expect(page.locator("main")).toContainText(/Nova Ordem de Servi[cç]o/i, { timeout: 10000 });
     // EntitySelector combobox is present
     await expect(page.locator("[role='combobox']").first()).toBeVisible({ timeout: 10000 });
-    // "Cadastre aqui" link present
-    await expect(page.locator("a[href='/customers/new']")).toBeVisible({ timeout: 5000 });
+    // "Cadastre aqui" agora abre Sheet inline (botao, nao link)
+    await expect(page.locator("button", { hasText: /Cadastre aqui/i })).toBeVisible({ timeout: 5000 });
   });
 
   test("@business T-07 wizard step 2 preenche campos de equipamento e avança", async ({ page }) => {
