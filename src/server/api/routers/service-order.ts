@@ -736,15 +736,15 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Paridade Laravel: se OS foi assinada (aparelho na loja), exigir termo
-        // de devolucao assinado (Autentique OU fisico). Admin pode forcar
-        // via input.force - sera registrado no historico como '[FORCADO]'.
-        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        // Paridade Laravel (`OrdemServicoController::cancelar`): TODA OS tem
+        // aparelho fisico do cliente — exige termo de devolucao assinado
+        // (Autentique OU fisico) antes do cancelamento. Admin pode forcar
+        // via input.force - registrado como '[FORCADO]' no historico.
         const termSigned = order.returnTermSigned || order.returnTermPhysical;
         const isAdmin = ctx.session.user.isSuperAdmin === true;
 
         let forced = false;
-        if (isSigned && !termSigned) {
+        if (!termSigned) {
           if (!input.force) {
             throw new TRPCError({
               code: "BAD_REQUEST",
@@ -906,6 +906,16 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND" });
         }
 
+        // Paridade Laravel `OrdemServicoController::adicionarItem`: bloqueia em
+        // estados finalizados — adicionar item depois recalcula totais e reserva
+        // estoque indevido em OS ja paga/entregue/cancelada/estornada.
+        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `OS nao pode receber novos itens no status atual.`,
+          });
+        }
+
         const itemTotal = input.unitPrice * input.quantity;
 
         // Reserve stock for product items
@@ -959,6 +969,18 @@ export const serviceOrderRouter = createTRPCRouter({
         const item = await tx.serviceOrderItem.findUnique({ where: { id: input.id } });
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
 
+        // Consistencia com add/remove: nao alterar item em OS finalizada.
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: item.orderId },
+          select: { status: true },
+        });
+        if (order && ["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "OS nao pode ter itens alterados no status atual.",
+          });
+        }
+
         const quantity = input.quantity ?? Number(item.quantity);
         const unitPrice = input.unitPrice !== undefined ? input.unitPrice : decimalToCents(item.unitPrice);
         const total = unitPrice * quantity;
@@ -986,6 +1008,19 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const item = await tx.serviceOrderItem.findUnique({ where: { id: input.id } });
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Paridade Laravel `OrdemServicoController::removerItem`: nao remover item
+        // de OS ja paga ou entregue (quebraria historico financeiro).
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: item.orderId },
+          select: { status: true },
+        });
+        if (order && ["PAID", "DELIVERED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "OS ja paga nao pode ter itens removidos.",
+          });
+        }
 
         // Release stock for product items
         if (item.type === "PRODUCT" && item.productId) {
@@ -1319,6 +1354,17 @@ export const serviceOrderRouter = createTRPCRouter({
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: { sentToLab: false, labReceived: false, deliveryPersonId: null },
+        });
+        // Paridade Laravel: registrar evento no historico para rastreabilidade.
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: null,
+            newStatus: "IN_PROGRESS",
+            notes: "Envio para laboratorio externo cancelado",
+          },
         });
         return { success: true };
       });
