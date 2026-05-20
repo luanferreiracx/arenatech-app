@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidTaxId } from "@/lib/utils/tax-id";
 
 // ── Enums ──
 
@@ -42,7 +43,9 @@ export const createWithdrawSchema = z.object({
   pixKeyType: pixKeyTypeEnum,
   pixKey: z.string().min(1, "Chave PIX obrigatoria").max(255),
   recipientName: z.string().max(200).optional().nullable(),
-  recipientTaxId: z.string().min(11).max(18),
+  recipientTaxId: z.string().min(11).max(18).refine(isValidTaxId, {
+    message: "CPF ou CNPJ invalido (digito verificador nao confere)",
+  }),
   notes: z.string().max(500).optional().nullable(),
   /** Value in reais (not centavos) */
   requestedAmount: z.number().min(2, "Valor minimo R$ 2,00").max(6000, "Valor maximo R$ 6.000,00"),
