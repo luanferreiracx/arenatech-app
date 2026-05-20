@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — COMISSOES: socio rules + lock CAS apuracao + export CSV (Onda 2, modulo 3/4)
+
+Modulo Comissoes maduro: 10 procedures commission + 11 provider-commission + 6 models + 8 paginas. Auditoria contra `ComissaoController`, `SocioComissaoController`, `PrestadorComissaoController`, `ComissaoEngine` Laravel. 3 gaps endereçados:
+
+- **G1 — SocioCommissionRule (novo):** Paridade Laravel `socio_regras_comissao` (caso Samya). Schema novo com `(tenantId, userId, category)` unique + `rate Decimal(5,2)` + `active`. 6 categorias: PRODUTO_ACESSORIO, APARELHO, SERVICO_AT_SEM_PECA, SERVICO_AT_COM_PECA, INTERMEDIACAO_AT, OUTROS. Procedures `listSocioRules`, `upsertSocioRule`, `deleteSocioRule` (apenas owner).
+- **G2 — Lock CAS em closeApuracao:** Risco real era findFirst + update em 2 etapas — 2 chamadas concorrentes poderiam criar PAYABLE duplicada. Solucao: novo status transitorio `CLOSING` no enum + updateMany atomico (where status=OPEN) como CAS. Postgres serializa o UPDATE; somente 1 chamada ve count=1. As demais recebem CONFLICT. Rollback automatico (CLOSING → OPEN) se algo falhar entre lock e commit.
+- **G3 — Export CSV:** Rota `/api/commissions/export?year=&month=&status=&userId=` gera CSV com BOM UTF-8 + separador `;` + valores BR. Resolve nomes de usuarios via `withAdmin` (cross-tenant). Botao "Exportar CSV" na pagina /commissions. Paridade `ComissaoController::exportarCsv`.
+
+**Fora do escopo (decisao do dono):** Auto-link de estornos a apuracao fechada (ja existe em closeApuracao, linhas 637-647). Engine compartilhado entre commission e provider-commission (refactor grande, fica para Onda 3).
+
+**Validacao:** typecheck OK | 620 unit OK | build OK
+**Commits:** 1 (`cfdd1f9`)
+
+---
+
 ### 2026-05-20 — SETTINGS: assistencia expandida + security + notifications + audit (Onda 2, modulo 2/4)
 
 Módulo Settings já era robusto (18 procedures, 15 páginas). Auditoria contra `ConfiguracaoController` + `ConfiguracaoAssistencia` + `ConfiguracaoRecebimento`. 4 gaps endereçados:
