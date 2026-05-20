@@ -9,6 +9,7 @@ import {
   sendBatchSchema,
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
+import { sendTextMessage } from "@/lib/services/whatsapp-service";
 
 export const interestRouter = createTRPCRouter({
   // SPEC 4.5: List interests with filters and stats
@@ -245,6 +246,7 @@ export const interestRouter = createTRPCRouter({
     }),
 
   // SPEC Fluxo 7: Send WhatsApp batch (RN-10, RN-11, RN-12)
+  // Integra com communicationRouter / whatsapp-service real.
   sendBatch: tenantProcedure
     .input(sendBatchSchema)
     .mutation(async ({ ctx, input }) => {
@@ -257,15 +259,44 @@ export const interestRouter = createTRPCRouter({
         let errors = 0;
 
         for (const interest of interests) {
+          if (!interest.phone) {
+            errors++;
+            logger.warn("Interest sem telefone", { interestId: interest.id });
+            continue;
+          }
           try {
-            // TODO: Replace with real CommunicationService.sendBatch when module is specified
-            // Stub: log and count as success
-            logger.info("WhatsApp batch stub", {
-              tenantId: ctx.tenantId,
-              interestId: interest.id,
-              phone: interest.phone,
-              message: input.message,
+            // Cria Message real no modulo de comunicacao (WHATSAPP)
+            const message = await tx.message.create({
+              data: {
+                tenantId: ctx.tenantId,
+                channel: "WHATSAPP",
+                direction: "OUTBOUND",
+                status: "PENDING",
+                recipientPhone: interest.phone,
+                recipientName: interest.customerName,
+                body: input.message,
+                referenceId: interest.id,
+                referenceType: "interest",
+                createdById: ctx.session.user.id,
+              },
             });
+
+            // Envia via Evolution (whatsapp-service). Falha de envio nao reverte a tx.
+            const result = await sendTextMessage(interest.phone, input.message);
+            await tx.message.update({
+              where: { id: message.id },
+              data: {
+                status: result.success ? "SENT" : "FAILED",
+                providerMessageId: result.messageId ?? null,
+                errorMessage: result.error ?? null,
+                sentAt: result.success ? new Date() : null,
+              },
+            });
+
+            if (!result.success) {
+              errors++;
+              continue;
+            }
 
             // SPEC RN-12: create interaction for each successful send
             await tx.interestInteraction.create({
@@ -278,13 +309,14 @@ export const interestRouter = createTRPCRouter({
               },
             });
 
-            // SPEC RN-10: WAITING → CONTACTED
-            if (interest.status === "WAITING") {
-              await tx.interest.update({
-                where: { id: interest.id },
-                data: { status: "CONTACTED" },
-              });
-            }
+            // SPEC RN-10: WAITING → CONTACTED + registrar lastNotifiedAt
+            await tx.interest.update({
+              where: { id: interest.id },
+              data: {
+                status: interest.status === "WAITING" ? "CONTACTED" : interest.status,
+                lastNotifiedAt: new Date(),
+              },
+            });
 
             sent++;
           } catch (e) {
@@ -297,6 +329,68 @@ export const interestRouter = createTRPCRouter({
         }
 
         return { sent, errors };
+      });
+    }),
+
+  /**
+   * Marca interesse como convertido em venda ou OS.
+   * Usado quando um cliente que tinha interesse efetivamente comprou/contratou.
+   */
+  markConverted: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      saleId: z.string().uuid().optional(),
+      osId: z.string().uuid().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!input.saleId && !input.osId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Forneca saleId ou osId" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.interest.update({
+          where: { id: input.id },
+          data: {
+            status: "COMPLETED",
+            convertedAt: new Date(),
+            convertedToSaleId: input.saleId ?? null,
+            convertedToOsId: input.osId ?? null,
+          },
+        });
+      });
+    }),
+
+  /**
+   * Stats agregadas com taxa de conversao e aging por status.
+   */
+  conversionStats: tenantProcedure
+    .input(z.object({ from: z.string().optional(), to: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Record<string, unknown> = {};
+        if (input?.from || input?.to) {
+          const range: Record<string, Date> = {};
+          if (input.from) range.gte = new Date(input.from);
+          if (input.to) range.lte = new Date(input.to);
+          where.createdAt = range;
+        }
+        const [total, completed, converted, byStatus] = await Promise.all([
+          tx.interest.count({ where }),
+          tx.interest.count({ where: { ...where, status: "COMPLETED" } }),
+          tx.interest.count({ where: { ...where, convertedAt: { not: null } } }),
+          tx.interest.groupBy({
+            by: ["status"],
+            where,
+            _count: true,
+          }),
+        ]);
+        const conversionRate = total > 0 ? Math.round((converted / total) * 100) : 0;
+        return {
+          total,
+          completed,
+          converted,
+          conversionRate,
+          byStatus: byStatus.map((b) => ({ status: b.status, count: b._count })),
+        };
       });
     }),
 });
