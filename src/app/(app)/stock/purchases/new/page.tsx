@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,8 @@ export default function NewPurchasePage() {
     defaultValues: {
       productId: null,
       customerId: null,
+      supplierId: null,
+      sellerType: "customer",
       imei: "",
       serial: "",
       brand: "",
@@ -52,8 +55,13 @@ export default function NewPurchasePage() {
       purchasePrice: 0,
       salePrice: null,
       notes: "",
+      generatePayable: false,
+      payableInstallments: 1,
+      payableFirstDueDate: new Date().toISOString().slice(0, 10),
     },
   });
+
+  const generatePayable = form.watch("generatePayable");
 
   const mutation = useMutation(
     trpc.stock.createPurchase.mutationOptions({
@@ -217,6 +225,72 @@ export default function NewPurchasePage() {
                 )}
               />
             </div>
+          </FormSection>
+
+          <FormSection title="Conta a Pagar">
+            <FormField
+              control={form.control}
+              name="generatePayable"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>Gerar conta a pagar automaticamente</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Cria uma transação PAYABLE no financeiro com o valor da compra. Útil para compras a prazo de fornecedores.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            {generatePayable && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <FormField
+                  control={form.control}
+                  name="payableInstallments"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Número de parcelas</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={36}
+                          {...field}
+                          value={field.value ?? 1}
+                          onChange={(e) => field.onChange(Number(e.target.value) || 1)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="payableFirstDueDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vencimento da 1ª parcela</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
           </FormSection>
 
           <FormSection title="Observacoes">

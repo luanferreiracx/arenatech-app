@@ -456,7 +456,7 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /** Create device purchase — atomically adds stock entry */
+  /** Create device purchase — atomically adds stock entry and optionally a PAYABLE */
   createPurchase: tenantProcedure
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
@@ -466,6 +466,8 @@ export const stockRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             productId: input.productId || null,
             customerId: input.customerId || null,
+            supplierId: input.supplierId || null,
+            sellerType: input.sellerType ?? (input.supplierId ? "supplier" : "customer"),
             imei: input.imei || null,
             serial: input.serial || null,
             brand: input.brand || null,
@@ -493,6 +495,61 @@ export const stockRouter = createTRPCRouter({
               userId: ctx.session.user.id,
             },
           });
+        }
+
+        // Gera PAYABLE quando solicitado
+        if (input.generatePayable && input.purchasePrice > 0) {
+          let sellerName = "Fornecedor não identificado";
+          if (input.supplierId) {
+            const sup = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { name: true } });
+            sellerName = sup?.name ?? sellerName;
+          } else if (input.customerId) {
+            const cust = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
+            sellerName = cust?.name ?? sellerName;
+          }
+          const installmentsCount = input.payableInstallments ?? 1;
+          const firstDate = input.payableFirstDueDate ? new Date(input.payableFirstDueDate) : new Date();
+          const totalCents = input.purchasePrice;
+          const installmentAmount = Math.round(totalCents / installmentsCount);
+          const remainder = totalCents - installmentAmount * installmentsCount;
+          const descModel = [input.brand, input.model].filter(Boolean).join(" ");
+          const description = `Compra ${descModel || "aparelho"}${input.imei ? ` — IMEI ${input.imei}` : ""}`;
+
+          const transaction = await tx.financialTransaction.create({
+            data: {
+              tenantId: ctx.tenantId,
+              type: "PAYABLE",
+              status: "PENDING",
+              description,
+              supplierId: input.supplierId ?? undefined,
+              supplier: sellerName,
+              customerId: input.customerId ?? undefined,
+              totalAmount: new Prisma.Decimal(totalCents).div(100),
+              paidAmount: new Prisma.Decimal(0),
+              installmentsTotal: installmentsCount,
+              dueDate: firstDate,
+              emissionDate: new Date(),
+              referenceType: "device_purchase",
+              referenceId: purchase.id,
+              createdByUserId: ctx.session.user.id,
+            },
+          });
+
+          const installments = Array.from({ length: installmentsCount }, (_, i) => {
+            const dueDate = new Date(firstDate);
+            dueDate.setMonth(dueDate.getMonth() + i);
+            const amountCents = i === installmentsCount - 1 ? installmentAmount + remainder : installmentAmount;
+            return {
+              tenantId: ctx.tenantId,
+              transactionId: transaction.id,
+              number: i + 1,
+              amount: new Prisma.Decimal(amountCents).div(100),
+              paidAmount: new Prisma.Decimal(0),
+              dueDate,
+              status: "PENDING" as const,
+            };
+          });
+          await tx.installment.createMany({ data: installments });
         }
 
         return purchase;
@@ -552,6 +609,34 @@ export const stockRouter = createTRPCRouter({
               referenceType: "device_purchase_cancel",
               userId: ctx.session.user.id,
             },
+          });
+        }
+
+        // Cancel related PAYABLE if any (and pending installments)
+        const relatedPayables = await tx.financialTransaction.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            type: "PAYABLE",
+            referenceType: "device_purchase",
+            referenceId: purchase.id,
+            status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+          },
+          select: { id: true },
+        });
+        if (relatedPayables.length > 0) {
+          const ids = relatedPayables.map((p) => p.id);
+          await tx.financialTransaction.updateMany({
+            where: { id: { in: ids } },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: `Compra cancelada — ${input.reason}`,
+            },
+          });
+          await tx.installment.updateMany({
+            where: { transactionId: { in: ids }, status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] } },
+            data: { status: "CANCELLED" },
           });
         }
 

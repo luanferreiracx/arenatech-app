@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/domain/page-header";
 import Link from "next/link";
-import { Plus, TrendingUp } from "lucide-react";
+import { Plus, TrendingUp, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FinancialDashboard } from "./_components/financial-dashboard";
 
@@ -16,6 +16,12 @@ export default function FinancialPage() {
         subtitle="Gerencie contas a pagar e a receber"
         actions={
           <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <a href="/api/financial/export?type=transactions">
+                <Download className="mr-2 h-4 w-4" />
+                Exportar CSV
+              </a>
+            </Button>
             <Button variant="outline" asChild>
               <Link href="/financial/cash-flow">
                 <TrendingUp className="mr-2 h-4 w-4" />

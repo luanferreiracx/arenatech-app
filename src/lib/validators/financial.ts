@@ -106,6 +106,8 @@ export type PayInstallmentInput = z.infer<typeof payInstallmentSchema>;
 export const reverseInstallmentSchema = z.object({
   installmentId: z.string().uuid(),
   reason: z.string().min(3, "Motivo deve ter no minimo 3 caracteres").max(500),
+  // Estorno parcial: valor em centavos a ser estornado. Se omitido, estorna o total pago.
+  amount: z.number().int().min(1).optional(),
 });
 
 export type ReverseInstallmentInput = z.infer<typeof reverseInstallmentSchema>;

@@ -466,7 +466,12 @@ export const financialRouter = createTRPCRouter({
       });
     }),
 
-  /** Reverse (estornar) a paid installment */
+  /**
+   * Reverse (estornar) an installment payment — supports partial reversal.
+   * Se input.amount não for fornecido, estorna o valor pago total.
+   * Se for fornecido, estorna apenas esse valor (em centavos) — paridade Laravel
+   * ContaReceberParcela::estornoParcial.
+   */
   reverseInstallment: tenantProcedure
     .input(reverseInstallmentSchema)
     .mutation(async ({ ctx, input }) => {
@@ -480,24 +485,39 @@ export const financialRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Parcela nao encontrada" });
         }
 
-        if (installment.status !== "PAID") {
+        // Permite estornar tanto PAID quanto PARTIALLY_PAID (parcelas com pagamento parcial)
+        if (!["PAID", "PARTIALLY_PAID"].includes(installment.status)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Apenas parcelas pagas podem ser estornadas",
+            message: "Apenas parcelas pagas (integral ou parcialmente) podem ser estornadas",
           });
         }
 
-        const reversedAmount = decimalToCents(installment.paidAmount);
+        const currentPaidCents = decimalToCents(installment.paidAmount);
+        if (currentPaidCents <= 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Parcela não possui valor pago para estornar" });
+        }
+
+        const reversedAmount = input.amount ?? currentPaidCents;
+        if (reversedAmount > currentPaidCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Valor de estorno excede o pago (R$ ${(currentPaidCents / 100).toFixed(2)})`,
+          });
+        }
+
+        const newPaidCents = currentPaidCents - reversedAmount;
+        const isFullReversal = newPaidCents === 0;
         const originalPaymentMethod = installment.paymentMethod;
 
         await tx.installment.update({
           where: { id: input.installmentId },
           data: {
-            paidAmount: new Prisma.Decimal(0),
-            paidAt: null,
-            paymentMethod: null,
-            status: "PENDING",
-            notes: `${installment.notes ?? ""} | Estornado: ${input.reason}`.trim(),
+            paidAmount: centsToPrismaDecimal(newPaidCents),
+            paidAt: isFullReversal ? null : installment.paidAt,
+            paymentMethod: isFullReversal ? null : installment.paymentMethod,
+            status: isFullReversal ? "PENDING" : "PARTIALLY_PAID",
+            notes: `${installment.notes ?? ""} | Estorno ${isFullReversal ? "total" : "parcial"} R$ ${(reversedAmount / 100).toFixed(2)}: ${input.reason}`.trim(),
           },
         });
 
@@ -521,7 +541,7 @@ export const financialRouter = createTRPCRouter({
               amount: centsToPrismaDecimal(reversedAmount),
               nature: isReceivable ? "OUTCOME" : "INCOME",
               paymentMethod: originalPaymentMethod ?? "outros",
-              description: `Estorno parcela #${installment.number} - ${isReceivable ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
+              description: `Estorno ${isFullReversal ? "total" : "parcial"} parcela #${installment.number} - ${isReceivable ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
               referenceType: "installment_reversal",
               referenceId: installment.id,
               createdByUserId: userId,
@@ -529,7 +549,7 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
-        return { success: true };
+        return { success: true, reversedAmount, isFullReversal };
       });
     }),
 
@@ -1483,6 +1503,75 @@ export const financialRouter = createTRPCRouter({
         });
 
         return { id: transaction.id };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // PURCHASE PAYABLE (conta a pagar por compra de aparelho)
+  // ═══════════════════════════════════════
+
+  /**
+   * @public-api Consumed by Stock module (createPurchase).
+   * Creates a PAYABLE transaction from a device purchase with optional installments.
+   * Used when admin records a purchase that will be paid to the seller (customer or supplier).
+   */
+  createPayableFromPurchase: tenantProcedure
+    .input(z.object({
+      purchaseId: z.string().uuid(),
+      supplierId: z.string().uuid().optional().nullable(),
+      customerId: z.string().uuid().optional().nullable(),
+      sellerName: z.string().min(1).max(200),
+      description: z.string().min(1).max(300),
+      totalAmount: z.number().int().min(1), // centavos
+      installments: z.number().int().min(1).max(36).default(1),
+      firstDueDate: z.string(), // ISO date
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const totalDecimal = centsToPrismaDecimal(input.totalAmount);
+        const installmentAmount = Math.round(input.totalAmount / input.installments);
+        const remainder = input.totalAmount - installmentAmount * input.installments;
+        const firstDate = new Date(input.firstDueDate);
+
+        const transaction = await tx.financialTransaction.create({
+          data: {
+            tenantId: ctx.tenantId,
+            type: "PAYABLE",
+            status: "PENDING",
+            description: input.description,
+            supplierId: input.supplierId ?? undefined,
+            supplier: input.sellerName,
+            customerId: input.customerId ?? undefined,
+            totalAmount: totalDecimal,
+            paidAmount: new Prisma.Decimal(0),
+            installmentsTotal: input.installments,
+            dueDate: firstDate,
+            emissionDate: new Date(),
+            referenceType: "device_purchase",
+            referenceId: input.purchaseId,
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        const installments = Array.from({ length: input.installments }, (_, i) => {
+          const dueDate = new Date(firstDate);
+          dueDate.setMonth(dueDate.getMonth() + i);
+          // Adiciona o resto na última parcela para fechar o total
+          const amount = i === input.installments - 1 ? installmentAmount + remainder : installmentAmount;
+          return {
+            tenantId: ctx.tenantId,
+            transactionId: transaction.id,
+            number: i + 1,
+            amount: centsToPrismaDecimal(amount),
+            paidAmount: new Prisma.Decimal(0),
+            dueDate,
+            status: "PENDING" as const,
+          };
+        });
+
+        await tx.installment.createMany({ data: installments });
+
+        return { id: transaction.id, installments: installments.length };
       });
     }),
 });

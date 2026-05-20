@@ -73,6 +73,8 @@ export type ListMovementsInput = z.infer<typeof listMovementsSchema>;
 export const createDevicePurchaseSchema = z.object({
   productId: z.string().uuid().optional().nullable(),
   customerId: z.string().uuid().optional().nullable(),
+  supplierId: z.string().uuid().optional().nullable(),
+  sellerType: z.enum(["customer", "supplier"]).optional(),
   imei: z.string().max(20).optional().nullable(),
   serial: z.string().max(50).optional().nullable(),
   brand: z.string().max(100).optional().nullable(),
@@ -82,6 +84,10 @@ export const createDevicePurchaseSchema = z.object({
   purchasePrice: z.number().int().min(0, "Preco de compra deve ser positivo"), // centavos
   salePrice: z.number().int().min(0).optional().nullable(), // centavos
   notes: z.string().max(500).optional().nullable(),
+  // Quando true, gera conta a pagar (PAYABLE) automaticamente com o valor da compra
+  generatePayable: z.boolean().optional(),
+  payableInstallments: z.number().int().min(1).max(36).optional(),
+  payableFirstDueDate: z.string().optional(),
 });
 
 export type CreateDevicePurchaseInput = z.infer<typeof createDevicePurchaseSchema>;
