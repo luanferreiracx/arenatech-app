@@ -13,20 +13,29 @@ export const dashboardRouter = createTRPCRouter({
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // Periodo anterior: mes passado completo
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
       const [
         customersTotal,
         customersMonth,
+        customersPrevMonth,
         osOpen,
         osMonth,
+        osPrevMonth,
         salesToday,
         salesMonth,
+        salesPrevMonth,
         financialOverdue,
         productsLowStock,
       ] = await Promise.all([
         tx.customer.count({ where: { deletedAt: null } }),
         tx.customer.count({
           where: { createdAt: { gte: startOfMonth }, deletedAt: null },
+        }),
+        tx.customer.count({
+          where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, deletedAt: null },
         }),
         tx.serviceOrder.count({
           where: {
@@ -36,6 +45,9 @@ export const dashboardRouter = createTRPCRouter({
         }),
         tx.serviceOrder.count({
           where: { createdAt: { gte: startOfMonth }, deletedAt: null },
+        }),
+        tx.serviceOrder.count({
+          where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, deletedAt: null },
         }),
         tx.sale.findMany({
           where: {
@@ -49,6 +61,14 @@ export const dashboardRouter = createTRPCRouter({
           where: {
             status: "COMPLETED",
             createdAt: { gte: startOfMonth },
+            deletedAt: null,
+          },
+          select: { totalAmount: true },
+        }),
+        tx.sale.findMany({
+          where: {
+            status: "COMPLETED",
+            createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth },
             deletedAt: null,
           },
           select: { totalAmount: true },
@@ -73,16 +93,34 @@ export const dashboardRouter = createTRPCRouter({
 
       const salesTodayTotal = salesToday.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
       const salesMonthTotal = salesMonth.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
+      const salesPrevMonthTotal = salesPrevMonth.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
       const ticketMedio = salesMonth.length > 0 ? Math.round(salesMonthTotal / salesMonth.length) : 0;
 
+      // Calcula delta % (current vs previous). 0 prev = 100% se current > 0, senao 0.
+      const pctDelta = (curr: number, prev: number) =>
+        prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100);
+
       return {
-        customers: { total: customersTotal, month: customersMonth },
-        serviceOrders: { open: osOpen, month: osMonth },
+        customers: {
+          total: customersTotal,
+          month: customersMonth,
+          previousMonth: customersPrevMonth,
+          deltaPercent: pctDelta(customersMonth, customersPrevMonth),
+        },
+        serviceOrders: {
+          open: osOpen,
+          month: osMonth,
+          previousMonth: osPrevMonth,
+          deltaPercent: pctDelta(osMonth, osPrevMonth),
+        },
         sales: {
           todayCount: salesToday.length,
           todayTotal: salesTodayTotal,
           monthCount: salesMonth.length,
           monthTotal: salesMonthTotal,
+          previousMonthTotal: salesPrevMonthTotal,
+          previousMonthCount: salesPrevMonth.length,
+          deltaPercent: pctDelta(salesMonthTotal, salesPrevMonthTotal),
           ticketMedio,
         },
         financialOverdue,
@@ -449,6 +487,8 @@ export const dashboardRouter = createTRPCRouter({
         pendingVerification,
         lateOrdersCount,
         lowStockCount,
+        pendingCommissionsCount,
+        approvedCommissionsCount,
       ] = await Promise.all([
         // Financial: overdue receivables
         tx.installment.count({
@@ -475,6 +515,14 @@ export const dashboardRouter = createTRPCRouter({
             currentStock: 0,
           },
         }),
+        // Comissoes pendentes de aprovacao
+        tx.commission.count({
+          where: { status: "PENDING" },
+        }),
+        // Comissoes aprovadas aguardando pagamento
+        tx.commission.count({
+          where: { status: "APPROVED" },
+        }),
       ]);
 
       return {
@@ -482,7 +530,9 @@ export const dashboardRouter = createTRPCRouter({
         pendingCashierVerification: pendingVerification,
         lateServiceOrders: lateOrdersCount,
         outOfStockProducts: lowStockCount,
-        totalAlerts: overdueCount + pendingVerification + lateOrdersCount + lowStockCount,
+        pendingCommissions: pendingCommissionsCount,
+        approvedCommissions: approvedCommissionsCount,
+        totalAlerts: overdueCount + pendingVerification + lateOrdersCount + lowStockCount + pendingCommissionsCount,
       };
     });
   }),
