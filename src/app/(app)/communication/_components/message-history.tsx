@@ -28,7 +28,7 @@ export function MessageHistory() {
       page,
       pageSize: 20,
       search: search || undefined,
-      channel: channelFilter ? (channelFilter as "WHATSAPP" | "EMAIL" | "SMS") : undefined,
+      channel: channelFilter ? (channelFilter as "WHATSAPP" | "EMAIL") : undefined,
       status: statusFilter ? (statusFilter as "PENDING" | "SENT" | "DELIVERED" | "READ" | "FAILED") : undefined,
     }),
   );

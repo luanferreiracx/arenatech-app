@@ -2,7 +2,9 @@ import { z } from "zod";
 
 // ── Enums ──
 
-export const messageChannelEnum = z.enum(["WHATSAPP", "EMAIL", "SMS"]);
+// SMS removido do scope do produto. O enum DB mantem SMS por compatibilidade
+// de migration mas as procedures sempre rejeitam canal SMS.
+export const messageChannelEnum = z.enum(["WHATSAPP", "EMAIL"]);
 export type MessageChannel = z.infer<typeof messageChannelEnum>;
 
 export const messageStatusEnum = z.enum(["PENDING", "SENT", "DELIVERED", "READ", "FAILED"]);
@@ -14,7 +16,6 @@ export type MessageDirection = z.infer<typeof messageDirectionEnum>;
 export const MESSAGE_CHANNEL_LABELS: Record<string, string> = {
   WHATSAPP: "WhatsApp",
   EMAIL: "E-mail",
-  SMS: "SMS",
 };
 
 export const MESSAGE_STATUS_LABELS: Record<string, string> = {

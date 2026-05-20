@@ -29,6 +29,10 @@ model Customer {
   city           String?      @db.VarChar(100)
   state          String?      @db.VarChar(2)
   notes          String?      @db.Text
+  // Opt-out de comunicacoes (LGPD). Quando true, sendMessage falha
+  // com mensagem clara antes de chamar provider.
+  unsubscribed   Boolean      @default(false)
+  unsubscribedAt DateTime?    @map("unsubscribed_at")
   createdById    String?      @map("created_by_id") @db.Uuid
   deletedAt      DateTime?    @map("deleted_at")
   createdAt      DateTime     @default(now()) @map("created_at")

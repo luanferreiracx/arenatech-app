@@ -18,7 +18,9 @@ describe("messageChannelEnum", () => {
   it("aceita canais validos", () => {
     expect(messageChannelEnum.safeParse("WHATSAPP").success).toBe(true);
     expect(messageChannelEnum.safeParse("EMAIL").success).toBe(true);
-    expect(messageChannelEnum.safeParse("SMS").success).toBe(true);
+  });
+  it("rejeita canal removido SMS", () => {
+    expect(messageChannelEnum.safeParse("SMS").success).toBe(false);
   });
   it("rejeita canal invalido", () => {
     expect(messageChannelEnum.safeParse("TELEGRAM").success).toBe(false);
@@ -135,8 +137,8 @@ describe("updateTemplateSchema", () => {
 });
 
 describe("labels", () => {
-  it("tem labels para canais", () => {
-    expect(Object.keys(MESSAGE_CHANNEL_LABELS)).toHaveLength(3);
+  it("tem labels para canais (WHATSAPP + EMAIL)", () => {
+    expect(Object.keys(MESSAGE_CHANNEL_LABELS)).toHaveLength(2);
   });
   it("tem labels para status", () => {
     expect(Object.keys(MESSAGE_STATUS_LABELS)).toHaveLength(5);

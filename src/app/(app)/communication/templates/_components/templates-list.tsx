@@ -53,7 +53,7 @@ export function TemplatesList() {
 
   const handleEdit = (item: { id: string; name: string; channel: string; slug: string; body: string }) => {
     setEditingId(item.id);
-    form.reset({ channel: item.channel as "WHATSAPP" | "EMAIL" | "SMS", name: item.name, slug: item.slug, body: item.body });
+    form.reset({ channel: item.channel as "WHATSAPP" | "EMAIL", name: item.name, slug: item.slug, body: item.body });
     setShowForm(true);
   };
 
@@ -100,7 +100,7 @@ export function TemplatesList() {
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div>
               <Label>Canal</Label>
-              <Select value={form.watch("channel")} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL" | "SMS")} disabled={!!editingId}>
+              <Select value={form.watch("channel")} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL")} disabled={!!editingId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="WHATSAPP">WhatsApp</SelectItem>

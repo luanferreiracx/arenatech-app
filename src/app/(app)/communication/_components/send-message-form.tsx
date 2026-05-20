@@ -43,7 +43,7 @@ export function SendMessageForm() {
         <div className="space-y-4">
           <div>
             <Label>Canal</Label>
-            <Select value={channel} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL" | "SMS")}>
+            <Select value={channel} onValueChange={(v) => form.setValue("channel", v as "WHATSAPP" | "EMAIL")}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="WHATSAPP">WhatsApp</SelectItem>

@@ -157,10 +157,18 @@ export const communicationRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const customer = await tx.customer.findUnique({
           where: { id: input.customerId },
-          select: { name: true, phone: true, email: true },
+          select: { name: true, phone: true, email: true, unsubscribed: true },
         });
         if (!customer) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+        }
+
+        // LGPD: opt-out check
+        if (customer.unsubscribed) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Cliente optou por nao receber comunicacoes (unsubscribe).",
+          });
         }
 
         const recipient = input.channel === "EMAIL" ? customer.email : customer.phone;
@@ -391,13 +399,22 @@ export const communicationRouter = createTRPCRouter({
   // ═══════════════════════════════════════
 
   /** List templates */
-  listTemplates: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      return tx.messageTemplate.findMany({
-        orderBy: { name: "asc" },
+  listTemplates: tenantProcedure
+    .input(z.object({
+      channel: z.enum(["WHATSAPP", "EMAIL"]).optional(),
+      active: z.boolean().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: { channel?: "WHATSAPP" | "EMAIL"; active?: boolean } = {};
+        if (input?.channel) where.channel = input.channel;
+        if (input?.active !== undefined) where.active = input.active;
+        return tx.messageTemplate.findMany({
+          where,
+          orderBy: { name: "asc" },
+        });
       });
-    });
-  }),
+    }),
 
   /** Create template */
   createTemplate: tenantProcedure
@@ -445,6 +462,34 @@ export const communicationRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         await tx.messageTemplate.delete({ where: { id: input.id } });
         return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // OPT-OUT (LGPD)
+  // ═══════════════════════════════════════
+
+  /** Unsubscribe customer from notifications */
+  unsubscribeCustomer: tenantProcedure
+    .input(z.object({ customerId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.customer.update({
+          where: { id: input.customerId },
+          data: { unsubscribed: true, unsubscribedAt: new Date() },
+        });
+      });
+    }),
+
+  /** Resubscribe customer to notifications */
+  resubscribeCustomer: tenantProcedure
+    .input(z.object({ customerId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.customer.update({
+          where: { id: input.customerId },
+          data: { unsubscribed: false, unsubscribedAt: null },
+        });
       });
     }),
 });
