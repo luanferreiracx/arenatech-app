@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Check, RotateCcw, Printer } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, RotateCcw, Printer, Loader2 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +34,18 @@ export function ChecklistFlow() {
   const [valorOferecido, setValorOferecido] = useState(0);
   const [observacoesAvaliador, setObservacoesAvaliador] = useState("");
   const [finalizado, setFinalizado] = useState(false);
+  const [savedChecklistId, setSavedChecklistId] = useState<string | null>(null);
+  const trpc = useTRPC();
+  const createMutation = useMutation(
+    trpc.checklist.create.mutationOptions({
+      onSuccess: (data) => {
+        setSavedChecklistId(data.id);
+        setFinalizado(true);
+        toast.success("Laudo finalizado e salvo!");
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
 
   const templateKey = CATEGORY_TO_TEMPLATE[deviceInfo.categoria] ?? "smartphone";
   const template = CHECKLIST_TEMPLATES[templateKey] ?? CHECKLIST_TEMPLATES.smartphone!;
@@ -56,8 +70,16 @@ export function ChecklistFlow() {
   };
 
   const handleFinalizeLaudo = () => {
-    setFinalizado(true);
-    toast.success("Laudo finalizado com sucesso!");
+    // Persiste o laudo no servidor antes de marcar como finalizado.
+    // Estrutura answers serializada como `results` (JSON aceito pelo router).
+    createMutation.mutate({
+      deviceType: deviceInfo.categoria,
+      model: deviceInfo.modelo || null,
+      imei: deviceInfo.imei || null,
+      results: answers as Record<string, unknown>,
+      offeredValue: valorOferecido > 0 ? valorOferecido : null,
+      evaluatorNotes: observacoesAvaliador || null,
+    });
   };
 
   const handleReset = () => {
@@ -67,6 +89,7 @@ export function ChecklistFlow() {
     setValorOferecido(0);
     setObservacoesAvaliador("");
     setFinalizado(false);
+    setSavedChecklistId(null);
   };
 
   const handlePrint = () => {
@@ -273,9 +296,18 @@ export function ChecklistFlow() {
                 placeholder="Observacoes adicionais..."
               />
             </div>
-            <Button onClick={handleFinalizeLaudo}>
-              <Check className="mr-2 h-4 w-4" />
-              Finalizar Laudo
+            <Button onClick={handleFinalizeLaudo} disabled={createMutation.isPending}>
+              {createMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Check className="mr-2 h-4 w-4" />
+                  Finalizar Laudo
+                </>
+              )}
             </Button>
           </div>
         )}
@@ -283,7 +315,12 @@ export function ChecklistFlow() {
         {finalizado && (
           <div className="border-t pt-4">
             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-              <p className="font-semibold text-green-400">Laudo Finalizado</p>
+              <p className="font-semibold text-green-400">Laudo Finalizado e Salvo</p>
+              {savedChecklistId && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  ID: <code className="font-mono">{savedChecklistId.slice(0, 8)}</code>
+                </p>
+              )}
               {valorOferecido > 0 && (
                 <p className="text-lg font-bold mt-2">
                   Valor Oferecido: {(valorOferecido / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
