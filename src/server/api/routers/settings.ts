@@ -4,6 +4,7 @@ import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, protectedProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
+import { logAudit, pickChanges } from "@/server/services/audit-log.service";
 import {
   updateGeneralSettingsSchema,
   updatePaymentMethodSchema,
@@ -42,6 +43,7 @@ export const settingsRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações gerais" });
       }
       return ctx.withTenant(async (tx) => {
+        const before = await tx.tenantSettings.findUnique({ where: { tenantId: ctx.tenantId } });
         const data = {
           tradeName: input.tradeName,
           legalName: input.legalName,
@@ -55,7 +57,7 @@ export const settingsRouter = createTRPCRouter({
               : undefined,
         };
 
-        return tx.tenantSettings.upsert({
+        const updated = await tx.tenantSettings.upsert({
           where: { tenantId: ctx.tenantId },
           create: {
             tenantId: ctx.tenantId,
@@ -63,6 +65,23 @@ export const settingsRouter = createTRPCRouter({
           },
           update: data,
         });
+
+        const changes = pickChanges(
+          before as never,
+          updated as never,
+        );
+        if (changes) {
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "updated",
+            entity: "tenant_general",
+            entityId: ctx.tenantId,
+            payload: changes,
+          });
+        }
+
+        return updated;
       });
     }),
 
@@ -532,11 +551,24 @@ export const settingsRouter = createTRPCRouter({
         Object.entries(data).filter(([, v]) => v !== undefined)
       );
       return ctx.withTenant(async (tx) => {
-        return tx.tenantFiscalSettings.upsert({
+        const before = await tx.tenantFiscalSettings.findUnique({ where: { tenantId: ctx.tenantId } });
+        const updated = await tx.tenantFiscalSettings.upsert({
           where: { tenantId: ctx.tenantId },
           create: { tenantId: ctx.tenantId, ...cleanData },
           update: cleanData,
         });
+        const changes = pickChanges(before as never, updated as never);
+        if (changes) {
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "updated",
+            entity: "tenant_fiscal",
+            entityId: ctx.tenantId,
+            payload: changes,
+          });
+        }
+        return updated;
       });
     }),
 
@@ -665,6 +697,17 @@ export const settingsRouter = createTRPCRouter({
 
   updateAssistance: tenantProcedure
     .input(z.object({
+      // Identidade (paridade Laravel configuracoes_assistencia)
+      assistanceName: z.string().max(150).nullable().optional(),
+      cnpj: z.string().max(18).nullable().optional(),
+      phone: z.string().max(20).nullable().optional(),
+      email: z.string().email().nullable().optional().or(z.literal("")),
+      address: z.string().max(200).nullable().optional(),
+      city: z.string().max(100).nullable().optional(),
+      state: z.string().max(2).nullable().optional(),
+      zipCode: z.string().max(10).nullable().optional(),
+      logoPath: z.string().max(500).nullable().optional(),
+      businessHours: z.string().max(200).nullable().optional(),
       termsOfService: z.string().optional(),
       warrantyPolicy: z.string().optional(),
       // Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros` / `desconto_pix`.
@@ -677,12 +720,27 @@ export const settingsRouter = createTRPCRouter({
       if (userRole !== "owner" && userRole !== "manager") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações de assistência" });
       }
+      // Normaliza email vazio → null
+      const data = { ...input, email: input.email === "" ? null : input.email };
       return ctx.withTenant(async (tx) => {
-        return tx.tenantAssistanceSettings.upsert({
+        const before = await tx.tenantAssistanceSettings.findUnique({ where: { tenantId: ctx.tenantId } });
+        const updated = await tx.tenantAssistanceSettings.upsert({
           where: { tenantId: ctx.tenantId },
-          create: { tenantId: ctx.tenantId, ...input },
-          update: input,
+          create: { tenantId: ctx.tenantId, ...data },
+          update: data,
         });
+        const changes = pickChanges(before as never, updated as never);
+        if (changes) {
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "updated",
+            entity: "tenant_assistance",
+            entityId: ctx.tenantId,
+            payload: changes,
+          });
+        }
+        return updated;
       });
     }),
 
@@ -715,11 +773,24 @@ export const settingsRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar configurações de recebimento" });
       }
       return ctx.withTenant(async (tx) => {
-        return tx.tenantReceivingSettings.upsert({
+        const before = await tx.tenantReceivingSettings.findUnique({ where: { tenantId: ctx.tenantId } });
+        const updated = await tx.tenantReceivingSettings.upsert({
           where: { tenantId: ctx.tenantId },
           create: { tenantId: ctx.tenantId, ...input },
           update: input,
         });
+        const changes = pickChanges(before as never, updated as never);
+        if (changes) {
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "updated",
+            entity: "tenant_receiving",
+            entityId: ctx.tenantId,
+            payload: changes,
+          });
+        }
+        return updated;
       });
     }),
 
@@ -860,6 +931,149 @@ export const settingsRouter = createTRPCRouter({
             certificateUploadedAt: null,
             certificateExpiresAt: null,
           },
+        });
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SECURITY SETTINGS (politica de senha + sessao)
+  // ═══════════════════════════════════════
+
+  getSecurity: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      return (
+        (await tx.tenantSecuritySettings.findUnique({ where: { tenantId: ctx.tenantId } })) ?? {
+          tenantId: ctx.tenantId,
+          minPasswordLength: 8,
+          requireUppercase: false,
+          requireNumber: true,
+          requireSpecialChar: false,
+          passwordExpirationDays: null,
+          sessionTimeoutMinutes: null,
+          maxFailedLoginAttempts: 5,
+          lockoutMinutes: 15,
+        }
+      );
+    });
+  }),
+
+  updateSecurity: tenantProcedure
+    .input(z.object({
+      minPasswordLength: z.number().int().min(6).max(64).optional(),
+      requireUppercase: z.boolean().optional(),
+      requireNumber: z.boolean().optional(),
+      requireSpecialChar: z.boolean().optional(),
+      passwordExpirationDays: z.number().int().min(0).max(365).nullable().optional(),
+      sessionTimeoutMinutes: z.number().int().min(5).max(1440).nullable().optional(),
+      maxFailedLoginAttempts: z.number().int().min(0).max(20).optional(),
+      lockoutMinutes: z.number().int().min(0).max(1440).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar políticas de segurança" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const before = await tx.tenantSecuritySettings.findUnique({ where: { tenantId: ctx.tenantId } });
+        const updated = await tx.tenantSecuritySettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, ...input },
+          update: input,
+        });
+        const changes = pickChanges(before as never, updated as never);
+        if (changes) {
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "updated",
+            entity: "tenant_security",
+            entityId: ctx.tenantId,
+            payload: changes,
+          });
+        }
+        return updated;
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // NOTIFICATION CONFIGS (eventos x canais)
+  // ═══════════════════════════════════════
+
+  listNotificationConfigs: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      return tx.notificationConfig.findMany({
+        where: { tenantId: ctx.tenantId },
+        orderBy: { event: "asc" },
+      });
+    });
+  }),
+
+  upsertNotificationConfig: tenantProcedure
+    .input(z.object({
+      event: z.enum([
+        "OS_CRIADA",
+        "OS_PRONTA",
+        "OS_ASSINADA",
+        "OS_ENTREGUE",
+        "ORCAMENTO_ENVIADO",
+        "VENDA_FINALIZADA",
+        "COBRANCA_VENCIDA",
+        "CAIXA_FECHADO",
+      ]),
+      emailEnabled: z.boolean(),
+      whatsappEnabled: z.boolean(),
+      template: z.string().max(2000).nullable().optional(),
+      active: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar notificações" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const before = await tx.notificationConfig.findUnique({
+          where: { tenantId_event: { tenantId: ctx.tenantId, event: input.event } },
+        });
+        const updated = await tx.notificationConfig.upsert({
+          where: { tenantId_event: { tenantId: ctx.tenantId, event: input.event } },
+          create: {
+            tenantId: ctx.tenantId,
+            event: input.event,
+            emailEnabled: input.emailEnabled,
+            whatsappEnabled: input.whatsappEnabled,
+            template: input.template ?? null,
+            active: input.active ?? true,
+          },
+          update: {
+            emailEnabled: input.emailEnabled,
+            whatsappEnabled: input.whatsappEnabled,
+            template: input.template ?? null,
+            active: input.active ?? true,
+          },
+        });
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: before ? "updated" : "created",
+          entity: "notification_config",
+          entityId: updated.id,
+          payload: { event: input.event, emailEnabled: input.emailEnabled, whatsappEnabled: input.whatsappEnabled },
+        });
+        return updated;
+      });
+    }),
+
+  toggleNotificationConfig: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.notificationConfig.update({
+          where: { id: input.id },
+          data: { active: input.active },
         });
       });
     }),

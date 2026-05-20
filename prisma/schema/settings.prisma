@@ -66,8 +66,21 @@ model TenantFiscalSettings {
 
 model TenantAssistanceSettings {
   tenantId              String   @id @map("tenant_id") @db.Uuid
+  // Identidade (paridade Laravel configuracoes_assistencia.{nome_assistencia,cnpj,telefone,email})
+  // Usados em cabeçalhos de orçamento WhatsApp/PDF, termos e comunicação ao cliente.
+  assistanceName        String?  @map("assistance_name")
+  cnpj                  String?
+  phone                 String?
+  email                 String?
+  // Endereço (paridade endereco/cidade/estado/cep)
+  address               String?
+  city                  String?
+  state                 String?
+  zipCode               String?  @map("zip_code")
+  logoPath              String?  @map("logo_path")
   termsOfService        String?  @map("terms_of_service") @db.Text
   warrantyPolicy        String?  @map("warranty_policy") @db.Text
+  businessHours         String?  @map("business_hours")
   // Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros`.
   // Usado nos orcamentos de servico via WhatsApp / PDF.
   installmentsNoInterest Int     @default(12) @map("installments_no_interest")
@@ -93,6 +106,46 @@ model TenantReceivingSettings {
   updatedAt              DateTime @updatedAt @map("updated_at")
 
   @@map("tenant_receiving_settings")
+}
+
+/// Política de senha + sessão por tenant. Singleton (tenantId é PK).
+model TenantSecuritySettings {
+  tenantId                  String   @id @map("tenant_id") @db.Uuid
+  minPasswordLength         Int      @default(8) @map("min_password_length")
+  requireUppercase          Boolean  @default(false) @map("require_uppercase")
+  requireNumber             Boolean  @default(true) @map("require_number")
+  requireSpecialChar        Boolean  @default(false) @map("require_special_char")
+  passwordExpirationDays    Int?     @map("password_expiration_days")
+  // Minutos de inatividade até expirar a sessão (null = sem timeout)
+  sessionTimeoutMinutes     Int?     @map("session_timeout_minutes")
+  // Bloqueio após N tentativas falhas (0 = desabilitado)
+  maxFailedLoginAttempts    Int      @default(5) @map("max_failed_login_attempts")
+  lockoutMinutes            Int      @default(15) @map("lockout_minutes")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_security_settings")
+}
+
+/// Configuração de notificações por evento × canal.
+/// Cada linha = (tenantId, event) único. Canais habilitados em colunas.
+model NotificationConfig {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  // Evento canônico: OS_CRIADA, OS_PRONTA, OS_ASSINADA, OS_ENTREGUE,
+  // VENDA_FINALIZADA, ORCAMENTO_ENVIADO, COBRANCA_VENCIDA, CAIXA_FECHADO etc.
+  event        String
+  emailEnabled Boolean  @default(false) @map("email_enabled")
+  whatsappEnabled Boolean @default(false) @map("whatsapp_enabled")
+  // Template opcional (override do default por evento)
+  template     String?  @db.Text
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, event])
+  @@index([tenantId, active])
+  @@map("notification_configs")
 }
 
 model PaymentMethod {
