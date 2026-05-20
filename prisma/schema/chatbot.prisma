@@ -50,6 +50,29 @@ model ChatbotMessage {
   @@map("chatbot_messages")
 }
 
+/// Configuracao do chatbot por tenant (singleton).
+/// Whitelist de telefones (modo teste), horario de funcionamento, mensagens padrao.
+model ChatbotConfig {
+  tenantId           String   @id @map("tenant_id") @db.Uuid
+  enabled            Boolean  @default(true)
+  // Telefones em whitelist (string[] JSON). Quando vazio, atende todos.
+  // Quando populado, somente esses contatos sao respondidos pelo bot.
+  whitelistPhones    Json?    @map("whitelist_phones")
+  // Horario de funcionamento. Formato "HH:mm-HH:mm" ou null (24h).
+  businessHoursStart String?  @map("business_hours_start")
+  businessHoursEnd   String?  @map("business_hours_end")
+  // Mensagens
+  greetingMessage    String?  @db.Text @map("greeting_message")
+  outOfHoursMessage  String?  @db.Text @map("out_of_hours_message")
+  handoffMessage     String?  @db.Text @map("handoff_message")
+  // Tempo padrao para follow-up apos orcamento (horas)
+  followUpDelayHours Int      @default(24) @map("follow_up_delay_hours")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("chatbot_configs")
+}
+
 /// Follow-up agendado para reengajamento
 model ChatbotFollowUp {
   id                String   @id @default(uuid()) @db.Uuid

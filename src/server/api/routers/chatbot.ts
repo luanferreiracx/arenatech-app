@@ -264,4 +264,93 @@ export const chatbotRouter = createTRPCRouter({
       return { open, botActive, humanTakeover, resolved, totalMessages }
     })
   }),
+
+  // ═══════════════════════════════════════
+  // CONFIG (whitelist, horario, mensagens padrao)
+  // ═══════════════════════════════════════
+
+  getConfig: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      return (
+        (await tx.chatbotConfig.findUnique({ where: { tenantId: ctx.tenantId } })) ?? {
+          tenantId: ctx.tenantId,
+          enabled: true,
+          whitelistPhones: [],
+          businessHoursStart: null,
+          businessHoursEnd: null,
+          greetingMessage: null,
+          outOfHoursMessage: null,
+          handoffMessage: null,
+          followUpDelayHours: 24,
+        }
+      )
+    })
+  }),
+
+  updateConfig: tenantProcedure
+    .input(z.object({
+      enabled: z.boolean().optional(),
+      whitelistPhones: z.array(z.string().max(20)).optional(),
+      businessHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+      businessHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+      greetingMessage: z.string().max(1000).nullable().optional(),
+      outOfHoursMessage: z.string().max(1000).nullable().optional(),
+      handoffMessage: z.string().max(1000).nullable().optional(),
+      followUpDelayHours: z.number().int().min(1).max(168).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configuração do chatbot" })
+      }
+      return ctx.withTenant(async (tx) => {
+        const data = {
+          ...input,
+          whitelistPhones: input.whitelistPhones !== undefined ? (input.whitelistPhones as never) : undefined,
+        }
+        return tx.chatbotConfig.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, ...data },
+          update: data,
+        })
+      })
+    }),
+
+  /**
+   * Busca cliente por telefone (ultimos 9 digitos).
+   * Util para o admin manualmente vincular conversation a customer.
+   */
+  searchCustomerByPhone: tenantProcedure
+    .input(z.object({ phone: z.string().min(8) }))
+    .query(async ({ ctx, input }) => {
+      const digits = input.phone.replace(/\D/g, "")
+      const last9 = digits.slice(-9)
+      return ctx.withTenant(async (tx) => {
+        const customers = await tx.customer.findMany({
+          where: {
+            OR: [
+              { phone: { contains: last9 } },
+              { phoneSecondary: { contains: last9 } },
+            ],
+          },
+          select: { id: true, name: true, phone: true, phoneSecondary: true, cpf: true },
+          take: 10,
+        })
+        return customers
+      })
+    }),
+
+  /**
+   * Vincula manualmente uma conversation a um customer existente.
+   */
+  linkConversationToCustomer: tenantProcedure
+    .input(z.object({ conversationId: z.string().uuid(), customerId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx.chatbotConversation.update({
+          where: { id: input.conversationId },
+          data: { customerId: input.customerId },
+        })
+      })
+    }),
 })
