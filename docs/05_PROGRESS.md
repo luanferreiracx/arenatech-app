@@ -262,6 +262,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — SETTINGS: assistencia expandida + security + notifications + audit (Onda 2, modulo 2/4)
+
+Módulo Settings já era robusto (18 procedures, 15 páginas). Auditoria contra `ConfiguracaoController` + `ConfiguracaoAssistencia` + `ConfiguracaoRecebimento`. 4 gaps endereçados:
+
+- **G1 — Assistência paridade Laravel:** `TenantAssistanceSettings` ganha 10 campos (assistanceName, cnpj, phone, email, address, city, state, zipCode, logoPath, businessHours). Antes só tinha 4 campos (termos + garantia + parcelas + PIX). Usados em cabeçalhos de orçamento WhatsApp/PDF, termos e comunicação ao cliente.
+- **G2 — TenantSecuritySettings (novo):** singleton por tenant com `minPasswordLength`, `requireUppercase/Number/SpecialChar`, `passwordExpirationDays`, `sessionTimeoutMinutes`, `maxFailedLoginAttempts`, `lockoutMinutes`. Procedures `getSecurity`/`updateSecurity` (apenas owner). Aplicação no auth flow virá em rodada futura.
+- **G3 — NotificationConfig (novo):** tabela com 8 eventos canônicos (`OS_CRIADA`, `OS_PRONTA`, `OS_ASSINADA`, `OS_ENTREGUE`, `ORCAMENTO_ENVIADO`, `VENDA_FINALIZADA`, `COBRANCA_VENCIDA`, `CAIXA_FECHADO`) × canais email/WhatsApp + template opcional. Procedures `listNotificationConfigs`, `upsertNotificationConfig`, `toggleNotificationConfig`.
+- **G4 — AuditLog em mutations sensíveis:** schema `AuditLog` ganha `userId` + índices (createdAt, entity, userId). Service `src/server/services/audit-log.service.ts` com `logAudit` e `pickChanges` (diff before/after). 6 mutations gravam audit: `updateGeneral`, `updateFiscalSettings`, `updateAssistance`, `updateReceiving`, `updateSecurity`, `upsertNotificationConfig`. Cada entrada inclui o diff dos campos efetivamente modificados.
+
+**Fora do escopo (decisão do dono):** Política de senha aplicada no auth real (precisa adaptar NextAuth + reset flow), branding UI completa, integrações UI (já tem CRUD genérico).
+
+**UI:** Procedures expostas via tRPC mas formulários de Security/Notifications ainda não criados — dono fará por sprint dedicado.
+
+**Validação:** typecheck ✓ | 620 unit ✓ | build ✓ (E2E não executado — mudanças só no router/schema, sem alteração de páginas)
+**Commits:** 1 (`0145744`)
+
+---
+
 ### 2026-05-20 — FISCAL: TenantFiscalSettings expandida + webhook NuvemFiscal + auto-link NfeImport (Onda 2, modulo 1/4)
 
 Auditoria contra `NfeImportController` + `NfeEmissaoService` + `Fiscal/NuvemFiscalService`. 24 procedures fiscal + 14 nfeImport + service completo. **Emissão real adiada para Onda 3** (requer certificado SEFAZ homolog + testes campo). 4 gaps endereçados nesta rodada:
