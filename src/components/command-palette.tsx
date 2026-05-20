@@ -42,7 +42,13 @@ export function useCommandPalette() {
   return ctx;
 }
 
-export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
+export function CommandPaletteProvider({
+  children,
+  tenantSlug,
+}: {
+  children: React.ReactNode;
+  tenantSlug?: string;
+}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -59,7 +65,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   return (
     <CommandPaletteContext.Provider value={{ open, setOpen }}>
       {children}
-      <CommandPaletteDialog open={open} setOpen={setOpen} />
+      <CommandPaletteDialog open={open} setOpen={setOpen} tenantSlug={tenantSlug} />
     </CommandPaletteContext.Provider>
   );
 }
@@ -67,9 +73,11 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
 function CommandPaletteDialog({
   open,
   setOpen,
+  tenantSlug,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
+  tenantSlug?: string;
 }) {
   const router = useRouter();
 
@@ -145,6 +153,12 @@ function CommandPaletteDialog({
             <Smartphone className="mr-2 h-4 w-4" />
             Consulta IMEI
           </CommandItem>
+          {tenantSlug === "arena-tech" && (
+            <CommandItem onSelect={() => runCommand(() => router.push("/iphone-hunter"))}>
+              <Smartphone className="mr-2 h-4 w-4" />
+              Buscar iPhones nos Grupos
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runCommand(() => router.push("/operation"))}>
             <Truck className="mr-2 h-4 w-4" />
             Operacao

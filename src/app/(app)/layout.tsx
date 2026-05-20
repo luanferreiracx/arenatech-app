@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         activeTenantId: session.activeTenantId,
       }}
     >
-      <CommandPaletteProvider>
+      <CommandPaletteProvider tenantSlug={activeTenant?.slug}>
         <div className="flex min-h-screen">
           {/* Desktop sidebar */}
           <AppSidebar

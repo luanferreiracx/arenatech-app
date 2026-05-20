@@ -18,6 +18,7 @@ import {
   BarChart3,
   Zap,
   ChevronRight,
+  Smartphone,
 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -426,7 +427,7 @@ function AlertsSection() {
 
 // ── Quick Links ──
 
-function QuickLinks() {
+function QuickLinks({ tenantSlug }: { tenantSlug?: string }) {
   const links = [
     { href: "/pdv?novo=1", label: "Nova Venda", icon: ShoppingCart, color: "text-primary" },
     { href: "/pdv", label: "Historico Vendas", icon: History, color: "text-yellow-600" },
@@ -434,6 +435,9 @@ function QuickLinks() {
     { href: "/service-orders", label: "Ordens de Servico", icon: ClipboardList, color: "text-blue-500" },
     { href: "/stock", label: "Posicao Estoque", icon: Package, color: "text-green-500" },
     { href: "/cashier", label: "Historico Caixas", icon: Clock, color: "text-pink-500" },
+    ...(tenantSlug === "arena-tech"
+      ? [{ href: "/iphone-hunter", label: "Buscar iPhones", icon: Smartphone, color: "text-purple-500" }]
+      : []),
   ];
 
   return (
@@ -464,7 +468,13 @@ function QuickLinks() {
 
 // ── Main Dashboard ──
 
-export function DashboardContent({ userName }: { userName: string }) {
+export function DashboardContent({
+  userName,
+  tenantSlug,
+}: {
+  userName: string;
+  tenantSlug?: string;
+}) {
   const trpc = useTRPC();
   const { data: stats, isLoading: statsLoading } = useQuery(trpc.dashboard.stats.queryOptions());
 
@@ -590,7 +600,7 @@ export function DashboardContent({ userName }: { userName: string }) {
       <AlertsSection />
 
       {/* Quick Links */}
-      <QuickLinks />
+      <QuickLinks tenantSlug={tenantSlug} />
     </div>
   );
 }
