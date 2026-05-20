@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — SIMULATOR: SimulatorSession + sendWhatsApp via Cloud API (Onda 3, modulo 7/11)
+
+Simulator tinha 1 procedure (`simulate`) que calculava parcelas usando InstallmentRule + PaymentMethod, mais UI funcional + rota PDF. Sem persistencia + sem envio. 3 gaps endereçados:
+
+- **G1 — WhatsApp Cloud Service (novo, substitui Evolution):** `src/lib/services/whatsapp-cloud-service.ts` com `sendCloudText`, `sendCloudTemplate`, `formatBrPhone`. Usa Meta Graph API v22.0 com `WHATSAPP_CLOUD_TOKEN` + `WHATSAPP_CLOUD_PHONE_NUMBER_ID`. Sem credenciais = mock dev (logger.info). **Migracao dos demais modulos (Comm, Interest, Chatbot) que ainda usam Evolution fica em sprint dedicado.**
+- **G2 — SimulatorSession (novo model):** persiste simulacoes com `customerId` opcional, `productValueCents`, `downPaymentCents`, `resultPayload` JSON, `convertedToSaleId`, `sentAt`/`sentVia`, RLS. Procedures `saveSession`, `listSessions` (filtro por cliente), `getSession`.
+- **G3 — sendWhatsApp:** Monta mensagem formatada (PIX/Debito/Credito a vista + 12 opcoes de parcelamento) e envia via Cloud API. Marca `sentAt` + `sentVia=whatsapp_cloud` + atualiza `customerPhone` se necessario.
+
+**Fora do escopo:** Conversao simulacao → venda automatica (vincular SimulatorSession.convertedToSaleId quando finalizar PDV). UI nova para historico de sessoes.
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`2a64888`)
+
+---
+
 ### 2026-05-20 — DEPIX-WITHDRAW: webhook Pixpay + validacao DV CPF/CNPJ (Onda 3, modulo 6/11)
 
 Modulo Depix-Withdraw tinha schema completo + 7 procedures + UI funcional, mas dependia de polling manual (`checkStatus`) e validacao de documento era apenas length. 2 gaps endereçados (integracao API real adiada):
