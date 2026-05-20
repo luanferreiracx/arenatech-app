@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — VALUATION: validade configuravel por tenant + audit log em bulk ops (Onda 3, modulo 5/11)
+
+Modulo Valuation tinha 11 procedures + UI + WhatsApp formatter, mas validade era hardcoded 7 dias e operacoes em massa (ajuste %, fixo, duplicar, deletar modelo) nao tinham rastreabilidade. 2 gaps endereçados (workflow de proposta adiado):
+
+- **G1 — Validade configuravel por tenant:** TenantAssistanceSettings ganha `valuationValidityDays` (default 7). `updateAssistance` aceita o campo. `create` valuation usa default do tenant quando `validadeDias` nao informado. `formatWhatsAppMessage` prioriza config do tenant sobre validade do entry — garante consistencia ao mostrar prazo da proposta.
+- **G2 — Audit log em bulk ops:** `logAudit` plugado em `bulkAdjust` (% por modelo), `bulkAdjustFixed` (R$ por modelo), `duplicateModel`, `deleteModel`. Cada operacao registra payload com `modelo`, parametros e contadores (`updated`/`created`/`deleted`). Reusa service `audit-log.service.ts` da Onda 2.
+
+**Fora do escopo (decisao do dono):** Workflow de proposta com aprovacao do cliente + auto-criar DevicePurchase apos aceite (escopo grande — 1 sprint dedicado).
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`7a27862`)
+
+---
+
 ### 2026-05-20 — INTEREST: conversao + sendBatch real + conversionStats (Onda 3, modulo 4/11)
 
 Modulo Interest tinha 8 procedures + UI completa mas com 2 gaps importantes: stub no sendBatch e sem tracking de conversao para ROI. 2 gaps endereçados (bridge estoque adiada):
