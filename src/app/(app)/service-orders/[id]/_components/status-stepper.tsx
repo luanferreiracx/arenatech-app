@@ -1,5 +1,6 @@
 "use client";
 
+import { createElement } from "react";
 import {
   PlayCircle,
   Search,
@@ -59,10 +60,9 @@ export function StatusStepper({ status }: { status: ServiceOrderStatus }) {
   const currentIndex = STATUS_FLOW.indexOf(status);
 
   if (isSpecial) {
-    const Icon = iconFor(status);
     return (
       <div className="flex items-center justify-center gap-2 py-6">
-        <Icon className="h-5 w-5" />
+        {createElement(iconFor(status), { className: "h-5 w-5" })}
         <StatusBadge variant={SERVICE_ORDER_STATUS_VARIANT[status]} className="text-base px-4 py-2">
           {SERVICE_ORDER_STATUS_LABELS[status]}
         </StatusBadge>
@@ -90,7 +90,6 @@ export function StatusStepper({ status }: { status: ServiceOrderStatus }) {
           const isCompleted = currentIndex >= 0 && i < currentIndex;
           const isCurrent = i === currentIndex;
           const isOptional = OPTIONAL_STATUSES.includes(s);
-          const Icon = iconFor(s);
           const label = SERVICE_ORDER_STATUS_LABELS[s];
 
           return (
@@ -109,7 +108,7 @@ export function StatusStepper({ status }: { status: ServiceOrderStatus }) {
                       : "border-border text-muted-foreground"
                 }`}
               >
-                {isCompleted ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                {isCompleted ? <Check className="w-4 h-4" /> : createElement(iconFor(s), { className: "w-4 h-4" })}
               </div>
               <span
                 className={`text-[10px] mt-1 text-center leading-tight px-1 ${
