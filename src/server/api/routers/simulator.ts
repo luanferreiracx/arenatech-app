@@ -1,7 +1,9 @@
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { simulateSchema } from "@/lib/validators/simulator";
 import type { SimulationResult } from "@/lib/validators/simulator";
+import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 
 /**
  * Simulador de parcelamento.
@@ -80,7 +82,148 @@ export const simulatorRouter = createTRPCRouter({
         return result;
       });
     }),
+
+  // ═══════════════════════════════════════
+  // SESSIONS (historico)
+  // ═══════════════════════════════════════
+
+  /**
+   * Salva uma simulacao no historico para posterior consulta/reuso/envio.
+   */
+  saveSession: tenantProcedure
+    .input(z.object({
+      productValueCents: z.number().int().min(1),
+      downPaymentCents: z.number().int().min(0).default(0),
+      customerId: z.string().uuid().optional(),
+      customerName: z.string().max(150).optional(),
+      customerPhone: z.string().max(20).optional(),
+      result: z.unknown(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.simulatorSession.create({
+          data: {
+            tenantId: ctx.tenantId,
+            customerId: input.customerId ?? null,
+            customerName: input.customerName ?? null,
+            customerPhone: input.customerPhone ?? null,
+            productValueCents: input.productValueCents,
+            downPaymentCents: input.downPaymentCents,
+            resultPayload: input.result as never,
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+        return { id: session.id };
+      });
+    }),
+
+  listSessions: tenantProcedure
+    .input(z.object({
+      customerId: z.string().uuid().optional(),
+      page: z.number().int().min(0).optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: { customerId?: string } = {};
+        if (input?.customerId) where.customerId = input.customerId;
+        const page = input?.page ?? 0;
+        const pageSize = input?.pageSize ?? 20;
+        const [data, total] = await Promise.all([
+          tx.simulatorSession.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.simulatorSession.count({ where }),
+        ]);
+        return { data, total, page, pageSize };
+      });
+    }),
+
+  getSession: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.simulatorSession.findUnique({ where: { id: input.id } });
+        if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+        return session;
+      });
+    }),
+
+  /**
+   * Envia simulacao formatada via WhatsApp Cloud API.
+   * Marca sentAt + sentVia no session.
+   */
+  sendWhatsApp: tenantProcedure
+    .input(z.object({
+      sessionId: z.string().uuid(),
+      phone: z.string().min(10).max(20),
+      customMessage: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const session = await tx.simulatorSession.findUnique({ where: { id: input.sessionId } });
+        if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const result = session.resultPayload as unknown as SimulationResult;
+        const productValueBrl = (session.productValueCents / 100).toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+
+        // Monta mensagem
+        const lines: string[] = [];
+        lines.push(`*Simulacao de Parcelamento*`);
+        if (session.customerName) lines.push(`Cliente: ${session.customerName}`);
+        lines.push(`Produto: ${productValueBrl}`);
+        if (session.downPaymentCents > 0) {
+          const entrada = (session.downPaymentCents / 100).toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+          });
+          lines.push(`Entrada: ${entrada}`);
+        }
+        lines.push("");
+        lines.push(`Debito: ${formatBrl(result.debito.total)}`);
+        lines.push(`Credito a vista: ${formatBrl(result.avista.total)}`);
+        lines.push("");
+        lines.push(`*Opcoes de parcelamento:*`);
+        for (const p of result.parcelas.slice(0, 12)) {
+          lines.push(`${p.n}x ${formatBrl(p.parcela)} — Total ${formatBrl(p.total)}`);
+        }
+        if (input.customMessage) {
+          lines.push("");
+          lines.push(input.customMessage);
+        }
+        const body = lines.join("\n");
+
+        const sendResult = await sendCloudText(input.phone, body);
+        if (!sendResult.success) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Falha ao enviar WhatsApp: ${sendResult.error ?? "erro desconhecido"}`,
+          });
+        }
+
+        await tx.simulatorSession.update({
+          where: { id: session.id },
+          data: {
+            sentAt: new Date(),
+            sentVia: "whatsapp_cloud",
+            customerPhone: input.phone,
+          },
+        });
+
+        return { success: true, messageId: sendResult.messageId };
+      });
+    }),
 });
+
+function formatBrl(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 /**
  * Gross-up formula: base * 100 / (100 - taxa)
