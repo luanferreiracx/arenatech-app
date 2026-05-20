@@ -262,6 +262,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — FINANCEIRO: integracao compra->PAYABLE + estorno parcial + export CSV (Onda 1, modulo 6/6 ✓ Onda 1 completa!)
+
+Módulo Financeiro maduro: 24 procedures, 14 páginas/componentes. Auditoria contra `ContaPagarController`/`ContaReceberController`/`FinanceiroController` + Models `ContaPagar`/`ContaReceber`/`ContaPagarParcela`/`ContaReceberParcela`/`CategoriaFinanceira`. 4 gaps resolvidos:
+
+- **G1 — Catálogo PaymentMethod:** schema `PaymentMethod` já existia em `settings.prisma` (com `feePercent`, `installmentRules`, `acceptsChange`). Gap real era **seedar 6 métodos padrão** (Dinheiro/PIX/DEPIX/Cartão Crédito/Débito/Crediário) no `tenantFinancialInit` chamado em `admin.approvePreReg`. Tenant pode customizar (CRUD em settings).
+- **G2 — Integração Compra → PAYABLE:** `createDevicePurchaseSchema` ganha `supplierId`, `sellerType`, `generatePayable`, `payableInstallments`, `payableFirstDueDate`. `stock.createPurchase` gera `FinancialTransaction(type=PAYABLE)` + parcelas automaticamente. `stock.cancelPurchase` cancela os PAYABLEs relacionados. Form de Nova Compra ganha seção "Conta a Pagar". Procedure pública `financial.createPayableFromPurchase` exposta para integrações.
+- **G3 — Estorno parcial:** `reverseInstallment` aceita `amount` opcional (centavos). Permite estornar `PAID` ou `PARTIALLY_PAID`, decrementa `paidAmount`, mantém parcela como `PARTIALLY_PAID` quando ainda há saldo pago. Paridade `ContaReceberParcela::estornoParcial`.
+- **G4 — Export CSV:** rota `/api/financial/export?type=transactions|installments` com filtros `txType/status/from/to`. CSV em UTF-8 com BOM (Excel-friendly), separador `;`, datas pt-BR, valores `0,00`. Botões "Exportar CSV" em `/financial`, `/financial/pending`, `/financial/receivables`. Paridade `ContaPagarController::export`.
+
+**Fora do escopo (decisão do dono):** Conciliação bancária, centro de custo, hierarquia de categorias, anexos em transações, limpeza dos campos deprecated em `Installment` (estornadaAt/estornoReason — nunca populados, agora também não, mas mantidos pelo custo de migration).
+
+**Onda 1 (CRITICAL) ✓ COMPLETA:** Cliente (1) + Catálogo (2) + Estoque+IMEI (3) + PDV (4) + Caixa (5) + Financeiro (6).
+
+**Validação:** typecheck ✓ | 620 unit ✓ | 125/125 E2E ✓ | build ✓
+**Commits:** 1
+
+---
+
 ### 2026-05-20 — CAIXA: relatorio PDF + estatisticas periodo (Onda 1, modulo 5/6)
 
 Módulo Caixa muito completo: 19 procedures, UI com sangria/suprimento/conferência/close. 14 de 16 actions Laravel já cobertas. 2 gaps resolvidos:
