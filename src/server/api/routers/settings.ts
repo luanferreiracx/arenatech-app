@@ -519,6 +519,11 @@ export const settingsRouter = createTRPCRouter({
         nfeEnvironment: input.nfeAmbiente ? parseInt(input.nfeAmbiente) : undefined,
         nfeSeries: input.nfeSerie?.toString(),
         nfceSeries: input.nfceSerie?.toString(),
+        defaultCfop: input.cfopDentroEstado,
+        defaultNcm: input.ncmPadrao,
+        defaultCsosn: input.csosnPadrao,
+        cscId: input.nfceCscId,
+        cscToken: input.nfceCscToken,
         enabled: input.habilitado,
         autoIssue: input.emitirNfAutomatico,
       };

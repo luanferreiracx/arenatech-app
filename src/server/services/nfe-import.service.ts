@@ -46,7 +46,7 @@ interface NfeXmlItem {
 }
 
 /**
- * Validate NF-e access key format (44 digits, valid structure).
+ * Validate NF-e access key format (44 digits + valid structure + Mod 11 DV).
  * Faithful to Laravel validarChaveAcesso().
  */
 export function validateAccessKey(key: string): boolean {
@@ -67,6 +67,18 @@ export function validateAccessKey(key: string): boolean {
   // Model must be 55 (NF-e) or 65 (NFC-e)
   const model = digits.substring(20, 22)
   if (model !== "55" && model !== "65") return false
+
+  // Verificar DV (Mod 11) — paridade SEFAZ
+  const base = digits.slice(0, 43)
+  const dv = Number(digits[43])
+  const weights = [2, 3, 4, 5, 6, 7, 8, 9]
+  let sum = 0
+  for (let i = 0; i < 43; i++) {
+    sum += Number(base[42 - i]) * (weights[i % 8] ?? 0)
+  }
+  const remainder = sum % 11
+  const expectedDv = remainder < 2 ? 0 : 11 - remainder
+  if (dv !== expectedDv) return false
 
   return true
 }

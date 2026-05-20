@@ -44,6 +44,13 @@ model TenantFiscalSettings {
   nfeSeries            String    @default("1") @map("nfe_series")
   nfceSeries           String    @default("1") @map("nfce_series")
   defaultCsosn         String?   @default("102") @map("default_csosn")
+  // CFOP padrão para itens emitidos sem CFOP explícito (5102=venda mercadoria estado, 6102=interestadual)
+  defaultCfop          String?   @default("5102") @map("default_cfop")
+  // NCM padrão fallback quando o produto não tiver NCM cadastrado (8517.12.31 = celular)
+  defaultNcm           String?   @default("85171231") @map("default_ncm")
+  // CSC (Código de Segurança do Contribuinte) — exigido para NFC-e
+  cscId                String?   @map("csc_id")
+  cscToken             String?   @map("csc_token")
   enabled              Boolean   @default(false)
   autoIssue            Boolean   @default(false) @map("auto_issue")
   certificateUrl       String?   @map("certificate_url")

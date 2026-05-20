@@ -171,32 +171,72 @@ export const nfeImportRouter = createTRPCRouter({
           },
         })
 
-        // Create items
+        // Create items + auto-link por barcode/SKU
+        let autoLinkedCount = 0;
         if (data.items.length > 0) {
+          // Coleta candidatos (barcode, productCode/SKU) p/ uma única query
+          const candidateCodes = Array.from(new Set(
+            data.items.flatMap((it) => [it.barcode, it.productCode].filter(Boolean) as string[])
+          ));
+
+          const matchedProducts = candidateCodes.length > 0
+            ? await tx.product.findMany({
+                where: {
+                  active: true,
+                  deletedAt: null,
+                  OR: [
+                    { barcode: { in: candidateCodes } },
+                    { sku: { in: candidateCodes } },
+                  ],
+                },
+                select: { id: true, barcode: true, sku: true },
+              })
+            : [];
+
+          const byBarcode = new Map<string, string>();
+          const bySku = new Map<string, string>();
+          for (const p of matchedProducts) {
+            if (p.barcode) byBarcode.set(p.barcode, p.id);
+            if (p.sku) bySku.set(p.sku, p.id);
+          }
+
           await tx.nfeImportItem.createMany({
-            data: data.items.map((item) => ({
-              tenantId: ctx.tenantId,
-              nfeImportId: nfeImport.id,
-              itemNumber: item.itemNumber,
-              productCode: item.productCode || null,
-              barcode: item.barcode || null,
-              description: item.description,
-              ncm: item.ncm || null,
-              cest: item.cest || null,
-              cfop: item.cfop || null,
-              unit: item.unit || null,
-              quantity: toDecimal4(item.quantity),
-              unitPrice: toDecimal4(item.unitPrice),
-              totalValue: new Prisma.Decimal(item.totalValue),
-              discountValue: new Prisma.Decimal(item.discountValue),
-              icmsValue: new Prisma.Decimal(item.icmsValue),
-              ipiValue: new Prisma.Decimal(item.ipiValue),
-              status: "PENDING",
-            })),
+            data: data.items.map((item) => {
+              const productId =
+                (item.barcode && byBarcode.get(item.barcode)) ||
+                (item.productCode && (byBarcode.get(item.productCode) ?? bySku.get(item.productCode))) ||
+                null;
+              if (productId) autoLinkedCount++;
+              return {
+                tenantId: ctx.tenantId,
+                nfeImportId: nfeImport.id,
+                itemNumber: item.itemNumber,
+                productCode: item.productCode || null,
+                barcode: item.barcode || null,
+                description: item.description,
+                ncm: item.ncm || null,
+                cest: item.cest || null,
+                cfop: item.cfop || null,
+                unit: item.unit || null,
+                quantity: toDecimal4(item.quantity),
+                unitPrice: toDecimal4(item.unitPrice),
+                totalValue: new Prisma.Decimal(item.totalValue),
+                discountValue: new Prisma.Decimal(item.discountValue),
+                icmsValue: new Prisma.Decimal(item.icmsValue),
+                ipiValue: new Prisma.Decimal(item.ipiValue),
+                productId,
+                status: productId ? "LINKED" : "PENDING",
+              };
+            }),
           })
         }
 
-        return { id: nfeImport.id, itemCount: data.items.length, requiresConfirmation: false as const }
+        return {
+          id: nfeImport.id,
+          itemCount: data.items.length,
+          autoLinkedCount,
+          requiresConfirmation: false as const,
+        };
       })
     }),
 
@@ -505,6 +545,102 @@ export const nfeImportRouter = createTRPCRouter({
         })
         return products
       })
+    }),
+
+  /**
+   * Suggest products with similarity score to help linking.
+   * Strategy: tokenize description, match against product.name; bonus for NCM/brand match.
+   * Paridade Laravel NfeImportService::sugerirProdutos.
+   */
+  suggestProducts: tenantProcedure
+    .input(z.object({ itemId: z.string().uuid(), limit: z.number().int().min(1).max(20).optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const item = await tx.nfeImportItem.findUnique({
+          where: { id: input.itemId },
+          select: { description: true, ncm: true, unitPrice: true, barcode: true, productCode: true },
+        });
+        if (!item) return [];
+
+        const description = (item.description ?? "").toLowerCase();
+        const tokens = description
+          .split(/[^a-z0-9áàâãéêíóôõúç]+/i)
+          .filter((t) => t.length >= 3)
+          .slice(0, 6);
+
+        if (tokens.length === 0) return [];
+
+        const products = await tx.product.findMany({
+          where: {
+            active: true,
+            deletedAt: null,
+            OR: tokens.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
+          },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            barcode: true,
+            ncm: true,
+            brand: true,
+            costPrice: true,
+            isSerialized: true,
+            hasVariations: true,
+          },
+          take: 50,
+        });
+
+        const itemPrice = Number(item.unitPrice ?? 0);
+        const itemNcm = item.ncm ?? "";
+
+        type Suggestion = (typeof products)[number] & { score: number; reasons: string[] };
+
+        const scored: Suggestion[] = products.map((p) => {
+          const name = p.name.toLowerCase();
+          let score = 0;
+          const reasons: string[] = [];
+
+          // Token overlap (peso maior)
+          const matched = tokens.filter((t) => name.includes(t));
+          if (matched.length > 0) {
+            score += matched.length * 20;
+            reasons.push(`${matched.length} palavra${matched.length > 1 ? "s" : ""} em comum`);
+          }
+
+          // NCM match (peso alto — indica família fiscal)
+          if (itemNcm && p.ncm && itemNcm.replace(/\D/g, "") === p.ncm.replace(/\D/g, "")) {
+            score += 30;
+            reasons.push("NCM igual");
+          }
+
+          // Preço próximo (±30%)
+          if (itemPrice > 0 && Number(p.costPrice) > 0) {
+            const ratio = Number(p.costPrice) / itemPrice;
+            if (ratio >= 0.7 && ratio <= 1.3) {
+              score += 15;
+              reasons.push("Preço próximo");
+            }
+          }
+
+          return { ...p, score, reasons };
+        });
+
+        return scored
+          .filter((s) => s.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, input.limit ?? 5)
+          .map((s) => ({
+            id: s.id,
+            name: s.name,
+            sku: s.sku,
+            barcode: s.barcode,
+            ncm: s.ncm,
+            isSerialized: s.isSerialized,
+            hasVariations: s.hasVariations,
+            score: s.score,
+            reasons: s.reasons,
+          }));
+      });
     }),
 
   /** Get product variations for linking */
