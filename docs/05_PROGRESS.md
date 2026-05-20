@@ -262,6 +262,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — REWARD: validacao frequencia + percentual dinamico + lock + cron expiracao (Onda 3, modulo 1/11)
+
+Modulo Reward com schema/router maduros mas tinha 4 gaps importantes de logica de negocio. UI propria adiada (sprint dedicado).
+
+- **G1 — Validacao de frequencia + max ativas em createAction:** Le `campaign.rules` JSON (paridade Laravel RecompensaRegraTipo) com `maxPerDay/maxPerWeek/maxPerMonth/maxActive`. Conta RewardAction do cliente naquele campaign + janela temporal (hoje/semana/mes). `maxActive` conta APPROVED+PENDING ainda nao expiradas. Rejeita com mensagem clara.
+- **G2 — Percentual dinamico em useAction:** Procedure agora aceita `saleTotalCents` + opcionalmente `osId` (alem de saleId). DISCOUNT_PERCENTAGE/CASHBACK calculam `discountCents = saleTotal * percentage / 100` com cap (`campaign.maxCap`). DISCOUNT_FIXED usa value pre-fixado. GIFT retorna 0. Retorna `discountCents` para PDV/OS aplicar. Paridade `RecompensaUtilizacaoController::aplicar`.
+- **G3 — Lock/Unlock de saldo:** Procedures `lockBalance` e `unlockBalance` movem centavos entre `availableBalance` ↔ `lockedBalance`. Cria RewardMovement type=lock|unlock. Caller (PDV) chama `lockBalance` ao iniciar checkout e `unlockBalance` se cancelar.
+- **G4 — Cron expiracao automatica:** `POST /api/cron/expire-rewards` (autenticado com `Bearer CRON_SECRET`). Marca APPROVED com `expiresAt<now` como EXPIRED. Para CASHBACK, decrementa `availableBalance/totalBalance` e move para `totalExpiredHistorical`. Cria RewardMovement type=expire por cliente. Sugerido cron diario 02:00 UTC.
+
+**Fora do escopo (decisao do dono):** UI admin (paginas de validacao/campanhas/relatorios), pagina publica de cadastro de claim, notificacoes ao cliente, audit log especifico de validacoes.
+
+**Validacao:** typecheck OK | 620 unit OK | build OK
+**Commits:** 1 (`e843a51`)
+
+---
+
 ### 2026-05-20 — OPERACAO: Expense entity + LabOrder->PAYABLE + ServiceProvider->OS (Onda 2, modulo 4/4 ✓ Onda 2 COMPLETA!)
 
 Modulo Operacao tinha 15 procedures (DeliveryPerson, ExternalLab, LabOrder, ServiceProvider) mas sem Expense entity propria. 3 gaps endereçados:
