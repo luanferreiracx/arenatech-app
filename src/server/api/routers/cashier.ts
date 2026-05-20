@@ -741,6 +741,71 @@ export const cashierRouter = createTRPCRouter({
         return { success: true };
       });
     }),
+
+  /**
+   * Estatisticas agregadas de caixa por periodo. Paridade Laravel
+   * `CaixaService::getEstatisticasPeriodo`.
+   */
+  periodStats: tenantProcedure
+    .input(
+      z.object({
+        from: z.string(), // ISO date
+        to: z.string(),   // ISO date
+        userId: z.string().uuid().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const fromDate = new Date(input.from);
+        const toDate = new Date(input.to + "T23:59:59");
+
+        const sessions = await tx.cashSession.findMany({
+          where: {
+            openedAt: { gte: fromDate, lte: toDate },
+            ...(input.userId ? { userId: input.userId } : {}),
+          },
+          include: { movements: true },
+          orderBy: { openedAt: "desc" },
+        });
+
+        let totalSales = 0;
+        let totalDeposits = 0;
+        let totalWithdrawals = 0;
+        let totalExpenses = 0;
+        let totalReversals = 0;
+        let totalDifference = 0;
+        let sessionsCount = 0;
+        let movementsCount = 0;
+
+        for (const session of sessions) {
+          sessionsCount++;
+          totalDifference += Number(session.difference ?? 0);
+          for (const m of session.movements) {
+            movementsCount++;
+            const amt = Number(m.amount);
+            const signed = m.nature === "INCOME" ? amt : -amt;
+            if (m.type === "SALE") totalSales += signed;
+            if (m.type === "DEPOSIT") totalDeposits += signed;
+            if (m.type === "WITHDRAWAL") totalWithdrawals += signed;
+            if (m.type === "EXPENSE") totalExpenses += signed;
+            if (m.referenceType === "reversal") totalReversals += signed;
+          }
+        }
+
+        return {
+          sessionsCount,
+          movementsCount,
+          totalSales: Math.round(totalSales * 100), // centavos
+          totalDeposits: Math.round(totalDeposits * 100),
+          totalWithdrawals: Math.round(totalWithdrawals * 100),
+          totalExpenses: Math.round(totalExpenses * 100),
+          totalReversals: Math.round(totalReversals * 100),
+          totalDifference: Math.round(totalDifference * 100),
+          from: input.from,
+          to: input.to,
+        };
+      });
+    }),
 });
 
 // ── Helpers ──
