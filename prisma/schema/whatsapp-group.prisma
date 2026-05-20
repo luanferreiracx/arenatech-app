@@ -1,0 +1,65 @@
+enum IPhoneCondition {
+  LACRADO
+  SEMINOVO_CAIXA
+  SEMINOVO
+}
+
+model WhatsAppGroup {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  tenantId           String                  @map("tenant_id") @db.Uuid
+  evolutionGroupJid  String                  @map("evolution_group_jid")
+  name               String
+  monitored          Boolean                 @default(true)
+  lastSyncAt         DateTime?               @map("last_sync_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  messages           WhatsAppGroupMessage[]
+
+  @@unique([tenantId, evolutionGroupJid])
+  @@index([tenantId, monitored])
+  @@map("whatsapp_groups")
+}
+
+model WhatsAppGroupMessage {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  groupId             String          @map("group_id") @db.Uuid
+  evolutionMessageId  String          @map("evolution_message_id")
+  senderJid           String          @map("sender_jid")
+  senderName          String?         @map("sender_name")
+  bodyText            String          @map("body_text")
+  mediaUrl            String?         @map("media_url")
+  mediaType           String?         @map("media_type")
+  postedAt            DateTime        @map("posted_at")
+  createdAt           DateTime        @default(now()) @map("created_at")
+
+  group               WhatsAppGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  listing             IPhoneListing?
+
+  @@unique([tenantId, evolutionMessageId])
+  @@index([tenantId, postedAt])
+  @@index([tenantId, groupId, postedAt])
+  @@map("whatsapp_group_messages")
+}
+
+model IPhoneListing {
+  id           String                @id @default(uuid()) @db.Uuid
+  tenantId     String                @map("tenant_id") @db.Uuid
+  messageId    String                @unique @map("message_id") @db.Uuid
+  model        String
+  storageGb    Int?                  @map("storage_gb")
+  color        String?
+  priceCents   Int?                  @map("price_cents")
+  hasBox       Boolean               @default(true) @map("has_box")
+  condition    IPhoneCondition       @default(SEMINOVO_CAIXA)
+  rawSnippet   String                @map("raw_snippet")
+  postedAt     DateTime              @map("posted_at")
+  createdAt    DateTime              @default(now()) @map("created_at")
+
+  message      WhatsAppGroupMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, model, postedAt])
+  @@index([tenantId, postedAt])
+  @@map("iphone_listings")
+}

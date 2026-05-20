@@ -12,6 +12,8 @@ import Credentials from "next-auth/providers/credentials";
 import { compareSync } from "bcryptjs";
 import { cpfSchema } from "@/lib/validators/cpf";
 import { withAdmin } from "@/server/db";
+import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
+import { logger } from "@/lib/logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
@@ -35,12 +37,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const password = credentials?.password;
         if (typeof password !== "string" || !password) return null;
 
+        // Rate limit por CPF (5 tentativas / 15min → lockout 15min)
+        const rateLimitKey = `login:${cpf}`;
+        const limitCheck = checkRateLimit(rateLimitKey);
+        if (!limitCheck.allowed) {
+          const minutes = Math.ceil(limitCheck.retryAfterMs / 60000);
+          logger.warn("Login bloqueado por rate limit", { cpf: cpf.slice(0, 3) + "***", retryAfterMin: minutes });
+          throw new Error(`Muitas tentativas de login. Tente novamente em ${minutes} minuto${minutes > 1 ? "s" : ""}.`);
+        }
+
         const user = await withAdmin(async (tx) => {
           return tx.user.findUnique({ where: { cpf } });
         });
 
-        if (!user) return null;
-        if (!compareSync(password, user.passwordHash)) return null;
+        if (!user) {
+          recordFailedAttempt(rateLimitKey);
+          return null;
+        }
+        if (!compareSync(password, user.passwordHash)) {
+          const updated = recordFailedAttempt(rateLimitKey);
+          logger.warn("Login falhou: senha incorreta", { cpf: cpf.slice(0, 3) + "***", remaining: updated.remainingAttempts });
+          return null;
+        }
+
+        // Sucesso — limpa contador
+        clearRateLimit(rateLimitKey);
 
         return {
           id: user.id,
