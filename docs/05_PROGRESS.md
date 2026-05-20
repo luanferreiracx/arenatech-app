@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — DEPIX-WITHDRAW: webhook Pixpay + validacao DV CPF/CNPJ (Onda 3, modulo 6/11)
+
+Modulo Depix-Withdraw tinha schema completo + 7 procedures + UI funcional, mas dependia de polling manual (`checkStatus`) e validacao de documento era apenas length. 2 gaps endereçados (integracao API real adiada):
+
+- **G1 — Webhook Pixpay:** Novo `POST /api/webhooks/depix-withdraw` com HMAC SHA256 (`PIXPAY_WEBHOOK_SECRET`). Mapeia status Pixpay (unsent/processing/completed/failed/cancelled) para `DepixWithdrawStatus`. Idempotente: estados terminais (SENT/FAILED/CANCELLED) nao reprocessam. Atualiza `status`, `blockchainTxId`, `receivedAmount`, `fee`, `apiResponse`.
+- **G2 — Validacao DV CPF/CNPJ:** Novo util `src/lib/utils/tax-id.ts` com `isValidCpf`/`isValidCnpj`/`isValidTaxId` (algoritmo DV oficial, rejeita sequencias triviais). `createWithdrawSchema.recipientTaxId` agora aplica `refine(isValidTaxId)` — falha rapida antes de chamar API Pixpay, evitando rejeicoes downstream.
+
+**Fora do escopo (decisao do dono):** Integracao real `criarSaque()` com POST /v1/withdraw Pixpay (depende de credenciais + ambiente teste). create() continua criando registro local em PENDING.
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`6c4b6ca`)
+
+---
+
 ### 2026-05-20 — VALUATION: validade configuravel por tenant + audit log em bulk ops (Onda 3, modulo 5/11)
 
 Modulo Valuation tinha 11 procedures + UI + WhatsApp formatter, mas validade era hardcoded 7 dias e operacoes em massa (ajuste %, fixo, duplicar, deletar modelo) nao tinham rastreabilidade. 2 gaps endereçados (workflow de proposta adiado):
