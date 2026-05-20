@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — CHATBOT: customer lookup + handoff bot->humano + ChatbotConfig (Onda 3, modulo 2/11)
+
+Modulo Chatbot tinha estrutura basica (8 procedures + webhook chatwoot) mas zero integracao com cliente cadastrado e sem deteccao automatica de handoff. 3 gaps endereçados (IA/Anthropic adiada):
+
+- **G1 — Customer lookup no webhook:** Ao receber message_created, busca Customer pelos ultimos 9 digitos do telefone em `phone` ou `phoneSecondary`. Cria conversation com `customerId` ja vinculado. Quando conv pre-existia sem cliente, vincula no proximo evento. Habilita uso futuro de contexto (OS ativa, historico).
+- **G2 — Deteccao bot->humano + cancelar follow-ups:** Webhook agora distingue `sender.type=user` (agente humano Chatwoot) de `agent_bot`. Quando agente responde, marca conversation como `HUMAN_TAKEOVER` e cancela todos os ChatbotFollowUp pendentes para essa conv. Paridade Laravel `ChatbotController::detectarHandoff`.
+- **G3 — ChatbotConfig (novo):** Singleton por tenant com `enabled`, `whitelistPhones[]`, `businessHoursStart/End`, mensagens padrao (`greetingMessage`, `outOfHoursMessage`, `handoffMessage`), `followUpDelayHours`. Procedures `getConfig`/`updateConfig` (owner/manager). Tambem `searchCustomerByPhone` + `linkConversationToCustomer` para uso manual via admin.
+
+**Fora do escopo (decisao do dono):** AnthropicService + tool calling + FAQ tools (projeto grande, semanas). Notificacoes outbound automaticas (status OS). UI dedicada de atendimento.
+
+**Validacao:** typecheck OK | 620 unit OK | build OK
+**Commits:** 1 (`15e164a`)
+
+---
+
 ### 2026-05-20 — REWARD: validacao frequencia + percentual dinamico + lock + cron expiracao (Onda 3, modulo 1/11)
 
 Modulo Reward com schema/router maduros mas tinha 4 gaps importantes de logica de negocio. UI propria adiada (sprint dedicado).
