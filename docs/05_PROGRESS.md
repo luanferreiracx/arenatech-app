@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — COMUNICACAO: webhook Evolution + opt-out LGPD + SMS removido (Onda 3, modulo 3/11)
+
+Modulo Comm tinha 13 procedures (Message + MessageTemplate), services Resend/Evolution e UI completa, mas faltava observabilidade de status real e compliance LGPD. 3 gaps endereçados:
+
+- **G1 — Webhook Evolution para status:** `POST /api/webhooks/evolution` recebe `messages.update` com status (DELIVERY_ACK/READ/ERROR) e atualiza `Message.deliveredAt/readAt`. Implementa rank de status (PENDING<SENT<DELIVERED<READ; FAILED sobrescreve) para nao retroceder. Autenticacao via `Bearer EVOLUTION_WEBHOOK_TOKEN`.
+- **G2 — Opt-out LGPD:** Customer ganha `unsubscribed` + `unsubscribedAt`. `sendToCustomer` rejeita FORBIDDEN quando cliente opted-out. Procedures `unsubscribeCustomer`/`resubscribeCustomer` para admin gerenciar. Compliance basica.
+- **G3 — SMS removido + filter active em listTemplates:** Enum Zod `messageChannelEnum` agora so aceita WHATSAPP/EMAIL (SMS removido do scope produto). DB mantem SMS por compat de migration. `listTemplates` aceita filtros `channel` + `active` (bug anterior onde `active` flag era ignorado). UI atualizada para refletir 2 canais.
+
+**Fora do escopo (decisao do dono):** SMS provider real, retry com backoff em FAILED, anexos WhatsApp via UI, template engine sofisticado (so suporta `{{var}}` simples), webhook inbound para receber respostas de cliente.
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`bf168cc`)
+
+---
+
 ### 2026-05-20 — CHATBOT: customer lookup + handoff bot->humano + ChatbotConfig (Onda 3, modulo 2/11)
 
 Modulo Chatbot tinha estrutura basica (8 procedures + webhook chatwoot) mas zero integracao com cliente cadastrado e sem deteccao automatica de handoff. 3 gaps endereçados (IA/Anthropic adiada):
