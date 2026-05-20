@@ -714,6 +714,7 @@ export const settingsRouter = createTRPCRouter({
       // Usados nos orcamentos de servico via WhatsApp.
       installmentsNoInterest: z.number().int().min(1).max(24).optional(),
       pixDiscount: z.number().min(0).max(100).optional(),
+      valuationValidityDays: z.number().int().min(1).max(90).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;

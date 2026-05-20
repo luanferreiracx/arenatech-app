@@ -86,6 +86,9 @@ model TenantAssistanceSettings {
   installmentsNoInterest Int     @default(12) @map("installments_no_interest")
   // Paridade Laravel `configuracoes_assistencia.desconto_pix` (em pontos percentuais).
   pixDiscount           Decimal  @default(5) @map("pix_discount") @db.Decimal(5, 2)
+  // Paridade Laravel `configuracoes_assistencia.validade_avaliacao_dias`.
+  // Usado em DeviceValuation/WhatsApp para apresentar a validade da proposta.
+  valuationValidityDays Int      @default(7) @map("valuation_validity_days")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 

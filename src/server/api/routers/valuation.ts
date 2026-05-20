@@ -15,6 +15,7 @@ import {
   BATTERY_HEALTH_OPTIONS,
 } from "@/lib/validators/valuation";
 import { logger } from "@/lib/logger";
+import { logAudit } from "@/server/services/audit-log.service";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -79,6 +80,16 @@ export const valuationRouter = createTRPCRouter({
     .input(createValuationSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // Le validade default do tenant (TenantAssistanceSettings.valuationValidityDays)
+        // ou usa 7 dias como fallback global.
+        let defaultValidityDays = 7;
+        if (input.validadeDias == null) {
+          const settings = await tx.tenantAssistanceSettings.findUnique({
+            where: { tenantId: ctx.tenantId },
+            select: { valuationValidityDays: true },
+          });
+          defaultValidityDays = settings?.valuationValidityDays ?? 7;
+        }
         const valuation = await tx.deviceValuation.create({
           data: {
             tenantId: ctx.tenantId,
@@ -86,7 +97,7 @@ export const valuationRouter = createTRPCRouter({
             armazenamento: input.armazenamento,
             saudeBateria: input.saudeBateria,
             valor: centsToPrisma(input.valor),
-            validadeDias: input.validadeDias ?? 7,
+            validadeDias: input.validadeDias ?? defaultValidityDays,
           },
         });
         return { id: valuation.id };
@@ -163,6 +174,14 @@ export const valuationRouter = createTRPCRouter({
           updated,
         });
 
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "bulk_adjust_percent",
+          entity: "device_valuation",
+          payload: { modelo: input.modelo, adjustPercent: input.adjustPercent, updated },
+        });
+
         return { updated };
       });
     }),
@@ -199,6 +218,14 @@ export const valuationRouter = createTRPCRouter({
           source: input.sourceModelo,
           target: input.targetModelo,
           created,
+        });
+
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "duplicate_model",
+          entity: "device_valuation",
+          payload: { sourceModelo: input.sourceModelo, targetModelo: input.targetModelo, created },
         });
 
         return { created };
@@ -238,6 +265,14 @@ export const valuationRouter = createTRPCRouter({
           updated,
         });
 
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "bulk_adjust_fixed",
+          entity: "device_valuation",
+          payload: { modelo: input.modelo, adjustAmount: input.adjustAmount, updated },
+        });
+
         return { updated };
       });
     }),
@@ -255,6 +290,14 @@ export const valuationRouter = createTRPCRouter({
         logger.info("Delete model valuations", {
           modelo: input.modelo,
           deleted: result.count,
+        });
+
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "delete_model",
+          entity: "device_valuation",
+          payload: { modelo: input.modelo, deleted: result.count },
         });
 
         return { deleted: result.count };
@@ -285,8 +328,12 @@ export const valuationRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
         }
 
-        // Get validade from first entry
-        const validadeDias = valuations[0]?.validadeDias ?? 7;
+        // Validade prioriza config do tenant; fallback validadeDias do primeiro entry
+        const settings = await tx.tenantAssistanceSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { valuationValidityDays: true },
+        });
+        const validadeDias = settings?.valuationValidityDays ?? valuations[0]?.validadeDias ?? 7;
         const nome = input.customerName ?? "Cliente";
 
         // Group by armazenamento
