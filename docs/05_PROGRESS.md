@@ -262,6 +262,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — FISCAL: TenantFiscalSettings expandida + webhook NuvemFiscal + auto-link NfeImport (Onda 2, modulo 1/4)
+
+Auditoria contra `NfeImportController` + `NfeEmissaoService` + `Fiscal/NuvemFiscalService`. 24 procedures fiscal + 14 nfeImport + service completo. **Emissão real adiada para Onda 3** (requer certificado SEFAZ homolog + testes campo). 4 gaps endereçados nesta rodada:
+
+- **G1 — TenantFiscalSettings expandida:** novos campos `defaultCfop` (5102), `defaultNcm` (85171231=celular), `cscId`, `cscToken`. `updateFiscalSettings` agora persiste todos os campos do validator (`cfopDentroEstado`, `ncmPadrao`, `csosnPadrao`, `nfceCscId`, `nfceCscToken`) que antes eram silenciosamente descartados. Migration `20260520020000_fiscal_cfop_ncm_csc` aplicada.
+- **G2 — Validação chave Mod 11:** `validateAccessKey` agora valida DV usando algoritmo Mod 11 com pesos cíclicos 2-9 (paridade SEFAZ). Util novo `src/lib/utils/nfe-key.ts` com `isValidNfeKey`, `parseNfeKey` (extrai cUF/AAMM/CNPJ/modelo/serie/numero).
+- **G3 — Webhook NuvemFiscal:** `POST /api/webhooks/nuvemfiscal` recebe callback assíncrono com validação HMAC-SHA256 via `NUVEM_FISCAL_WEBHOOK_SECRET`. Mapeia eventos (autorizada/rejeitada/cancelada/cce) para `InvoiceStatus`. Atualiza Invoice via `withAdmin` (eventos cruzam tenants). Sem secret = modo dev (warning + aceita).
+- **G4 — Auto-vinculação produtos:** `nfeImport.processXml` agora busca produtos por `barcode` ou `sku` matching o `barcode`/`productCode` do item NF-e. Itens vinculados ficam `status=LINKED` direto. Retorna `autoLinkedCount` para feedback.
+- **G5 — Sugestão produtos similares:** `nfeImport.suggestProducts({itemId})` retorna top N produtos com `score` por: token overlap no nome (×20/token), NCM match (+30), preço ±30% (+15). Inclui `reasons` para UI explicar o match.
+
+**Fora do escopo (decisão do dono — adiar):** Emissão real NF-e/NFC-e via NuvemFiscal, NFS-e, multi-certificado, consulta PDF→XML (MeuDANFE), relatório SPED EFD.
+
+**Validação:** typecheck ✓ | 620 unit ✓ | 123/125 E2E (2 flakies cashier que passam em rerun) ✓ | build ✓
+**Commits:** 1 (`a59dbaa`)
+
+---
+
 ### 2026-05-20 — FINANCEIRO: integracao compra->PAYABLE + estorno parcial + export CSV (Onda 1, modulo 6/6 ✓ Onda 1 completa!)
 
 Módulo Financeiro maduro: 24 procedures, 14 páginas/componentes. Auditoria contra `ContaPagarController`/`ContaReceberController`/`FinanceiroController` + Models `ContaPagar`/`ContaReceber`/`ContaPagarParcela`/`ContaReceberParcela`/`CategoriaFinanceira`. 4 gaps resolvidos:
