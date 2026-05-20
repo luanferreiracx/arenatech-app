@@ -262,6 +262,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — AUTH/ADMIN: rate limit in-memory em login (Onda 3, modulo 10/11)
+
+NextAuth v5 + Credentials provider funcional, mas sem qualquer protecao contra brute force. Schema TenantSecuritySettings (criado na Onda 2) tinha `maxFailedLoginAttempts/lockoutMinutes` mas nunca era enforced. 1 gap critico endereçado:
+
+- **G1 — Rate limit no login:** Novo `src/lib/utils/rate-limit.ts` com `checkRateLimit`/`recordFailedAttempt`/`clearRateLimit`. Map global por chave (CPF), defaults 5 tentativas em 15min → lockout 15min. `auth.ts` authorize agora:
+  1) Chama `checkRateLimit(cpf)` antes de tentar; se bloqueado, lanca Error com mensagem "Tente novamente em X minutos"
+  2) `recordFailedAttempt` em CPF nao encontrado ou senha errada
+  3) `clearRateLimit` em sucesso
+- 5 unit tests novos (`__tests__/unit/utils/rate-limit.test.ts`) cobrindo allowed/decrement/lockout/reset/config customizada.
+
+**Limitacoes documentadas:** Single-instance only. Producao multi-instance precisa migrar para Redis (`INCR` + `EXPIRE`) — interface foi desenhada para troca facil. TODO no codigo.
+
+**Fora do escopo (decisao do dono):** RBAC com role enum (UserTenant.role e string livre hoje), activity logging em auth events, 2FA/MFA, validacao CPF com DV (util `isValidCpf` ja existe em tax-id.ts — pode ser plugado em sprint dedicado).
+
+**Validacao:** typecheck OK | 626 unit OK (5 novos) | build OK
+**Commits:** 1 (`2c13035`)
+
+---
+
 ### 2026-05-20 — DASHBOARD: comparacao periodo anterior + comissoes em alertas (Onda 3, modulo 9/11)
 
 Dashboard tinha 8 procedures (stats, recentSales/Orders, ordersByStatus, salesChart, alerts, cashierStatus, stockDashboard, detailedAlerts) + UI rica, mas faltava comparacao temporal (KPIs sem contexto) e alertas nao cobriam comissoes. 2 gaps endereçados:
