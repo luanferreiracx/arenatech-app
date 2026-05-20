@@ -369,6 +369,7 @@ export const serviceOrderRouter = createTRPCRouter({
             createdById: ctx.session.user.id,
             technicianId: input.technicianId ?? null,
             vendorId: input.vendorId ?? null,
+            serviceProviderId: input.serviceProviderId ?? null,
             status: "OPEN",
             publicLink: generatePublicLink(),
             deviceType: input.deviceType ?? null,

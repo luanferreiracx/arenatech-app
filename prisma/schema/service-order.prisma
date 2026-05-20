@@ -98,6 +98,11 @@ model ServiceOrder {
   labReceived         Boolean             @default(false) @map("lab_received")
   deliveryPersonId    String?             @map("delivery_person_id") @db.Uuid
 
+  // Prestador de servico externo (paridade Laravel ordens_servico.prestador_id).
+  // Quando a OS é executada por um prestador, a comissão é calculada via
+  // ServiceProvider.commissionRate ou regra progressiva (ProviderCommissionRule).
+  serviceProviderId   String?             @map("service_provider_id") @db.Uuid
+
   // Assinatura Digital (Autentique)
   signatureDocumentId   String?           @map("signature_document_id")
   signatureUrl          String?           @map("signature_url")

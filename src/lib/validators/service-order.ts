@@ -267,6 +267,7 @@ export const createServiceOrderSchema = z.object({
   // Step 5: Summary
   technicianId: z.string().uuid().optional().nullable(),
   vendorId: z.string().uuid().optional().nullable(),
+  serviceProviderId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
   warrantyType: z.string().optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
@@ -297,6 +298,7 @@ export const updateServiceOrderSchema = z.object({
   deviceInfo: deviceInfoSchema.optional(),
   technicianId: z.string().uuid().optional().nullable(),
   vendorId: z.string().uuid().optional().nullable(),
+  serviceProviderId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
   warrantyType: z.string().optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
