@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — DASHBOARD: comparacao periodo anterior + comissoes em alertas (Onda 3, modulo 9/11)
+
+Dashboard tinha 8 procedures (stats, recentSales/Orders, ordersByStatus, salesChart, alerts, cashierStatus, stockDashboard, detailedAlerts) + UI rica, mas faltava comparacao temporal (KPIs sem contexto) e alertas nao cobriam comissoes. 2 gaps endereçados:
+
+- **G1 — Comparacao periodo anterior em stats:** Procedure agora calcula tambem `customersPrevMonth`, `osPrevMonth`, `salesPrevMonth*` (todalAmount + count) com janela do mes passado completo. Cada KPI retorna `previousMonth/previousMonthTotal` + `deltaPercent` (variacao% vs mes anterior). Formula: `(curr - prev) / prev * 100` com tratamento de prev=0 → 100% se curr>0 ou 0% se ambos 0.
+- **G2 — Comissoes em detailedAlerts:** Inclui `pendingCommissions` (Commission status=PENDING) e `approvedCommissions` (status=APPROVED). `totalAlerts` soma pendingCommissions. UI consome gradualmente — campos novos sao aditivos.
+
+**Fora do escopo (decisao do dono):** Cache Redis em queries pesadas (requer infra dedicada + estrategia de invalidacao). Refinamento de roles em alertas (gerente ve financeiro, vendedor ve so OS dele).
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`7971585`)
+
+---
+
 ### 2026-05-20 — REPORTS: endpoint generico /api/reports/[type]/pdf (Onda 3, modulo 8/11)
 
 Reports tinha 7 relatorios funcionais (NF, Stock 8-tabs, Commission, Technician, Cashier, Admin) com procedures via tRPC e UI completa, mas sem export PDF generico. 1 gap endereçado:
