@@ -27,10 +27,11 @@ interface AppSidebarProps {
   userName: string;
   multiTenant: boolean;
   tenantName?: string;
+  tenantSlug?: string;
   isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName, isSuperAdmin }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -85,7 +86,9 @@ export function AppSidebar({ userName, multiTenant, tenantName, isSuperAdmin }: 
                   <div className="mx-2 my-1 border-t border-sidebar-border" />
                 )}
                 <div className="space-y-0.5">
-                  {group.items.map((item) => {
+                  {group.items
+                    .filter((item) => !item.requiresTenantSlug || item.requiresTenantSlug === tenantSlug)
+                    .map((item) => {
                     const isActive = item.href === "/"
                       ? pathname === "/"
                       : item.href.includes("?")

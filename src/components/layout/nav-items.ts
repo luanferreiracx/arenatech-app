@@ -35,6 +35,7 @@ import {
   Undo2,
   Puzzle,
   Clock,
+  Smartphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -42,6 +43,8 @@ export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  /** Quando definido, item só aparece para tenants cujo slug corresponde. */
+  requiresTenantSlug?: string;
 }
 
 export interface NavGroup {
@@ -80,6 +83,12 @@ export const appNavGroups: NavGroup[] = [
       { label: "Avaliar Aparelho", href: "/valuations", icon: Star },
       { label: "Consulta IMEI", href: "/imei", icon: Shield },
       { label: "Checklist", href: "/checklist", icon: CheckSquare },
+      {
+        label: "Buscar iPhones",
+        href: "/iphone-hunter",
+        icon: Smartphone,
+        requiresTenantSlug: "arena-tech",
+      },
     ],
   },
   {

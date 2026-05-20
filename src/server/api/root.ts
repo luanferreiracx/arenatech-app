@@ -26,6 +26,7 @@ import { nfeImportRouter } from "@/server/api/routers/nfe-import";
 import { checklistRouter } from "@/server/api/routers/checklist";
 import { rewardRouter } from "@/server/api/routers/reward";
 import { chatbotRouter } from "@/server/api/routers/chatbot";
+import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
@@ -45,6 +46,7 @@ export const appRouter = createTRPCRouter({
   fiscal: fiscalRouter,
   imei: imeiRouter,
   interest: interestRouter,
+  iphoneHunter: iphoneHunterRouter,
   operation: operationRouter,
   providerCommission: providerCommissionRouter,
   quickSale: quickSaleRouter,

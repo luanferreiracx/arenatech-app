@@ -85,6 +85,30 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   });
 });
 
+/**
+ * Central tenant slug — single source of truth.
+ * Resources gated behind centralTenantProcedure are exclusive to this tenant
+ * (e.g., iPhone hunter that monitors REVENDA WhatsApp groups).
+ */
+export const CENTRAL_TENANT_SLUG = "arena-tech";
+
+/**
+ * Central tenant procedure — only the central tenant (arena-tech) can use it.
+ * Extends tenantProcedure with a slug check against the user's available tenants.
+ */
+export const centralTenantProcedure = tenantProcedure.use(async ({ ctx, next }) => {
+  const active = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+  if (active?.slug !== CENTRAL_TENANT_SLUG) {
+    logger.warn("centralTenantProcedure: non-central tenant access attempt", {
+      userId: ctx.session.user.id,
+      tenantId: ctx.tenantId,
+      slug: active?.slug,
+    });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Recurso exclusivo do tenant central" });
+  }
+  return next({ ctx });
+});
+
 /** Admin procedure — requires isSuperAdmin. All queries run via withAdmin. */
 export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.session?.user) {

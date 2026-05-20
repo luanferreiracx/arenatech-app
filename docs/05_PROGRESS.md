@@ -7,8 +7,8 @@
 
 ## Estado atual
 
-**Fase atual:** Auditoria módulo a módulo antes da migração de dados. Módulo OS auditado (ADR 0043).
-**Ultima atualizacao:** 2026-05-19
+**Fase atual:** Auditoria módulo a módulo antes da migração de dados. Módulo OS auditado (ADR 0043). Ferramenta extra: Buscador de iPhones em grupos WhatsApp (ADR 0044).
+**Ultima atualizacao:** 2026-05-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 5 arquivos
 **Branch atual:** `main`
@@ -1671,6 +1671,22 @@ Ordem planejada: Clientes (23) → Configurações (17) → Caixa (14) → Finan
 ## Bloqueios atuais
 
 _(vazio)_
+
+---
+
+### 2026-05-20 — Ferramenta: Buscador de iPhones nos grupos WhatsApp (tenant central)
+
+- **Implementado:**
+  - Schema `whatsapp-group.prisma` (WhatsAppGroup, WhatsAppGroupMessage, IPhoneListing) + RLS.
+  - `centralTenantProcedure` em `src/server/api/trpc.ts` (constante `CENTRAL_TENANT_SLUG = "arena-tech"`).
+  - Parser puro em `src/lib/services/iphone-listing-parser.ts` + 29 unit tests verdes.
+  - Webhook Evolution estendido (`messages.upsert`) — captura grupos monitorados, persiste mensagem (idempotente) e extrai IPhoneListing quando bate no parser.
+  - Router `iphoneHunterRouter` (listGroups, listEvolutionGroups, upsertGroup, toggleGroup, search, stats).
+  - Páginas `/iphone-hunter` (busca por modelo + janela + preço) e `/iphone-hunter/groups` (toggle de grupos via switch).
+  - Sidebar com prop `tenantSlug` + flag `requiresTenantSlug` no NavItem — entrada "Buscar iPhones" só aparece para tenant `arena-tech`.
+- **Decisões:** ADR 0044 — exclusivo do tenant central, webhook+cache, regex+keywords (não LLM), mensagem crua e extração em tabelas separadas.
+- **Validação:** typecheck verde, build verde (rotas /iphone-hunter e /iphone-hunter/groups), 655 unit tests verdes.
+- **Próximo:** habilitar evento `messages.upsert` na instância Evolution em produção (POST /webhook/set/{instance}).
 
 ---
 

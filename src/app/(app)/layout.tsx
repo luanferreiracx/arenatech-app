@@ -37,6 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             userName={session.user.name ?? "Usuário"}
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
+            tenantSlug={activeTenant?.slug}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
@@ -45,6 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             userName={session.user.name ?? "Usuário"}
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
+            tenantSlug={activeTenant?.slug}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
