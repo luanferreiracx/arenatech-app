@@ -262,6 +262,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — PDV: trade-in + pix status + linkCustomer + updateSaleDate (Onda 1, modulo 4/6)
+
+Módulo PDV (sale + quick-sale). 28 procedures sale + 7 quick-sale. Auditoria vs `PdvController.php` (25 actions). 19 já cobertas. 5 gaps resolvidos:
+
+- **G1 — Trade-in (aparelho de entrada):** novos schemas `SaleUpgrade` + `SaleAudit`. Migration `20260520000000_sale_upgrades_audit`. Procedures `addUpgrade`/`removeUpgrade`. `recalculateSale` subtrai `abatedValue` dos upgrades. `finalize` cria `DevicePurchase` para cada upgrade vinculando o customer da venda como vendedor. UI: `UpgradeDialog` standalone + botão no PDV (bloqueado em pagamento de OS).
+- **G2 — `checkPixStatus`:** `sale.checkPixStatus` + `getPixStatus` no depix-service com normalização (paid/pending/expired/failed/refunded + isFinal). Paridade `consultarStatusPix`.
+- **G3 — `linkCustomer`:** vincula cliente a venda já finalizada. Audit log. Paridade `vincularCliente`.
+- **G4 — `updateSaleDate` (admin only):** muda data com motivo obrigatório + audit log. Paridade `atualizarData`.
+
+**UI minor adiada:** UIs para `checkPixStatus` (botão Verificar PIX no payment dialog) e `linkCustomer`/`updateSaleDate` (botões no detail da venda) ficaram em backlog — procedures expostas via tRPC já cobrem o contrato. Implementar quando demanda surgir.
+
+**Sweep — tudo OK:** múltiplas formas pagamento via paymentDetails JSON, cancel/refund com retorno estoque, sendReceipt WhatsApp, recibo/termo PDF routes, busca produtos, integração OS↔PDV (ADR 0042). QuickSale (`VendaAvulsaDepix`) tem CRUD + markPaid — suficiente por enquanto (Depix não está em produção).
+
+**Validação:** typecheck ✓ | 620 unit ✓ | 78/79 E2E (1 flaky em sidebar — não relacionado) ✓ | build ✓
+**Commits:** 2 (backend + schema, UI upgrade)
+
+---
+
 ### 2026-05-19 — ESTOQUE+IMEI: termo compra + supplier duplicate + filtros (Onda 1, modulo 3/6)
 
 Módulo grande (70 procedures + IMEI router). Schema é muito completo (Product, DevicePurchase, Supplier, Category, Attribute, AttributeValue, ProductVariation, ProductPhoto, StockItem, StockMovement, ImeiQuery, ImeiQuota). 3 gaps reais vs Laravel.
