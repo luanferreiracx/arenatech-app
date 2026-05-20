@@ -454,4 +454,82 @@ export const commissionRouter = createTRPCRouter({
         };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // SOCIO COMMISSION RULES (flat % por categoria)
+  // Paridade Laravel SocioRegraComissao (caso Samya).
+  // ═══════════════════════════════════════
+
+  listSocioRules: tenantProcedure
+    .input(z.object({ userId: z.string().uuid().optional(), active: z.boolean().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: { userId?: string; active?: boolean } = {};
+        if (input?.userId) where.userId = input.userId;
+        if (input?.active !== undefined) where.active = input.active;
+        return tx.socioCommissionRule.findMany({
+          where,
+          orderBy: [{ userId: "asc" }, { category: "asc" }],
+        });
+      });
+    }),
+
+  upsertSocioRule: tenantProcedure
+    .input(z.object({
+      userId: z.string().uuid(),
+      category: z.enum([
+        "PRODUTO_ACESSORIO",
+        "APARELHO",
+        "SERVICO_AT_SEM_PECA",
+        "SERVICO_AT_COM_PECA",
+        "INTERMEDIACAO_AT",
+        "OUTROS",
+      ]),
+      rate: z.number().min(0).max(100),
+      active: z.boolean().optional(),
+      notes: z.string().max(500).nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar comissões de sócio" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.socioCommissionRule.upsert({
+          where: {
+            tenantId_userId_category: {
+              tenantId: ctx.tenantId,
+              userId: input.userId,
+              category: input.category,
+            },
+          },
+          create: {
+            tenantId: ctx.tenantId,
+            userId: input.userId,
+            category: input.category,
+            rate: input.rate,
+            active: input.active ?? true,
+            notes: input.notes ?? null,
+          },
+          update: {
+            rate: input.rate,
+            active: input.active,
+            notes: input.notes ?? null,
+          },
+        });
+      });
+    }),
+
+  deleteSocioRule: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await tx.socioCommissionRule.delete({ where: { id: input.id } });
+        return { success: true };
+      });
+    }),
 });

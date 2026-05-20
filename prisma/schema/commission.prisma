@@ -68,9 +68,34 @@ enum ProviderBondType {
 
 enum ProviderApuracaoStatus {
   OPEN
+  // Estado transitório usado como lock anti-race em closeApuracao
+  // (CAS update OPEN→CLOSING para reservar; depois CLOSING→CLOSED ao final).
+  CLOSING
   CLOSED
   PAID
   CANCELLED
+}
+
+/// Comissão de sócio — taxa flat por categoria, sem faixas progressivas.
+/// Paridade Laravel `socio_regras_comissao` (caso Samya).
+/// Cada linha = (tenantId, userId, category) único.
+model SocioCommissionRule {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  // Categoria canônica: PRODUTO_ACESSORIO | APARELHO | SERVICO_AT_SEM_PECA |
+  // SERVICO_AT_COM_PECA | INTERMEDIACAO_AT | OUTROS
+  category  String
+  // Alíquota em pontos percentuais (0-100). Ex: 5.00 = 5%
+  rate      Decimal  @db.Decimal(5, 2)
+  active    Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, category])
+  @@index([tenantId, userId, active])
+  @@map("socio_commission_rules")
 }
 
 enum ProviderReversalType {

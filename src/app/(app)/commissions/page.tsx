@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings, BarChart3, Users, UserCircle, Heart } from "lucide-react";
+import { Settings, BarChart3, Users, UserCircle, Heart, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { CommissionsList } from "./_components/commissions-list";
@@ -39,6 +39,12 @@ export default function CommissionsPage() {
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Relatorio
               </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href="/api/commissions/export">
+                <Download className="mr-2 h-4 w-4" />
+                Exportar CSV
+              </a>
             </Button>
             <Button asChild>
               <Link href="/commissions/rules">

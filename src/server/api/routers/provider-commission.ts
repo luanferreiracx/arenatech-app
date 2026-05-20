@@ -565,7 +565,12 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 
-  /** Close apuracao and generate financial transaction */
+  /** Close apuracao and generate financial transaction.
+   *
+   * Lock anti-race: usa updateMany(where: status=OPEN) → CLOSING como reserva atômica.
+   * Se 2 chamadas concorrentes tentarem fechar, só 1 vê count=1. A outra recebe count=0
+   * e aborta sem efeito colateral (sem PAYABLE duplicada).
+   */
   closeApuracao: tenantProcedure
     .input(closeApuracaoSchema)
     .mutation(async ({ ctx, input }) => {
@@ -586,8 +591,32 @@ export const providerCommissionRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao ja fechada" });
         }
 
+        // Tentativa de aquisição do lock — UPDATE atômico no status (CAS).
+        // Postgres serializa este UPDATE; somente uma transação verá count=1.
+        const reservation = await tx.providerApuracao.updateMany({
+          where: { id: apuracao.id, status: "OPEN" },
+          data: { status: "CLOSING" },
+        });
+        if (reservation.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Apuracao esta sendo fechada por outro processo. Tente novamente em alguns segundos.",
+          });
+        }
+
+        // Helper de rollback se algo der errado durante o close.
+        // Restaura status OPEN para que possa ser reprocessada.
+        const rollback = async () => {
+          await tx.providerApuracao.updateMany({
+            where: { id: apuracao.id, status: "CLOSING" },
+            data: { status: "OPEN" },
+          });
+        };
+
         let financialTransactionId: string | null = null;
         const netAmount = decimalToNumber(apuracao.netAmount);
+
+        try {
 
         // Create financial transaction (AP) if net > 0
         if (netAmount > 0) {
@@ -659,6 +688,10 @@ export const providerCommissionRouter = createTRPCRouter({
             ? `Apuracao fechada. Conta a pagar gerada.`
             : "Apuracao fechada. Sem valor liquido positivo — nenhuma conta gerada.",
         };
+        } catch (err) {
+          await rollback();
+          throw err;
+        }
       });
     }),
 
