@@ -15,6 +15,7 @@ import {
   DollarSign,
   AlertTriangle,
   RefreshCw,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import { toast } from "@/lib/toast";
 import { PaymentDialog } from "./payment-dialog";
 import { DiscountDialog } from "./discount-dialog";
 import { PriceCheckDialog } from "./price-check-dialog";
+import { UpgradeDialog } from "./upgrade-dialog";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -51,6 +53,16 @@ type DraftSale = {
   discountValue: number;
   totalAmount: number;
   customerId: string | null;
+  upgrades?: DraftUpgrade[];
+};
+
+type DraftUpgrade = {
+  id: string;
+  brand: string | null;
+  model: string;
+  imei: string | null;
+  appraisedValue: number;
+  abatedValue: number;
 };
 
 type DraftItem = {
@@ -90,6 +102,7 @@ export function PdvScreen() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showPriceCheckDialog, setShowPriceCheckDialog] = useState(false);
@@ -725,6 +738,16 @@ export function PdvScreen() {
           </Button>
 
           <Button
+            variant="outline"
+            className="w-full justify-start gap-2"
+            disabled={!draft || draft.id.startsWith("os-payment-")}
+            onClick={() => setShowUpgradeDialog(true)}
+          >
+            <ArrowRightLeft className="h-4 w-4" />
+            Aparelho de Entrada {(draft?.upgrades?.length ?? 0) > 0 && `(${draft?.upgrades?.length})`}
+          </Button>
+
+          <Button
             className="w-full h-12 text-base gap-2"
             disabled={items.length === 0}
             onClick={() => setShowPaymentDialog(true)}
@@ -819,6 +842,16 @@ export function PdvScreen() {
         open={showPriceCheckDialog}
         onOpenChange={setShowPriceCheckDialog}
       />
+
+      {/* -- Upgrade Dialog (trade-in) -- */}
+      {draftId && (
+        <UpgradeDialog
+          open={showUpgradeDialog}
+          onOpenChange={setShowUpgradeDialog}
+          saleId={draftId}
+          upgrades={(draft?.upgrades ?? []) as Parameters<typeof UpgradeDialog>[0]["upgrades"]}
+        />
+      )}
 
       {/* -- Payment Dialog -- */}
       {showPaymentDialog && draftId && (
