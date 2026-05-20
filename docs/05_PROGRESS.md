@@ -262,6 +262,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — CAIXA: relatorio PDF + estatisticas periodo (Onda 1, modulo 5/6)
+
+Módulo Caixa muito completo: 19 procedures, UI com sangria/suprimento/conferência/close. 14 de 16 actions Laravel já cobertas. 2 gaps resolvidos:
+
+- **G3 — Relatório PDF de fechamento:** route `/api/cashier/[id]/relatorio` gera HTML/PDF com cabeçalho (logo + CNPJ), meta (operador, datas), resumo por tipo, resumo por forma de pagamento, conferência (calculado x declarado x diferença com badge), movimentações completas e observações. Paridade `CaixaController::relatorioPdf`.
+- **G4 — `cashier.periodStats({from, to, userId?})`:** estatísticas agregadas por período. Agrupa sessions por range de data + opcionalmente por operador. Retorna totais de vendas/sangrias/suprimentos/despesas/estornos/diferenças. Paridade `CaixaService::getEstatisticasPeriodo`.
+
+**Fora do escopo (decisão do dono):** entidade `CashRegister` (Caixa físico separado) — para esta loja, `CashSession` por usuário é suficiente. `verificarSangriaAutomatica` adiada pelo mesmo motivo.
+
+**Sweep — tudo OK:** abrir/fechar, sangria/suprimento/despesa, conferência (review), close automático (ADR 0029), forceClose admin, recordReversal, manualAdjustment, statusCheck, openCashiers multi-user, history.
+
+**Validação:** typecheck ✓ | 620 unit ✓ | 94/95 E2E (1 flaky no sidebar Interesses) ✓ | build ✓
+**Commits:** 1
+
+---
+
 ### 2026-05-20 — PDV: trade-in + pix status + linkCustomer + updateSaleDate (Onda 1, modulo 4/6)
 
 Módulo PDV (sale + quick-sale). 28 procedures sale + 7 quick-sale. Auditoria vs `PdvController.php` (25 actions). 19 já cobertas. 5 gaps resolvidos:
