@@ -262,6 +262,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — REPORTS: endpoint generico /api/reports/[type]/pdf (Onda 3, modulo 8/11)
+
+Reports tinha 7 relatorios funcionais (NF, Stock 8-tabs, Commission, Technician, Cashier, Admin) com procedures via tRPC e UI completa, mas sem export PDF generico. 1 gap endereçado:
+
+- **G1 — Endpoint PDF generico:** `GET /api/reports/[type]/pdf?from=&to=` suporta 4 tipos canonicos:
+  - `commission` — Comissoes do mes (usuario, tipo, ref, base, taxa%, valor) + total
+  - `stock-position` — Posicao completa (SKU, produto, estoque, min, custo, venda) + total imobilizado
+  - `nf` — Auditoria notas fiscais (tipo, numero, status, destinatario, total, autorizada)
+  - `technician` — Desempenho por tecnico (OS count, concluidas, faturamento, custo, lucro)
+  Cada renderer consulta via `withTenant` + cross-tenant users via `withAdmin`. HTML imprimivel via navegador (Ctrl+P) com CSS A4 print-friendly. Layout padrao com tenant trade name, periodo, timestamp. Paridade Laravel `RelatorioController::*Pdf`.
+
+**Fora do escopo:** XLSX export, relatorios consolidados financeiros (DRE+receita+despesa em 1 view), dashboard executivo, comparativos periodo anterior.
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`35d0cac`)
+
+---
+
 ### 2026-05-20 — SIMULATOR: SimulatorSession + sendWhatsApp via Cloud API (Onda 3, modulo 7/11)
 
 Simulator tinha 1 procedure (`simulate`) que calculava parcelas usando InstallmentRule + PaymentMethod, mais UI funcional + rota PDF. Sem persistencia + sem envio. 3 gaps endereçados:
