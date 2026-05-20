@@ -17,10 +17,15 @@ import {
   sendSaleReceiptSchema,
   confirmSalePhysicalSignatureSchema,
   checkSaleSignatureStatusSchema,
+  addSaleUpgradeSchema,
+  removeSaleUpgradeSchema,
+  checkSalePixStatusSchema,
+  linkSaleCustomerSchema,
+  updateSaleDateSchema,
 } from "@/lib/validators/sale";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createDocumentWithLink, getDocumentStatus } from "@/lib/services/autentique-service";
-import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
+import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
 
 // ── Helpers ──
@@ -54,6 +59,17 @@ function serializeSale(sale: Record<string, unknown>) {
     paidAmount: decimalToCents(s.paidAmount as Prisma.Decimal),
     changeAmount: decimalToCents(s.changeAmount as Prisma.Decimal),
     items: Array.isArray(s.items) ? (s.items as Record<string, unknown>[]).map(serializeItem) : [],
+    upgrades: Array.isArray(s.upgrades)
+      ? (s.upgrades as Record<string, unknown>[]).map(serializeUpgrade)
+      : [],
+  };
+}
+
+function serializeUpgrade(u: Record<string, unknown>) {
+  return {
+    ...u,
+    appraisedValue: decimalToCents(u.appraisedValue as Prisma.Decimal),
+    abatedValue: decimalToCents(u.abatedValue as Prisma.Decimal),
   };
 }
 
@@ -141,7 +157,7 @@ export const saleRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.id },
-          include: { items: true },
+          include: { items: true, upgrades: true },
         });
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
@@ -595,11 +611,39 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
+        // Upgrades: criar DevicePurchase para cada aparelho de entrada
+        // (paridade Laravel — ao finalizar, upgrade vira compra de aparelho).
+        const upgrades = await tx.saleUpgrade.findMany({ where: { saleId: sale.id } });
+        for (const upg of upgrades) {
+          const purchase = await tx.devicePurchase.create({
+            data: {
+              tenantId: ctx.tenantId,
+              customerId: sale.customerId,
+              sellerType: "customer",
+              brand: upg.brand,
+              model: upg.model,
+              imei: upg.imei,
+              serial: upg.serialNumber,
+              condition: upg.condition === "NEW" ? "NEW" : "USED",
+              batteryHealth: upg.batteryHealth,
+              purchasePrice: upg.appraisedValue,
+              notes:
+                `Aparelho de entrada (upgrade) — venda ${saleNumber}.` +
+                (upg.notes ? ` ${upg.notes}` : ""),
+            },
+          });
+          await tx.saleUpgrade.update({
+            where: { id: upg.id },
+            data: { devicePurchaseId: purchase.id },
+          });
+        }
+
         logger.info("Sale finalized", {
           saleId: sale.id,
           number: saleNumber,
           total: totalCents,
           userId: ctx.session.user.id,
+          upgrades: upgrades.length,
         });
 
         return serializeSale(updated as unknown as Record<string, unknown>);
@@ -1363,6 +1407,180 @@ export const saleRouter = createTRPCRouter({
       }
       return { success: true };
     }),
+
+  /**
+   * Consulta status atual de uma transacao PIX e atualiza a venda quando pago.
+   * Paridade Laravel `consultarStatusPix`. Botao manual de "Verificar PIX".
+   */
+  checkPixStatus: tenantProcedure
+    .input(checkSalePixStatusSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await getPixStatus(input.transactionId);
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao consultar PIX",
+        });
+      }
+      return {
+        status: result.status ?? "pending",
+        isFinal: result.isFinal ?? false,
+      };
+    }),
+
+  // ═══════════════════════════════════════
+  // UPGRADE (aparelho de entrada / trade-in)
+  // ═══════════════════════════════════════
+
+  /** Adiciona upgrade ao carrinho (somente DRAFT). */
+  addUpgrade: tenantProcedure
+    .input(addSaleUpgradeSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale || sale.status !== "DRAFT") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Venda nao esta em rascunho.",
+          });
+        }
+        if (sale.isOSPayment) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Pagamento de OS nao aceita upgrade.",
+          });
+        }
+
+        const upgrade = await tx.saleUpgrade.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            brand: input.brand ?? null,
+            model: input.model,
+            imei: input.imei ?? null,
+            serialNumber: input.serialNumber ?? null,
+            condition: input.condition,
+            batteryHealth: input.batteryHealth ?? null,
+            appraisedValue: centsToPrisma(input.appraisedValue),
+            abatedValue: centsToPrisma(input.abatedValue),
+            notes: input.notes ?? null,
+          },
+        });
+
+        // Recalcula a venda (abateValue reduz totalAmount no recalc).
+        await recalculateSale(tx, input.saleId, ctx.tenantId);
+
+        return { id: upgrade.id };
+      });
+    }),
+
+  /** Remove upgrade do carrinho. */
+  removeUpgrade: tenantProcedure
+    .input(removeSaleUpgradeSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const upgrade = await tx.saleUpgrade.findUnique({ where: { id: input.id } });
+        if (!upgrade) throw new TRPCError({ code: "NOT_FOUND" });
+        const sale = await tx.sale.findUnique({ where: { id: upgrade.saleId } });
+        if (!sale || sale.status !== "DRAFT") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Upgrade so pode ser removido em venda em rascunho.",
+          });
+        }
+        await tx.saleUpgrade.delete({ where: { id: input.id } });
+        await recalculateSale(tx, upgrade.saleId, ctx.tenantId);
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // POST-FINALIZE ADMIN ACTIONS
+  // ═══════════════════════════════════════
+
+  /**
+   * Vincula um cliente a uma venda ja finalizada (caso o cliente nao foi
+   * cadastrado durante a venda). Paridade Laravel `vincularCliente`.
+   */
+  linkCustomer: tenantProcedure
+    .input(linkSaleCustomerSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+        if (sale.status !== "COMPLETED") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas vendas finalizadas podem ter cliente vinculado.",
+          });
+        }
+        const customer = await tx.customer.findUnique({
+          where: { id: input.customerId },
+          select: { id: true, name: true },
+        });
+        if (!customer) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+        }
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: { customerId: input.customerId },
+        });
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            userId: ctx.session.user.id,
+            action: "customer_linked",
+            field: "customer_id",
+            previousValue: sale.customerId ?? null,
+            newValue: input.customerId,
+          },
+        });
+        return { success: true, customerName: customer.name };
+      });
+    }),
+
+  /**
+   * Atualiza data da venda (admin only). Requer motivo. Audit log.
+   * Paridade Laravel `atualizarData`.
+   */
+  updateSaleDate: tenantProcedure
+    .input(updateSaleDateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const isAdmin = ctx.session.user.isSuperAdmin === true;
+      if (!isAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem alterar a data da venda.",
+        });
+      }
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+        const newDate = new Date(input.saleDate);
+        if (isNaN(newDate.getTime())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Data invalida." });
+        }
+        const previousDate = sale.saleDate.toISOString();
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: { saleDate: newDate },
+        });
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            userId: ctx.session.user.id,
+            action: "date_changed",
+            field: "sale_date",
+            previousValue: previousDate,
+            newValue: newDate.toISOString(),
+            reason: input.reason,
+          },
+        });
+        return { success: true };
+      });
+    }),
 });
 
 // ── Internal helpers ──
@@ -1374,6 +1592,13 @@ async function recalculateSale(
 ) {
   const items = await tx.saleItem.findMany({ where: { saleId } });
   const subtotalCents = items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
+
+  // Upgrades abatem do total (paridade Laravel — `valor_abatido`).
+  const upgrades = await tx.saleUpgrade.findMany({ where: { saleId } });
+  const upgradeAbateCents = upgrades.reduce(
+    (sum, u) => sum + decimalToCents(u.abatedValue),
+    0,
+  );
 
   const sale = await tx.sale.findUnique({ where: { id: saleId } });
   if (!sale) {
@@ -1387,7 +1612,7 @@ async function recalculateSale(
     discountAmountCents = Math.round(subtotalCents * (pct / 100));
   }
 
-  const totalCents = Math.max(0, subtotalCents - discountAmountCents);
+  const totalCents = Math.max(0, subtotalCents - discountAmountCents - upgradeAbateCents);
 
   const updated = await tx.sale.update({
     where: { id: saleId },

@@ -167,3 +167,49 @@ export const searchProductsSchema = z.object({
 });
 
 export type SearchProductsInput = z.infer<typeof searchProductsSchema>;
+
+// ── Upgrade (aparelho de entrada / trade-in) ──
+
+export const addSaleUpgradeSchema = z.object({
+  saleId: z.string().uuid(),
+  brand: z.string().max(100).optional().nullable(),
+  model: z.string().min(1).max(100),
+  imei: z.string().max(20).optional().nullable(),
+  serialNumber: z.string().max(50).optional().nullable(),
+  condition: z.enum(["NEW", "USED"]).default("USED"),
+  batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
+  appraisedValue: z.number().int().min(0),  // centavos
+  abatedValue: z.number().int().min(0),     // centavos (quanto abate da venda)
+  notes: z.string().max(500).optional().nullable(),
+});
+export type AddSaleUpgradeInput = z.infer<typeof addSaleUpgradeSchema>;
+
+export const removeSaleUpgradeSchema = z.object({
+  id: z.string().uuid(),
+});
+export type RemoveSaleUpgradeInput = z.infer<typeof removeSaleUpgradeSchema>;
+
+// ── Check Pix Status ──
+
+export const checkSalePixStatusSchema = z.object({
+  saleId: z.string().uuid(),
+  transactionId: z.string().min(1),
+});
+export type CheckSalePixStatusInput = z.infer<typeof checkSalePixStatusSchema>;
+
+// ── Link Customer (post-venda) ──
+
+export const linkSaleCustomerSchema = z.object({
+  saleId: z.string().uuid(),
+  customerId: z.string().uuid(),
+});
+export type LinkSaleCustomerInput = z.infer<typeof linkSaleCustomerSchema>;
+
+// ── Update Sale Date (admin) ──
+
+export const updateSaleDateSchema = z.object({
+  saleId: z.string().uuid(),
+  saleDate: z.string(), // ISO
+  reason: z.string().min(1).max(500),
+});
+export type UpdateSaleDateInput = z.infer<typeof updateSaleDateSchema>;

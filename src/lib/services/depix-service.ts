@@ -27,6 +27,15 @@ export interface DepixCancelResult {
   error?: string;
 }
 
+export interface DepixStatusResult {
+  success: boolean;
+  /** Status normalizado: "pending" | "paid" | "expired" | "failed" | "refunded" */
+  status?: "pending" | "paid" | "expired" | "failed" | "refunded";
+  /** Status final (true) significa que nao vai mais mudar. */
+  isFinal?: boolean;
+  error?: string;
+}
+
 interface DepixConfig {
   apiUrl: string;
   apiKey: string;
@@ -163,6 +172,52 @@ export async function cancelPixPayment(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erro ao cancelar PIX",
+    };
+  }
+}
+
+/**
+ * Consulta status de uma transacao PIX. Paridade Laravel `consultarStatusPix`.
+ * No mock (sem config), retorna "pending" para nao falsificar pagamento.
+ */
+export async function getPixStatus(transactionId: string): Promise<DepixStatusResult> {
+  const config = getConfig();
+  if (!config) {
+    return { success: true, status: "pending", isFinal: false };
+  }
+  try {
+    const response = await fetch(`${config.apiUrl}/transactions/${transactionId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Depix HTTP ${response.status}`,
+      };
+    }
+    const data: unknown = await response.json();
+    // Normaliza status — Depix retorna "completed"/"pending"/"failed"/"expired"/"refunded".
+    const raw = (data as { status?: string }).status?.toLowerCase() ?? "pending";
+    const normalized: DepixStatusResult["status"] =
+      raw === "completed" || raw === "paid" || raw === "success"
+        ? "paid"
+        : raw === "expired"
+          ? "expired"
+          : raw === "failed" || raw === "cancelled"
+            ? "failed"
+            : raw === "refunded"
+              ? "refunded"
+              : "pending";
+    const isFinal = normalized !== "pending";
+    return { success: true, status: normalized, isFinal };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao consultar PIX",
     };
   }
 }

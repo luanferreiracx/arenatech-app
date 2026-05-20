@@ -54,6 +54,7 @@ model Sale {
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
   items           SaleItem[]
+  upgrades        SaleUpgrade[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -82,4 +83,52 @@ model SaleItem {
 
   @@index([tenantId, saleId])
   @@map("sale_items")
+}
+
+/**
+ * Upgrade (aparelho de entrada / trade-in) em uma venda.
+ * Paridade Laravel `pdv_venda_upgrades`. Quando a venda finaliza, cada upgrade
+ * vira um DevicePurchase (compra de aparelho usado da loja).
+ */
+model SaleUpgrade {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  saleId              String   @map("sale_id") @db.Uuid
+  brand               String?
+  model               String
+  imei                String?
+  serialNumber        String?  @map("serial_number")
+  condition           String   @default("USED") // USED | NEW
+  batteryHealth       Int?     @map("battery_health")
+  appraisedValue      Decimal  @map("appraised_value") @db.Decimal(10, 2)
+  abatedValue         Decimal  @map("abated_value") @db.Decimal(10, 2)
+  notes               String?
+  // Quando finaliza a venda, vinculamos ao DevicePurchase criado.
+  devicePurchaseId    String?  @map("device_purchase_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  sale                Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, saleId])
+  @@map("sale_upgrades")
+}
+
+/**
+ * Audit log de venda — paridade Laravel `pdv_venda_auditorias`.
+ * Registra acoes sensíveis: cancel, refund, atualizar data, vincular cliente.
+ */
+model SaleAudit {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  saleId        String   @map("sale_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  action        String   // "cancel" | "refund" | "date_changed" | "customer_linked"
+  field         String?
+  previousValue String?  @map("previous_value")
+  newValue      String?  @map("new_value")
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, saleId])
+  @@map("sale_audits")
 }
