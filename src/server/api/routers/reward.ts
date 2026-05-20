@@ -245,6 +245,79 @@ export const rewardRouter = createTRPCRouter({
             throw new TRPCError({ code: "BAD_REQUEST", message: "Campanha atingiu limite de recompensas" })
           }
 
+          // Validar limites de frequencia (paridade Laravel RecompensaRegraTipo).
+          // Regras vivem em campaign.rules (JSON):
+          //   { maxPerDay?: number, maxPerWeek?: number, maxPerMonth?: number, maxActive?: number }
+          const rules = (campaign.rules as Record<string, unknown> | null) ?? {}
+          const maxPerDay = Number(rules.maxPerDay ?? 0)
+          const maxPerWeek = Number(rules.maxPerWeek ?? 0)
+          const maxPerMonth = Number(rules.maxPerMonth ?? 0)
+          const maxActive = Number(rules.maxActive ?? 0)
+
+          if (maxPerDay > 0 || maxPerWeek > 0 || maxPerMonth > 0) {
+            const now = new Date()
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            const startOfWeek = new Date(startOfDay)
+            startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay())
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+            const [dayCount, weekCount, monthCount] = await Promise.all([
+              maxPerDay > 0
+                ? tx.rewardAction.count({
+                    where: {
+                      customerId: input.customerId,
+                      campaignId: input.campaignId,
+                      createdAt: { gte: startOfDay },
+                    },
+                  })
+                : 0,
+              maxPerWeek > 0
+                ? tx.rewardAction.count({
+                    where: {
+                      customerId: input.customerId,
+                      campaignId: input.campaignId,
+                      createdAt: { gte: startOfWeek },
+                    },
+                  })
+                : 0,
+              maxPerMonth > 0
+                ? tx.rewardAction.count({
+                    where: {
+                      customerId: input.customerId,
+                      campaignId: input.campaignId,
+                      createdAt: { gte: startOfMonth },
+                    },
+                  })
+                : 0,
+            ])
+
+            if (maxPerDay > 0 && dayCount >= maxPerDay) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Limite diario atingido para esta campanha (${maxPerDay})` })
+            }
+            if (maxPerWeek > 0 && weekCount >= maxPerWeek) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Limite semanal atingido para esta campanha (${maxPerWeek})` })
+            }
+            if (maxPerMonth > 0 && monthCount >= maxPerMonth) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Limite mensal atingido para esta campanha (${maxPerMonth})` })
+            }
+          }
+
+          if (maxActive > 0) {
+            const activeCount = await tx.rewardAction.count({
+              where: {
+                customerId: input.customerId,
+                status: { in: ["PENDING", "APPROVED"] },
+                expiresAt: { gt: new Date() },
+              },
+            })
+            if (activeCount >= maxActive) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Cliente ja possui ${activeCount} recompensas ativas (max: ${maxActive})`,
+              })
+            }
+          }
+
           validityDays = campaign.validityDays
           rewardType = campaign.rewardType
           value = decimalToCents(campaign.value)
@@ -383,15 +456,33 @@ export const rewardRouter = createTRPCRouter({
       })
     }),
 
-  /** Use a reward in a sale */
+  /**
+   * Use a reward in a sale (ou OS via usedInOsId).
+   * Calcula o desconto efetivo com base no rewardType:
+   *  - DISCOUNT_PERCENTAGE/CASHBACK: percentage * saleTotal / 100 (com cap se houver)
+   *  - DISCOUNT_FIXED: value (em centavos)
+   *  - GIFT: 0 (nao aplica desconto, apenas marca como usado)
+   *
+   * Retorna `discountCents` para o PDV/OS aplicar.
+   * Paridade Laravel RecompensaUtilizacaoController::aplicar.
+   */
   useAction: tenantProcedure
     .input(z.object({
       actionId: z.string().uuid(),
-      saleId: z.string().uuid(),
+      saleId: z.string().uuid().optional(),
+      osId: z.string().uuid().optional(),
+      // Total da venda/OS em centavos — usado para calcular percentual dinamico
+      saleTotalCents: z.number().int().min(0).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      if (!input.saleId && !input.osId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Forneca saleId ou osId" })
+      }
       return ctx.withTenant(async (tx) => {
-        const action = await tx.rewardAction.findUnique({ where: { id: input.actionId } })
+        const action = await tx.rewardAction.findUnique({
+          where: { id: input.actionId },
+          include: { campaign: { select: { maxCap: true } } },
+        })
         if (!action || action.status !== "APPROVED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa nao disponivel" })
         }
@@ -404,16 +495,39 @@ export const rewardRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa expirada" })
         }
 
+        // Calcula desconto efetivo
+        let discountCents = 0
+        const percentage = Number(action.percentage)
+        const valueCents = decimalToCents(action.value)
+
+        if (action.rewardType === "DISCOUNT_PERCENTAGE" || action.rewardType === "CASHBACK") {
+          if (percentage > 0 && input.saleTotalCents) {
+            discountCents = Math.round((input.saleTotalCents * percentage) / 100)
+            // Aplica cap da campanha (em centavos)
+            const maxCapCents = action.campaign?.maxCap ? decimalToCents(action.campaign.maxCap) : 0
+            if (maxCapCents > 0 && discountCents > maxCapCents) {
+              discountCents = maxCapCents
+            }
+          } else if (valueCents > 0) {
+            // Fallback: usar valor pré-fixado se sem total ou sem percentual
+            discountCents = valueCents
+          }
+        } else if (action.rewardType === "DISCOUNT_FIXED") {
+          discountCents = valueCents
+        }
+        // GIFT: discountCents permanece 0
+
         await tx.rewardAction.update({
           where: { id: input.actionId },
           data: {
             status: "USED",
             usedAt: new Date(),
-            usedInSaleId: input.saleId,
+            usedInSaleId: input.saleId ?? null,
+            usedInOsId: input.osId ?? null,
           },
         })
 
-        return { success: true }
+        return { success: true, discountCents, rewardType: action.rewardType }
       })
     }),
 
@@ -478,6 +592,97 @@ export const rewardRouter = createTRPCRouter({
           expiresAt: r.expiresAt,
           campaignName: r.campaign?.name ?? null,
         }))
+      })
+    }),
+
+  /**
+   * Lock cashback balance (reserva durante checkout).
+   * Move `amount` cents de availableBalance → lockedBalance.
+   * Retorna a movimentacao para que o caller (PDV) possa desbloquear depois.
+   */
+  lockBalance: tenantProcedure
+    .input(z.object({
+      customerId: z.string().uuid(),
+      amountCents: z.number().int().min(1),
+      saleId: z.string().uuid().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const balance = await tx.rewardBalance.findFirst({
+          where: { customerId: input.customerId },
+        })
+        if (!balance) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem saldo de cashback" })
+        }
+        const availableCents = decimalToCents(balance.availableBalance)
+        if (availableCents < input.amountCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Saldo insuficiente: disponivel R$ ${(availableCents / 100).toFixed(2)}`,
+          })
+        }
+        await tx.rewardBalance.update({
+          where: { id: balance.id },
+          data: {
+            availableBalance: { decrement: input.amountCents / 100 },
+            lockedBalance: { increment: input.amountCents / 100 },
+          },
+        })
+        const mov = await tx.rewardMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            balanceId: balance.id,
+            type: "lock",
+            amount: new Prisma.Decimal(input.amountCents / 100),
+            description: input.saleId ? `Reserva checkout venda ${input.saleId.slice(0, 8)}` : "Reserva manual",
+            referenceType: input.saleId ? "sale" : null,
+            referenceId: input.saleId ?? null,
+          },
+        })
+        return { movementId: mov.id }
+      })
+    }),
+
+  /**
+   * Unlock cashback balance (libera reserva — venda cancelada ou expirou).
+   * Move `amount` cents de lockedBalance → availableBalance.
+   */
+  unlockBalance: tenantProcedure
+    .input(z.object({
+      customerId: z.string().uuid(),
+      amountCents: z.number().int().min(1),
+      reason: z.string().max(200).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const balance = await tx.rewardBalance.findFirst({
+          where: { customerId: input.customerId },
+        })
+        if (!balance) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem saldo de cashback" })
+        }
+        const lockedCents = decimalToCents(balance.lockedBalance)
+        const toUnlock = Math.min(input.amountCents, lockedCents)
+        if (toUnlock === 0) {
+          return { unlocked: 0 }
+        }
+        await tx.rewardBalance.update({
+          where: { id: balance.id },
+          data: {
+            availableBalance: { increment: toUnlock / 100 },
+            lockedBalance: { decrement: toUnlock / 100 },
+          },
+        })
+        await tx.rewardMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            balanceId: balance.id,
+            type: "unlock",
+            amount: new Prisma.Decimal(toUnlock / 100),
+            description: input.reason ?? "Liberacao de reserva",
+          },
+        })
+        return { unlocked: toUnlock }
       })
     }),
 
