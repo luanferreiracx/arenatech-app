@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — OPERACAO: Expense entity + LabOrder->PAYABLE + ServiceProvider->OS (Onda 2, modulo 4/4 ✓ Onda 2 COMPLETA!)
+
+Modulo Operacao tinha 15 procedures (DeliveryPerson, ExternalLab, LabOrder, ServiceProvider) mas sem Expense entity propria. 3 gaps endereçados:
+
+- **G1 — Expense entity (nova):** Schema novo com 10 categorias canonicas (TRAVEL/MEALS/SUPPLIES/MAINTENANCE/UTILITIES/RENT/SOFTWARE/MARKETING/TAXES/OTHER) + 5 status (PENDING_APPROVAL/APPROVED/PAID/REJECTED/CANCELLED). Procedures listExpenses, createExpense, approveExpense, rejectExpense, deleteExpense, expenseStats. Owner/manager pode `autoApprove` na criacao; rejectExpense exige motivo. approveExpense aceita `generatePayable` para criar PAYABLE no financeiro com referenceType=expense.
+- **G2 — LabOrder → PAYABLE:** Campo `payableTransactionId` em LabOrder. `updateLabOrderStatus` agora gera PAYABLE automatico quando status muda para RETURNED/COMPLETED com `finalCost > 0` (descricao com nome do lab + ref OS). Tambem marca `serviceOrder.labReceived = true` para a OS vinculada.
+- **G3 — ServiceProvider → OS:** Campo `serviceProviderId` em ServiceOrder (paridade Laravel `ordens_servico.prestador_id`). Propagado em `createServiceOrderSchema` e `updateServiceOrderSchema`. Procedures create/update do OS persistem o campo. Habilita futura calculo automatico de comissao via ProviderCommissionRule.
+
+**Onda 2 (IMPORTANT) ✓ COMPLETA:** Fiscal (1) + Settings (2) + Comissoes (3) + Operacao (4).
+
+**Validacao:** typecheck OK | 620 unit OK | build OK
+**Commits:** 1 (`d7dafc0`)
+
+---
+
 ### 2026-05-20 — COMISSOES: socio rules + lock CAS apuracao + export CSV (Onda 2, modulo 3/4)
 
 Modulo Comissoes maduro: 10 procedures commission + 11 provider-commission + 6 models + 8 paginas. Auditoria contra `ComissaoController`, `SocioComissaoController`, `PrestadorComissaoController`, `ComissaoEngine` Laravel. 3 gaps endereçados:
