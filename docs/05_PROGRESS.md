@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — INTEREST: conversao + sendBatch real + conversionStats (Onda 3, modulo 4/11)
+
+Modulo Interest tinha 8 procedures + UI completa mas com 2 gaps importantes: stub no sendBatch e sem tracking de conversao para ROI. 2 gaps endereçados (bridge estoque adiada):
+
+- **G1 — sendBatch integrado com communication real:** Removido TODO. Agora cria Message real (channel=WHATSAPP, ref=interest) e invoca `sendTextMessage` da Evolution API. Em sucesso, cria InterestInteraction + atualiza `lastNotifiedAt`. Em falha, marca Message como FAILED mas nao reverte tx (atomicidade pode levar a inconsistencia se 1 dentre 5 falhar — manter parcial e contar errors).
+- **G2 — Tracking de conversao:** Interest ganha `customerId`, `convertedAt`, `convertedToSaleId`, `convertedToOsId`, `lastNotifiedAt` + indice em `(tenantId, status, createdAt)` para aging queries. Procedure `markConverted({id, saleId|osId})` marca como COMPLETED. Procedure `conversionStats({from, to})` retorna `total/completed/converted/conversionRate%/byStatus`.
+
+**Fora do escopo (decisao do dono):** Bridge automatica Estoque→Interest (cron de match StockItem novo vs Interest.desiredModel — schema complexo: texto livre vs catalogo + dificil dedup).
+
+**Validacao:** typecheck OK | 621 unit OK | build OK
+**Commits:** 1 (`b182ac0`)
+
+---
+
 ### 2026-05-20 — COMUNICACAO: webhook Evolution + opt-out LGPD + SMS removido (Onda 3, modulo 3/11)
 
 Modulo Comm tinha 13 procedures (Message + MessageTemplate), services Resend/Evolution e UI completa, mas faltava observabilidade de status real e compliance LGPD. 3 gaps endereçados:
