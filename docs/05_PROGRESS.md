@@ -262,6 +262,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-20 — CHECKLIST: persistir laudo via TRPC ao finalizar (Onda 3, modulo 11/11 ✓ ONDA 3 COMPLETA!)
+
+Modulo Checklist tinha schema + 6 procedures + UI funcional, mas a UI nunca chamava `create` — todo o trabalho do avaliador era estado local que sumia ao refresh. 1 gap critico corrigido:
+
+- **G1 — Persistencia real do laudo:** `ChecklistFlow` agora invoca `checklist.create()` em `handleFinalizeLaudo` via mutation. Serializa `answers` como `results` JSON, valor oferecido em centavos, notas avaliador. Loading state durante save (Loader2 + "Salvando..."). Banner finalizado exibe ID salvo. Apenas marca `finalizado=true` apos sucesso (antes era otimista).
+
+**Fora do escopo (decisao do dono):** Vinculacao com ServiceOrder/Purchase via props opcionais. Upload de fotos. Assinatura digital do avaliador.
+
+**ONDA 3 COMPLETA (11/11):** Reward (1) + Chatbot (2) + Comunicacao (3) + Interest (4) + Valuation (5) + Depix-Withdraw (6) + Simulator (7) + Reports (8) + Dashboard (9) + Auth/Admin (10) + Checklist (11).
+
+**Validacao:** typecheck OK | 655 unit OK | build OK
+**Commits:** 1 (`8aeff30`)
+
+---
+
 ### 2026-05-20 — AUTH/ADMIN: rate limit in-memory em login (Onda 3, modulo 10/11)
 
 NextAuth v5 + Credentials provider funcional, mas sem qualquer protecao contra brute force. Schema TenantSecuritySettings (criado na Onda 2) tinha `maxFailedLoginAttempts/lockoutMinutes` mas nunca era enforced. 1 gap critico endereçado:
