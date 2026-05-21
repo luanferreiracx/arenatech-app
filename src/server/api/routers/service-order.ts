@@ -282,7 +282,7 @@ export const serviceOrderRouter = createTRPCRouter({
         // Load customer
         const customer = await tx.customer.findUnique({
           where: { id: order.customerId },
-          select: { id: true, name: true, cpf: true, cnpj: true, phone: true, email: true },
+          select: { id: true, name: true, cpf: true, cnpj: true, phone: true, phoneSecondary: true, email: true },
         });
 
         // Load users (technician, created by, vendor) via withAdmin
@@ -1771,7 +1771,11 @@ export const serviceOrderRouter = createTRPCRouter({
 
   // ── SEND FOR DIGITAL SIGNATURE (Autentique) ──
   sendForSignature: tenantProcedure
-    .input(z.object({ orderId: z.string().uuid() }))
+    .input(z.object({
+      orderId: z.string().uuid(),
+      // Numero customizado para envio (sobrescreve telefone do cliente). Opcional.
+      whatsappOverride: z.string().min(10).max(20).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
@@ -1785,10 +1789,15 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const customer = await tx.customer.findUnique({
           where: { id: order.customerId },
-          select: { name: true, phone: true },
+          select: { name: true, phone: true, phoneSecondary: true },
         });
         if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
-        if (!customer.phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado" });
+
+        // Telefone: prioriza override do usuario, depois principal, depois alternativo
+        const whatsapp = input.whatsappOverride || customer.phone || customer.phoneSecondary;
+        if (!whatsapp) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado. Informe um numero." });
+        }
 
         // Generate a simple PDF buffer for the signature document
         const pdfUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/service-orders/${input.orderId}/pdf`;
@@ -1804,7 +1813,7 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const result = await createDocumentWithLink(
           `OS ${order.number} - Termo de Servico`,
-          [{ name: customer.name, whatsapp: formatWhatsApp(customer.phone) }],
+          [{ name: customer.name, whatsapp: formatWhatsApp(whatsapp) }],
           pdfBuffer,
         );
 

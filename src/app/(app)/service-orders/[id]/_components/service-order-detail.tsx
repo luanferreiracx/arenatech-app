@@ -53,6 +53,7 @@ import {
 import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { WhatsAppSendDialog } from "@/components/domain/whatsapp-send-dialog";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
 import {
@@ -121,6 +122,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [quoteReason, setQuoteReason] = useState("");
   const [quoteAdditional, setQuoteAdditional] = useState("");
   // New dialogs — Sprint 1A
+  const [signatureDialog, setSignatureDialog] = useState(false);
   const [trackingDialog, setTrackingDialog] = useState(false);
   const [trackingPhone, setTrackingPhone] = useState("");
   const [deliveryTermDialog, setDeliveryTermDialog] = useState(false);
@@ -233,6 +235,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     trpc.serviceOrder.sendForSignature.mutationOptions({
       onSuccess: (data) => {
         toast.success("Documento enviado para assinatura!");
+        setSignatureDialog(false);
         if (data.signatureLink) {
           window.open(data.signatureLink, "_blank");
         }
@@ -558,7 +561,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 size="sm"
                 variant="outline"
                 disabled={sendForSignatureMut.isPending}
-                onClick={() => sendForSignatureMut.mutate({ orderId: id })}
+                onClick={() => setSignatureDialog(true)}
               >
                 <Send className="mr-1 h-3 w-3" />Enviar para Assinatura Digital
               </Button>
@@ -1262,6 +1265,22 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </div>
 
       {/* ── Dialogs ── */}
+
+      {/* Signature WhatsApp Dialog */}
+      <WhatsAppSendDialog
+        open={signatureDialog}
+        onOpenChange={setSignatureDialog}
+        title="Enviar para Assinatura Digital"
+        description="Selecione um número ou digite outro para receber o link de assinatura."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={sendForSignatureMut.isPending}
+        confirmLabel="Enviar para Autentique"
+        onConfirm={async (phone) => {
+          await sendForSignatureMut.mutateAsync({ orderId: id, whatsappOverride: phone });
+        }}
+      />
 
       {/* Payment Dialog */}
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
