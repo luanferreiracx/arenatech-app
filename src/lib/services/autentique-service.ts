@@ -91,11 +91,14 @@ export async function createDocumentWithLink(
 
   try {
     // Build the GraphQL mutation
+    // Signers devem ter delivery_method=DELIVERY_METHOD_WHATSAPP + phone p/ Autentique
+    // entregar o link via WhatsApp. Sem email/whatsapp, a API rejeita.
     const signersGql = signers
-      .map(
-        (s) =>
-          `{ action: SIGN, positions: [{ x: "50", y: "80", z: "1" }], email: "", name: "${s.name}" }`,
-      )
+      .map((s) => {
+        const phoneFormatted = formatWhatsApp(s.whatsapp);
+        const safeName = s.name.replace(/"/g, '\\"');
+        return `{ action: SIGN, positions: [{ x: "50", y: "80", z: "1" }], name: "${safeName}", delivery_method: DELIVERY_METHOD_WHATSAPP, phone: "${phoneFormatted}" }`;
+      })
       .join(", ");
 
     const mutation = `
@@ -149,10 +152,17 @@ export async function createDocumentWithLink(
 
     const json = (await response.json()) as Record<string, unknown>;
     const data = json["data"] as Record<string, unknown> | undefined;
+    const errors = json["errors"] as Array<Record<string, unknown>> | undefined;
     const createDocument = data?.["createDocument"] as Record<string, unknown> | undefined;
 
     if (!createDocument) {
-      return { success: false, error: "Resposta inesperada do Autentique" };
+      // GraphQL pode retornar 200 OK com errors no payload — extrair msg legivel
+      const gqlMsg = errors?.[0]?.["message"];
+      const msg = gqlMsg
+        ? `Autentique GraphQL: ${String(gqlMsg).substring(0, 300)}`
+        : `Resposta inesperada do Autentique: ${JSON.stringify(json).substring(0, 300)}`;
+      logger.error("Autentique: payload sem createDocument", { json });
+      return { success: false, error: msg };
     }
 
     const docId = String(createDocument["id"] ?? "");
