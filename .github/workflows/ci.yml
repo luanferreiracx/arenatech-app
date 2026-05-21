@@ -275,12 +275,17 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           script_stop: true
+          envs: GHCR_USER,GHCR_TOKEN,GH_REPO
           script: |
             set -euo pipefail
             cd /home/deployer/arenatech-app
@@ -289,10 +294,12 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Imagem GHCR esta publica — pull direto, sem login.
-            # Repo lowercase obrigatorio em registros OCI:
-            REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            # GHCR e privado: precisa login antes do pull.
+            # Token: PAT do usuario com escopo read:packages (secret GHCR_PULL_TOKEN).
+            REPO_LOWER=$(echo "${GH_REPO}" | tr '[:upper:]' '[:lower:]')
             IMAGE="ghcr.io/${REPO_LOWER}:latest"
+            echo "=> Login no GHCR como ${GHCR_USER}..."
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
             echo "=> Pulling app image: $IMAGE"
             docker pull "$IMAGE"
 
