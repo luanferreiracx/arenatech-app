@@ -25,8 +25,11 @@ export interface WhatsAppCloudResult {
 }
 
 function getConfig() {
-  const token = process.env.WHATSAPP_CLOUD_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;
+  // Aceita tanto WHATSAPP_CLOUD_* (novo) quanto META_WHATSAPP_* (legado Laravel).
+  // Facilita migracao do VPS sem mexer no .env existente.
+  const token = process.env.WHATSAPP_CLOUD_TOKEN ?? process.env.META_WHATSAPP_TOKEN;
+  const phoneNumberId =
+    process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
   const apiVersion = process.env.WHATSAPP_CLOUD_API_VERSION ?? "v22.0";
   if (!token || !phoneNumberId) return null;
   return {
