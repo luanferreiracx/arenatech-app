@@ -50,11 +50,55 @@ function getConfig(): AutentiqueConfig | null {
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Formata um numero de telefone para o formato esperado pela Autentique.
+ * Paridade Laravel AutentiqueService::formatarWhatsApp.
+ * - Remove nao-digitos
+ * - Adiciona "55" no inicio se faltar
+ * - Insere o "9" do celular se telefone tiver 12 digitos (55 + DDD + 8)
+ * - Retorna no formato +5586999998888
+ */
 export function formatWhatsApp(phone: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (!digits.startsWith("55")) {
+    digits = "55" + digits;
+  }
+  if (digits.length === 12) {
+    // 55 + DDD(2) + 9 + 8 digitos
+    digits = digits.substring(0, 4) + "9" + digits.substring(4);
+  }
+  return "+" + digits;
+}
+
+/**
+ * Valida formato de WhatsApp (12 ou 13 digitos com codigo do pais).
+ */
+export function validateWhatsApp(phone: string): boolean {
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length >= 12) return `+${digits}`;
-  if (digits.length >= 10 && digits.length <= 11) return `+55${digits}`;
-  return `+${digits}`;
+  return digits.length >= 12 && digits.length <= 13;
+}
+
+/**
+ * Traduz mensagem de erro da Autentique para mensagem amigavel ao usuario.
+ */
+export function translateAutentiqueError(error: string): string {
+  const translations: Record<string, string> = {
+    unavaible_credits: "Sem créditos disponíveis na Autentique. Adquira mais créditos para enviar documentos.",
+    unavailable_credits: "Sem créditos disponíveis na Autentique. Adquira mais créditos para enviar documentos.",
+    insufficient_credits: "Créditos insuficientes na Autentique.",
+    invalid_phone: "Número de telefone inválido para envio via WhatsApp.",
+    invalid_document: "Documento inválido ou corrompido.",
+    document_not_found: "Documento não encontrado na Autentique.",
+    unauthorized: "Token de API da Autentique inválido ou expirado.",
+    rate_limit_exceeded: "Limite de requisições excedido. Tente novamente em alguns minutos.",
+    internal_error: "Erro interno na Autentique. Tente novamente mais tarde.",
+    validation: "Erro de validação. Verifique se o número de WhatsApp está correto.",
+  };
+  const lower = error.toLowerCase();
+  for (const [key, msg] of Object.entries(translations)) {
+    if (lower.includes(key)) return msg;
+  }
+  return error;
 }
 
 export function extractShortlinkToken(link: string): string | null {
@@ -90,47 +134,49 @@ export async function createDocumentWithLink(
   logger.info("Autentique: creating document", { title, signersCount: signers.length });
 
   try {
-    // Build the GraphQL mutation
-    // Signers devem ter delivery_method=DELIVERY_METHOD_WHATSAPP + phone p/ Autentique
-    // entregar o link via WhatsApp. Sem email/whatsapp, a API rejeita.
-    const signersGql = signers
-      .map((s) => {
-        const phoneFormatted = formatWhatsApp(s.whatsapp);
-        const safeName = s.name.replace(/"/g, '\\"');
-        return `{ action: SIGN, positions: [{ x: "50", y: "80", z: "1" }], name: "${safeName}", delivery_method: DELIVERY_METHOD_WHATSAPP, phone: "${phoneFormatted}" }`;
-      })
-      .join(", ");
+    // Padrao Laravel AutentiqueService::criarDocumentoComLink:
+    // - delivery_method = DELIVERY_METHOD_LINK (gera link; envio pelo nosso WhatsApp depois)
+    // - mutation com variables (mais seguro que interpolacao de string)
+    // - multipart: 'file' (nao '0'), map { file: ["variables.file"] }
+    const signersData = signers.map((s) => ({
+      name: s.name || "Cliente",
+      phone: formatWhatsApp(s.whatsapp),
+      delivery_method: "DELIVERY_METHOD_LINK",
+      action: "SIGN",
+    }));
 
-    const mutation = `
-      mutation {
-        createDocument(
-          document: {
-            name: "${title.replace(/"/g, '\\"')}"
-          }
-          signers: [${signersGql}]
-          file: null
-        ) {
-          id
-          name
-          signatures {
-            public_id
-            name
-            action { name }
-            link { short_link }
-            signed { created_at }
-          }
+    const query = `mutation CreateDocument($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!, $sandbox: Boolean) {
+      createDocument(sandbox: $sandbox, document: $document, signers: $signers, file: $file) {
+        id
+        name
+        signatures {
+          public_id
+          created_at
+          action { name }
+          link { short_link }
         }
       }
-    `;
+    }`;
 
-    // Build multipart form
+    const sandbox = (process.env.AUTENTIQUE_SANDBOX ?? "false").toLowerCase() === "true";
+
+    const operations = JSON.stringify({
+      query,
+      variables: {
+        sandbox,
+        document: { name: title },
+        signers: signersData,
+        file: null,
+      },
+    });
+
     const formData = new FormData();
-    formData.append("operations", JSON.stringify({ query: mutation }));
-    formData.append("map", JSON.stringify({ "0": ["variables.file"] }));
+    formData.append("operations", operations);
+    formData.append("map", JSON.stringify({ file: ["variables.file"] }));
     formData.append(
-      "0",
+      "file",
       new Blob([new Uint8Array(pdfContent)], { type: "application/pdf" }),
-      `${title}.pdf`,
+      "documento.pdf",
     );
 
     const response = await fetch(config.apiUrl, {
@@ -139,11 +185,12 @@ export async function createDocumentWithLink(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: formData,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!response.ok) {
       const body = await response.text();
+      logger.error("Autentique: HTTP error", { status: response.status, body: body.substring(0, 500) });
       return {
         success: false,
         error: `Autentique HTTP ${response.status}: ${body.substring(0, 200)}`,
@@ -155,14 +202,19 @@ export async function createDocumentWithLink(
     const errors = json["errors"] as Array<Record<string, unknown>> | undefined;
     const createDocument = data?.["createDocument"] as Record<string, unknown> | undefined;
 
+    if (errors && errors.length > 0) {
+      const gqlMsg = String(errors[0]?.["message"] ?? "Erro desconhecido");
+      const translated = translateAutentiqueError(gqlMsg);
+      logger.error("Autentique: GraphQL errors", { errors });
+      return { success: false, error: translated };
+    }
+
     if (!createDocument) {
-      // GraphQL pode retornar 200 OK com errors no payload — extrair msg legivel
-      const gqlMsg = errors?.[0]?.["message"];
-      const msg = gqlMsg
-        ? `Autentique GraphQL: ${String(gqlMsg).substring(0, 300)}`
-        : `Resposta inesperada do Autentique: ${JSON.stringify(json).substring(0, 300)}`;
       logger.error("Autentique: payload sem createDocument", { json });
-      return { success: false, error: msg };
+      return {
+        success: false,
+        error: `Resposta inesperada do Autentique: ${JSON.stringify(json).substring(0, 300)}`,
+      };
     }
 
     const docId = String(createDocument["id"] ?? "");
