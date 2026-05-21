@@ -2,9 +2,14 @@ name: arenatech-prod
 
 services:
   app:
+    # Imagem pre-buildada no GHA + publicada no GHCR.
+    # CI/CD aplica override docker-compose.deploy.yml com image atualizado.
+    # Build local ainda funciona via `docker compose build app`.
     build:
       context: .
       dockerfile: Dockerfile
+    image: ghcr.io/luanferreiracx/arenatech-app:latest
+    pull_policy: always
     container_name: arenatech-app
     restart: unless-stopped
     ports:
