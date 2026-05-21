@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp } from "@/lib/services/autentique-service";
+import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
 import { logger } from "@/lib/logger";
 import {
   createServiceOrderSchema,
@@ -1799,15 +1800,14 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado. Informe um numero." });
         }
 
-        // Generate a simple PDF buffer for the signature document
-        const pdfUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/service-orders/${input.orderId}/pdf`;
+        // Gera PDF binario direto (sem HTTP/cookies) via builder compartilhado.
         let pdfBuffer: Buffer;
         try {
-          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-          pdfBuffer = Buffer.from(await res.arrayBuffer());
+          const buf = await buildServiceOrderPdf(ctx.tenantId, input.orderId);
+          if (!buf) throw new Error("OS nao encontrada");
+          pdfBuffer = buf;
         } catch (err) {
-          logger.error("Failed to fetch OS PDF for signature", { orderId: input.orderId, error: err });
+          logger.error("Failed to build OS PDF for signature", { orderId: input.orderId, error: err });
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da OS para assinatura" });
         }
 

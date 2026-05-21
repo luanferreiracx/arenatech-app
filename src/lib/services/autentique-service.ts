@@ -174,6 +174,15 @@ export async function createDocumentWithLink(
       },
     });
 
+    // Sanity check: o conteudo precisa ser um PDF real, senao Autentique rejeita
+    // com "must_be_type:pdf,...". Log dos primeiros bytes para diagnostico.
+    const head = pdfContent.subarray(0, 8).toString("latin1");
+    logger.info("Autentique: file payload", {
+      size: pdfContent.length,
+      head,
+      isPdf: head.startsWith("%PDF-"),
+    });
+
     const formData = new FormData();
     formData.append("operations", operations);
     formData.append("map", JSON.stringify({ file: ["variables.file"] }));
