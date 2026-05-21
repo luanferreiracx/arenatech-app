@@ -1784,8 +1784,11 @@ export const serviceOrderRouter = createTRPCRouter({
         });
         if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
 
-        if (order.signatureDocumentId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Documento de assinatura ja foi enviado." });
+        // Paridade Laravel OrdemServicoController::enviarAssinatura — sempre
+        // gera um novo documento (permite reenviar caso o link expire ou o
+        // cliente perca). So bloqueia se ja esta assinado.
+        if (order.signatureSignedAt || order.physicalSignature) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "OS ja esta assinada." });
         }
 
         const customer = await tx.customer.findUnique({

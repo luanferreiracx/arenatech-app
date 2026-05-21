@@ -556,14 +556,15 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </p>
           )}
           <div className="flex flex-wrap gap-2 mt-3">
-            {!isSigned && !order.signatureDocumentId && (
+            {!isSigned && (
               <Button
                 size="sm"
                 variant="outline"
                 disabled={sendForSignatureMut.isPending}
                 onClick={() => setSignatureDialog(true)}
               >
-                <Send className="mr-1 h-3 w-3" />Enviar para Assinatura Digital
+                <Send className="mr-1 h-3 w-3" />
+                {order.signatureDocumentId ? "Reenviar para Assinatura" : "Enviar para Assinatura Digital"}
               </Button>
             )}
             {order.signatureDocumentId && !isSigned && (
@@ -1270,7 +1271,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       <WhatsAppSendDialog
         open={signatureDialog}
         onOpenChange={setSignatureDialog}
-        title="Enviar para Assinatura Digital"
+        title={order.signatureDocumentId ? "Reenviar para Assinatura" : "Enviar para Assinatura Digital"}
         description="Selecione um número ou digite outro para receber o link de assinatura."
         customerName={order.customer?.name ?? null}
         primaryPhone={order.customer?.phone ?? null}
