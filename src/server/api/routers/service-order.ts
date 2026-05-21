@@ -1855,7 +1855,7 @@ export const serviceOrderRouter = createTRPCRouter({
         // - Token Autentique vai como parametro do botao URL
         if (result.signatureLink) {
           const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
           const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
           const autentiqueToken = extractShortlinkToken(result.signatureLink);
           const caption =
@@ -2219,7 +2219,7 @@ export const serviceOrderRouter = createTRPCRouter({
           select: { name: true },
         });
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const trackingUrl = `${appUrl}/os/${order.publicLink}`;
         const customerName = customer?.name ?? "Cliente";
 
@@ -2322,7 +2322,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
         // Generate delivery term PDF
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-entrega`;
         let pdfBuffer: Buffer;
         try {
@@ -2482,7 +2482,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
         // Generate return term PDF
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-devolucao`;
         let pdfBuffer: Buffer;
         try {
@@ -2673,7 +2673,7 @@ export const serviceOrderRouter = createTRPCRouter({
         const phone = input.phone ?? customer.phone;
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const approvalLink = `${appUrl}/quote/${quote.approvalLink}`;
         const totalFormatted = (Number(quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -2866,7 +2866,7 @@ export const serviceOrderRouter = createTRPCRouter({
         });
         const customerName = customer?.name ?? "Cliente";
         const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
         const caption = `📄 Recibo - OS #${order.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua Ordem de Serviço.`;
 
