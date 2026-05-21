@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { MessageCircle, Pencil, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -41,7 +41,25 @@ export interface WhatsAppSendDialogProps {
 
 type Selection = "primary" | "secondary" | "custom";
 
-export function WhatsAppSendDialog({
+export function WhatsAppSendDialog(props: WhatsAppSendDialogProps) {
+  // Padrao recomendado: wrapper externo que reseta o estado via `key`
+  // quando o dialog (re)abre. Evita setState em useEffect.
+  if (!props.open) {
+    // Render dialog "fechado" so para manter o portal/animacao do Dialog
+    return <DialogShellClosed onOpenChange={props.onOpenChange} />;
+  }
+  return <WhatsAppSendDialogInner key={`${props.primaryPhone ?? ""}-${props.secondaryPhone ?? ""}`} {...props} />;
+}
+
+function DialogShellClosed({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+  return (
+    <Dialog open={false} onOpenChange={onOpenChange}>
+      <DialogContent />
+    </Dialog>
+  );
+}
+
+function WhatsAppSendDialogInner({
   open,
   onOpenChange,
   title,
@@ -63,16 +81,6 @@ export function WhatsAppSendDialog({
     return "custom";
   });
   const [customPhone, setCustomPhone] = useState("");
-
-  // Reset state quando abrir
-  useEffect(() => {
-    if (open) {
-      if (primaryPhone) setSelection("primary");
-      else if (altPhone) setSelection("secondary");
-      else setSelection("custom");
-      setCustomPhone("");
-    }
-  }, [open, primaryPhone, altPhone]);
 
   const handleConfirm = async () => {
     let phone: string;
