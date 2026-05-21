@@ -44,6 +44,7 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
+import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import {
   reserveStockForOsItem,
@@ -1846,17 +1847,17 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Envia o link de assinatura por WhatsApp (paridade Laravel
-        // OrdemServicoController::enviarAssinatura). Falha do envio nao
-        // invalida a operacao — o link ja foi gerado e fica disponivel.
+        // Envia o link de assinatura via WhatsApp Cloud (Meta). Evolution e
+        // reservada para grupos/monitoramento — DM com cliente vai pela Meta.
+        // Falha nao invalida a operacao: o link ja foi gerado.
         if (result.signatureLink) {
           const caption =
             `📋 *Assinatura - OS #${order.number}*\n\n` +
             `Olá, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}\n\n` +
             `Após assinar, seu aparelho estará liberado para o serviço.`;
-          const wa = await sendTextMessage(whatsapp, caption);
+          const wa = await sendCloudText(whatsapp, caption);
           if (!wa.success) {
-            logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
+            logger.warn("Falha ao enviar link de assinatura via WhatsApp Cloud", {
               orderId: input.orderId,
               error: wa.error,
             });
