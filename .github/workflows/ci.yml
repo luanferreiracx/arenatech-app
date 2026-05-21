@@ -290,43 +290,41 @@ jobs:
             set -euo pipefail
             cd /home/deployer/arenatech-app
 
-            echo "=> Pulling latest commit (config + migrations)..."
-            git fetch origin main
-            git reset --hard origin/main
-
-            # GHCR e privado: precisa login antes do pull.
-            # Token: PAT do usuario com escopo read:packages (secret GHCR_PULL_TOKEN).
             REPO_LOWER=$(echo "${GH_REPO}" | tr '[:upper:]' '[:lower:]')
             IMAGE="ghcr.io/${REPO_LOWER}:latest"
-            echo "=> Login no GHCR como ${GHCR_USER}..."
-            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-            echo "=> Pulling app image: $IMAGE"
-            docker pull "$IMAGE"
 
-            echo "=> (Re)criando container app com a nova imagem..."
-            # docker-compose.prod.yml ainda referencia build local; usamos override:
+            # 1) Em paralelo: git fetch + docker login + docker pull
+            echo "=> Pulling git + login GHCR + pulling image (paralelo)..."
+            git fetch origin main &
+            GIT_PID=$!
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin >/dev/null
+            docker pull -q "$IMAGE" &
+            DOCKER_PID=$!
+            wait $GIT_PID
+            git reset --hard origin/main
+            wait $DOCKER_PID
+            echo "   git + image prontos"
+
+            # 2) Recriar so o container app (--no-deps nao mexe em postgres/redis/minio)
+            echo "=> Recriando container app..."
             cat > docker-compose.deploy.yml <<EOF
             services:
               app:
                 image: ${IMAGE}
             EOF
-            docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build
+            docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build --no-deps app
 
-            echo "=> Esperando healthcheck..."
-            for i in $(seq 1 30); do
-              if docker exec arenatech-app sh -c 'true' 2>/dev/null; then
-                echo "container arenatech-app pronto"
-                break
-              fi
+            # 3) Migrations (sem esperar healthcheck — exec funciona assim que container sobe)
+            echo "=> Running migrations..."
+            for i in $(seq 1 20); do
+              if docker exec arenatech-app sh -c 'true' 2>/dev/null; then break; fi
               sleep 1
             done
-
-            echo "=> Running migrations..."
             docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || {
               echo "=> WARNING: Migration deploy teve issues. App esta no ar."
             }
 
-            echo "=> Limpando imagens antigas (deixa as 3 ultimas)..."
-            docker image prune -af --filter "until=24h" 2>/dev/null || true
+            # 4) Limpeza assincrona (nao bloqueia o deploy)
+            (docker image prune -af --filter "until=24h" >/dev/null 2>&1 &) || true
 
             echo "=> Deploy completed at $(date)"
