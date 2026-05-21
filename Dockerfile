@@ -51,16 +51,37 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Standalone output: server.js + minimal node_modules
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# Prisma CLI + deps em pasta isolada (/opt/prisma) para nao colidir com o
+# standalone que tem package.json proprio + pnpm packageManager.
+# Resultado: ~270MB nesse layer (vs ~1GB do node_modules completo).
+# IMPORTANTE: chown na mesma layer p/ nao duplicar o tamanho da imagem!
+WORKDIR /opt/prisma
+# Prisma 7 inclui Studio (chart.js, react-dom, etc) por default mesmo em prod.
+# Tentamos remover mas studio-core e require'd pelo prisma CLI internamente.
+# Limpeza minima: source maps e markdown (sem quebrar deps).
+RUN npm init -y >/dev/null \
+    && npm install --no-save --no-audit --no-fund --omit=dev --omit=optional \
+       prisma@7.8.0 @prisma/adapter-pg@7.8.0 tsx@4.20.3 dotenv@17.4.2 \
+    && find node_modules -name "*.md" -delete 2>/dev/null || true \
+    && find node_modules -name "*.map" -delete 2>/dev/null || true \
+    && find node_modules -name "*.d.ts" -delete 2>/dev/null || true \
+    && npm cache clean --force \
+    && chown -R nextjs:nodejs /opt/prisma
+WORKDIR /app
 
-# Prisma artifacts para `prisma migrate deploy` rodar em runtime
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/node_modules ./node_modules
+# Standalone output: server.js + ~42MB de node_modules essencial.
+# --chown evita duplicar layer com chown posterior.
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Schema Prisma + config para `migrate deploy` em runtime
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
+
+# PATH para `npx prisma` resolver + NODE_PATH para imports do prisma.config.ts
+ENV PATH="/opt/prisma/node_modules/.bin:${PATH}"
+ENV NODE_PATH="/opt/prisma/node_modules"
 
 USER nextjs
 EXPOSE 3000
