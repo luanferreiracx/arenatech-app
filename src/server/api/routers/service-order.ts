@@ -3,8 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
-import { createDocumentWithLink, getDocumentStatus, formatWhatsApp } from "@/lib/services/autentique-service";
+import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
+import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import {
   createServiceOrderSchema,
@@ -44,7 +46,6 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
-import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import {
   reserveStockForOsItem,
@@ -1847,19 +1848,40 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Envia o link de assinatura via WhatsApp Cloud (Meta). Evolution e
-        // reservada para grupos/monitoramento — DM com cliente vai pela Meta.
-        // Falha nao invalida a operacao: o link ja foi gerado.
+        // Envia via Meta Cloud com template aprovado + HEADER DOCUMENT.
+        // Paridade Laravel OrdemServicoController::enviarAssinatura → enviarPdfComFallbackTemplate.
+        // - Contexto `os_termo_pdf_link` (PDF anexado + botao URL Autentique)
+        // - PDF servido pela rota publica /api/whatsapp-media/os/pdf/[token]
+        // - Token Autentique vai como parametro do botao URL
         if (result.signatureLink) {
+          const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+          const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+          const autentiqueToken = extractShortlinkToken(result.signatureLink);
           const caption =
             `📋 *Assinatura - OS #${order.number}*\n\n` +
             `Olá, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}\n\n` +
             `Após assinar, seu aparelho estará liberado para o serviço.`;
-          const wa = await sendCloudText(whatsapp, caption);
+          const wa = await sendPdfWithFallback({
+            phone: whatsapp,
+            pdfUrl,
+            fileName: `OS_${order.number}_assinatura.pdf`,
+            caption,
+            contexto: autentiqueToken ? "os_termo_pdf_link" : "os_termo_pdf",
+            params: [customer.name, order.number],
+            urlButtonParam: autentiqueToken ?? undefined,
+          });
           if (!wa.success) {
-            logger.warn("Falha ao enviar link de assinatura via WhatsApp Cloud", {
+            logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
               orderId: input.orderId,
               error: wa.error,
+            });
+          } else {
+            logger.info("Link de assinatura enviado por WhatsApp", {
+              orderId: input.orderId,
+              via: wa.via,
+              templateUsed: wa.templateUsed,
+              messageId: wa.messageId,
             });
           }
         }
@@ -2836,12 +2858,30 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Send receipt PDF via WhatsApp (using public link URL)
-        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const receiptUrl = `${baseUrl}/api/service-orders/${input.orderId}/recibo`;
+        // Envia recibo via Meta Cloud com template `os_recibo_pdf` (HEADER DOCUMENT).
+        // Paridade Laravel OrdemServicoController::enviarReciboWhatsApp.
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true },
+        });
+        const customerName = customer?.name ?? "Cliente";
+        const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+        const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+        const caption = `📄 Recibo - OS #${order.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua Ordem de Serviço.`;
 
-        const result = await sendMediaMessage(phone, receiptUrl, `Recibo OS ${order.number}`);
-        const sent = result.success;
+        const wa = await sendPdfWithFallback({
+          phone,
+          pdfUrl,
+          fileName: `OS_${order.number}_recibo.pdf`,
+          caption,
+          contexto: "os_recibo_pdf",
+          params: [customerName, order.number],
+        });
+        const sent = wa.success;
+        if (!sent) {
+          logger.warn("Falha ao enviar recibo via WhatsApp", { orderId: input.orderId, error: wa.error });
+        }
 
         if (sent) {
           await tx.serviceOrder.update({

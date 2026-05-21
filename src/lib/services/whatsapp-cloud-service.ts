@@ -88,6 +88,7 @@ export async function sendCloudText(
       return { success: false, error, rawResponse: json };
     }
     const messageId = json.messages?.[0]?.id;
+    logger.info("WhatsApp Cloud send ok", { to: normalized, messageId });
     return { success: true, messageId, rawResponse: json };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
