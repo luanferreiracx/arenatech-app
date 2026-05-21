@@ -1840,9 +1840,28 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: order.status,
-            notes: "Documento enviado para assinatura digital (Autentique)",
+            notes: order.signatureDocumentId
+              ? "Documento reenviado para assinatura digital (Autentique)"
+              : "Documento enviado para assinatura digital (Autentique)",
           },
         });
+
+        // Envia o link de assinatura por WhatsApp (paridade Laravel
+        // OrdemServicoController::enviarAssinatura). Falha do envio nao
+        // invalida a operacao — o link ja foi gerado e fica disponivel.
+        if (result.signatureLink) {
+          const caption =
+            `📋 *Assinatura - OS #${order.number}*\n\n` +
+            `Olá, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}\n\n` +
+            `Após assinar, seu aparelho estará liberado para o serviço.`;
+          const wa = await sendTextMessage(whatsapp, caption);
+          if (!wa.success) {
+            logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
+              orderId: input.orderId,
+              error: wa.error,
+            });
+          }
+        }
 
         logger.info("OS sent for digital signature", { orderId: input.orderId, documentId: result.documentId });
 

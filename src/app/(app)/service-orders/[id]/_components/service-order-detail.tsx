@@ -233,12 +233,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
   const sendForSignatureMut = useMutation(
     trpc.serviceOrder.sendForSignature.mutationOptions({
-      onSuccess: (data) => {
-        toast.success("Documento enviado para assinatura!");
+      onSuccess: () => {
+        toast.success("Link de assinatura enviado por WhatsApp!");
         setSignatureDialog(false);
-        if (data.signatureLink) {
-          window.open(data.signatureLink, "_blank");
-        }
         invalidateOrder();
       },
       onError: (e) => toast.error(e.message),
