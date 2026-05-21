@@ -145,6 +145,10 @@ export async function createDocumentWithLink(
       action: "SIGN",
     }));
 
+    logger.info("Autentique: signers payload", {
+      signers: signersData.map((s) => ({ name: s.name, phone: s.phone })),
+    });
+
     const query = `mutation CreateDocument($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!, $sandbox: Boolean) {
       createDocument(sandbox: $sandbox, document: $document, signers: $signers, file: $file) {
         id
@@ -205,8 +209,19 @@ export async function createDocumentWithLink(
     if (errors && errors.length > 0) {
       const gqlMsg = String(errors[0]?.["message"] ?? "Erro desconhecido");
       const translated = translateAutentiqueError(gqlMsg);
-      logger.error("Autentique: GraphQL errors", { errors });
-      return { success: false, error: translated };
+      // Tenta extrair detalhes adicionais (validation errors do Autentique vem em extensions.validation)
+      const extensions = errors[0]?.["extensions"] as Record<string, unknown> | undefined;
+      const validation = extensions?.["validation"] as Record<string, string[]> | undefined;
+      const validationDetails = validation
+        ? Object.entries(validation).map(([k, v]) => `${k}: ${v.join(", ")}`).join("; ")
+        : null;
+      logger.error("Autentique: GraphQL errors", { errors, validationDetails });
+      const finalMsg = validationDetails
+        ? `${translated} (${validationDetails})`
+        : translated === gqlMsg
+          ? translated
+          : `${translated} — original: ${gqlMsg}`;
+      return { success: false, error: finalMsg };
     }
 
     if (!createDocument) {
