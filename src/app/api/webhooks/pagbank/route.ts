@@ -18,15 +18,17 @@ import { logger } from "@/lib/logger"
  */
 export async function POST(req: NextRequest) {
   try {
-    // Verify authentication
+    // Verify authentication (obrigatorio - sem token configurado, recusa)
     const authHeader = req.headers.get("x-authentication-token") ?? req.headers.get("authorization")
     const expectedToken = process.env.PAGBANK_WEBHOOK_TOKEN
-    if (expectedToken) {
-      const token = authHeader?.replace(/^Bearer\s+/i, "")
-      if (token !== expectedToken) {
-        logger.warn("PagBank webhook: invalid token")
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      }
+    if (!expectedToken) {
+      logger.error("PagBank webhook: PAGBANK_WEBHOOK_TOKEN ausente. Configure a env var.")
+      return NextResponse.json({ error: "Service not configured" }, { status: 503 })
+    }
+    const token = authHeader?.replace(/^Bearer\s+/i, "")
+    if (token !== expectedToken) {
+      logger.warn("PagBank webhook: invalid token")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await req.json() as Record<string, unknown>

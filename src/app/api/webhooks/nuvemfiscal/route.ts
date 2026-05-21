@@ -33,15 +33,16 @@ export async function POST(req: NextRequest) {
     const signature = req.headers.get("x-webhook-signature") ?? "";
     const secret = process.env.NUVEM_FISCAL_WEBHOOK_SECRET;
 
-    if (secret) {
-      const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-      const valid = signature && safeEqual(signature, expected);
-      if (!valid) {
-        logger.warn("Nuvem Fiscal webhook: invalid signature");
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    } else {
-      logger.warn("Nuvem Fiscal webhook: NUVEM_FISCAL_WEBHOOK_SECRET ausente — aceitando sem verificação");
+    if (!secret) {
+      logger.error("Nuvem Fiscal webhook: NUVEM_FISCAL_WEBHOOK_SECRET ausente. Configure a env var.");
+      return NextResponse.json({ error: "Service not configured" }, { status: 503 });
+    }
+
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const valid = signature && safeEqual(signature, expected);
+    if (!valid) {
+      logger.warn("Nuvem Fiscal webhook: invalid signature");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const payload = JSON.parse(rawBody) as {

@@ -25,7 +25,7 @@ enum AddonPurchaseStatus {
   CANCELLED
 }
 
-/// Tracks per-tenant addon purchases (global table — no RLS)
+/// Tracks per-tenant addon purchases. RLS habilitado via migration 20260520200000_rls_addon_refund.
 model AddonPurchase {
   id                String              @id @default(uuid()) @db.Uuid
   tenantId          String              @map("tenant_id") @db.Uuid
@@ -52,7 +52,7 @@ enum RefundStatus {
   CANCELLED
 }
 
-/// Tracks refunds from plan downgrades (global table — no RLS)
+/// Tracks refunds from plan downgrades. RLS habilitado via migration 20260520200000_rls_addon_refund.
 model Refund {
   id             String       @id @default(uuid()) @db.Uuid
   tenantId       String       @map("tenant_id") @db.Uuid

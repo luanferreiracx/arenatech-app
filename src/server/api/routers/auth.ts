@@ -7,6 +7,7 @@ import { sendEmail } from "@/lib/services/email-service";
 import { compareSync } from "bcryptjs";
 import { randomUUID } from "crypto";
 import { logger } from "@/lib/logger";
+import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -36,6 +37,8 @@ export const authRouter = createTRPCRouter({
 
   /** Request password reset — sends email with reset link */
   forgotPassword: publicProcedure
+    // Rate limit: 3 pedidos de reset por IP a cada 15min.
+    .use(rateLimitMiddleware({ limit: 3, windowMs: 15 * 60 * 1000 }))
     .input(z.object({ identifier: z.string().min(1, "Informe o CPF ou e-mail") }))
     .mutation(async ({ input }) => {
       // Normalize: remove formatting from CPF

@@ -424,20 +424,20 @@ export const saleRouter = createTRPCRouter({
         }
         const saleNumber = `${prefix}${String(seq).padStart(5, "0")}`;
 
-        // Create stock movements for each item
+        // Create stock movements for each item (batch insert)
         // TODO: Estoque-B will handle stock tracking via StockItem
-        for (const item of sale.items) {
-          await tx.stockMovement.create({
-            data: {
+        if (sale.items.length > 0) {
+          await tx.stockMovement.createMany({
+            data: sale.items.map((item) => ({
               tenantId: ctx.tenantId,
               productId: item.productId,
-              type: "EXIT",
+              type: "EXIT" as const,
               quantity: item.quantity,
               reason: `Venda ${saleNumber}`,
               referenceId: sale.id,
               referenceType: "sale",
               userId: ctx.session.user.id,
-            },
+            })),
           });
         }
 
@@ -454,23 +454,21 @@ export const saleRouter = createTRPCRouter({
           where: { userId: ctx.session.user.id, closedAt: null },
         });
 
-        if (openSession) {
-          for (const payment of input.payments) {
-            await tx.cashMovement.create({
-              data: {
-                tenantId: ctx.tenantId,
-                cashSessionId: openSession.id,
-                type: "SALE",
-                amount: centsToPrisma(payment.amount),
-                nature: "INCOME",
-                paymentMethod: payment.method,
-                description: `Venda ${saleNumber}`,
-                referenceId: sale.id,
-                referenceType: "SALE",
-                createdByUserId: ctx.session.user.id,
-              },
-            });
-          }
+        if (openSession && input.payments.length > 0) {
+          await tx.cashMovement.createMany({
+            data: input.payments.map((payment) => ({
+              tenantId: ctx.tenantId,
+              cashSessionId: openSession.id,
+              type: "SALE" as const,
+              amount: centsToPrisma(payment.amount),
+              nature: "INCOME" as const,
+              paymentMethod: payment.method,
+              description: `Venda ${saleNumber}`,
+              referenceId: sale.id,
+              referenceType: "SALE",
+              createdByUserId: ctx.session.user.id,
+            })),
+          });
         }
 
         // Create FinancialTransaction (RECEIVABLE)
@@ -502,22 +500,20 @@ export const saleRouter = createTRPCRouter({
                 },
               });
 
-              for (let i = 0; i < installmentCount; i++) {
+              const installments = Array.from({ length: installmentCount }, (_, i) => {
                 const dueDate = new Date();
                 dueDate.setMonth(dueDate.getMonth() + i + 1);
                 const amount = i === installmentCount - 1 ? perInstallment + remainder : perInstallment;
-
-                await tx.installment.create({
-                  data: {
-                    tenantId: ctx.tenantId,
-                    transactionId: ft.id,
-                    number: i + 1,
-                    amount: centsToPrisma(amount),
-                    dueDate,
-                    status: "PENDING",
-                  },
-                });
-              }
+                return {
+                  tenantId: ctx.tenantId,
+                  transactionId: ft.id,
+                  number: i + 1,
+                  amount: centsToPrisma(amount),
+                  dueDate,
+                  status: "PENDING" as const,
+                };
+              });
+              await tx.installment.createMany({ data: installments });
             } else {
               await tx.financialTransaction.create({
                 data: {

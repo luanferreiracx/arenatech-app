@@ -16,7 +16,9 @@ import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils
 import { logger } from "@/lib/logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  session: { strategy: "jwt" },
+  // Sessao JWT expira em 7 dias. Tokens roubados/vazados nao duram para sempre.
+  // Atividade renova (updateAge: 1 dia) para nao deslogar usuarios ativos.
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
 
   pages: {
     signIn: "/login",

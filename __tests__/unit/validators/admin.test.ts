@@ -64,10 +64,11 @@ describe("updatePlanSchema", () => {
 });
 
 describe("submitPreRegistrationSchema", () => {
+  // CPF + CNPJ com DV valido (necessario apos endurecer validacao com isValidCpf/isValidCnpj)
   const valid = {
     tradeName: "Loja Teste",
     ownerName: "Joao Silva",
-    ownerCpf: "12345678901",
+    ownerCpf: "11144477735", // CPF com DV valido
     ownerEmail: "joao@test.com",
     ownerPhone: "86999999999",
   };
@@ -76,7 +77,8 @@ describe("submitPreRegistrationSchema", () => {
     expect(submitPreRegistrationSchema.safeParse(valid).success).toBe(true);
   });
   it("aceita com CNPJ e plano", () => {
-    expect(submitPreRegistrationSchema.safeParse({ ...valid, cnpj: "12345678000199", planId: UUID }).success).toBe(true);
+    // CNPJ com DV valido
+    expect(submitPreRegistrationSchema.safeParse({ ...valid, cnpj: "11222333000181", planId: UUID }).success).toBe(true);
   });
   it("rejeita sem nome fantasia", () => {
     expect(submitPreRegistrationSchema.safeParse({ ...valid, tradeName: "" }).success).toBe(false);
@@ -86,6 +88,12 @@ describe("submitPreRegistrationSchema", () => {
   });
   it("rejeita CPF curto", () => {
     expect(submitPreRegistrationSchema.safeParse({ ...valid, ownerCpf: "123" }).success).toBe(false);
+  });
+  it("rejeita CPF com DV invalido", () => {
+    expect(submitPreRegistrationSchema.safeParse({ ...valid, ownerCpf: "12345678901" }).success).toBe(false);
+  });
+  it("rejeita CNPJ com DV invalido", () => {
+    expect(submitPreRegistrationSchema.safeParse({ ...valid, cnpj: "12345678000199" }).success).toBe(false);
   });
   it("rejeita telefone curto", () => {
     expect(submitPreRegistrationSchema.safeParse({ ...valid, ownerPhone: "123" }).success).toBe(false);

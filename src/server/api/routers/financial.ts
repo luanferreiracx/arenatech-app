@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { logAudit } from "@/server/services/audit-log.service";
 
 // RBAC helper: operator can only see RECEIVABLE (F8, ADR 0032)
 function getUserRole(ctx: { session: { availableTenants: Array<{ id: string; role: string }> }; tenantId: string }): string {
@@ -462,6 +463,21 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "paid",
+          entity: "installment",
+          entityId: installment.id,
+          payload: {
+            transactionId: installment.transactionId,
+            installmentNumber: installment.number,
+            amountPaidCents: input.amountPaid,
+            paymentMethod: input.paymentMethod ?? null,
+            fullyPaid: isPaid,
+          },
+        });
+
         return { success: true };
       });
     }),
@@ -548,6 +564,20 @@ export const financialRouter = createTRPCRouter({
             },
           });
         }
+
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: isFullReversal ? "reversed_full" : "reversed_partial",
+          entity: "installment",
+          entityId: installment.id,
+          payload: {
+            transactionId: installment.transactionId,
+            installmentNumber: installment.number,
+            reversedAmountCents: reversedAmount,
+            reason: input.reason,
+          },
+        });
 
         return { success: true, reversedAmount, isFullReversal };
       });
@@ -1300,9 +1330,11 @@ export const financialRouter = createTRPCRouter({
           },
           _sum: { totalAmount: true, paidAmount: true },
         });
-        const total = Number(result._sum.totalAmount ?? 0);
-        const paid = Number(result._sum.paidAmount ?? 0);
-        return { openBalance: Math.round((total - paid) * 100) }; // centavos
+        // Subtrair em Decimal para evitar erro de float; converter para centavos no final.
+        const total = result._sum.totalAmount ?? new Prisma.Decimal(0);
+        const paid = result._sum.paidAmount ?? new Prisma.Decimal(0);
+        const openCents = total.minus(paid).times(100).round().toNumber();
+        return { openBalance: openCents };
       });
     }),
 

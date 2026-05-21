@@ -28,17 +28,17 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const secret = process.env.PIXPAY_WEBHOOK_SECRET;
 
-    if (secret) {
-      const signature = req.headers.get("x-webhook-signature") ?? "";
-      const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-      const valid = signature.length === expected.length && signature.length > 0 &&
-        timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-      if (!valid) {
-        logger.warn("Depix-withdraw webhook: invalid signature");
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    } else {
-      logger.warn("Depix-withdraw webhook: PIXPAY_WEBHOOK_SECRET ausente — aceitando sem verificação");
+    if (!secret) {
+      logger.error("Depix-withdraw webhook: PIXPAY_WEBHOOK_SECRET ausente. Configure a env var.");
+      return NextResponse.json({ error: "Service not configured" }, { status: 503 });
+    }
+    const signature = req.headers.get("x-webhook-signature") ?? "";
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const valid = signature.length === expected.length && signature.length > 0 &&
+      timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    if (!valid) {
+      logger.warn("Depix-withdraw webhook: invalid signature");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const payload = JSON.parse(rawBody) as {

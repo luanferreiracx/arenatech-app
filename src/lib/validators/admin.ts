@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
 
 // ── Enums ──
 
@@ -66,9 +67,21 @@ export type ListPlansInput = z.infer<typeof listPlansSchema>;
 export const submitPreRegistrationSchema = z.object({
   tradeName: z.string().min(1, "Nome fantasia obrigatorio").max(200),
   legalName: z.string().max(200).optional().nullable(),
-  cnpj: z.string().max(18).optional().nullable(),
+  cnpj: z
+    .string()
+    .max(18)
+    .optional()
+    .nullable()
+    .refine(
+      (v) => v == null || v === "" || isValidCnpj(v),
+      { message: "CNPJ invalido (digito verificador nao confere)" },
+    ),
   ownerName: z.string().min(1, "Nome do responsavel obrigatorio").max(200),
-  ownerCpf: z.string().min(11, "CPF obrigatorio").max(14),
+  ownerCpf: z
+    .string()
+    .min(11, "CPF obrigatorio")
+    .max(14)
+    .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
   ownerEmail: z.string().email("Email invalido").max(200),
   ownerPhone: z.string().min(10, "Telefone obrigatorio").max(20),
   planId: z.string().uuid().optional().nullable(),
