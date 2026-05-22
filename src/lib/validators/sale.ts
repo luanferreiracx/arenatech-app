@@ -44,6 +44,9 @@ export type PaymentDetail = z.infer<typeof paymentDetailSchema>;
 export const addSaleItemSchema = z.object({
   saleId: z.string().uuid(),
   productId: z.string().uuid(),
+  // Para produtos serializados (isSerialized=true), `stockItemId` e obrigatorio
+  // — operador escolhe qual aparelho (IMEI) esta vendendo.
+  stockItemId: z.string().uuid().optional().nullable(),
   quantity: z.number().int().min(1, "Quantidade minima 1"),
   unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
 });

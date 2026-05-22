@@ -192,17 +192,71 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // TODO: Estoque-B will handle stock validation via StockItem
+        // Produtos serializados (isSerialized=true) exigem escolha do IMEI
+        // especifico — paridade Laravel PdvController::adicionarItem.
+        if (product.isSerialized) {
+          if (!input.stockItemId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione o aparelho (IMEI) para este produto.",
+            });
+          }
+          if (input.quantity !== 1) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Aparelhos serializados sao vendidos um por vez.",
+            });
+          }
+          const stockItem = await tx.stockItem.findUnique({
+            where: { id: input.stockItemId },
+            select: { id: true, productId: true, status: true, costPrice: true, suggestedSalePrice: true },
+          });
+          if (!stockItem) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Item de estoque nao encontrado" });
+          }
+          if (stockItem.productId !== input.productId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Item nao pertence a este produto." });
+          }
+          if (stockItem.status !== "AVAILABLE") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este aparelho nao esta disponivel para venda.",
+            });
+          }
+          // Para serializados nao consolida em existingItem — cada IMEI eh uma linha.
+          const existingStock = sale.items.find((i) => i.stockItemId === input.stockItemId);
+          if (existingStock) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este aparelho ja foi adicionado a venda.",
+            });
+          }
+          const unitPriceCents = input.unitPrice
+            || (stockItem.suggestedSalePrice ? decimalToCents(stockItem.suggestedSalePrice) : decimalToCents(product.salePrice));
+          await tx.saleItem.create({
+            data: {
+              tenantId: ctx.tenantId,
+              saleId: input.saleId,
+              productId: input.productId,
+              stockItemId: input.stockItemId,
+              description: product.name,
+              quantity: 1,
+              unitPrice: centsToPrisma(unitPriceCents),
+              costPrice: stockItem.costPrice,
+              total: centsToPrisma(unitPriceCents),
+            },
+          });
+          return recalculateSale(tx, input.saleId, ctx.tenantId);
+        }
 
-        // Check if product already in cart
-        const existingItem = sale.items.find((i) => i.productId === input.productId);
-
+        // Produto generico (nao serializado) — consolida em linha existente.
+        const existingItem = sale.items.find(
+          (i) => i.productId === input.productId && !i.stockItemId,
+        );
         if (existingItem) {
           const newQty = existingItem.quantity + input.quantity;
-
           const unitPriceCents = input.unitPrice || decimalToCents(existingItem.unitPrice);
           const totalCents = unitPriceCents * newQty;
-
           await tx.saleItem.update({
             where: { id: existingItem.id },
             data: {
@@ -214,7 +268,6 @@ export const saleRouter = createTRPCRouter({
         } else {
           const unitPriceCents = input.unitPrice || decimalToCents(product.salePrice);
           const totalCents = unitPriceCents * input.quantity;
-
           await tx.saleItem.create({
             data: {
               tenantId: ctx.tenantId,
@@ -229,7 +282,6 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Recalculate sale totals
         return recalculateSale(tx, input.saleId, ctx.tenantId);
       });
     }),
@@ -425,8 +477,8 @@ export const saleRouter = createTRPCRouter({
         }
         const saleNumber = `${prefix}${String(seq).padStart(5, "0")}`;
 
-        // Create stock movements for each item (batch insert)
-        // TODO: Estoque-B will handle stock tracking via StockItem
+        // Create stock movements + marca StockItems serializados como SOLD.
+        // Paridade Laravel PdvService::baixarEstoque.
         if (sale.items.length > 0) {
           await tx.stockMovement.createMany({
             data: sale.items.map((item) => ({
@@ -440,6 +492,32 @@ export const saleRouter = createTRPCRouter({
               userId: ctx.session.user.id,
             })),
           });
+
+          // StockItems serializados: marca como SOLD. updateMany atomico — se
+          // outro vendedor finalizou a mesma unidade primeiro, o count vira
+          // 0 e a transacao aborta com erro claro.
+          const stockItemIds = sale.items
+            .map((i) => i.stockItemId)
+            .filter((id): id is string => !!id);
+          if (stockItemIds.length > 0) {
+            const result = await tx.stockItem.updateMany({
+              where: {
+                id: { in: stockItemIds },
+                status: "AVAILABLE", // proteçao contra double-sell
+              },
+              data: {
+                status: "SOLD",
+                saleId: sale.id,
+                soldAt: new Date(),
+              },
+            });
+            if (result.count !== stockItemIds.length) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Um ou mais aparelhos do carrinho ja foram vendidos. Refaça a venda.",
+              });
+            }
+          }
         }
 
         // Determine payment method string
@@ -727,8 +805,8 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Return stock if requested
-        // TODO: Estoque-B will handle stock tracking via StockItem
+        // Devolve estoque: cria StockMovement de entrada + reabre StockItems
+        // serializados (SOLD → AVAILABLE). Paridade Laravel PdvService::estornarEstoque.
         if (input.returnStock !== false) {
           for (const item of sale.items) {
             await tx.stockMovement.create({
@@ -742,6 +820,15 @@ export const saleRouter = createTRPCRouter({
                 referenceType: "SALE_REFUND",
                 userId: ctx.session.user.id,
               },
+            });
+          }
+          const stockItemIds = sale.items
+            .map((i) => i.stockItemId)
+            .filter((id): id is string => !!id);
+          if (stockItemIds.length > 0) {
+            await tx.stockItem.updateMany({
+              where: { id: { in: stockItemIds } },
+              data: { status: "AVAILABLE", saleId: null, soldAt: null },
             });
           }
         }

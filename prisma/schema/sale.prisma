@@ -71,6 +71,10 @@ model SaleItem {
   tenantId        String   @map("tenant_id") @db.Uuid
   saleId          String   @map("sale_id") @db.Uuid
   productId       String   @map("product_id") @db.Uuid
+  // Unidade especifica selecionada (produtos serializados — controla_imei=true).
+  // Null para produtos genericos vendidos por quantidade.
+  // Paridade Laravel pdv_venda_itens.estoque_item_id.
+  stockItemId     String?  @map("stock_item_id") @db.Uuid
   description     String
   quantity        Int      @default(1)
   unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
@@ -81,6 +85,7 @@ model SaleItem {
 
   sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
+  @@unique([stockItemId])
   @@index([tenantId, saleId])
   @@map("sale_items")
 }
