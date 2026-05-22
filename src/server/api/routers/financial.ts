@@ -836,19 +836,21 @@ export const financialRouter = createTRPCRouter({
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
       ];
 
-      // 3 queries agregadas por mes em vez de 36 (12 meses × 3 fontes).
-      // Cada uma roda em tx curta separada.
+      // Receita por regime de competencia (paridade Laravel FinanceiroController::dre):
+      // - Sales COMPLETED.totalAmount por saleDate (substitui Installments PAID,
+      //   que era regime de caixa e inflava meses tardios de cobranca parcelada)
+      // - Despesas: Installments PAYABLE.PAID por paidAt (regime de caixa,
+      //   paridade contas_pagar_parcelas)
+      // - Custo de pecas: sum(saleItem.cost * qty) por sale.saleDate
       const [revenueRows, expenseRows, partsCostRows] = await Promise.all([
         ctx.withTenant(async (tx) =>
           tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-            SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
-                   COALESCE(SUM(i.paid_amount), 0)::float AS total
-            FROM installments i
-            JOIN financial_transactions t ON t.id = i.transaction_id
-            WHERE i.status = 'PAID'
-              AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
-              AND t.type = 'RECEIVABLE'
-              AND t.deleted_at IS NULL
+            SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+                   COALESCE(SUM(s.total_amount), 0)::float AS total
+            FROM sales s
+            WHERE s.status = 'COMPLETED'
+              AND s.deleted_at IS NULL
+              AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
             GROUP BY 1
           `,
         ),
@@ -865,8 +867,6 @@ export const financialRouter = createTRPCRouter({
             GROUP BY 1
           `,
         ),
-        // Custo de peças (paridade Laravel `dre`): sum(saleItem.cost * qty) das
-        // vendas COMPLETED. Substitui o stub `* 0`. Agrupa por mes via sale.saleDate.
         ctx.withTenant(async (tx) =>
           tx.$queryRaw<Array<{ month: number; total: number | null }>>`
             SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,

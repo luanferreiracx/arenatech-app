@@ -673,10 +673,14 @@ export const saleRouter = createTRPCRouter({
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
         }
-        if (sale.status !== "COMPLETED") {
+        // Paridade Laravel: `cancelar` descarta carrinho em rascunho.
+        // Vendas finalizadas usam `refund` (que devolve estoque + cancela
+        // recebiveis + grava audit). Esta separacao evita sobreposicao
+        // de responsabilidades.
+        if (sale.status !== "DRAFT") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Apenas vendas finalizadas podem ser canceladas",
+            message: "Apenas rascunhos podem ser cancelados. Use 'estornar' para vendas finalizadas.",
           });
         }
 
@@ -740,6 +744,25 @@ export const saleRouter = createTRPCRouter({
               },
             });
           }
+        }
+
+        // Cancela DevicePurchases criados pelo upgrade (trade-in) — sem isso,
+        // o aparelho de entrada ficaria fantasma no estoque apos o estorno.
+        const upgrades = await tx.saleUpgrade.findMany({
+          where: { saleId: sale.id, devicePurchaseId: { not: null } },
+          select: { devicePurchaseId: true },
+        });
+        if (upgrades.length > 0) {
+          const purchaseIds = upgrades
+            .map((u) => u.devicePurchaseId)
+            .filter((id): id is string => !!id);
+          await tx.devicePurchase.updateMany({
+            where: { id: { in: purchaseIds } },
+            data: {
+              cancelledAt: new Date(),
+              cancellationReason: `Estorno venda ${sale.number}: ${input.reason}`,
+            },
+          });
         }
 
         // Create refund CashMovement if session is open
