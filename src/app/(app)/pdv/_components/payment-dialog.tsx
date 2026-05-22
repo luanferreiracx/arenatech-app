@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,8 @@ function formatCurrency(cents: number): string {
 }
 
 interface PaymentEntry {
-  method: string;
+  method: string;            // code curto (dinheiro/pix/...) para back-compat
+  paymentMethodId: string | null; // id do PaymentMethod (quando cadastrado)
   label: string;
   amount: number; // centavos (valor da mercadoria coberto)
   installments: number;
@@ -41,7 +42,8 @@ interface PaymentEntry {
   totalPaidByCustomer: number;
 }
 
-const PAYMENT_METHODS = [
+/** Fallback quando o tenant nao tem PaymentMethod cadastrado ainda. */
+const FALLBACK_METHODS = [
   { key: "dinheiro", label: "Dinheiro" },
   { key: "pix", label: "PIX" },
   { key: "cartao_credito", label: "Cartao Credito" },
@@ -83,7 +85,25 @@ export function PaymentDialog({
   const [formInstallments, setFormInstallments] = useState("1");
   const [observations, setObservations] = useState("");
   const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
   const isDowngrade = refundDueAmount > 0;
+
+  // Carrega formas cadastradas (com taxas+politica). Se nao houver,
+  // cai no fallback estatico (compatibilidade com tenants sem setup).
+  const methodsQuery = useQuery(
+    trpc.settings.listPaymentMethods.queryOptions(undefined, { enabled: open }),
+  );
+  const dbMethods = (methodsQuery.data ?? []) as Array<{
+    id: string;
+    code: string | null;
+    name: string;
+    type: string;
+    acceptsInstallments: boolean;
+    installmentsMax: number;
+  }>;
+  const methodOptions = dbMethods.length > 0
+    ? dbMethods.map((m) => ({ id: m.id, key: m.code ?? m.id, label: m.name, acceptsInstallments: m.acceptsInstallments, installmentsMax: m.installmentsMax }))
+    : FALLBACK_METHODS.map((m) => ({ id: null as string | null, key: m.key, label: m.label, acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
 
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 
@@ -93,9 +113,10 @@ export function PaymentDialog({
     totalAmount > 0 ? Math.min(100, (paidTotal / totalAmount) * 100) : 0;
   const isComplete = paidTotal >= totalAmount;
 
-  const handleSelectMethod = (method: string, label: string) => {
+  const handleSelectMethod = (method: string, label: string, paymentMethodId: string | null) => {
     setSelectedMethod(method);
     setSelectedLabel(label);
+    setSelectedPaymentMethodId(paymentMethodId);
     setFormAmount((remaining / 100).toFixed(2));
     setFormInstallments("1");
     setStep("form");
@@ -110,19 +131,15 @@ export function PaymentDialog({
     }
 
     const valorPagoCents = Math.round(amountReais * 100);
-    // O cliente pode pagar acrescimo da maquininha (CLIENTE_PAGA): valor
-    // digitado eh o que aparece na maquininha. Cap em `remaining` so se for
-    // estritamente menor (sem acrescimo). Paridade Laravel:
-    // valor_total_pago_manual no CalculadoraPagamento.
     const amountMercadoria = Math.min(valorPagoCents, remaining);
     const totalPaidByCustomer = valorPagoCents;
-
     const installments = parseInt(formInstallments, 10) || 1;
 
     setPayments((prev) => [
       ...prev,
       {
         method: selectedMethod,
+        paymentMethodId: selectedPaymentMethodId,
         label: selectedLabel,
         amount: amountMercadoria,
         installments,
@@ -131,6 +148,7 @@ export function PaymentDialog({
     ]);
 
     setSelectedMethod(null);
+    setSelectedPaymentMethodId(null);
     setStep("select");
   };
 
@@ -172,6 +190,7 @@ export function PaymentDialog({
         customerId,
         payments: payments.map((p) => ({
           method: p.method,
+          paymentMethodId: p.paymentMethodId,
           amount: p.amount,
           installments: p.installments,
           totalPaidByCustomer: p.totalPaidByCustomer,
@@ -346,12 +365,12 @@ export function PaymentDialog({
                 : "Selecione a forma de pagamento"}
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {PAYMENT_METHODS.map((m) => (
+              {methodOptions.map((m) => (
                 <Button
                   key={m.key}
                   variant="outline"
                   className="h-auto py-3 text-sm"
-                  onClick={() => handleSelectMethod(m.key, m.label)}
+                  onClick={() => handleSelectMethod(m.key, m.label, m.id)}
                 >
                   {m.label}
                 </Button>
@@ -405,7 +424,7 @@ export function PaymentDialog({
                     </SelectTrigger>
                     <SelectContent>
                       {Array.from(
-                        { length: MAX_INSTALLMENTS },
+                        { length: methodOptions.find((m) => m.key === selectedMethod)?.installmentsMax ?? MAX_INSTALLMENTS },
                         (_, i) => i + 1,
                       ).map((n) => (
                         <SelectItem key={n} value={String(n)}>

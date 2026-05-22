@@ -92,12 +92,40 @@ export const settingsRouter = createTRPCRouter({
   listPaymentMethods: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       return tx.paymentMethod.findMany({
-        where: { tenantId: ctx.tenantId },
-        include: { installmentRules: { orderBy: { installments: "asc" } } },
+        where: { tenantId: ctx.tenantId, active: true },
+        include: {
+          installmentRules: { orderBy: { installments: "asc" } },
+          rates: { where: { active: true }, orderBy: { installments: "asc" } },
+        },
         orderBy: { name: "asc" },
       });
     });
   }),
+
+  /**
+   * Calcula o breakdown de pagamento em tempo real (UI do PDV).
+   * Paridade Laravel endpoint /api/formas-pagamento/calcular.
+   */
+  previewPaymentBreakdown: tenantProcedure
+    .input(z.object({
+      paymentMethodId: z.string().uuid(),
+      installments: z.number().int().min(1).max(36),
+      valorMercadoria: z.number().int().min(0), // centavos
+      appliesTo: z.enum(["APARELHO", "NAO_APARELHO", "AMBOS"]).default("AMBOS"),
+      totalPaidManual: z.number().int().min(0).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const { calculatePaymentByMethodId } = await import("@/lib/services/payment-calculator");
+        return calculatePaymentByMethodId(tx, {
+          paymentMethodId: input.paymentMethodId,
+          installments: input.installments,
+          valorMercadoria: input.valorMercadoria,
+          appliesTo: input.appliesTo,
+          totalPaidManual: input.totalPaidManual ?? null,
+        });
+      });
+    }),
 
   createPaymentMethod: tenantProcedure
     .input(createPaymentMethodSchema)
