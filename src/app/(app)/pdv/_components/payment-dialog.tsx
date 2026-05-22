@@ -56,6 +56,11 @@ interface PaymentDialogProps {
   onOpenChange: (open: boolean) => void;
   saleId: string;
   totalAmount: number; // centavos
+  /**
+   * Valor que a loja DEVOLVE ao cliente quando o upgrade (trade-in) excede
+   * o valor da venda. Se > 0, o dialog mostra apenas escolha cash|pix.
+   */
+  refundDueAmount?: number;
   customerId: string | null;
   onSuccess: (saleId: string) => void;
 }
@@ -65,6 +70,7 @@ export function PaymentDialog({
   onOpenChange,
   saleId,
   totalAmount,
+  refundDueAmount = 0,
   customerId,
   onSuccess,
 }: PaymentDialogProps) {
@@ -76,6 +82,8 @@ export function PaymentDialog({
   const [formAmount, setFormAmount] = useState("");
   const [formInstallments, setFormInstallments] = useState("1");
   const [observations, setObservations] = useState("");
+  const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
+  const isDowngrade = refundDueAmount > 0;
 
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 
@@ -132,6 +140,27 @@ export function PaymentDialog({
   };
 
   const handleFinalize = () => {
+    if (isDowngrade) {
+      // Downgrade: cliente nao paga; loja devolve refundDueAmount.
+      finalizeMutation.mutate(
+        {
+          saleId,
+          customerId,
+          payments: [],
+          refundDueMethod,
+          observations: observations || null,
+        },
+        {
+          onSuccess: (data) => {
+            toast.success("Venda finalizada — devolucao registrada.");
+            onSuccess((data as unknown as { id: string }).id);
+          },
+          onError: (err) => toast.error(err.message),
+        },
+      );
+      return;
+    }
+
     if (payments.length === 0) {
       toast.error("Adicione pelo menos uma forma de pagamento");
       return;
@@ -172,6 +201,77 @@ export function PaymentDialog({
     const troco = inputCents - remaining;
     return troco > 0 ? troco : 0;
   })();
+
+  // Downgrade: tela alternativa simples (devolucao em vez de pagamento)
+  if (isDowngrade) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Finalizar — Devolução ao cliente</DialogTitle>
+            <DialogDescription>
+              O aparelho de entrada excede o valor da venda. A loja devolve ao cliente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="text-center py-4 bg-amber-500/10 rounded-lg my-2 border border-amber-500/40">
+            <div className="text-sm text-muted-foreground">A devolver ao cliente</div>
+            <div className="text-2xl font-bold text-amber-600">
+              {formatCurrency(refundDueAmount)}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Forma de devolução</Label>
+            <div className="space-y-2">
+              {(["cash", "pix"] as const).map((m) => (
+                <label
+                  key={m}
+                  className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer ${
+                    refundDueMethod === m ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="refundDueMethod"
+                    checked={refundDueMethod === m}
+                    onChange={() => setRefundDueMethod(m)}
+                    className="accent-primary"
+                  />
+                  <span>{m === "cash" ? "Dinheiro (saída do caixa)" : "PIX"}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {refundDueMethod === "cash"
+                ? "Caixa deve estar aberto. Sera registrada uma saída."
+                : "Realize o PIX manualmente após finalizar."}
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <Label>Observações</Label>
+            <Textarea
+              value={observations}
+              onChange={(e) => setObservations(e.target.value)}
+              placeholder="Opcional"
+              rows={2}
+            />
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
+              Cancelar
+            </Button>
+            <Button onClick={handleFinalize} disabled={finalizeMutation.isPending} className="flex-1">
+              <Check className="mr-1 h-4 w-4" />
+              Finalizar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -434,6 +434,7 @@ export function PdvScreen() {
   const subtotal = draft?.subtotal ?? 0;
   const discountAmount = draft?.discountAmount ?? 0;
   const totalAmount = draft?.totalAmount ?? 0;
+  const refundDueAmount = (draft as { refundDueAmount?: number } | undefined)?.refundDueAmount ?? 0;
 
   // -- Error state: draft creation failed --
   if (draftError && !draftId) {
@@ -911,6 +912,7 @@ export function PdvScreen() {
           onOpenChange={setShowPaymentDialog}
           saleId={draftId}
           totalAmount={totalAmount}
+          refundDueAmount={refundDueAmount}
           customerId={customerId ?? null}
           onSuccess={(saleId: string) => {
             router.push(`/pdv/${saleId}`);
