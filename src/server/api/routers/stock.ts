@@ -900,16 +900,11 @@ export const stockRouter = createTRPCRouter({
         return { sellerName, sellerPhone };
       });
 
-      // ETAPA 2 — IO externo (PDF fetch + Autentique) FORA da tx
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const pdfUrl = `${baseUrl}/api/purchases/${input.id}/termo-responsabilidade`;
-      let pdfBuffer: Buffer;
-      try {
-        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-        pdfBuffer = Buffer.from(await res.arrayBuffer());
-      } catch (err) {
-        logger.error("Failed to fetch purchase term PDF", { purchaseId: input.id, error: err });
+      // ETAPA 2 — gera PDF via builder direto (sem HTTP/cookies) e envia
+      // ao Autentique.
+      const { buildPurchaseTermPdf } = await import("@/lib/pdf/purchase-term-builder");
+      const pdfBuffer = await buildPurchaseTermPdf(ctx.tenantId, input.id);
+      if (!pdfBuffer) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Falha ao gerar PDF do termo para assinatura.",
@@ -2202,6 +2197,124 @@ export const stockRouter = createTRPCRouter({
         };
       });
     }),
+
+  /**
+   * Preview server-side de importacao CSV: valida cada linha com Zod e
+   * reporta duplicidades (SKU/barcode ja existentes ou repetidos no arquivo).
+   * Paridade Laravel ImportacaoProdutoController::preview.
+   */
+  previewCsvImport: tenantProcedure
+    .input(csvImportSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        type LineIssue = { line: number; field?: string; message: string };
+        const errors: LineIssue[] = [];
+        const warnings: LineIssue[] = [];
+
+        // Detecta SKU/barcode duplicados no proprio arquivo
+        const skuMap = new Map<string, number[]>();
+        const barcodeMap = new Map<string, number[]>();
+        for (let i = 0; i < input.lines.length; i++) {
+          const l = input.lines[i]!;
+          if (l.sku) {
+            const arr = skuMap.get(l.sku) ?? [];
+            arr.push(i + 1);
+            skuMap.set(l.sku, arr);
+          }
+          if (l.barcode) {
+            const arr = barcodeMap.get(l.barcode) ?? [];
+            arr.push(i + 1);
+            barcodeMap.set(l.barcode, arr);
+          }
+        }
+        for (const [sku, lines] of skuMap.entries()) {
+          if (lines.length > 1) {
+            for (const ln of lines) {
+              errors.push({ line: ln, field: "sku", message: `SKU duplicado no arquivo: ${sku}` });
+            }
+          }
+        }
+        for (const [barcode, lines] of barcodeMap.entries()) {
+          if (lines.length > 1) {
+            for (const ln of lines) {
+              errors.push({ line: ln, field: "barcode", message: `Codigo de barras duplicado no arquivo: ${barcode}` });
+            }
+          }
+        }
+
+        // Detecta SKU/barcode ja existentes no banco
+        const skus = [...skuMap.keys()];
+        const barcodes = [...barcodeMap.keys()];
+        const [existingSkus, existingBarcodes] = await Promise.all([
+          skus.length > 0
+            ? tx.product.findMany({
+                where: { sku: { in: skus }, deletedAt: null },
+                select: { sku: true },
+              })
+            : Promise.resolve([]),
+          barcodes.length > 0
+            ? tx.product.findMany({
+                where: { barcode: { in: barcodes }, deletedAt: null },
+                select: { barcode: true },
+              })
+            : Promise.resolve([]),
+        ]);
+        const existingSkuSet = new Set(existingSkus.map((p) => p.sku).filter(Boolean));
+        const existingBarcodeSet = new Set(existingBarcodes.map((p) => p.barcode).filter(Boolean));
+
+        // Avisos por linha
+        for (let i = 0; i < input.lines.length; i++) {
+          const l = input.lines[i]!;
+          if (l.sku && existingSkuSet.has(l.sku)) {
+            warnings.push({ line: i + 1, field: "sku", message: `SKU ${l.sku} ja existe no banco — sera duplicado` });
+          }
+          if (l.barcode && existingBarcodeSet.has(l.barcode)) {
+            warnings.push({ line: i + 1, field: "barcode", message: `Codigo de barras ${l.barcode} ja existe no banco — sera duplicado` });
+          }
+          if (l.salePrice <= 0) {
+            errors.push({ line: i + 1, field: "salePrice", message: "Preço de venda deve ser maior que zero" });
+          }
+          if (l.costPrice != null && l.costPrice > l.salePrice) {
+            warnings.push({ line: i + 1, field: "costPrice", message: "Custo maior que preço de venda (margem negativa)" });
+          }
+        }
+
+        return {
+          totalLines: input.lines.length,
+          validLines: input.lines.length - new Set(errors.map((e) => e.line)).size,
+          errors,
+          warnings,
+          canProceed: errors.length === 0,
+        };
+      });
+    }),
+
+  /**
+   * Gera CSV-template para importacao (cabecalho + 2 linhas de exemplo).
+   * Paridade Laravel ImportacaoProdutoController::downloadTemplate.
+   * BOM UTF-8 + separador `;` para abertura direta no Excel BR.
+   */
+  getCsvImportTemplate: tenantProcedure.query(() => {
+    const header = [
+      "nome", "sku", "barcode", "marca", "categoria",
+      "preco_custo", "preco_venda", "preco_promocional",
+      "estoque_minimo", "quantidade", "controla_imei", "descricao",
+    ];
+    const sample1 = [
+      "Capa iPhone 15 Pro Silicone Preta", "CAP-IPH15-PRE", "7891234567890", "Apple", "Capas",
+      "25.00", "59.90", "49.90", "5", "20", "false", "Capa silicone com cabo magsafe",
+    ];
+    const sample2 = [
+      "Carregador USB-C 20W Branco", "CAR-USBC-20W", "7899876543210", "Generico", "Carregadores",
+      "15.50", "39.90", "", "10", "50", "false", "",
+    ];
+    const csv = "﻿"
+      + [header, sample1, sample2].map((row) => row.join(";")).join("\n");
+    return {
+      csv,
+      fileName: `template-importacao-produtos-${new Date().toISOString().slice(0, 10)}.csv`,
+    };
+  }),
 
   /** CSV Import - process lines */
   importCsv: tenantProcedure

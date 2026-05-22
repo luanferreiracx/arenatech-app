@@ -102,22 +102,15 @@ export const quickSaleRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         // Generate number: QS{year}{5-digit seq}
         const year = new Date().getFullYear();
-        const prefix = `QS${year}`;
-        const lastQs = await tx.quickSale.findFirst({
-          where: {
-            tenantId: ctx.tenantId,
-            number: { startsWith: prefix },
-          },
-          orderBy: { number: "desc" },
-          select: { number: true },
-        });
-
-        let seq = 1;
-        if (lastQs?.number) {
-          const lastSeq = parseInt(lastQs.number.replace(prefix, ""), 10);
-          if (!isNaN(lastSeq)) seq = lastSeq + 1;
-        }
-        const number = `${prefix}${String(seq).padStart(5, "0")}`;
+        // Numero atomico via sequencia tenant-scoped (race-safe).
+        const { nextTenantNumber } = await import("@/server/services/tenant-number-sequence.service");
+        const { formatted: number } = await nextTenantNumber(
+          tx as unknown as Parameters<typeof nextTenantNumber>[0],
+          ctx.tenantId,
+          "quick_sale",
+          year,
+          { padding: 5, prefix: `QS${year}` },
+        );
 
         const unitPriceDecimal = new Prisma.Decimal(input.unitPrice / 100);
         const discountDecimal = new Prisma.Decimal((input.discount ?? 0) / 100);

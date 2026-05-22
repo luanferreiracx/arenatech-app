@@ -339,20 +339,16 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(createServiceOrderSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        // Generate sequential number
+        // Numero atomico via sequencia tenant-scoped (race-safe).
         const year = new Date().getFullYear();
-        const lastOrder = await tx.serviceOrder.findFirst({
-          where: { number: { startsWith: `OS${year}` } },
-          orderBy: { number: "desc" },
-          select: { number: true },
-        });
-
-        let seq = 1;
-        if (lastOrder) {
-          const lastSeq = parseInt(lastOrder.number.replace(`OS${year}`, ""), 10);
-          if (!isNaN(lastSeq)) seq = lastSeq + 1;
-        }
-        const number = `OS${year}${String(seq).padStart(5, "0")}`;
+        const { nextTenantNumber } = await import("@/server/services/tenant-number-sequence.service");
+        const { formatted: number } = await nextTenantNumber(
+          tx as unknown as Parameters<typeof nextTenantNumber>[0],
+          ctx.tenantId,
+          "service_order",
+          year,
+          { padding: 5, prefix: `OS${year}` },
+        );
 
         // Calculate totals from items
         let serviceAmount = 0;
