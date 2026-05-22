@@ -706,22 +706,16 @@ export const stockRouter = createTRPCRouter({
   sendPurchaseTermAutentique: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const purchase = await tx.devicePurchase.findUnique({
-          where: { id: input.id },
-        });
+      // ETAPA 1 — fetch dados em tx curta
+      const { sellerName, sellerPhone } = await ctx.withTenant(async (tx) => {
+        const purchase = await tx.devicePurchase.findUnique({ where: { id: input.id } });
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
         if (purchase.termSigned) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
         }
         if (purchase.autentiqueDocumentId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Termo ja foi enviado para Autentique.",
-          });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi enviado para Autentique." });
         }
-
-        // Pega telefone + nome do vendedor (customer ou supplier).
         let sellerName = "";
         let sellerPhone: string | null = null;
         if (purchase.sellerType === "customer" && purchase.customerId) {
@@ -729,57 +723,53 @@ export const stockRouter = createTRPCRouter({
             where: { id: purchase.customerId },
             select: { name: true, phone: true },
           });
-          if (customer) {
-            sellerName = customer.name;
-            sellerPhone = customer.phone;
-          }
+          if (customer) { sellerName = customer.name; sellerPhone = customer.phone; }
         } else if (purchase.sellerType === "supplier" && purchase.supplierId) {
           const supplier = await tx.supplier.findUnique({
             where: { id: purchase.supplierId },
             select: { name: true, phone: true },
           });
-          if (supplier) {
-            sellerName = supplier.name;
-            sellerPhone = supplier.phone;
-          }
+          if (supplier) { sellerName = supplier.name; sellerPhone = supplier.phone; }
         }
-
         if (!sellerPhone) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Vendedor sem telefone cadastrado para envio via Autentique.",
           });
         }
+        return { sellerName, sellerPhone };
+      });
 
-        // Gera o PDF do termo (rota API interna).
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-        const pdfUrl = `${baseUrl}/api/purchases/${input.id}/termo-responsabilidade`;
-        let pdfBuffer: Buffer;
-        try {
-          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-          pdfBuffer = Buffer.from(await res.arrayBuffer());
-        } catch (err) {
-          logger.error("Failed to fetch purchase term PDF", { purchaseId: input.id, error: err });
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Falha ao gerar PDF do termo para assinatura.",
-          });
-        }
+      // ETAPA 2 — IO externo (PDF fetch + Autentique) FORA da tx
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfUrl = `${baseUrl}/api/purchases/${input.id}/termo-responsabilidade`;
+      let pdfBuffer: Buffer;
+      try {
+        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+        pdfBuffer = Buffer.from(await res.arrayBuffer());
+      } catch (err) {
+        logger.error("Failed to fetch purchase term PDF", { purchaseId: input.id, error: err });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Falha ao gerar PDF do termo para assinatura.",
+        });
+      }
 
-        const result = await createDocumentWithLink(
-          `Termo de Responsabilidade - Compra ${input.id.slice(0, 8)}`,
-          [{ name: sellerName, whatsapp: formatWhatsApp(sellerPhone) }],
-          pdfBuffer,
-        );
+      const result = await createDocumentWithLink(
+        `Termo de Responsabilidade - Compra ${input.id.slice(0, 8)}`,
+        [{ name: sellerName, whatsapp: formatWhatsApp(sellerPhone) }],
+        pdfBuffer,
+      );
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao enviar para Autentique",
+        });
+      }
 
-        if (!result.success) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: result.error ?? "Erro ao enviar para Autentique",
-          });
-        }
-
+      // ETAPA 3 — persiste em tx curta
+      await ctx.withTenant(async (tx) => {
         await tx.devicePurchase.update({
           where: { id: input.id },
           data: {
@@ -788,14 +778,13 @@ export const stockRouter = createTRPCRouter({
             autentiqueSentAt: new Date(),
           },
         });
-
-        logger.info("Purchase term sent to Autentique", {
-          purchaseId: input.id,
-          documentId: result.documentId,
-        });
-
-        return { success: true, signatureLink: result.signatureLink };
       });
+
+      logger.info("Purchase term sent to Autentique", {
+        purchaseId: input.id,
+        documentId: result.documentId,
+      });
+      return { success: true, signatureLink: result.signatureLink };
     }),
 
   /**
@@ -805,30 +794,28 @@ export const stockRouter = createTRPCRouter({
   checkPurchaseSignatureStatus: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const purchase = await tx.devicePurchase.findUnique({
-          where: { id: input.id },
+      // ETAPA 1 — fetch tx curta
+      const purchase = await ctx.withTenant(async (tx) =>
+        tx.devicePurchase.findUnique({ where: { id: input.id } }),
+      );
+      if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!purchase.autentiqueDocumentId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum documento enviado para Autentique." });
+      }
+      if (purchase.termSigned) return { signed: true, status: "already_signed" };
+
+      // ETAPA 2 — Autentique HTTP fora da tx
+      const status = await getDocumentStatus(purchase.autentiqueDocumentId);
+      if (!status.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: status.error ?? "Erro ao consultar Autentique",
         });
-        if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
-        if (!purchase.autentiqueDocumentId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Nenhum documento enviado para Autentique.",
-          });
-        }
-        if (purchase.termSigned) {
-          return { signed: true, status: "already_signed" };
-        }
+      }
 
-        const status = await getDocumentStatus(purchase.autentiqueDocumentId);
-        if (!status.success) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: status.error ?? "Erro ao consultar Autentique",
-          });
-        }
-
-        if (status.signed) {
+      // ETAPA 3 — persiste se assinado
+      if (status.signed) {
+        await ctx.withTenant(async (tx) => {
           await tx.devicePurchase.update({
             where: { id: input.id },
             data: {
@@ -837,11 +824,11 @@ export const stockRouter = createTRPCRouter({
               termSignedVia: "autentique",
             },
           });
-          return { signed: true, status: "signed" };
-        }
+        });
+        return { signed: true, status: "signed" };
+      }
 
-        return { signed: false, status: "pending" };
-      });
+      return { signed: false, status: "pending" };
     }),
 
   // ═══════════════════════════════════════

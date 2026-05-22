@@ -1157,21 +1157,33 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
-        // Copy OS items as sale items
+        // Copy OS items as sale items.
+        // Laravel grava `produto_id NULL` para itens só-serviço; aqui a coluna e
+        // NOT NULL no schema atual, entao usamos productId quando existe e caimos
+        // em serviceId so quando o item for um servico cadastrado. NUNCA usar
+        // `item.id` (ServiceOrderItem.id) — gera ids fantasma em relatorios.
         const osItems = order.items;
         if (osItems.length > 0) {
-          await tx.saleItem.createMany({
-            data: osItems.map((item) => ({
+          const items = osItems.map((item) => {
+            const productId = item.productId ?? item.serviceId;
+            if (!productId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Item "${item.description}" da OS nao tem produto/servico vinculado e nao pode virar item de venda.`,
+              });
+            }
+            return {
               tenantId: ctx.tenantId,
               saleId: sale.id,
-              productId: item.serviceId ?? item.productId ?? item.id, // fallback
+              productId,
               description: item.description,
               quantity: Math.max(1, Math.round(Number(item.quantity))),
               unitPrice: item.unitPrice,
               costPrice: item.costPrice,
               total: item.total,
-            })),
+            };
           });
+          await tx.saleItem.createMany({ data: items });
         }
 
         return recalculateSale(tx, sale.id, ctx.tenantId);
@@ -1248,44 +1260,42 @@ export const saleRouter = createTRPCRouter({
   sendForSignature: tenantProcedure
     .input(z.object({ saleId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch em tx curta (RLS)
+      const { sale, signerName } = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
         if (!sale || sale.status !== "COMPLETED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas podem ser assinadas" });
         }
-
         if (sale.signatureDocumentId) {
           throw new TRPCError({ code: "CONFLICT", message: "Documento ja enviado para assinatura" });
         }
-
-        // Generate PDF
-        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const pdfRes = await fetch(`${baseUrl}/api/pdv/${input.saleId}/recibo`);
-        if (!pdfRes.ok) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gerar PDF" });
-        }
-
-        const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-        const pdfBase64 = pdfBuffer.toString("base64");
-
-        // Get customer info for signer
         let signerName = "Cliente";
-        let signerEmail: string | undefined;
         if (sale.customerId) {
           const customer = await tx.customer.findUnique({
             where: { id: sale.customerId },
-            select: { name: true, email: true },
+            select: { name: true },
           });
           if (customer?.name) signerName = customer.name;
-          if (customer?.email) signerEmail = customer.email;
         }
+        return { sale, signerName };
+      });
 
-        const doc = await createDocumentWithLink(
-          `Recibo Venda ${sale.number}`,
-          [{ name: signerName, whatsapp: "" }],
-          pdfBuffer,
-        );
+      // ETAPA 2 — IO externo (PDF fetch + Autentique) FORA da tx
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfRes = await fetch(`${baseUrl}/api/pdv/${input.saleId}/recibo`);
+      if (!pdfRes.ok) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gerar PDF" });
+      }
+      const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
+      const doc = await createDocumentWithLink(
+        `Recibo Venda ${sale.number}`,
+        [{ name: signerName, whatsapp: "" }],
+        pdfBuffer,
+      );
+
+      // ETAPA 3 — persiste em tx curta
+      await ctx.withTenant(async (tx) => {
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
@@ -1294,38 +1304,37 @@ export const saleRouter = createTRPCRouter({
             signatureSentAt: new Date(),
           },
         });
-
-        return { documentId: doc.documentId, signatureLink: doc.signatureLink };
       });
+
+      return { documentId: doc.documentId, signatureLink: doc.signatureLink };
     }),
 
   /** Check digital signature status */
   checkSignatureStatus: tenantProcedure
     .input(checkSaleSignatureStatusSchema)
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
-        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      // ETAPA 1 — fetch tx curta
+      const sale = await ctx.withTenant(async (tx) =>
+        tx.sale.findUnique({ where: { id: input.saleId } }),
+      );
+      if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!sale.signatureDocumentId) return { signed: false, pending: false };
+      if (sale.signatureSignedAt) return { signed: true, pending: false };
 
-        if (!sale.signatureDocumentId) {
-          return { signed: false, pending: false };
-        }
+      // ETAPA 2 — Autentique HTTP fora da tx
+      const status = await getDocumentStatus(sale.signatureDocumentId);
 
-        if (sale.signatureSignedAt) {
-          return { signed: true, pending: false };
-        }
-
-        const status = await getDocumentStatus(sale.signatureDocumentId);
-
-        if (status.signed) {
+      // ETAPA 3 — persiste se assinado
+      if (status.signed) {
+        await ctx.withTenant(async (tx) => {
           await tx.sale.update({
             where: { id: input.saleId },
             data: { signatureSignedAt: new Date() },
           });
-        }
+        });
+      }
 
-        return { signed: status.signed, pending: true };
-      });
+      return { signed: status.signed, pending: true };
     }),
 
   /** Confirm physical signature (in-store) */
@@ -1358,36 +1367,31 @@ export const saleRouter = createTRPCRouter({
   generatePix: tenantProcedure
     .input(z.object({ saleId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
-        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      // ETAPA 1 — fetch tx curta
+      const sale = await ctx.withTenant(async (tx) =>
+        tx.sale.findUnique({ where: { id: input.saleId } }),
+      );
+      if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber PIX neste status" });
+      }
+      const totalAmount = Number(sale.totalAmount);
+      if (totalAmount <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da venda deve ser maior que zero" });
+      }
 
-        if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber PIX neste status" });
-        }
+      // ETAPA 2 — Depix HTTP fora da tx
+      const result = await createPixPayment(totalAmount, `Venda ${sale.number}`, sale.id);
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+      }
 
-        const totalAmount = Number(sale.totalAmount);
-        if (totalAmount <= 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da venda deve ser maior que zero" });
-        }
-
-        const result = await createPixPayment(
-          totalAmount,
-          `Venda ${sale.number}`,
-          sale.id
-        );
-
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
-        }
-
-        return {
-          transactionId: result.transactionId,
-          qrCode: result.qrCode,
-          qrCodeBase64: result.qrCodeBase64,
-          pixKey: result.pixKey,
-        };
-      });
+      return {
+        transactionId: result.transactionId,
+        qrCode: result.qrCode,
+        qrCodeBase64: result.qrCodeBase64,
+        pixKey: result.pixKey,
+      };
     }),
 
   /** Cancel a pending PIX payment for a sale */
