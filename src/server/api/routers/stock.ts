@@ -218,6 +218,62 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
+        // Photos — URLs ja uploaded via presigned MinIO. Paridade Laravel
+        // ProdutoController::store linhas 199-221.
+        if (input.photos && input.photos.length > 0) {
+          await tx.productPhoto.createMany({
+            data: input.photos.map((p, idx) => ({
+              tenantId: ctx.tenantId,
+              productId: product.id,
+              url: p.url,
+              thumbUrl: p.thumbUrl ?? null,
+              mediumUrl: p.mediumUrl ?? null,
+              order: p.order ?? idx,
+              isPrimary: p.isPrimary ?? idx === 0,
+            })),
+          });
+        }
+
+        // ProductAttributeConfig — quais atributos este produto usa
+        // (ex: produto X tem cor + capacidade).
+        if (input.attributeConfigIds && input.attributeConfigIds.length > 0) {
+          await tx.productAttributeConfig.createMany({
+            data: input.attributeConfigIds.map((attrId, idx) => ({
+              productId: product.id,
+              attributeId: attrId,
+              order: idx,
+            })),
+          });
+        }
+
+        // Variations — cada variacao tem N valores de atributo (ex: "Azul" + "128GB")
+        if (input.variations && input.variations.length > 0) {
+          for (const v of input.variations) {
+            const variation = await tx.productVariation.create({
+              data: {
+                tenantId: ctx.tenantId,
+                productId: product.id,
+                sku: v.sku || null,
+                barcode: v.barcode || null,
+                costPrice: v.costPrice != null ? new Prisma.Decimal(v.costPrice).div(100) : null,
+                salePrice: v.salePrice != null ? new Prisma.Decimal(v.salePrice).div(100) : null,
+                promotionalPrice: v.promotionalPrice != null
+                  ? new Prisma.Decimal(v.promotionalPrice).div(100)
+                  : null,
+                minStock: v.minStock ?? 0,
+                imageUrl: v.imageUrl ?? null,
+                active: v.active ?? true,
+              },
+            });
+            await tx.productVariationAttribute.createMany({
+              data: v.attributeValueIds.map((avId) => ({
+                variationId: variation.id,
+                attributeValueId: avId,
+              })),
+            });
+          }
+        }
+
         return product;
       });
     }),
@@ -280,6 +336,86 @@ export const stockRouter = createTRPCRouter({
                 productId: input.id,
                 categoryId: catId,
                 isPrimary: idx === 0,
+              })),
+            });
+          }
+        }
+
+        // Sync photos: se `photos` for fornecido (array), substitui o set.
+        // Se nao for fornecido, preserva (uso normal eh re-enviar a lista
+        // completa toda vez que abrir o form).
+        if (input.photos !== undefined) {
+          await tx.productPhoto.deleteMany({ where: { productId: input.id } });
+          if (input.photos.length > 0) {
+            await tx.productPhoto.createMany({
+              data: input.photos.map((p, idx) => ({
+                tenantId: ctx.tenantId,
+                productId: input.id,
+                url: p.url,
+                thumbUrl: p.thumbUrl ?? null,
+                mediumUrl: p.mediumUrl ?? null,
+                order: p.order ?? idx,
+                isPrimary: p.isPrimary ?? idx === 0,
+              })),
+            });
+          }
+        }
+
+        // Sync attribute configs
+        if (input.attributeConfigIds !== undefined) {
+          await tx.productAttributeConfig.deleteMany({ where: { productId: input.id } });
+          if (input.attributeConfigIds.length > 0) {
+            await tx.productAttributeConfig.createMany({
+              data: input.attributeConfigIds.map((attrId, idx) => ({
+                productId: input.id,
+                attributeId: attrId,
+                order: idx,
+              })),
+            });
+          }
+        }
+
+        // Sync variations: estrategia delete-all + recreate. Cascade limpa
+        // ProductVariationAttribute. NAO mexer em StockItem (cascade aborta
+        // se tem stock vinculado — proteção desejada).
+        if (input.variations !== undefined) {
+          const existingVars = await tx.productVariation.findMany({
+            where: { productId: input.id },
+            select: { id: true, stockItems: { select: { id: true }, take: 1 } },
+          });
+          const varsWithStock = existingVars.filter((v) => v.stockItems.length > 0);
+          if (varsWithStock.length > 0 && input.variations.length === 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Nao e possivel remover variacoes que ja tem itens no estoque.",
+            });
+          }
+          // Soft delete das variacoes sem stock
+          const safeIds = existingVars.filter((v) => v.stockItems.length === 0).map((v) => v.id);
+          if (safeIds.length > 0) {
+            await tx.productVariation.deleteMany({ where: { id: { in: safeIds } } });
+          }
+          for (const v of input.variations) {
+            const variation = await tx.productVariation.create({
+              data: {
+                tenantId: ctx.tenantId,
+                productId: input.id,
+                sku: v.sku || null,
+                barcode: v.barcode || null,
+                costPrice: v.costPrice != null ? new Prisma.Decimal(v.costPrice).div(100) : null,
+                salePrice: v.salePrice != null ? new Prisma.Decimal(v.salePrice).div(100) : null,
+                promotionalPrice: v.promotionalPrice != null
+                  ? new Prisma.Decimal(v.promotionalPrice).div(100)
+                  : null,
+                minStock: v.minStock ?? 0,
+                imageUrl: v.imageUrl ?? null,
+                active: v.active ?? true,
+              },
+            });
+            await tx.productVariationAttribute.createMany({
+              data: v.attributeValueIds.map((avId) => ({
+                variationId: variation.id,
+                attributeValueId: avId,
               })),
             });
           }

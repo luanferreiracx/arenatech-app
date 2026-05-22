@@ -2,6 +2,32 @@ import { z } from "zod";
 
 // ── Product schemas ──
 
+// Schemas auxiliares — fotos/variacoes/atributos sao criados junto com o
+// produto numa unica transacao (paridade Laravel ProdutoController::store).
+
+export const productPhotoInputSchema = z.object({
+  url: z.string().url(),
+  thumbUrl: z.string().url().optional().nullable(),
+  mediumUrl: z.string().url().optional().nullable(),
+  order: z.number().int().min(0).optional(),
+  isPrimary: z.boolean().optional(),
+});
+export type ProductPhotoInput = z.infer<typeof productPhotoInputSchema>;
+
+export const productVariationInputSchema = z.object({
+  sku: z.string().max(50).optional().nullable(),
+  barcode: z.string().max(50).optional().nullable(),
+  costPrice: z.number().int().min(0).optional().nullable(), // centavos
+  salePrice: z.number().int().min(0).optional().nullable(), // centavos
+  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
+  minStock: z.number().int().min(0).optional(),
+  imageUrl: z.string().url().optional().nullable(),
+  active: z.boolean().optional(),
+  /** IDs de ProductAttributeValue (ex: [valor "Azul", valor "128GB"]) */
+  attributeValueIds: z.array(z.string().uuid()).min(1),
+});
+export type ProductVariationInput = z.infer<typeof productVariationInputSchema>;
+
 export const createProductSchema = z.object({
   sku: z.string().max(50).optional().nullable(),
   barcode: z.string().max(50).optional().nullable(),
@@ -24,6 +50,12 @@ export const createProductSchema = z.object({
   active: z.boolean().optional(),
   categoryId: z.string().uuid().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).min(1).max(3).optional(),
+  /** Fotos a criar (URLs ja uploaded via presigned MinIO). Max 3. */
+  photos: z.array(productPhotoInputSchema).max(3).optional(),
+  /** IDs dos atributos que o produto usa (ex: cor, capacidade) */
+  attributeConfigIds: z.array(z.string().uuid()).optional(),
+  /** Variacoes do produto (cor + capacidade + preco proprio) */
+  variations: z.array(productVariationInputSchema).optional(),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
