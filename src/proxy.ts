@@ -20,6 +20,8 @@ function isPublicRoute(pathname: string): boolean {
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/api/cron/") ||
+    // Webhooks externos — autenticacao via HMAC interno, sem cookie.
+    pathname.startsWith("/api/webhooks/") ||
     // Rotas de midia publica para WhatsApp Cloud API baixar PDFs (HMAC-tokenized).
     // Meta precisa acessar sem cookies de auth.
     pathname.startsWith("/api/whatsapp-media/") ||
