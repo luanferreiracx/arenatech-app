@@ -36,6 +36,7 @@ import { PaymentDialog } from "./payment-dialog";
 import { DiscountDialog } from "./discount-dialog";
 import { PriceCheckDialog } from "./price-check-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
+import { SelectStockItemDialog } from "./select-stock-item-dialog";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -84,6 +85,7 @@ type SearchProduct = {
   salePrice: number;
   costPrice: number;
   currentStock: number;
+  isSerialized: boolean;
 };
 
 export function PdvScreen() {
@@ -106,6 +108,10 @@ export function PdvScreen() {
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showPriceCheckDialog, setShowPriceCheckDialog] = useState(false);
+  const [stockItemDialog, setStockItemDialog] = useState<{
+    productId: string;
+    productName: string;
+  } | null>(null);
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [customerName, setCustomerName] = useState<string | null>(null);
 
@@ -195,6 +201,17 @@ export function PdvScreen() {
       return;
     }
 
+    // Produto serializado (IMEI/serial) — abre modal de selecao em vez de
+    // adicionar direto. Paridade Laravel modal-selecionar-imei.
+    if (product.isSerialized) {
+      if (product.currentStock <= 0) {
+        toast.error("Nenhum aparelho disponivel em estoque.");
+        return;
+      }
+      setStockItemDialog({ productId: product.id, productName: product.name });
+      return;
+    }
+
     // Check if already in cart, subtract from displayed stock
     const inCart =
       items
@@ -222,6 +239,31 @@ export function PdvScreen() {
         onError: (err) => {
           toast.error(err.message);
         },
+      },
+    );
+  };
+
+  const handleSelectStockItem = (stockItem: {
+    id: string;
+    suggestedSalePrice: number | null;
+  }) => {
+    if (!draftId || !stockItemDialog) return;
+    addItemMutation.mutate(
+      {
+        saleId: draftId,
+        productId: stockItemDialog.productId,
+        stockItemId: stockItem.id,
+        quantity: 1,
+        unitPrice: stockItem.suggestedSalePrice ?? 0,
+      },
+      {
+        onSuccess: () => {
+          invalidateDraft();
+          setSearchTerm("");
+          setShowResults(false);
+          searchRef.current?.focus();
+        },
+        onError: (err) => toast.error(err.message),
       },
     );
   };
@@ -841,6 +883,15 @@ export function PdvScreen() {
       <PriceCheckDialog
         open={showPriceCheckDialog}
         onOpenChange={setShowPriceCheckDialog}
+      />
+
+      {/* -- Select StockItem (IMEI/serial) Dialog -- */}
+      <SelectStockItemDialog
+        open={!!stockItemDialog}
+        onOpenChange={(open) => !open && setStockItemDialog(null)}
+        productId={stockItemDialog?.productId ?? null}
+        productName={stockItemDialog?.productName ?? ""}
+        onSelect={handleSelectStockItem}
       />
 
       {/* -- Upgrade Dialog (trade-in) -- */}

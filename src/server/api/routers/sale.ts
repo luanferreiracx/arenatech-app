@@ -1237,6 +1237,7 @@ export const saleRouter = createTRPCRouter({
           salePrice: decimalToCents(p.salePrice),
           costPrice: decimalToCents(p.costPrice),
           currentStock: p.isSerialized ? (stockMap.get(p.id) ?? 0) : p.currentStock,
+          isSerialized: p.isSerialized,
         }));
       });
     }),
