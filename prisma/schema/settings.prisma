@@ -154,16 +154,26 @@ model NotificationConfig {
 model PaymentMethod {
   id              String            @id @default(uuid()) @db.Uuid
   tenantId        String            @map("tenant_id") @db.Uuid
+  // Codigo curto usado em integracoes/relatorios (ex: "dinheiro", "pix",
+  // "cartao_credito"). Paridade Laravel formas_pagamento.codigo.
+  code            String?
   name            String
   type            PaymentMethodType
   feePercent      Decimal           @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  feeFixed        Decimal           @default(0) @map("fee_fixed") @db.Decimal(10, 2)
+  acceptsInstallments Boolean       @default(false) @map("accepts_installments")
+  installmentsMin Int               @default(1) @map("installments_min")
+  installmentsMax Int               @default(1) @map("installments_max")
+  settlementDays  Int               @default(0) @map("settlement_days")
   active          Boolean           @default(true)
   acceptsChange   Boolean           @default(false) @map("accepts_change")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
   installmentRules InstallmentRule[]
+  rates            PaymentMethodRate[]
 
+  @@unique([tenantId, code])
   @@index([tenantId, active])
   @@map("payment_methods")
 }
@@ -176,6 +186,45 @@ enum PaymentMethodType {
   BANK_TRANSFER
   STORE_CREDIT
   OTHER
+}
+
+// Politica: quem paga o acrescimo da operadora.
+enum PaymentFeePolicy {
+  LOJA_ABSORVE   // loja deduz taxa do recebido; cliente paga preço normal
+  CLIENTE_PAGA   // cliente paga acrescimo; loja recebe preço normal
+}
+
+// Onde a taxa se aplica: aparelho (Product.isDevice=true), nao-aparelho ou ambos.
+enum PaymentRateAppliesTo {
+  APARELHO
+  NAO_APARELHO
+  AMBOS
+}
+
+/**
+ * Tabela de taxas por (forma, parcelas, tipo de produto).
+ * Paridade Laravel forma_pagamento_taxas. Permite diferenciar taxa de
+ * aparelho vs acessorio e politica cliente-paga vs loja-absorve.
+ */
+model PaymentMethodRate {
+  id                String                 @id @default(uuid()) @db.Uuid
+  tenantId          String                 @map("tenant_id") @db.Uuid
+  paymentMethodId   String                 @map("payment_method_id") @db.Uuid
+  installments      Int
+  appliesTo         PaymentRateAppliesTo   @default(AMBOS) @map("applies_to")
+  policy            PaymentFeePolicy       @default(LOJA_ABSORVE)
+  feePercent        Decimal                @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  feeFixed          Decimal                @default(0) @map("fee_fixed") @db.Decimal(10, 2)
+  settlementDays    Int?                   @map("settlement_days")
+  active            Boolean                @default(true)
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  paymentMethod     PaymentMethod          @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentMethodId, installments, appliesTo])
+  @@index([tenantId, paymentMethodId])
+  @@map("payment_method_rates")
 }
 
 model InstallmentRule {

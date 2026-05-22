@@ -32,9 +32,23 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 // ── Payment Detail (split payment) ──
 
 export const paymentDetailSchema = z.object({
+  /** Codigo da forma de pagamento (ex: "dinheiro", "pix", "cartao_credito"). */
   method: z.string().min(1, "Forma de pagamento obrigatoria"),
-  amount: z.number().int().min(1, "Valor deve ser maior que zero"), // centavos
+  /** Id da PaymentMethod (opcional — quando informado, calcula taxas/politica). */
+  paymentMethodId: z.string().uuid().optional().nullable(),
+  /**
+   * Valor da mercadoria desta forma de pagamento (centavos). Ex: numa venda
+   * de R$ 1.000 pagando 30% pix + 70% cartao, o pix tem amount=30000 e o
+   * cartao amount=70000.
+   */
+  amount: z.number().int().min(1, "Valor deve ser maior que zero"),
   installments: z.number().int().min(1).max(36).optional(),
+  /**
+   * Valor total que o cliente paga DE FATO nesta forma (centavos). Maior
+   * que `amount` quando ha acrescimo (politica CLIENTE_PAGA). Operador
+   * digita o valor que aparece na maquininha. Default = amount.
+   */
+  totalPaidByCustomer: z.number().int().min(0).optional(),
 });
 
 export type PaymentDetail = z.infer<typeof paymentDetailSchema>;

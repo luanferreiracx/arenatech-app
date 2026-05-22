@@ -836,17 +836,20 @@ export const financialRouter = createTRPCRouter({
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
       ];
 
-      // Receita por regime de competencia (paridade Laravel FinanceiroController::dre):
-      // - Sales COMPLETED.totalAmount por saleDate (substitui Installments PAID,
-      //   que era regime de caixa e inflava meses tardios de cobranca parcelada)
-      // - Despesas: Installments PAYABLE.PAID por paidAt (regime de caixa,
+      // DRE contabil correto (regime de competencia):
+      // - Receita LIQUIDA = Sales.netRevenueAmount (totalAmount - taxa operadora
+      //   absorvida pela loja). Quando a venda nao tem calculadora aplicada,
+      //   netRevenueAmount = totalAmount.
+      // - Custo das mercadorias: sum(saleItem.cost * qty) das vendas COMPLETED.
+      // - Lucro bruto = receita liquida - custo das mercadorias
+      // - Despesas operacionais: Installments PAYABLE.PAID (regime de caixa,
       //   paridade contas_pagar_parcelas)
-      // - Custo de pecas: sum(saleItem.cost * qty) por sale.saleDate
+      // - Lucro liquido = lucro bruto - despesas
       const [revenueRows, expenseRows, partsCostRows] = await Promise.all([
         ctx.withTenant(async (tx) =>
           tx.$queryRaw<Array<{ month: number; total: number | null }>>`
             SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                   COALESCE(SUM(s.total_amount), 0)::float AS total
+                   COALESCE(SUM(CASE WHEN s.net_revenue_amount > 0 THEN s.net_revenue_amount ELSE s.total_amount END), 0)::float AS total
             FROM sales s
             WHERE s.status = 'COMPLETED'
               AND s.deleted_at IS NULL

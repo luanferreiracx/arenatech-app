@@ -453,6 +453,54 @@ export const saleRouter = createTRPCRouter({
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
+        // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
+        // Determina tipo da venda: se TODOS os itens sao aparelhos -> APARELHO;
+        // se NENHUM -> NAO_APARELHO; misto -> AMBOS.
+        const productIds = sale.items.map((i) => i.productId);
+        const products = productIds.length > 0
+          ? await tx.product.findMany({ where: { id: { in: productIds } }, select: { isDevice: true } })
+          : [];
+        const allDevices = products.length > 0 && products.every((p) => p.isDevice);
+        const noDevices = products.length > 0 && products.every((p) => !p.isDevice);
+        const appliesTo: "APARELHO" | "NAO_APARELHO" | "AMBOS" = allDevices
+          ? "APARELHO"
+          : noDevices ? "NAO_APARELHO" : "AMBOS";
+
+        let totalSurcharge = 0;
+        let totalOperatorFee = 0;
+        let totalNetRevenue = 0;
+        let totalPaidByCustomer = 0;
+
+        for (const payment of payments) {
+          let breakdown;
+          if (payment.paymentMethodId) {
+            const { calculatePaymentByMethodId } = await import("@/lib/services/payment-calculator");
+            breakdown = await calculatePaymentByMethodId(tx, {
+              paymentMethodId: payment.paymentMethodId,
+              installments: payment.installments ?? 1,
+              valorMercadoria: payment.amount,
+              appliesTo,
+              totalPaidManual: payment.totalPaidByCustomer ?? null,
+            });
+            if (breakdown.error) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: breakdown.error });
+            }
+          } else {
+            // Sem paymentMethodId — assume LOJA_ABSORVE com taxa 0 (paridade
+            // comportamento anterior: dinheiro/pix sem cadastro).
+            breakdown = {
+              surcharge: 0,
+              operatorFee: 0,
+              netRevenue: payment.amount,
+              totalPaid: payment.amount,
+            };
+          }
+          totalSurcharge += breakdown.surcharge;
+          totalOperatorFee += breakdown.operatorFee;
+          totalNetRevenue += breakdown.netRevenue;
+          totalPaidByCustomer += breakdown.totalPaid;
+        }
+
         // Downgrade: upgrade excede o valor da venda. Cliente nao paga nada
         // (total = 0); loja DEVOLVE refundDueCents pela forma escolhida.
         // Paridade Laravel `valor_devolvido_cliente` + `forma_devolucao`.
@@ -709,6 +757,17 @@ export const saleRouter = createTRPCRouter({
             changeAmount: centsToPrisma(changeCents),
             paymentDetails,
             refundDueMethod: refundDueCents > 0 ? input.refundDueMethod ?? null : null,
+            surchargeAmount: centsToPrisma(totalSurcharge),
+            operatorFeeAmount: centsToPrisma(totalOperatorFee),
+            // Net revenue: zero em downgrade (sem receita), senao agrega
+            // os breakdowns. Fallback: totalCents (quando sem calculadora).
+            netRevenueAmount: centsToPrisma(
+              refundDueCents > 0
+                ? 0
+                : totalNetRevenue > 0
+                  ? totalNetRevenue
+                  : totalCents,
+            ),
             observations: input.observations ?? sale.observations,
             saleDate: new Date(),
           },

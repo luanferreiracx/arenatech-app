@@ -27,6 +27,15 @@ model Sale {
   // devolve a diferenca ao cliente. Paridade Laravel `valor_devolvido_cliente`.
   refundDueAmount Decimal    @default(0) @map("refund_due_amount") @db.Decimal(10, 2)
   refundDueMethod String?    @map("refund_due_method") // "cash" | "pix"
+  // Acrescimo total pago pelo cliente (politica CLIENTE_PAGA) — diferenca
+  // entre valor digitado pelo operador e totalAmount.
+  surchargeAmount Decimal    @default(0) @map("surcharge_amount") @db.Decimal(10, 2)
+  // Taxa total da operadora (politica LOJA_ABSORVE). Paridade Laravel
+  // taxa_operadora_valor.
+  operatorFeeAmount Decimal  @default(0) @map("operator_fee_amount") @db.Decimal(10, 2)
+  // Receita liquida da loja: totalAmount - operatorFeeAmount (loja absorve).
+  // Paridade Laravel receita_liquida_loja. Usado no DRE.
+  netRevenueAmount Decimal   @default(0) @map("net_revenue_amount") @db.Decimal(10, 2)
   paidAmount      Decimal    @default(0) @map("paid_amount") @db.Decimal(10, 2)
   changeAmount    Decimal    @default(0) @map("change_amount") @db.Decimal(10, 2)
 

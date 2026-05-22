@@ -35,8 +35,10 @@ function formatCurrency(cents: number): string {
 interface PaymentEntry {
   method: string;
   label: string;
-  amount: number; // centavos
+  amount: number; // centavos (valor da mercadoria coberto)
   installments: number;
+  /** Valor que o cliente paga DE FATO (com acrescimo da maquininha). */
+  totalPaidByCustomer: number;
 }
 
 const PAYMENT_METHODS = [
@@ -99,17 +101,13 @@ export function PaymentDialog({
       return;
     }
 
-    let amountCents = Math.round(amountReais * 100);
-
-    // For cash, allow overpayment (change); for others, cap at remaining
-    if (selectedMethod !== "dinheiro" && amountCents > remaining + 1) {
-      toast.error(`O valor nao pode exceder ${formatCurrency(remaining)}`);
-      return;
-    }
-
-    if (selectedMethod !== "dinheiro") {
-      amountCents = Math.min(amountCents, remaining);
-    }
+    const valorPagoCents = Math.round(amountReais * 100);
+    // O cliente pode pagar acrescimo da maquininha (CLIENTE_PAGA): valor
+    // digitado eh o que aparece na maquininha. Cap em `remaining` so se for
+    // estritamente menor (sem acrescimo). Paridade Laravel:
+    // valor_total_pago_manual no CalculadoraPagamento.
+    const amountMercadoria = Math.min(valorPagoCents, remaining);
+    const totalPaidByCustomer = valorPagoCents;
 
     const installments = parseInt(formInstallments, 10) || 1;
 
@@ -118,8 +116,9 @@ export function PaymentDialog({
       {
         method: selectedMethod,
         label: selectedLabel,
-        amount: amountCents,
+        amount: amountMercadoria,
         installments,
+        totalPaidByCustomer,
       },
     ]);
 
@@ -146,6 +145,7 @@ export function PaymentDialog({
           method: p.method,
           amount: p.amount,
           installments: p.installments,
+          totalPaidByCustomer: p.totalPaidByCustomer,
         })),
         observations: observations || null,
       },
