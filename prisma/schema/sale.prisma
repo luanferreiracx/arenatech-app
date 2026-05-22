@@ -72,6 +72,7 @@ model Sale {
 
   items           SaleItem[]
   upgrades        SaleUpgrade[]
+  documents       SaleDocument[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -139,6 +140,40 @@ model SaleUpgrade {
  * Audit log de venda — paridade Laravel `pdv_venda_auditorias`.
  * Registra acoes sensíveis: cancel, refund, atualizar data, vincular cliente.
  */
+/**
+ * Documento emitido a partir de uma venda: recibo, termo de garantia,
+ * termo de troca, termo de responsabilidade.
+ * Paridade Laravel pdv_termos_recibos. Permite multi-tipo + reenvios +
+ * historico independente da flag receiptSent na Sale.
+ */
+model SaleDocument {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  saleId               String   @map("sale_id") @db.Uuid
+  type                 String   // 'recibo' | 'termo_garantia' | 'termo_troca' | 'termo_responsabilidade'
+  recipientName        String?  @map("recipient_name")
+  recipientCpf         String?  @map("recipient_cpf")
+  recipientPhone       String?  @map("recipient_phone")
+  recipientEmail       String?  @map("recipient_email")
+  whatsappSent         Boolean  @default(false) @map("whatsapp_sent")
+  whatsappSentAt       DateTime? @map("whatsapp_sent_at")
+  autentiqueSent       Boolean  @default(false) @map("autentique_sent")
+  autentiqueDocumentId String?  @map("autentique_document_id")
+  autentiqueLink       String?  @map("autentique_link")
+  autentiqueSentAt     DateTime? @map("autentique_sent_at")
+  signed               Boolean  @default(false)
+  signedAt             DateTime? @map("signed_at")
+  publicLink           String   @unique @map("public_link")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, saleId])
+  @@index([tenantId, type])
+  @@map("sale_documents")
+}
+
 model SaleAudit {
   id            String   @id @default(uuid()) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
