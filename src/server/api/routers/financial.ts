@@ -763,25 +763,11 @@ export const financialRouter = createTRPCRouter({
           tx.installment.count({ where }),
         ]);
 
-        // Mark overdue ones
-        const overdueIds = data
-          .filter((i) => i.status === "PENDING")
-          .map((i) => i.id);
-
-        if (overdueIds.length > 0) {
-          await tx.installment.updateMany({
-            where: { id: { in: overdueIds } },
-            data: { status: "OVERDUE" },
-          });
-          // Recalculate transaction statuses
-          const transactionIds = [
-            ...new Set(data.filter((i) => overdueIds.includes(i.id)).map((i) => i.transactionId)),
-          ];
-          for (const tid of transactionIds) {
-            await recalculateTransactionStatus(tx as never, tid);
-          }
-        }
-
+        // Marca como "OVERDUE" so na resposta (status virtual). A persistencia
+        // do status fica para a mutation `markOverdue` (chamada por cron/job).
+        // Antes este endpoint, embora `query`, fazia updateMany + loop de
+        // recalculate — risco real de race condition e cache invalidation
+        // silenciosa no front.
         return {
           data: data.map((inst) => ({
             id: inst.id,
@@ -789,7 +775,7 @@ export const financialRouter = createTRPCRouter({
             amount: decimalToCents(inst.amount),
             paidAmount: decimalToCents(inst.paidAmount),
             dueDate: inst.dueDate,
-            status: overdueIds.includes(inst.id) ? "OVERDUE" : inst.status,
+            status: inst.status === "PENDING" ? "OVERDUE" : inst.status,
             transactionId: inst.transactionId,
             transactionType: inst.transaction.type,
             transactionDescription: inst.transaction.description,
@@ -802,91 +788,133 @@ export const financialRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Marca installments vencidas (PENDING + dueDate < now) como OVERDUE e
+   * recalcula o status das transactions afetadas. Operacao idempotente, sem
+   * efeito visivel para o cliente alem da mudanca de status.
+   *
+   * Chamar via cron diario (ex: GET /api/cron/mark-overdue) ou como acao
+   * manual em pagina de admin.
+   */
+  markOverdue: tenantProcedure.mutation(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const now = new Date();
+      const candidates = await tx.installment.findMany({
+        where: {
+          status: "PENDING",
+          dueDate: { lt: now },
+          transaction: { deletedAt: null },
+        },
+        select: { id: true, transactionId: true },
+      });
+      if (candidates.length === 0) return { marked: 0, transactionsRecalculated: 0 };
+
+      const candidateIds = candidates.map((c) => c.id);
+      await tx.installment.updateMany({
+        where: { id: { in: candidateIds } },
+        data: { status: "OVERDUE" },
+      });
+
+      const transactionIds = [...new Set(candidates.map((c) => c.transactionId))];
+      for (const tid of transactionIds) {
+        await recalculateTransactionStatus(tx as never, tid);
+      }
+      return { marked: candidates.length, transactionsRecalculated: transactionIds.length };
+    });
+  }),
+
   /** DRE - Demonstrativo de Resultados do Exercicio */
   dre: tenantProcedure
     .input(dreSchema)
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const year = input.year;
-        const months: Array<{
-          month: number;
-          monthName: string;
-          revenue: number;
-          partsCost: number;
-          grossProfit: number;
-          expenses: number;
-          netProfit: number;
-        }> = [];
+      const year = input.year;
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31, 23, 59, 59, 999);
 
-        const monthNames = [
-          "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
-          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-        ];
+      const monthNames = [
+        "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+      ];
 
-        for (let m = 0; m < 12; m++) {
-          const startOfMonth = new Date(year, m, 1);
-          const endOfMonth = new Date(year, m + 1, 0, 23, 59, 59, 999);
+      // 3 queries agregadas por mes em vez de 36 (12 meses × 3 fontes).
+      // Cada uma roda em tx curta separada.
+      const [revenueRows, expenseRows, partsCostRows] = await Promise.all([
+        ctx.withTenant(async (tx) =>
+          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+            SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
+                   COALESCE(SUM(i.paid_amount), 0)::float AS total
+            FROM installments i
+            JOIN financial_transactions t ON t.id = i.transaction_id
+            WHERE i.status = 'PAID'
+              AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
+              AND t.type = 'RECEIVABLE'
+              AND t.deleted_at IS NULL
+            GROUP BY 1
+          `,
+        ),
+        ctx.withTenant(async (tx) =>
+          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+            SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
+                   COALESCE(SUM(i.paid_amount), 0)::float AS total
+            FROM installments i
+            JOIN financial_transactions t ON t.id = i.transaction_id
+            WHERE i.status = 'PAID'
+              AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
+              AND t.type = 'PAYABLE'
+              AND t.deleted_at IS NULL
+            GROUP BY 1
+          `,
+        ),
+        // Custo de peças (paridade Laravel `dre`): sum(saleItem.cost * qty) das
+        // vendas COMPLETED. Substitui o stub `* 0`. Agrupa por mes via sale.saleDate.
+        ctx.withTenant(async (tx) =>
+          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+            SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+                   COALESCE(SUM(si.cost_price * si.quantity), 0)::float AS total
+            FROM sale_items si
+            JOIN sales s ON s.id = si.sale_id
+            WHERE s.status = 'COMPLETED'
+              AND s.deleted_at IS NULL
+              AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+            GROUP BY 1
+          `,
+        ),
+      ]);
 
-          // Revenue: paid receivables in this month
-          const revenueResult = await tx.installment.aggregate({
-            where: {
-              status: "PAID",
-              paidAt: { gte: startOfMonth, lte: endOfMonth },
-              transaction: { type: "RECEIVABLE", deletedAt: null },
-            },
-            _sum: { paidAmount: true },
-          });
+      const revenueByMonth = new Map(revenueRows.map((r) => [r.month, Number(r.total ?? 0)]));
+      const expenseByMonth = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
+      const partsByMonth = new Map(partsCostRows.map((r) => [r.month, Number(r.total ?? 0)]));
 
-          // Expenses (Contas a Pagar pagas)
-          const expensesResult = await tx.installment.aggregate({
-            where: {
-              status: "PAID",
-              paidAt: { gte: startOfMonth, lte: endOfMonth },
-              transaction: { type: "PAYABLE", deletedAt: null },
-            },
-            _sum: { paidAmount: true },
-          });
-
-          // Parts cost: sum of quantity * product cost from EXIT movements in period (approximation)
-          const partsCostResult = await tx.stockMovement.aggregate({
-            where: {
-              type: "EXIT",
-              referenceType: "sale",
-              createdAt: { gte: startOfMonth, lte: endOfMonth },
-            },
-            _sum: { quantity: true },
-          });
-
-          const revenue = decimalToCents(revenueResult._sum.paidAmount);
-          const partsCost = (partsCostResult._sum.quantity ?? 0) * 0; // TODO: proper cost calculation
-          const grossProfit = revenue - partsCost;
-          const expenses = decimalToCents(expensesResult._sum.paidAmount);
-          const netProfit = grossProfit - expenses;
-
-          months.push({
-            month: m + 1,
-            monthName: monthNames[m]!,
-            revenue,
-            partsCost,
-            grossProfit,
-            expenses,
-            netProfit,
-          });
-        }
-
-        const totals = months.reduce(
-          (acc, m) => ({
-            revenue: acc.revenue + m.revenue,
-            partsCost: acc.partsCost + m.partsCost,
-            grossProfit: acc.grossProfit + m.grossProfit,
-            expenses: acc.expenses + m.expenses,
-            netProfit: acc.netProfit + m.netProfit,
-          }),
-          { revenue: 0, partsCost: 0, grossProfit: 0, expenses: 0, netProfit: 0 },
-        );
-
-        return { months, totals, year };
+      const months = Array.from({ length: 12 }, (_, m) => {
+        const monthN = m + 1;
+        const revenue = Math.round((revenueByMonth.get(monthN) ?? 0) * 100);
+        const partsCost = Math.round((partsByMonth.get(monthN) ?? 0) * 100);
+        const expenses = Math.round((expenseByMonth.get(monthN) ?? 0) * 100);
+        const grossProfit = revenue - partsCost;
+        const netProfit = grossProfit - expenses;
+        return {
+          month: monthN,
+          monthName: monthNames[m]!,
+          revenue,
+          partsCost,
+          grossProfit,
+          expenses,
+          netProfit,
+        };
       });
+
+      const totals = months.reduce(
+        (acc, m) => ({
+          revenue: acc.revenue + m.revenue,
+          partsCost: acc.partsCost + m.partsCost,
+          grossProfit: acc.grossProfit + m.grossProfit,
+          expenses: acc.expenses + m.expenses,
+          netProfit: acc.netProfit + m.netProfit,
+        }),
+        { revenue: 0, partsCost: 0, grossProfit: 0, expenses: 0, netProfit: 0 },
+      );
+
+      return { months, totals, year };
     }),
 
   /** Projected Cash Flow based on pending installments */
