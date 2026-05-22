@@ -174,12 +174,14 @@ describe("finalizeSaleSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejeita sem pagamentos", () => {
+  it("aceita sem pagamentos (downgrade: cliente nao paga, loja devolve)", () => {
+    // Apos H4 (downgrade), payments eh opcional. Backend exige refundDueMethod
+    // quando refundDueAmount > 0 ou paidCents >= totalCents senao.
     const result = finalizeSaleSchema.safeParse({
       saleId: "550e8400-e29b-41d4-a716-446655440000",
       payments: [],
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("aceita com cliente", () => {
