@@ -11,6 +11,9 @@ model Product {
   cest             String?
   isSerialized     Boolean   @default(false) @map("is_serialized")
   isPremium        Boolean   @default(false) @map("is_premium")
+  // Paridade Laravel `eh_aparelho` — controla quais produtos entram em fluxos
+  // especiais (compra de aparelho seminovo, iPhone Hunter, valuation).
+  isDevice         Boolean   @default(false) @map("is_device")
   hasVariations    Boolean   @default(false) @map("has_variations")
   icmsDifferentialRate Decimal? @map("icms_differential_rate") @db.Decimal(5, 2)
   costPrice        Decimal   @default(0) @map("cost_price") @db.Decimal(10, 2)

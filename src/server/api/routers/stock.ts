@@ -186,6 +186,7 @@ export const stockRouter = createTRPCRouter({
             cest: input.cest || null,
             isSerialized: input.isSerialized ?? false,
             isPremium: input.isPremium ?? false,
+            isDevice: input.isDevice ?? false,
             hasVariations: input.hasVariations ?? false,
             icmsDifferentialRate: input.icmsDifferentialRate != null
               ? new Prisma.Decimal(input.icmsDifferentialRate)
@@ -249,6 +250,7 @@ export const stockRouter = createTRPCRouter({
             cest: input.cest || null,
             isSerialized: input.isSerialized ?? false,
             isPremium: input.isPremium ?? false,
+            isDevice: input.isDevice ?? false,
             hasVariations: input.hasVariations ?? false,
             icmsDifferentialRate: input.icmsDifferentialRate != null
               ? new Prisma.Decimal(input.icmsDifferentialRate)
@@ -1295,17 +1297,37 @@ export const stockRouter = createTRPCRouter({
         },
       });
 
-      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-      const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+      // Agrega contagem por produto via StockItem (status = AVAILABLE).
+      // Paridade Laravel: dashboard mostra valor real do estoque disponivel.
+      const stockByProduct = await tx.stockItem.groupBy({
+        by: ["productId"],
+        where: { status: "AVAILABLE", deletedAt: null },
+        _count: { _all: true },
+        _sum: { costPrice: true },
+      });
+      const stockMap = new Map(
+        stockByProduct.map((s) => [
+          s.productId,
+          { qty: s._count._all, cost: Number(s._sum.costPrice ?? 0) },
+        ]),
+      );
+
+      const productsWithStock = products.map((p) => {
+        const s = stockMap.get(p.id);
+        return { ...p, currentStock: s?.qty ?? 0 };
+      });
 
       const totalProducts = productsWithStock.length;
-      const totalItems = 0;
-      const totalCostValue = 0;
-      const totalSaleValue = 0;
-      const lowStockProducts = productsWithStock.filter(
-        (p) => p.minStock > 0,
+      const totalItems = Array.from(stockMap.values()).reduce((s, x) => s + x.qty, 0);
+      const totalCostValue = Array.from(stockMap.values()).reduce((s, x) => s + x.cost, 0);
+      const totalSaleValue = productsWithStock.reduce(
+        (s, p) => s + (stockMap.get(p.id)?.qty ?? 0) * Number(p.salePrice),
+        0,
       );
-      const outOfStockProducts = productsWithStock;
+      const lowStockProducts = productsWithStock.filter(
+        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
+      );
+      const outOfStockProducts = productsWithStock.filter((p) => p.currentStock === 0);
 
       // Recent movements
       const recentMovements = await tx.stockMovement.findMany({
@@ -1322,7 +1344,7 @@ export const stockRouter = createTRPCRouter({
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
 
-      const [entriesToday, salesToday] = await Promise.all([
+      const [entriesToday, salesToday, saleItemsToday] = await Promise.all([
         tx.stockMovement.aggregate({
           where: { type: "ENTRY", createdAt: { gte: todayStart, lte: todayEnd } },
           _sum: { quantity: true },
@@ -1334,11 +1356,24 @@ export const stockRouter = createTRPCRouter({
           },
           select: { totalAmount: true },
         }),
+        tx.saleItem.findMany({
+          where: {
+            sale: { status: "COMPLETED", saleDate: { gte: todayStart, lte: todayEnd } },
+          },
+          select: { total: true, costPrice: true, quantity: true },
+        }),
       ]);
 
       const vendasHojeQtd = salesToday.length;
       const vendasHojeValor = salesToday.reduce((s, v) => s + Number(v.totalAmount), 0);
       const ticketMedio = vendasHojeQtd > 0 ? vendasHojeValor / vendasHojeQtd : 0;
+
+      // Lucro bruto hoje = soma(total - custo*qtd) dos sale_items.
+      // Paridade Laravel `dashboard.lucroHoje` (FinanceiroService).
+      const lucroHoje = saleItemsToday.reduce(
+        (s, it) => s + (Number(it.total) - Number(it.costPrice) * it.quantity),
+        0,
+      );
 
       // Top 5 products this week
       const weekStart = new Date();
@@ -1380,6 +1415,7 @@ export const stockRouter = createTRPCRouter({
         totalItems,
         totalCostValue: Math.round(totalCostValue * 100),
         totalSaleValue: Math.round(totalSaleValue * 100),
+        lucroHoje: Math.round(lucroHoje * 100),
         lowStockProducts,
         outOfStockProducts,
         recentMovements,

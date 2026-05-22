@@ -12,6 +12,7 @@ export const createProductSchema = z.object({
   cest: z.string().max(10).optional().nullable(),
   isSerialized: z.boolean().optional(),
   isPremium: z.boolean().optional(),
+  isDevice: z.boolean().optional(),
   hasVariations: z.boolean().optional(),
   icmsDifferentialRate: z.number().min(0).max(100).optional().nullable(),
   costPrice: z.number().int().min(0, "Preco de custo deve ser positivo"), // centavos
