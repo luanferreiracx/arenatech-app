@@ -352,15 +352,16 @@ export const cashierRouter = createTRPCRouter({
         take: 50,
       });
 
-      // Resolve user names
+      // Resolve user names via UserTenant — tenant-scoped, evita leak de
+      // users de outros tenants (table users global sem RLS).
       const userIds = [...new Set(pendingSessions.map((r) => r.userId))];
-      const users = userIds.length > 0
-        ? await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
-            where: { id: { in: userIds } },
-            select: { id: true, name: true },
+      const userTenants = userIds.length > 0
+        ? await tx.userTenant.findMany({
+            where: { tenantId: ctx.tenantId, userId: { in: userIds } },
+            select: { userId: true, user: { select: { name: true } } },
           })
         : [];
-      const userMap = new Map(users.map((u) => [u.id, u.name]));
+      const userMap = new Map(userTenants.map((ut) => [ut.userId, ut.user.name]));
 
       return pendingSessions.map((r) => ({
         ...serializeSession(r),
@@ -461,12 +462,13 @@ export const cashierRouter = createTRPCRouter({
 
       if (openSessions.length === 0) return [];
 
+      // Tenant-scoped: usa UserTenant (impede leak entre tenants).
       const userIds = [...new Set(openSessions.map((r) => r.userId))];
-      const users = await (tx as unknown as { user: { findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; name: string }>> } }).user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, name: true },
+      const userTenants = await tx.userTenant.findMany({
+        where: { tenantId: ctx.tenantId, userId: { in: userIds } },
+        select: { userId: true, user: { select: { name: true } } },
       });
-      const userMap = new Map(users.map((u) => [u.id, u.name]));
+      const userMap = new Map(userTenants.map((ut) => [ut.userId, ut.user.name]));
 
       return openSessions.map((r) => ({
         id: r.id,

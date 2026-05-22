@@ -1340,6 +1340,16 @@ export const financialRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // Valida que saleId pertence ao tenant (RLS protege escrita, mas
+        // sem este findFirst, FK cross-tenant criaria recebivel orfao).
+        const saleExists = await tx.sale.findFirst({
+          where: { id: input.saleId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!saleExists) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
+        }
+
         const { generateInstallments } = await import("@/server/services/installment-generator.service");
         const totalDecimal = input.totalAmount / 100;
         const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
@@ -1398,6 +1408,15 @@ export const financialRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // Valida que serviceOrderId pertence ao tenant antes de criar receivable
+        const orderExists = await tx.serviceOrder.findFirst({
+          where: { id: input.serviceOrderId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!orderExists) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        }
+
         const { generateInstallments } = await import("@/server/services/installment-generator.service");
         const totalDecimal = input.totalAmount / 100;
         const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
