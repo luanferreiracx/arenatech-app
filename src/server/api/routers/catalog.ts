@@ -903,6 +903,92 @@ export const catalogRouter = createTRPCRouter({
       });
     }),
 
+  /** Duplica categoria do catalogo (com dispositivos). Paridade duplicarCategoria. */
+  duplicateCatalogCategory: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const source = await tx.catalogDeviceCategory.findUnique({
+          where: { id: input.id },
+          include: { devices: { where: { deletedAt: null } } },
+        });
+        if (!source) throw new TRPCError({ code: "NOT_FOUND" });
+        const newName = `${source.name} (cópia)`;
+        const slugBase = newName.toLowerCase().normalize("NFD")
+          .replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        // Garante slug unico para o tenant
+        let slug = slugBase;
+        let suffix = 1;
+        while (await tx.catalogDeviceCategory.findFirst({
+          where: { tenantId: ctx.tenantId, slug, deletedAt: null },
+          select: { id: true },
+        })) {
+          suffix += 1;
+          slug = `${slugBase}-${suffix}`;
+        }
+        const created = await tx.catalogDeviceCategory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            name: newName,
+            slug,
+            order: source.order,
+          },
+        });
+        // Copia devices (sem ids/timestamps)
+        if (source.devices.length > 0) {
+          await tx.catalogDevice.createMany({
+            data: source.devices.map((d) => ({
+              tenantId: ctx.tenantId,
+              categoryId: created.id,
+              name: d.name,
+              condition: d.condition,
+              description: d.description,
+              price: d.price,
+              promotionalPrice: d.promotionalPrice,
+              imageUrl: d.imageUrl,
+              available: d.available,
+              featured: d.featured,
+              order: d.order,
+            })),
+          });
+        }
+        return created;
+      });
+    }),
+
+  /** Duplica aparelho do catalogo. Paridade duplicar aparelho. */
+  duplicateCatalogDevice: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const source = await tx.catalogDevice.findUnique({ where: { id: input.id } });
+        if (!source) throw new TRPCError({ code: "NOT_FOUND" });
+        return tx.catalogDevice.create({
+          data: {
+            tenantId: ctx.tenantId,
+            categoryId: source.categoryId,
+            name: `${source.name} (cópia)`,
+            condition: source.condition,
+            description: source.description,
+            price: source.price,
+            promotionalPrice: source.promotionalPrice,
+            imageUrl: source.imageUrl,
+            available: source.available,
+            featured: source.featured,
+            order: source.order,
+          },
+        });
+      });
+    }),
+
   // ═══════════════════════════════════════
   // INSTALLMENT SIMULATOR (Catálogo)
   // ═══════════════════════════════════════

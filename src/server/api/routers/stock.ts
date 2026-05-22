@@ -2549,6 +2549,44 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Define a imagem de uma variacao (URL ja uploaded via presigned MinIO).
+   * Paridade Laravel ProdutoController::uploadImagemVariacao.
+   */
+  setVariationImage: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      imageUrl: z.string().url(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productVariation.update({
+          where: { id: input.id },
+          data: { imageUrl: input.imageUrl },
+        });
+      });
+    }),
+
+  /** Remove a imagem de uma variacao. Paridade Laravel removerImagemVariacao. */
+  removeVariationImage: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      return ctx.withTenant(async (tx) => {
+        return tx.productVariation.update({
+          where: { id: input.id },
+          data: { imageUrl: null },
+        });
+      });
+    }),
+
   // ═══════════════════════════════════════
   // PRODUCT PHOTOS (Estoque-A)
   // ═══════════════════════════════════════
