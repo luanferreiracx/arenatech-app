@@ -1780,15 +1780,14 @@ export const serviceOrderRouter = createTRPCRouter({
       whatsappOverride: z.string().min(10).max(20).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch dentro de transacao RLS (rapida).
+      const { order, customer, whatsapp, wasResend } = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
         });
         if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
 
-        // Paridade Laravel OrdemServicoController::enviarAssinatura — sempre
-        // gera um novo documento (permite reenviar caso o link expire ou o
-        // cliente perca). So bloqueia se ja esta assinado.
+        // Paridade Laravel: so bloqueia se ja esta assinado (permite reenviar).
         if (order.signatureSignedAt || order.physicalSignature) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "OS ja esta assinada." });
         }
@@ -1799,33 +1798,36 @@ export const serviceOrderRouter = createTRPCRouter({
         });
         if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
 
-        // Telefone: prioriza override do usuario, depois principal, depois alternativo
         const whatsapp = input.whatsappOverride || customer.phone || customer.phoneSecondary;
         if (!whatsapp) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado. Informe um numero." });
         }
+        return { order, customer, whatsapp, wasResend: !!order.signatureDocumentId };
+      });
 
-        // Gera PDF binario direto (sem HTTP/cookies) via builder compartilhado.
-        let pdfBuffer: Buffer;
-        try {
-          const buf = await buildServiceOrderPdf(ctx.tenantId, input.orderId);
-          if (!buf) throw new Error("OS nao encontrada");
-          pdfBuffer = buf;
-        } catch (err) {
-          logger.error("Failed to build OS PDF for signature", { orderId: input.orderId, error: err });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da OS para assinatura" });
-        }
+      // ETAPA 2 — IO externo FORA da transacao (PDF + Autentique + Meta).
+      // Operacoes podem demorar >5s e estourariam o timeout da tx interativa.
+      let pdfBuffer: Buffer;
+      try {
+        const buf = await buildServiceOrderPdf(ctx.tenantId, input.orderId);
+        if (!buf) throw new Error("OS nao encontrada");
+        pdfBuffer = buf;
+      } catch (err) {
+        logger.error("Failed to build OS PDF for signature", { orderId: input.orderId, error: err });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da OS para assinatura" });
+      }
 
-        const result = await createDocumentWithLink(
-          `OS ${order.number} - Termo de Servico`,
-          [{ name: customer.name, whatsapp: formatWhatsApp(whatsapp) }],
-          pdfBuffer,
-        );
+      const result = await createDocumentWithLink(
+        `OS ${order.number} - Termo de Servico`,
+        [{ name: customer.name, whatsapp: formatWhatsApp(whatsapp) }],
+        pdfBuffer,
+      );
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+      }
 
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
-        }
-
+      // ETAPA 3 — persiste resultado (transacao curta).
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -1834,7 +1836,6 @@ export const serviceOrderRouter = createTRPCRouter({
             signatureSentAt: new Date(),
           },
         });
-
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -1842,54 +1843,45 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: order.status,
-            notes: order.signatureDocumentId
+            notes: wasResend
               ? "Documento reenviado para assinatura digital (Autentique)"
               : "Documento enviado para assinatura digital (Autentique)",
           },
         });
-
-        // Envia via Meta Cloud com template aprovado + HEADER DOCUMENT.
-        // Paridade Laravel OrdemServicoController::enviarAssinatura → enviarPdfComFallbackTemplate.
-        // - Contexto `os_termo_pdf_link` (PDF anexado + botao URL Autentique)
-        // - PDF servido pela rota publica /api/whatsapp-media/os/pdf/[token]
-        // - Token Autentique vai como parametro do botao URL
-        if (result.signatureLink) {
-          const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-          const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
-          const autentiqueToken = extractShortlinkToken(result.signatureLink);
-          const caption =
-            `📋 *Assinatura - OS #${order.number}*\n\n` +
-            `Olá, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}\n\n` +
-            `Após assinar, seu aparelho estará liberado para o serviço.`;
-          const wa = await sendPdfWithFallback({
-            phone: whatsapp,
-            pdfUrl,
-            fileName: `OS_${order.number}_assinatura.pdf`,
-            caption,
-            contexto: autentiqueToken ? "os_termo_pdf_link" : "os_termo_pdf",
-            params: [customer.name, order.number],
-            urlButtonParam: autentiqueToken ?? undefined,
-          });
-          if (!wa.success) {
-            logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
-              orderId: input.orderId,
-              error: wa.error,
-            });
-          } else {
-            logger.info("Link de assinatura enviado por WhatsApp", {
-              orderId: input.orderId,
-              via: wa.via,
-              templateUsed: wa.templateUsed,
-              messageId: wa.messageId,
-            });
-          }
-        }
-
-        logger.info("OS sent for digital signature", { orderId: input.orderId, documentId: result.documentId });
-
-        return { success: true, signatureLink: result.signatureLink };
       });
+
+      // ETAPA 4 — envia via Meta Cloud (fora de tx tambem; falha nao reverte).
+      if (result.signatureLink) {
+        const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+        const autentiqueToken = extractShortlinkToken(result.signatureLink);
+        const caption =
+          `📋 *Assinatura - OS #${order.number}*\n\n` +
+          `Olá, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}\n\n` +
+          `Após assinar, seu aparelho estará liberado para o serviço.`;
+        const wa = await sendPdfWithFallback({
+          phone: whatsapp,
+          pdfUrl,
+          fileName: `OS_${order.number}_assinatura.pdf`,
+          caption,
+          contexto: autentiqueToken ? "os_termo_pdf_link" : "os_termo_pdf",
+          params: [customer.name, order.number],
+          urlButtonParam: autentiqueToken ?? undefined,
+        });
+        if (!wa.success) {
+          logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
+            orderId: input.orderId, error: wa.error,
+          });
+        } else {
+          logger.info("Link de assinatura enviado por WhatsApp", {
+            orderId: input.orderId, via: wa.via, templateUsed: wa.templateUsed, messageId: wa.messageId,
+          });
+        }
+      }
+
+      logger.info("OS sent for digital signature", { orderId: input.orderId, documentId: result.documentId });
+      return { success: true, signatureLink: result.signatureLink };
     }),
 
   // ── CHECK SIGNATURE STATUS (Autentique) ──
@@ -2825,12 +2817,11 @@ export const serviceOrderRouter = createTRPCRouter({
   sendReceipt: tenantProcedure
     .input(sendReceiptSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch dentro de tx RLS.
+      const { order, phone, customerName } = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
-          include: {
-            items: true,
-          },
+          include: { items: true },
         });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -2841,57 +2832,43 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Get customer phone
-        let phone = input.phone;
-        if (!phone) {
-          const customer = await tx.customer.findUnique({
-            where: { id: order.customerId },
-            select: { phone: true },
-          });
-          phone = customer?.phone ?? null;
-        }
-
-        if (!phone) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Cliente nao possui telefone cadastrado.",
-          });
-        }
-
-        // Envia recibo via Meta Cloud com template `os_recibo_pdf` (HEADER DOCUMENT).
-        // Paridade Laravel OrdemServicoController::enviarReciboWhatsApp.
         const customer = await tx.customer.findUnique({
           where: { id: order.customerId },
-          select: { name: true },
+          select: { name: true, phone: true },
         });
-        const customerName = customer?.name ?? "Cliente";
-        const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
-        const caption = `📄 Recibo - OS #${order.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua Ordem de Serviço.`;
-
-        const wa = await sendPdfWithFallback({
-          phone,
-          pdfUrl,
-          fileName: `OS_${order.number}_recibo.pdf`,
-          caption,
-          contexto: "os_recibo_pdf",
-          params: [customerName, order.number],
-        });
-        const sent = wa.success;
-        if (!sent) {
-          logger.warn("Falha ao enviar recibo via WhatsApp", { orderId: input.orderId, error: wa.error });
+        const phone = input.phone ?? customer?.phone ?? null;
+        if (!phone) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente nao possui telefone cadastrado." });
         }
+        return { order, phone, customerName: customer?.name ?? "Cliente" };
+      });
 
-        if (sent) {
+      // ETAPA 2 — envio Meta Cloud (fora de tx; HTTP pode demorar).
+      // Paridade Laravel OrdemServicoController::enviarReciboWhatsApp.
+      const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+      const caption = `📄 Recibo - OS #${order.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua Ordem de Serviço.`;
+      const wa = await sendPdfWithFallback({
+        phone,
+        pdfUrl,
+        fileName: `OS_${order.number}_recibo.pdf`,
+        caption,
+        contexto: "os_recibo_pdf",
+        params: [customerName, order.number],
+      });
+      const sent = wa.success;
+      if (!sent) {
+        logger.warn("Falha ao enviar recibo via WhatsApp", { orderId: input.orderId, error: wa.error });
+      }
+
+      // ETAPA 3 — persiste se sucesso (tx curta).
+      if (sent) {
+        await ctx.withTenant(async (tx) => {
           await tx.serviceOrder.update({
             where: { id: input.orderId },
-            data: {
-              receiptSent: true,
-              receiptSentAt: new Date(),
-            },
+            data: { receiptSent: true, receiptSentAt: new Date() },
           });
-
           await tx.serviceOrderHistory.create({
             data: {
               tenantId: ctx.tenantId,
@@ -2902,10 +2879,10 @@ export const serviceOrderRouter = createTRPCRouter({
               notes: "Recibo enviado via WhatsApp",
             },
           });
-        }
+        });
+      }
 
-        return { success: true, sent };
-      });
+      return { success: true, sent };
     }),
 
   // ═══════════════════════════════════════
