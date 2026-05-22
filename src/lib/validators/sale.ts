@@ -79,7 +79,10 @@ export type ApplyDiscountInput = z.infer<typeof applyDiscountSchema>;
 export const finalizeSaleSchema = z.object({
   saleId: z.string().uuid(),
   customerId: z.string().uuid().optional().nullable(),
-  payments: z.array(paymentDetailSchema).min(1, "Pelo menos uma forma de pagamento"),
+  payments: z.array(paymentDetailSchema).optional(),
+  // Forma da devolucao quando refundDueAmount > 0 (downgrade). Obrigatorio
+  // se a venda tem refundDue. Paridade Laravel `forma_devolucao`.
+  refundDueMethod: z.enum(["cash", "pix"]).optional(),
   observations: z.string().max(500).optional().nullable(),
 });
 

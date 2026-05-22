@@ -23,6 +23,10 @@ model Sale {
   discountValue   Decimal    @default(0) @map("discount_value") @db.Decimal(10, 2)
   discountAmount  Decimal    @default(0) @map("discount_amount") @db.Decimal(10, 2)
   totalAmount     Decimal    @default(0) @map("total_amount") @db.Decimal(10, 2)
+  // Downgrade: quando upgrade (trade-in) excede o valor da venda, a loja
+  // devolve a diferenca ao cliente. Paridade Laravel `valor_devolvido_cliente`.
+  refundDueAmount Decimal    @default(0) @map("refund_due_amount") @db.Decimal(10, 2)
+  refundDueMethod String?    @map("refund_due_method") // "cash" | "pix"
   paidAmount      Decimal    @default(0) @map("paid_amount") @db.Decimal(10, 2)
   changeAmount    Decimal    @default(0) @map("change_amount") @db.Decimal(10, 2)
 

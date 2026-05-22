@@ -449,16 +449,34 @@ export const saleRouter = createTRPCRouter({
         }
 
         const totalCents = decimalToCents(sale.totalAmount);
-        const paidCents = input.payments.reduce((sum, p) => sum + p.amount, 0);
+        const refundDueCents = decimalToCents(sale.refundDueAmount);
+        const payments = input.payments ?? [];
+        const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
-        if (paidCents < totalCents) {
+        // Downgrade: upgrade excede o valor da venda. Cliente nao paga nada
+        // (total = 0); loja DEVOLVE refundDueCents pela forma escolhida.
+        // Paridade Laravel `valor_devolvido_cliente` + `forma_devolucao`.
+        if (refundDueCents > 0) {
+          if (!input.refundDueMethod) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Informe a forma de devolucao (downgrade).",
+            });
+          }
+          if (payments.length > 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Downgrade nao aceita pagamentos do cliente — apenas devolucao.",
+            });
+          }
+        } else if (paidCents < totalCents) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Valor pago insuficiente",
           });
         }
 
-        const changeCents = paidCents - totalCents;
+        const changeCents = refundDueCents > 0 ? 0 : paidCents - totalCents;
 
         // Generate sequential number: VND{year}{5-digit seq}
         const year = new Date().getFullYear();
@@ -522,8 +540,10 @@ export const saleRouter = createTRPCRouter({
 
         // Determine payment method string
         let paymentMethod: string;
-        if (input.payments.length === 1) {
-          paymentMethod = input.payments[0]!.method;
+        if (refundDueCents > 0) {
+          paymentMethod = `downgrade:${input.refundDueMethod}`;
+        } else if (payments.length === 1) {
+          paymentMethod = payments[0]!.method;
         } else {
           paymentMethod = "misto";
         }
@@ -533,22 +553,24 @@ export const saleRouter = createTRPCRouter({
           where: { userId: ctx.session.user.id, closedAt: null },
         });
 
-        // Paridade Laravel PdvService::registrarVenda — venda em DINHEIRO exige
-        // caixa aberto. Sem isso, o valor entraria fantasma no financeiro sem
-        // espelho no fechamento de caixa.
-        const hasCashPayment = input.payments.some(
+        // Paridade Laravel PdvService::registrarVenda — entrada/saida em DINHEIRO
+        // exige caixa aberto. Sem isso, valor entraria fantasma no financeiro.
+        const hasCashPayment = payments.some(
           (p) => p.method === "dinheiro" || p.method === "cash" || p.method === "DINHEIRO",
         );
-        if (hasCashPayment && !openSession) {
+        const downgradeInCash = refundDueCents > 0 && input.refundDueMethod === "cash";
+        if ((hasCashPayment || downgradeInCash) && !openSession) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Caixa nao esta aberto. Abra um caixa antes de receber dinheiro.",
+            message: downgradeInCash
+              ? "Caixa nao esta aberto. Abra um caixa antes de devolver dinheiro (downgrade)."
+              : "Caixa nao esta aberto. Abra um caixa antes de receber dinheiro.",
           });
         }
 
-        if (openSession && input.payments.length > 0) {
+        if (openSession && payments.length > 0) {
           await tx.cashMovement.createMany({
-            data: input.payments.map((payment) => ({
+            data: payments.map((payment) => ({
               tenantId: ctx.tenantId,
               cashSessionId: openSession.id,
               type: "SALE" as const,
@@ -563,14 +585,36 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Create FinancialTransaction (RECEIVABLE)
-        const hasInstallments = input.payments.some(
+        // Downgrade em DINHEIRO: saida do caixa. Paridade Laravel
+        // PdvService::registrarDevolucaoDowngrade.
+        if (downgradeInCash && openSession) {
+          await tx.cashMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              cashSessionId: openSession.id,
+              type: "WITHDRAWAL",
+              amount: centsToPrisma(refundDueCents),
+              nature: "OUTCOME",
+              paymentMethod: "dinheiro",
+              description: `Devolucao downgrade venda ${saleNumber}`,
+              referenceId: sale.id,
+              referenceType: "SALE_DOWNGRADE",
+              createdByUserId: ctx.session.user.id,
+            },
+          });
+        }
+
+        // Create FinancialTransaction (RECEIVABLE) — pulado em downgrade
+        // pois nao ha valor a receber, so devolucao em CashMovement.
+        const hasInstallments = payments.some(
           (p) => (p.installments ?? 1) > 1,
         );
 
-        if (hasInstallments) {
+        if (refundDueCents > 0) {
+          // downgrade: sem receivable
+        } else if (hasInstallments) {
           // Create separate transaction for each installment payment
-          for (const payment of input.payments) {
+          for (const payment of payments) {
             const installmentCount = payment.installments ?? 1;
             if (installmentCount > 1) {
               const perInstallment = Math.floor(payment.amount / installmentCount);
@@ -648,7 +692,7 @@ export const saleRouter = createTRPCRouter({
         }
 
         // Build paymentDetails JSON
-        const paymentDetails = input.payments.map((p) => ({
+        const paymentDetails = payments.map((p) => ({
           method: p.method,
           amount: p.amount,
           installments: p.installments ?? 1,
@@ -664,6 +708,7 @@ export const saleRouter = createTRPCRouter({
             paidAmount: centsToPrisma(paidCents),
             changeAmount: centsToPrisma(changeCents),
             paymentDetails,
+            refundDueMethod: refundDueCents > 0 ? input.refundDueMethod ?? null : null,
             observations: input.observations ?? sale.observations,
             saleDate: new Date(),
           },
@@ -1798,7 +1843,10 @@ async function recalculateSale(
     discountAmountCents = Math.round(subtotalCents * (pct / 100));
   }
 
-  const totalCents = Math.max(0, subtotalCents - discountAmountCents - upgradeAbateCents);
+  const netAfterDiscount = subtotalCents - discountAmountCents;
+  const totalCents = Math.max(0, netAfterDiscount - upgradeAbateCents);
+  // Downgrade: upgrade excede valor da venda — diferenca a devolver ao cliente.
+  const refundDueCents = Math.max(0, upgradeAbateCents - netAfterDiscount);
 
   const updated = await tx.sale.update({
     where: { id: saleId },
@@ -1806,6 +1854,7 @@ async function recalculateSale(
       subtotal: centsToPrisma(subtotalCents),
       discountAmount: centsToPrisma(discountAmountCents),
       totalAmount: centsToPrisma(totalCents),
+      refundDueAmount: centsToPrisma(refundDueCents),
     },
     include: { items: true },
   });
