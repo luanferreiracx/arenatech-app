@@ -106,6 +106,27 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     hasUrlButton: true,
     body: "Olá, {{1}}! Sua Ordem de Serviço {{2}} foi aberta. Acompanhe o status em tempo real pelo link abaixo.",
   },
+
+  // ── PDV — recibo + termos ──
+  pdv_recibo_pdf: {
+    name: "pdv_recibo_pdf",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    hasDocumentHeader: true,
+    body: "Olá, {{1}}! Segue em anexo o recibo da sua compra {{2}}. Qualquer dúvida, é só responder por aqui!",
+  },
+  pdv_termo_pdf_link: {
+    name: "pdv_termo_pdf_link",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    hasDocumentHeader: true,
+    hasUrlButton: true,
+    body:
+      "Olá, {{1}}! Segue em anexo o termo da venda {{2}}. " +
+      "Toque no botão abaixo para assinar digitalmente.",
+  },
 };
 
 /**
@@ -122,6 +143,9 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   os_orcamento_pdf: "os_orcamento_pdf",
   os_termo_pdf: "os_termo_pdf",
   os_termo_pdf_link: "os_termo_pdf_link",
+  // PDV
+  pdv_recibo_pdf: "pdv_recibo_pdf",
+  pdv_termo_pdf_link: "pdv_termo_pdf_link",
   // Rastreamento
   os_rastreamento: "os_rastreamento_link",
 };
@@ -138,4 +162,6 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   os_orcamento_pdf: "seu orçamento da ordem de serviço",
   os_conclusao: "a conclusão da sua ordem de serviço",
   os_rastreamento: "o acompanhamento da sua ordem de serviço",
+  pdv_recibo_pdf: "o recibo da sua compra",
+  pdv_termo_pdf_link: "o termo da sua compra",
 };

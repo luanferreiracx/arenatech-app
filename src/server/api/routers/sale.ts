@@ -25,7 +25,9 @@ import {
   updateSaleDateSchema,
 } from "@/lib/validators/sale";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
-import { createDocumentWithLink, getDocumentStatus } from "@/lib/services/autentique-service";
+import { createDocumentWithLink, getDocumentStatus, extractShortlinkToken } from "@/lib/services/autentique-service";
+import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
 
@@ -1500,101 +1502,180 @@ export const saleRouter = createTRPCRouter({
   // RECEIPT (send via WhatsApp)
   // ═══════════════════════════════════════
 
-  /** Send receipt PDF via WhatsApp */
+  /** Send receipt PDF via WhatsApp Cloud (template + fallback). */
   sendReceipt: tenantProcedure
     .input(sendSaleReceiptSchema)
     .mutation(async ({ ctx, input }) => {
       // ETAPA 1 — fetch tx curta
-      const { sale, phone } = await ctx.withTenant(async (tx) => {
+      const { sale, phone, customerName } = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
-        if (!sale || !["COMPLETED"].includes(sale.status)) {
+        if (!sale || sale.status !== "COMPLETED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recibo so pode ser enviado apos finalizar" });
         }
         let phone = input.phone;
-        if (!phone && sale.customerId) {
+        let customerName = "Cliente";
+        if (sale.customerId) {
           const customer = await tx.customer.findUnique({
             where: { id: sale.customerId },
-            select: { phone: true },
+            select: { name: true, phone: true },
           });
-          phone = customer?.phone ?? null;
+          if (customer?.name) customerName = customer.name;
+          if (!phone) phone = customer?.phone ?? null;
         }
         if (!phone) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Telefone nao informado e cliente sem telefone cadastrado" });
         }
-        return { sale, phone };
+        return { sale, phone, customerName };
       });
 
-      // ETAPA 2 — WhatsApp HTTP fora da tx
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const receiptUrl = `${baseUrl}/api/pdv/${input.saleId}/recibo`;
-      const result = await sendMediaMessage(phone, receiptUrl, `Recibo Venda ${sale.number}`);
+      // ETAPA 2 — IO externo (Meta Cloud template pdv_recibo_pdf + fallback).
+      // PDF via rota publica HMAC-tokenizada (Meta consegue baixar sem auth).
+      const pdfToken = createPublicPdfToken(ctx.tenantId, input.saleId, 60 * 60 * 1000);
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfUrl = `${appUrl}/api/whatsapp-media/sale/pdf/${pdfToken}`;
+      const caption = `📄 Recibo - Venda #${sale.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua compra.`;
+      const wa = await sendPdfWithFallback({
+        phone,
+        pdfUrl,
+        fileName: `Venda_${sale.number}_recibo.pdf`,
+        caption,
+        contexto: "pdv_recibo_pdf",
+        params: [customerName, sale.number],
+      });
 
-      // ETAPA 3 — persiste em tx curta
-      if (result.success) {
+      // ETAPA 3 — persiste sucesso
+      if (wa.success) {
         await ctx.withTenant(async (tx) => {
           await tx.sale.update({
             where: { id: input.saleId },
             data: { receiptSent: true, receiptSentAt: new Date() },
           });
         });
+        logger.info("Recibo de venda enviado por WhatsApp", {
+          saleId: input.saleId, via: wa.via, templateUsed: wa.templateUsed, messageId: wa.messageId,
+        });
+      } else {
+        logger.warn("Falha ao enviar recibo de venda via WhatsApp", {
+          saleId: input.saleId, error: wa.error,
+        });
       }
 
-      return { success: result.success };
+      return { success: wa.success };
     }),
 
   // ═══════════════════════════════════════
   // SIGNATURE (Autentique + physical)
   // ═══════════════════════════════════════
 
-  /** Send sale document for digital signature via Autentique */
+  /** Send sale document for digital signature via Autentique + WhatsApp Cloud. */
   sendForSignature: tenantProcedure
-    .input(z.object({ saleId: z.string().uuid() }))
+    .input(z.object({
+      saleId: z.string().uuid(),
+      // Numero customizado para envio (override do telefone do cliente).
+      whatsappOverride: z.string().min(10).max(20).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — fetch em tx curta (RLS)
-      const { sale, signerName } = await ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch em tx curta
+      const { sale, customerName, whatsapp, wasResend } = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
         if (!sale || sale.status !== "COMPLETED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas podem ser assinadas" });
         }
-        if (sale.signatureDocumentId) {
-          throw new TRPCError({ code: "CONFLICT", message: "Documento ja enviado para assinatura" });
+        if (sale.signatureSignedAt || sale.physicalSignature) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda ja esta assinada." });
         }
-        let signerName = "Cliente";
+        let customerName = "Cliente";
+        let customerPhone: string | null = null;
         if (sale.customerId) {
           const customer = await tx.customer.findUnique({
             where: { id: sale.customerId },
-            select: { name: true },
+            select: { name: true, phone: true, phoneSecondary: true },
           });
-          if (customer?.name) signerName = customer.name;
+          if (customer?.name) customerName = customer.name;
+          customerPhone = customer?.phone ?? customer?.phoneSecondary ?? null;
         }
-        return { sale, signerName };
+        const whatsapp = input.whatsappOverride || customerPhone;
+        if (!whatsapp) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cliente sem telefone cadastrado. Informe um numero.",
+          });
+        }
+        return {
+          sale,
+          customerName,
+          whatsapp,
+          wasResend: !!sale.signatureDocumentId,
+        };
       });
 
-      // ETAPA 2 — IO externo (PDF fetch + Autentique) FORA da tx
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const pdfRes = await fetch(`${baseUrl}/api/pdv/${input.saleId}/recibo`);
-      if (!pdfRes.ok) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gerar PDF" });
+      // ETAPA 2 — IO externo: gera PDF + Autentique
+      const { buildSaleReceiptPdf } = await import("@/lib/pdf/sale-receipt-builder");
+      const pdfBuffer = await buildSaleReceiptPdf(ctx.tenantId, input.saleId);
+      if (!pdfBuffer) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da venda" });
       }
-      const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-
       const doc = await createDocumentWithLink(
         `Recibo Venda ${sale.number}`,
-        [{ name: signerName, whatsapp: "" }],
+        [{ name: customerName, whatsapp }],
         pdfBuffer,
       );
+      if (!doc.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: doc.error ?? "Erro ao enviar para Autentique",
+        });
+      }
 
-      // ETAPA 3 — persiste em tx curta
+      // ETAPA 3 — persiste
       await ctx.withTenant(async (tx) => {
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
-            signatureDocumentId: doc.documentId,
-            signatureUrl: doc.signatureLink,
+            signatureDocumentId: doc.documentId ?? null,
+            signatureUrl: doc.signatureLink ?? null,
             signatureSentAt: new Date(),
           },
         });
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            userId: ctx.session.user.id,
+            action: wasResend ? "signature_resent" : "signature_sent",
+            reason: doc.documentId ?? null,
+          },
+        });
       });
+
+      // ETAPA 4 — envia via Meta Cloud com template pdv_termo_pdf_link
+      if (doc.signatureLink) {
+        const pdfToken = createPublicPdfToken(ctx.tenantId, input.saleId, 60 * 60 * 1000);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const pdfUrl = `${appUrl}/api/whatsapp-media/sale/pdf/${pdfToken}`;
+        const autentiqueToken = extractShortlinkToken(doc.signatureLink);
+        const caption =
+          `📋 *Assinatura - Venda #${sale.number}*\n\n` +
+          `Olá, ${customerName}! Para assinar digitalmente:\n${doc.signatureLink}`;
+        const wa = await sendPdfWithFallback({
+          phone: whatsapp,
+          pdfUrl,
+          fileName: `Venda_${sale.number}_termo.pdf`,
+          caption,
+          contexto: "pdv_termo_pdf_link",
+          params: [customerName, sale.number],
+          urlButtonParam: autentiqueToken ?? undefined,
+        });
+        if (!wa.success) {
+          logger.warn("Falha ao enviar termo de venda via WhatsApp", {
+            saleId: input.saleId, error: wa.error,
+          });
+        } else {
+          logger.info("Termo de venda enviado por WhatsApp", {
+            saleId: input.saleId, via: wa.via, templateUsed: wa.templateUsed, messageId: wa.messageId,
+          });
+        }
+      }
 
       return { documentId: doc.documentId, signatureLink: doc.signatureLink };
     }),
