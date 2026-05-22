@@ -543,22 +543,17 @@ export const saleRouter = createTRPCRouter({
 
         const changeCents = refundDueCents > 0 ? 0 : paidCents - totalCents;
 
-        // Generate sequential number: VND{year}{5-digit seq}
+        // Gera numero atomico via sequencia tenant-scoped (M25). Antes era
+        // findFirst max + parseInt, sujeito a race condition em concurrency.
         const year = new Date().getFullYear();
-        const prefix = `VND${year}`;
-        const lastSale = await tx.sale.findFirst({
-          where: {
-            tenantId: ctx.tenantId,
-            number: { startsWith: prefix },
-          },
-          orderBy: { number: "desc" },
-        });
-        let seq = 1;
-        if (lastSale && lastSale.number.startsWith(prefix)) {
-          const numPart = lastSale.number.slice(prefix.length);
-          seq = (parseInt(numPart, 10) || 0) + 1;
-        }
-        const saleNumber = `${prefix}${String(seq).padStart(5, "0")}`;
+        const { nextTenantNumber } = await import("@/server/services/tenant-number-sequence.service");
+        const { formatted: saleNumber } = await nextTenantNumber(
+          tx as unknown as Parameters<typeof nextTenantNumber>[0],
+          ctx.tenantId,
+          "sale",
+          year,
+          { padding: 5, prefix: `VND${year}` },
+        );
 
         // Create stock movements + marca StockItems serializados como SOLD.
         // Paridade Laravel PdvService::baixarEstoque.
@@ -890,6 +885,17 @@ export const saleRouter = createTRPCRouter({
             cancelledAt: new Date(),
             cancelledById: ctx.session.user.id,
             cancellationReason: input.reason,
+          },
+        });
+
+        // Auditoria (paridade PdvVendaAuditoria)
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: sale.id,
+            userId: ctx.session.user.id,
+            action: "cancel",
+            reason: input.reason,
           },
         });
 

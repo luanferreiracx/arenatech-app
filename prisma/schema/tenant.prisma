@@ -48,3 +48,20 @@ model UserTenant {
   @@id([userId, tenantId])
   @@map("user_tenants")
 }
+
+/**
+ * Sequencias numericas por tenant + scope (sale, service_order, etc).
+ * Substitui a logica "findFirst max + parseInt + +1" sujeita a race
+ * condition. Acesso via `nextTenantNumber(tx, tenantId, scope, prefix)`
+ * que faz INSERT ... ON CONFLICT UPDATE atomico.
+ */
+model TenantNumberSequence {
+  tenantId String   @map("tenant_id") @db.Uuid
+  scope    String   // "sale" | "service_order" | "quick_sale" | ...
+  year     Int
+  value    Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([tenantId, scope, year])
+  @@map("tenant_number_sequences")
+}
