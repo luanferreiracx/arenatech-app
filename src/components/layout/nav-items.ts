@@ -111,6 +111,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp },
       { label: "Relatorios", href: "/stock/reports", icon: BarChart3 },
       { label: "Importar CSV", href: "/stock/import", icon: Download },
+      { label: "Catálogo Aparelhos", href: "/aparelhos-catalogo", icon: Smartphone },
     ],
   },
   {
