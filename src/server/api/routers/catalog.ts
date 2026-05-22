@@ -379,24 +379,18 @@ export const catalogRouter = createTRPCRouter({
   sendServiceWhatsApp: tenantProcedure
     .input(sendServiceWhatsAppSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const service = await tx.service.findUnique({
-          where: { id: input.serviceId },
-        });
+      // ETAPA 1 — fetch em tx curta (todas leituras, sem IO externo)
+      const message = await ctx.withTenant(async (tx) => {
+        const service = await tx.service.findUnique({ where: { id: input.serviceId } });
         if (!service || service.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
-
-        // Paridade Laravel: ler installmentsNoInterest / pixDiscount do tenant
-        // (configuracoes_assistencia). Fallback para defaults razoaveis.
         const assistance = await tx.tenantAssistanceSettings.findUnique({
           where: { tenantId: ctx.tenantId },
         });
         const maxInstallments = assistance?.installmentsNoInterest ?? 12;
         const pixDiscount = Number(assistance?.pixDiscount ?? 5);
 
-        // Observacoes ativas — todas vao concatenadas no orcamento, filtradas
-        // por serviceType/deviceModel quando aplicavel.
         const observations = await tx.serviceObservation.findMany({
           where: { tenantId: ctx.tenantId, active: true },
           orderBy: { createdAt: "asc" },
@@ -410,27 +404,17 @@ export const catalogRouter = createTRPCRouter({
           return typeMatch || modelMatch;
         });
 
-        // Nome da loja: TenantSettings.tradeName ou tenant.name
         const settings = await tx.tenantSettings.findUnique({
           where: { tenantId: ctx.tenantId },
         });
         const nomeLoja = settings?.tradeName ?? "Arena Tech";
 
         const priceCents = serviceToCents(service);
-        const priceFormatted = (priceCents / 100).toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        });
-        const installmentValue = (priceCents / maxInstallments / 100).toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        });
-        const pixPrice = ((priceCents * (100 - pixDiscount)) / 10000).toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        });
+        const priceFormatted = (priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const installmentValue = (priceCents / maxInstallments / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const pixPrice = ((priceCents * (100 - pixDiscount)) / 10000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-        const messageLines = [
+        const lines = [
           `Ola ${input.clientName}! Segue o orcamento da ${nomeLoja}:`,
           "",
           `\u{1F527} ORCAMENTO`,
@@ -438,43 +422,29 @@ export const catalogRouter = createTRPCRouter({
           `\u{1F4F2} Aparelho: ${service.deviceModel ?? "-"}`,
           `\u{1F4B0} Valor: ${priceFormatted}`,
         ];
-
         if (maxInstallments > 1) {
-          messageLines.push(`\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`);
+          lines.push(`\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`);
         }
         if (pixDiscount > 0) {
-          messageLines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
+          lines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
         }
-
-        // Observacoes aplicaveis ao orcamento (paridade Laravel).
         if (relevantObs.length > 0) {
-          messageLines.push("");
-          messageLines.push("\u{1F4DD} Observacoes:");
-          for (const obs of relevantObs) {
-            messageLines.push(`\u{2022} ${obs.observation}`);
-          }
+          lines.push("", "\u{1F4DD} Observacoes:");
+          for (const obs of relevantObs) lines.push(`\u{2022} ${obs.observation}`);
         }
-
-        messageLines.push("");
-        messageLines.push("\u{2705} Valido por 48h");
-        messageLines.push(`${nomeLoja} - Assistencia Tecnica`);
-
-        const message = messageLines.join("\n");
-
-        const result = await sendTextMessage(
-          formatPhone(input.clientPhone),
-          message,
-        );
-
-        if (!result.success) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: result.error ?? "Erro ao enviar WhatsApp",
-          });
-        }
-
-        return { success: true, messageId: result.messageId };
+        lines.push("", "\u{2705} Valido por 48h", `${nomeLoja} - Assistencia Tecnica`);
+        return lines.join("\n");
       });
+
+      // ETAPA 2 — WhatsApp HTTP fora da tx
+      const result = await sendTextMessage(formatPhone(input.clientPhone), message);
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao enviar WhatsApp",
+        });
+      }
+      return { success: true, messageId: result.messageId };
     }),
 
   // ═══════════════════════════════════════

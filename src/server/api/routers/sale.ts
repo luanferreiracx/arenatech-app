@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
+import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import {
   addSaleItemSchema,
@@ -454,6 +455,19 @@ export const saleRouter = createTRPCRouter({
           where: { userId: ctx.session.user.id, closedAt: null },
         });
 
+        // Paridade Laravel PdvService::registrarVenda — venda em DINHEIRO exige
+        // caixa aberto. Sem isso, o valor entraria fantasma no financeiro sem
+        // espelho no fechamento de caixa.
+        const hasCashPayment = input.payments.some(
+          (p) => p.method === "dinheiro" || p.method === "cash" || p.method === "DINHEIRO",
+        );
+        if (hasCashPayment && !openSession) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Caixa nao esta aberto. Abra um caixa antes de receber dinheiro.",
+          });
+        }
+
         if (openSession && input.payments.length > 0) {
           await tx.cashMovement.createMany({
             data: input.payments.map((payment) => ({
@@ -752,6 +766,30 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Cancela recebiveis vinculados (paridade Laravel
+        // FinanceiroService::cancelarRecebiveisVenda). Sem isso, Installments
+        // PENDING ficam orfaos no DRE e nas listagens.
+        const transactions = await tx.financialTransaction.findMany({
+          where: { saleId: input.saleId, status: { not: "CANCELLED" } },
+          select: { id: true },
+        });
+        if (transactions.length > 0) {
+          const transactionIds = transactions.map((t) => t.id);
+          await tx.installment.updateMany({
+            where: { transactionId: { in: transactionIds }, status: "PENDING" },
+            data: { status: "CANCELLED" },
+          });
+          await tx.financialTransaction.updateMany({
+            where: { id: { in: transactionIds } },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: input.reason,
+            },
+          });
+        }
+
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
@@ -762,13 +800,27 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
+        // Auditoria (paridade PdvVendaAuditoria)
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: sale.id,
+            userId: ctx.session.user.id,
+            action: "refund",
+            previousValue: String(decimalToCents(sale.totalAmount)),
+            newValue: "0",
+            reason: input.reason,
+          },
+        });
+
         logger.info("Sale refunded", {
           saleId: sale.id,
           reason: input.reason,
+          cancelledReceivables: transactions.length,
           userId: ctx.session.user.id,
         });
 
-        return { success: true };
+        return { success: true, cancelledReceivables: transactions.length };
       });
     }),
 
@@ -931,7 +983,10 @@ export const saleRouter = createTRPCRouter({
 
   /** Get sale by public link (no auth required) */
   byPublicLink: publicProcedure
-    .input(z.object({ link: z.string() }))
+    // Rate limit: 30 req/min por IP. Endpoint sem auth que aceita um `link`
+    // arbitrario — sem limite, bot consegue enumerar links de venda.
+    .use(rateLimitMiddleware({ limit: 30, windowMs: 60_000 }))
+    .input(z.object({ link: z.string().min(8).max(64) }))
     .query(async ({ input }) => {
       return withAdmin(async (tx) => {
         const sale = await tx.sale.findUnique({
@@ -1038,13 +1093,31 @@ export const saleRouter = createTRPCRouter({
           ],
         };
 
-        // TODO: Estoque-B will handle stock filtering via StockItem
-
         const products = await tx.product.findMany({
           where,
           take: 20,
           orderBy: { name: "asc" },
         });
+        if (products.length === 0) return [];
+
+        // Para serializados, agrega StockItem (status=AVAILABLE). Para nao-serializados
+        // a coluna products.current_stock e fonte unica. Padroniza com a mesma
+        // logica do dashboard/estoque para nao mostrar quantidades divergentes
+        // entre PDV e /stock.
+        const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id);
+        const stockMap = new Map<string, number>();
+        if (serializedIds.length > 0) {
+          const counts = await tx.stockItem.groupBy({
+            by: ["productId"],
+            where: {
+              productId: { in: serializedIds },
+              status: "AVAILABLE",
+              deletedAt: null,
+            },
+            _count: { _all: true },
+          });
+          for (const c of counts) stockMap.set(c.productId, c._count._all);
+        }
 
         return products.map((p) => ({
           id: p.id,
@@ -1053,7 +1126,7 @@ export const saleRouter = createTRPCRouter({
           barcode: p.barcode,
           salePrice: decimalToCents(p.salePrice),
           costPrice: decimalToCents(p.costPrice),
-          currentStock: p.isSerialized ? 0 : p.currentStock,
+          currentStock: p.isSerialized ? (stockMap.get(p.id) ?? 0) : p.currentStock,
         }));
       });
     }),
@@ -1216,13 +1289,12 @@ export const saleRouter = createTRPCRouter({
   sendReceipt: tenantProcedure
     .input(sendSaleReceiptSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch tx curta
+      const { sale, phone } = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
         if (!sale || !["COMPLETED"].includes(sale.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recibo so pode ser enviado apos finalizar" });
         }
-
-        // Get customer phone
         let phone = input.phone;
         if (!phone && sale.customerId) {
           const customer = await tx.customer.findUnique({
@@ -1231,25 +1303,28 @@ export const saleRouter = createTRPCRouter({
           });
           phone = customer?.phone ?? null;
         }
-
         if (!phone) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Telefone nao informado e cliente sem telefone cadastrado" });
         }
+        return { sale, phone };
+      });
 
-        const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const receiptUrl = `${baseUrl}/api/pdv/${input.saleId}/recibo`;
+      // ETAPA 2 — WhatsApp HTTP fora da tx
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const receiptUrl = `${baseUrl}/api/pdv/${input.saleId}/recibo`;
+      const result = await sendMediaMessage(phone, receiptUrl, `Recibo Venda ${sale.number}`);
 
-        const result = await sendMediaMessage(phone, receiptUrl, `Recibo Venda ${sale.number}`);
-
-        if (result.success) {
+      // ETAPA 3 — persiste em tx curta
+      if (result.success) {
+        await ctx.withTenant(async (tx) => {
           await tx.sale.update({
             where: { id: input.saleId },
             data: { receiptSent: true, receiptSentAt: new Date() },
           });
-        }
+        });
+      }
 
-        return { success: result.success };
-      });
+      return { success: result.success };
     }),
 
   // ═══════════════════════════════════════

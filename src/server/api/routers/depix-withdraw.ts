@@ -211,13 +211,19 @@ export const depixWithdrawRouter = createTRPCRouter({
     .input(searchRecipientsSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // AND explicito: chave duplicada `recipientName` no objeto fazia o
+        // segundo sobrescrever o primeiro, e o OR nao filtrava por nome.
         const results = await tx.depixWithdraw.findMany({
           where: {
-            OR: [
-              { recipientName: { contains: input.query, mode: "insensitive" } },
-              { pixKey: { contains: input.query, mode: "insensitive" } },
+            AND: [
+              { recipientName: { not: null } },
+              {
+                OR: [
+                  { recipientName: { contains: input.query, mode: "insensitive" } },
+                  { pixKey: { contains: input.query, mode: "insensitive" } },
+                ],
+              },
             ],
-            recipientName: { not: null },
           },
           select: {
             pixKey: true,
