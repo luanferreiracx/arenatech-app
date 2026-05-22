@@ -215,6 +215,91 @@ export const financialRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Exporta transacoes para CSV. Paridade Laravel ContaPagar/ReceberController::exportarCsv.
+   * Retorna string com header + linhas. Front faz `Blob([csv]).saveAs()` para download.
+   * Limitado a 5000 linhas por chamada — paginar se precisar de mais.
+   */
+  exportCsv: tenantProcedure
+    .input(listTransactionsSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const role = getUserRole(ctx);
+        const where: Record<string, unknown> = {
+          type: role === "operator" ? "RECEIVABLE" : input.type,
+          deletedAt: null,
+        };
+        if (input.status) where.status = input.status;
+        if (input.search) {
+          where.OR = [
+            { description: { contains: input.search, mode: "insensitive" } },
+            { customerName: { contains: input.search, mode: "insensitive" } },
+            { supplier: { contains: input.search, mode: "insensitive" } },
+          ];
+        }
+        if (input.dateFrom || input.dateTo) {
+          const emissionDate: Record<string, Date> = {};
+          if (input.dateFrom) emissionDate.gte = new Date(input.dateFrom);
+          if (input.dateTo) {
+            const end = new Date(input.dateTo);
+            end.setHours(23, 59, 59, 999);
+            emissionDate.lte = end;
+          }
+          where.emissionDate = emissionDate;
+        }
+        const rows = await tx.financialTransaction.findMany({
+          where,
+          include: { installments: { orderBy: { number: "asc" } } },
+          orderBy: { [input.sortBy ?? "createdAt"]: input.sortOrder ?? "desc" },
+          take: 5000,
+        });
+
+        // CSV em PT-BR; usa `;` como separador para Excel BR (paridade Laravel).
+        const header = [
+          "Tipo", "Numero", "Descricao", "Cliente/Fornecedor", "Categoria",
+          "Emissao", "Vencimento", "Valor Total", "Valor Pago", "Status",
+          "Parcelas", "Metodo", "Pago em",
+        ];
+        const fmtMoney = (v: unknown) =>
+          Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const fmtDate = (d: Date | null | undefined) =>
+          d ? new Date(d).toLocaleDateString("pt-BR") : "";
+        const csvEscape = (s: unknown) => {
+          const str = String(s ?? "");
+          if (/[;"\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+          return str;
+        };
+        const lines: string[] = [header.join(";")];
+        for (const t of rows) {
+          const partyName = t.customerName ?? t.supplier ?? "";
+          // Uma linha por parcela (paridade Laravel; permite filtrar pagas/pendentes no Excel).
+          for (const inst of t.installments) {
+            lines.push([
+              t.type === "RECEIVABLE" ? "Receber" : "Pagar",
+              `${t.id.slice(0, 8)}/${inst.number}`,
+              t.description,
+              partyName,
+              t.category ?? "",
+              fmtDate(t.emissionDate),
+              fmtDate(inst.dueDate),
+              fmtMoney(Number(inst.amount)),
+              fmtMoney(Number(inst.paidAmount)),
+              inst.status,
+              `${inst.number}/${t.installments.length}`,
+              inst.paymentMethod ?? "",
+              fmtDate(inst.paidAt),
+            ].map(csvEscape).join(";"));
+          }
+        }
+        const csv = "﻿" + lines.join("\n"); // BOM p/ Excel UTF-8
+        return {
+          csv,
+          fileName: `${input.type === "RECEIVABLE" ? "contas-receber" : "contas-pagar"}-${new Date().toISOString().slice(0, 10)}.csv`,
+          rowCount: rows.length,
+        };
+      });
+    }),
+
   /** Get transaction by ID with installments */
   getById: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -1180,6 +1265,40 @@ export const financialRouter = createTRPCRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode desativar categoria do sistema" });
         }
         return tx.financialCategory.update({ where: { id: input.id }, data: { active: input.active } });
+      });
+    }),
+
+  /** Rename + opcionalmente alterar tipo de categoria. FIXED so dono pode. */
+  updateCategory: tenantProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      name: z.string().min(2).max(100).optional(),
+      type: z.enum(["RECEITA", "DESPESA"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const cat = await tx.financialCategory.findUnique({ where: { id: input.id } });
+        if (!cat) throw new TRPCError({ code: "NOT_FOUND" });
+        if (cat.kind === "FIXED" && userRole !== "owner") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode editar categoria do sistema" });
+        }
+        const data: Record<string, unknown> = {};
+        if (input.name) {
+          data.name = input.name;
+          // Re-gera code so para CUSTOM (FIXED tem code estavel para integracoes).
+          if (cat.kind === "CUSTOM") {
+            data.code = input.name.toLowerCase().normalize("NFD")
+              .replace(/[̀-ͯ]/g, "")
+              .replace(/[^a-z0-9]+/g, "_")
+              .replace(/^_|_$/g, "");
+          }
+        }
+        if (input.type) data.type = input.type;
+        return tx.financialCategory.update({ where: { id: input.id }, data });
       });
     }),
 

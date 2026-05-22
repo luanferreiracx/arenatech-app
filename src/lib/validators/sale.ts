@@ -117,6 +117,17 @@ export const refundSaleSchema = z.object({
   saleId: z.string().uuid(),
   reason: z.string().min(1, "Motivo obrigatorio").max(300),
   returnStock: z.boolean().optional(),
+  /**
+   * Quando true, StockItems serializados voltam como `DEFECTIVE` em vez de
+   * `AVAILABLE`. Util para devolucao por defeito do aparelho. Paridade
+   * Laravel `devolverItemComoDefeito`.
+   */
+  returnAsDefect: z.boolean().optional(),
+  /**
+   * Estorno PARCIAL: lista de ids de SaleItems a estornar. Quando omitido,
+   * estorna tudo (refund total). Paridade Laravel estornarParcial.
+   */
+  itemIds: z.array(z.string().uuid()).optional(),
 });
 
 export type RefundSaleInput = z.infer<typeof refundSaleSchema>;

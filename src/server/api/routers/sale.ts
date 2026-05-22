@@ -348,12 +348,23 @@ export const saleRouter = createTRPCRouter({
 
   /** Set customer on draft */
   setCustomer: tenantProcedure
-    .input(z.object({ saleId: z.string().uuid(), customerId: z.string().uuid().nullable() }))
+    .input(z.object({
+      saleId: z.string().uuid(),
+      customerId: z.string().uuid().nullable(),
+      // Cliente avulso (sem cadastro). Ignorado se customerId presente.
+      customerName: z.string().min(2).max(255).nullable().optional(),
+      customerPhone: z.string().min(8).max(30).nullable().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx.sale.update({
           where: { id: input.saleId },
-          data: { customerId: input.customerId },
+          data: {
+            customerId: input.customerId,
+            // Quando vinculado a customerId, limpa campos de avulso.
+            customerName: input.customerId ? null : (input.customerName ?? null),
+            customerPhone: input.customerId ? null : (input.customerPhone ?? null),
+          },
         });
         return { success: true };
       });
@@ -908,77 +919,102 @@ export const saleRouter = createTRPCRouter({
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
         }
-        if (sale.status !== "COMPLETED") {
+        if (!["COMPLETED", "PARTIALLY_REFUNDED"].includes(sale.status)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Apenas vendas finalizadas podem ser estornadas",
           });
         }
 
-        // Devolve estoque: cria StockMovement de entrada + reabre StockItems
-        // serializados (SOLD → AVAILABLE). Paridade Laravel PdvService::estornarEstoque.
+        // Determina escopo: refund parcial (subset de itens) ou total.
+        const isPartial = input.itemIds && input.itemIds.length > 0
+          && input.itemIds.length < sale.items.length;
+        const itemsToRefund = input.itemIds && input.itemIds.length > 0
+          ? sale.items.filter((i) => input.itemIds!.includes(i.id))
+          : sale.items;
+        if (itemsToRefund.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhum item valido para estornar",
+          });
+        }
+        // Calcula valor estornado (sum dos totais dos itens estornados)
+        const refundedCents = itemsToRefund.reduce(
+          (sum, it) => sum + decimalToCents(it.total),
+          0,
+        );
+
+        // Devolve estoque (paridade Laravel PdvService::estornarEstoque)
         if (input.returnStock !== false) {
-          for (const item of sale.items) {
+          for (const item of itemsToRefund) {
             await tx.stockMovement.create({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
                 type: "ENTRY",
                 quantity: item.quantity,
-                reason: `Estorno venda ${sale.number}`,
+                reason: `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
                 referenceId: sale.id,
-                referenceType: "SALE_REFUND",
+                referenceType: input.returnAsDefect ? "SALE_REFUND_DEFECT" : "SALE_REFUND",
                 userId: ctx.session.user.id,
               },
             });
           }
-          const stockItemIds = sale.items
+          const stockItemIds = itemsToRefund
             .map((i) => i.stockItemId)
             .filter((id): id is string => !!id);
           if (stockItemIds.length > 0) {
             await tx.stockItem.updateMany({
               where: { id: { in: stockItemIds } },
-              data: { status: "AVAILABLE", saleId: null, soldAt: null },
+              data: {
+                // Defeito: aparelho volta como DEFECTIVE (nao vende mais).
+                // Caso contrario: AVAILABLE.
+                status: input.returnAsDefect ? "DEFECTIVE" : "AVAILABLE",
+                saleId: null,
+                soldAt: null,
+              },
             });
           }
         }
 
-        // Cancela DevicePurchases criados pelo upgrade (trade-in) — sem isso,
-        // o aparelho de entrada ficaria fantasma no estoque apos o estorno.
-        const upgrades = await tx.saleUpgrade.findMany({
-          where: { saleId: sale.id, devicePurchaseId: { not: null } },
-          select: { devicePurchaseId: true },
-        });
-        if (upgrades.length > 0) {
-          const purchaseIds = upgrades
-            .map((u) => u.devicePurchaseId)
-            .filter((id): id is string => !!id);
-          await tx.devicePurchase.updateMany({
-            where: { id: { in: purchaseIds } },
-            data: {
-              cancelledAt: new Date(),
-              cancellationReason: `Estorno venda ${sale.number}: ${input.reason}`,
-            },
+        // Cancela DevicePurchases criados pelo upgrade APENAS em estorno total.
+        // Estorno parcial nao mexe nos uagrades (paridade Laravel).
+        if (!isPartial) {
+          const upgrades = await tx.saleUpgrade.findMany({
+            where: { saleId: sale.id, devicePurchaseId: { not: null } },
+            select: { devicePurchaseId: true },
           });
+          if (upgrades.length > 0) {
+            const purchaseIds = upgrades
+              .map((u) => u.devicePurchaseId)
+              .filter((id): id is string => !!id);
+            await tx.devicePurchase.updateMany({
+              where: { id: { in: purchaseIds } },
+              data: {
+                cancelledAt: new Date(),
+                cancellationReason: `Estorno venda ${sale.number}: ${input.reason}`,
+              },
+            });
+          }
         }
 
-        // Create refund CashMovement if session is open
+        // CashMovement de estorno (saida do caixa). Valor = total estornado
+        // (refundedCents), nao o total da venda — paridade Laravel estornarParcial.
         const openSession = await tx.cashSession.findFirst({
           where: { userId: ctx.session.user.id, closedAt: null },
         });
-
         if (openSession) {
-          const totalCents = decimalToCents(sale.totalAmount);
-
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
               cashSessionId: openSession.id,
               type: "WITHDRAWAL",
-              amount: centsToPrisma(totalCents),
+              amount: centsToPrisma(refundedCents),
               nature: "OUTCOME",
               paymentMethod: null,
-              description: `Estorno venda ${sale.number}`,
+              description: isPartial
+                ? `Estorno parcial venda ${sale.number}`
+                : `Estorno venda ${sale.number}`,
               referenceId: sale.id,
               referenceType: "SALE_REFUND",
               createdByUserId: ctx.session.user.id,
@@ -986,39 +1022,61 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Cancela recebiveis vinculados (paridade Laravel
-        // FinanceiroService::cancelarRecebiveisVenda). Sem isso, Installments
-        // PENDING ficam orfaos no DRE e nas listagens.
-        const transactions = await tx.financialTransaction.findMany({
-          where: { saleId: input.saleId, status: { not: "CANCELLED" } },
-          select: { id: true },
-        });
-        if (transactions.length > 0) {
-          const transactionIds = transactions.map((t) => t.id);
-          await tx.installment.updateMany({
-            where: { transactionId: { in: transactionIds }, status: "PENDING" },
-            data: { status: "CANCELLED" },
+        // Cancela recebiveis APENAS em estorno total. Parcial nao cancela
+        // recebiveis ja gerados (cliente ainda pode pagar o restante).
+        let cancelledReceivables = 0;
+        if (!isPartial) {
+          const transactions = await tx.financialTransaction.findMany({
+            where: { saleId: input.saleId, status: { not: "CANCELLED" } },
+            select: { id: true },
           });
-          await tx.financialTransaction.updateMany({
-            where: { id: { in: transactionIds } },
+          if (transactions.length > 0) {
+            const transactionIds = transactions.map((t) => t.id);
+            await tx.installment.updateMany({
+              where: { transactionId: { in: transactionIds }, status: "PENDING" },
+              data: { status: "CANCELLED" },
+            });
+            await tx.financialTransaction.updateMany({
+              where: { id: { in: transactionIds } },
+              data: {
+                status: "CANCELLED",
+                cancelledAt: new Date(),
+                cancelledByUserId: ctx.session.user.id,
+                cancelReason: input.reason,
+              },
+            });
+            cancelledReceivables = transactions.length;
+          }
+        }
+
+        // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total
+        if (isPartial) {
+          // Recalcula total = total atual - refundedCents
+          const newTotal = decimalToCents(sale.totalAmount) - refundedCents;
+          await tx.sale.update({
+            where: { id: input.saleId },
             data: {
-              status: "CANCELLED",
+              status: "PARTIALLY_REFUNDED",
+              totalAmount: centsToPrisma(Math.max(0, newTotal)),
+            },
+          });
+          // Marca itens estornados (paridade Laravel `estornado`): zera total
+          // e desconto desse item. Mantem o registro para auditoria.
+          await tx.saleItem.updateMany({
+            where: { id: { in: itemsToRefund.map((i) => i.id) } },
+            data: { total: centsToPrisma(0), discount: centsToPrisma(0) },
+          });
+        } else {
+          await tx.sale.update({
+            where: { id: input.saleId },
+            data: {
+              status: "REFUNDED",
               cancelledAt: new Date(),
-              cancelledByUserId: ctx.session.user.id,
-              cancelReason: input.reason,
+              cancelledById: ctx.session.user.id,
+              cancellationReason: input.reason,
             },
           });
         }
-
-        await tx.sale.update({
-          where: { id: input.saleId },
-          data: {
-            status: "REFUNDED",
-            cancelledAt: new Date(),
-            cancelledById: ctx.session.user.id,
-            cancellationReason: input.reason,
-          },
-        });
 
         // Auditoria (paridade PdvVendaAuditoria)
         await tx.saleAudit.create({
@@ -1026,21 +1084,32 @@ export const saleRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             saleId: sale.id,
             userId: ctx.session.user.id,
-            action: "refund",
+            action: isPartial ? "partial_refund" : "refund",
             previousValue: String(decimalToCents(sale.totalAmount)),
-            newValue: "0",
-            reason: input.reason,
+            newValue: String(refundedCents),
+            reason: input.reason
+              + (input.returnAsDefect ? " [DEFEITO]" : "")
+              + (isPartial ? ` [PARCIAL: ${itemsToRefund.length} item(s)]` : ""),
           },
         });
 
         logger.info("Sale refunded", {
           saleId: sale.id,
-          reason: input.reason,
-          cancelledReceivables: transactions.length,
+          partial: isPartial,
+          asDefect: !!input.returnAsDefect,
+          itemsRefunded: itemsToRefund.length,
+          amountRefunded: refundedCents,
+          cancelledReceivables,
           userId: ctx.session.user.id,
         });
 
-        return { success: true, cancelledReceivables: transactions.length };
+        return {
+          success: true,
+          partial: isPartial,
+          itemsRefunded: itemsToRefund.length,
+          amountRefunded: refundedCents,
+          cancelledReceivables,
+        };
       });
     }),
 

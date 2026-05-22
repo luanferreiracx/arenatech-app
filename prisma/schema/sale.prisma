@@ -11,6 +11,10 @@ model Sale {
   tenantId        String     @map("tenant_id") @db.Uuid
   number          String
   customerId      String?    @map("customer_id") @db.Uuid
+  // Cliente avulso: paridade Laravel cliente_nome/cliente_telefone (sem cadastro).
+  // Quando customerId esta presente, esses campos sao opcionais para historico.
+  customerName    String?    @map("customer_name")
+  customerPhone   String?    @map("customer_phone")
   sellerId        String     @map("seller_id") @db.Uuid
   status          SaleStatus @default(DRAFT)
 

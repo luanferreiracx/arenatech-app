@@ -42,6 +42,7 @@ import {
   duplicateProductSchema,
 } from "@/lib/validators/stock";
 import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
+import { suggestNcm } from "@/lib/integrations/ncm-suggest";
 import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
 import {
   createDocumentWithLink,
@@ -172,7 +173,27 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || null;
+        // Cria categoria nova inline se solicitado (paridade Laravel nova_categoria)
+        let inlineCategoryId: string | null = null;
+        if (input.newCategoryName) {
+          const existing = await tx.productCategory.findFirst({
+            where: { name: { equals: input.newCategoryName, mode: "insensitive" }, deletedAt: null },
+            select: { id: true },
+          });
+          if (existing) {
+            inlineCategoryId = existing.id;
+          } else {
+            const created = await tx.productCategory.create({
+              data: { tenantId: ctx.tenantId, name: input.newCategoryName },
+              select: { id: true },
+            });
+            inlineCategoryId = created.id;
+          }
+        }
+        const mergedCategoryIds = inlineCategoryId
+          ? [inlineCategoryId, ...(input.categoryIds ?? []).filter((id) => id !== inlineCategoryId)]
+          : input.categoryIds;
+        const primaryCategoryId = mergedCategoryIds?.[0] || input.categoryId || inlineCategoryId || null;
 
         const product = await tx.product.create({
           data: {
@@ -206,10 +227,10 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // Create category pivots
-        if (input.categoryIds && input.categoryIds.length > 0) {
+        // Create category pivots (inclui categoria inline criada acima)
+        if (mergedCategoryIds && mergedCategoryIds.length > 0) {
           await tx.productCategoryPivot.createMany({
-            data: input.categoryIds.map((catId, idx) => ({
+            data: mergedCategoryIds.map((catId, idx) => ({
               tenantId: ctx.tenantId,
               productId: product.id,
               categoryId: catId,
@@ -2650,6 +2671,11 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ input }) => {
       return searchNcm(input.term);
     }),
+
+  /** Sugere NCM por nome/categoria do produto. Paridade Laravel sugerirNcm. */
+  suggestNcm: tenantProcedure
+    .input(z.object({ text: z.string().max(500) }))
+    .query(({ input }) => suggestNcm(input.text)),
 
   getNcmByCode: tenantProcedure
     .input(z.object({ code: z.string().length(8) }))

@@ -50,6 +50,11 @@ export const createProductSchema = z.object({
   active: z.boolean().optional(),
   categoryId: z.string().uuid().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).min(1).max(3).optional(),
+  /**
+   * Cria uma categoria nova no submit (paridade Laravel `nova_categoria`).
+   * A categoria criada eh adicionada como primaria (a frente das categoryIds).
+   */
+  newCategoryName: z.string().min(2).max(100).optional().nullable(),
   /** Fotos a criar (URLs ja uploaded via presigned MinIO). Max 3. */
   photos: z.array(productPhotoInputSchema).max(3).optional(),
   /** IDs dos atributos que o produto usa (ex: cor, capacidade) */
