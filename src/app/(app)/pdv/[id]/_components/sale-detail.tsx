@@ -1,10 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ShoppingCart, XCircle, RotateCcw, User, Receipt, Calendar, FileText, Shield, Package } from "lucide-react";
+import {
+  ArrowLeft,
+  ShoppingCart,
+  XCircle,
+  RotateCcw,
+  User,
+  Receipt,
+  Calendar,
+  FileText,
+  Shield,
+  Package,
+  Send,
+  PenLine,
+  CheckCircle2,
+  ExternalLink,
+  Copy,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -55,12 +71,36 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showRefundDialog, setShowRefundDialog] = useState(false);
+  const [showSendReceiptDialog, setShowSendReceiptDialog] = useState(false);
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false);
+  const [showPhysicalSignDialog, setShowPhysicalSignDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [returnStock, setReturnStock] = useState(true);
+  const [receiptPhone, setReceiptPhone] = useState("");
+  const [signaturePhone, setSignaturePhone] = useState("");
 
   const cancelMutation = useMutation(trpc.sale.cancel.mutationOptions());
   const refundMutation = useMutation(trpc.sale.refund.mutationOptions());
+  const sendReceiptMutation = useMutation(trpc.sale.sendReceipt.mutationOptions());
+  const sendSignatureMutation = useMutation(trpc.sale.sendForSignature.mutationOptions());
+  const confirmPhysicalMutation = useMutation(trpc.sale.confirmPhysicalSignature.mutationOptions());
+
+  // Polling do status de assinatura enquanto enviada mas nao assinada.
+  const hasPendingSignature =
+    !!(sale as Record<string, unknown> | undefined)?.signatureDocumentId &&
+    !(sale as Record<string, unknown> | undefined)?.signatureSignedAt;
+  const { data: signatureStatus } = useQuery({
+    ...trpc.sale.checkSignatureStatus.queryOptions({ saleId }),
+    enabled: hasPendingSignature,
+    refetchInterval: hasPendingSignature ? 10_000 : false,
+  });
+
+  useEffect(() => {
+    if (signatureStatus?.signed) {
+      queryClient.invalidateQueries({ queryKey: trpc.sale.getById.queryKey({ id: saleId }) });
+    }
+  }, [signatureStatus?.signed, queryClient, trpc, saleId]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: trpc.sale.getById.queryKey({ id: saleId }) });
@@ -78,6 +118,52 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           toast.success("Venda cancelada");
           invalidate();
           setShowCancelDialog(false);
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleSendReceipt = () => {
+    sendReceiptMutation.mutate(
+      { saleId, phone: receiptPhone.trim() || null },
+      {
+        onSuccess: (res) => {
+          if (res.success) {
+            toast.success("Recibo enviado por WhatsApp");
+            invalidate();
+            setShowSendReceiptDialog(false);
+          } else {
+            toast.error("Nao foi possivel enviar o recibo. Verifique o numero.");
+          }
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleSendSignature = () => {
+    sendSignatureMutation.mutate(
+      { saleId, whatsappOverride: signaturePhone.trim() || undefined },
+      {
+        onSuccess: () => {
+          toast.success("Termo enviado para Autentique");
+          invalidate();
+          setShowSignatureDialog(false);
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleConfirmPhysical = () => {
+    confirmPhysicalMutation.mutate(
+      { saleId },
+      {
+        onSuccess: () => {
+          toast.success("Assinatura fisica confirmada");
+          invalidate();
+          setShowPhysicalSignDialog(false);
         },
         onError: (err) => toast.error(err.message),
       },
@@ -120,6 +206,15 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
     installments: number;
   }> | null;
 
+  const receiptSent = !!sale.receiptSent;
+  const signatureDocumentId = sale.signatureDocumentId as string | null;
+  const signatureUrl = sale.signatureUrl as string | null;
+  const signatureSentAt = sale.signatureSentAt as string | null;
+  const signatureSignedAt = sale.signatureSignedAt as string | null;
+  const physicalSignature = !!sale.physicalSignature;
+  const isSigned = !!signatureSignedAt || physicalSignature;
+  const isSignaturePending = !!signatureDocumentId && !signatureSignedAt && !physicalSignature;
+
   return (
     <div>
       <PageHeader
@@ -138,36 +233,58 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </div>
         }
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isCompleted && (
               <>
-                <Button
-                  variant="outline"
-                  asChild
-                >
+                <Button variant="outline" asChild>
                   <a href={`/api/pdv/${saleId}/recibo`} target="_blank" rel="noopener noreferrer">
                     <FileText className="mr-2 h-4 w-4" />
                     Recibo
                   </a>
                 </Button>
-                <Button
-                  variant="outline"
-                  asChild
-                >
+                <Button variant="outline" asChild>
                   <a href={`/api/pdv/${saleId}/termo-garantia`} target="_blank" rel="noopener noreferrer">
                     <Shield className="mr-2 h-4 w-4" />
                     Garantia
                   </a>
                 </Button>
-                <Button
-                  variant="outline"
-                  asChild
-                >
+                <Button variant="outline" asChild>
                   <a href={`/api/pdv/${saleId}/termo-entrega`} target="_blank" rel="noopener noreferrer">
                     <Package className="mr-2 h-4 w-4" />
                     Entrega
                   </a>
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setReceiptPhone("");
+                    setShowSendReceiptDialog(true);
+                  }}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {receiptSent ? "Reenviar recibo" : "Enviar recibo"}
+                </Button>
+                {!isSigned && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSignaturePhone("");
+                      setShowSignatureDialog(true);
+                    }}
+                  >
+                    <PenLine className="mr-2 h-4 w-4" />
+                    {signatureDocumentId ? "Reenviar termo" : "Enviar termo"}
+                  </Button>
+                )}
+                {!isSigned && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowPhysicalSignDialog(true)}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Assinatura fisica
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="text-destructive border-destructive/30"
@@ -370,6 +487,67 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
         </Card>
       )}
 
+      {/* Signature status */}
+      {isCompleted && (signatureDocumentId || isSigned) && (
+        <Card className="mt-4 border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <PenLine className="h-4 w-4" />
+              Assinatura digital
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-2">
+            {isSigned ? (
+              <div className="flex items-center gap-2 text-green-500">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>
+                  {physicalSignature
+                    ? "Assinado fisicamente"
+                    : "Assinado digitalmente"}
+                  {signatureSignedAt && ` em ${formatDate(signatureSignedAt)}`}
+                </span>
+              </div>
+            ) : isSignaturePending ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-yellow-500">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
+                  </span>
+                  Aguardando assinatura do cliente...
+                </div>
+                {signatureSentAt && (
+                  <p className="text-muted-foreground text-xs">
+                    Enviado em {formatDate(signatureSentAt)}
+                  </p>
+                )}
+                {signatureUrl && (
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={signatureUrl} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="mr-2 h-3 w-3" />
+                        Abrir link de assinatura
+                      </a>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(signatureUrl);
+                        toast.success("Link copiado");
+                      }}
+                    >
+                      <Copy className="mr-2 h-3 w-3" />
+                      Copiar
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Cancel Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <DialogContent>
@@ -434,6 +612,101 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               disabled={refundMutation.isPending}
             >
               Confirmar Estorno
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Receipt via WhatsApp */}
+      <Dialog open={showSendReceiptDialog} onOpenChange={setShowSendReceiptDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar recibo via WhatsApp</DialogTitle>
+            <DialogDescription>
+              {sale.customerName
+                ? `O recibo sera enviado para ${sale.customerName as string}.`
+                : "Informe um numero para envio do recibo."}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="receiptPhone">Numero (opcional, sobrescreve o cadastrado)</Label>
+            <Input
+              id="receiptPhone"
+              value={receiptPhone}
+              onChange={(e) => setReceiptPhone(e.target.value)}
+              placeholder="Ex.: 86999999999"
+              inputMode="tel"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Deixe em branco para usar o telefone do cliente cadastrado.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSendReceiptDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSendReceipt} disabled={sendReceiptMutation.isPending}>
+              <Send className="mr-2 h-4 w-4" />
+              Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send for Signature (Autentique) */}
+      <Dialog open={showSignatureDialog} onOpenChange={setShowSignatureDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar termo para assinatura digital</DialogTitle>
+            <DialogDescription>
+              Cria o documento no Autentique e envia o link de assinatura por WhatsApp.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="signaturePhone">Numero (opcional, sobrescreve o cadastrado)</Label>
+            <Input
+              id="signaturePhone"
+              value={signaturePhone}
+              onChange={(e) => setSignaturePhone(e.target.value)}
+              placeholder="Ex.: 86999999999"
+              inputMode="tel"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Deixe em branco para usar o telefone do cliente cadastrado.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSignatureDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSendSignature} disabled={sendSignatureMutation.isPending}>
+              <PenLine className="mr-2 h-4 w-4" />
+              {signatureDocumentId ? "Reenviar" : "Enviar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Physical Signature */}
+      <Dialog open={showPhysicalSignDialog} onOpenChange={setShowPhysicalSignDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar assinatura fisica</DialogTitle>
+            <DialogDescription>
+              Marca a venda como assinada presencialmente (sem Autentique).
+              Use quando o cliente assinou o termo no papel.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPhysicalSignDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmPhysical}
+              disabled={confirmPhysicalMutation.isPending}
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>
