@@ -62,8 +62,8 @@ test.describe("Estoque-B — Entrada/Baixa de estoque", () => {
 
   test("@business T-04 form baixa preenche motivo e submit habilitado", async ({ page }) => {
     await gotoAndWait(page, "/stock/exit");
-    await fillField(page, "reason", "Produto avariado E2E");
-    await expect(page.locator("input[name='reason']")).not.toHaveValue("");
+    // Motivo agora vem de Select com presets — confirma que o trigger esta visivel.
+    await expect(page.getByText(/Motivo da baixa/i)).toBeVisible({ timeout: 10000 });
     await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
   });
 });

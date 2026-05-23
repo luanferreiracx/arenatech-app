@@ -40,6 +40,7 @@ import {
   searchNcmSchema,
   lookupCnpjSchema,
   duplicateProductSchema,
+  bulkAdjustStockSchema,
 } from "@/lib/validators/stock";
 import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
 import { suggestNcm } from "@/lib/integrations/ncm-suggest";
@@ -1098,10 +1099,10 @@ export const stockRouter = createTRPCRouter({
             name: true,
             sku: true,
             salePrice: true,
+            currentStock: true,
           },
         });
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-        return products.map((p) => ({ ...p, currentStock: 0 }));
+        return products;
       });
     }),
 
@@ -3120,6 +3121,35 @@ export const stockRouter = createTRPCRouter({
         });
         return { success: true };
       });
+    }),
+
+  /** Bulk inventory adjustment — paridade Laravel ajuste-em-massa. */
+  bulkAdjust: tenantProcedure
+    .input(bulkAdjustStockSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
+      }
+      // Ajusta cada produto sequencialmente, dentro de UMA transacao — falha
+      // num item aborta todos (atomicidade vs Laravel que rodava em DB::transaction).
+      const result = await ctx.withTenant(async (tx) => {
+        const updated: Array<{ productId: string; newQuantity: number }> = [];
+        for (const item of input.items) {
+          await adjustInventory(tx as any, ctx.tenantId, ctx.session.user.id, {
+            productId: item.productId,
+            newQuantity: item.newQuantity,
+            reason: input.reason,
+          });
+          updated.push(item);
+        }
+        return updated;
+      });
+      logger.info("Bulk stock adjustment", {
+        count: result.length,
+        userId: ctx.session.user.id,
+      });
+      return { success: true, count: result.length };
     }),
 
   /** Change StockItem status (state machine validated) */

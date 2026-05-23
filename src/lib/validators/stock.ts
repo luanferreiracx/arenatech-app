@@ -216,6 +216,23 @@ export const stockEntrySchema = z.object({
 
 export type StockEntryInput = z.infer<typeof stockEntrySchema>;
 
+/**
+ * Motivos de baixa de estoque — paridade Laravel EstoqueMovimentacao::MOTIVOS_BAIXA.
+ * Use o `code` no `reason` salvo no banco (prefixo) e o `label` na UI.
+ */
+export const STOCK_WRITEOFF_REASONS = [
+  { code: "consumo_proprio", label: "Consumo proprio" },
+  { code: "brinde", label: "Brinde / Doacao" },
+  { code: "danificado", label: "Danificado / Avariado" },
+  { code: "perda", label: "Perda / Extravio" },
+  { code: "furto", label: "Furto / Roubo" },
+  { code: "devolucao_fornecedor", label: "Devolucao ao fornecedor" },
+  { code: "obsoleto", label: "Obsoleto" },
+  { code: "outro", label: "Outro" },
+] as const;
+
+export type StockWriteOffReasonCode = (typeof STOCK_WRITEOFF_REASONS)[number]["code"];
+
 export const stockExitSchema = z.object({
   productId: z.string().uuid(),
   quantity: z.number().int().min(1, "Quantidade minima e 1"),
@@ -223,6 +240,20 @@ export const stockExitSchema = z.object({
 });
 
 export type StockExitInput = z.infer<typeof stockExitSchema>;
+
+// ── Bulk adjustment ──
+
+export const bulkAdjustItemSchema = z.object({
+  productId: z.string().uuid(),
+  newQuantity: z.number().int().min(0),
+});
+
+export const bulkAdjustStockSchema = z.object({
+  items: z.array(bulkAdjustItemSchema).min(1, "Adicione ao menos um produto"),
+  reason: z.string().min(1, "Motivo obrigatorio").max(200),
+});
+
+export type BulkAdjustStockInput = z.infer<typeof bulkAdjustStockSchema>;
 
 // ── Report schemas ──
 

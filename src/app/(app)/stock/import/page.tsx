@@ -103,6 +103,7 @@ export default function StockImportPage() {
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [parsedLines, setParsedLines] = useState<ParsedLine[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<{
     productsCreated: number;
     stockEntries: number;
@@ -131,23 +132,40 @@ export default function StockImportPage() {
     }),
   );
 
+  const processFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const sep = file.name.endsWith(".csv") || file.name.endsWith(".txt") ? ";" : ",";
+      const { lines, errors } = parseCsvContent(text, sep);
+      setParsedLines(lines);
+      setParseErrors(errors);
+      setStep("preview");
+    };
+    reader.readAsText(file, "UTF-8");
+  }, []);
+
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const text = ev.target?.result as string;
-        const sep = file.name.endsWith(".csv") || file.name.endsWith(".txt") ? ";" : ",";
-        const { lines, errors } = parseCsvContent(text, sep);
-        setParsedLines(lines);
-        setParseErrors(errors);
-        setStep("preview");
-      };
-      reader.readAsText(file, "UTF-8");
+      if (file) processFile(file);
     },
-    [],
+    [processFile],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      if (!/\.(csv|txt|tsv)$/i.test(file.name)) {
+        toast.error("Apenas arquivos .csv, .txt ou .tsv");
+        return;
+      }
+      processFile(file);
+    },
+    [processFile],
   );
 
   const handleImport = useCallback(() => {
@@ -178,10 +196,24 @@ export default function StockImportPage() {
             <CardTitle className="text-base">Upload do Arquivo</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
-              <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                isDragging
+                  ? "border-primary bg-primary/5"
+                  : "border-border"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+            >
+              <Upload className={`h-12 w-12 mx-auto mb-4 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
               <p className="text-sm text-muted-foreground mb-4">
-                Arraste um arquivo CSV ou clique para selecionar
+                {isDragging
+                  ? "Solte o arquivo aqui"
+                  : "Arraste um arquivo CSV/TXT/TSV ou clique para selecionar"}
               </p>
               <input
                 type="file"

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Plus, BarChart3, Download } from "lucide-react";
+import { Plus, BarChart3, Download, MinusCircle, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -18,11 +18,23 @@ export default function StockPage() {
         title="Estoque"
         subtitle="Gerencie produtos e controle de estoque"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/stock/reports">
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Relatorios
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/stock/bulk-adjust">
+                <ListChecks className="mr-2 h-4 w-4" />
+                Ajuste em massa
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/stock/exit">
+                <MinusCircle className="mr-2 h-4 w-4" />
+                Baixa
               </Link>
             </Button>
             <Button variant="outline" asChild>
