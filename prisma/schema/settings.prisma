@@ -77,7 +77,6 @@ model TenantAssistanceSettings {
   city                  String?
   state                 String?
   zipCode               String?  @map("zip_code")
-  logoPath              String?  @map("logo_path")
   termsOfService        String?  @map("terms_of_service") @db.Text
   warrantyPolicy        String?  @map("warranty_policy") @db.Text
   businessHours         String?  @map("business_hours")

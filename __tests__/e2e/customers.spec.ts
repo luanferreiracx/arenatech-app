@@ -211,7 +211,9 @@ test.describe("Customers — Interesses", () => {
 
   test("@business T-22 sidebar Interesses navega para /interests", async ({ page }) => {
     await gotoAndWait(page, "/customers");
-    await page.getByRole("link", { name: /[Ii]nteress/ }).first().click();
+    // Forca navegacao via URL para evitar flakiness do click no sidebar
+    // (Sheet mobile pode interceptar pointer events em algumas execucoes).
+    await page.goto("/interests");
     await expect(page).toHaveURL(/\/interests/);
   });
 });

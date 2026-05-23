@@ -50,6 +50,7 @@ export const settingsRouter = createTRPCRouter({
           cnpj: input.cnpj,
           phone: input.phone,
           email: input.email,
+          logoUrl: input.logoUrl === "" ? null : input.logoUrl,
           address: input.address === null
             ? Prisma.JsonNull
             : input.address !== undefined
@@ -734,7 +735,6 @@ export const settingsRouter = createTRPCRouter({
       city: z.string().max(100).nullable().optional(),
       state: z.string().max(2).nullable().optional(),
       zipCode: z.string().max(10).nullable().optional(),
-      logoPath: z.string().max(500).nullable().optional(),
       businessHours: z.string().max(200).nullable().optional(),
       termsOfService: z.string().optional(),
       warrantyPolicy: z.string().optional(),

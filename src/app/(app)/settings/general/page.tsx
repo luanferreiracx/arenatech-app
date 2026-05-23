@@ -57,6 +57,7 @@ export default function GeneralSettingsPage() {
           cnpj: settings.cnpj ?? "",
           phone: settings.phone ?? "",
           email: settings.email ?? "",
+          logoUrl: settings.logoUrl ?? "",
           address: (settings.address as UpdateGeneralSettingsInput["address"]) ?? {
             cep: "",
             logradouro: "",
@@ -211,6 +212,43 @@ export default function GeneralSettingsPage() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="logoUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>URL da Logo</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder="https://exemplo.com/logo.png"
+                        type="url"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      URL publica da logo da loja. Aparece no cabecalho de recibos, termos
+                      de garantia/entrega e demais PDFs. Recomendamos PNG ou JPG com fundo
+                      transparente, max 300x150px.
+                    </FormDescription>
+                    <FormMessage />
+                    {field.value && (
+                      <div className="mt-2 p-2 border rounded-md bg-muted/30 inline-block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={field.value}
+                          alt="Preview da logo"
+                          style={{ maxHeight: 64, maxWidth: 240 }}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = "none";
+                          }}
+                        />
+                      </div>
+                    )}
+                  </FormItem>
+                )}
+              />
             </CardContent>
           </Card>
 

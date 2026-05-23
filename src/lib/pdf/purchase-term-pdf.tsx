@@ -5,6 +5,7 @@ import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/render
 export interface PurchaseTermPdfData {
   purchase: {
     id: string;
+    code?: string | null;
     brand: string | null;
     model: string | null;
     imei: string | null;
@@ -18,144 +19,370 @@ export interface PurchaseTermPdfData {
   };
   seller: {
     name: string;
-    doc: string; // "CPF: 000.000.000-00" ou "CNPJ: 00..."
+    doc: string;
     phone: string;
     address: string;
   };
   store: {
     name: string;
-    cnpj: string;
-    phone: string;
-    logoUrl: string | null;
+    cnpj: string | null;
+    phone: string | null;
+    address?: string | null;
+    logoDataUrl: string | null;
   };
 }
 
+const GOLD = "#c9a84c";
+const NIGHT = "#1a1a2e";
+const TEXT = "#1a1a1a";
+const MUTED = "#666";
+const LABEL = "#888";
+const SOFT_BG = "#fafafa";
+const BORDER = "#e5e7eb";
+const RED_BG = "#fef2f2";
+const RED_BORDER = "#f5c6cb";
+const RED_TEXT = "#991b1b";
+const BLUE_BG = "#eff6ff";
+const BLUE_BORDER = "#bfdbfe";
+const BLUE_TEXT = "#1e40af";
+
 const styles = StyleSheet.create({
-  page: { padding: 32, fontSize: 9, fontFamily: "Helvetica", lineHeight: 1.4 },
-  header: { borderBottom: 2, borderColor: "#c9a55c", paddingBottom: 8, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 10 },
-  logo: { width: 60, height: 60, objectFit: "contain" },
-  storeName: { fontSize: 13, fontFamily: "Helvetica-Bold" },
-  storeMeta: { fontSize: 8, color: "#666" },
-  title: { fontSize: 14, fontFamily: "Helvetica-Bold", textAlign: "center", marginVertical: 14 },
-  section: { marginBottom: 10 },
-  sectionTitle: { fontSize: 10, fontFamily: "Helvetica-Bold", color: "#c9a55c", borderBottomWidth: 1, borderBottomColor: "#ddd", paddingBottom: 3, marginBottom: 5 },
-  row: { flexDirection: "row", justifyContent: "space-between", marginVertical: 1 },
-  label: { fontFamily: "Helvetica-Bold", color: "#555" },
-  table: { marginTop: 4, borderWidth: 1, borderColor: "#ddd" },
-  tRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#ddd" },
-  tRowLast: { flexDirection: "row" },
-  tCellLabel: { backgroundColor: "#f8f8f8", padding: 5, fontFamily: "Helvetica-Bold", width: "35%", borderRightWidth: 1, borderRightColor: "#ddd" },
-  tCellValue: { padding: 5, flex: 1 },
-  declaration: { backgroundColor: "#fffaf0", borderLeftWidth: 4, borderLeftColor: "#c9a55c", padding: 10, marginVertical: 14 },
-  declarationP: { textAlign: "justify", marginVertical: 3 },
-  signatureBox: { marginTop: 40, alignItems: "center" },
-  signatureLine: { borderTopWidth: 1, borderTopColor: "#000", width: "70%", paddingTop: 5, textAlign: "center" },
-  footer: { textAlign: "center", marginTop: 24, fontSize: 7, color: "#888" },
+  page: {
+    paddingTop: 28,
+    paddingBottom: 28,
+    paddingHorizontal: 34,
+    fontSize: 10,
+    fontFamily: "Helvetica",
+    lineHeight: 1.45,
+    color: TEXT,
+  },
+  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  headerLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  logo: { width: 45, height: 45, objectFit: "contain", marginRight: 10 },
+  storeName: { fontSize: 14, fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
+  storeMeta: { fontSize: 7.5, color: MUTED, marginTop: 1 },
+  headerRight: { alignItems: "flex-end", marginLeft: 8 },
+  docLabel: { fontSize: 7, color: LABEL, textTransform: "uppercase", letterSpacing: 1 },
+  docNumber: { fontSize: 11, fontFamily: "Helvetica-Bold", color: GOLD, letterSpacing: 0.3 },
+  docDate: { fontSize: 7.5, color: LABEL },
+  headerDivider: { borderTopWidth: 2, borderTopColor: GOLD, marginTop: 6, marginBottom: 10 },
+
+  title: {
+    textAlign: "center",
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    backgroundColor: SOFT_BG,
+    borderLeftWidth: 3,
+    borderLeftColor: GOLD,
+  },
+
+  infoTable: { marginBottom: 10 },
+  infoRow: { flexDirection: "row", paddingVertical: 3 },
+  infoCellLabel: {
+    width: 70,
+    fontSize: 7.5,
+    fontFamily: "Helvetica-Bold",
+    color: MUTED,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    paddingHorizontal: 6,
+  },
+  infoCellValue: { flex: 1, fontSize: 9, color: TEXT, paddingHorizontal: 6 },
+
+  sectionTitle: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+    color: "#fff",
+    backgroundColor: NIGHT,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginTop: 10,
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+
+  itemsTable: { marginBottom: 10 },
+  itemsHeaderRow: { flexDirection: "row", backgroundColor: SOFT_BG },
+  itemsHeader: {
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    letterSpacing: 0.3,
+  },
+  itemsRow: { flexDirection: "row" },
+  itemsCell: { paddingVertical: 5, paddingHorizontal: 6, fontSize: 9, borderWidth: 1, borderColor: BORDER },
+
+  declaracao: {
+    borderWidth: 1,
+    borderColor: RED_BORDER,
+    backgroundColor: RED_BG,
+    padding: 10,
+    borderRadius: 4,
+    marginVertical: 8,
+  },
+  declaracaoTitle: { fontSize: 9, fontFamily: "Helvetica-Bold", color: RED_TEXT, marginBottom: 5, letterSpacing: 0.3 },
+  declaracaoText: { fontSize: 8.5, marginBottom: 4 },
+  declaracaoList: { marginLeft: 12, marginTop: 4 },
+  declaracaoListItem: { fontSize: 8.5, marginBottom: 2 },
+  declaracaoInfo: { borderColor: BLUE_BORDER, backgroundColor: BLUE_BG },
+  declaracaoInfoTitle: { color: BLUE_TEXT },
+
+  resumo: {
+    backgroundColor: SOFT_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 8,
+    fontSize: 9,
+    marginVertical: 8,
+    flexDirection: "row",
+    gap: 16,
+  },
+  resumoItem: { },
+  resumoLabel: { fontSize: 7, color: LABEL, textTransform: "uppercase", fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
+  resumoValue: { fontSize: 9.5, fontFamily: "Helvetica-Bold", color: TEXT, marginTop: 1 },
+
+  assinaturaWrapper: { marginTop: 30, alignItems: "center" },
+  assinaturaLinha: { borderTopWidth: 1, borderTopColor: "#333", paddingTop: 4, width: 280, alignItems: "center", marginTop: 40 },
+  assinaturaNome: { fontSize: 8.5, fontFamily: "Helvetica-Bold" },
+  assinaturaCpf: { fontSize: 7.5, color: MUTED, marginTop: 2 },
+
+  footer: {
+    textAlign: "center",
+    fontSize: 7.5,
+    color: "#999",
+    marginTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingTop: 6,
+  },
 });
 
-const fmtBRL = (v: unknown) => "R$ " + Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtDate = (d: Date) => new Date(d).toLocaleDateString("pt-BR");
+const fmtBRL = (v: unknown) =>
+  "R$ " +
+  Number(v ?? 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const fmtDateBr = (d: Date) => new Date(d).toLocaleDateString("pt-BR");
+const fmtDateTimeBr = (d: Date) =>
+  new Date(d).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const CONDITION_LABELS: Record<string, string> = {
+  NEW: "Novo",
+  SEMI_NEW: "Seminovo",
+  USED: "Usado",
+  DISPLAY: "Vitrine",
+  REFURBISHED: "Recondicionado",
+  DEFECTIVE: "Defeituoso",
+};
 
 export function PurchaseTermPdfDocument({ purchase, seller, store }: PurchaseTermPdfData) {
-  const rows: Array<[string, string]> = [
-    ["Marca", purchase.brand ?? "—"],
-    ["Modelo", purchase.model ?? "—"],
-    ["IMEI", purchase.imei ?? "—"],
-    ["Numero de Serie", purchase.serial ?? "—"],
-    ["Condicao", purchase.condition],
-  ];
-  if (purchase.batteryHealth != null) rows.push(["Saude da Bateria", `${purchase.batteryHealth}%`]);
-  rows.push(["Valor Pago", fmtBRL(purchase.purchasePrice)]);
-  rows.push(["Data da Compra", fmtDate(purchase.purchaseDate)]);
+  const description = [purchase.brand, purchase.model].filter(Boolean).join(" ") || "Aparelho";
+  const conditionLabel = CONDITION_LABELS[purchase.condition] ?? purchase.condition;
+  const docCode = purchase.code ?? purchase.id.slice(0, 8).toUpperCase();
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
-          {store.logoUrl && <Image src={store.logoUrl} style={styles.logo} />}
-          <View>
-            <Text style={styles.storeName}>{store.name}</Text>
-            {store.cnpj && <Text style={styles.storeMeta}>{store.cnpj}</Text>}
-            {store.phone && <Text style={styles.storeMeta}>Tel: {store.phone}</Text>}
-          </View>
-        </View>
-
-        <Text style={styles.title}>TERMO DE RESPONSABILIDADE — COMPRA DE APARELHO</Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>DADOS DO VENDEDOR</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>Nome:</Text>
-            <Text>{seller.name || "—"}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Documento:</Text>
-            <Text>{seller.doc || "—"}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Telefone:</Text>
-            <Text>{seller.phone || "—"}</Text>
-          </View>
-          {seller.address && (
-            <View style={styles.row}>
-              <Text style={styles.label}>Endereco:</Text>
-              <Text>{seller.address}</Text>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            {store.logoDataUrl && <Image src={store.logoDataUrl} style={styles.logo} />}
+            <View>
+              <Text style={styles.storeName}>{store.name}</Text>
+              <Text style={styles.storeMeta}>
+                {[
+                  store.cnpj ? `CNPJ: ${store.cnpj}` : null,
+                  store.phone ? `Tel: ${store.phone}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" | ")}
+              </Text>
+              {store.address && <Text style={styles.storeMeta}>{store.address}</Text>}
             </View>
-          )}
-          <View style={styles.row}>
-            <Text style={styles.label}>Tipo:</Text>
-            <Text>{purchase.sellerType === "supplier" ? "Fornecedor (PJ)" : "Pessoa Fisica"}</Text>
+          </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.docLabel}>Compra</Text>
+            <Text style={styles.docNumber}>{docCode}</Text>
+            <Text style={styles.docDate}>{fmtDateBr(purchase.purchaseDate)}</Text>
+          </View>
+        </View>
+        <View style={styles.headerDivider} />
+
+        <Text style={styles.title}>Termo de Responsabilidade</Text>
+
+        <View style={styles.infoTable}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoCellLabel}>Vendedor</Text>
+            <Text style={[styles.infoCellValue, { fontFamily: "Helvetica-Bold" }]}>{seller.name || "-"}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoCellLabel}>Doc.</Text>
+            <Text style={styles.infoCellValue}>{seller.doc || "-"}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoCellLabel}>Telefone</Text>
+            <Text style={styles.infoCellValue}>{seller.phone || "-"}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoCellLabel}>Endereco</Text>
+            <Text style={styles.infoCellValue}>{seller.address || "-"}</Text>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>DADOS DO APARELHO</Text>
-          <View style={styles.table}>
-            {rows.map(([k, v], i) => (
-              <View key={k} style={i === rows.length - 1 ? styles.tRowLast : styles.tRow}>
-                <Text style={styles.tCellLabel}>{k}</Text>
-                <Text style={styles.tCellValue}>{v}</Text>
-              </View>
-            ))}
+        <Text style={styles.sectionTitle}>Aparelho(s) Adquirido(s)</Text>
+        <View style={styles.itemsTable}>
+          <View style={styles.itemsHeaderRow}>
+            <Text style={[styles.itemsHeader, { flex: 3 }]}>Aparelho</Text>
+            <Text style={[styles.itemsHeader, { flex: 1.5 }]}>IMEI / Serie</Text>
+            <Text style={[styles.itemsHeader, { width: 60 }]}>Condicao</Text>
+            <Text style={[styles.itemsHeader, { width: 50, textAlign: "center" }]}>Bateria</Text>
+            <Text style={[styles.itemsHeader, { width: 70, textAlign: "right" }]}>Valor</Text>
+          </View>
+          <View style={styles.itemsRow}>
+            <Text style={[styles.itemsCell, { flex: 3, fontFamily: "Helvetica-Bold" }]}>{description}</Text>
+            <Text style={[styles.itemsCell, { flex: 1.5 }]}>
+              {purchase.imei
+                ? purchase.imei + (purchase.serial ? `\nS/N: ${purchase.serial}` : "")
+                : purchase.serial
+                  ? `S/N: ${purchase.serial}`
+                  : "-"}
+            </Text>
+            <Text style={[styles.itemsCell, { width: 60 }]}>{conditionLabel}</Text>
+            <Text style={[styles.itemsCell, { width: 50, textAlign: "center" }]}>
+              {purchase.batteryHealth != null ? `${purchase.batteryHealth}%` : "-"}
+            </Text>
+            <Text style={[styles.itemsCell, { width: 70, textAlign: "right", fontFamily: "Helvetica-Bold" }]}>
+              {fmtBRL(purchase.purchasePrice)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.declaracao}>
+          <Text style={styles.declaracaoTitle}>DECLARACAO DE PROPRIEDADE E PROCEDENCIA</Text>
+          <Text style={styles.declaracaoText}>
+            Eu, <Text style={{ fontFamily: "Helvetica-Bold" }}>{seller.name || "vendedor"}</Text>
+            {seller.doc ? `, portador(a) do ${seller.doc}` : ""}, DECLARO sob as penas da lei que:
+          </Text>
+          <View style={styles.declaracaoList}>
+            <Text style={styles.declaracaoListItem}>
+              • O(s) aparelho(s) acima descrito(s) e(sao) de minha propriedade legitima;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • O(s) aparelho(s) NAO e(sao) produto de furto, roubo ou qualquer outro crime;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • O(s) aparelho(s) NAO possui(em) restricoes de uso, bloqueios de operadora,
+              ou impedimentos legais;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • O(s) aparelho(s) NAO esta(ao) vinculado(s) a contratos de financiamento em
+              aberto;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • Todas as informacoes prestadas sao verdadeiras e podem ser verificadas;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • Estou ciente de que a falsidade das informacoes constitui crime de
+              estelionato (Art. 171 do Codigo Penal) e receptacao (Art. 180 do Codigo
+              Penal).
+            </Text>
+          </View>
+        </View>
+
+        <View style={[styles.declaracao, styles.declaracaoInfo]}>
+          <Text style={[styles.declaracaoTitle, styles.declaracaoInfoTitle]}>
+            AUTORIZACAO E CIENCIA
+          </Text>
+          <Text style={styles.declaracaoText}>
+            Autorizo a empresa <Text style={{ fontFamily: "Helvetica-Bold" }}>{store.name}</Text> a:
+          </Text>
+          <View style={styles.declaracaoList}>
+            <Text style={styles.declaracaoListItem}>
+              • Verificar a procedencia do(s) aparelho(s) junto aos orgaos competentes;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • Registrar o(s) IMEI(s) em sistema proprio para controle de estoque;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • Recusar a transacao caso seja identificada qualquer irregularidade;
+            </Text>
+            <Text style={styles.declaracaoListItem}>
+              • Comunicar as autoridades competentes em caso de suspeita de ilicitude.
+            </Text>
+          </View>
+          <Text style={[styles.declaracaoText, { marginTop: 4 }]}>
+            Estou ciente de que, em caso de irregularidade, respondere civil e
+            criminalmente pelos danos causados.
+          </Text>
+        </View>
+
+        <View style={styles.resumo}>
+          <View style={styles.resumoItem}>
+            <Text style={styles.resumoLabel}>Tipo</Text>
+            <Text style={styles.resumoValue}>Compra de Aparelho</Text>
+          </View>
+          <View style={styles.resumoItem}>
+            <Text style={styles.resumoLabel}>Valor Total</Text>
+            <Text style={[styles.resumoValue, { color: GOLD }]}>
+              {fmtBRL(purchase.purchasePrice)}
+            </Text>
+          </View>
+          <View style={styles.resumoItem}>
+            <Text style={styles.resumoLabel}>Data</Text>
+            <Text style={styles.resumoValue}>{fmtDateTimeBr(purchase.purchaseDate)}</Text>
           </View>
         </View>
 
         {purchase.notes && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>OBSERVACOES</Text>
-            <Text style={{ padding: 6, backgroundColor: "#f9f9f9" }}>{purchase.notes}</Text>
+          <View wrap={false} style={{ marginTop: 8 }}>
+            <Text style={[styles.sectionTitle, { backgroundColor: SOFT_BG, color: TEXT }]}>
+              Observacoes
+            </Text>
+            <Text
+              style={{
+                fontSize: 9,
+                padding: 6,
+                backgroundColor: SOFT_BG,
+                borderWidth: 1,
+                borderColor: BORDER,
+              }}
+            >
+              {purchase.notes}
+            </Text>
           </View>
         )}
 
-        <View style={styles.declaration}>
-          <Text style={styles.declarationP}>
-            <Text style={{ fontFamily: "Helvetica-Bold" }}>Declaracao: </Text>
-            Eu, <Text style={{ fontFamily: "Helvetica-Bold" }}>{seller.name}</Text>, {seller.doc},
-            declaro que o aparelho acima descrito e de minha propriedade legitima, livre de quaisquer
-            onus, gravames, restricoes judiciais ou impedimentos legais, e nao se trata de produto
-            de origem ilicita.
-          </Text>
-          <Text style={styles.declarationP}>
-            Comprometo-me a indenizar a empresa <Text style={{ fontFamily: "Helvetica-Bold" }}>{store.name}</Text> e
-            responder integralmente por qualquer prejuizo, perda, danos materiais ou morais decorrentes de
-            eventual reivindicacao por terceiros, autoridade publica ou orgao policial.
-          </Text>
-          <Text style={styles.declarationP}>
-            Autorizo, ainda, que a empresa proceda com a venda do aparelho a terceiros apos a transacao,
-            transferindo a posse e propriedade.
-          </Text>
-        </View>
-
-        <View style={styles.signatureBox}>
-          <View style={styles.signatureLine}>
-            <Text style={{ fontFamily: "Helvetica-Bold" }}>{seller.name}</Text>
-            <Text>{seller.doc}</Text>
+        <View style={styles.assinaturaWrapper} wrap={false}>
+          <View style={styles.assinaturaLinha}>
+            <Text style={styles.assinaturaNome}>
+              {seller.name || "_______________________"}
+            </Text>
+            {seller.doc && <Text style={styles.assinaturaCpf}>{seller.doc}</Text>}
           </View>
         </View>
 
         <Text style={styles.footer}>
-          {store.name} — Documento gerado em {new Date().toLocaleDateString("pt-BR")}{" "}
-          {new Date().toLocaleTimeString("pt-BR")}
+          Documento gerado em {new Date().toLocaleDateString("pt-BR")} as{" "}
+          {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} |
+          Este documento deve ser guardado como comprovante da transacao
         </Text>
       </Page>
     </Document>

@@ -1,11 +1,15 @@
 import { PurchaseTermPdfDocument, type PurchaseTermPdfData } from "@/lib/pdf/purchase-term-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
-import { withAdmin, withTenant } from "@/server/db";
+import { withTenant } from "@/server/db";
 import { formatCnpj, formatCpf } from "@/lib/utils";
+import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 
 /**
- * Gera o PDF binario do termo de responsabilidade de compra de aparelho.
- * Paridade Laravel CompraAparelhoController::termoResponsabilidade.
+ * Gera o PDF binario do termo de responsabilidade da compra de aparelho.
+ * Paridade visual com Laravel intranetpdv `termo-responsabilidade-compra.blade.php`:
+ * header com logo e divisor dourado, titulo destacado, info-table do vendedor,
+ * declaracao vermelha (propriedade) + azul (autorizacao), resumo destacado em
+ * dourado, assinatura unica do vendedor.
  */
 export async function buildPurchaseTermPdf(
   tenantId: string,
@@ -69,17 +73,7 @@ export async function buildPurchaseTermPdf(
     }
   }
 
-  const [tenant, settings] = await Promise.all([
-    withAdmin(async (tx) =>
-      tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true, cnpj: true } }),
-    ),
-    withTenant(tenantId, async (tx) =>
-      tx.tenantSettings.findUnique({
-        where: { tenantId },
-        select: { tradeName: true, cnpj: true, phone: true, logoUrl: true },
-      }),
-    ),
-  ]);
+  const header = await loadTenantHeader(tenantId);
 
   const data: PurchaseTermPdfData = {
     purchase: {
@@ -97,10 +91,11 @@ export async function buildPurchaseTermPdf(
     },
     seller: { name: sellerName, doc: sellerDoc, phone: sellerPhone, address: sellerAddress },
     store: {
-      name: settings?.tradeName ?? tenant?.name ?? "Arena Tech",
-      cnpj: formatCnpj(settings?.cnpj ?? tenant?.cnpj ?? ""),
-      phone: settings?.phone ?? "",
-      logoUrl: settings?.logoUrl ?? null,
+      name: header.storeName,
+      cnpj: formatDoc(header.cnpj),
+      phone: header.phone,
+      address: header.address,
+      logoDataUrl: header.logoDataUrl,
     },
   };
 
