@@ -1,0 +1,50 @@
+/// Conversa de WhatsApp por telefone. Tracking da janela de 24h da Meta Cloud
+/// API: a Meta so permite enviar mensagens "livres" para clientes nas 24h apos
+/// uma mensagem inbound do cliente. Fora dessa janela, so via template aprovado.
+///
+/// Paridade Laravel `whatsapp_conversations`.
+model WhatsappConversation {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  phone           String
+  lastInboundAt   DateTime? @map("last_inbound_at")
+  lastOutboundAt  DateTime? @map("last_outbound_at")
+  inboundCount    Int       @default(0) @map("inbound_count")
+  outboundCount   Int       @default(0) @map("outbound_count")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, lastInboundAt])
+  @@map("whatsapp_conversations")
+}
+
+/// Log de mensagens enviadas via WhatsApp (Meta Cloud API). Imutavel,
+/// usado para auditoria e debug (saber se cliente recebeu, qual template,
+/// se houve fallback texto, etc).
+///
+/// Paridade Laravel `whatsapp_mensagens_enviadas`.
+model WhatsappMessageSent {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  phone         String
+  /// "text" | "template" | "media"
+  type          String
+  templateName  String?  @map("template_name")
+  content       String?  @db.Text
+  /// Message ID retornado pela Meta (WABA).
+  wamid         String?
+  /// "enviado" | "falha" | "fora_janela"
+  status        String   @default("enviado")
+  errorMessage  String?  @map("error_message") @db.Text
+  /// Morphic reference para a entidade que originou o envio.
+  /// Ex: ("sale", uuid) | ("service_order", uuid) | ("device_purchase", uuid).
+  originType    String?  @map("origin_type")
+  originId      String?  @map("origin_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, phone, createdAt])
+  @@index([tenantId, originType, originId])
+  @@index([tenantId, status])
+  @@map("whatsapp_messages_sent")
+}

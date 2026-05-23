@@ -81,16 +81,24 @@ export async function loadTenantHeader(tenantId: string): Promise<TenantHeaderDa
 }
 
 /**
- * Baixa a logo (URL pode ser http(s), s3://, ou path relativo no MinIO) e
- * converte para data URL embedavel no PDF. Retorna null em qualquer falha
- * (network, formato, etc) — fallback grafico ja existe no PDF.
+ * Baixa a logo e converte para data URL embedavel no PDF. Quando a URL
+ * passa pelo proxy interno (`/api/storage/...`), busca direto do MinIO
+ * sem fazer round-trip HTTP. Retorna null em qualquer falha — fallback
+ * grafico ja existe no PDF.
  */
 async function loadLogoDataUrl(url: string): Promise<string | null> {
   try {
-    // Aceita URLs absolutas. Para paths relativos do MinIO, prefixa com base.
+    // Caminho rapido: se a URL aponta para o proxy `/api/storage/`, baixa
+    // direto do MinIO interno (mais rapido + funciona em SSR sem rede externa).
+    const proxyIdx = url.indexOf("/api/storage/");
+    if (proxyIdx !== -1) {
+      const key = url.slice(proxyIdx + "/api/storage/".length);
+      return await loadFromMinio(key);
+    }
+    // Caminho legado: fetch HTTP padrao.
     let absoluteUrl = url;
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      const base = process.env.MINIO_PUBLIC_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? "";
       absoluteUrl = `${base.replace(/\/$/, "")}/${url.replace(/^\//, "")}`;
     }
     const controller = new AbortController();
@@ -100,6 +108,33 @@ async function loadLogoDataUrl(url: string): Promise<string | null> {
     if (!res.ok) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
     const mime = res.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+    return `data:${mime};base64,${buffer.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Baixa um objeto do MinIO direto (server-side, sem HTTP externo) e retorna
+ * data URL. Usado por `loadLogoDataUrl` quando a URL passa pelo proxy interno.
+ */
+async function loadFromMinio(key: string): Promise<string | null> {
+  try {
+    const endpoint = process.env.S3_ENDPOINT || "http://localhost:9000";
+    const bucket = process.env.S3_BUCKET || "arenatech";
+    const accessKey = process.env.S3_ACCESS_KEY || "minioadmin";
+    const secretKey = process.env.S3_SECRET_KEY || "minioadmin";
+    const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = new S3Client({
+      region: "us-east-1",
+      endpoint,
+      forcePathStyle: true,
+      credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+    });
+    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (!res.Body) return null;
+    const buffer = Buffer.from(await res.Body.transformToByteArray());
+    const mime = res.ContentType?.split(";")[0]?.trim() || "image/png";
     return `data:${mime};base64,${buffer.toString("base64")}`;
   } catch {
     return null;

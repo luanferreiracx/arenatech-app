@@ -1,0 +1,41 @@
+/// Categoria de atalhos no dashboard. Agrupa links uteis, sistemas, fornecedores,
+/// entregadores, etc. Paridade Laravel `categorias_dashboard`.
+model DashboardCategory {
+  id        String          @id @default(uuid()) @db.Uuid
+  tenantId  String          @map("tenant_id") @db.Uuid
+  name      String
+  icon      String?
+  color     String?
+  order     Int             @default(0)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  links     DashboardLink[]
+
+  @@index([tenantId, active, order])
+  @@map("dashboard_categories")
+}
+
+/// Atalho (link) dentro de uma categoria do dashboard. Paridade Laravel
+/// `links_dashboard`.
+model DashboardLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  categoryId  String   @map("category_id") @db.Uuid
+  title       String
+  url         String
+  icon        String?
+  color       String?
+  description String?
+  order       Int      @default(0)
+  active      Boolean  @default(true)
+  openNewTab  Boolean  @default(true) @map("open_new_tab")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  category DashboardCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, categoryId, active, order])
+  @@map("dashboard_links")
+}

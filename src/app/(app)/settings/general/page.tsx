@@ -25,6 +25,7 @@ import { FormActions } from "@/components/domain/forms/form-actions";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
 import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
+import { LogoUpload } from "@/components/inputs/logo-upload";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -57,7 +58,6 @@ export default function GeneralSettingsPage() {
           cnpj: settings.cnpj ?? "",
           phone: settings.phone ?? "",
           email: settings.email ?? "",
-          logoUrl: settings.logoUrl ?? "",
           address: (settings.address as UpdateGeneralSettingsInput["address"]) ?? {
             cep: "",
             logradouro: "",
@@ -213,42 +213,15 @@ export default function GeneralSettingsPage() {
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="logoUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>URL da Logo</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        value={field.value ?? ""}
-                        placeholder="https://exemplo.com/logo.png"
-                        type="url"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      URL publica da logo da loja. Aparece no cabecalho de recibos, termos
-                      de garantia/entrega e demais PDFs. Recomendamos PNG ou JPG com fundo
-                      transparente, max 300x150px.
-                    </FormDescription>
-                    <FormMessage />
-                    {field.value && (
-                      <div className="mt-2 p-2 border rounded-md bg-muted/30 inline-block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={field.value}
-                          alt="Preview da logo"
-                          style={{ maxHeight: 64, maxWidth: 240 }}
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = "none";
-                          }}
-                        />
-                      </div>
-                    )}
-                  </FormItem>
-                )}
-              />
+              <div>
+                <label className="text-sm font-medium leading-none mb-2 block">
+                  Logo da loja
+                </label>
+                <LogoUpload currentUrl={settings?.logoUrl ?? null} />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Aparece no cabecalho de recibos, termos de garantia/entrega e demais PDFs.
+                </p>
+              </div>
             </CardContent>
           </Card>
 

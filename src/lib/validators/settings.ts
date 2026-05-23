@@ -8,14 +8,6 @@ export const updateGeneralSettingsSchema = z.object({
   cnpj: z.string().max(14).optional().nullable(),
   phone: z.string().max(11).optional().nullable(),
   email: z.string().email("E-mail invalido").max(255).optional().nullable(),
-  /** URL publica da logo da loja — exibida no header dos PDFs (recibo, termos). */
-  logoUrl: z
-    .string()
-    .url("Informe uma URL valida")
-    .max(500)
-    .optional()
-    .nullable()
-    .or(z.literal("")),
   address: z
     .object({
       cep: z.string().max(8).optional(),

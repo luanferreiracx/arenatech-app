@@ -50,7 +50,6 @@ export const settingsRouter = createTRPCRouter({
           cnpj: input.cnpj,
           phone: input.phone,
           email: input.email,
-          logoUrl: input.logoUrl === "" ? null : input.logoUrl,
           address: input.address === null
             ? Prisma.JsonNull
             : input.address !== undefined
@@ -85,6 +84,81 @@ export const settingsRouter = createTRPCRouter({
         return updated;
       });
     }),
+
+  /**
+   * Upload da logo do tenant. Recebe base64 + extensao, processa via Sharp
+   * e armazena no MinIO. Atualiza `tenant_settings.logoUrl`.
+   */
+  uploadLogo: tenantProcedure
+    .input(
+      z.object({
+        /** dataURL completo: "data:image/png;base64,iVBOR..." */
+        dataUrl: z.string().min(20).max(3_000_000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "manager") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas gerentes e proprietarios podem alterar a logo",
+        });
+      }
+
+      const match = input.dataUrl.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+      if (!match) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Formato invalido (use data URL)" });
+      }
+      const mimeType = match[1]!;
+      const buffer = Buffer.from(match[2]!, "base64");
+
+      const { uploadTenantLogo, deleteTenantLogo } = await import("@/lib/tenant-logo-service");
+
+      // Apaga a logo antiga (best effort).
+      const existing = await ctx.withTenant(async (tx) =>
+        tx.tenantSettings.findUnique({ where: { tenantId: ctx.tenantId }, select: { logoUrl: true } }),
+      );
+      if (existing?.logoUrl) {
+        await deleteTenantLogo(existing.logoUrl).catch(() => undefined);
+      }
+
+      const url = await uploadTenantLogo(ctx.tenantId, buffer, mimeType);
+      const updated = await ctx.withTenant(async (tx) =>
+        tx.tenantSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: { tenantId: ctx.tenantId, logoUrl: url },
+          update: { logoUrl: url },
+        }),
+      );
+
+      return { logoUrl: updated.logoUrl };
+    }),
+
+  /** Remove a logo do tenant (deleta do MinIO + zera o campo). */
+  deleteLogo: tenantProcedure.mutation(async ({ ctx }) => {
+    const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+    if (userRole !== "owner" && userRole !== "manager") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Apenas gerentes e proprietarios podem alterar a logo",
+      });
+    }
+    const settings = await ctx.withTenant(async (tx) =>
+      tx.tenantSettings.findUnique({ where: { tenantId: ctx.tenantId }, select: { logoUrl: true } }),
+    );
+    if (settings?.logoUrl) {
+      const { deleteTenantLogo } = await import("@/lib/tenant-logo-service");
+      await deleteTenantLogo(settings.logoUrl).catch(() => undefined);
+    }
+    await ctx.withTenant(async (tx) =>
+      tx.tenantSettings.upsert({
+        where: { tenantId: ctx.tenantId },
+        create: { tenantId: ctx.tenantId, logoUrl: null },
+        update: { logoUrl: null },
+      }),
+    );
+    return { success: true };
+  }),
 
   // ═══════════════════════════════════════
   // PAYMENT METHODS
