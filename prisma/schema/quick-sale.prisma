@@ -3,6 +3,7 @@ enum QuickSaleStatus {
   PAID
   CANCELLED
   REFUNDED
+  EXPIRED
 }
 
 model QuickSale {

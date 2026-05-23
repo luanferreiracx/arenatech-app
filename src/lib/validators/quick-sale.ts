@@ -7,6 +7,7 @@ export const quickSaleStatusEnum = z.enum([
   "PAID",
   "CANCELLED",
   "REFUNDED",
+  "EXPIRED",
 ]);
 export type QuickSaleStatus = z.infer<typeof quickSaleStatusEnum>;
 
@@ -15,6 +16,7 @@ export const QUICK_SALE_STATUS_LABELS: Record<string, string> = {
   PAID: "Pago",
   CANCELLED: "Cancelado",
   REFUNDED: "Estornado",
+  EXPIRED: "Expirado",
 };
 
 // ── Create Quick Sale ──

@@ -122,9 +122,11 @@ export const quickSaleRouter = createTRPCRouter({
         });
       }
 
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — cria registro + valida limite (tx curta).
+      const { qs, isFirstDay, number } = await ctx.withTenant(async (tx) => {
         // Valida limite DePix (paridade Laravel DepixLimiteService): primeiro dia
         // R$ 500/transacao + R$ 500/dia; apos 24h R$ 5k/transacao + R$ 6k/dia.
+        let firstDay = false;
         if (hasValidTaxId) {
           const limit = await validateDepixLimit(tx, ctx.tenantId, cpfDigits, totalReaisPre);
           if (!limit.allowed) {
@@ -133,13 +135,13 @@ export const quickSaleRouter = createTRPCRouter({
               message: limit.reason ?? "Limite DePix excedido.",
             });
           }
+          firstDay = limit.isFirstDay;
         }
 
         // Generate number: QS{year}{5-digit seq}
         const year = new Date().getFullYear();
-        // Numero atomico via sequencia tenant-scoped (race-safe).
         const { nextTenantNumber } = await import("@/server/services/tenant-number-sequence.service");
-        const { formatted: number } = await nextTenantNumber(
+        const { formatted: num } = await nextTenantNumber(
           tx as unknown as Parameters<typeof nextTenantNumber>[0],
           ctx.tenantId,
           "quick_sale",
@@ -153,10 +155,10 @@ export const quickSaleRouter = createTRPCRouter({
         const totalCents = Math.max(0, subtotal - (input.discount ?? 0));
         const totalDecimal = new Prisma.Decimal(totalCents / 100);
 
-        const qs = await tx.quickSale.create({
+        const created = await tx.quickSale.create({
           data: {
             tenantId: ctx.tenantId,
-            number,
+            number: num,
             buyerName: input.buyerName ?? null,
             cpfCnpj: input.cpfCnpj?.replace(/\D/g, "") ?? null,
             phone: input.phone?.replace(/\D/g, "") ?? null,
@@ -166,11 +168,54 @@ export const quickSaleRouter = createTRPCRouter({
             discount: discountDecimal,
             totalAmount: totalDecimal,
             createdById: ctx.session.user.id,
+            depixStatus: "pending",
           },
         });
-
-        return serializeQuickSale(qs as unknown as Record<string, unknown>);
+        return { qs: created, isFirstDay: firstDay, number: num };
       });
+
+      // ETAPA 2 — gera PIX automaticamente (HTTP externo, fora da tx).
+      // Sem CPF/CNPJ valido + valor < R$ 500, gera mesmo assim (PIX e exigido).
+      const pixResult = await createPixPayment(
+        totalReaisPre,
+        `Venda ${number}`,
+        qs.id,
+        cpfDigits || null,
+        { whitelist: isFirstDay && totalReaisPre > 500 },
+      );
+
+      if (!pixResult.success) {
+        // PIX falhou — mantemos a venda criada mas sinalizamos no logger.
+        // Operador pode tentar de novo via botao "Gerar PIX" na detail page.
+        logger.warn("QuickSale criada mas PIX falhou", {
+          quickSaleId: qs.id,
+          number,
+          error: pixResult.error,
+        });
+        return serializeQuickSale(qs as unknown as Record<string, unknown>);
+      }
+
+      // ETAPA 3 — persiste transactionId + QR. Webhook usa pra achar a venda.
+      const updated = await ctx.withTenant(async (tx) =>
+        tx.quickSale.update({
+          where: { id: qs.id },
+          data: {
+            depixTransactionId: pixResult.transactionId ?? null,
+            depixStatus: "pending",
+            depixQrCode: pixResult.qrCode ?? null,
+            depixQrCodeBase64: pixResult.qrCodeBase64 ?? null,
+          },
+        }),
+      );
+
+      logger.info("QuickSale criada + PIX gerado", {
+        quickSaleId: qs.id,
+        number,
+        transactionId: pixResult.transactionId,
+        amount: totalReaisPre,
+      });
+
+      return serializeQuickSale(updated as unknown as Record<string, unknown>);
     }),
 
   /** Update quick sale (only if AWAITING_PAYMENT) */
@@ -390,18 +435,31 @@ export const quickSaleRouter = createTRPCRouter({
         });
       }
 
-      // Se ja pagou e ainda nao tinha sido refletido, marca como PAID.
-      if (result.status === "paid" && qs.status === "AWAITING_PAYMENT") {
-        await ctx.withTenant(async (tx) =>
-          tx.quickSale.update({
-            where: { id: qs.id },
-            data: {
-              status: "PAID",
-              paidAt: new Date(),
-              depixStatus: "paid",
-            },
-          }),
-        );
+      // Sincroniza status da venda com o status do PIX (paridade Laravel
+      // VendaAvulsaService::sincronizarStatusPix).
+      if (qs.status === "AWAITING_PAYMENT") {
+        if (result.status === "paid") {
+          await ctx.withTenant(async (tx) =>
+            tx.quickSale.update({
+              where: { id: qs.id },
+              data: { status: "PAID", paidAt: new Date(), depixStatus: "paid" },
+            }),
+          );
+        } else if (result.status === "expired") {
+          await ctx.withTenant(async (tx) =>
+            tx.quickSale.update({
+              where: { id: qs.id },
+              data: { status: "EXPIRED", depixStatus: "expired" },
+            }),
+          );
+        } else if (result.status === "failed" || result.status === "refunded") {
+          await ctx.withTenant(async (tx) =>
+            tx.quickSale.update({
+              where: { id: qs.id },
+              data: { status: "CANCELLED", depixStatus: result.status },
+            }),
+          );
+        }
       }
 
       return {

@@ -126,8 +126,38 @@ export async function POST(req: NextRequest) {
     "depix_sent",
     "success",
   ]);
-  if (!PAID_STATUSES.has(rawStatus)) {
+  const EXPIRED_STATUSES = new Set(["expired", "expirado"]);
+  const FAILED_STATUSES = new Set(["failed", "cancelled", "canceled", "refunded"]);
+  const isPaid = PAID_STATUSES.has(rawStatus);
+  const isExpired = EXPIRED_STATUSES.has(rawStatus);
+  const isFailed = FAILED_STATUSES.has(rawStatus);
+
+  // Status nao final (pending, processing, etc) — apenas acknowledge.
+  if (!isPaid && !isExpired && !isFailed) {
     return NextResponse.json({ received: true, ignored: true, status: rawStatus });
+  }
+
+  // Status de cancelamento/expiracao so atualiza QuickSale (Sale e ServiceOrder
+  // tem fluxos manuais separados; webhook aqui marca apenas a venda avulsa).
+  if (isExpired || isFailed) {
+    const updated = await withAdmin(async (tx) => {
+      return tx.quickSale.updateMany({
+        where: {
+          depixTransactionId: transactionId,
+          status: "AWAITING_PAYMENT",
+        },
+        data: {
+          status: isExpired ? "EXPIRED" : "CANCELLED",
+          depixStatus: isExpired ? "expired" : "failed",
+        },
+      });
+    });
+    logger.info("Depix-payment webhook: QuickSale marcada como nao-paga", {
+      transactionId,
+      rawStatus,
+      affected: updated.count,
+    });
+    return NextResponse.json({ received: true, finalized: true, count: updated.count });
   }
 
   // ─── IDEMPOTENCIA: insere evento na tabela de audit + early-exit se dup ─

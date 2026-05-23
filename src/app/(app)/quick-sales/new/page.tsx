@@ -47,8 +47,16 @@ export default function NewQuickSalePage() {
   const createMutation = useMutation(
     trpc.quickSale.create.mutationOptions({
       onSuccess: (data) => {
-        toast.success("Venda avulsa criada!");
-        router.push(`/quick-sales/${(data as Record<string, unknown>).id}`);
+        const d = data as Record<string, unknown>;
+        if (d.depixTransactionId) {
+          toast.success("Venda criada e PIX gerado!");
+        } else {
+          toast.warning(
+            "Venda criada, mas houve erro ao gerar PIX. Clique em 'Gerar PIX' na proxima tela.",
+          );
+        }
+        // showPix=1 -> detail abre o dialog automaticamente
+        router.push(`/quick-sales/${d.id}?showPix=1`);
       },
       onError: (err) => toast.error(err.message),
     })

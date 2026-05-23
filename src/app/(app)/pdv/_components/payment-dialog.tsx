@@ -106,9 +106,28 @@ export function PaymentDialog({
     acceptsInstallments: boolean;
     installmentsMax: number;
   }>;
-  const methodOptions = dbMethods.length > 0
+
+  // DePix esta restrito a Intranet Central (tenant arena-tech) por enquanto.
+  // Pega o slug via auth.me — query leve, ja cacheada.
+  const meQuery = useQuery(
+    trpc.auth.me.queryOptions(undefined, { enabled: open, staleTime: 5 * 60_000 }),
+  );
+  const activeTenantId = meQuery.data?.activeTenantId;
+  const tenantSlug = activeTenantId
+    ? meQuery.data?.availableTenants.find((t) => t.id === activeTenantId)?.slug
+    : undefined;
+  const depixEnabled = tenantSlug === "arena-tech";
+
+  const baseOptions = dbMethods.length > 0
     ? dbMethods.map((m) => ({ id: m.id, key: m.code ?? m.id, label: m.name, acceptsInstallments: m.acceptsInstallments, installmentsMax: m.installmentsMax }))
     : FALLBACK_METHODS.map((m) => ({ id: null as string | null, key: m.key, label: m.label, acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
+
+  // Garante DePix disponivel no tenant arena-tech, mesmo se nao cadastrado
+  // como PaymentMethod (fluxo PIX gera transacao via PixPay direto).
+  const hasDepix = baseOptions.some((m) => m.key === "depix");
+  const methodOptions = depixEnabled && !hasDepix
+    ? [...baseOptions, { id: null as string | null, key: "depix", label: "DePix", acceptsInstallments: false, installmentsMax: 1 }]
+    : baseOptions;
 
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 

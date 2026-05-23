@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -47,7 +47,12 @@ export default function QuickSaleDetailPage() {
   );
 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [showPixDialog, setShowPixDialog] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  // Abre auto quando vem do /new (?showPix=1).
+  const [showPixDialog, setShowPixDialog] = useState(
+    searchParams.get("showPix") === "1",
+  );
 
   const markPaidMutation = useMutation(
     trpc.quickSale.markPaid.mutationOptions({
@@ -255,9 +260,14 @@ export default function QuickSaleDetailPage() {
           existingTransactionId={s.depixTransactionId as string | null}
           existingQrCode={s.depixQrCode as string | null}
           existingQrCodeBase64={s.depixQrCodeBase64 as string | null}
-          onClose={() => setShowPixDialog(false)}
+          onClose={() => {
+            setShowPixDialog(false);
+            // Limpa o ?showPix=1 da URL para nao reabrir em refresh.
+            if (searchParams.get("showPix")) router.replace(`/quick-sales/${id}`);
+          }}
           onPaid={() => {
             setShowPixDialog(false);
+            if (searchParams.get("showPix")) router.replace(`/quick-sales/${id}`);
             queryClient.invalidateQueries({ queryKey: [["quickSale"]] });
           }}
         />
