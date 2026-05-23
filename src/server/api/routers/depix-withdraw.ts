@@ -33,6 +33,7 @@ function serializeWithdraw(w: {
   status: string;
   depixId: string | null;
   depositAddress: string | null;
+  depositAddressQr: string | null;
   blockchainTxId: string | null;
   expiration: Date | null;
   userId: string;
@@ -56,6 +57,7 @@ function serializeWithdraw(w: {
     statusLabel: DEPIX_STATUS_LABELS[w.status] ?? w.status,
     depixId: w.depixId,
     depositAddress: w.depositAddress,
+    depositAddressQr: w.depositAddressQr,
     blockchainTxId: w.blockchainTxId,
     expiration: w.expiration,
     userId: w.userId,
@@ -188,6 +190,7 @@ export const depixWithdrawRouter = createTRPCRouter({
           data: {
             depixId: result.id ?? null,
             depositAddress: result.depositAddress ?? null,
+            depositAddressQr: result.depositAddressQr ?? null,
             depositAmount:
               result.depositAmountInCents != null
                 ? new Prisma.Decimal(result.depositAmountInCents).div(100)

@@ -58,3 +58,22 @@ export const listQuickSalesSchema = z.object({
 });
 
 export type ListQuickSalesInput = z.infer<typeof listQuickSalesSchema>;
+
+// ── Generate PIX (DePix) ──
+
+export const generateQuickSalePixSchema = z.object({
+  id: z.string().uuid(),
+  /** CPF/CNPJ informado pelo operador, obrigatorio quando totalAmount >= R$ 500. */
+  taxId: z.string().max(20).optional().nullable(),
+});
+
+export type GenerateQuickSalePixInput = z.infer<typeof generateQuickSalePixSchema>;
+
+// ── Check PIX status ──
+
+export const checkQuickSalePixStatusSchema = z.object({
+  id: z.string().uuid(),
+  transactionId: z.string().min(1),
+});
+
+export type CheckQuickSalePixStatusInput = z.infer<typeof checkQuickSalePixStatusSchema>;

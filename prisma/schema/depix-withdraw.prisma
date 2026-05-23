@@ -30,6 +30,9 @@ model DepixWithdraw {
   status           DepixWithdrawStatus @default(PENDING)
   depixId          String?             @map("depix_id")
   depositAddress   String?             @map("deposit_address")
+  /** PNG base64 do QR code do depositAddress (gerado no backend). Permite
+   * usuario escanear pra enviar BTC/Liquid em vez de digitar o address. */
+  depositAddressQr String?             @map("deposit_address_qr")
   blockchainTxId   String?             @map("blockchain_tx_id")
   expiration       DateTime?
   apiResponse      Json?               @map("api_response")

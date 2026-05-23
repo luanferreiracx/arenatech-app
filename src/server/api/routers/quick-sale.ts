@@ -6,7 +6,15 @@ import {
   createQuickSaleSchema,
   updateQuickSaleSchema,
   listQuickSalesSchema,
+  generateQuickSalePixSchema,
+  checkQuickSalePixStatusSchema,
 } from "@/lib/validators/quick-sale";
+import {
+  createPixPayment,
+  getPixStatus,
+} from "@/lib/services/depix-service";
+import { validateDepixLimit } from "@/lib/services/depix-limit-service";
+import { logger } from "@/lib/logger";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -99,7 +107,34 @@ export const quickSaleRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createQuickSaleSchema)
     .mutation(async ({ ctx, input }) => {
+      // Pre-calculo de total + validacao de regra DePix antes de abrir tx.
+      // PIX >= R$ 500 exige CPF/CNPJ do pagador (anti-fraude PixPay).
+      const subtotalPre = input.quantity * input.unitPrice;
+      const totalCentsPre = Math.max(0, subtotalPre - (input.discount ?? 0));
+      const totalReaisPre = totalCentsPre / 100;
+      const cpfDigits = (input.cpfCnpj ?? "").replace(/\D/g, "");
+      const hasValidTaxId = cpfDigits.length === 11 || cpfDigits.length === 14;
+      if (totalReaisPre >= 500 && !hasValidTaxId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+        });
+      }
+
       return ctx.withTenant(async (tx) => {
+        // Valida limite DePix (paridade Laravel DepixLimiteService): primeiro dia
+        // R$ 500/transacao + R$ 500/dia; apos 24h R$ 5k/transacao + R$ 6k/dia.
+        if (hasValidTaxId) {
+          const limit = await validateDepixLimit(tx, ctx.tenantId, cpfDigits, totalReaisPre);
+          if (!limit.allowed) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: limit.reason ?? "Limite DePix excedido.",
+            });
+          }
+        }
+
         // Generate number: QS{year}{5-digit seq}
         const year = new Date().getFullYear();
         // Numero atomico via sequencia tenant-scoped (race-safe).
@@ -225,6 +260,154 @@ export const quickSaleRouter = createTRPCRouter({
 
         return serializeQuickSale(updated as unknown as Record<string, unknown>);
       });
+    }),
+
+  /**
+   * Gera QR Code PIX/DePix para a venda avulsa (paridade Laravel
+   * `gerarPixVendaAvulsa`). Persiste depixTransactionId + qrCode na propria
+   * row pra o webhook localizar quando o pagamento confirmar.
+   */
+  generatePix: tenantProcedure
+    .input(generateQuickSalePixSchema)
+    .mutation(async ({ ctx, input }) => {
+      // ETAPA 1 — fetch + validacoes (tx curta)
+      const qs = await ctx.withTenant(async (tx) =>
+        tx.quickSale.findUnique({ where: { id: input.id } }),
+      );
+      if (!qs || qs.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Venda avulsa nao encontrada" });
+      }
+      if (qs.status !== "AWAITING_PAYMENT") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Venda nao esta aguardando pagamento",
+        });
+      }
+      const totalReais = Number(qs.totalAmount);
+      if (totalReais <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Total deve ser maior que zero" });
+      }
+
+      // Regra DePix: >= R$ 500 exige CPF/CNPJ. Usa o que vier no input
+      // (operador pode digitar agora) ou o que ja tem cadastrado.
+      const taxIdRaw = (input.taxId ?? qs.cpfCnpj ?? "").replace(/\D/g, "");
+      const hasValidTaxId = taxIdRaw.length === 11 || taxIdRaw.length === 14;
+      if (totalReais >= 500 && !hasValidTaxId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+        });
+      }
+
+      // Valida limite diario por documento.
+      let isFirstDay = false;
+      if (hasValidTaxId) {
+        const limit = await ctx.withTenant(async (tx) =>
+          validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalReais),
+        );
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: limit.reason ?? "Limite DePix excedido.",
+          });
+        }
+        isFirstDay = limit.isFirstDay;
+      }
+
+      // ETAPA 2 — Cria PIX via PixPay (HTTP, fora de tx).
+      const result = await createPixPayment(
+        totalReais,
+        `Venda ${qs.number}`,
+        qs.id,
+        taxIdRaw || null,
+        { whitelist: isFirstDay && totalReais > 500 },
+      );
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao gerar PIX",
+        });
+      }
+
+      // ETAPA 3 — Persiste transactionId + QR no banco. Sem isso, o webhook
+      // nunca acha a venda quando o pagamento confirmar.
+      await ctx.withTenant(async (tx) =>
+        tx.quickSale.update({
+          where: { id: qs.id },
+          data: {
+            depixTransactionId: result.transactionId ?? null,
+            depixStatus: "pending",
+            depixQrCode: result.qrCode ?? null,
+            depixQrCodeBase64: result.qrCodeBase64 ?? null,
+            // Persiste CPF/CNPJ se o operador digitou no momento de gerar.
+            ...(input.taxId && !qs.cpfCnpj ? { cpfCnpj: taxIdRaw } : {}),
+          },
+        }),
+      );
+
+      logger.info("QuickSale PIX gerado", {
+        quickSaleId: qs.id,
+        number: qs.number,
+        transactionId: result.transactionId,
+        amount: totalReais,
+      });
+
+      return {
+        transactionId: result.transactionId,
+        qrCode: result.qrCode,
+        qrCodeBase64: result.qrCodeBase64,
+        pixKey: result.pixKey,
+      };
+    }),
+
+  /**
+   * Consulta status atual da transacao PIX e marca venda como PAID quando
+   * confirmar. Botao manual de "Verificar PIX" + polling do dialog.
+   */
+  checkPixStatus: tenantProcedure
+    .input(checkQuickSalePixStatusSchema)
+    .mutation(async ({ ctx, input }) => {
+      // Ownership: transactionId deve estar vinculado a uma quick-sale do tenant.
+      const qs = await ctx.withTenant(async (tx) =>
+        tx.quickSale.findUnique({ where: { id: input.id } }),
+      );
+      if (!qs || qs.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      if (qs.depixTransactionId && qs.depixTransactionId !== input.transactionId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Transacao nao pertence a esta venda.",
+        });
+      }
+
+      const result = await getPixStatus(input.transactionId);
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao consultar PIX",
+        });
+      }
+
+      // Se ja pagou e ainda nao tinha sido refletido, marca como PAID.
+      if (result.status === "paid" && qs.status === "AWAITING_PAYMENT") {
+        await ctx.withTenant(async (tx) =>
+          tx.quickSale.update({
+            where: { id: qs.id },
+            data: {
+              status: "PAID",
+              paidAt: new Date(),
+              depixStatus: "paid",
+            },
+          }),
+        );
+      }
+
+      return {
+        status: result.status ?? "pending",
+        isFinal: result.isFinal ?? false,
+      };
     }),
 
   /** Stats */

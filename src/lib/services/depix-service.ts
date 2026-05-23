@@ -235,6 +235,8 @@ export interface DepixWithdrawResult {
   id?: string;
   /** Endereco Liquid de deposito */
   depositAddress?: string;
+  /** PNG base64 do QR code do depositAddress, gerado localmente (PixPay nao envia). */
+  depositAddressQr?: string;
   depositAmountInCents?: number;
   payoutAmountInCents?: number;
   expiration?: string;
@@ -243,6 +245,28 @@ export interface DepixWithdrawResult {
   fee?: number;
   raw?: unknown;
   error?: string;
+}
+
+/**
+ * Gera QR Code (PNG base64) a partir de um endereco Liquid (lq1qq...).
+ * PixPay nao retorna QR para saque — geramos no backend pra usuario escanear.
+ * Retorna a string `data:image/png;base64,...` pronta pra `<img src>`.
+ */
+export async function generateDepositAddressQr(address: string): Promise<string | null> {
+  if (!address || address.trim().length === 0) return null;
+  try {
+    const QRCode = (await import("qrcode")).default;
+    return await QRCode.toDataURL(address, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 320,
+    });
+  } catch (err) {
+    logger.error("Erro ao gerar QR do depositAddress", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 /**
@@ -368,10 +392,16 @@ export async function createDepixWithdraw(
         ? depositAmountInCents / 100 - receivedAmount
         : undefined;
 
+    const depositAddress = (data.depositAddress as string | undefined) ?? undefined;
+    const depositAddressQr = depositAddress
+      ? (await generateDepositAddressQr(depositAddress)) ?? undefined
+      : undefined;
+
     return {
       success: true,
       id: String(data.id),
-      depositAddress: (data.depositAddress as string | undefined) ?? undefined,
+      depositAddress,
+      depositAddressQr,
       depositAmountInCents,
       payoutAmountInCents,
       expiration: (data.expiration as string | undefined) ?? undefined,

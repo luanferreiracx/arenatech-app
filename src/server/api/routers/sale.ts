@@ -1158,6 +1158,7 @@ export const saleRouter = createTRPCRouter({
                     requestedAmount: centsToPrisma(txResult.refundDueCents),
                     depixId: withdrawResult.id ?? null,
                     depositAddress: withdrawResult.depositAddress ?? null,
+                    depositAddressQr: withdrawResult.depositAddressQr ?? null,
                     receivedAmount:
                       withdrawResult.receivedAmount != null
                         ? new Prisma.Decimal(withdrawResult.receivedAmount)

@@ -9,12 +9,13 @@ import {
   CreditCard,
   CheckCircle,
   XCircle,
-  Pencil,
   User,
   Calendar,
   Loader2,
   Printer,
+  QrCode,
 } from "lucide-react";
+import { QuickSaleDepixDialog } from "./_components/quick-sale-depix-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ export default function QuickSaleDetailPage() {
   );
 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showPixDialog, setShowPixDialog] = useState(false);
 
   const markPaidMutation = useMutation(
     trpc.quickSale.markPaid.mutationOptions({
@@ -96,16 +98,22 @@ export default function QuickSaleDetailPage() {
           <div className="flex gap-2">
             {isAwaiting && (
               <>
+                <Button onClick={() => setShowPixDialog(true)}>
+                  <QrCode className="mr-2 h-4 w-4" />
+                  {s.depixTransactionId ? "Ver QR PIX" : "Gerar PIX DePix"}
+                </Button>
                 <Button
+                  variant="outline"
                   onClick={() => markPaidMutation.mutate({ id })}
                   disabled={markPaidMutation.isPending}
+                  title="Marcar como pago manualmente (PIX recebido fora do app)"
                 >
                   {markPaidMutation.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <CheckCircle className="mr-2 h-4 w-4" />
                   )}
-                  Confirmar Pagamento
+                  Marcar Pago Manual
                 </Button>
                 <Button
                   variant="outline"
@@ -237,6 +245,23 @@ export default function QuickSaleDetailPage() {
         isLoading={cancelMutation.isPending}
         onConfirm={() => cancelMutation.mutate({ id })}
       />
+
+      {showPixDialog && (
+        <QuickSaleDepixDialog
+          open={showPixDialog}
+          quickSaleId={id}
+          totalCents={s.totalAmount as number}
+          buyerTaxId={s.cpfCnpj as string | null}
+          existingTransactionId={s.depixTransactionId as string | null}
+          existingQrCode={s.depixQrCode as string | null}
+          existingQrCodeBase64={s.depixQrCodeBase64 as string | null}
+          onClose={() => setShowPixDialog(false)}
+          onPaid={() => {
+            setShowPixDialog(false);
+            queryClient.invalidateQueries({ queryKey: [["quickSale"]] });
+          }}
+        />
+      )}
     </div>
   );
 }

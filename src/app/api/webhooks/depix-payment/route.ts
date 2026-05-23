@@ -236,6 +236,38 @@ export async function POST(req: NextRequest) {
       };
     }
 
+    // Venda avulsa (QuickSale) — DePix isolado, sem PDV nem OS.
+    const quickSale = await tx.quickSale.findFirst({
+      where: {
+        depixTransactionId: transactionId,
+        status: "AWAITING_PAYMENT",
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        status: true,
+        number: true,
+        totalAmount: true,
+      },
+    });
+    if (quickSale) {
+      await tx.quickSale.update({
+        where: { id: quickSale.id },
+        data: {
+          status: "PAID",
+          paidAt,
+          depixStatus: "paid",
+        },
+      });
+      return {
+        kind: "quick_sale",
+        id: quickSale.id,
+        number: quickSale.number,
+        tenantId: quickSale.tenantId,
+        amount: Number(quickSale.totalAmount),
+      };
+    }
+
     // Pode ser que sale/OS ja foi marcada (idempotencia OK). Antes de retornar
     // 404, confere se existe sale/OS com esse transactionId mas em status final.
     const existingSale = await tx.sale.findFirst({
@@ -256,6 +288,17 @@ export async function POST(req: NextRequest) {
     });
     if (existingOrder) {
       return { kind: "order_already_paid", id: existingOrder.id, number: existingOrder.number };
+    }
+    const existingQuickSale = await tx.quickSale.findFirst({
+      where: { depixTransactionId: transactionId },
+      select: { id: true, number: true, status: true },
+    });
+    if (existingQuickSale) {
+      return {
+        kind: "quick_sale_already_paid",
+        id: existingQuickSale.id,
+        number: existingQuickSale.number,
+      };
     }
 
     return null;

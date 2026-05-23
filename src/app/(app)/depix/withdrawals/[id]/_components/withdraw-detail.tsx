@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { PIX_KEY_TYPE_LABELS } from "@/lib/validators/depix-withdraw";
 import { RefreshCw, Plus, ArrowLeft, User, Calendar, Edit, Printer } from "lucide-react";
+import { toast } from "@/lib/toast";
 
 function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -94,9 +95,38 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
                 <p className="font-mono text-xs text-muted-foreground break-all">{w.depixId}</p>
               </div>
               {w.depositAddress && (
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase">Deposit Address</p>
-                  <p className="font-mono text-xs text-muted-foreground break-all">{w.depositAddress}</p>
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground uppercase">
+                    Endereco Liquid para Deposito
+                  </p>
+                  {w.depositAddressQr && (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={w.depositAddressQr}
+                        alt="QR Code do endereco de deposito Liquid"
+                        className="w-48 h-48 rounded-md border border-border bg-white p-2"
+                      />
+                      <p className="text-xs text-muted-foreground text-center max-w-xs">
+                        Escaneie o QR ou copie o endereco abaixo para enviar o DePix
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex items-start gap-2 p-2 bg-muted/30 rounded border border-border">
+                    <p className="font-mono text-xs break-all flex-1 select-all">
+                      {w.depositAddress}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(w.depositAddress ?? "");
+                        toast.success("Endereco copiado!");
+                      }}
+                      className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
+                    >
+                      Copiar
+                    </button>
+                  </div>
                 </div>
               )}
               {w.blockchainTxId && (
