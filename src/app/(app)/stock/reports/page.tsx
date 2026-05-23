@@ -7,7 +7,8 @@ import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShoppingCart, Package, BarChart3, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ShoppingCart, Package, BarChart3, AlertTriangle, Download } from "lucide-react";
 import { PosicaoEstoqueTab } from "./_components/posicao-estoque-tab";
 import { MovimentacoesTab } from "./_components/movimentacoes-tab";
 import { CurvaAbcTab } from "./_components/curva-abc-tab";
@@ -24,6 +25,15 @@ function formatCurrency(cents: number): string {
   });
 }
 
+const PDF_TYPE_MAP: Record<string, string> = {
+  posicao: "posicao-estoque",
+  "estoque-min": "estoque-minimo",
+  "vendas-periodo": "vendas-periodo",
+  "vendas-produto": "vendas-produto",
+  "vendas-vendedor": "vendas-vendedor",
+  "curva-abc": "curva-abc",
+};
+
 export default function StockReportsPage() {
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
@@ -33,6 +43,12 @@ export default function StockReportsPage() {
   const [dateTo, setDateTo] = useState(
     () => new Date().toISOString().split("T")[0]!,
   );
+  const [activeTab, setActiveTab] = useState("posicao");
+
+  const pdfType = PDF_TYPE_MAP[activeTab];
+  const pdfUrl = pdfType
+    ? `/api/reports/stock/${pdfType}?dateFrom=${dateFrom}&dateTo=${dateTo}`
+    : null;
 
   const trpc = useTRPC();
   const { data: summary, isLoading } = useQuery(
@@ -44,6 +60,16 @@ export default function StockReportsPage() {
       <PageHeader
         title="Relatorios"
         subtitle="Analise de estoque e vendas"
+        actions={
+          pdfUrl ? (
+            <Button variant="outline" asChild>
+              <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
+                <Download className="mr-2 h-4 w-4" />
+                Baixar PDF
+              </a>
+            </Button>
+          ) : null
+        }
       />
 
       {/* Period filter */}
@@ -120,7 +146,7 @@ export default function StockReportsPage() {
       ) : null}
 
       {/* Tabs for each report type */}
-      <Tabs defaultValue="posicao" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="posicao">Posicao de Estoque</TabsTrigger>
           <TabsTrigger value="movimentacoes">Movimentacoes</TabsTrigger>

@@ -264,7 +264,9 @@ model StockMovement {
 
 enum DeviceCondition {
   NEW
+  SEMI_NEW
   USED
+  DISPLAY
   REFURBISHED
   DEFECTIVE
 }

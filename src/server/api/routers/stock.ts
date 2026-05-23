@@ -827,18 +827,12 @@ export const stockRouter = createTRPCRouter({
 
   /**
    * Confirma assinatura fisica do termo de responsabilidade da compra.
-   * Apenas admin. Paridade `CompraAparelhoController::confirmarAssinaturaFisica`.
+   * Qualquer usuario autenticado pode marcar termo como assinado fisicamente
+   * (quando o cliente assinou no papel).
    */
   confirmPurchasePhysicalSignature: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const isAdmin = ctx.session.user.isSuperAdmin === true;
-      if (!isAdmin) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Apenas administradores podem confirmar assinatura fisica.",
-        });
-      }
       return ctx.withTenant(async (tx) => {
         const purchase = await tx.devicePurchase.findUnique({
           where: { id: input.id },

@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { FileText, Send, Check, RefreshCw } from "lucide-react";
+import { FileText, Send, Check, RefreshCw, Eye } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
@@ -181,6 +181,17 @@ export function PurchasesTable() {
       ),
     },
     {
+      id: "open",
+      header: "",
+      cell: ({ row }) => (
+        <Button size="icon" variant="ghost" className="h-7 w-7" asChild title="Abrir detalhe">
+          <Link href={`/stock/purchases/${row.original.id}`}>
+            <Eye className="h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      ),
+    },
+    {
       id: "term",
       header: "Termo",
       cell: ({ row }) => {
@@ -226,7 +237,7 @@ export function PurchasesTable() {
               size="icon"
               variant="ghost"
               className="h-7 w-7 text-success"
-              title="Confirmar assinatura fisica (admin)"
+              title="Confirmar assinatura fisica"
               disabled={confirmPhysicalMut.isPending}
               onClick={() => {
                 if (confirm("Confirmar assinatura fisica do termo?")) {

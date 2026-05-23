@@ -117,7 +117,7 @@ export const createDevicePurchaseSchema = z.object({
   serial: z.string().max(50).optional().nullable(),
   brand: z.string().max(100).optional().nullable(),
   model: z.string().max(200).optional().nullable(),
-  condition: z.enum(["NEW", "USED", "REFURBISHED", "DEFECTIVE"]),
+  condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"]),
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
   purchasePrice: z.number().int().min(0, "Preco de compra deve ser positivo"), // centavos
   salePrice: z.number().int().min(0).optional().nullable(), // centavos
@@ -132,7 +132,7 @@ export type CreateDevicePurchaseInput = z.infer<typeof createDevicePurchaseSchem
 
 export const listDevicePurchasesSchema = z.object({
   search: z.string().optional(),
-  condition: z.enum(["NEW", "USED", "REFURBISHED", "DEFECTIVE"]).optional(),
+  condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"]).optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   page: z.number().int().min(0).optional(),
@@ -346,9 +346,15 @@ export const stockMovementTypeLabels: Record<string, string> = {
   RELEASE: "Liberacao",
 };
 
+/**
+ * Ordem espelhada da intranetpdv Laravel: novo > seminovo > usado > vitrine.
+ * Recondicionado/Defeituoso ficam no fim — sao casos raros.
+ */
 export const deviceConditionLabels: Record<string, string> = {
   NEW: "Novo",
+  SEMI_NEW: "Seminovo",
   USED: "Usado",
+  DISPLAY: "Vitrine",
   REFURBISHED: "Recondicionado",
   DEFECTIVE: "Defeituoso",
 };

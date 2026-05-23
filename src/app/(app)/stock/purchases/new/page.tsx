@@ -83,7 +83,7 @@ export default function NewPurchasePage() {
     <div>
       <PageHeader
         title="Nova Compra de Aparelho"
-        subtitle="Registre a compra de um aparelho usado"
+        subtitle="Registre a compra de aparelho novo, seminovo, usado ou de vitrine"
       />
 
       <Form {...form}>
