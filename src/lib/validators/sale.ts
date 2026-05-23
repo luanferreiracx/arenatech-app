@@ -49,6 +49,12 @@ export const paymentDetailSchema = z.object({
    * digita o valor que aparece na maquininha. Default = amount.
    */
   totalPaidByCustomer: z.number().int().min(0).optional(),
+  /**
+   * ID da transacao PixPay/DePix (quando method = "depix"). Persistido em
+   * paymentDetails JSON para o webhook localizar a venda quando o pagamento
+   * confirma. Sem esse campo, vendas pagas via DePix ficam orfas eternamente.
+   */
+  depixTransactionId: z.string().optional().nullable(),
 });
 
 export type PaymentDetail = z.infer<typeof paymentDetailSchema>;

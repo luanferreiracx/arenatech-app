@@ -870,11 +870,15 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Build paymentDetails JSON
+        // Build paymentDetails JSON. Preserva depixTransactionId para o
+        // webhook PixPay conseguir localizar e marcar a venda como paga.
         const paymentDetails = payments.map((p) => ({
           method: p.method,
           amount: p.amount,
           installments: p.installments ?? 1,
+          ...(p.depixTransactionId
+            ? { depixTransactionId: p.depixTransactionId }
+            : {}),
         }));
 
         // Update the sale record
@@ -2042,12 +2046,30 @@ export const saleRouter = createTRPCRouter({
         });
       }
 
-      // ETAPA 2 — Depix HTTP fora da tx
+      // Validacao de limites diarios por CPF (paridade Laravel DepixLimiteService).
+      let isFirstDay = false;
+      if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
+        const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
+        const limit = await ctx.withTenant(async (tx) =>
+          validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalAmount),
+        );
+        if (!limit.allowed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: limit.reason ?? "Limite DePix excedido.",
+          });
+        }
+        isFirstDay = limit.isFirstDay;
+      }
+
+      // ETAPA 2 — Depix HTTP fora da tx. Envia whitelist=true se primeiro
+      // dia + valor > R$ 500 (paridade Laravel chamarDeposit).
       const result = await createPixPayment(
         totalAmount,
         `Venda ${sale.number}`,
         sale.id,
         taxIdRaw || null,
+        { whitelist: isFirstDay && totalAmount > 500 },
       );
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
@@ -2082,6 +2104,24 @@ export const saleRouter = createTRPCRouter({
   checkPixStatus: tenantProcedure
     .input(checkSalePixStatusSchema)
     .mutation(async ({ ctx, input }) => {
+      // Valida ownership: o transactionId deve estar vinculado a uma sale do
+      // tenant atual (gravado em paymentDetails durante finalize, OU em sale
+      // ainda em DRAFT que esta no fluxo do DepixQrDialog). Impede que
+      // usuario malicioso consulte status de PIX alheios adivinhando o id.
+      const allowed = await ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) return false;
+        // Sale em DRAFT ainda nao tem paymentDetails — autoriza por ownership
+        // ao tenant (RLS ja restringe).
+        if (sale.status === "DRAFT") return true;
+        // Sale finalizada: checa se o transactionId esta gravado em paymentDetails.
+        const pd = sale.paymentDetails as Array<{ depixTransactionId?: string }> | null;
+        return Array.isArray(pd) && pd.some((p) => p.depixTransactionId === input.transactionId);
+      });
+      if (!allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Transacao nao pertence a esta venda." });
+      }
+
       const result = await getPixStatus(input.transactionId);
       if (!result.success) {
         throw new TRPCError({

@@ -2887,7 +2887,13 @@ export const serviceOrderRouter = createTRPCRouter({
 
   /** Generate PIX QR code for OS payment (faithful to Laravel gerarPixDepix) */
   generatePix: tenantProcedure
-    .input(z.object({ orderId: z.string().uuid() }))
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        /** CPF/CNPJ do pagador. Obrigatorio quando totalAmount >= R$ 500. */
+        taxId: z.string().max(20).optional().nullable(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
@@ -2904,19 +2910,46 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // CPF do cliente (anti-fraude PixPay)
         let customerCpf: string | null = null;
+        let customerCnpj: string | null = null;
         if (order.customerId) {
           const c = await tx.customer.findUnique({
             where: { id: order.customerId },
-            select: { cpf: true },
+            select: { cpf: true, cnpj: true },
           });
           customerCpf = c?.cpf ?? null;
+          customerCnpj = c?.cnpj ?? null;
+        }
+
+        // Regra DePix: valores >= R$ 500,00 exigem CPF/CNPJ do pagador.
+        const taxIdRaw = (input.taxId ?? customerCpf ?? customerCnpj ?? "").replace(/\D/g, "");
+        if (totalAmount >= 500 && taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+          });
+        }
+
+        // Validacao de limites diarios por CPF (paridade Laravel DepixLimiteService).
+        let isFirstDay = false;
+        if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
+          const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
+          const limit = await validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalAmount);
+          if (!limit.allowed) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: limit.reason ?? "Limite DePix excedido.",
+            });
+          }
+          isFirstDay = limit.isFirstDay;
         }
 
         const result = await createPixPayment(
           totalAmount,
           `OS ${order.number}`,
           order.id,
-          customerCpf,
+          taxIdRaw || null,
+          { whitelist: isFirstDay && totalAmount > 500 },
         );
 
         if (!result.success) {

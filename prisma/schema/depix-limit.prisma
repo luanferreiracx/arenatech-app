@@ -1,0 +1,61 @@
+/// Limite diario de uso DEPIX por CPF/CNPJ do pagador.
+///
+/// Regras (paridade Laravel DepixLimiteService):
+///   - Primeiro dia (sem transacao confirmada > 24h): R$ 500 por transacao
+///     E R$ 500 total no dia.
+///   - Apos 24h: R$ 5.000 por transacao e R$ 6.000 diario.
+///
+/// Cada (tax_number + data) eh um registro. Atualizado quando o webhook
+/// confirma o pagamento (status=depix_sent/paid), evitando contar PIX
+/// gerados mas nao pagos.
+model DepixDailyLimit {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  /// CPF/CNPJ do pagador (so digitos)
+  taxNumber           String    @map("tax_number")
+  /// Data do registro (00:00 do dia, em America/Sao_Paulo)
+  date                DateTime  @db.Date
+  totalTransactions   Int       @default(0) @map("total_transactions")
+  totalAmount         Decimal   @default(0) @map("total_amount") @db.Decimal(10, 2)
+  /// Snapshot do "primeiro dia" no momento da primeira transacao.
+  /// Atualizado se a primeira transacao confirmar e expirarem 24h.
+  isFirstDay          Boolean   @default(true) @map("is_first_day")
+  firstTransactionAt  DateTime? @map("first_transaction_at")
+  lastTransactionAt   DateTime? @map("last_transaction_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, taxNumber, date])
+  @@index([tenantId, taxNumber])
+  @@map("depix_daily_limits")
+}
+
+/// Audit log de eventos do webhook PixPay/DePix. Garante idempotencia robusta
+/// (mesmo evento processado 2x = OK) e historico para debug.
+///
+/// Paridade Laravel `depix_eventos_webhook`.
+model DepixWebhookEvent {
+  id                String    @id @default(uuid()) @db.Uuid
+  /// Transaction ID PixPay (qrId ou id do payload)
+  transactionId     String    @map("transaction_id")
+  /// "deposit" / "withdraw" / status especifico (depix_sent, expired, etc)
+  eventType         String    @map("event_type")
+  /// Status final aplicado ao registro local
+  finalStatus       String?   @map("final_status")
+  /// IP de origem (para audit)
+  sourceIp          String?   @map("source_ip")
+  /// True se assinatura HMAC foi validada
+  signatureValid    Boolean   @default(false) @map("signature_valid")
+  /// Payload bruto do webhook (JSON)
+  payload           Json
+  /// Se processamento bem-sucedido
+  processed         Boolean   @default(false)
+  /// Mensagem de erro caso falhe
+  errorMessage      String?   @map("error_message") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@unique([transactionId, eventType])
+  @@index([transactionId])
+  @@index([eventType])
+  @@map("depix_webhook_events")
+}

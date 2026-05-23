@@ -55,6 +55,15 @@ interface DepixConfig {
 // Config
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Mascara CPF/CNPJ para logs (LGPD). Mantem so primeiros 3 e ultimos 2 digitos.
+ */
+function maskTaxNumber(doc: string): string {
+  const d = doc.replace(/\D/g, "");
+  if (d.length < 5) return "***";
+  return `${d.slice(0, 3)}${"*".repeat(d.length - 5)}${d.slice(-2)}`;
+}
+
 function getConfig(): DepixConfig | null {
   const apiKey = process.env.DEPIX_API_KEY;
   if (!apiKey) return null;
@@ -92,6 +101,7 @@ export async function createPixPayment(
   description: string,
   referenceId: string,
   taxNumber?: string | null,
+  options?: { whitelist?: boolean },
 ): Promise<DepixCreateResult> {
   const config = getConfig();
 
@@ -119,11 +129,18 @@ export async function createPixPayment(
   if (config.depixAddress) {
     payload.depixAddress = config.depixAddress;
   }
+  // Primeiro dia + valor > R$ 500: PixPay exige whitelist=true (paridade Laravel).
+  if (options?.whitelist) {
+    payload.whitelist = true;
+  }
 
   logger.info("Depix: criando deposit", {
     url: config.depositUrl,
     amountInCents,
     hasEndUserTax: !!payload.endUserTaxNumber,
+    taxIdMasked: payload.endUserTaxNumber
+      ? maskTaxNumber(payload.endUserTaxNumber)
+      : undefined,
     hasDepixAddr: !!payload.depixAddress,
     referenceId,
   });
@@ -267,7 +284,15 @@ export async function createDepixWithdraw(
     "https://api.pixpay.space/v1/withdraw";
 
   const taxIdDigits = taxId.replace(/\D/g, "");
-  const pixKeyFormatted = formatPixKey(pixKey, pixKeyType);
+  let pixKeyFormatted: string;
+  try {
+    pixKeyFormatted = formatPixKey(pixKey, pixKeyType);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Chave PIX invalida",
+    };
+  }
 
   const payload = {
     senha,
@@ -281,6 +306,7 @@ export async function createDepixWithdraw(
     url: saqueUrl,
     tipoChave: pixKeyType,
     valor: payload.valor,
+    taxIdMasked: maskTaxNumber(taxIdDigits),
   });
 
   try {
@@ -366,32 +392,66 @@ export async function createDepixWithdraw(
 }
 
 /**
- * Formata chave PIX para envio ao endpoint de saque. CPF/CNPJ exigem pontuacao
- * pela API. Paridade Laravel DepixService::formatarPixKey.
+ * Formata chave PIX para envio ao endpoint de saque. Valida formato e formata
+ * conforme exigido pela API: CPF/CNPJ com pontuacao, telefone com +55, etc.
+ *
+ * Lanca Error se chave nao for valida para o tipo informado.
+ *
+ * Paridade Laravel DepixService::formatarPixKey.
  */
 function formatPixKey(
   pixKey: string,
   pixKeyType: "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "RANDOM",
 ): string {
+  const trimmed = pixKey.trim();
+  if (!trimmed) {
+    throw new Error("Chave PIX vazia");
+  }
+
   if (pixKeyType === "CPF") {
-    const d = pixKey.replace(/\D/g, "");
-    if (d.length === 11) {
-      return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+    const d = trimmed.replace(/\D/g, "");
+    if (d.length !== 11) {
+      throw new Error("CPF invalido (deve ter 11 digitos)");
     }
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
   }
+
   if (pixKeyType === "CNPJ") {
-    const d = pixKey.replace(/\D/g, "");
-    if (d.length === 14) {
-      return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+    const d = trimmed.replace(/\D/g, "");
+    if (d.length !== 14) {
+      throw new Error("CNPJ invalido (deve ter 14 digitos)");
     }
+    return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
   }
+
   if (pixKeyType === "PHONE") {
-    // Adiciona +55 se ainda nao tem
-    const d = pixKey.replace(/\D/g, "");
-    return d.startsWith("55") ? `+${d}` : `+55${d}`;
+    // Aceita 10 ou 11 digitos (DDD + numero, com ou sem 9)
+    const d = trimmed.replace(/\D/g, "");
+    const ddd11 = d.length === 11 || d.length === 10;
+    const ddd13 = (d.length === 13 || d.length === 12) && d.startsWith("55");
+    if (!ddd11 && !ddd13) {
+      throw new Error("Telefone invalido (use DDD + numero, com ou sem +55)");
+    }
+    return ddd13 ? `+${d}` : `+55${d}`;
   }
-  // EMAIL e RANDOM ficam como estao
-  return pixKey;
+
+  if (pixKeyType === "EMAIL") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      throw new Error("Email invalido");
+    }
+    return trimmed.toLowerCase();
+  }
+
+  if (pixKeyType === "RANDOM") {
+    // UUID v4 com ou sem hifens
+    const stripped = trimmed.replace(/-/g, "");
+    if (!/^[0-9a-f]{32}$/i.test(stripped)) {
+      throw new Error("Chave aleatoria invalida (deve ser UUID)");
+    }
+    return trimmed;
+  }
+
+  return trimmed;
 }
 
 /**

@@ -19,8 +19,21 @@ export const runtime = "nodejs";
  *
  * Seguranca (em ordem de preferencia):
  *   1. PIXPAY_WEBHOOK_SECRET: HMAC-SHA256 do body em header `X-Webhook-Signature`.
- *   2. DEPIX_WEBHOOK_IPS: allowlist CSV de IPs (paridade Laravel).
- *   3. Se nenhum dos dois configurado, processa sem auth (DEV ONLY, loga warn).
+ *   2. DEPIX_WEBHOOK_IPS: allowlist CSV de IPs.
+ *      ATENCAO: usa o ULTIMO IP de x-forwarded-for (o que entra no proxy).
+ *      Para confiar nesse header, garanta que so o reverse proxy publico
+ *      (nginx/cloudflare) chega ao container. Caso contrario, configure
+ *      PIXPAY_WEBHOOK_SECRET (preferido).
+ *   3. Em dev (sem secret nem ips), processa com warning.
+ *
+ * Idempotencia: usa coluna `external_id` de WhatsappMessageSent-like (ainda
+ * nao temos tabela dedicada — controlado por "status != alvo" no UPDATE).
+ *
+ * HTTP codes:
+ *   200 OK = webhook processado (idempotente ou nao). PixPay nao reenvia.
+ *   400 = payload invalido / sem transactionId.
+ *   401 = auth invalida.
+ *   404 = transactionId desconhecido (sale/OS nao encontrada).
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -44,26 +57,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else if (allowedIps.length > 0) {
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      req.headers.get("x-real-ip") ??
-      "";
-    if (!allowedIps.includes(ip)) {
-      logger.warn("Depix-payment webhook: IP nao autorizado", { ip });
+    // x-forwarded-for retorna lista "client, proxy1, proxy2". Para nao
+    // confiar em IP forjado pelo cliente, pegamos o ULTIMO (que e o que
+    // mais proximo do nosso server) — ele e gravado pelo nosso reverse
+    // proxy publico (nginx/Cloudflare). NUNCA pegar o primeiro elemento
+    // (cliente pode forjar).
+    const xff = req.headers.get("x-forwarded-for") ?? "";
+    const ips = xff
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const candidateIp = ips.length > 0 ? ips[ips.length - 1]! : (req.headers.get("x-real-ip") ?? "");
+    if (!candidateIp || !allowedIps.includes(candidateIp)) {
+      logger.warn("Depix-payment webhook: IP nao autorizado", {
+        candidateIp,
+        forwardedChainLength: ips.length,
+      });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else {
     logger.warn(
-      "Depix-payment webhook: sem PIXPAY_WEBHOOK_SECRET nem DEPIX_WEBHOOK_IPS — processando sem auth",
+      "Depix-payment webhook: sem PIXPAY_WEBHOOK_SECRET nem DEPIX_WEBHOOK_IPS — processando sem auth (dev mode)",
     );
   }
 
   // ─── PARSE PAYLOAD ───────────────────────────────────────────────────────
   let payload: {
-    // PixPay novo
     qrId?: string;
     webhookType?: string;
-    // Generico/legado
     id?: string;
     status?: string;
     paid_amount?: number;
@@ -78,22 +99,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  // qrId (novo) ou id (legado) — ambos identificam a transacao.
   const transactionId = String(payload.qrId ?? payload.id ?? "");
   const rawStatus = String(payload.status ?? payload.webhookType ?? "").toLowerCase();
   const paidAt = payload.paid_at ? new Date(payload.paid_at) : new Date();
+
+  // LGPD: mascarar CPF nos logs
+  const maskedTax = payload.payerTaxNumber
+    ? maskTaxNumber(payload.payerTaxNumber)
+    : undefined;
 
   logger.info("Depix-payment webhook recebido", {
     transactionId,
     status: rawStatus,
     webhookType: payload.webhookType,
+    payerTaxNumberMasked: maskedTax,
   });
 
   if (!transactionId) {
-    return NextResponse.json({ received: true, error: "sem transaction id" });
+    return NextResponse.json({ error: "sem transactionId" }, { status: 400 });
   }
 
-  // Status que disparam o pagamento. PixPay envia "depix_sent" quando confirma.
   const PAID_STATUSES = new Set([
     "completed",
     "confirmed",
@@ -105,13 +130,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, status: rawStatus });
   }
 
-  // ─── MATCH SALE OR OS ────────────────────────────────────────────────────
+  // ─── IDEMPOTENCIA: insere evento na tabela de audit + early-exit se dup ─
+  const signatureValid = !!secret;
+  const sourceIpForAudit =
+    (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean).pop()
+    ?? req.headers.get("x-real-ip")
+    ?? null;
+  const eventInserted = await withAdmin(async (tx) => {
+    try {
+      await tx.depixWebhookEvent.create({
+        data: {
+          transactionId,
+          eventType: rawStatus,
+          sourceIp: sourceIpForAudit,
+          signatureValid,
+          payload: payload as never,
+          processed: false,
+        },
+      });
+      return true;
+    } catch {
+      // Unique violation: (transactionId, eventType) ja existe — duplicate.
+      return false;
+    }
+  });
+
+  if (!eventInserted) {
+    logger.info("Depix-payment webhook: evento duplicado, ignorando", {
+      transactionId,
+      eventType: rawStatus,
+    });
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
+  // ─── MATCH SALE OR OS (com idempotencia via WHERE status != alvo) ─────
   const result = await withAdmin(async (tx) => {
+    // Tenta sale primeiro
     const sale = await tx.sale.findFirst({
-      where: { paymentDetails: { path: ["depixTransactionId"], equals: transactionId } as never },
+      where: {
+        paymentDetails: {
+          path: ["depixTransactionId"],
+          equals: transactionId,
+        } as never,
+        // Idempotencia: nao atualiza se ja COMPLETED
+        status: { not: "COMPLETED" },
+      },
       select: { id: true, tenantId: true, status: true, number: true, totalAmount: true },
     });
-    if (sale && sale.status !== "COMPLETED") {
+    if (sale) {
       await tx.sale.update({
         where: { id: sale.id },
         data: {
@@ -120,11 +186,17 @@ export async function POST(req: NextRequest) {
           saleDate: paidAt,
         },
       });
-      return { kind: "sale", id: sale.id, number: sale.number };
+      return {
+        kind: "sale",
+        id: sale.id,
+        number: sale.number,
+        tenantId: sale.tenantId,
+        amount: Number(sale.totalAmount),
+      };
     }
 
     const order = await tx.serviceOrder.findFirst({
-      where: { depixTransactionId: transactionId },
+      where: { depixTransactionId: transactionId, status: { not: "PAID" } },
       select: {
         id: true,
         tenantId: true,
@@ -134,7 +206,7 @@ export async function POST(req: NextRequest) {
         createdById: true,
       },
     });
-    if (order && order.status !== "PAID") {
+    if (order) {
       await tx.serviceOrder.update({
         where: { id: order.id },
         data: {
@@ -155,16 +227,83 @@ export async function POST(req: NextRequest) {
           notes: `Pagamento Pix Depix confirmado (transaction ${transactionId})`,
         },
       });
-      return { kind: "order", id: order.id, number: order.number };
+      return {
+        kind: "order",
+        id: order.id,
+        number: order.number,
+        tenantId: order.tenantId,
+        amount: Number(order.totalAmount),
+      };
+    }
+
+    // Pode ser que sale/OS ja foi marcada (idempotencia OK). Antes de retornar
+    // 404, confere se existe sale/OS com esse transactionId mas em status final.
+    const existingSale = await tx.sale.findFirst({
+      where: {
+        paymentDetails: {
+          path: ["depixTransactionId"],
+          equals: transactionId,
+        } as never,
+      },
+      select: { id: true, number: true, status: true },
+    });
+    if (existingSale) {
+      return { kind: "sale_already_paid", id: existingSale.id, number: existingSale.number };
+    }
+    const existingOrder = await tx.serviceOrder.findFirst({
+      where: { depixTransactionId: transactionId },
+      select: { id: true, number: true, status: true },
+    });
+    if (existingOrder) {
+      return { kind: "order_already_paid", id: existingOrder.id, number: existingOrder.number };
     }
 
     return null;
   });
 
   if (!result) {
-    logger.warn("Depix-payment webhook sem alvo encontrado", { transactionId });
-    return NextResponse.json({ received: true, found: false });
+    // Marca evento como processado mas com erro
+    await withAdmin(async (tx) =>
+      tx.depixWebhookEvent.updateMany({
+        where: { transactionId, eventType: rawStatus },
+        data: { errorMessage: "transactionId nao encontrado" },
+      }),
+    ).catch(() => undefined);
+    logger.warn("Depix-payment webhook: transactionId desconhecido", { transactionId });
+    return NextResponse.json(
+      { error: "transactionId nao encontrado" },
+      { status: 404 },
+    );
   }
+
+  // Sucesso: marca evento como processado + registra uso de limite diario
+  await withAdmin(async (tx) => {
+    await tx.depixWebhookEvent.updateMany({
+      where: { transactionId, eventType: rawStatus },
+      data: {
+        processed: true,
+        finalStatus: result.kind.includes("already") ? "ALREADY_PAID" : "PAID",
+      },
+    });
+
+    // Registra uso de limite por CPF (paridade Laravel DepixLimiteService::registrarUso)
+    if (
+      "tenantId" in result &&
+      "amount" in result &&
+      payload.payerTaxNumber &&
+      !result.kind.includes("already")
+    ) {
+      const { registerDepixUse } = await import("@/lib/services/depix-limit-service");
+      await registerDepixUse(
+        tx,
+        result.tenantId as string,
+        payload.payerTaxNumber,
+        result.amount as number,
+      ).catch((err) =>
+        logger.warn("Falha ao registrar uso de limite DePix", { err: String(err) }),
+      );
+    }
+  });
 
   logger.info("Depix-payment webhook processado", {
     kind: result.kind,
@@ -172,4 +311,14 @@ export async function POST(req: NextRequest) {
     number: result.number,
   });
   return NextResponse.json({ received: true, kind: result.kind });
+}
+
+/**
+ * Mascara CPF/CNPJ para logs (LGPD). Mantem so primeiros 3 e ultimos 2 digitos.
+ * Ex: "12345678901" -> "123******01"; "12345678000190" -> "123*********90".
+ */
+function maskTaxNumber(doc: string): string {
+  const d = doc.replace(/\D/g, "");
+  if (d.length < 5) return "***";
+  return `${d.slice(0, 3)}${"*".repeat(d.length - 5)}${d.slice(-2)}`;
 }

@@ -206,7 +206,7 @@ export function PaymentDialog({
     runFinalize();
   };
 
-  const runFinalize = () => {
+  const runFinalize = (depixTransactionId?: string) => {
     finalizeMutation.mutate(
       {
         saleId,
@@ -217,6 +217,11 @@ export function PaymentDialog({
           amount: p.amount,
           installments: p.installments,
           totalPaidByCustomer: p.totalPaidByCustomer,
+          // Vincula o transactionId DePix no payment correspondente — assim o
+          // webhook PixPay consegue achar a venda quando confirmar o pagamento.
+          ...(p.method === "depix" && depixTransactionId
+            ? { depixTransactionId }
+            : {}),
         })),
         observations: observations || null,
       },
@@ -521,9 +526,9 @@ export function PaymentDialog({
             totalCents={totalAmount}
             customerTaxId={customerTaxId ?? null}
             onClose={() => setShowDepixQr(false)}
-            onPaid={() => {
+            onPaid={(transactionId) => {
               setShowDepixQr(false);
-              runFinalize();
+              runFinalize(transactionId);
             }}
           />
         )}
