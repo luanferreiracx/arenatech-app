@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
 **Ultima atualizacao:** 2026-05-23
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 125/125 @business verde no pre-push (paridade total na suite reduzida)
@@ -261,6 +261,38 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-23 — PDV: fluxo de upgrade/downgrade de aparelhos com fidelidade total ao Laravel
+
+Auditoria do trade-in (upgrade) + devolucao de diferenca (downgrade) revelou 10 gaps. Todos endereçados:
+
+**Backend (sale router + validator)**
+- DevicePurchase.purchasePrice = abatedValue (era appraisedValue — sobreestimava custo do aparelho usado)
+- IMEI valida Luhn + duplicidade (estoque + upgrades da mesma venda) em addSaleUpgrade
+- abatedValue <= appraisedValue enforced via Zod refine
+- IMEI ou serialNumber obrigatorio (paridade Laravel valida_imei_ou_serial)
+- 4 condicoes suportadas (NEW | SEMI_NEW | USED | DISPLAY)
+- StockItem AVAILABLE criado para o aparelho de entrada (entra no estoque vendavel imediatamente)
+- Product generico criado se nao existir + StockMovement ENTRY
+- FinancialTransaction PAYABLE quando downgrade em PIX/dinheiro (era so comment "downgrade: sem receivable")
+- refundDueMethod aceita "depix" + dispara createDepixWithdraw automatico apos commit da tx
+- DepixWithdraw record persistido com number SQ-YYYYMMDD-NNNNN
+
+**UX (PDV screen + UpgradeDialog)**
+- Preview ao vivo no dialog: total carrinho, total abatido, saldo (cliente paga / loja devolve)
+- Alerta laranja quando vira downgrade com explicacao + valor
+- Badge "DOWNGRADE — loja devolve" destacado no resumo da venda
+- Linha "Aparelho(s) de entrada" no breakdown de totais
+
+**PDF (sale-delivery)**
+- Nova tabela "Aparelhos Recebidos como Entrada" com IMEI/serie/condicao/avaliado/abatido
+- Bloco "Quitacao da Diferenca" lista IMEIs dos aparelhos entregues
+- Suporte ao metodo "depix" no texto de devolucao (era so cash/PIX)
+
+**Validacao:** typecheck OK | lint 0 errors (warnings pre-existentes) | paridade visual Laravel termo-entrega.blade.php
+**Commits:** 1 (`b8755d7`)
+
+---
 
 ### 2026-05-20 — CHECKLIST: persistir laudo via TRPC ao finalizar (Onda 3, modulo 11/11 ✓ ONDA 3 COMPLETA!)
 
