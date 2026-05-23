@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
+import { DepixQrDialog } from "./depix-qr-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,6 +87,7 @@ export function PaymentDialog({
   const [observations, setObservations] = useState("");
   const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
+  const [showDepixQr, setShowDepixQr] = useState(false);
   const isDowngrade = refundDueAmount > 0;
 
   // Carrega formas cadastradas (com taxas+politica). Se nao houver,
@@ -184,6 +186,24 @@ export function PaymentDialog({
       return;
     }
 
+    // Se algum pagamento e via DePix, abre QR Code antes de finalizar.
+    // O modal cuida de gerar o PIX, fazer polling, e dispara onPaid -> finalize.
+    const hasDepix = payments.some((p) => p.method === "depix");
+    if (hasDepix) {
+      // Limita: apenas DePix puro (sem split com outros metodos) por enquanto.
+      const allDepix = payments.every((p) => p.method === "depix");
+      if (!allDepix) {
+        toast.error("DePix nao pode ser combinado com outros metodos. Use apenas DePix.");
+        return;
+      }
+      setShowDepixQr(true);
+      return;
+    }
+
+    runFinalize();
+  };
+
+  const runFinalize = () => {
     finalizeMutation.mutate(
       {
         saleId,
@@ -489,6 +509,20 @@ export function PaymentDialog({
               : "Confirmar Pagamento"}
           </Button>
         </div>
+
+        {/* DePix QR Code dialog (opens when payment includes DePix) */}
+        {showDepixQr && (
+          <DepixQrDialog
+            open={showDepixQr}
+            saleId={saleId}
+            totalCents={totalAmount}
+            onClose={() => setShowDepixQr(false)}
+            onPaid={() => {
+              setShowDepixQr(false);
+              runFinalize();
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

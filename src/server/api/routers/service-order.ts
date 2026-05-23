@@ -2902,10 +2902,21 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da OS deve ser maior que zero" });
         }
 
+        // CPF do cliente (anti-fraude PixPay)
+        let customerCpf: string | null = null;
+        if (order.customerId) {
+          const c = await tx.customer.findUnique({
+            where: { id: order.customerId },
+            select: { cpf: true },
+          });
+          customerCpf = c?.cpf ?? null;
+        }
+
         const result = await createPixPayment(
           totalAmount,
           `OS ${order.number}`,
-          order.id
+          order.id,
+          customerCpf,
         );
 
         if (!result.success) {

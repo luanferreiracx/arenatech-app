@@ -1,10 +1,14 @@
 /**
  * Depix (PixPay) integration for PIX QR code generation.
  *
- * When DEPIX_API_URL and DEPIX_API_KEY are configured, makes real API requests.
- * Otherwise logs and returns mock success for development.
+ * Paridade Laravel app/Services/DepixService.php — usa Bearer token (`DEPIX_API_KEY`)
+ * + endereco Liquid da loja (`DEPIX_ADDRESS`) para receber. Nao usa merchant_id.
  *
- * @see api.pixpay.space
+ * Endpoints (config via env):
+ *   - DEPIX_API_URL          (default https://api.pixpay.space/v1/deposit) — POST cria pix
+ *   - DEPIX_DEPOSIT_STATUS_URL (default https://api.pixpay.space/v1/deposit-status) — POST consulta
+ *
+ * Quando DEPIX_API_KEY nao configurada, retorna mock para desenvolvimento.
  */
 
 import { logger } from "@/lib/logger";
@@ -37,9 +41,14 @@ export interface DepixStatusResult {
 }
 
 interface DepixConfig {
-  apiUrl: string;
+  /** Endpoint completo do POST de criacao (ex.: https://api.pixpay.space/v1/deposit) */
+  depositUrl: string;
+  /** Endpoint completo do POST de consulta de status */
+  statusUrl: string;
+  /** Bearer token da API */
   apiKey: string;
-  merchantId: string;
+  /** Carteira Liquid onde a loja recebe o DEPIX */
+  depixAddress?: string;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -47,13 +56,22 @@ interface DepixConfig {
 // ────────────────────────────────────────────────────────────────────────────
 
 function getConfig(): DepixConfig | null {
-  const apiUrl = process.env.DEPIX_API_URL;
   const apiKey = process.env.DEPIX_API_KEY;
-  const merchantId = process.env.DEPIX_MERCHANT_ID;
+  if (!apiKey) return null;
 
-  if (!apiUrl || !apiKey || !merchantId) return null;
+  const depositUrl =
+    process.env.DEPIX_API_URL?.replace(/\/$/, "") ??
+    "https://api.pixpay.space/v1/deposit";
+  const statusUrl =
+    process.env.DEPIX_DEPOSIT_STATUS_URL?.replace(/\/$/, "") ??
+    depositUrl.replace(/\/deposit$/, "/deposit-status");
 
-  return { apiUrl: apiUrl.replace(/\/$/, ""), apiKey, merchantId };
+  return {
+    depositUrl,
+    statusUrl,
+    apiKey,
+    depixAddress: process.env.DEPIX_ADDRESS,
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -61,17 +79,27 @@ function getConfig(): DepixConfig | null {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Generate a PIX QR code for an order.
+ * Gera um QR Code PIX para um valor em reais. Paridade Laravel chamarDeposit().
+ *
+ * @param amountReais valor em reais (float).
+ * @param description descricao (nao enviado a API, apenas para log).
+ * @param referenceId id local (nao enviado a API).
+ * @param taxNumber CPF/CNPJ do pagador — recomendado pela API para evitar
+ *   pagamento por terceiros (anti-fraude).
  */
 export async function createPixPayment(
-  amount: number,
+  amountReais: number,
   description: string,
   referenceId: string,
+  taxNumber?: string | null,
 ): Promise<DepixCreateResult> {
   const config = getConfig();
 
   if (!config) {
-    logger.info("Depix: mock mode (no credentials)", { amount, description });
+    logger.warn("Depix: mock mode (DEPIX_API_KEY ausente)", {
+      amount: amountReais,
+      description,
+    });
     return {
       success: true,
       transactionId: `mock-depix-${Date.now()}`,
@@ -81,46 +109,84 @@ export async function createPixPayment(
     };
   }
 
-  logger.info("Depix: creating PIX payment", { amount, description, referenceId });
+  const amountInCents = Math.round(amountReais * 100);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload: Record<string, any> = { amountInCents };
+
+  if (taxNumber) {
+    payload.endUserTaxNumber = taxNumber.replace(/\D/g, "");
+  }
+  if (config.depixAddress) {
+    payload.depixAddress = config.depixAddress;
+  }
+
+  logger.info("Depix: criando deposit", {
+    url: config.depositUrl,
+    amountInCents,
+    hasEndUserTax: !!payload.endUserTaxNumber,
+    hasDepixAddr: !!payload.depixAddress,
+    referenceId,
+  });
 
   try {
-    const response = await fetch(`${config.apiUrl}/transactions`, {
+    const response = await fetch(config.depositUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
-      body: JSON.stringify({
-        merchant_id: config.merchantId,
-        amount: Math.round(amount * 100), // cents
-        description,
-        reference_id: referenceId,
-      }),
-      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (!response.ok) {
       const body = await response.text();
+      logger.error("Depix: erro no deposit", {
+        status: response.status,
+        body: body.substring(0, 500),
+      });
+      // tenta extrair mensagem JSON
+      let msg = `HTTP ${response.status}`;
+      try {
+        const parsed = JSON.parse(body) as { message?: string; error?: string };
+        msg = parsed.message ?? parsed.error ?? msg;
+      } catch {
+        msg = `${msg}: ${body.substring(0, 200)}`;
+      }
+      return { success: false, error: `Erro ao gerar PIX: ${msg}` };
+    }
+
+    const body = (await response.json()) as Record<string, unknown>;
+    // PixPay retorna `response` aninhado ou raiz, igual ao Laravel
+    const data = (body.response ?? body) as Record<string, unknown>;
+    const id = data.id ?? body.id;
+
+    if (!id) {
+      logger.error("Depix: resposta sem id", { body });
+      const erroApi =
+        (body.error as string | undefined) ??
+        (data.error as string | undefined) ??
+        (body.message as string | undefined);
       return {
         success: false,
-        error: `Depix HTTP ${response.status}: ${body.substring(0, 200)}`,
+        error: erroApi
+          ? `Erro da API PIX: ${erroApi}`
+          : "Resposta invalida da API PIX: sem id",
       };
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-    const transaction = data["transaction"] as Record<string, unknown> | undefined;
-
-    logger.info("Depix: PIX created", { transactionId: transaction?.["id"] });
+    logger.info("Depix: PIX criado", { transactionId: String(id) });
 
     return {
       success: true,
-      transactionId: String(transaction?.["id"] ?? data["id"] ?? ""),
-      qrCode: String(transaction?.["qr_code"] ?? data["qr_code"] ?? ""),
-      qrCodeBase64: String(transaction?.["qr_code_base64"] ?? data["qr_code_base64"] ?? ""),
-      pixKey: String(transaction?.["pix_key"] ?? data["pix_key"] ?? ""),
+      transactionId: String(id),
+      qrCode: String(data.qrCopyPaste ?? data.qr_code ?? ""),
+      qrCodeBase64: String(data.qrImageUrl ?? data.qr_code_base64 ?? ""),
+      pixKey: String(data.pix_key ?? ""),
     };
   } catch (error) {
-    logger.error("Depix: create error", {
+    logger.error("Depix: erro de rede", {
       error: error instanceof Error ? error.message : String(error),
     });
     return {
@@ -131,87 +197,66 @@ export async function createPixPayment(
 }
 
 /**
- * Cancel a pending PIX payment.
+ * Cancela um PIX pendente. PixPay nao tem endpoint dedicado de cancelamento —
+ * a transacao expira sozinha apos 30 minutos. Implementacao mantida por API
+ * consistency mas atualmente apenas loga.
  */
 export async function cancelPixPayment(
   transactionId: string,
 ): Promise<DepixCancelResult> {
-  const config = getConfig();
-
-  if (!config) {
-    logger.info("Depix: mock cancel", { transactionId });
-    return { success: true };
-  }
-
-  logger.info("Depix: cancelling PIX", { transactionId });
-
-  try {
-    const response = await fetch(`${config.apiUrl}/transactions/${transactionId}/cancel`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      return {
-        success: false,
-        error: `Depix HTTP ${response.status}: ${body.substring(0, 200)}`,
-      };
-    }
-
-    logger.info("Depix: PIX cancelled", { transactionId });
-    return { success: true };
-  } catch (error) {
-    logger.error("Depix: cancel error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Erro ao cancelar PIX",
-    };
-  }
+  logger.info("Depix: cancelamento solicitado (expira sozinho)", { transactionId });
+  return { success: true };
 }
 
 /**
- * Consulta status de uma transacao PIX. Paridade Laravel `consultarStatusPix`.
- * No mock (sem config), retorna "pending" para nao falsificar pagamento.
+ * Consulta status de uma transacao PIX. Paridade Laravel
+ * `consultarStatusDeposito` — POST {statusUrl} com {id}.
  */
-export async function getPixStatus(transactionId: string): Promise<DepixStatusResult> {
+export async function getPixStatus(
+  transactionId: string,
+): Promise<DepixStatusResult> {
   const config = getConfig();
   if (!config) {
     return { success: true, status: "pending", isFinal: false };
   }
+
+  // Mock IDs (criados no modo dev) — retorna pending para nao bagunca testes
+  if (transactionId.startsWith("mock-depix-")) {
+    return { success: true, status: "pending", isFinal: false };
+  }
+
   try {
-    const response = await fetch(`${config.apiUrl}/transactions/${transactionId}`, {
-      method: "GET",
+    const response = await fetch(config.statusUrl, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
-      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({ id: transactionId }),
+      signal: AbortSignal.timeout(30_000),
     });
+
     if (!response.ok) {
-      return {
-        success: false,
-        error: `Depix HTTP ${response.status}`,
-      };
+      return { success: false, error: `Depix HTTP ${response.status}` };
     }
-    const data: unknown = await response.json();
-    // Normaliza status — Depix retorna "completed"/"pending"/"failed"/"expired"/"refunded".
-    const raw = (data as { status?: string }).status?.toLowerCase() ?? "pending";
-    const normalized: DepixStatusResult["status"] =
-      raw === "completed" || raw === "paid" || raw === "success"
-        ? "paid"
-        : raw === "expired"
-          ? "expired"
-          : raw === "failed" || raw === "cancelled"
-            ? "failed"
-            : raw === "refunded"
-              ? "refunded"
-              : "pending";
+
+    const body = (await response.json()) as Record<string, unknown>;
+    const data = (body.response ?? body) as Record<string, unknown>;
+    // Normaliza status — PixPay retorna "depix_sent"/"paid"/"under_review"/"expired"/etc
+    const raw = String(data.status ?? "pending").toLowerCase();
+    let normalized: DepixStatusResult["status"];
+    if (raw === "depix_sent" || raw === "paid" || raw === "completed" || raw === "success") {
+      normalized = "paid";
+    } else if (raw === "expired") {
+      normalized = "expired";
+    } else if (raw === "failed" || raw === "cancelled" || raw === "canceled") {
+      normalized = "failed";
+    } else if (raw === "refunded") {
+      normalized = "refunded";
+    } else {
+      normalized = "pending";
+    }
     const isFinal = normalized !== "pending";
     return { success: true, status: normalized, isFinal };
   } catch (error) {

@@ -8,72 +8,110 @@ export const runtime = "nodejs";
 /**
  * POST /api/webhooks/depix-payment
  *
- * Webhook Pixpay/Depix — recebe confirmacoes de pagamento de PIX (deposits).
- * Quando o pagamento eh confirmado (`status=completed`), a venda associada
- * ao `transactionId` (ou OS) eh marcada como paga automaticamente.
+ * Webhook PixPay/Depix — recebe confirmacoes de pagamento PIX.
+ * Quando pagamento confirma (`status=depix_sent`/`paid`/`completed`), a venda
+ * ou OS associada ao `transactionId` eh marcada como paga automaticamente.
  *
- * Paridade Laravel: lado servidor do consultarStatusPix, agora event-driven.
+ * Payload PixPay (atual):
+ *   { qrId, status, webhookType, payerName, payerTaxNumber, valueInCents, ... }
+ * Payload legado/generico:
+ *   { id, status, paid_amount, paid_at }
  *
- * Payload esperado (Pixpay):
- *   {
- *     id: "<transactionId>",
- *     status: "pending" | "confirmed" | "completed" | "cancelled" | "expired",
- *     paid_amount?: number,
- *     paid_at?: string
- *   }
- *
- * Seguranca:
- *   - X-Webhook-Signature = HMAC-SHA256(body, PIXPAY_WEBHOOK_SECRET)
- *   - Sem secret = 503
+ * Seguranca (em ordem de preferencia):
+ *   1. PIXPAY_WEBHOOK_SECRET: HMAC-SHA256 do body em header `X-Webhook-Signature`.
+ *   2. DEPIX_WEBHOOK_IPS: allowlist CSV de IPs (paridade Laravel).
+ *   3. Se nenhum dos dois configurado, processa sem auth (DEV ONLY, loga warn).
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
+
+  // ─── AUTH ────────────────────────────────────────────────────────────────
   const secret = process.env.PIXPAY_WEBHOOK_SECRET;
-  if (!secret) {
-    logger.error("Depix-payment webhook: PIXPAY_WEBHOOK_SECRET ausente");
-    return NextResponse.json({ error: "Service not configured" }, { status: 503 });
-  }
-  const signature = req.headers.get("x-webhook-signature") ?? "";
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const valid =
-    signature.length === expected.length &&
-    signature.length > 0 &&
-    timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  if (!valid) {
-    logger.warn("Depix-payment webhook: invalid signature");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const allowedIps = (process.env.DEPIX_WEBHOOK_IPS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (secret) {
+    const signature = req.headers.get("x-webhook-signature") ?? "";
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const valid =
+      signature.length === expected.length &&
+      signature.length > 0 &&
+      timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    if (!valid) {
+      logger.warn("Depix-payment webhook: HMAC invalido");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else if (allowedIps.length > 0) {
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      req.headers.get("x-real-ip") ??
+      "";
+    if (!allowedIps.includes(ip)) {
+      logger.warn("Depix-payment webhook: IP nao autorizado", { ip });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else {
+    logger.warn(
+      "Depix-payment webhook: sem PIXPAY_WEBHOOK_SECRET nem DEPIX_WEBHOOK_IPS — processando sem auth",
+    );
   }
 
-  let payload: { id?: string; status?: string; paid_amount?: number; paid_at?: string };
+  // ─── PARSE PAYLOAD ───────────────────────────────────────────────────────
+  let payload: {
+    // PixPay novo
+    qrId?: string;
+    webhookType?: string;
+    // Generico/legado
+    id?: string;
+    status?: string;
+    paid_amount?: number;
+    paid_at?: string;
+    valueInCents?: number;
+    payerName?: string;
+    payerTaxNumber?: string;
+  };
   try {
     payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const transactionId = String(payload.id ?? "");
-  const status = String(payload.status ?? "").toLowerCase();
+  // qrId (novo) ou id (legado) — ambos identificam a transacao.
+  const transactionId = String(payload.qrId ?? payload.id ?? "");
+  const rawStatus = String(payload.status ?? payload.webhookType ?? "").toLowerCase();
   const paidAt = payload.paid_at ? new Date(payload.paid_at) : new Date();
 
-  logger.info("Depix-payment webhook recebido", { transactionId, status });
+  logger.info("Depix-payment webhook recebido", {
+    transactionId,
+    status: rawStatus,
+    webhookType: payload.webhookType,
+  });
 
-  // So agimos em pagamento confirmado.
-  if (!["completed", "confirmed", "paid"].includes(status)) {
-    return NextResponse.json({ received: true, ignored: true });
-  }
   if (!transactionId) {
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, error: "sem transaction id" });
   }
 
-  // Localiza venda OU OS pelo depixTransactionId.
+  // Status que disparam o pagamento. PixPay envia "depix_sent" quando confirma.
+  const PAID_STATUSES = new Set([
+    "completed",
+    "confirmed",
+    "paid",
+    "depix_sent",
+    "success",
+  ]);
+  if (!PAID_STATUSES.has(rawStatus)) {
+    return NextResponse.json({ received: true, ignored: true, status: rawStatus });
+  }
+
+  // ─── MATCH SALE OR OS ────────────────────────────────────────────────────
   const result = await withAdmin(async (tx) => {
     const sale = await tx.sale.findFirst({
       where: { paymentDetails: { path: ["depixTransactionId"], equals: transactionId } as never },
       select: { id: true, tenantId: true, status: true, number: true, totalAmount: true },
     });
     if (sale && sale.status !== "COMPLETED") {
-      // Sale existe e ainda nao foi marcada como paga. Atualizamos status,
-      // paidAmount e gravamos audit.
       await tx.sale.update({
         where: { id: sale.id },
         data: {

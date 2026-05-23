@@ -1997,10 +1997,20 @@ export const saleRouter = createTRPCRouter({
   generatePix: tenantProcedure
     .input(z.object({ saleId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — fetch tx curta
-      const sale = await ctx.withTenant(async (tx) =>
-        tx.sale.findUnique({ where: { id: input.saleId } }),
-      );
+      // ETAPA 1 — fetch tx curta (sale + cpf do cliente para anti-fraude PixPay)
+      const { sale, customerCpf } = await ctx.withTenant(async (tx) => {
+        const s = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!s) return { sale: null, customerCpf: null };
+        let cpf: string | null = null;
+        if (s.customerId) {
+          const c = await tx.customer.findUnique({
+            where: { id: s.customerId },
+            select: { cpf: true },
+          });
+          cpf = c?.cpf ?? null;
+        }
+        return { sale: s, customerCpf: cpf };
+      });
       if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
       if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber PIX neste status" });
@@ -2011,7 +2021,12 @@ export const saleRouter = createTRPCRouter({
       }
 
       // ETAPA 2 — Depix HTTP fora da tx
-      const result = await createPixPayment(totalAmount, `Venda ${sale.number}`, sale.id);
+      const result = await createPixPayment(
+        totalAmount,
+        `Venda ${sale.number}`,
+        sale.id,
+        customerCpf,
+      );
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
       }
