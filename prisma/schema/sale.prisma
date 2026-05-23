@@ -48,7 +48,9 @@ model Sale {
   observations    String?
   discountReason  String?    @map("discount_reason")
 
-  // Assinatura digital (Autentique)
+  // Assinatura do TERMO DE ENTREGA (Autentique).
+  // Em vendas com upgrade, o PDF inclui automaticamente o bloco de
+  // responsabilidade pelos aparelhos recebidos — UMA assinatura cobre tudo.
   signatureDocumentId  String?   @map("signature_document_id")
   signatureUrl         String?   @map("signature_url")
   signatureSentAt      DateTime? @map("signature_sent_at")

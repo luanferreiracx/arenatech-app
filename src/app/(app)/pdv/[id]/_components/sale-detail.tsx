@@ -214,6 +214,14 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const physicalSignature = !!sale.physicalSignature;
   const isSigned = !!signatureSignedAt || physicalSignature;
   const isSignaturePending = !!signatureDocumentId && !signatureSignedAt && !physicalSignature;
+  // Policy de impressao do recibo (computada pelo backend).
+  const receiptPolicy = (sale as Record<string, unknown>).receiptPolicy as
+    | { canPrint: boolean; pendingReasons: string[]; requiresDeliveryTerm: boolean }
+    | undefined;
+  const canPrintReceipt = receiptPolicy?.canPrint ?? true;
+  const receiptBlockReason = receiptPolicy?.pendingReasons.join("; ") ?? "";
+  const hasUpgrade = !!((sale as Record<string, unknown>).hasUpgrade);
+  const hasDevice = !!((sale as Record<string, unknown>).hasDevice);
 
   return (
     <div>
@@ -236,12 +244,23 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <div className="flex flex-wrap gap-2">
             {isCompleted && (
               <>
-                <Button variant="outline" asChild>
-                  <a href={`/api/pdv/${saleId}/recibo`} target="_blank" rel="noopener noreferrer">
+                {canPrintReceipt ? (
+                  <Button variant="outline" asChild>
+                    <a href={`/api/pdv/${saleId}/recibo`} target="_blank" rel="noopener noreferrer">
+                      <FileText className="mr-2 h-4 w-4" />
+                      Recibo
+                    </a>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    disabled
+                    title={`Aguardando assinatura do termo${hasUpgrade ? " (entrega/responsabilidade)" : " de entrega"}.`}
+                  >
                     <FileText className="mr-2 h-4 w-4" />
                     Recibo
-                  </a>
-                </Button>
+                  </Button>
+                )}
                 <Button variant="outline" asChild>
                   <a href={`/api/pdv/${saleId}/termo-garantia`} target="_blank" rel="noopener noreferrer">
                     <Shield className="mr-2 h-4 w-4" />
@@ -256,6 +275,12 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 </Button>
                 <Button
                   variant="outline"
+                  disabled={!canPrintReceipt}
+                  title={
+                    !canPrintReceipt
+                      ? `Aguardando assinatura do termo${hasUpgrade ? " (entrega/responsabilidade)" : " de entrega"}.`
+                      : undefined
+                  }
                   onClick={() => {
                     setReceiptPhone("");
                     setShowSendReceiptDialog(true);
@@ -313,6 +338,14 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </div>
         }
       />
+
+      {isCompleted && hasDevice && !canPrintReceipt && (
+        <div className="mt-4 rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-sm text-yellow-900 dark:text-yellow-200">
+          <strong>Recibo bloqueado:</strong> {receiptBlockReason}. Envie o termo
+          para assinatura digital (Autentique) ou confirme a assinatura fisica
+          em loja antes de imprimir/enviar o recibo.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         {/* Info cards */}

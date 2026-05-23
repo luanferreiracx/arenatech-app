@@ -394,7 +394,32 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
           </View>
         </View>
 
-        {/* Downgrade (quitacao da diferenca) */}
+        {/* Termo de Responsabilidade pelos aparelhos recebidos (upgrade).
+            Bloco unificado: aparece sempre que houver aparelhos de entrada
+            (upgrade) — com ou sem downgrade. O cliente declara que e o
+            legitimo proprietario e transfere o aparelho. */}
+        {receivedItems.length > 0 && (
+          <View style={styles.downgradeBox}>
+            <Text style={styles.downgradeTitle}>TERMO DE RESPONSABILIDADE</Text>
+            <Text style={styles.downgradeText}>
+              O cliente acima identificado declara, sob as penas da lei, ser o{" "}
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>legitimo proprietario</Text>{" "}
+              do(s) aparelho(s) entregue(s) abaixo, que esta(o) livre(s) e desimpedido(s)
+              de qualquer onus, divida ou restricao, autorizando a loja a comercializa-lo(s).
+            </Text>
+            <Text style={styles.downgradeText}>
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>Aparelho(s) entregue(s): </Text>
+              {receivedItems
+                .map((it) =>
+                  [it.description, it.imei ?? it.serial].filter(Boolean).join(" - "),
+                )
+                .join("; ")}
+              .
+            </Text>
+          </View>
+        )}
+
+        {/* Quitacao da diferenca — apenas em downgrade (loja devolve valor). */}
         {refundDue > 0 && (
           <View style={styles.downgradeBox}>
             <Text style={styles.downgradeTitle}>QUITACAO DA DIFERENCA</Text>
@@ -405,17 +430,6 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
                 ? ` (${REFUND_METHOD_LABELS[sale.refundDueMethod] ?? sale.refundDueMethod})`
                 : ""}
             </Text>
-            {receivedItems.length > 0 && (
-              <Text style={styles.downgradeText}>
-                <Text style={{ fontFamily: "Helvetica-Bold" }}>Referente ao(s) aparelho(s) entregue(s) pelo cliente: </Text>
-                {receivedItems
-                  .map((it) =>
-                    [it.description, it.imei ?? it.serial].filter(Boolean).join(" - "),
-                  )
-                  .join("; ")}
-                .
-              </Text>
-            )}
             <Text style={styles.downgradeText}>
               O cliente declara ter recebido o valor acima na data desta operacao, dando{" "}
               <Text style={{ fontFamily: "Helvetica-Bold" }}>quitacao integral</Text> da

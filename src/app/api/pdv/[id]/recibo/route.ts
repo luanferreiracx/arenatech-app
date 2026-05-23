@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
+import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 
 /**
  * GET /api/pdv/[id]/recibo
@@ -30,12 +31,39 @@ export async function GET(
     const sale = await withTenant(tenantId, async (tx) => {
       return tx.sale.findUnique({
         where: { id },
-        include: { items: { orderBy: { createdAt: "asc" } } },
+        include: {
+          items: { orderBy: { createdAt: "asc" } },
+          upgrades: { select: { id: true } },
+        },
       });
     });
 
     if (!sale || sale.deletedAt) {
       return NextResponse.json({ error: "Venda nao encontrada" }, { status: 404 });
+    }
+
+    // Bloqueia recibo enquanto termos pendentes (paridade Laravel).
+    const productIds = [...new Set(sale.items.map((i) => i.productId))];
+    const products = productIds.length
+      ? await withTenant(tenantId, async (tx) =>
+          tx.product.findMany({
+            where: { id: { in: productIds } },
+            select: { isDevice: true },
+          }),
+        )
+      : [];
+    const policy = evaluateSaleReceiptPolicy({
+      status: sale.status,
+      hasDevice: products.some((p) => p.isDevice),
+      hasUpgrade: sale.upgrades.length > 0,
+      deliveryTermSignedAt: sale.signatureSignedAt,
+      deliveryTermPhysical: sale.physicalSignature,
+    });
+    if (!policy.canPrint) {
+      return NextResponse.json(
+        { error: `Recibo bloqueado: ${policy.pendingReasons.join("; ")}.` },
+        { status: 403 },
+      );
     }
 
     // Fetch customer

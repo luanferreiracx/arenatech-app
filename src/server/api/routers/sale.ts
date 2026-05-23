@@ -31,6 +31,7 @@ import { isValidLuhn } from "@/lib/validators/imei";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
+import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 
 // ── Helpers ──
 
@@ -1588,11 +1589,29 @@ export const saleRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.id },
-          include: { items: true },
+          include: { items: true, upgrades: { select: { id: true } } },
         });
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
         }
+
+        // Calcula politica de impressao do recibo (paridade Laravel).
+        const productIds = [...new Set(sale.items.map((i) => i.productId))];
+        const products = productIds.length
+          ? await tx.product.findMany({
+              where: { id: { in: productIds } },
+              select: { isDevice: true },
+            })
+          : [];
+        const hasDevice = products.some((p) => p.isDevice);
+        const hasUpgrade = sale.upgrades.length > 0;
+        const receiptPolicy = evaluateSaleReceiptPolicy({
+          status: sale.status,
+          hasDevice,
+          hasUpgrade,
+          deliveryTermSignedAt: sale.signatureSignedAt,
+          deliveryTermPhysical: sale.physicalSignature,
+        });
 
         // Fetch seller name
         let sellerName = "Desconhecido";
@@ -1639,6 +1658,9 @@ export const saleRouter = createTRPCRouter({
           sellerName,
           customerName,
           cancelledByName,
+          hasDevice,
+          hasUpgrade,
+          receiptPolicy,
         };
       });
     }),
@@ -2083,9 +2105,34 @@ export const saleRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // ETAPA 1 — fetch tx curta
       const { sale, phone, customerName } = await ctx.withTenant(async (tx) => {
-        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        const sale = await tx.sale.findUnique({
+          where: { id: input.saleId },
+          include: { items: true, upgrades: { select: { id: true } } },
+        });
         if (!sale || sale.status !== "COMPLETED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recibo so pode ser enviado apos finalizar" });
+        }
+
+        // Bloqueia se termos pendentes (paridade Laravel).
+        const productIds = [...new Set(sale.items.map((i) => i.productId))];
+        const products = productIds.length
+          ? await tx.product.findMany({
+              where: { id: { in: productIds } },
+              select: { isDevice: true },
+            })
+          : [];
+        const policy = evaluateSaleReceiptPolicy({
+          status: sale.status,
+          hasDevice: products.some((p) => p.isDevice),
+          hasUpgrade: sale.upgrades.length > 0,
+          deliveryTermSignedAt: sale.signatureSignedAt,
+          deliveryTermPhysical: sale.physicalSignature,
+        });
+        if (!policy.canPrint) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Recibo bloqueado: ${policy.pendingReasons.join("; ")}.`,
+          });
         }
         let phone = input.phone;
         let customerName = "Cliente";
@@ -2139,10 +2186,17 @@ export const saleRouter = createTRPCRouter({
     }),
 
   // ═══════════════════════════════════════
-  // SIGNATURE (Autentique + physical)
+  // SIGNATURE — TERMO DE ENTREGA (Autentique + physical)
   // ═══════════════════════════════════════
 
-  /** Send sale document for digital signature via Autentique + WhatsApp Cloud. */
+  /**
+   * Envia o TERMO DE ENTREGA para assinatura digital via Autentique +
+   * WhatsApp Cloud. Paridade Laravel `enviarTermoEntrega`.
+   *
+   * Mantido como `sendForSignature` por compatibilidade com UI que ainda
+   * usa esse nome. Internamente gera o `buildSaleDeliveryPdf` (nao mais
+   * o recibo, que estava trocado).
+   */
   sendForSignature: tenantProcedure
     .input(z.object({
       saleId: z.string().uuid(),
@@ -2184,14 +2238,16 @@ export const saleRouter = createTRPCRouter({
         };
       });
 
-      // ETAPA 2 — IO externo: gera PDF + Autentique
-      const { buildSaleReceiptPdf } = await import("@/lib/pdf/sale-receipt-builder");
-      const pdfBuffer = await buildSaleReceiptPdf(ctx.tenantId, input.saleId);
+      // ETAPA 2 — IO externo: gera TERMO DE ENTREGA + envia pro Autentique.
+      // (Era buildSaleReceiptPdf mas o conceito sempre foi "termo de entrega"
+      // — agora o builder esta correto.)
+      const { buildSaleDeliveryPdf } = await import("@/lib/pdf/sale-delivery-builder");
+      const pdfBuffer = await buildSaleDeliveryPdf(ctx.tenantId, input.saleId);
       if (!pdfBuffer) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF da venda" });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de entrega" });
       }
       const doc = await createDocumentWithLink(
-        `Recibo Venda ${sale.number}`,
+        `Termo de Entrega — Venda ${sale.number}`,
         [{ name: customerName, whatsapp }],
         pdfBuffer,
       );
@@ -2225,17 +2281,22 @@ export const saleRouter = createTRPCRouter({
 
       // ETAPA 4 — envia via Meta Cloud com template pdv_termo_pdf_link
       if (doc.signatureLink) {
-        const pdfToken = createPublicPdfToken(ctx.tenantId, input.saleId, 60 * 60 * 1000);
+        const pdfToken = createPublicPdfToken(
+          ctx.tenantId,
+          input.saleId,
+          60 * 60 * 1000,
+          "delivery",
+        );
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         const pdfUrl = `${appUrl}/api/whatsapp-media/sale/pdf/${pdfToken}`;
         const autentiqueToken = extractShortlinkToken(doc.signatureLink);
         const caption =
-          `📋 *Assinatura - Venda #${sale.number}*\n\n` +
+          `📋 *Termo de Entrega - Venda #${sale.number}*\n\n` +
           `Olá, ${customerName}! Para assinar digitalmente:\n${doc.signatureLink}`;
         const wa = await sendPdfWithFallback({
           phone: whatsapp,
           pdfUrl,
-          fileName: `Venda_${sale.number}_termo.pdf`,
+          fileName: `Venda_${sale.number}_termo_entrega.pdf`,
           caption,
           contexto: "pdv_termo_pdf_link",
           params: [customerName, sale.number],

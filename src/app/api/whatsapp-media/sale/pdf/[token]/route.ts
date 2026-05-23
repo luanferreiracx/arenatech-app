@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
-import { buildSaleReceiptPdf } from "@/lib/pdf/sale-receipt-builder";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/whatsapp-media/sale/pdf/[token]
  *
- * Rota PUBLICA (sem auth) usada pela Meta Cloud API para baixar o PDF do
- * recibo/termo de venda em templates com HEADER DOCUMENT. Token HMAC com
- * TTL 1h e escopo (tenantId, saleId).
+ * Rota PUBLICA (sem auth) usada pela Meta Cloud API para baixar PDFs de venda
+ * em templates com HEADER DOCUMENT. Token HMAC com TTL 1h, escopo
+ * (tenantId, saleId, kind). Kind define qual builder usar:
+ *   - "receipt"        -> sale-receipt-builder (recibo)
+ *   - "delivery"       -> sale-delivery-builder (termo de entrega)
+ *   - "responsibility" -> sale-responsibility-builder (termo de responsabilidade upgrade)
  *
- * Paridade Laravel route('whatsapp-media.pdv.recibo').
+ * Paridade Laravel route('whatsapp-media.pdv.recibo') + termo.
  */
 export async function GET(
   _req: NextRequest,
@@ -24,7 +26,14 @@ export async function GET(
   }
 
   try {
-    const pdfBuffer = await buildSaleReceiptPdf(payload.tenantId, payload.orderId);
+    let pdfBuffer: Buffer | null = null;
+    if (payload.kind === "delivery") {
+      const { buildSaleDeliveryPdf } = await import("@/lib/pdf/sale-delivery-builder");
+      pdfBuffer = await buildSaleDeliveryPdf(payload.tenantId, payload.orderId);
+    } else {
+      const { buildSaleReceiptPdf } = await import("@/lib/pdf/sale-receipt-builder");
+      pdfBuffer = await buildSaleReceiptPdf(payload.tenantId, payload.orderId);
+    }
     if (!pdfBuffer) {
       return NextResponse.json({ error: "Venda nao encontrada" }, { status: 404 });
     }
