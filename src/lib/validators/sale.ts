@@ -61,6 +61,9 @@ export const addSaleItemSchema = z.object({
   // Para produtos serializados (isSerialized=true), `stockItemId` e obrigatorio
   // — operador escolhe qual aparelho (IMEI) esta vendendo.
   stockItemId: z.string().uuid().optional().nullable(),
+  // Para produtos com has_variations=true, `variationId` e obrigatorio
+  // — operador escolhe qual variacao (cor, tamanho, etc) esta vendendo.
+  variationId: z.string().uuid().optional().nullable(),
   quantity: z.number().int().min(1, "Quantidade minima 1"),
   unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
 });

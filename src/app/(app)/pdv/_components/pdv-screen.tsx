@@ -37,6 +37,7 @@ import { DiscountDialog } from "./discount-dialog";
 import { PriceCheckDialog } from "./price-check-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { SelectStockItemDialog } from "./select-stock-item-dialog";
+import { SelectVariationDialog } from "./select-variation-dialog";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -86,6 +87,7 @@ type SearchProduct = {
   costPrice: number;
   currentStock: number;
   isSerialized: boolean;
+  hasVariations: boolean;
 };
 
 export function PdvScreen() {
@@ -109,6 +111,10 @@ export function PdvScreen() {
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showPriceCheckDialog, setShowPriceCheckDialog] = useState(false);
   const [stockItemDialog, setStockItemDialog] = useState<{
+    productId: string;
+    productName: string;
+  } | null>(null);
+  const [variationDialog, setVariationDialog] = useState<{
     productId: string;
     productName: string;
   } | null>(null);
@@ -212,6 +218,13 @@ export function PdvScreen() {
       return;
     }
 
+    // Produto com variacoes (cor/tamanho/etc) — abre modal de selecao.
+    // Paridade Laravel modal-selecionar-variacao.
+    if (product.hasVariations) {
+      setVariationDialog({ productId: product.id, productName: product.name });
+      return;
+    }
+
     // Check if already in cart, subtract from displayed stock
     const inCart =
       items
@@ -239,6 +252,32 @@ export function PdvScreen() {
         onError: (err) => {
           toast.error(err.message);
         },
+      },
+    );
+  };
+
+  const handleSelectVariation = (variation: {
+    id: string;
+    salePrice: number;
+  }) => {
+    if (!draftId || !variationDialog) return;
+    addItemMutation.mutate(
+      {
+        saleId: draftId,
+        productId: variationDialog.productId,
+        variationId: variation.id,
+        quantity: 1,
+        unitPrice: variation.salePrice,
+      },
+      {
+        onSuccess: () => {
+          invalidateDraft();
+          setSearchTerm("");
+          setShowResults(false);
+          setVariationDialog(null);
+          searchRef.current?.focus();
+        },
+        onError: (err) => toast.error(err.message),
       },
     );
   };
@@ -893,6 +932,14 @@ export function PdvScreen() {
         productId={stockItemDialog?.productId ?? null}
         productName={stockItemDialog?.productName ?? ""}
         onSelect={handleSelectStockItem}
+      />
+
+      {/* -- Select Variation (cor/tamanho) Dialog -- */}
+      <SelectVariationDialog
+        productId={variationDialog?.productId ?? null}
+        productName={variationDialog?.productName ?? ""}
+        onClose={() => setVariationDialog(null)}
+        onSelect={handleSelectVariation}
       />
 
       {/* -- Upgrade Dialog (trade-in) -- */}

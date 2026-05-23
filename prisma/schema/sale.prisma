@@ -89,6 +89,10 @@ model SaleItem {
   tenantId        String   @map("tenant_id") @db.Uuid
   saleId          String   @map("sale_id") @db.Uuid
   productId       String   @map("product_id") @db.Uuid
+  // Varicao do produto selecionada (cor, tamanho, etc — produtos com
+  // has_variations=true). Null para produtos sem variacao. Paridade Laravel
+  // pdv_venda_itens.variacao_id.
+  variationId     String?  @map("variation_id") @db.Uuid
   // Unidade especifica selecionada (produtos serializados — controla_imei=true).
   // Null para produtos genericos vendidos por quantidade.
   // Paridade Laravel pdv_venda_itens.estoque_item_id.

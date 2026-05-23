@@ -255,9 +255,83 @@ export const saleRouter = createTRPCRouter({
           return recalculateSale(tx, input.saleId, ctx.tenantId);
         }
 
-        // Produto generico (nao serializado) — consolida em linha existente.
+        // Produtos com variacoes (has_variations=true) exigem escolha da variacao
+        // — paridade Laravel PdvController::adicionarItem.
+        if (product.hasVariations) {
+          if (!input.variationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione uma variacao (cor/tamanho) para este produto.",
+            });
+          }
+          const variation = await tx.productVariation.findUnique({
+            where: { id: input.variationId },
+            include: {
+              attributeValues: {
+                include: {
+                  attributeValue: {
+                    include: { attribute: { select: { name: true } } },
+                  },
+                },
+              },
+            },
+          });
+          if (!variation || variation.productId !== input.productId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Variacao nao pertence a este produto.",
+            });
+          }
+          if (!variation.active || variation.deletedAt) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao inativa." });
+          }
+          // Consolida em linha existente da MESMA variacao.
+          const existingVar = sale.items.find(
+            (i) => i.productId === input.productId && i.variationId === input.variationId,
+          );
+          // Preco: prefere variation.salePrice; fallback product.salePrice.
+          const fallbackPrice = variation.salePrice
+            ? decimalToCents(variation.salePrice)
+            : decimalToCents(product.salePrice);
+          const unitPriceCents =
+            input.unitPrice ||
+            (existingVar ? decimalToCents(existingVar.unitPrice) : fallbackPrice);
+          // Descricao com atributos: "MOUSE KP-MU028 - Cor: Blue"
+          const attrLabel = variation.attributeValues
+            .map((pva) => `${pva.attributeValue.attribute.name}: ${pva.attributeValue.value}`)
+            .join(", ");
+          const desc = attrLabel ? `${product.name} - ${attrLabel}` : product.name;
+          if (existingVar) {
+            const newQty = existingVar.quantity + input.quantity;
+            await tx.saleItem.update({
+              where: { id: existingVar.id },
+              data: {
+                quantity: newQty,
+                unitPrice: centsToPrisma(unitPriceCents),
+                total: centsToPrisma(unitPriceCents * newQty),
+              },
+            });
+          } else {
+            await tx.saleItem.create({
+              data: {
+                tenantId: ctx.tenantId,
+                saleId: input.saleId,
+                productId: input.productId,
+                variationId: input.variationId,
+                description: desc,
+                quantity: input.quantity,
+                unitPrice: centsToPrisma(unitPriceCents),
+                costPrice: variation.costPrice ?? product.costPrice,
+                total: centsToPrisma(unitPriceCents * input.quantity),
+              },
+            });
+          }
+          return recalculateSale(tx, input.saleId, ctx.tenantId);
+        }
+
+        // Produto generico (nao serializado, sem variacao) — consolida em linha existente.
         const existingItem = sale.items.find(
-          (i) => i.productId === input.productId && !i.stockItemId,
+          (i) => i.productId === input.productId && !i.stockItemId && !i.variationId,
         );
         if (existingItem) {
           const newQty = existingItem.quantity + input.quantity;
@@ -1423,7 +1497,67 @@ export const saleRouter = createTRPCRouter({
           costPrice: decimalToCents(p.costPrice),
           currentStock: p.isSerialized ? (stockMap.get(p.id) ?? 0) : p.currentStock,
           isSerialized: p.isSerialized,
+          hasVariations: p.hasVariations,
         }));
+      });
+    }),
+
+  /**
+   * Lista as variacoes ativas de um produto com seus atributos resolvidos
+   * (cor: Azul, tamanho: M, etc). Usado pelo PDV para abrir o modal de
+   * selecao quando product.has_variations = true.
+   */
+  listProductVariations: tenantProcedure
+    .input(z.object({ productId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const product = await tx.product.findUnique({
+          where: { id: input.productId },
+          select: { id: true, name: true, salePrice: true, hasVariations: true },
+        });
+        if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+
+        const variations = await tx.productVariation.findMany({
+          where: {
+            productId: input.productId,
+            active: true,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: "asc" },
+          include: {
+            attributeValues: {
+              include: {
+                attributeValue: {
+                  include: { attribute: { select: { name: true } } },
+                },
+              },
+            },
+          },
+        });
+
+        const productSalePrice = decimalToCents(product.salePrice);
+
+        return variations.map((v) => {
+          // Fallback: se variacao sem preco proprio, usa o do produto pai.
+          const varPriceCents = v.salePrice ? decimalToCents(v.salePrice) : 0;
+          const effectivePrice = varPriceCents > 0 ? varPriceCents : productSalePrice;
+          // Monta label "Cor: Azul, Tamanho: M" a partir dos atributos.
+          const attrs = v.attributeValues.map((pva) => ({
+            attributeName: pva.attributeValue.attribute.name,
+            value: pva.attributeValue.value,
+          }));
+          const label = attrs.map((a) => `${a.attributeName}: ${a.value}`).join(", ");
+          return {
+            id: v.id,
+            productId: v.productId,
+            sku: v.sku,
+            barcode: v.barcode,
+            salePrice: effectivePrice,
+            label: label || (v.sku ?? "Variacao"),
+            attributes: attrs,
+            imageUrl: v.imageUrl,
+          };
+        });
       });
     }),
 
