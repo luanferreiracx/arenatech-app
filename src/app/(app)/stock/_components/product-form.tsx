@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { VariationsEditor } from "./variations-editor";
 
 interface ProductFormProps {
   defaultValues?: CreateProductInput & { id?: string };
@@ -252,6 +253,8 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
             />
           </div>
         </FormSection>
+
+        {hasVariations && <VariationsEditor />}
 
         {!hasVariations && (
           <FormSection title="Precos e Estoque">

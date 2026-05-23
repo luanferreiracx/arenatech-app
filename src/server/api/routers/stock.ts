@@ -1094,6 +1094,8 @@ export const stockRouter = createTRPCRouter({
             sku: true,
             salePrice: true,
             currentStock: true,
+            hasVariations: true,
+            isSerialized: true,
           },
         });
         return products;
@@ -1385,11 +1387,37 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // TODO: Estoque-B will handle stock tracking via StockItem
+        // Produto com variacoes exige variationId
+        if (product.hasVariations) {
+          if (!input.variationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione uma variacao para registrar a entrada.",
+            });
+          }
+          const variation = await tx.productVariation.findUnique({
+            where: { id: input.variationId },
+          });
+          if (!variation || variation.productId !== input.productId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao nao pertence a este produto." });
+          }
+          await tx.productVariation.update({
+            where: { id: input.variationId },
+            data: { currentStock: { increment: input.quantity } },
+          });
+        } else {
+          // Produto simples — atualiza current_stock no proprio produto
+          await tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { increment: input.quantity } },
+          });
+        }
+
         await tx.stockMovement.create({
           data: {
             tenantId: ctx.tenantId,
             productId: input.productId,
+            variationId: input.variationId || null,
             type: "ENTRY",
             quantity: input.quantity,
             reason: input.reason,
@@ -1414,11 +1442,47 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // TODO: Estoque-B will handle stock validation via StockItem
+        if (product.hasVariations) {
+          if (!input.variationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione uma variacao para registrar a baixa.",
+            });
+          }
+          const variation = await tx.productVariation.findUnique({
+            where: { id: input.variationId },
+          });
+          if (!variation || variation.productId !== input.productId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao nao pertence a este produto." });
+          }
+          if (variation.currentStock < input.quantity) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Estoque insuficiente para esta variacao (atual: ${variation.currentStock}).`,
+            });
+          }
+          await tx.productVariation.update({
+            where: { id: input.variationId },
+            data: { currentStock: { decrement: input.quantity } },
+          });
+        } else {
+          if (product.currentStock < input.quantity) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Estoque insuficiente (atual: ${product.currentStock}).`,
+            });
+          }
+          await tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { decrement: input.quantity } },
+          });
+        }
+
         await tx.stockMovement.create({
           data: {
             tenantId: ctx.tenantId,
             productId: input.productId,
+            variationId: input.variationId || null,
             type: "EXIT",
             quantity: input.quantity,
             reason: input.reason,
@@ -2564,12 +2628,24 @@ export const stockRouter = createTRPCRouter({
           deletedAt: null,
         };
         if (input.active !== undefined) where.active = input.active;
-        return tx.productVariation.findMany({
+        const variations = await tx.productVariation.findMany({
           where,
           include: {
             attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
           },
           orderBy: { createdAt: "asc" },
+        });
+        // Adiciona `label` pronto para UI (ex: "Cor: Azul, Tamanho: M")
+        return variations.map((v) => {
+          const attrs = v.attributeValues.map((pva) => ({
+            attributeName: pva.attributeValue.attribute.name,
+            value: pva.attributeValue.value,
+          }));
+          const label = attrs.map((a) => `${a.attributeName}: ${a.value}`).join(", ");
+          return {
+            ...v,
+            label: label || (v.sku ?? "Variacao"),
+          };
         });
       });
     }),

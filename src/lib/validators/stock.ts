@@ -208,6 +208,8 @@ export type ListCategoriesInput = z.infer<typeof listCategoriesSchema>;
 
 export const stockEntrySchema = z.object({
   productId: z.string().uuid(),
+  /** Obrigatorio quando product.has_variations = true. */
+  variationId: z.string().uuid().optional().nullable(),
   quantity: z.number().int().min(1, "Quantidade minima e 1"),
   unitCost: z.number().int().min(0).optional(),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
@@ -235,6 +237,8 @@ export type StockWriteOffReasonCode = (typeof STOCK_WRITEOFF_REASONS)[number]["c
 
 export const stockExitSchema = z.object({
   productId: z.string().uuid(),
+  /** Obrigatorio quando product.has_variations = true. */
+  variationId: z.string().uuid().optional().nullable(),
   quantity: z.number().int().min(1, "Quantidade minima e 1"),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
 });

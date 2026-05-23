@@ -133,6 +133,10 @@ model ProductVariation {
   salePrice        Decimal?  @map("sale_price") @db.Decimal(10, 2)
   promotionalPrice Decimal?  @map("promotional_price") @db.Decimal(10, 2)
   minStock         Int       @default(0) @map("min_stock")
+  /// Estoque atual da variacao especifica (paridade Laravel
+  /// produto_variacoes.quantidade_estoque). Atualizado por stockEntry/stockExit
+  /// quando variationId for informado.
+  currentStock     Int       @default(0) @map("current_stock")
   imageUrl         String?   @map("image_url")
   active           Boolean   @default(true)
   deletedAt        DateTime? @map("deleted_at")

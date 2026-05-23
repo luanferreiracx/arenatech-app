@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EntitySelector } from "@/components/domain/entity-selector";
+import { VariationPicker } from "@/components/inputs/variation-picker";
 import { toast } from "@/lib/toast";
 import {
   stockExitSchema,
@@ -27,16 +28,24 @@ import {
   STOCK_WRITEOFF_REASONS,
 } from "@/lib/validators/stock";
 
+type ProductSearchResult = {
+  id: string;
+  name: string;
+  sku: string | null;
+  hasVariations: boolean;
+};
+
 export default function StockExitPage() {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [reasonCode, setReasonCode] = useState<string>("danificado");
   const [reasonDetail, setReasonDetail] = useState<string>("");
+  const [selectedProductHasVariations, setSelectedProductHasVariations] = useState(false);
 
   const form = useForm<StockExitInput>({
     resolver: zodResolver(stockExitSchema),
-    defaultValues: { productId: "", quantity: 1, reason: "" },
+    defaultValues: { productId: "", variationId: null, quantity: 1, reason: "" },
   });
 
   const exitMutation = useMutation(
@@ -66,18 +75,33 @@ export default function StockExitPage() {
         <FormSection title="Produto">
           <div className="space-y-2">
             <Label>Produto *</Label>
-            <EntitySelector
+            <EntitySelector<ProductSearchResult>
               value={form.watch("productId")}
-              onChange={(v) => form.setValue("productId", v ?? "")}
+              onChange={(v) => {
+                form.setValue("productId", v ?? "");
+                form.setValue("variationId", null);
+                setSelectedProductHasVariations(false);
+              }}
+              onSelect={(p) => {
+                setSelectedProductHasVariations(p.hasVariations);
+              }}
               searchFn={async (search) => {
                 return queryClient.fetchQuery(
                   trpc.stock.searchProducts.queryOptions({ search }),
-                );
+                ) as Promise<ProductSearchResult[]>;
               }}
               getOptionLabel={(p) => `${p.name}`}
               getOptionValue={(p) => p.id}
               placeholder="Buscar produto..."
             />
+            {selectedProductHasVariations && (
+              <VariationPicker
+                productId={form.watch("productId") || null}
+                value={form.watch("variationId") ?? null}
+                onChange={(v) => form.setValue("variationId", v)}
+                showStock
+              />
+            )}
           </div>
         </FormSection>
 

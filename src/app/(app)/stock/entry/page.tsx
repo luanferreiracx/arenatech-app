@@ -12,18 +12,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { EntitySelector } from "@/components/domain/entity-selector";
+import { VariationPicker } from "@/components/inputs/variation-picker";
+import { useState } from "react";
 import { toast } from "@/lib/toast";
 import { stockEntrySchema, type StockEntryInput } from "@/lib/validators/stock";
+
+type ProductSearchResult = {
+  id: string;
+  name: string;
+  sku: string | null;
+  hasVariations: boolean;
+};
 
 export default function StockEntryPage() {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
+  const [selectedProductHasVariations, setSelectedProductHasVariations] = useState(false);
+
   const form = useForm<StockEntryInput>({
     resolver: zodResolver(stockEntrySchema),
     defaultValues: {
       productId: "",
+      variationId: null,
       quantity: 1,
       unitCost: 0,
       reason: "",
@@ -50,13 +62,20 @@ export default function StockEntryPage() {
         <FormSection title="Produto">
           <div className="space-y-2">
             <Label>Produto *</Label>
-            <EntitySelector
+            <EntitySelector<ProductSearchResult>
               value={form.watch("productId")}
-              onChange={(v) => form.setValue("productId", v ?? "")}
+              onChange={(v) => {
+                form.setValue("productId", v ?? "");
+                form.setValue("variationId", null);
+                setSelectedProductHasVariations(false);
+              }}
+              onSelect={(p) => {
+                setSelectedProductHasVariations(p.hasVariations);
+              }}
               searchFn={async (search) => {
                 return queryClient.fetchQuery(
                   trpc.stock.searchProducts.queryOptions({ search }),
-                );
+                ) as Promise<ProductSearchResult[]>;
               }}
               getOptionLabel={(p) => `${p.name}${p.sku ? ` (${p.sku})` : ""}`}
               getOptionValue={(p) => p.id}
@@ -64,6 +83,14 @@ export default function StockEntryPage() {
             />
             {form.formState.errors.productId && (
               <p className="text-xs text-destructive">{form.formState.errors.productId.message}</p>
+            )}
+            {selectedProductHasVariations && (
+              <VariationPicker
+                productId={form.watch("productId") || null}
+                value={form.watch("variationId") ?? null}
+                onChange={(v) => form.setValue("variationId", v)}
+                showStock
+              />
             )}
           </div>
         </FormSection>

@@ -71,11 +71,23 @@ export function SelectVariationDialog({
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">{v.label}</div>
-                  {v.sku && (
-                    <div className="text-xs text-muted-foreground">
-                      SKU: {v.sku}
-                    </div>
-                  )}
+                  <div className="text-xs text-muted-foreground flex gap-2">
+                    {v.sku && <span>SKU: {v.sku}</span>}
+                    <span>
+                      Estoque:{" "}
+                      <span
+                        className={
+                          v.currentStock <= 0
+                            ? "text-destructive font-medium"
+                            : v.currentStock < 5
+                              ? "text-yellow-500 font-medium"
+                              : ""
+                        }
+                      >
+                        {v.currentStock}
+                      </span>
+                    </span>
+                  </div>
                 </div>
                 <div className="font-semibold tabular-nums whitespace-nowrap">
                   {formatCurrency(v.salePrice)}

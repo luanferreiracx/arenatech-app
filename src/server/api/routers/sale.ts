@@ -198,6 +198,32 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
+        // Bloqueia mistura aparelho + acessorio/peca no mesmo carrinho (paridade
+        // Laravel PdvCarrinhoService::validarTipoVenda). A "calculadora" de taxas
+        // tem comportamentos diferentes pra cada tipo (juros, prazo de recebimento
+        // do cartao, politica de absorcao). Misturar tornaria o calculo ambiguo.
+        if (sale.items.length > 0) {
+          const productIds = [...new Set(sale.items.map((i) => i.productId))];
+          const cartProducts = await tx.product.findMany({
+            where: { id: { in: productIds } },
+            select: { isDevice: true },
+          });
+          const cartHasDevice = cartProducts.some((p) => p.isDevice);
+          const cartHasNonDevice = cartProducts.some((p) => !p.isDevice);
+          if (cartHasDevice && !product.isDevice) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Esta venda e de aparelhos. Para vender acessorios/pecas, inicie uma nova venda.",
+            });
+          }
+          if (cartHasNonDevice && product.isDevice) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Esta venda e de acessorios/pecas. Para vender aparelhos, inicie uma nova venda.",
+            });
+          }
+        }
+
         // Produtos serializados (isSerialized=true) exigem escolha do IMEI
         // especifico — paridade Laravel PdvController::adicionarItem.
         if (product.isSerialized) {
@@ -636,6 +662,7 @@ export const saleRouter = createTRPCRouter({
             data: sale.items.map((item) => ({
               tenantId: ctx.tenantId,
               productId: item.productId,
+              variationId: item.variationId ?? null,
               type: "EXIT" as const,
               quantity: item.quantity,
               reason: `Venda ${saleNumber}`,
@@ -644,6 +671,24 @@ export const saleRouter = createTRPCRouter({
               userId: ctx.session.user.id,
             })),
           });
+
+          // Decrementa currentStock: variacao quando item tem variationId,
+          // senao produto. Serializados nao decrementam aqui (sao marcados
+          // como SOLD na proxima etapa).
+          for (const item of sale.items) {
+            if (item.stockItemId) continue; // serializado, ja tratado abaixo
+            if (item.variationId) {
+              await tx.productVariation.update({
+                where: { id: item.variationId },
+                data: { currentStock: { decrement: item.quantity } },
+              });
+            } else {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { currentStock: { decrement: item.quantity } },
+              });
+            }
+          }
 
           // StockItems serializados: marca como SOLD. updateMany atomico — se
           // outro vendedor finalizou a mesma unidade primeiro, o count vira
@@ -1553,6 +1598,7 @@ export const saleRouter = createTRPCRouter({
             sku: v.sku,
             barcode: v.barcode,
             salePrice: effectivePrice,
+            currentStock: v.currentStock,
             label: label || (v.sku ?? "Variacao"),
             attributes: attrs,
             imageUrl: v.imageUrl,
