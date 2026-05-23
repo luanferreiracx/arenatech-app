@@ -7,12 +7,12 @@
 
 ## Estado atual
 
-**Fase atual:** Auditoria módulo a módulo antes da migração de dados. Módulo OS auditado (ADR 0043). Ferramenta extra: Buscador de iPhones em grupos WhatsApp (ADR 0044).
-**Ultima atualizacao:** 2026-05-20
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue.
+**Ultima atualizacao:** 2026-05-23
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
-**Progresso E2E:** 94/125 @business (75%), Nível 2: 10/125 (8%), whitelist 5 arquivos
+**Progresso E2E:** 125/125 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `main`
-**Commits desde ultimo deploy:** 18
+**Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
 
@@ -1686,6 +1686,80 @@ Ordem planejada: Clientes (23) → Configurações (17) → Caixa (14) → Finan
 ## Bloqueios atuais
 
 _(vazio)_
+
+---
+
+### 2026-05-23 — Migração final de dados + PDFs profissionais + upload de logo
+
+- **Migração de dados Laravel (arena_dev MySQL) → Postgres prod** (tenant Arena Tech `dd308431-0525-417a-97c5-459e4b6cf45a`):
+
+  | Agregado | Count migrado | Origem Laravel |
+  |---|---:|---|
+  | customers | 1265 | clientes |
+  | products (+ photos + variations + attributes) | 705 | produtos |
+  | sales + sale_items | 1856 + 1928 | pdv_vendas + pdv_venda_itens |
+  | service_orders + items | 170 + 178 | ordens_servico |
+  | financial_transactions RECEIVABLE + installments | 638 + 1141 | contas_receber + parcelas |
+  | financial_transactions PAYABLE + installments | 72 + 72 | contas_pagar + parcelas |
+  | device_purchases | 0 (sem dados Laravel) | compras_aparelhos |
+  | stock_movements | 1714 | estoque_movimentacoes |
+  | tenant_settings | 1 | configuracoes (k/v: nome_loja, cnpj, etc.) + bloco fiscal_* |
+  | tenant_assistance_settings | 1 | configuracoes_assistencia |
+  | tenant_receiving_settings | 1 | configuracoes_recebimento |
+  | payment_methods (+ code preenchido) | 9 | formas_pagamento |
+  | payment_method_rates | 84 | formas_pagamento_taxas |
+  | socio_commission_rules | 5 (consolidou 7) | socio_regras_comissao |
+  | catalog_device_categories | 9 | aparelhos_categorias |
+  | catalog_devices | 29 | aparelhos_catalogo |
+  | service_order_quotes | 58 | ordens_servico_orcamentos |
+  | providers | 5 | prestadores |
+  | reward_balances + actions + movements | 4 + 22 + 14 | recompensas_* |
+  | chatbot_conversations + messages + follow_ups | 1611 + 21172 + 1758 | chatbot_* |
+  | whatsapp_conversations + messages_sent | 767 + 349 | whatsapp_conversations + whatsapp_mensagens_enviadas |
+  | dashboard_categories + links | 5 + 20 | categorias_dashboard + links_dashboard |
+  - **Pulados intencionalmente:** saques_depix (52), logs_atividades histórico (1394), nfe_emitidas (4 — Next ainda não emite NFe).
+  - **Perdas conhecidas:** 1119 chatbot_conversas duplicadas (UNIQUE phone) → 10592 mensagens órfãs.
+
+- **PDFs refeitos com identidade Arena Tech** (paridade fiel ao Laravel intranetpdv):
+  - Paleta: dourado `#c9a84c` (header divider, totais) + preto-noite `#1a1a2e` (section titles, header de tabelas) + linhas alternadas + badges UPGRADE.
+  - **sale-receipt-pdf** (recibo de venda): tabela com IMEI/série/condição/garantia, badges UPGRADE dourados, box azul para aparelhos em troca, TOTAL preto destacado, bloco detalhado de pagamentos (parcelas + downgrade + troco), assinatura com fallback Autentique (verde dashed).
+  - **purchase-term-pdf** (termo de responsabilidade compra): declaração vermelha (propriedade + procedência, art. 171/180 CP) + azul (autorização), resumo com valor em dourado.
+  - **sale-warranty-pdf** + rota `/api/pdv/[id]/termo-garantia` (criado do zero, era HTML): info-cards Empresa+Cliente, tabela de produtos, box verde de validade máxima, 7 termos numerados, assinaturas duplas. Lê `warrantyMonths` do StockItem ou fallback `warrantyNewMonths`/`warrantyUsedMonths` das settings.
+  - **sale-delivery-pdf** + rota `/api/pdv/[id]/termo-entrega` (criado do zero): info-table compacta, IMEI em highlight amarelo, declaração verde, box âmbar com quitação de diferença em downgrade.
+  - Suporte a tenant logo em todos: lê `tenant_settings.logoUrl`, baixa do MinIO interno via S3 client (sem round-trip HTTP), embute como data URL.
+
+- **Upload de logo profissional via MinIO** (substitui campo URL feio):
+  - Service `tenant-logo-service.ts` com Sharp (redimensiona 400x200 max, exporta PNG; SVG mantém original), valida formato e 2MB max.
+  - Procedures `settings.uploadLogo` + `settings.deleteLogo` (RBAC owner/manager) — apaga logo antiga ao subir nova.
+  - Componente `<LogoUpload>` com drag-drop, preview, botões Substituir/Remover.
+  - Proxy `/api/storage/[...path]` para servir do MinIO sem expor credenciais (cache 1h).
+  - Removido `TenantAssistanceSettings.logoPath` duplicado (estava sempre NULL, sem UI).
+
+- **Paridade PDV+Estoque (3 ondas):**
+  - **Onda 1 — PDV pós-venda:** botão "Enviar recibo" (Meta `pdv_recibo_pdf`), botão "Enviar termo" (Autentique + `pdv_termo_pdf_link`), assinatura física para qualquer usuário, card de status com polling 10s.
+  - **Onda 2 — Estoque HIGH:** `/stock/bulk-adjust` (ajuste em massa), `/stock/exit` com Select de motivos predefinidos (paridade Laravel `MOTIVOS_BAIXA`), drag-drop no CSV import, `searchProducts.currentStock` real (era stub 0).
+  - **Onda 3 — Estoque MEDIUM:** `ImeiInput.checkDuplicate` com debounce 500ms + alerta visual, `/stock/nfe` (upload XML drag-drop + lista) + `/stock/nfe/[id]` (vinculação item-a-produto + ignorar + importar), `/stock/purchases/[id]` (detalhe com termo Autentique/físico/cancelar), `DeviceCondition` estendido com `SEMI_NEW`/`DISPLAY` (paridade Laravel novo/seminovo/usado/vitrine).
+  - **Relatórios:** rota `/api/reports/stock/[type]` (6 tipos: posicao-estoque, estoque-minimo, vendas-periodo, vendas-vendedor, vendas-produto, curva-abc) com PDF binário via react-pdf, botão "Baixar PDF" no header de `/stock/reports`.
+
+- **Schemas novos criados nesta sessão:**
+  - `whatsapp.prisma` (WhatsappConversation + WhatsappMessageSent, RLS) — paridade Laravel `whatsapp_conversations` + `whatsapp_mensagens_enviadas`.
+  - `dashboard.prisma` (DashboardCategory + DashboardLink, RLS) — paridade `categorias_dashboard` + `links_dashboard`.
+  - 3 migrations aplicadas em local + prod (add_device_condition_seminovo_display, remove_assistance_logo_path, add_whatsapp_and_dashboard).
+
+- **Bugfixes em produção:**
+  - `tenant_number_sequences` (sale=1860 → 1884; service_order/2026 240 → 242) — `Unique constraint failed` por dessincronia entre migração direta de IDs e sequence atômica.
+  - Limpeza de venda de teste R$2 "TESTE" (`VND202601885`) para abrir o número correto da venda Laravel original.
+  - 347 receivables PENDING/OVERDUE + 854 parcelas marcadas PAID (decisão do dono: "nada pendente").
+
+- **Decisões importantes:**
+  - **NUNCA usar BrasilAPI/DirectD** para auto-preenchimento de CPF/CNPJ (decisão reforçada várias vezes pelo dono — salvo em memory `feedback_no_cpf_cnpj_lookup.md`).
+  - **Logo único do tenant** — `tenant_settings.logoUrl` (removido `tenant_assistance_settings.logoPath` duplicado).
+  - Sales mantém UNIQUE em `number` — sequence atômica via `nextTenantNumber()` evita race.
+
+- **Próximo:**
+  - Resolver chatbot duplicados (10592 mensagens órfãs sem conversa pai) — decisão de produto: associar à conversa "principal" do mesmo telefone ou descartar?
+  - Avaliar emissão de NFe (tenant_fiscal_settings ainda vazio, sem certificado).
+  - 7 cenários E2E adicionais Stock-A (dívida técnica aceita).
 
 ---
 
