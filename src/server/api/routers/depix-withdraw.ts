@@ -117,20 +117,20 @@ export const depixWithdrawRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        // Clean pix key
-        let pixKey = input.pixKey.trim();
-        if (input.pixKeyType === "CPF" || input.pixKeyType === "CNPJ" || input.pixKeyType === "PHONE") {
-          pixKey = pixKey.replace(/\D/g, "");
-        }
+      // Clean pix key
+      let pixKey = input.pixKey.trim();
+      if (input.pixKeyType === "CPF" || input.pixKeyType === "CNPJ" || input.pixKeyType === "PHONE") {
+        pixKey = pixKey.replace(/\D/g, "");
+      }
 
-        // Clean tax id
-        const taxId = input.recipientTaxId.replace(/\D/g, "");
-        if (taxId.length !== 11 && taxId.length !== 14) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "CPF deve ter 11 digitos e CNPJ 14 digitos" });
-        }
+      // Clean tax id
+      const taxId = input.recipientTaxId.replace(/\D/g, "");
+      if (taxId.length !== 11 && taxId.length !== 14) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "CPF deve ter 11 digitos e CNPJ 14 digitos" });
+      }
 
-        // Generate number
+      // ETAPA 1: cria registro local em PENDING, gera numero — tx curta.
+      const w = await ctx.withTenant(async (tx) => {
         const today = new Date();
         const prefix = `SQ${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
         const lastWithdraw = await tx.depixWithdraw.findFirst({
@@ -144,8 +144,7 @@ export const depixWithdrawRouter = createTRPCRouter({
         }
         const number = `${prefix}${String(seq).padStart(5, "0")}`;
 
-        // Create withdraw (API integration is a mock for now)
-        const w = await tx.depixWithdraw.create({
+        return tx.depixWithdraw.create({
           data: {
             tenantId: ctx.tenantId,
             number,
@@ -160,11 +159,70 @@ export const depixWithdrawRouter = createTRPCRouter({
             userName: ctx.session.user.name ?? null,
           },
         });
-
-        logger.info("DepixWithdraw created", { id: w.id, number: w.number, amount: input.requestedAmount });
-
-        return serializeWithdraw(w);
       });
+
+      // ETAPA 2: chamada externa PixPay (fora da tx, longa)
+      const { createDepixWithdraw } = await import("@/lib/services/depix-service");
+      const result = await createDepixWithdraw(
+        pixKey,
+        input.pixKeyType,
+        input.requestedAmount,
+        taxId,
+      );
+
+      // ETAPA 3: persiste resposta da API
+      const updated = await ctx.withTenant(async (tx) => {
+        if (!result.success) {
+          return tx.depixWithdraw.update({
+            where: { id: w.id },
+            data: {
+              status: "FAILED",
+              notes: [w.notes, `Falha API: ${result.error ?? "erro desconhecido"}`]
+                .filter(Boolean)
+                .join("\n"),
+            },
+          });
+        }
+        return tx.depixWithdraw.update({
+          where: { id: w.id },
+          data: {
+            depixId: result.id ?? null,
+            depositAddress: result.depositAddress ?? null,
+            depositAmount:
+              result.depositAmountInCents != null
+                ? new Prisma.Decimal(result.depositAmountInCents).div(100)
+                : null,
+            receivedAmount:
+              result.receivedAmount != null
+                ? new Prisma.Decimal(result.receivedAmount)
+                : null,
+            fee: result.fee != null ? new Prisma.Decimal(result.fee) : null,
+            expiration: result.expiration ? new Date(result.expiration) : null,
+            // PixPay envia "unsent" inicial, vai para "sent" depois.
+            status: result.status === "sent" || result.status === "completed"
+              ? "SENT"
+              : "PROCESSING",
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            apiResponse: result.raw as any,
+          },
+        });
+      });
+
+      logger.info("DepixWithdraw processado", {
+        id: updated.id,
+        number: updated.number,
+        amount: input.requestedAmount,
+        apiSuccess: result.success,
+      });
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao solicitar saque",
+        });
+      }
+
+      return serializeWithdraw(updated);
     }),
 
   update: tenantProcedure
@@ -240,30 +298,78 @@ export const depixWithdrawRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Consulta status do saque. Se ainda PROCESSING, chama a API PixPay para
+   * checar e atualiza o banco. Paridade Laravel DepixService::consultarStatusSaque.
+   */
   checkStatus: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const w = await tx.depixWithdraw.findUnique({
+    .mutation(async ({ ctx, input }) => {
+      // ETAPA 1: fetch
+      const w = await ctx.withTenant(async (tx) =>
+        tx.depixWithdraw.findUnique({
           where: { id: input.id },
-          select: {
-            status: true,
-            receivedAmount: true,
-            fee: true,
-            blockchainTxId: true,
-          },
-        });
-        if (!w) throw new TRPCError({ code: "NOT_FOUND", message: "Saque nao encontrado" });
+        }),
+      );
+      if (!w) throw new TRPCError({ code: "NOT_FOUND", message: "Saque nao encontrado" });
 
-        const isFinal = ["SENT", "FAILED", "CANCELLED"].includes(w.status);
+      // Se ja eh final, retorna direto
+      if (["SENT", "FAILED", "CANCELLED"].includes(w.status)) {
         return {
           status: w.status,
           statusLabel: DEPIX_STATUS_LABELS[w.status] ?? w.status,
           receivedAmount: decimalToNumber(w.receivedAmount),
           fee: decimalToNumber(w.fee),
           blockchainTxId: w.blockchainTxId,
-          isFinal,
+          isFinal: true,
         };
-      });
+      }
+
+      // PROCESSING / PENDING — consulta API
+      if (w.depixId) {
+        const { getDepixWithdrawStatus } = await import("@/lib/services/depix-service");
+        const result = await getDepixWithdrawStatus(w.depixId);
+        if (result.success && result.status) {
+          // PixPay status: "unsent" | "sent" | "expired" | "failed"
+          let newStatus: typeof w.status = w.status;
+          if (result.status === "sent" || result.status === "completed") newStatus = "SENT";
+          else if (result.status === "expired") newStatus = "CANCELLED";
+          else if (result.status === "failed") newStatus = "FAILED";
+
+          if (newStatus !== w.status) {
+            await ctx.withTenant(async (tx) =>
+              tx.depixWithdraw.update({
+                where: { id: w.id },
+                data: { status: newStatus },
+              }),
+            );
+            logger.info("DepixWithdraw status atualizado via API", {
+              id: w.id,
+              from: w.status,
+              to: newStatus,
+            });
+          }
+
+          const isFinal = ["SENT", "FAILED", "CANCELLED"].includes(newStatus);
+          return {
+            status: newStatus,
+            statusLabel: DEPIX_STATUS_LABELS[newStatus] ?? newStatus,
+            receivedAmount: decimalToNumber(w.receivedAmount),
+            fee: decimalToNumber(w.fee),
+            blockchainTxId: w.blockchainTxId,
+            isFinal,
+          };
+        }
+      }
+
+      // Fallback: retorna status atual sem consulta
+      return {
+        status: w.status,
+        statusLabel: DEPIX_STATUS_LABELS[w.status] ?? w.status,
+        receivedAmount: decimalToNumber(w.receivedAmount),
+        fee: decimalToNumber(w.fee),
+        blockchainTxId: w.blockchainTxId,
+        isFinal: false,
+      };
     }),
 });

@@ -208,6 +208,234 @@ export async function cancelPixPayment(
   return { success: true };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Withdraw (saque)
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface DepixWithdrawResult {
+  success: boolean;
+  /** ID retornado pela PixPay */
+  id?: string;
+  /** Endereco Liquid de deposito */
+  depositAddress?: string;
+  depositAmountInCents?: number;
+  payoutAmountInCents?: number;
+  expiration?: string;
+  status?: string;
+  receivedAmount?: number;
+  fee?: number;
+  raw?: unknown;
+  error?: string;
+}
+
+/**
+ * Solicita saque de DEPIX (USDT Liquid -> PIX para o destinatario).
+ *
+ * Paridade Laravel DepixService::criarSaque.
+ *
+ * Env:
+ *   - DEPIX_SAQUE_URL    (default https://api.pixpay.space/v1/withdraw)
+ *   - DEPIX_SAQUE_SENHA  (senha da conta PixPay — obrigatorio)
+ *
+ * @param pixKey Chave PIX formatada (CPF/CNPJ com pontuacao, conforme exigencia API).
+ * @param pixKeyType "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "RANDOM"
+ * @param valorReais valor em reais
+ * @param taxId CPF/CNPJ do destinatario (so digitos)
+ */
+export async function createDepixWithdraw(
+  pixKey: string,
+  pixKeyType: "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "RANDOM",
+  valorReais: number,
+  taxId: string,
+): Promise<DepixWithdrawResult> {
+  const apiKey = process.env.DEPIX_API_KEY;
+  const senha = process.env.DEPIX_SAQUE_SENHA;
+
+  if (!apiKey || !senha) {
+    logger.warn("Depix saque: mock mode (DEPIX_API_KEY ou DEPIX_SAQUE_SENHA ausente)");
+    return {
+      success: true,
+      id: `mock-saque-${Date.now()}`,
+      depositAddress: "lq1qq-mock-address",
+      payoutAmountInCents: Math.round(valorReais * 100),
+      status: "unsent",
+    };
+  }
+
+  const saqueUrl =
+    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
+    "https://api.pixpay.space/v1/withdraw";
+
+  const taxIdDigits = taxId.replace(/\D/g, "");
+  const pixKeyFormatted = formatPixKey(pixKey, pixKeyType);
+
+  const payload = {
+    senha,
+    valor: valorReais.toFixed(2),
+    pixKey: pixKeyFormatted,
+    tipoChave: pixKeyType,
+    tax_id: taxIdDigits,
+  };
+
+  logger.info("Depix saque: chamando API", {
+    url: saqueUrl,
+    tipoChave: pixKeyType,
+    valor: payload.valor,
+  });
+
+  try {
+    const response = await fetch(saqueUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      logger.error("Depix saque: erro na API", {
+        status: response.status,
+        body: body.substring(0, 500),
+      });
+      let msg = `HTTP ${response.status}`;
+      try {
+        const parsed = JSON.parse(body) as { message?: string; error?: string };
+        msg = parsed.message ?? parsed.error ?? msg;
+      } catch {
+        msg = `${msg}: ${body.substring(0, 200)}`;
+      }
+      return { success: false, error: `Erro ao solicitar saque: ${msg}` };
+    }
+
+    const body = (await response.json()) as Record<string, unknown>;
+    // PixPay retorna `response` ou `[{response}]` ou objeto raiz.
+    let data: Record<string, unknown>;
+    if (Array.isArray(body) && body.length > 0) {
+      const first = body[0] as Record<string, unknown>;
+      data = (first.response as Record<string, unknown>) ?? first;
+    } else {
+      data = (body.response as Record<string, unknown>) ?? body;
+    }
+
+    const erroApi = (data.error as string | undefined) ?? (body.error as string | undefined);
+    if (erroApi) {
+      logger.error("Depix saque: erro da API", { erro: erroApi, body });
+      return { success: false, error: `Erro da API: ${erroApi}` };
+    }
+
+    if (!data.id) {
+      logger.error("Depix saque: sem id", { body });
+      return { success: false, error: "Resposta invalida: sem id" };
+    }
+
+    const depositAmountInCents =
+      (data.depositAmountInCents as number | undefined) ?? undefined;
+    const payoutAmountInCents =
+      (data.payoutAmountInCents as number | undefined) ?? undefined;
+    const receivedAmount = payoutAmountInCents != null ? payoutAmountInCents / 100 : undefined;
+    const fee =
+      receivedAmount != null && depositAmountInCents != null
+        ? depositAmountInCents / 100 - receivedAmount
+        : undefined;
+
+    return {
+      success: true,
+      id: String(data.id),
+      depositAddress: (data.depositAddress as string | undefined) ?? undefined,
+      depositAmountInCents,
+      payoutAmountInCents,
+      expiration: (data.expiration as string | undefined) ?? undefined,
+      status: (data.status as string | undefined) ?? "unsent",
+      receivedAmount,
+      fee,
+      raw: data,
+    };
+  } catch (error) {
+    logger.error("Depix saque: erro de rede", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao solicitar saque",
+    };
+  }
+}
+
+/**
+ * Formata chave PIX para envio ao endpoint de saque. CPF/CNPJ exigem pontuacao
+ * pela API. Paridade Laravel DepixService::formatarPixKey.
+ */
+function formatPixKey(
+  pixKey: string,
+  pixKeyType: "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "RANDOM",
+): string {
+  if (pixKeyType === "CPF") {
+    const d = pixKey.replace(/\D/g, "");
+    if (d.length === 11) {
+      return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+    }
+  }
+  if (pixKeyType === "CNPJ") {
+    const d = pixKey.replace(/\D/g, "");
+    if (d.length === 14) {
+      return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+    }
+  }
+  if (pixKeyType === "PHONE") {
+    // Adiciona +55 se ainda nao tem
+    const d = pixKey.replace(/\D/g, "");
+    return d.startsWith("55") ? `+${d}` : `+55${d}`;
+  }
+  // EMAIL e RANDOM ficam como estao
+  return pixKey;
+}
+
+/**
+ * Consulta status de um saque pela API PixPay.
+ * Paridade Laravel DepixService::consultarStatusSaque.
+ */
+export async function getDepixWithdrawStatus(
+  depixId: string,
+): Promise<{ success: boolean; status?: string; raw?: unknown; error?: string }> {
+  const apiKey = process.env.DEPIX_API_KEY;
+  if (!apiKey) return { success: true, status: "pending" };
+  if (depixId.startsWith("mock-saque-")) return { success: true, status: "pending" };
+
+  const statusUrl =
+    process.env.DEPIX_SAQUE_STATUS_URL?.replace(/\/$/, "") ??
+    "https://api.pixpay.space/v1/withdraw-status";
+
+  try {
+    const response = await fetch(statusUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ id: depixId }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+    const body = (await response.json()) as Record<string, unknown>;
+    const data = (body.response ?? body) as Record<string, unknown>;
+    return {
+      success: true,
+      status: String(data.status ?? "pending"),
+      raw: data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao consultar status",
+    };
+  }
+}
+
 /**
  * Consulta status de uma transacao PIX. Paridade Laravel
  * `consultarStatusDeposito` — POST {statusUrl} com {id}.

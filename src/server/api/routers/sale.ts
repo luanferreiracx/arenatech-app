@@ -1995,21 +1995,32 @@ export const saleRouter = createTRPCRouter({
 
   /** Generate PIX QR code for a sale (faithful to Laravel gerarPixPdv) */
   generatePix: tenantProcedure
-    .input(z.object({ saleId: z.string().uuid() }))
+    .input(
+      z.object({
+        saleId: z.string().uuid(),
+        /** CPF/CNPJ do pagador. Obrigatorio quando totalAmount >= R$ 500. */
+        taxId: z.string().max(20).optional().nullable(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — fetch tx curta (sale + cpf do cliente para anti-fraude PixPay)
-      const { sale, customerCpf } = await ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch tx curta (sale + cpf do cliente p/ anti-fraude PixPay).
+      // Tambem aceita CPF/CNPJ informado pelo operador no momento da venda
+      // (input.taxId), util quando cliente nao tem cadastro mas vai pagar
+      // valor >= R$ 500.
+      const { sale, customerCpf, customerCnpj } = await ctx.withTenant(async (tx) => {
         const s = await tx.sale.findUnique({ where: { id: input.saleId } });
-        if (!s) return { sale: null, customerCpf: null };
+        if (!s) return { sale: null, customerCpf: null, customerCnpj: null };
         let cpf: string | null = null;
+        let cnpj: string | null = null;
         if (s.customerId) {
           const c = await tx.customer.findUnique({
             where: { id: s.customerId },
-            select: { cpf: true },
+            select: { cpf: true, cnpj: true },
           });
           cpf = c?.cpf ?? null;
+          cnpj = c?.cnpj ?? null;
         }
-        return { sale: s, customerCpf: cpf };
+        return { sale: s, customerCpf: cpf, customerCnpj: cnpj };
       });
       if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
       if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
@@ -2020,12 +2031,23 @@ export const saleRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da venda deve ser maior que zero" });
       }
 
+      // Regra DePix: valores >= R$ 500,00 exigem CPF/CNPJ do pagador (anti-fraude PixPay).
+      // Usa o que vier no input (operador digitou) > cadastro do cliente.
+      const taxIdRaw = (input.taxId ?? customerCpf ?? customerCnpj ?? "").replace(/\D/g, "");
+      if (totalAmount >= 500 && taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+        });
+      }
+
       // ETAPA 2 — Depix HTTP fora da tx
       const result = await createPixPayment(
         totalAmount,
         `Venda ${sale.number}`,
         sale.id,
-        customerCpf,
+        taxIdRaw || null,
       );
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });

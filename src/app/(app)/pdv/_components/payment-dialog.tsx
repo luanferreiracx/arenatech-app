@@ -65,6 +65,8 @@ interface PaymentDialogProps {
    */
   refundDueAmount?: number;
   customerId: string | null;
+  /** CPF/CNPJ do cliente cadastrado (cru, so digitos). Usado pelo DePix. */
+  customerTaxId?: string | null;
   onSuccess: (saleId: string) => void;
 }
 
@@ -75,6 +77,7 @@ export function PaymentDialog({
   totalAmount,
   refundDueAmount = 0,
   customerId,
+  customerTaxId,
   onSuccess,
 }: PaymentDialogProps) {
   const trpc = useTRPC();
@@ -516,6 +519,7 @@ export function PaymentDialog({
             open={showDepixQr}
             saleId={saleId}
             totalCents={totalAmount}
+            customerTaxId={customerTaxId ?? null}
             onClose={() => setShowDepixQr(false)}
             onPaid={() => {
               setShowDepixQr(false);

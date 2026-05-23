@@ -120,6 +120,7 @@ export function PdvScreen() {
   } | null>(null);
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [customerName, setCustomerName] = useState<string | null>(null);
+  const [customerTaxId, setCustomerTaxId] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -375,6 +376,7 @@ export function PdvScreen() {
   const handleRemoveCustomer = () => {
     setCustomerId(undefined);
     setCustomerName(null);
+    setCustomerTaxId(null);
     if (!draftId) return;
     setCustomerMutation.mutate({ saleId: draftId, customerId: null });
   };
@@ -890,8 +892,9 @@ export function PdvScreen() {
           <EntitySelector
             value={customerId}
             onChange={handleSelectCustomer}
-            onSelect={(item: { name: string }) => {
+            onSelect={(item: { name: string; cpf?: string | null; cnpj?: string | null }) => {
               setCustomerName(item.name);
+              setCustomerTaxId(item.cpf ?? item.cnpj ?? null);
             }}
             searchFn={async (query: string) => {
               const res = await queryClient.fetchQuery(
@@ -961,6 +964,7 @@ export function PdvScreen() {
           totalAmount={totalAmount}
           refundDueAmount={refundDueAmount}
           customerId={customerId ?? null}
+          customerTaxId={customerTaxId}
           onSuccess={(saleId: string) => {
             router.push(`/pdv/${saleId}`);
           }}
