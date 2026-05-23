@@ -25,8 +25,7 @@ import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { toast } from "@/lib/toast";
 import { createSupplierSchema, type CreateSupplierInput } from "@/lib/validators/stock";
 import Link from "next/link";
-import { ArrowLeft, Search, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
 
 export default function NewSupplierPage() {
   const router = useRouter();
@@ -90,55 +89,6 @@ export default function NewSupplierPage() {
     createMutation.mutate(data);
   });
 
-  const [lookingUp, setLookingUp] = useState(false);
-  const fetchCnpjQuery = useQuery({
-    ...trpc.stock.lookupCnpj.queryOptions({ cnpj: cnpjDigits }),
-    enabled: false,
-  });
-  const fetchCpfQuery = useQuery({
-    ...trpc.stock.lookupCpf.queryOptions({ cpf: cpfDigits }),
-    enabled: false,
-  });
-
-  const handleLookup = async () => {
-    setLookingUp(true);
-    try {
-      if (watchType === "PJ" && cnpjDigits.length === 14) {
-        const r = await fetchCnpjQuery.refetch();
-        const data = r.data;
-        if (!data) {
-          toast.error("CNPJ nao encontrado");
-          return;
-        }
-        form.setValue("name", data.razaoSocial || form.getValues("name"));
-        if (data.nomeFantasia) form.setValue("tradeName", data.nomeFantasia);
-        if (data.telefone) form.setValue("phone", data.telefone);
-        if (data.email) form.setValue("email", data.email);
-        if (data.cep) form.setValue("zipCode", data.cep);
-        if (data.logradouro) form.setValue("street", data.logradouro);
-        if (data.numero) form.setValue("streetNumber", data.numero);
-        if (data.complemento) form.setValue("complement", data.complemento);
-        if (data.bairro) form.setValue("neighborhood", data.bairro);
-        if (data.municipio) form.setValue("city", data.municipio);
-        if (data.uf) form.setValue("state", data.uf);
-        toast.success("Dados preenchidos com sucesso");
-      } else if (watchType === "PF" && cpfDigits.length === 11) {
-        const r = await fetchCpfQuery.refetch();
-        const data = r.data;
-        if (!data || !data.found || !data.name) {
-          toast.error("CPF nao encontrado ou API indisponivel");
-          return;
-        }
-        form.setValue("name", data.name);
-        toast.success("Dados preenchidos");
-      } else {
-        toast.error("Documento incompleto");
-      }
-    } finally {
-      setLookingUp(false);
-    }
-  };
-
   return (
     <div>
       <PageHeader
@@ -174,26 +124,7 @@ export default function NewSupplierPage() {
             </div>
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
-              <div className="flex gap-2">
-                <Input
-                  {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")}
-                  placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={handleLookup}
-                  disabled={!docComplete || lookingUp}
-                  title="Buscar dados na Receita Federal"
-                >
-                  {lookingUp ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
+              <Input {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")} placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"} />
               {duplicate && (
                 <p className="text-xs text-destructive">
                   Documento ja cadastrado em outro fornecedor:{" "}
