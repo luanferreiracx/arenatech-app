@@ -14,20 +14,9 @@ import {
 import {
   ClipboardPlus,
   UserPlus,
-  LayoutDashboard,
-  Users,
-  ClipboardList,
-  Package,
-  DollarSign,
-  Settings,
   ShoppingCart,
-  History,
-  FileText,
-  Percent,
-  Smartphone,
-  Truck,
-  MessageSquare,
 } from "lucide-react";
+import { appNavGroups } from "@/components/layout/nav-items";
 
 interface CommandPaletteContextValue {
   open: boolean;
@@ -112,66 +101,29 @@ function CommandPaletteDialog({
 
         <CommandSeparator />
 
-        <CommandGroup heading="Navegar">
-          <CommandItem onSelect={() => runCommand(() => router.push("/"))}>
-            <LayoutDashboard className="mr-2 h-4 w-4" />
-            Dashboard
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/customers"))}>
-            <Users className="mr-2 h-4 w-4" />
-            Clientes
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/service-orders"))}>
-            <ClipboardList className="mr-2 h-4 w-4" />
-            Ordens de Servico
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            PDV
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/pdv/history"))}>
-            <History className="mr-2 h-4 w-4" />
-            Historico de Vendas
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/stock"))}>
-            <Package className="mr-2 h-4 w-4" />
-            Estoque
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/financial"))}>
-            <DollarSign className="mr-2 h-4 w-4" />
-            Financeiro
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/fiscal"))}>
-            <FileText className="mr-2 h-4 w-4" />
-            Fiscal
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/commissions"))}>
-            <Percent className="mr-2 h-4 w-4" />
-            Comissoes
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/imei"))}>
-            <Smartphone className="mr-2 h-4 w-4" />
-            Consulta IMEI
-          </CommandItem>
-          {tenantSlug === "arena-tech" && (
-            <CommandItem onSelect={() => runCommand(() => router.push("/iphone-hunter"))}>
-              <Smartphone className="mr-2 h-4 w-4" />
-              Buscar iPhones nos Grupos
-            </CommandItem>
-          )}
-          <CommandItem onSelect={() => runCommand(() => router.push("/operation"))}>
-            <Truck className="mr-2 h-4 w-4" />
-            Operacao
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/communication"))}>
-            <MessageSquare className="mr-2 h-4 w-4" />
-            Comunicacao
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/settings"))}>
-            <Settings className="mr-2 h-4 w-4" />
-            Configuracoes
-          </CommandItem>
-        </CommandGroup>
+        {appNavGroups.map((group, gi) => {
+          const visibleItems = group.items.filter(
+            (it) => !it.requiresTenantSlug || it.requiresTenantSlug === tenantSlug,
+          );
+          if (visibleItems.length === 0) return null;
+          return (
+            <CommandGroup key={gi} heading={group.title ?? "Navegar"}>
+              {visibleItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <CommandItem
+                    key={item.href}
+                    onSelect={() => runCommand(() => router.push(item.href))}
+                    keywords={[item.label, item.href]}
+                  >
+                    <Icon className="mr-2 h-4 w-4" />
+                    {item.label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          );
+        })}
       </CommandList>
     </CommandDialog>
   );

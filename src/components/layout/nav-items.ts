@@ -96,7 +96,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Vendas", href: "/pdv", icon: ShoppingCart },
       { label: "Historico de Vendas", href: "/pdv/history", icon: History },
-      { label: "Vendas Avulsas", href: "/quick-sales", icon: CreditCard },
+      { label: "Vendas Avulsas DePix", href: "/quick-sales", icon: CreditCard },
     ],
   },
   {
