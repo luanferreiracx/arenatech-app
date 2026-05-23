@@ -76,6 +76,7 @@ type DraftItem = {
   costPrice: number;
   discount: number;
   total: number;
+  isDevice?: boolean;
 };
 
 type SearchProduct = {
@@ -125,21 +126,30 @@ export function PdvScreen() {
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // -- Create Draft (idempotent: reuses existing) --
+  // -- Create Draft (zera carrinho anterior antes de criar novo) --
+  const abandonDraftMutation = useMutation(
+    trpc.sale.abandonDraft.mutationOptions(),
+  );
   const createDraftMutation = useMutation(
     trpc.sale.createDraft.mutationOptions(),
   );
 
   const initDraft = useCallback(() => {
     setDraftError(null);
-    createDraftMutation.mutate(undefined, {
-      onSuccess: (data) => {
-        const sale = data as unknown as DraftSale;
-        setDraftId(sale.id);
-        setDraftError(null);
-      },
-      onError: (err) => {
-        setDraftError(err.message);
+    // Abandona qualquer DRAFT anterior do operador antes de criar um novo.
+    // Decisao do dono: PDV nunca reaproveita carrinho — sair e voltar = zero.
+    abandonDraftMutation.mutate(undefined, {
+      onSettled: () => {
+        createDraftMutation.mutate(undefined, {
+          onSuccess: (data) => {
+            const sale = data as unknown as DraftSale;
+            setDraftId(sale.id);
+            setDraftError(null);
+          },
+          onError: (err) => {
+            setDraftError(err.message);
+          },
+        });
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,11 +415,6 @@ export function PdvScreen() {
       },
     );
   };
-
-  // -- Abandon Draft --
-  const abandonDraftMutation = useMutation(
-    trpc.sale.abandonDraft.mutationOptions(),
-  );
 
   // -- New Sale (restart) --
   const handleNewSale = () => {
@@ -852,14 +857,32 @@ export function PdvScreen() {
             Aparelho de Entrada {(draft?.upgrades?.length ?? 0) > 0 && `(${draft?.upgrades?.length})`}
           </Button>
 
-          <Button
-            className="w-full h-12 text-base gap-2"
-            disabled={items.length === 0}
-            onClick={() => setShowPaymentDialog(true)}
-          >
-            <CreditCard className="h-5 w-5" />
-            Finalizar Venda
-          </Button>
+          {(() => {
+            const hasDeviceItem = items.some((it) => it.isDevice);
+            const blockedNoCustomer = hasDeviceItem && !customerId;
+            return (
+              <>
+                <Button
+                  className="w-full h-12 text-base gap-2"
+                  disabled={items.length === 0 || blockedNoCustomer}
+                  onClick={() => setShowPaymentDialog(true)}
+                  title={
+                    blockedNoCustomer
+                      ? "Venda de aparelho exige cliente selecionado."
+                      : undefined
+                  }
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Finalizar Venda
+                </Button>
+                {blockedNoCustomer && (
+                  <p className="text-xs text-orange-600 text-center px-2 -mt-1">
+                    Selecione um cliente para vender aparelho.
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
             <span>

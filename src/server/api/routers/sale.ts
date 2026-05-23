@@ -170,7 +170,24 @@ export const saleRouter = createTRPCRouter({
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
         }
-        return serializeSale(sale as unknown as Record<string, unknown>);
+        // Enriquece items com isDevice — UI usa pra exigir cliente quando
+        // tem aparelho no carrinho (rastreabilidade IMEI).
+        const productIds = [...new Set(sale.items.map((i) => i.productId))];
+        const products = productIds.length
+          ? await tx.product.findMany({
+              where: { id: { in: productIds } },
+              select: { id: true, isDevice: true },
+            })
+          : [];
+        const isDeviceMap = new Map(products.map((p) => [p.id, p.isDevice]));
+        const itemsWithDevice = sale.items.map((it) => ({
+          ...it,
+          isDevice: isDeviceMap.get(it.productId) ?? false,
+        }));
+        return serializeSale({
+          ...sale,
+          items: itemsWithDevice,
+        } as unknown as Record<string, unknown>);
       });
     }),
 
@@ -583,6 +600,18 @@ export const saleRouter = createTRPCRouter({
         const appliesTo: "APARELHO" | "NAO_APARELHO" | "AMBOS" = allDevices
           ? "APARELHO"
           : noDevices ? "NAO_APARELHO" : "AMBOS";
+
+        // Regra de negocio: venda de aparelho exige cliente vinculado
+        // (rastreabilidade do IMEI, termo de entrega + DevicePurchase em
+        // upgrade). Paridade Laravel `validarClienteParaAparelho`.
+        const hasAnyDevice = products.some((p) => p.isDevice);
+        if (hasAnyDevice && !input.customerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Venda com aparelho exige cliente selecionado. Use 'Selecionar Cliente' antes de finalizar.",
+          });
+        }
 
         let totalSurcharge = 0;
         let totalOperatorFee = 0;
@@ -1757,12 +1786,80 @@ export const saleRouter = createTRPCRouter({
           name: p.name,
           sku: p.sku,
           barcode: p.barcode,
+          brand: p.brand,
+          isDevice: p.isDevice,
           salePrice: decimalToCents(p.salePrice),
           costPrice: decimalToCents(p.costPrice),
           currentStock: p.isSerialized ? (stockMap.get(p.id) ?? 0) : p.currentStock,
           isSerialized: p.isSerialized,
           hasVariations: p.hasVariations,
         }));
+      });
+    }),
+
+  /**
+   * Verifica historico de um IMEI no tenant. Paridade Laravel
+   * /estoque/verificar-imei-historico — usado no modal de upgrade pra alertar
+   * operador quando aparelho ja foi vendido pela loja ou ja esta no estoque.
+   *
+   * Retorna `null` se IMEI nunca foi visto. Caso contrario, retorna estado
+   * atual + ultima venda (se houver).
+   */
+  checkImeiHistory: tenantProcedure
+    .input(z.object({ imei: z.string().min(5).max(20) }))
+    .query(async ({ ctx, input }) => {
+      const cleanImei = input.imei.replace(/\D/g, "");
+      if (cleanImei.length < 5) return null;
+      return ctx.withTenant(async (tx) => {
+        const item = await tx.stockItem.findFirst({
+          where: { imei: cleanImei, deletedAt: null },
+          orderBy: { updatedAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            product: { select: { name: true } },
+          },
+        });
+        if (!item) return null;
+        // Procura ultima venda com esse stock item — pra alertar
+        // "ja vendido pela loja".
+        const lastSale = await tx.saleItem.findFirst({
+          where: {
+            stockItemId: item.id,
+            sale: { status: "COMPLETED", deletedAt: null },
+          },
+          orderBy: { sale: { saleDate: "desc" } },
+          select: {
+            sale: {
+              select: {
+                number: true,
+                saleDate: true,
+                customerId: true,
+                customerName: true,
+              },
+            },
+          },
+        });
+        let lastCustomerName: string | null = lastSale?.sale.customerName ?? null;
+        if (lastSale?.sale.customerId && !lastCustomerName) {
+          const c = await tx.customer.findUnique({
+            where: { id: lastSale.sale.customerId },
+            select: { name: true },
+          });
+          lastCustomerName = c?.name ?? null;
+        }
+        return {
+          status: item.status,
+          productName: item.product.name,
+          alreadySold: !!lastSale,
+          lastSale: lastSale
+            ? {
+                number: lastSale.sale.number,
+                date: lastSale.sale.saleDate,
+                customerName: lastCustomerName,
+              }
+            : null,
+        };
       });
     }),
 
