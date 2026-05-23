@@ -44,7 +44,7 @@ test.describe("Estoque-A — Product CRUD Nível 2", () => {
     await gotoAndWait(page, "/stock");
     await fillByPlaceholder(page, /Buscar por nome/, name);
     await page.waitForTimeout(600);
-    await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("table").last()).toBeVisible({ timeout: 10000 });
   });
 
   test("@business T-02 cria produto com SKU e SKU aparece na listagem", async ({ page }) => {
@@ -53,7 +53,7 @@ test.describe("Estoque-A — Product CRUD Nível 2", () => {
     await gotoAndWait(page, "/stock");
     await fillByPlaceholder(page, /Buscar por nome/, sku);
     await page.waitForTimeout(600);
-    await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("table").last()).toBeVisible({ timeout: 10000 });
   });
 
   test("@business T-03 listagem renderiza tabela com colunas", async ({ page }) => {
@@ -179,7 +179,7 @@ test.describe("Estoque-A — NCM/CEST Nível 2", () => {
     await gotoAndWait(page, "/stock");
     await fillByPlaceholder(page, /Buscar por nome/, name);
     await page.waitForTimeout(600);
-    await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("table").last()).toBeVisible({ timeout: 10000 });
   });
 
   test("@business T-15 form preenche CEST junto com NCM", async ({ page }) => {
