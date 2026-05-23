@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Plus, BarChart3, Download, MinusCircle, ListChecks } from "lucide-react";
+import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -35,6 +35,12 @@ export default function StockPage() {
               <Link href="/stock/exit">
                 <MinusCircle className="mr-2 h-4 w-4" />
                 Baixa
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/stock/nfe">
+                <FileText className="mr-2 h-4 w-4" />
+                NF-e
               </Link>
             </Button>
             <Button variant="outline" asChild>

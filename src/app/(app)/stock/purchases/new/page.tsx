@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { ImeiInput } from "@/components/inputs/imei-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -124,7 +125,12 @@ export default function NewPurchasePage() {
                   <FormItem>
                     <FormLabel>IMEI</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value ?? ""} placeholder="Ex: 353456789012345" maxLength={20} />
+                      <ImeiInput
+                        name="imei"
+                        value={field.value ?? ""}
+                        onValueChange={(v) => field.onChange(v)}
+                        checkDuplicate
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
