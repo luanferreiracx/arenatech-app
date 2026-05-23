@@ -27,6 +27,7 @@ import {
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createDocumentWithLink, getDocumentStatus, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { isValidLuhn } from "@/lib/validators/imei";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
@@ -545,7 +546,7 @@ export const saleRouter = createTRPCRouter({
   finalize: tenantProcedure
     .input(finalizeSaleSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const txResult = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.saleId },
           include: { items: true },
@@ -633,6 +634,15 @@ export const saleRouter = createTRPCRouter({
               code: "BAD_REQUEST",
               message: "Downgrade nao aceita pagamentos do cliente — apenas devolucao.",
             });
+          }
+          // DePix saque automatico exige chave + tipo de chave do cliente.
+          if (input.refundDueMethod === "depix") {
+            if (!input.refundDuePixKey || !input.refundDuePixKeyType) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Para devolucao via DePix informe a chave PIX e o tipo (CPF/CNPJ/EMAIL/PHONE/RANDOM).",
+              });
+            }
           }
         } else if (paidCents < totalCents) {
           throw new TRPCError({
@@ -790,7 +800,40 @@ export const saleRouter = createTRPCRouter({
         );
 
         if (refundDueCents > 0) {
-          // downgrade: sem receivable
+          // Downgrade: cria PAYABLE para rastrear a devolucao devida ao cliente.
+          // Em dinheiro: ja sai do caixa (CashMovement OUTCOME criada acima).
+          // Em PIX/DePix: fica pendente ate quitacao (operador marca pago manualmente
+          // ou DePix saque automatico — ver `refundDueMethod === "depix"`).
+          const refundStatus =
+            input.refundDueMethod === "cash" ? "PAID" : "PENDING";
+          let customerName = "Cliente";
+          if (input.customerId) {
+            const c = await tx.customer.findUnique({
+              where: { id: input.customerId },
+              select: { name: true },
+            });
+            if (c?.name) customerName = c.name;
+          }
+          await tx.financialTransaction.create({
+            data: {
+              tenantId: ctx.tenantId,
+              type: "PAYABLE",
+              status: refundStatus,
+              description: `Devolucao downgrade — venda ${saleNumber}`,
+              category: "downgrade",
+              totalAmount: centsToPrisma(refundDueCents),
+              paidAmount: refundStatus === "PAID" ? centsToPrisma(refundDueCents) : centsToPrisma(0),
+              installmentsTotal: 1,
+              dueDate: new Date(),
+              paidAt: refundStatus === "PAID" ? new Date() : null,
+              paymentMethod: input.refundDueMethod ?? "cash",
+              supplier: customerName,
+              customerId: input.customerId ?? null,
+              referenceType: "SALE_DOWNGRADE",
+              referenceId: sale.id,
+              createdByUserId: ctx.session.user.id,
+            },
+          });
         } else if (hasInstallments) {
           // Create separate transaction for each installment payment
           for (const payment of payments) {
@@ -938,10 +981,23 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // Upgrades: criar DevicePurchase para cada aparelho de entrada
-        // (paridade Laravel — ao finalizar, upgrade vira compra de aparelho).
+        // Upgrades: cada aparelho de entrada vira (1) DevicePurchase com
+        // purchasePrice = valor abatido (o que a loja PAGOU pelo aparelho —
+        // nao o valor avaliado), (2) Product generico de seminovo/usado se
+        // ainda nao existir, (3) StockItem AVAILABLE para que o aparelho
+        // entre IMEDIATAMENTE no estoque vendavel. Paridade Laravel
+        // PdvService::finalizarVenda.
         const upgrades = await tx.saleUpgrade.findMany({ where: { saleId: sale.id } });
         for (const upg of upgrades) {
+          // Map condition do SaleUpgrade (free string) -> DeviceCondition + StockItemCondition.
+          // Enums sao iguais (NEW, SEMI_NEW, USED, DISPLAY).
+          const condition: "NEW" | "SEMI_NEW" | "USED" | "DISPLAY" =
+            (["NEW", "SEMI_NEW", "USED", "DISPLAY"] as const).includes(
+              upg.condition as never,
+            )
+              ? (upg.condition as "NEW" | "SEMI_NEW" | "USED" | "DISPLAY")
+              : "USED";
+
           const purchase = await tx.devicePurchase.create({
             data: {
               tenantId: ctx.tenantId,
@@ -951,17 +1007,88 @@ export const saleRouter = createTRPCRouter({
               model: upg.model,
               imei: upg.imei,
               serial: upg.serialNumber,
-              condition: upg.condition === "NEW" ? "NEW" : "USED",
+              condition,
               batteryHealth: upg.batteryHealth,
-              purchasePrice: upg.appraisedValue,
+              // BUGFIX: usa valor abatido (o que a loja efetivamente pagou),
+              // nao o valor avaliado (que o cliente quis dar pelo aparelho).
+              purchasePrice: upg.abatedValue,
               notes:
                 `Aparelho de entrada (upgrade) — venda ${saleNumber}.` +
                 (upg.notes ? ` ${upg.notes}` : ""),
             },
           });
+
           await tx.saleUpgrade.update({
             where: { id: upg.id },
             data: { devicePurchaseId: purchase.id },
+          });
+
+          // Cria StockItem AVAILABLE — aparelho entra no estoque vendavel.
+          // Precisa de um Product (cria generico "Aparelho seminovo / usado"
+          // por brand+model se nao existe — paridade Laravel
+          // buscarOuCriarProdutoUpgrade).
+          const productName = [upg.brand, upg.model].filter(Boolean).join(" ") || "Aparelho seminovo";
+          let product = await tx.product.findFirst({
+            where: {
+              name: productName,
+              isDevice: true,
+              isSerialized: true,
+              deletedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!product) {
+            product = await tx.product.create({
+              data: {
+                tenantId: ctx.tenantId,
+                name: productName,
+                brand: upg.brand,
+                isDevice: true,
+                isSerialized: true,
+                currentStock: 0,
+                costPrice: upg.abatedValue,
+                salePrice: upg.appraisedValue, // sugestao inicial
+                active: true,
+              },
+              select: { id: true },
+            });
+          }
+
+          await tx.stockItem.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: product.id,
+              imei: upg.imei,
+              serialNumber: upg.serialNumber,
+              condition,
+              batteryHealth: upg.batteryHealth,
+              costPrice: upg.abatedValue,
+              suggestedSalePrice: upg.appraisedValue,
+              status: "AVAILABLE",
+              entryDate: new Date(),
+              notes: `Recebido em upgrade — venda ${saleNumber}.`,
+            },
+          });
+
+          // Atualiza Product.currentStock (count derivado de stockItems
+          // serializados ativos). Increment +1 por upgrade.
+          await tx.product.update({
+            where: { id: product.id },
+            data: { currentStock: { increment: 1 } },
+          });
+
+          // Movimento de entrada
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: product.id,
+              type: "ENTRY",
+              quantity: 1,
+              reason: `Aparelho recebido em upgrade — venda ${saleNumber}`,
+              referenceId: sale.id,
+              referenceType: "sale_upgrade",
+              userId: ctx.session.user.id,
+            },
           });
         }
 
@@ -973,8 +1100,95 @@ export const saleRouter = createTRPCRouter({
           upgrades: upgrades.length,
         });
 
-        return serializeSale(updated as unknown as Record<string, unknown>);
+        return {
+          updated,
+          saleNumber,
+          // Flag: depois da tx, dispara saque DePix se for downgrade depix
+          shouldTriggerDepixWithdraw:
+            refundDueCents > 0 && input.refundDueMethod === "depix",
+          refundDueCents,
+          customerName: input.customerId
+            ? (await tx.customer.findUnique({
+                where: { id: input.customerId },
+                select: { name: true, cpf: true, cnpj: true },
+              }))
+            : null,
+        };
       });
+
+      // Apos a transacao: se downgrade DePix, dispara saque PixPay (HTTP externo).
+      const pixKey = input.refundDuePixKey;
+      const pixKeyType = input.refundDuePixKeyType;
+      if (txResult.shouldTriggerDepixWithdraw && pixKey && pixKeyType) {
+        try {
+          const { createDepixWithdraw } = await import("@/lib/services/depix-service");
+          const taxId = (txResult.customerName?.cpf ?? txResult.customerName?.cnpj ?? "").replace(/\D/g, "");
+          if (taxId.length === 11 || taxId.length === 14) {
+            const refundReais = txResult.refundDueCents / 100;
+            const withdrawResult = await createDepixWithdraw(
+              pixKey,
+              pixKeyType,
+              refundReais,
+              taxId,
+            );
+            if (withdrawResult.success) {
+              logger.info("Saque DePix automatico para downgrade enviado", {
+                saleId: input.saleId,
+                depixId: withdrawResult.id,
+              });
+              // Registra o saque no banco para rastreio
+              await ctx.withTenant(async (tx) => {
+                const today = new Date();
+                const prefix = `SQ${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
+                const last = await tx.depixWithdraw.findFirst({
+                  where: { number: { startsWith: prefix } },
+                  orderBy: { number: "desc" },
+                });
+                const seq = last ? parseInt(last.number.slice(-5), 10) + 1 : 1;
+                const number = `${prefix}${String(seq).padStart(5, "0")}`;
+                await tx.depixWithdraw.create({
+                  data: {
+                    tenantId: ctx.tenantId,
+                    number,
+                    pixKeyType,
+                    pixKey: pixKey.replace(/\D/g, ""),
+                    recipientName: txResult.customerName?.name ?? null,
+                    recipientTaxId: taxId,
+                    notes: `Downgrade automatico — venda ${txResult.saleNumber}`,
+                    requestedAmount: centsToPrisma(txResult.refundDueCents),
+                    depixId: withdrawResult.id ?? null,
+                    depositAddress: withdrawResult.depositAddress ?? null,
+                    receivedAmount:
+                      withdrawResult.receivedAmount != null
+                        ? new Prisma.Decimal(withdrawResult.receivedAmount)
+                        : null,
+                    fee: withdrawResult.fee != null ? new Prisma.Decimal(withdrawResult.fee) : null,
+                    expiration: withdrawResult.expiration ? new Date(withdrawResult.expiration) : null,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    apiResponse: (withdrawResult.raw ?? null) as any,
+                    status: withdrawResult.status === "sent" ? "SENT" : "PROCESSING",
+                    userId: ctx.session.user.id,
+                    userName: ctx.session.user.name ?? null,
+                  },
+                });
+              });
+            } else {
+              logger.warn("Falha saque DePix automatico downgrade", {
+                saleId: input.saleId,
+                error: withdrawResult.error,
+              });
+              // Nao bloqueia a venda — operador resolve manual via /depix/withdrawals.
+            }
+          }
+        } catch (e) {
+          logger.error("Erro saque DePix downgrade", {
+            saleId: input.saleId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
+      return serializeSale(txResult.updated as unknown as Record<string, unknown>);
     }),
 
   // ═══════════════════════════════════════
@@ -2158,13 +2372,48 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Valida IMEI: Luhn + duplicidade contra StockItem existente.
+        if (input.imei) {
+          const imeiDigits = input.imei.replace(/\D/g, "");
+          if (imeiDigits.length !== 15 || !isValidLuhn(imeiDigits)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "IMEI invalido (deve ter 15 digitos e passar Luhn).",
+            });
+          }
+          // Duplicidade — paridade Laravel verificar-imei-historico.
+          const existing = await tx.stockItem.findFirst({
+            where: { imei: imeiDigits, deletedAt: null },
+            select: { id: true, status: true, product: { select: { name: true } } },
+          });
+          if (existing) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                `IMEI ja cadastrado no estoque (${existing.product.name}, status ${existing.status}). ` +
+                `Use outro aparelho ou remova o duplicado.`,
+            });
+          }
+          // Tambem nao pode haver outro SaleUpgrade da mesma venda com mesmo IMEI.
+          const existingUpgrade = await tx.saleUpgrade.findFirst({
+            where: { saleId: input.saleId, imei: imeiDigits },
+            select: { id: true },
+          });
+          if (existingUpgrade) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este IMEI ja foi adicionado a venda.",
+            });
+          }
+        }
+
         const upgrade = await tx.saleUpgrade.create({
           data: {
             tenantId: ctx.tenantId,
             saleId: input.saleId,
             brand: input.brand ?? null,
             model: input.model,
-            imei: input.imei ?? null,
+            imei: input.imei ? input.imei.replace(/\D/g, "") : null,
             serialNumber: input.serialNumber ?? null,
             condition: input.condition,
             batteryHealth: input.batteryHealth ?? null,

@@ -18,7 +18,10 @@ export async function buildSaleDeliveryPdf(
   const sale = await withTenant(tenantId, async (tx) =>
     tx.sale.findUnique({
       where: { id: saleId },
-      include: { items: { orderBy: { createdAt: "asc" } } },
+      include: {
+        items: { orderBy: { createdAt: "asc" } },
+        upgrades: { orderBy: { createdAt: "asc" } },
+      },
     }),
   );
   if (!sale || sale.deletedAt) return null;
@@ -81,6 +84,15 @@ export async function buildSaleDeliveryPdf(
       };
     });
 
+  const receivedItems = sale.upgrades.map((u) => ({
+    description: [u.brand, u.model].filter(Boolean).join(" ") || u.model,
+    imei: u.imei ?? null,
+    serial: u.serialNumber ?? null,
+    condition: u.condition ?? null,
+    appraisedValue: Number(u.appraisedValue),
+    abatedValue: Number(u.abatedValue),
+  }));
+
   const header = await loadTenantHeader(tenantId);
 
   const customerAddress = customer
@@ -103,6 +115,7 @@ export async function buildSaleDeliveryPdf(
       refundDueMethod: sale.refundDueMethod,
       signedViaAutentique: !!sale.signatureSignedAt && !sale.physicalSignature,
       deviceItems,
+      receivedItems,
     },
     customer: customer
       ? {

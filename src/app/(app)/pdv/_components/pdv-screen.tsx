@@ -801,12 +801,33 @@ export function PdvScreen() {
                 <span>-{formatCurrency(discountAmount)}</span>
               </div>
             )}
-            <div className="flex justify-between text-xl font-bold pt-2 border-t-2 border-primary/20">
-              <span>TOTAL</span>
-              <span className="text-primary">
-                {formatCurrency(totalAmount)}
-              </span>
-            </div>
+            {(draft?.upgrades?.length ?? 0) > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Aparelho(s) de entrada</span>
+                <span>
+                  -{formatCurrency(
+                    (draft?.upgrades ?? []).reduce((acc, u) => acc + u.abatedValue, 0),
+                  )}
+                </span>
+              </div>
+            )}
+            {refundDueAmount > 0 ? (
+              <>
+                <div className="flex justify-between text-xl font-bold pt-2 border-t-2 border-orange-500/30">
+                  <span>A DEVOLVER</span>
+                  <span className="text-orange-600">{formatCurrency(refundDueAmount)}</span>
+                </div>
+                <div className="flex items-center justify-center gap-1.5 mt-1 px-2 py-1 rounded bg-orange-100 dark:bg-orange-950/40 border border-orange-300 dark:border-orange-900/60 text-orange-800 dark:text-orange-200 text-xs font-semibold uppercase tracking-wider">
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  Downgrade — loja devolve
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between text-xl font-bold pt-2 border-t-2 border-primary/20">
+                <span>TOTAL</span>
+                <span className="text-primary">{formatCurrency(totalAmount)}</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -952,6 +973,7 @@ export function PdvScreen() {
           onOpenChange={setShowUpgradeDialog}
           saleId={draftId}
           upgrades={(draft?.upgrades ?? []) as Parameters<typeof UpgradeDialog>[0]["upgrades"]}
+          cartTotal={subtotal - discountAmount}
         />
       )}
 

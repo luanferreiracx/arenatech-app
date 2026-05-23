@@ -105,7 +105,14 @@ export const finalizeSaleSchema = z.object({
   payments: z.array(paymentDetailSchema).optional(),
   // Forma da devolucao quando refundDueAmount > 0 (downgrade). Obrigatorio
   // se a venda tem refundDue. Paridade Laravel `forma_devolucao`.
-  refundDueMethod: z.enum(["cash", "pix"]).optional(),
+  refundDueMethod: z.enum(["cash", "pix", "depix"]).optional(),
+  /**
+   * Chave PIX do cliente para devolucao (downgrade em PIX ou DePix).
+   * Em `depix`, dispara saque automatico via PixPay. Em `pix` simples,
+   * fica registrado pra operador transferir manual.
+   */
+  refundDuePixKey: z.string().max(100).optional().nullable(),
+  refundDuePixKeyType: z.enum(["CPF", "CNPJ", "EMAIL", "PHONE", "RANDOM"]).optional().nullable(),
   observations: z.string().max(500).optional().nullable(),
 });
 
@@ -216,11 +223,18 @@ export const addSaleUpgradeSchema = z.object({
   model: z.string().min(1).max(100),
   imei: z.string().max(20).optional().nullable(),
   serialNumber: z.string().max(50).optional().nullable(),
-  condition: z.enum(["NEW", "USED"]).default("USED"),
+  /** Condicoes alinhadas com StockItemCondition. */
+  condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY"]).default("USED"),
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
   appraisedValue: z.number().int().min(0),  // centavos
   abatedValue: z.number().int().min(0),     // centavos (quanto abate da venda)
   notes: z.string().max(500).optional().nullable(),
+}).refine((d) => d.abatedValue <= d.appraisedValue, {
+  message: "O valor abatido nao pode ser maior que o valor avaliado.",
+  path: ["abatedValue"],
+}).refine((d) => !!(d.imei && d.imei.trim()) || !!(d.serialNumber && d.serialNumber.trim()), {
+  message: "Informe IMEI ou numero de serie para identificar o aparelho.",
+  path: ["imei"],
 });
 export type AddSaleUpgradeInput = z.infer<typeof addSaleUpgradeSchema>;
 

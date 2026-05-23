@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.0.8",
   "scripts": {
+    "predev": "arena-ensure-infra",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

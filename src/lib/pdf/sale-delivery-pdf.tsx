@@ -15,6 +15,15 @@ export interface SaleDeliveryPdfData {
       serial: string | null;
       condition: string | null;
     }>;
+    /** Aparelhos recebidos como entrada (trade-in / upgrade). */
+    receivedItems?: Array<{
+      description: string;
+      imei: string | null;
+      serial: string | null;
+      condition: string | null;
+      appraisedValue: number; // reais
+      abatedValue: number; // reais
+    }>;
   };
   customer: {
     name: string;
@@ -227,8 +236,15 @@ const CONDITION_LABELS: Record<string, string> = {
   vitrine: "Vitrine",
 };
 
+const REFUND_METHOD_LABELS: Record<string, string> = {
+  cash: "em dinheiro do caixa",
+  pix: "via PIX",
+  depix: "via DePix (saque automatico)",
+};
+
 export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryPdfData) {
   const refundDue = Number(sale.refundDueAmount ?? 0);
+  const receivedItems = sale.receivedItems ?? [];
 
   return (
     <Document>
@@ -327,6 +343,45 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
           </Text>
         </View>
 
+        {/* Aparelhos recebidos como entrada (trade-in) */}
+        {receivedItems.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Aparelho(s) Recebido(s) como Entrada</Text>
+            <View style={styles.itemsTable}>
+              <View style={styles.itemsHeaderRow}>
+                <Text style={[styles.itemsHeader, { flex: 3 }]}>Aparelho</Text>
+                <Text style={[styles.itemsHeader, { flex: 1.5 }]}>IMEI / Serie</Text>
+                <Text style={[styles.itemsHeader, { width: 70 }]}>Condicao</Text>
+                <Text style={[styles.itemsHeader, { width: 70, textAlign: "right" }]}>Avaliado</Text>
+                <Text style={[styles.itemsHeader, { width: 70, textAlign: "right" }]}>Abatido</Text>
+              </View>
+              {receivedItems.map((it, i) => (
+                <View key={i} style={styles.itemsRow} wrap={false}>
+                  <Text style={[styles.itemsCell, { flex: 3, fontFamily: "Helvetica-Bold" }]}>
+                    {it.description}
+                  </Text>
+                  <View style={[styles.itemsCell, { flex: 1.5 }]}>
+                    {it.imei || it.serial ? (
+                      <Text style={styles.imeiHighlight}>{it.imei ?? it.serial}</Text>
+                    ) : (
+                      <Text>-</Text>
+                    )}
+                  </View>
+                  <Text style={[styles.itemsCell, { width: 70 }]}>
+                    {it.condition ? CONDITION_LABELS[it.condition] ?? it.condition : "-"}
+                  </Text>
+                  <Text style={[styles.itemsCell, { width: 70, textAlign: "right" }]}>
+                    {fmtBRL(it.appraisedValue)}
+                  </Text>
+                  <Text style={[styles.itemsCell, { width: 70, textAlign: "right", fontFamily: "Helvetica-Bold" }]}>
+                    {fmtBRL(it.abatedValue)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Resumo */}
         <View style={styles.resumo}>
           <View>
@@ -347,11 +402,20 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
               <Text style={{ fontFamily: "Helvetica-Bold" }}>Diferenca devolvida ao cliente: </Text>
               {fmtBRL(refundDue)}
               {sale.refundDueMethod
-                ? sale.refundDueMethod === "cash"
-                  ? " (em dinheiro do caixa)"
-                  : " (via PIX)"
+                ? ` (${REFUND_METHOD_LABELS[sale.refundDueMethod] ?? sale.refundDueMethod})`
                 : ""}
             </Text>
+            {receivedItems.length > 0 && (
+              <Text style={styles.downgradeText}>
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>Referente ao(s) aparelho(s) entregue(s) pelo cliente: </Text>
+                {receivedItems
+                  .map((it) =>
+                    [it.description, it.imei ?? it.serial].filter(Boolean).join(" - "),
+                  )
+                  .join("; ")}
+                .
+              </Text>
+            )}
             <Text style={styles.downgradeText}>
               O cliente declara ter recebido o valor acima na data desta operacao, dando{" "}
               <Text style={{ fontFamily: "Helvetica-Bold" }}>quitacao integral</Text> da

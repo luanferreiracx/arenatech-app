@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -40,24 +40,37 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   saleId: string;
   upgrades: UpgradeRow[];
+  /** Subtotal do carrinho ja com desconto aplicado (centavos). Usado pra
+   * preview do impacto do upgrade — se total abatido > carrinho, vira
+   * downgrade e loja devolve a diferenca. */
+  cartTotal: number;
 }
 
 function formatMoney(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function UpgradeDialog({ open, onOpenChange, saleId, upgrades }: Props) {
+export function UpgradeDialog({ open, onOpenChange, saleId, upgrades, cartTotal }: Props) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [imei, setImei] = useState("");
-  const [condition, setCondition] = useState<"USED" | "NEW">("USED");
+  const [condition, setCondition] = useState<"USED" | "NEW" | "SEMI_NEW" | "DISPLAY">("USED");
   const [batteryHealth, setBatteryHealth] = useState<number | "">("");
   const [appraisedValue, setAppraisedValue] = useState(0);
   const [abatedValue, setAbatedValue] = useState(0);
   const [notes, setNotes] = useState("");
+
+  const totalAbatedExistente = useMemo(
+    () => upgrades.reduce((acc, u) => acc + u.abatedValue, 0),
+    [upgrades],
+  );
+  const totalAbatedComNovo = totalAbatedExistente + (abatedValue > 0 ? abatedValue : 0);
+  const saldoAposNovo = cartTotal - totalAbatedComNovo;
+  const viraDowngrade = saldoAposNovo < 0;
+  const valorDevolucao = viraDowngrade ? -saldoAposNovo : 0;
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: [["sale", "getDraft"]] });
@@ -156,6 +169,36 @@ export function UpgradeDialog({ open, onOpenChange, saleId, upgrades }: Props) {
           </div>
         )}
 
+        <div className="border border-border rounded-md p-3 space-y-1 bg-muted/30">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Total do carrinho</span>
+            <span className="font-medium">{formatMoney(cartTotal)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">
+              Total abatido {abatedValue > 0 ? "(c/ novo)" : ""}
+            </span>
+            <span className="font-medium">- {formatMoney(totalAbatedComNovo)}</span>
+          </div>
+          <div className="flex justify-between text-base font-semibold pt-1 border-t border-border">
+            <span>{viraDowngrade ? "Loja devolve" : "Cliente paga"}</span>
+            <span className={viraDowngrade ? "text-orange-600" : "text-primary"}>
+              {formatMoney(viraDowngrade ? valorDevolucao : Math.max(0, saldoAposNovo))}
+            </span>
+          </div>
+          {viraDowngrade && (
+            <div className="flex items-start gap-2 mt-2 p-2 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 rounded text-xs text-orange-900 dark:text-orange-200">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <p>
+                <strong>Atencao:</strong> abatimento maior que o carrinho. Esta venda vira{" "}
+                <strong>downgrade</strong> — a loja devolve{" "}
+                <strong>{formatMoney(valorDevolucao)}</strong> ao cliente. Forma de devolucao
+                (dinheiro / PIX / DePix) sera pedida na finalizacao.
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label>Marca</Label>
@@ -171,13 +214,15 @@ export function UpgradeDialog({ open, onOpenChange, saleId, upgrades }: Props) {
           </div>
           <div className="space-y-2">
             <Label>Condicao *</Label>
-            <Select value={condition} onValueChange={(v) => setCondition(v as "USED" | "NEW")}>
+            <Select value={condition} onValueChange={(v) => setCondition(v as typeof condition)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="USED">Seminovo</SelectItem>
                 <SelectItem value="NEW">Novo</SelectItem>
+                <SelectItem value="SEMI_NEW">Seminovo</SelectItem>
+                <SelectItem value="USED">Usado</SelectItem>
+                <SelectItem value="DISPLAY">Mostruario</SelectItem>
               </SelectContent>
             </Select>
           </div>
