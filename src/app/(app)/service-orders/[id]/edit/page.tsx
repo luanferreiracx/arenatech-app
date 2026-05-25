@@ -57,7 +57,17 @@ export default function EditServiceOrderPage({
         router.push(`/service-orders/${id}`);
       },
       onError: (err) => toast.error(err.message),
-    })
+    }),
+  );
+
+  const attachNfseMutation = useMutation(
+    trpc.serviceOrder.attachNfse.mutationOptions({
+      onSuccess: () => {
+        toast.success("NFS-e anexada!");
+        void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
+      },
+      onError: (err) => toast.error(err.message),
+    }),
   );
 
   if (isLoading || !order) {
@@ -68,6 +78,8 @@ export default function EditServiceOrderPage({
     <EditForm
       order={order}
       onSubmit={(data) => updateMutation.mutate(data)}
+      onAttachNfse={(payload) => attachNfseMutation.mutate(payload)}
+      attachNfsePending={attachNfseMutation.isPending}
       isPending={updateMutation.isPending}
       id={id}
     />
@@ -75,7 +87,15 @@ export default function EditServiceOrderPage({
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; isPending: boolean; id: string }) {
+interface AttachNfsePayload {
+  orderId: string;
+  nfseNumber?: string | null;
+  fileBase64: string;
+  fileName: string;
+  contentType: string;
+}
+
+function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; onAttachNfse: (p: AttachNfsePayload) => void; attachNfsePending: boolean; isPending: boolean; id: string }) {
   // Paridade Laravel:
   // - $osAssinada (entrada confirmada) → bloqueia equipamento, IMEI, problema
   //   relatado, checklist entrada e info adicionais
@@ -296,6 +316,42 @@ function EditForm({ order, onSubmit, isPending, id }: { order: any; onSubmit: (d
               <Label htmlFor="nfseIssued">NFS-e Emitida</Label>
             </div>
             <div className="space-y-2"><Label>Numero NFS-e</Label><Input {...register("nfseNumber")} placeholder="Numero da nota" /></div>
+          </div>
+          <div className="mt-4 space-y-2">
+            <Label htmlFor="nfse-file">Anexar PDF/imagem da NFS-e</Label>
+            <Input
+              id="nfse-file"
+              type="file"
+              accept="application/pdf,image/png,image/jpeg,image/webp"
+              disabled={attachNfsePending}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.size > 6 * 1024 * 1024) {
+                  toast.error("Arquivo maior que 6 MB");
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const result = reader.result;
+                  if (typeof result !== "string") return;
+                  onAttachNfse({
+                    orderId: id,
+                    nfseNumber: watch("nfseNumber") || null,
+                    fileBase64: result,
+                    fileName: file.name,
+                    contentType: file.type,
+                  });
+                  e.target.value = "";
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+            {order.nfseAttachmentPath && (
+              <p className="text-xs text-muted-foreground">
+                Anexo atual: <span className="font-mono">{String(order.nfseAttachmentPath).split("/").pop()}</span>
+              </p>
+            )}
           </div>
         </div>
 

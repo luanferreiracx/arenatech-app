@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -39,6 +40,10 @@ export default function TechnicianReportPage() {
     })
   );
 
+  const { data: technicians } = useQuery(
+    trpc.serviceOrder.listTechnicians.queryOptions(),
+  );
+
   return (
     <div>
       <PageHeader
@@ -69,8 +74,29 @@ export default function TechnicianReportPage() {
               <Label className="text-xs uppercase text-muted-foreground">Data Fim</Label>
               <Input type="date" value={filters.dateTo} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} />
             </div>
-            <div className="col-span-2 flex gap-2">
-              {(filters.dateFrom !== firstDay || filters.dateTo !== today) && (
+            <div>
+              <Label className="text-xs uppercase text-muted-foreground">Tecnico</Label>
+              <Select
+                value={filters.technicianId || "all"}
+                onValueChange={(v) =>
+                  setFilters((f) => ({ ...f, technicianId: v === "all" ? "" : v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {(technicians ?? []).map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              {(filters.dateFrom !== firstDay || filters.dateTo !== today || filters.technicianId) && (
                 <Button variant="outline" size="sm" onClick={() => setFilters({ dateFrom: firstDay, dateTo: today, technicianId: "" })}>
                   Limpar
                 </Button>

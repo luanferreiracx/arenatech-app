@@ -5,7 +5,7 @@ import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
-import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import {
@@ -23,6 +23,8 @@ import {
   createQuoteSchema,
   respondQuoteSchema,
   adminRespondQuoteSchema,
+  attachNfseSchema,
+  saveSignaturePadSchema,
   confirmPhysicalSignatureSchema,
   sendToLabSchema,
   receiveFromLabSchema,
@@ -889,6 +891,11 @@ export const serviceOrderRouter = createTRPCRouter({
   uncancel: tenantProcedure
     .input(uncancelOrderSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: paridade Laravel `descancelar` exige role admin.
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para descancelar OS" });
+      }
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
@@ -924,6 +931,11 @@ export const serviceOrderRouter = createTRPCRouter({
   refund: tenantProcedure
     .input(refundOrderSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: paridade Laravel `estornar` exige role admin.
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para estornar OS" });
+      }
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
@@ -961,6 +973,11 @@ export const serviceOrderRouter = createTRPCRouter({
   delete: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // RBAC: paridade Laravel `destroy` exige role admin.
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para excluir OS" });
+      }
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1450,6 +1467,12 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(sendToLabSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { status: true },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -1476,13 +1499,15 @@ export const serviceOrderRouter = createTRPCRouter({
           }
         }
 
+        // Lab e evento paralelo ao status — registra como anotacao no historico
+        // sem mudar status. Paridade Laravel `enviarParaLaboratorio`.
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: null,
-            newStatus: "IN_PROGRESS",
+            previousStatus: order.status,
+            newStatus: order.status,
             notes: whatsappSent
               ? "Aparelho enviado ao laboratorio externo (entregador notificado via WhatsApp)"
               : "Aparelho enviado ao laboratorio externo",
@@ -1498,6 +1523,12 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(receiveFromLabSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { status: true },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: { labReceived: true },
@@ -1508,8 +1539,8 @@ export const serviceOrderRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: null,
-            newStatus: "IN_PROGRESS",
+            previousStatus: order.status,
+            newStatus: order.status,
             notes: "Aparelho retornou do laboratorio externo",
           },
         });
@@ -1523,6 +1554,12 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(cancelLabSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { status: true },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: { sentToLab: false, labReceived: false, deliveryPersonId: null },
@@ -1533,8 +1570,8 @@ export const serviceOrderRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: null,
-            newStatus: "IN_PROGRESS",
+            previousStatus: order.status,
+            newStatus: order.status,
             notes: "Envio para laboratorio externo cancelado",
           },
         });
@@ -1633,7 +1670,12 @@ export const serviceOrderRouter = createTRPCRouter({
   approveQuoteManually: tenantProcedure
     .input(z.object({ orderId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // RBAC: paridade Laravel `aprovarOrcamentoManual` exige role admin.
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para aprovar orcamento manualmente" });
+      }
+      const txResult = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || !order.pendingQuoteId) {
           throw new TRPCError({ code: "BAD_REQUEST" });
@@ -1674,8 +1716,38 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        return { success: true };
+        // Sinaliza que o PIX (se houver) precisa ser cancelado: valor da OS
+        // mudou, qualquer transacao DePix anterior nao bate mais.
+        const valueChanged = !quote.newTotal.equals(order.totalAmount);
+        const oldDepixTransactionId = order.depixTransactionId;
+        if (valueChanged && oldDepixTransactionId && order.depixStatus === "pending") {
+          await tx.serviceOrder.update({
+            where: { id: input.orderId },
+            data: { depixTransactionId: null, depixStatus: "cancelled" },
+          });
+        }
+
+        return {
+          success: true,
+          pixToCancel:
+            valueChanged && oldDepixTransactionId && order.depixStatus === "pending"
+              ? oldDepixTransactionId
+              : null,
+        };
       });
+
+      // Apos commit: dispara cancel HTTP best-effort
+      if (txResult.pixToCancel) {
+        cancelPixPayment(txResult.pixToCancel).catch((err) => {
+          logger.warn("Falha ao cancelar PIX apos aprovar orcamento", {
+            orderId: input.orderId,
+            transactionId: txResult.pixToCancel,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      return { success: true };
     }),
 
   // ── PUBLIC: get by public link ──
@@ -1785,7 +1857,7 @@ export const serviceOrderRouter = createTRPCRouter({
   respondToQuote: publicProcedure
     .input(respondQuoteSchema)
     .mutation(async ({ input }) => {
-      return withAdmin(async (tx) => {
+      const txResult = await withAdmin(async (tx) => {
         const quote = await tx.serviceOrderQuote.findFirst({
           where: { approvalLink: input.link },
         });
@@ -1798,6 +1870,7 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
         }
 
+        let pixToCancel: string | null = null;
         if (input.action === "approve") {
           await tx.serviceOrderQuote.update({
             where: { id: quote.id },
@@ -1806,6 +1879,13 @@ export const serviceOrderRouter = createTRPCRouter({
               approvedAt: new Date(),
               customerNotes: input.customerNotes ?? null,
             },
+          });
+
+          // Carrega OS pra checar PIX pendente que precisa ser cancelado
+          // se o valor mudou (paridade Laravel cancelarVendaDepixPorMudancaOrcamento).
+          const orderPre = await tx.serviceOrder.findUnique({
+            where: { id: quote.orderId },
+            select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
           });
 
           // Update OS values
@@ -1820,6 +1900,19 @@ export const serviceOrderRouter = createTRPCRouter({
               budgetPending: false,
             },
           });
+
+          if (
+            orderPre &&
+            !quote.newTotal.equals(orderPre.totalAmount) &&
+            orderPre.depixTransactionId &&
+            orderPre.depixStatus === "pending"
+          ) {
+            await tx.serviceOrder.update({
+              where: { id: quote.orderId },
+              data: { depixTransactionId: null, depixStatus: "cancelled" },
+            });
+            pixToCancel = orderPre.depixTransactionId;
+          }
 
           await tx.serviceOrderHistory.create({
             data: {
@@ -1858,8 +1951,18 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        return { success: true, action: input.action };
+        return { success: true, action: input.action, pixToCancel };
       });
+
+      if (txResult.pixToCancel) {
+        cancelPixPayment(txResult.pixToCancel).catch((err) => {
+          logger.warn("Falha ao cancelar PIX apos cliente aprovar orcamento", {
+            transactionId: txResult.pixToCancel,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      return { success: true, action: txResult.action };
     }),
 
   // ── ADMIN: respond quote without public link ──
@@ -1871,7 +1974,7 @@ export const serviceOrderRouter = createTRPCRouter({
   adminRespondQuote: tenantProcedure
     .input(adminRespondQuoteSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const txResult = await ctx.withTenant(async (tx) => {
         const quote = await tx.serviceOrderQuote.findUnique({
           where: { id: input.quoteId },
         });
@@ -1882,6 +1985,7 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
         }
 
+        let pixToCancel: string | null = null;
         const userName = ctx.session.user.name ?? "Operador";
         if (input.action === "approve") {
           await tx.serviceOrderQuote.update({
@@ -1891,6 +1995,11 @@ export const serviceOrderRouter = createTRPCRouter({
               approvedAt: new Date(),
               customerNotes: input.notes ?? `Aprovado manualmente por ${userName}`,
             },
+          });
+          // Snapshot do total atual antes do update p/ comparar com newTotal.
+          const orderPre = await tx.serviceOrder.findUnique({
+            where: { id: quote.orderId },
+            select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
           });
           await tx.serviceOrder.update({
             where: { id: quote.orderId },
@@ -1903,6 +2012,18 @@ export const serviceOrderRouter = createTRPCRouter({
               budgetPending: false,
             },
           });
+          if (
+            orderPre &&
+            !quote.newTotal.equals(orderPre.totalAmount) &&
+            orderPre.depixTransactionId &&
+            orderPre.depixStatus === "pending"
+          ) {
+            await tx.serviceOrder.update({
+              where: { id: quote.orderId },
+              data: { depixTransactionId: null, depixStatus: "cancelled" },
+            });
+            pixToCancel = orderPre.depixTransactionId;
+          }
           await tx.serviceOrderHistory.create({
             data: {
               tenantId: ctx.tenantId,
@@ -1937,7 +2058,155 @@ export const serviceOrderRouter = createTRPCRouter({
             },
           });
         }
-        return { success: true, action: input.action };
+        return { success: true, action: input.action, pixToCancel };
+      });
+
+      if (txResult.pixToCancel) {
+        cancelPixPayment(txResult.pixToCancel).catch((err) => {
+          logger.warn("Falha ao cancelar PIX apos admin aprovar orcamento", {
+            transactionId: txResult.pixToCancel,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      return { success: true, action: txResult.action };
+    }),
+
+  // ── ATTACH NFS-e (upload de PDF/imagem) ──
+  /**
+   * Anexa o PDF (ou imagem) da NFS-e emitida manualmente em outro sistema.
+   * Sobe no MinIO em `nfse/{tenantId}/{orderId}/{fileName}` e persiste o
+   * path em `nfseAttachmentPath`. Paridade Laravel campo `nfse_anexo`.
+   */
+  attachNfse: tenantProcedure
+    .input(attachNfseSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para anexar NFS-e" });
+      }
+
+      // Decodifica base64 (aceita data URL prefix)
+      const cleanBase64 = input.fileBase64.replace(/^data:[^;]+;base64,/, "");
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(cleanBase64, "base64");
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo base64 invalido" });
+      }
+      if (buffer.length > 6 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo maior que 6 MB" });
+      }
+
+      // Upload MinIO via S3 SDK (mesma infra de logo/imagem de produto).
+      const sanitized = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `nfse/${ctx.tenantId}/${input.orderId}/${Date.now()}_${sanitized}`;
+      const bucket = process.env.S3_BUCKET || process.env.MINIO_BUCKET || "arenatech";
+      const endpoint =
+        process.env.S3_ENDPOINT || process.env.MINIO_ENDPOINT || "http://localhost:9000";
+      try {
+        const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+        const client = new S3Client({
+          region: "us-east-1",
+          endpoint,
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
+            secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
+          },
+        });
+        await client.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: buffer,
+            ContentType: input.contentType,
+          }),
+        );
+      } catch (err) {
+        if (process.env.NODE_ENV === "production") {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Falha ao subir arquivo: " + (err instanceof Error ? err.message : "erro"),
+          });
+        }
+        logger.warn("NFS-e upload skipped (dev mode)", { key });
+      }
+
+      // Persiste no DB
+      await ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            nfseAttachmentPath: key,
+            nfseIssued: true,
+            nfseIssuedAt: order.nfseIssuedAt ?? new Date(),
+            ...(input.nfseNumber ? { nfseNumber: input.nfseNumber } : {}),
+          },
+        });
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: `NFS-e anexada: ${sanitized}${input.nfseNumber ? ` (numero ${input.nfseNumber})` : ""}`,
+          },
+        });
+      });
+
+      return { success: true, key };
+    }),
+
+  // ── SIGNATURE PAD (assinatura SVG/PNG capturada na tela) ──
+  /**
+   * Salva assinatura SVG/PNG base64 capturada via signature-pad
+   * (alternativa ao Autentique digital). Paridade Laravel
+   * `assinatura_entrada_*` / `assinatura_saida_*`.
+   */
+  saveSignaturePad: tenantProcedure
+    .input(saveSignaturePadSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { status: true },
+        });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const fieldName =
+          input.moment === "entry"
+            ? input.signer === "client"
+              ? "entrySignatureClient"
+              : "entrySignatureTechnician"
+            : input.signer === "client"
+              ? "exitSignatureClient"
+              : "exitSignatureTechnician";
+        const tsField = input.moment === "entry" ? "entrySignatureAt" : "exitSignatureAt";
+
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            [fieldName]: input.dataUrl,
+            [tsField]: new Date(),
+          } as never,
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: `Assinatura ${input.moment === "entry" ? "de entrada" : "de saida"} capturada (${input.signer === "client" ? "cliente" : "tecnico"})`,
+          },
+        });
+
+        return { success: true };
       });
     }),
 
@@ -2369,31 +2638,44 @@ export const serviceOrderRouter = createTRPCRouter({
   sendTracking: tenantProcedure
     .input(sendTrackingSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // Fetch curto na tx — envio HTTP fora.
+      const { order, customerName, appUrl, trackingUrl } = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
-
         if (!order.publicLink) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "OS sem link publico configurado." });
         }
-
         const customer = await tx.customer.findUnique({
           where: { id: order.customerId },
           select: { name: true },
         });
+        const appUrl =
+          process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        return {
+          order,
+          customerName: customer?.name ?? "Cliente",
+          appUrl,
+          trackingUrl: `${appUrl}/os/${order.publicLink}`,
+        };
+      });
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const trackingUrl = `${appUrl}/os/${order.publicLink}`;
-        const customerName = customer?.name ?? "Cliente";
+      const freeText = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\nArena Tech`;
+      // Template fora da janela 24h — paridade Laravel `os_rastreamento`.
+      const result = await sendTextWithFallback({
+        phone: input.phone,
+        freeText,
+        contexto: "os_rastreamento",
+        params: [customerName, order.number],
+        urlButtonParam: order.publicLink ?? undefined,
+      });
+      if (!result.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Falha ao enviar WhatsApp",
+        });
+      }
 
-        const text = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\nArena Tech`;
-
-        const result = await sendTextMessage(input.phone, text);
-
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Falha ao enviar WhatsApp" });
-        }
-
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -2401,12 +2683,12 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: order.status,
-            notes: "Link de rastreamento enviado via WhatsApp",
+            notes: `Link de rastreamento enviado via WhatsApp (${result.via})`,
           },
         });
-
-        return { success: true };
       });
+
+      return { success: true };
     }),
 
   // ── 4. NOTIFY DELIVERY PERSON ──
@@ -2840,20 +3122,26 @@ export const serviceOrderRouter = createTRPCRouter({
         const approvalLink = `${appUrl}/quote/${quote.approvalLink}`;
         const totalFormatted = (Number(quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-        const text = `Orcamento - OS #${order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
+        const caption = `Orcamento - OS #${order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
 
-        // Also try to send the quote PDF
-        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/quote-pdf`;
-        try {
-          const pdfRes = await fetch(pdfUrl, { signal: AbortSignal.timeout(10_000) });
-          if (pdfRes.ok) {
-            await sendMediaMessage(phone, pdfUrl, text);
-          } else {
-            await sendTextMessage(phone, text);
-          }
-        } catch {
-          // Fallback to text-only
-          await sendTextMessage(phone, text);
+        // Usa sendPdfWithFallback (template `os_orcamento_pdf_link` fora da
+        // janela 24h Meta — paridade Laravel enviarPdfComFallbackTemplate).
+        // PDF baixado via rota publica HMAC-tokenizada (Meta acessa sem auth).
+        const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+        const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+        const wa = await sendPdfWithFallback({
+          phone,
+          pdfUrl,
+          fileName: `OS_${order.number}_orcamento.pdf`,
+          caption,
+          contexto: "os_orcamento_pdf_link",
+          params: [customer.name, order.number, totalFormatted],
+          urlButtonParam: quote.approvalLink ?? undefined,
+        });
+        if (!wa.success) {
+          logger.warn("Falha ao enviar orcamento por WhatsApp", {
+            orderId: input.orderId, error: wa.error,
+          });
         }
 
         await tx.serviceOrderQuote.update({
@@ -2945,6 +3233,11 @@ export const serviceOrderRouter = createTRPCRouter({
   updateTechnician: tenantProcedure
     .input(updateTechnicianSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: paridade Laravel `atualizarTecnico` exige role admin.
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar tecnico responsavel" });
+      }
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });

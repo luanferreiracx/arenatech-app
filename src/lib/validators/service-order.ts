@@ -274,6 +274,17 @@ export const createServiceOrderSchema = z.object({
   originalOrderId: z.string().uuid().optional().nullable(),
   customerNotes: z.string().max(2000).optional().nullable(),
   estimatedDate: z.string().optional().nullable(), // ISO date string
+}).superRefine((data, ctx) => {
+  // Garantia retorno_servico: precisa OS original pra herdar prazo
+  // (paridade Laravel logica `tipo_garantia=retorno_servico` em
+  // OrdemServicoController:178).
+  if (data.warrantyType === "return" && !data.originalOrderId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["originalOrderId"],
+      message: "OS original obrigatoria para garantia de retorno de servico",
+    });
+  }
 });
 
 export type CreateServiceOrderInput = z.infer<typeof createServiceOrderSchema>;
@@ -438,6 +449,29 @@ export const adminRespondQuoteSchema = z.object({
   notes: z.string().max(500).optional().nullable(),
 });
 export type AdminRespondQuoteInput = z.infer<typeof adminRespondQuoteSchema>;
+
+/** Anexa PDF/imagem da NFS-e emitida manualmente (upload direto base64). */
+export const attachNfseSchema = z.object({
+  orderId: z.string().uuid(),
+  nfseNumber: z.string().max(40).optional().nullable(),
+  fileBase64: z.string().min(1).max(8 * 1024 * 1024), // ~6MB de arquivo (base64 inflado)
+  fileName: z.string().max(255),
+  contentType: z.string().regex(/^(application\/pdf|image\/(png|jpe?g|webp))$/),
+});
+export type AttachNfseInput = z.infer<typeof attachNfseSchema>;
+
+/** Salva assinatura SVG/PNG base64 capturada via signature-pad. */
+export const saveSignaturePadSchema = z.object({
+  orderId: z.string().uuid(),
+  // entry = entrada do aparelho na loja; exit = retirada/entrega ao cliente.
+  moment: z.enum(["entry", "exit"]),
+  // signer = quem assinou (cliente ou tecnico).
+  signer: z.enum(["client", "technician"]),
+  // Data URL: "data:image/svg+xml;base64,..." ou "data:image/png;base64,...".
+  // Aceita ate ~512KB de payload (assinatura SVG e leve, ~5-20KB).
+  dataUrl: z.string().min(1).max(700_000).regex(/^data:image\/(svg\+xml|png|jpe?g);base64,/),
+});
+export type SaveSignaturePadInput = z.infer<typeof saveSignaturePadSchema>;
 
 /** Send signature (Autentique) */
 export const sendSignatureSchema = z.object({

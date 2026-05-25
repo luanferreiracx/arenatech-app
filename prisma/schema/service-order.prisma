@@ -110,6 +110,16 @@ model ServiceOrder {
   signatureSignedAt     DateTime?         @map("signature_signed_at")
   physicalSignature     Boolean           @default(false) @map("physical_signature")
 
+  // Signature-pad (assinatura SVG/PNG base64 capturada na tela).
+  // Paridade Laravel `assinatura_entrada_*` e `assinatura_saida_*`.
+  // Quando a loja nao tem Autentique ou cliente prefere assinar na tela.
+  entrySignatureClient     String?  @map("entry_signature_client") @db.Text
+  entrySignatureTechnician String?  @map("entry_signature_technician") @db.Text
+  entrySignatureAt         DateTime? @map("entry_signature_at")
+  exitSignatureClient      String?  @map("exit_signature_client") @db.Text
+  exitSignatureTechnician  String?  @map("exit_signature_technician") @db.Text
+  exitSignatureAt          DateTime? @map("exit_signature_at")
+
   // Termo de Entrega (Autentique)
   deliveryTermSent          Boolean   @default(false) @map("delivery_term_sent")
   deliveryTermSentAt        DateTime? @map("delivery_term_sent_at")
@@ -236,6 +246,12 @@ model ServiceOrderQuote {
   rejectedAt            DateTime? @map("rejected_at")
   customerNotes         String?  @map("customer_notes")
   userId                String   @map("user_id") @db.Uuid
+  // Autentique: orcamento assinado digitalmente pelo cliente.
+  // Paridade Laravel `autentique_documento_id`, `autentique_link_assinatura`,
+  // `autentique_assinado`, `autentique_data_assinatura`.
+  signatureDocumentId   String?  @map("signature_document_id")
+  signatureLink         String?  @map("signature_link")
+  signedAt              DateTime? @map("signed_at")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
