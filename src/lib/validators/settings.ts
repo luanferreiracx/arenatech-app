@@ -65,6 +65,42 @@ export const upsertInstallmentRulesSchema = z.object({
 
 export type UpsertInstallmentRulesInput = z.infer<typeof upsertInstallmentRulesSchema>;
 
+// ── Payment method RATES (taxa por parcela x appliesTo x policy) ──
+
+export const paymentRateAppliesToEnum = z.enum(["APARELHO", "NAO_APARELHO", "AMBOS"]);
+export const paymentRatePolicyEnum = z.enum(["LOJA_ABSORVE", "CLIENTE_PAGA"]);
+
+export const upsertPaymentRatesSchema = z.object({
+  paymentMethodId: z.string().uuid(),
+  rates: z.array(
+    z.object({
+      installments: z.number().int().min(1).max(36),
+      appliesTo: paymentRateAppliesToEnum,
+      policy: paymentRatePolicyEnum,
+      feePercent: z.number().min(0).max(99.99),
+      feeFixed: z.number().min(0).max(9999.99), // reais
+      settlementDays: z.number().int().min(0).max(365).optional(),
+      active: z.boolean().default(true),
+    })
+  ),
+});
+export type UpsertPaymentRatesInput = z.infer<typeof upsertPaymentRatesSchema>;
+
+// Update completo do PaymentMethod (campos base).
+export const updatePaymentMethodFullSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(100).optional(),
+  acceptsInstallments: z.boolean().optional(),
+  installmentsMin: z.number().int().min(1).max(36).optional(),
+  installmentsMax: z.number().int().min(1).max(36).optional(),
+  settlementDays: z.number().int().min(0).max(365).optional(),
+  acceptsChange: z.boolean().optional(),
+  active: z.boolean().optional(),
+  feePercent: z.number().min(0).max(99.99).optional(),
+  feeFixed: z.number().min(0).max(9999.99).optional(),
+});
+export type UpdatePaymentMethodFullInput = z.infer<typeof updatePaymentMethodFullSchema>;
+
 // ── Integrations ──
 
 export const updateIntegrationSchema = z.object({

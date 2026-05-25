@@ -10,6 +10,8 @@ import {
   updatePaymentMethodSchema,
   createPaymentMethodSchema,
   upsertInstallmentRulesSchema,
+  upsertPaymentRatesSchema,
+  updatePaymentMethodFullSchema,
   updateIntegrationSchema,
   listUsersSchema,
   createUserSchema,
@@ -284,6 +286,62 @@ export const settingsRouter = createTRPCRouter({
         return tx.paymentMethod.findUnique({
           where: { id: input.paymentMethodId },
           include: { installmentRules: { orderBy: { installments: "asc" } } },
+        });
+      });
+    }),
+
+  /**
+   * Atualiza TODOS os campos editaveis de PaymentMethod.
+   * Usado pela UI de Settings -> Formas de Pagamento (versao completa).
+   */
+  updatePaymentMethodFull: tenantProcedure
+    .input(updatePaymentMethodFullSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      }
+      return ctx.withTenant(async (tx) => {
+        const { id, ...rest } = input;
+        return tx.paymentMethod.update({ where: { id }, data: rest });
+      });
+    }),
+
+  /**
+   * Replace-all de PaymentMethodRate de uma forma de pagamento.
+   * Apaga as rates existentes e insere as novas. Idempotente.
+   * Aceita policy (LOJA_ABSORVE/CLIENTE_PAGA) e appliesTo (APARELHO/NAO_APARELHO/AMBOS)
+   * por parcela — paridade Laravel formas_pagamento_taxas.
+   */
+  upsertPaymentRates: tenantProcedure
+    .input(upsertPaymentRatesSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar taxas" });
+      }
+      return ctx.withTenant(async (tx) => {
+        await tx.paymentMethodRate.deleteMany({
+          where: { paymentMethodId: input.paymentMethodId },
+        });
+        if (input.rates.length > 0) {
+          await tx.paymentMethodRate.createMany({
+            data: input.rates.map((r) => ({
+              tenantId: ctx.tenantId,
+              paymentMethodId: input.paymentMethodId,
+              installments: r.installments,
+              appliesTo: r.appliesTo,
+              policy: r.policy,
+              feePercent: r.feePercent,
+              feeFixed: r.feeFixed,
+              settlementDays: r.settlementDays ?? 0,
+              active: r.active,
+            })),
+          });
+        }
+        return tx.paymentMethod.findUnique({
+          where: { id: input.paymentMethodId },
+          include: { rates: { orderBy: [{ appliesTo: "asc" }, { installments: "asc" }] } },
         });
       });
     }),
