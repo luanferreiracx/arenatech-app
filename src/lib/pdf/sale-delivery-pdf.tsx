@@ -396,27 +396,102 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
 
         {/* Termo de Responsabilidade pelos aparelhos recebidos (upgrade).
             Bloco unificado: aparece sempre que houver aparelhos de entrada
-            (upgrade) — com ou sem downgrade. O cliente declara que e o
-            legitimo proprietario e transfere o aparelho. */}
+            (upgrade) — com ou sem downgrade. Paridade Laravel
+            `termo-responsabilidade.blade.php`: 6 clausulas declaratorias +
+            autorizacao + ciencia. */}
         {receivedItems.length > 0 && (
-          <View style={styles.downgradeBox}>
-            <Text style={styles.downgradeTitle}>TERMO DE RESPONSABILIDADE</Text>
-            <Text style={styles.downgradeText}>
-              O cliente acima identificado declara, sob as penas da lei, ser o{" "}
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>legitimo proprietario</Text>{" "}
-              do(s) aparelho(s) entregue(s) abaixo, que esta(o) livre(s) e desimpedido(s)
-              de qualquer onus, divida ou restricao, autorizando a loja a comercializa-lo(s).
-            </Text>
-            <Text style={styles.downgradeText}>
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>Aparelho(s) entregue(s): </Text>
-              {receivedItems
-                .map((it) =>
-                  [it.description, it.imei ?? it.serial].filter(Boolean).join(" - "),
-                )
-                .join("; ")}
-              .
-            </Text>
-          </View>
+          <>
+            <View style={styles.downgradeBox}>
+              <Text style={styles.downgradeTitle}>
+                TERMO DE RESPONSABILIDADE — DECLARACAO DE PROPRIEDADE E PROCEDENCIA
+              </Text>
+              <Text style={styles.downgradeText}>
+                Eu,{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  {customer?.name ?? "____________________"}
+                </Text>
+                {customer?.cpf ? (
+                  <>
+                    , portador(a) do CPF{" "}
+                    <Text style={{ fontFamily: "Helvetica-Bold" }}>{customer.cpf}</Text>
+                  </>
+                ) : null}
+                , <Text style={{ fontFamily: "Helvetica-Bold" }}>DECLARO</Text> sob
+                as penas da lei que:
+              </Text>
+              <Text style={styles.downgradeText}>
+                1) O(s) aparelho(s) descrito(s) abaixo e(sao) de minha{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>propriedade legitima</Text>;
+              </Text>
+              <Text style={styles.downgradeText}>
+                2) O(s) aparelho(s){" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  NAO e(sao) produto de furto, roubo ou qualquer outro crime
+                </Text>
+                ;
+              </Text>
+              <Text style={styles.downgradeText}>
+                3) O(s) aparelho(s){" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  NAO possui(em) restricoes de uso
+                </Text>
+                , bloqueios de operadora, ou impedimentos legais;
+              </Text>
+              <Text style={styles.downgradeText}>
+                4) O(s) aparelho(s){" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  NAO esta(ao) vinculado(s) a contratos de financiamento
+                </Text>{" "}
+                em aberto;
+              </Text>
+              <Text style={styles.downgradeText}>
+                5) Todas as informacoes prestadas sao{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  verdadeiras e podem ser verificadas
+                </Text>
+                ;
+              </Text>
+              <Text style={styles.downgradeText}>
+                6) Estou ciente de que a falsidade das informacoes constitui{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  crime de estelionato (Art. 171 do CP)
+                </Text>{" "}
+                e{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  receptacao (Art. 180 do CP)
+                </Text>
+                .
+              </Text>
+              <Text style={styles.downgradeText}>
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>Aparelho(s) entregue(s): </Text>
+                {receivedItems
+                  .map((it) =>
+                    [it.description, it.imei ?? it.serial].filter(Boolean).join(" - "),
+                  )
+                  .join("; ")}
+                .
+              </Text>
+            </View>
+
+            <View style={styles.downgradeBox}>
+              <Text style={styles.downgradeTitle}>AUTORIZACAO E CIENCIA</Text>
+              <Text style={styles.downgradeText}>
+                Autorizo a empresa{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>{store.name}</Text> a
+                verificar a procedencia do(s) aparelho(s) junto aos orgaos competentes,
+                registrar o(s) IMEI(s) em sistema proprio, recusar a transacao caso seja
+                identificada irregularidade, e comunicar as autoridades competentes em
+                caso de suspeita de ilicitude.
+              </Text>
+              <Text style={styles.downgradeText}>
+                Estou ciente de que, em caso de irregularidade,{" "}
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  responderei civil e criminalmente
+                </Text>{" "}
+                pelos danos causados.
+              </Text>
+            </View>
+          </>
         )}
 
         {/* Quitacao da diferenca — apenas em downgrade (loja devolve valor). */}

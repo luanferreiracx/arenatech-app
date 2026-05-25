@@ -586,6 +586,18 @@ export const saleRouter = createTRPCRouter({
 
         const totalCents = decimalToCents(sale.totalAmount);
         const refundDueCents = decimalToCents(sale.refundDueAmount);
+        // Upgrade abate do que o cliente paga em outras formas — paridade
+        // Laravel: upgrade entra como "forma de pagamento" virtual.
+        const upgradesForFinalize = await tx.saleUpgrade.findMany({
+          where: { saleId: sale.id },
+          select: { abatedValue: true },
+        });
+        const upgradeAbateForFinalize = upgradesForFinalize.reduce(
+          (sum, u) => sum + decimalToCents(u.abatedValue),
+          0,
+        );
+        // Quanto o cliente ainda precisa pagar em outras formas.
+        const amountDueAfterUpgradeCents = Math.max(0, totalCents - upgradeAbateForFinalize);
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -674,14 +686,15 @@ export const saleRouter = createTRPCRouter({
               });
             }
           }
-        } else if (paidCents < totalCents) {
+        } else if (paidCents < amountDueAfterUpgradeCents) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Valor pago insuficiente",
           });
         }
 
-        const changeCents = refundDueCents > 0 ? 0 : paidCents - totalCents;
+        // Troco = quanto o cliente pagou alem do que devia (apos upgrade).
+        const changeCents = refundDueCents > 0 ? 0 : paidCents - amountDueAfterUpgradeCents;
 
         // Gera numero atomico via sequencia tenant-scoped (M25). Antes era
         // findFirst max + parseInt, sujeito a race condition em concurrency.
@@ -1627,14 +1640,20 @@ export const saleRouter = createTRPCRouter({
           // ignore
         }
 
-        // Fetch customer name
+        // Fetch customer name + phones (pro modal de envio WhatsApp).
         let customerName: string | null = null;
+        let customerPhone: string | null = null;
+        let customerPhoneSecondary: string | null = null;
         if (sale.customerId) {
           const customer = await tx.customer.findUnique({
             where: { id: sale.customerId },
-            select: { name: true },
+            select: { name: true, phone: true, phoneSecondary: true },
           });
-          if (customer) customerName = customer.name;
+          if (customer) {
+            customerName = customer.name;
+            customerPhone = customer.phone ?? null;
+            customerPhoneSecondary = customer.phoneSecondary ?? null;
+          }
         }
 
         // Fetch canceller name
@@ -1657,6 +1676,8 @@ export const saleRouter = createTRPCRouter({
           ...serializeSale(sale as unknown as Record<string, unknown>),
           sellerName,
           customerName,
+          customerPhone,
+          customerPhoneSecondary,
           cancelledByName,
           hasDevice,
           hasUpgrade,
@@ -2744,8 +2765,11 @@ async function recalculateSale(
     discountAmountCents = Math.round(subtotalCents * (pct / 100));
   }
 
+  // Paridade Laravel: totalAmount = valor BRUTO da venda (subtotal - desconto).
+  // O upgrade NAO eh subtraido do total; eh tratado como "forma de pagamento"
+  // que abate o que o cliente paga em outras formas (paymentDetails).
   const netAfterDiscount = subtotalCents - discountAmountCents;
-  const totalCents = Math.max(0, netAfterDiscount - upgradeAbateCents);
+  const totalCents = Math.max(0, netAfterDiscount);
   // Downgrade: upgrade excede valor da venda — diferenca a devolver ao cliente.
   const refundDueCents = Math.max(0, upgradeAbateCents - netAfterDiscount);
 

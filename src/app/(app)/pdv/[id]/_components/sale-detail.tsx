@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/whatsapp-recipient-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader } from "@/components/domain/page-header";
@@ -222,6 +223,14 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const receiptBlockReason = receiptPolicy?.pendingReasons.join("; ") ?? "";
   const hasUpgrade = !!((sale as Record<string, unknown>).hasUpgrade);
   const hasDevice = !!((sale as Record<string, unknown>).hasDevice);
+
+  // Telefones cadastrados do cliente, prontos pro picker do dialog WhatsApp.
+  const customerPhone = (sale as Record<string, unknown>).customerPhone as string | null;
+  const customerPhoneSecondary = (sale as Record<string, unknown>).customerPhoneSecondary as string | null;
+  const phoneOptions: PhoneOption[] = [
+    customerPhone ? { label: "WhatsApp principal", value: customerPhone } : null,
+    customerPhoneSecondary ? { label: "Telefone alternativo", value: customerPhoneSecondary } : null,
+  ].filter((o): o is PhoneOption => o !== null);
 
   return (
     <div>
@@ -661,19 +670,11 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 : "Informe um numero para envio do recibo."}
             </DialogDescription>
           </DialogHeader>
-          <div>
-            <Label htmlFor="receiptPhone">Numero (opcional, sobrescreve o cadastrado)</Label>
-            <Input
-              id="receiptPhone"
-              value={receiptPhone}
-              onChange={(e) => setReceiptPhone(e.target.value)}
-              placeholder="Ex.: 86999999999"
-              inputMode="tel"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Deixe em branco para usar o telefone do cliente cadastrado.
-            </p>
-          </div>
+          <WhatsappRecipientPicker
+            options={phoneOptions}
+            value={receiptPhone}
+            onValueChange={setReceiptPhone}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSendReceiptDialog(false)}>
               Cancelar
@@ -695,19 +696,11 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               Cria o documento no Autentique e envia o link de assinatura por WhatsApp.
             </DialogDescription>
           </DialogHeader>
-          <div>
-            <Label htmlFor="signaturePhone">Numero (opcional, sobrescreve o cadastrado)</Label>
-            <Input
-              id="signaturePhone"
-              value={signaturePhone}
-              onChange={(e) => setSignaturePhone(e.target.value)}
-              placeholder="Ex.: 86999999999"
-              inputMode="tel"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Deixe em branco para usar o telefone do cliente cadastrado.
-            </p>
-          </div>
+          <WhatsappRecipientPicker
+            options={phoneOptions}
+            value={signaturePhone}
+            onValueChange={setSignaturePhone}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSignatureDialog(false)}>
               Cancelar

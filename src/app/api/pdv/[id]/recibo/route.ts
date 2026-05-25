@@ -33,7 +33,7 @@ export async function GET(
         where: { id },
         include: {
           items: { orderBy: { createdAt: "asc" } },
-          upgrades: { select: { id: true } },
+          upgrades: { orderBy: { createdAt: "asc" } },
         },
       });
     });
@@ -121,6 +121,11 @@ export async function GET(
     const subtotal = Number(sale.subtotal);
     const discountAmount = Number(sale.discountAmount);
     const totalAmount = Number(sale.totalAmount);
+    // Upgrade abate do que o cliente paga (forma de pagamento virtual).
+    const upgradeAbatedReais = sale.upgrades.reduce(
+      (sum, u) => sum + Number(u.abatedValue),
+      0,
+    );
     const now = new Date();
 
     // Payment details
@@ -158,8 +163,18 @@ export async function GET(
       </tr>`;
     }
 
-    // Payment rows
+    // Payment rows. Upgrade entra como pagamento virtual abatendo o total
+    // (paridade Laravel). Mostrado primeiro pra deixar claro o abatimento.
     let paymentHtml = "";
+    if (upgradeAbatedReais > 0) {
+      const upgradeLabels = sale.upgrades
+        .map((u) => [u.brand, u.model].filter(Boolean).join(" ") || u.model)
+        .join(", ");
+      paymentHtml += `<tr class="pagamento">
+        <td class="label">Aparelho de entrada${upgradeLabels ? ` (${esc(upgradeLabels)})` : ""}</td>
+        <td class="valor">${fmt(upgradeAbatedReais)}</td>
+      </tr>`;
+    }
     for (const p of paymentDetails) {
       const methodLabel = PAYMENT_LABELS[p.method] ?? p.method;
       const amount = p.amount / 100; // cents to reais
@@ -270,7 +285,7 @@ export async function GET(
   </div>
 
   ${
-    paymentDetails.length > 0
+    paymentDetails.length > 0 || upgradeAbatedReais > 0
       ? `<div class="totais-wrapper" style="margin-top: 8px;">
     <table class="totais">
       <tr><td colspan="2" style="font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #555; padding-top: 6px;">Pagamentos</td></tr>
@@ -280,7 +295,31 @@ export async function GET(
       : ""
   }
 
-  <div style="margin-top: 30px; text-align: center;">
+  ${
+    sale.signatureSignedAt
+      ? `<div style="margin-top: 30px; display: flex; gap: 12px; justify-content: center; align-items: flex-start;">
+    <div style="text-align: center; flex: 1; max-width: 280px;">
+      <div style="padding: 10px 0; border: 1px dashed #10b981; border-radius: 6px; background: #f0fdf4;">
+        <div style="font-size: 8pt; color: #10b981; font-style: italic;">~assinado eletronicamente~</div>
+        <div style="font-size: 7pt; color: #059669; margin-top: 2px;">${sale.physicalSignature ? "Assinatura fisica em loja" : "Assinado via Autentique"}</div>
+      </div>
+      <div style="margin-top: 4px;">
+        <div style="font-size: 8.5pt; font-weight: bold;">${esc(customer?.name ?? "Cliente")}</div>
+        ${customer?.cpf ? `<div style="font-size: 7pt; color: #888;">CPF: ${formatCpf(customer.cpf)}</div>` : ""}
+        <div style="font-size: 6.5pt; color: #999; margin-top: 1px;">Em ${new Date(sale.signatureSignedAt).toLocaleDateString("pt-BR")} as ${new Date(sale.signatureSignedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
+      </div>
+    </div>
+    <div style="text-align: center; flex: 1; max-width: 280px;">
+      <div style="padding: 10px 0; border: 1px dashed #10b981; border-radius: 6px; background: #f0fdf4;">
+        <div style="font-size: 8pt; color: #10b981; font-style: italic;">~assinado eletronicamente~</div>
+      </div>
+      <div style="margin-top: 4px;">
+        <div style="font-size: 8.5pt; font-weight: bold;">${esc(nomeLoja)}</div>
+        ${cnpjLoja ? `<div style="font-size: 7pt; color: #888;">CNPJ: ${esc(cnpjLoja)}</div>` : ""}
+      </div>
+    </div>
+  </div>`
+      : `<div style="margin-top: 30px; text-align: center;">
     <div style="max-width: 280px; margin: 0 auto; padding: 10px 0; border: 1px dashed #10b981; border-radius: 6px; background: #f0fdf4;">
       <div style="font-size: 8pt; color: #10b981; font-style: italic;">~assinado eletronicamente~</div>
     </div>
@@ -288,7 +327,8 @@ export async function GET(
       <div style="font-size: 8.5pt; font-weight: bold;">${esc(nomeLoja)}</div>
       ${cnpjLoja ? `<div style="font-size: 7pt; color: #888;">CNPJ: ${esc(cnpjLoja)}</div>` : ""}
     </div>
-  </div>
+  </div>`
+  }
 
   <div class="footer">
     <div class="footer-detalhe">${esc(nomeLoja)}${cnpjLoja ? ` | CNPJ: ${esc(cnpjLoja)}` : ""}${telefoneLoja ? ` | ${esc(telefoneLoja)}` : ""}</div>
