@@ -882,20 +882,71 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // Reverse stock movement if exists
+        // Reverte estoque APENAS se a compra gerou entrada real. Antes
+        // criava EXIT cego, mesmo quando createPurchase nao havia
+        // gerado ENTRY (StockItem ausente) — movimento orfao.
         if (purchase.productId) {
-          await tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: purchase.productId,
-              type: "EXIT",
-              quantity: 1,
-              reason: `Cancelamento compra — ${input.reason}`,
-              referenceId: purchase.id,
-              referenceType: "device_purchase_cancel",
-              userId: ctx.session.user.id,
-            },
+          const product = await tx.product.findUnique({
+            where: { id: purchase.productId },
+            select: { isSerialized: true },
           });
+          if (product?.isSerialized) {
+            // Marca StockItem AVAILABLE criado por essa compra como REMOVED.
+            // Detectado por imei+productId (createPurchase usa esses dados).
+            const matched = await tx.stockItem.findFirst({
+              where: {
+                productId: purchase.productId,
+                imei: purchase.imei,
+                status: "AVAILABLE",
+                deletedAt: null,
+              },
+              select: { id: true },
+            });
+            if (matched) {
+              await tx.stockItem.update({
+                where: { id: matched.id },
+                data: { deletedAt: new Date(), status: "BLOCKED" },
+              });
+              await tx.stockMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  productId: purchase.productId,
+                  stockItemId: matched.id,
+                  type: "EXIT",
+                  quantity: 1,
+                  reason: `Cancelamento compra — ${input.reason}`,
+                  referenceId: purchase.id,
+                  referenceType: "device_purchase_cancel",
+                  userId: ctx.session.user.id,
+                },
+              });
+            }
+            // Se nao acha StockItem (createPurchase antigo nao criava),
+            // nao emite movimento orfao.
+          } else {
+            // Nao serializado: decrement currentStock (createPurchase
+            // novo faz increment). updateMany com gte:1 evita negativo.
+            const r = await tx.product.updateMany({
+              where: { id: purchase.productId, currentStock: { gte: 1 } },
+              data: { currentStock: { decrement: 1 } },
+            });
+            if (r.count === 1) {
+              await tx.stockMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  productId: purchase.productId,
+                  type: "EXIT",
+                  quantity: 1,
+                  reason: `Cancelamento compra — ${input.reason}`,
+                  referenceId: purchase.id,
+                  referenceType: "device_purchase_cancel",
+                  userId: ctx.session.user.id,
+                },
+              });
+            }
+            // Se currentStock < 1 (item ja foi vendido depois), nao
+            // emite movimento — evita negativar.
+          }
         }
 
         // Cancel related PAYABLE if any (and pending installments)

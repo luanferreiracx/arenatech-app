@@ -443,13 +443,30 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        // Transactions vinculadas a Sale/ServiceOrder herdam cliente/fornecedor
+        // do registro original. Permitir mudar aqui criaria divergencia entre
+        // tx.customerName e sale.customer.name — relatorios ficariam errados.
+        // Manual transactions (sem saleId/serviceOrderId) podem ter os
+        // campos editados livremente.
+        const isLinkedToSource = !!existing.saleId || !!existing.serviceOrderId;
+        const tryingToChangeParty =
+          input.supplier !== undefined || input.customerName !== undefined;
+        if (isLinkedToSource && tryingToChangeParty) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Transacao vinculada a venda/OS — altere cliente/fornecedor no registro original.",
+          });
+        }
+
         await tx.financialTransaction.update({
           where: { id: input.id },
           data: {
             description: input.description,
             category: input.category ?? null,
-            supplier: input.supplier ?? null,
-            customerName: input.customerName ?? null,
+            // Em tx vinculada, mantem cliente/fornecedor existente.
+            supplier: isLinkedToSource ? undefined : (input.supplier ?? null),
+            customerName: isLinkedToSource ? undefined : (input.customerName ?? null),
             notes: input.notes ?? null,
           },
         });
@@ -804,39 +821,83 @@ export const financialRouter = createTRPCRouter({
           orderBy: { dueDate: "asc" },
         });
 
-        // Group by period
+        // Group by period com separacao realized (paidAt) vs projected
+        // (dueDate). Antes misturava no mesmo bucket via paidAt ?? dueDate
+        // — operador nao conseguia distinguir o que ja entrou do que esta
+        // pra entrar. Agora cada periodo tem 6 valores: realizedReceivable,
+        // realizedPayable, projectedReceivable, projectedPayable + totals.
         const groupBy = input.groupBy ?? "day";
-        const grouped: Record<string, { receivable: number; payable: number; balance: number }> = {};
+        type Bucket = {
+          realizedReceivable: number;
+          realizedPayable: number;
+          projectedReceivable: number;
+          projectedPayable: number;
+          receivable: number;
+          payable: number;
+          balance: number;
+        };
+        const emptyBucket = (): Bucket => ({
+          realizedReceivable: 0,
+          realizedPayable: 0,
+          projectedReceivable: 0,
+          projectedPayable: 0,
+          receivable: 0,
+          payable: 0,
+          balance: 0,
+        });
+        const grouped: Record<string, Bucket> = {};
+
+        const formatKey = (date: Date): string => {
+          if (groupBy === "day") return date.toISOString().split("T")[0]!;
+          if (groupBy === "week") {
+            const d = new Date(date);
+            d.setDate(d.getDate() - d.getDay());
+            return d.toISOString().split("T")[0]!;
+          }
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        };
 
         for (const inst of installments) {
-          const date = inst.paidAt ?? inst.dueDate;
-          let key: string;
+          const isPaid = inst.status === "PAID" || inst.status === "PARTIALLY_PAID";
+          // Cada parcela aparece em UM bucket — paidAt se realizada,
+          // senao dueDate. paidAmount conta no realized; saldo pendente
+          // (amount - paidAmount) conta no projected.
+          const paidCents = decimalToCents(inst.paidAmount);
+          const totalCents = decimalToCents(inst.amount);
+          const remainingCents = Math.max(0, totalCents - paidCents);
+          const isReceivable = inst.transaction.type === "RECEIVABLE";
 
-          if (groupBy === "day") {
-            key = date.toISOString().split("T")[0]!;
-          } else if (groupBy === "week") {
-            const d = new Date(date);
-            const dayOfWeek = d.getDay();
-            d.setDate(d.getDate() - dayOfWeek);
-            key = d.toISOString().split("T")[0]!;
-          } else {
-            key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+          // Realizado (caiu no caixa) — chave por paidAt.
+          if (isPaid && paidCents > 0 && inst.paidAt) {
+            const keyR = formatKey(inst.paidAt);
+            if (!grouped[keyR]) grouped[keyR] = emptyBucket();
+            if (isReceivable) {
+              grouped[keyR]!.realizedReceivable += paidCents;
+              grouped[keyR]!.receivable += paidCents;
+            } else {
+              grouped[keyR]!.realizedPayable += paidCents;
+              grouped[keyR]!.payable += paidCents;
+            }
           }
 
-          if (!grouped[key]) {
-            grouped[key] = { receivable: 0, payable: 0, balance: 0 };
+          // Projetado (vai vencer) — chave por dueDate. Se ja totalmente
+          // pago, remainingCents=0 e nao entra.
+          if (remainingCents > 0) {
+            const keyP = formatKey(inst.dueDate);
+            if (!grouped[keyP]) grouped[keyP] = emptyBucket();
+            if (isReceivable) {
+              grouped[keyP]!.projectedReceivable += remainingCents;
+              grouped[keyP]!.receivable += remainingCents;
+            } else {
+              grouped[keyP]!.projectedPayable += remainingCents;
+              grouped[keyP]!.payable += remainingCents;
+            }
           }
+        }
 
-          const amount = inst.status === "PAID"
-            ? decimalToCents(inst.paidAmount)
-            : decimalToCents(inst.amount);
-
-          if (inst.transaction.type === "RECEIVABLE") {
-            grouped[key]!.receivable += amount;
-          } else {
-            grouped[key]!.payable += amount;
-          }
-          grouped[key]!.balance = grouped[key]!.receivable - grouped[key]!.payable;
+        // balance por bucket
+        for (const b of Object.values(grouped)) {
+          b.balance = b.receivable - b.payable;
         }
 
         // Sort by period key
@@ -845,8 +906,12 @@ export const financialRouter = createTRPCRouter({
           .map(([period, data]) => ({ period, ...data }));
 
         // Summary totals
-        const totalReceivable = periods.reduce((s, p) => s + p.receivable, 0);
-        const totalPayable = periods.reduce((s, p) => s + p.payable, 0);
+        const totalRealizedReceivable = periods.reduce((s, p) => s + p.realizedReceivable, 0);
+        const totalRealizedPayable = periods.reduce((s, p) => s + p.realizedPayable, 0);
+        const totalProjectedReceivable = periods.reduce((s, p) => s + p.projectedReceivable, 0);
+        const totalProjectedPayable = periods.reduce((s, p) => s + p.projectedPayable, 0);
+        const totalReceivable = totalRealizedReceivable + totalProjectedReceivable;
+        const totalPayable = totalRealizedPayable + totalProjectedPayable;
 
         return {
           periods,
@@ -854,6 +919,16 @@ export const financialRouter = createTRPCRouter({
             totalReceivable,
             totalPayable,
             balance: totalReceivable - totalPayable,
+            realized: {
+              receivable: totalRealizedReceivable,
+              payable: totalRealizedPayable,
+              balance: totalRealizedReceivable - totalRealizedPayable,
+            },
+            projected: {
+              receivable: totalProjectedReceivable,
+              payable: totalProjectedPayable,
+              balance: totalProjectedReceivable - totalProjectedPayable,
+            },
           },
         };
       });

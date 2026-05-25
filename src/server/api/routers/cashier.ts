@@ -841,13 +841,33 @@ export const cashierRouter = createTRPCRouter({
         const fromDate = new Date(input.from);
         const toDate = new Date(input.to + "T23:59:59");
 
-        const sessions = await tx.cashSession.findMany({
+        // Agrega movimentos por movement.createdAt no range (antes era por
+        // session.openedAt — pegava sessoes que abriram no dia mas
+        // perdia movimentos de sessoes abertas no dia anterior que
+        // continuaram no range). Sessions count: distintas no range.
+        const movements = await tx.cashMovement.findMany({
           where: {
-            openedAt: { gte: fromDate, lte: toDate },
+            createdAt: { gte: fromDate, lte: toDate },
+            ...(input.userId ? { session: { userId: input.userId } } : {}),
+          },
+          select: {
+            type: true,
+            amount: true,
+            nature: true,
+            referenceType: true,
+            cashSessionId: true,
+          },
+        });
+
+        const sessionsInRange = await tx.cashSession.findMany({
+          where: {
+            OR: [
+              { openedAt: { gte: fromDate, lte: toDate } },
+              { closedAt: { gte: fromDate, lte: toDate } },
+            ],
             ...(input.userId ? { userId: input.userId } : {}),
           },
-          include: { movements: true },
-          orderBy: { openedAt: "desc" },
+          select: { id: true, difference: true },
         });
 
         let totalSales = 0;
@@ -856,27 +876,25 @@ export const cashierRouter = createTRPCRouter({
         let totalExpenses = 0;
         let totalReversals = 0;
         let totalDifference = 0;
-        let sessionsCount = 0;
-        let movementsCount = 0;
 
-        for (const session of sessions) {
-          sessionsCount++;
-          totalDifference += Number(session.difference ?? 0);
-          for (const m of session.movements) {
-            movementsCount++;
-            const amt = Number(m.amount);
-            const signed = m.nature === "INCOME" ? amt : -amt;
-            if (m.type === "SALE") totalSales += signed;
-            if (m.type === "DEPOSIT") totalDeposits += signed;
-            if (m.type === "WITHDRAWAL") totalWithdrawals += signed;
-            if (m.type === "EXPENSE") totalExpenses += signed;
-            if (m.referenceType === "reversal") totalReversals += signed;
+        for (const m of movements) {
+          const amt = Number(m.amount);
+          const signed = m.nature === "INCOME" ? amt : -amt;
+          if (m.type === "SALE") totalSales += signed;
+          if (m.type === "DEPOSIT") totalDeposits += signed;
+          if (m.type === "WITHDRAWAL") totalWithdrawals += signed;
+          if (m.type === "EXPENSE") totalExpenses += signed;
+          if (m.referenceType === "reversal" || m.referenceType === "sale_reversal") {
+            totalReversals += signed;
           }
+        }
+        for (const s of sessionsInRange) {
+          totalDifference += Number(s.difference ?? 0);
         }
 
         return {
-          sessionsCount,
-          movementsCount,
+          sessionsCount: sessionsInRange.length,
+          movementsCount: movements.length,
           totalSales: Math.round(totalSales * 100), // centavos
           totalDeposits: Math.round(totalDeposits * 100),
           totalWithdrawals: Math.round(totalWithdrawals * 100),

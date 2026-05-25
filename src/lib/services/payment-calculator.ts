@@ -120,6 +120,13 @@ export function calculatePayment(input: CalculatePaymentInput): PaymentBreakdown
   const policy: PaymentFeePolicy = (rate?.policy as PaymentFeePolicy | undefined) ?? "LOJA_ABSORVE";
   const settlementDays = rate?.settlementDays ?? method.settlementDays ?? 0;
 
+  // Sanity check: taxa negativa nao faz sentido (operadora pagando?). Zod
+  // valida no input do CRUD, mas dado migrado do Laravel pode escapar.
+  if (feePercent < 0 || feeFixedReais < 0) {
+    base.error = `Taxa invalida (${feePercent}% + R$ ${feeFixedReais.toFixed(2)}): valor negativo.`;
+    return base;
+  }
+
   base.feePercent = feePercent;
   base.feeFixed = Math.round(feeFixedReais * 100);
   base.policy = policy;
