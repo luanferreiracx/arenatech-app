@@ -255,7 +255,25 @@ END { print "COMMIT;" }
 fi
 
 # ============================================================
-# 7. RESUMO
+# 7. RESYNC SEQUENCE — evita P2002 (numero duplicado) quando o operador
+# for finalizar nova venda apos a importacao delta. Pega o maior numero
+# por scope/ano dos dados e ajusta tenant_number_sequences.value.
+# ============================================================
+echo "=== 7. Resync tenant_number_sequences ==="
+$PG -c "
+WITH year_data AS (
+  SELECT 'sale' AS scope, MAX(CAST(SUBSTRING(number FROM 8) AS INT)) AS max_num
+  FROM sales WHERE number ~ '^VND2026[0-9]+$' AND deleted_at IS NULL
+)
+UPDATE tenant_number_sequences ns
+SET value = GREATEST(ns.value, yd.max_num), updated_at = NOW()
+FROM year_data yd
+WHERE ns.scope = yd.scope AND ns.year = 2026 AND yd.max_num IS NOT NULL;
+"
+$PG -c "SELECT scope, year, value FROM tenant_number_sequences WHERE scope = 'sale' AND year = 2026;"
+
+# ============================================================
+# 8. RESUMO
 # ============================================================
 echo ""
 echo "=== Resumo ==="
