@@ -40,6 +40,25 @@ function centsToPrismaDecimal(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
 }
 
+/**
+ * Adiciona N meses a uma data preservando o dia ate o limite do mes alvo.
+ * Ex: addMonthsSafe(2026-01-31, 1) = 2026-02-28 (nao 2026-03-03 como setMonth nativo).
+ * Equivale ao Carbon addMonthsNoOverflow do PHP.
+ */
+function addMonthsSafe(base: Date, months: number): Date {
+  const d = new Date(base);
+  const targetDay = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDayOfTargetMonth = new Date(
+    d.getFullYear(),
+    d.getMonth() + 1,
+    0,
+  ).getDate();
+  d.setDate(Math.min(targetDay, lastDayOfTargetMonth));
+  return d;
+}
+
 function serializeTransaction(t: {
   id: string;
   type: string;
@@ -341,15 +360,16 @@ export const financialRouter = createTRPCRouter({
       }
       return ctx.withTenant(async (tx) => {
         const emissionDate = new Date(input.emissionDate);
+        // Primeira parcela: 1 mes apos emissao (paridade Laravel addMonths).
+        // Antes era +30 dias naive — fevereiro/marco quebravam o ciclo.
         const firstDueDate = input.firstDueDate
           ? new Date(input.firstDueDate)
-          : new Date(emissionDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+          : addMonthsSafe(emissionDate, 1);
 
         const totalAmountDecimal = centsToPrismaDecimal(input.totalAmount);
 
-        // Calculate last due date based on installments
-        const lastDueDate = new Date(firstDueDate);
-        lastDueDate.setDate(lastDueDate.getDate() + 30 * (input.numInstallments - 1));
+        // Ultima parcela = firstDueDate + (n-1) meses.
+        const lastDueDate = addMonthsSafe(firstDueDate, input.numInstallments - 1);
 
         const transaction = await tx.financialTransaction.create({
           data: {
@@ -375,8 +395,9 @@ export const financialRouter = createTRPCRouter({
         const valorUltimaCents = input.totalAmount - valorParcelaCents * (input.numInstallments - 1);
 
         for (let i = 1; i <= input.numInstallments; i++) {
-          const dueDate = new Date(firstDueDate);
-          dueDate.setDate(dueDate.getDate() + 30 * (i - 1));
+          // i=1 -> firstDueDate; i=2 -> +1 mes; etc. addMonthsSafe trata
+          // overflow (31/jan +1mes = 28 ou 29/fev).
+          const dueDate = addMonthsSafe(firstDueDate, i - 1);
 
           await tx.installment.create({
             data: {
@@ -506,19 +527,38 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        const installmentAmountCents = decimalToCents(installment.amount);
         const newPaidCents = currentPaidCents + input.amountPaid;
-        const isPaid = newPaidCents >= decimalToCents(installment.amount) - 1;
+        const isPaid = newPaidCents >= installmentAmountCents - 1;
 
-        await tx.installment.update({
-          where: { id: input.installmentId },
+        // Tolerancia de 1 cent: quando fecha a parcela, FORCA paidAmount =
+        // amount pra evitar drift acumulado em parcelamentos. Senao,
+        // pagamentos parciais repetidos somam 0.99+99.01 = 100.00 mas no
+        // banco fica como 100 vs 99.999... — divergencia em relatorios.
+        const finalPaidCents = isPaid ? installmentAmountCents : newPaidCents;
+
+        // Atomic update com lock otimista: trava apenas status PENDING/OVERDUE.
+        // Se outra request ja marcou como PAID, count vira 0 e abortamos —
+        // evita CashMovement/RecalcStatus duplicado em duplo clique.
+        const updateResult = await tx.installment.updateMany({
+          where: {
+            id: input.installmentId,
+            status: { in: ["PENDING", "OVERDUE"] },
+          },
           data: {
-            paidAmount: centsToPrismaDecimal(newPaidCents),
+            paidAmount: centsToPrismaDecimal(finalPaidCents),
             paidAt: new Date(),
             paymentMethod: input.paymentMethod ?? null,
             notes: input.notes ?? null,
             status: isPaid ? "PAID" : installment.status,
           },
         });
+        if (updateResult.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Parcela ja foi baixada por outra operacao. Atualize a tela.",
+          });
+        }
 
         // Recalculate transaction status (faithful to Laravel recalcularStatus)
         await recalculateTransactionStatus(tx as never, installment.transactionId);
@@ -1368,10 +1408,10 @@ export const financialRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             type: "RECEIVABLE",
-            status: input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod) ? "PAID" : "PENDING",
+            status: input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod) ? "PAID" : "PENDING",
             description: `Venda`,
             totalAmount: totalDecimal,
-            paidAmount: input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod) ? totalDecimal : 0,
+            paidAmount: input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod) ? totalDecimal : 0,
             installmentsTotal: input.installments,
             dueDate: new Date(input.firstDueDate),
             paymentMethod: input.paymentMethod,
@@ -1383,7 +1423,7 @@ export const financialRouter = createTRPCRouter({
         });
 
         for (const p of parcelas) {
-          const isPaidImmediate = input.installments === 1 && ["dinheiro", "pix"].includes(input.paymentMethod);
+          const isPaidImmediate = input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod);
           await tx.installment.create({
             data: {
               tenantId: ctx.tenantId,
@@ -1765,8 +1805,7 @@ export const financialRouter = createTRPCRouter({
         });
 
         const installments = Array.from({ length: input.installments }, (_, i) => {
-          const dueDate = new Date(firstDate);
-          dueDate.setMonth(dueDate.getMonth() + i);
+          const dueDate = addMonthsSafe(firstDate, i);
           // Adiciona o resto na última parcela para fechar o total
           const amount = i === input.installments - 1 ? installmentAmount + remainder : installmentAmount;
           return {

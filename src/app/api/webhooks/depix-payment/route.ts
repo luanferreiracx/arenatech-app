@@ -76,6 +76,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else {
+    // Fail-closed em prod. Em dev/test, permite warning + proceder.
+    if (process.env.NODE_ENV === "production") {
+      logger.error(
+        "Depix-payment webhook: rejeitando — sem PIXPAY_WEBHOOK_SECRET nem DEPIX_WEBHOOK_IPS em prod",
+      );
+      return NextResponse.json(
+        { error: "Webhook auth nao configurado" },
+        { status: 503 },
+      );
+    }
     logger.warn(
       "Depix-payment webhook: sem PIXPAY_WEBHOOK_SECRET nem DEPIX_WEBHOOK_IPS — processando sem auth (dev mode)",
     );

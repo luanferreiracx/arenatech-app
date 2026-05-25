@@ -1,0 +1,56 @@
+name: Cron Jobs
+
+on:
+  schedule:
+    # Sao Paulo BRT = UTC-3. Horarios em UTC.
+    # 03:00 BRT (06:00 UTC): mark-overdue + close-abandoned-cash-sessions + expire-rewards
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Qual job rodar (deixe vazio pra todos)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - mark-overdue
+          - close-abandoned-cash-sessions
+          - expire-rewards
+
+jobs:
+  mark-overdue:
+    if: ${{ github.event_name == 'schedule' || inputs.job == '' || inputs.job == 'mark-overdue' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron mark-overdue
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/mark-overdue" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 60 \
+            | tee /tmp/response.json
+          # Falha o job se status != 200 (curl -f ja faz isso)
+
+  close-abandoned-cash-sessions:
+    if: ${{ github.event_name == 'schedule' || inputs.job == '' || inputs.job == 'close-abandoned-cash-sessions' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron close-abandoned-cash-sessions
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/close-abandoned-cash-sessions" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 60 \
+            | tee /tmp/response.json
+
+  expire-rewards:
+    if: ${{ github.event_name == 'schedule' || inputs.job == '' || inputs.job == 'expire-rewards' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron expire-rewards
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/expire-rewards" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 60 \
+            | tee /tmp/response.json

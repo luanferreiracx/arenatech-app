@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -92,6 +92,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     trpc.serviceOrder.getById.queryOptions({ id })
   );
   const isLoading = orderQuery.isLoading;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const order = orderQuery.data as any;
 
@@ -112,6 +113,21 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemQty, setNewItemQty] = useState(1);
   const [newItemPrice, setNewItemPrice] = useState(0);
+  const [newItemProductId, setNewItemProductId] = useState<string | null>(null);
+  const [newItemCostPrice, setNewItemCostPrice] = useState(0);
+  const [partsSearch, setPartsSearch] = useState("");
+  const [partsDebounced, setPartsDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setPartsDebounced(partsSearch.trim()), 250);
+    return () => clearTimeout(t);
+  }, [partsSearch]);
+  // Busca de pecas (autocomplete no Adicionar Item)
+  const partsQuery = useQuery(
+    trpc.serviceOrder.searchParts.queryOptions(
+      { query: partsDebounced || undefined, limit: 10 },
+      { enabled: newItemType === "PRODUCT" && partsDebounced.length >= 2 },
+    ),
+  );
   const [costsEditing, setCostsEditing] = useState(false);
   const [partsCostEdit, setPartsCostEdit] = useState(0);
   const [otherCostEdit, setOtherCostEdit] = useState(0);
@@ -1323,17 +1339,111 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       {/* Add Item Dialog */}
-      <Dialog open={addItemDialog} onOpenChange={setAddItemDialog}>
+      <Dialog open={addItemDialog} onOpenChange={(open) => {
+        setAddItemDialog(open);
+        if (!open) {
+          setNewItemProductId(null);
+          setNewItemCostPrice(0);
+          setPartsSearch("");
+          setPartsDebounced("");
+        }
+      }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar Item</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Tipo</Label>
-              <Select value={newItemType} onValueChange={(v) => setNewItemType(v as "SERVICE" | "PRODUCT")}>
+              <Select value={newItemType} onValueChange={(v) => {
+                setNewItemType(v as "SERVICE" | "PRODUCT");
+                setNewItemProductId(null);
+                setNewItemCostPrice(0);
+                setPartsSearch("");
+                setPartsDebounced("");
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="SERVICE">Servico</SelectItem><SelectItem value="PRODUCT">Produto/Peca</SelectItem></SelectContent>
               </Select>
             </div>
-            <div><Label>Descricao</Label><Input value={newItemDesc} onChange={(e) => setNewItemDesc(e.target.value)} /></div>
+
+            {newItemType === "PRODUCT" && !newItemProductId && (
+              <div className="space-y-2">
+                <Label>Buscar peca no estoque</Label>
+                <Input
+                  value={partsSearch}
+                  onChange={(e) => setPartsSearch(e.target.value)}
+                  placeholder="Nome, SKU ou marca..."
+                  autoComplete="off"
+                />
+                {partsDebounced.length >= 2 && (
+                  <div className="border border-border rounded-md max-h-48 overflow-y-auto bg-background">
+                    {partsQuery.isFetching ? (
+                      <p className="p-3 text-sm text-muted-foreground">Buscando...</p>
+                    ) : (partsQuery.data ?? []).length === 0 ? (
+                      <p className="p-3 text-sm text-muted-foreground">Nenhuma peca encontrada.</p>
+                    ) : (
+                      (partsQuery.data ?? []).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setNewItemProductId(p.id);
+                            setNewItemDesc(p.name);
+                            setNewItemPrice(p.salePrice);
+                            setNewItemCostPrice(p.costPrice);
+                            setPartsSearch("");
+                            setPartsDebounced("");
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-muted border-b border-border/40 last:border-b-0 transition-colors"
+                        >
+                          <div className="text-sm font-medium">{p.name}</div>
+                          <div className="text-xs text-muted-foreground flex justify-between">
+                            <span>
+                              {p.brand && `${p.brand} `}
+                              {p.sku && `• ${p.sku}`}
+                            </span>
+                            <span>
+                              Estoque: {p.stock} • {(p.salePrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Selecione uma peca acima ou digite a descricao manualmente abaixo.
+                </p>
+              </div>
+            )}
+
+            {newItemType === "PRODUCT" && newItemProductId && (
+              <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                <div className="text-sm">
+                  <p className="font-medium">{newItemDesc}</p>
+                  <p className="text-xs text-muted-foreground">Vinculado ao estoque (baixa automatica)</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setNewItemProductId(null);
+                    setNewItemCostPrice(0);
+                    setNewItemDesc("");
+                    setNewItemPrice(0);
+                  }}
+                >
+                  Trocar
+                </Button>
+              </div>
+            )}
+
+            <div>
+              <Label>Descricao</Label>
+              <Input
+                value={newItemDesc}
+                onChange={(e) => setNewItemDesc(e.target.value)}
+                disabled={!!newItemProductId}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Quantidade</Label><Input type="number" min={1} value={newItemQty} onChange={(e) => setNewItemQty(parseInt(e.target.value) || 1)} /></div>
               <div><Label>Valor Unitario</Label><MoneyInput value={newItemPrice} onChange={setNewItemPrice} /></div>
@@ -1341,7 +1451,21 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddItemDialog(false)}>Cancelar</Button>
-            <Button disabled={!newItemDesc || addItemMut.isPending} onClick={() => addItemMut.mutate({ orderId: id, type: newItemType, description: newItemDesc, quantity: newItemQty, unitPrice: newItemPrice })}>Adicionar</Button>
+            <Button
+              disabled={!newItemDesc || addItemMut.isPending}
+              onClick={() =>
+                addItemMut.mutate({
+                  orderId: id,
+                  type: newItemType,
+                  description: newItemDesc,
+                  quantity: newItemQty,
+                  unitPrice: newItemPrice,
+                  ...(newItemProductId ? { productId: newItemProductId, costPrice: newItemCostPrice } : {}),
+                })
+              }
+            >
+              Adicionar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

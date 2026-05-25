@@ -315,6 +315,32 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
+        // Bloqueia flip de isSerialized/hasVariations quando ja existe historico.
+        // Trocar essas flags corrompe contagem de estoque + sale_items historicos.
+        const nextIsSerialized = input.isSerialized ?? false;
+        const nextHasVariations = input.hasVariations ?? false;
+        if (
+          existing.isSerialized !== nextIsSerialized ||
+          existing.hasVariations !== nextHasVariations
+        ) {
+          const hasStockItems = await tx.stockItem.count({
+            where: { productId: input.id, deletedAt: null },
+          });
+          const hasMovements = await tx.stockMovement.count({
+            where: { productId: input.id },
+          });
+          const hasSaleItems = await tx.saleItem.count({
+            where: { productId: input.id },
+          });
+          if (hasStockItems > 0 || hasMovements > 0 || hasSaleItems > 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Nao e possivel alterar 'serializado' ou 'tem variacoes' apos haver historico de estoque/vendas. Crie um produto novo.",
+            });
+          }
+        }
+
         const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || existing.categoryId;
 
         const product = await tx.product.update({
@@ -327,10 +353,10 @@ export const stockRouter = createTRPCRouter({
             brand: input.brand || null,
             ncm: input.ncm || null,
             cest: input.cest || null,
-            isSerialized: input.isSerialized ?? false,
+            isSerialized: nextIsSerialized,
             isPremium: input.isPremium ?? false,
             isDevice: input.isDevice ?? false,
-            hasVariations: input.hasVariations ?? false,
+            hasVariations: nextHasVariations,
             icmsDifferentialRate: input.icmsDifferentialRate != null
               ? new Prisma.Decimal(input.icmsDifferentialRate)
               : null,
@@ -668,9 +694,14 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // If linked to a product, create movement record
-        // TODO: Estoque-B will handle stock tracking via StockItem
+        // Cria entrada efetiva no estoque: StockMovement + StockItem AVAILABLE
+        // (se produto serializado) OU increment de currentStock (se nao).
         if (input.productId) {
+          const product = await tx.product.findUnique({
+            where: { id: input.productId },
+            select: { isSerialized: true },
+          });
+
           await tx.stockMovement.create({
             data: {
               tenantId: ctx.tenantId,
@@ -683,6 +714,36 @@ export const stockRouter = createTRPCRouter({
               userId: ctx.session.user.id,
             },
           });
+
+          if (product?.isSerialized) {
+            // Mapa de DeviceCondition (DevicePurchase) -> StockItemCondition.
+            const conditionMap: Record<string, "NEW" | "SEMI_NEW" | "USED" | "DISPLAY"> = {
+              NEW: "NEW",
+              SEMI_NEW: "SEMI_NEW",
+              USED: "USED",
+              DISPLAY: "DISPLAY",
+              REFURBISHED: "SEMI_NEW",
+              DEFECTIVE: "USED",
+            };
+            await tx.stockItem.create({
+              data: {
+                tenantId: ctx.tenantId,
+                productId: input.productId,
+                imei: input.imei ?? null,
+                serialNumber: input.serial ?? null,
+                condition: conditionMap[input.condition] ?? "USED",
+                batteryHealth: input.batteryHealth ?? null,
+                costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
+                status: "AVAILABLE",
+              },
+            });
+          } else {
+            // Nao serializado: increment currentStock pra refletir entrada.
+            await tx.product.update({
+              where: { id: input.productId },
+              data: { currentStock: { increment: 1 } },
+            });
+          }
         }
 
         // Gera PAYABLE quando solicitado
@@ -723,9 +784,20 @@ export const stockRouter = createTRPCRouter({
             },
           });
 
+          // addMonthsSafe importado abaixo via require dinamico — evita
+          // adicionar import top do file. Tratamento de overflow (31/jan +
+          // 1mes = 28/29/fev) preservando o dia ate o limite.
+          const addMonthsSafe = (base: Date, months: number): Date => {
+            const d = new Date(base);
+            const day = d.getDate();
+            d.setDate(1);
+            d.setMonth(d.getMonth() + months);
+            const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+            d.setDate(Math.min(day, last));
+            return d;
+          };
           const installments = Array.from({ length: installmentsCount }, (_, i) => {
-            const dueDate = new Date(firstDate);
-            dueDate.setMonth(dueDate.getMonth() + i);
+            const dueDate = addMonthsSafe(firstDate, i);
             const amountCents = i === installmentsCount - 1 ? installmentAmount + remainder : installmentAmount;
             return {
               tenantId: ctx.tenantId,
@@ -2413,9 +2485,54 @@ export const stockRouter = createTRPCRouter({
         const errors: string[] = [];
         const categoryCache = new Map<string, string>();
 
+        // Pre-pass: detecta duplicatas dentro do proprio CSV (SKU/barcode
+        // repetidos no mesmo arquivo).
+        const seenSku = new Set<string>();
+        const seenBarcode = new Set<string>();
+        const lineErrors = new Map<number, string>();
+        for (let i = 0; i < input.lines.length; i++) {
+          const l = input.lines[i]!;
+          if (l.sku) {
+            const k = l.sku.trim().toLowerCase();
+            if (seenSku.has(k)) lineErrors.set(i, `SKU "${l.sku}" duplicado no CSV`);
+            seenSku.add(k);
+          }
+          if (l.barcode) {
+            const k = l.barcode.trim();
+            if (seenBarcode.has(k)) lineErrors.set(i, `Barcode "${l.barcode}" duplicado no CSV`);
+            seenBarcode.add(k);
+          }
+        }
+
         for (let i = 0; i < input.lines.length; i++) {
           const line = input.lines[i]!;
+          if (lineErrors.has(i)) {
+            errors.push(`Linha ${i + 1} (${line.name}): ${lineErrors.get(i)}`);
+            continue;
+          }
           try {
+            // Dedup contra DB: ja existe produto com SKU/barcode neste tenant?
+            if (line.sku) {
+              const exists = await tx.product.findFirst({
+                where: { sku: line.sku, deletedAt: null },
+                select: { id: true },
+              });
+              if (exists) {
+                errors.push(`Linha ${i + 1} (${line.name}): SKU "${line.sku}" ja existe`);
+                continue;
+              }
+            }
+            if (line.barcode) {
+              const exists = await tx.product.findFirst({
+                where: { barcode: line.barcode, deletedAt: null },
+                select: { id: true },
+              });
+              if (exists) {
+                errors.push(`Linha ${i + 1} (${line.name}): Barcode "${line.barcode}" ja existe`);
+                continue;
+              }
+            }
+
             // Resolve category
             let categoryId: string | null = null;
             if (line.category) {
@@ -2423,7 +2540,6 @@ export const stockRouter = createTRPCRouter({
               if (categoryCache.has(catKey)) {
                 categoryId = categoryCache.get(catKey)!;
               } else {
-                // Try find existing
                 const existing = await tx.productCategory.findFirst({
                   where: { name: { equals: line.category, mode: "insensitive" }, deletedAt: null },
                 });
@@ -2440,7 +2556,10 @@ export const stockRouter = createTRPCRouter({
               }
             }
 
-            // Create product
+            const initialQty = line.quantity && line.quantity > 0 && !line.isSerialized
+              ? line.quantity
+              : 0;
+
             const product = await tx.product.create({
               data: {
                 tenantId: ctx.tenantId,
@@ -2456,26 +2575,26 @@ export const stockRouter = createTRPCRouter({
                   ? new Prisma.Decimal(line.promotionalPrice / 100)
                   : null,
                 minStock: line.minStock ?? 0,
-                // TODO: Estoque-B will handle stock tracking via StockItem
+                currentStock: initialQty,
                 categoryId,
                 active: true,
               },
             });
             productsCreated++;
 
-            // Create stock entry if quantity > 0
-            if (line.quantity && line.quantity > 0) {
+            // Stock movement de entrada inicial (so quando ha qty + nao serializado).
+            if (initialQty > 0) {
               await tx.stockMovement.create({
                 data: {
                   tenantId: ctx.tenantId,
                   productId: product.id,
                   type: "ENTRY",
-                  quantity: line.quantity,
+                  quantity: initialQty,
                   reason: "Importacao CSV em lote",
                   userId: ctx.session.user.id,
                 },
               });
-              stockEntries += line.quantity;
+              stockEntries += initialQty;
             }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

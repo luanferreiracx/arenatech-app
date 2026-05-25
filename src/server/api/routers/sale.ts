@@ -696,8 +696,30 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Bloqueia troco fisico quando ha DePix nao confirmado (pendente).
+        // Em split com DePix, operador NAO pode entregar dinheiro de troco
+        // se o DePix ainda nao foi pago — caso o cliente nao pague, loja
+        // perde o valor do troco.
+        const hasPendingDepix = payments.some(
+          (p) =>
+            p.method === "depix" &&
+            p.depixTransactionId &&
+            // Detect: se UI marcou como pago manualmente, ja considera ok
+            // (operador assumiu responsabilidade).
+            !(p as { depixManual?: boolean }).depixManual,
+        );
         // Troco = quanto o cliente pagou alem do que devia (apos upgrade).
-        const changeCents = refundDueCents > 0 ? 0 : paidCents - amountDueAfterUpgradeCents;
+        const rawChangeCents = refundDueCents > 0
+          ? 0
+          : paidCents - amountDueAfterUpgradeCents;
+        if (hasPendingDepix && rawChangeCents > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Nao e possivel entregar troco em venda com DePix pendente. Aguarde a confirmacao do DePix ou ajuste os valores.",
+          });
+        }
+        const changeCents = rawChangeCents;
 
         // Gera numero atomico via sequencia tenant-scoped (M25). Antes era
         // findFirst max + parseInt, sujeito a race condition em concurrency.
@@ -1138,12 +1160,10 @@ export const saleRouter = createTRPCRouter({
             },
           });
 
-          // Atualiza Product.currentStock (count derivado de stockItems
-          // serializados ativos). Increment +1 por upgrade.
-          await tx.product.update({
-            where: { id: product.id },
-            data: { currentStock: { increment: 1 } },
-          });
+          // ADR: Product.currentStock NAO e fonte de verdade para
+          // produtos serializados. As listagens/dashboards derivam de
+          // count(StockItem WHERE status='AVAILABLE') em searchProducts
+          // e stockDashboard. Mantemos currentStock=0 nos serializados.
 
           // Movimento de entrada
           await tx.stockMovement.create({
@@ -1775,8 +1795,14 @@ export const saleRouter = createTRPCRouter({
     .input(z.object({ link: z.string().min(8).max(64) }))
     .query(async ({ input }) => {
       return withAdmin(async (tx) => {
-        const sale = await tx.sale.findUnique({
-          where: { publicLink: input.link },
+        const sale = await tx.sale.findFirst({
+          where: {
+            publicLink: input.link,
+            // Vazaria rascunho/cancelada via link enumeravel — restringe
+            // ao que tem sentido publico (COMPLETED ou REFUNDED).
+            status: { in: ["COMPLETED", "REFUNDED", "PARTIALLY_REFUNDED"] },
+            deletedAt: null,
+          },
           include: { items: true },
         });
         if (!sale) {

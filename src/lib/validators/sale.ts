@@ -114,7 +114,15 @@ export const finalizeSaleSchema = z.object({
   refundDuePixKey: z.string().max(100).optional().nullable(),
   refundDuePixKeyType: z.enum(["CPF", "CNPJ", "EMAIL", "PHONE", "RANDOM"]).optional().nullable(),
   observations: z.string().max(500).optional().nullable(),
-});
+}).refine(
+  (d) => {
+    // Max 1 pagamento DePix por venda — multiplos QRs = UX confusa, ja
+    // bloqueado no frontend mas o validator defende o backend.
+    const depixCount = (d.payments ?? []).filter((p) => p.method === "depix").length;
+    return depixCount <= 1;
+  },
+  { message: "So e permitido 1 pagamento DePix por venda.", path: ["payments"] },
+);
 
 export type FinalizeSaleInput = z.infer<typeof finalizeSaleSchema>;
 
