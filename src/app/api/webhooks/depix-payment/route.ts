@@ -128,6 +128,11 @@ export async function POST(req: NextRequest) {
   if (!transactionId) {
     return NextResponse.json({ error: "sem transactionId" }, { status: 400 });
   }
+  // Sanitiza ANTES de qualquer query/log — defesa em profundidade contra
+  // injecao em jsonpath ou logs poluidos.
+  if (!/^[a-zA-Z0-9_-]+$/.test(transactionId)) {
+    return NextResponse.json({ error: "transactionId invalido" }, { status: 400 });
+  }
 
   const PAID_STATUSES = new Set([
     "completed",
@@ -204,11 +209,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── MATCH SALE OR OS (com idempotencia via WHERE status != alvo) ─────
-  // Sanitizacao: transactionId vem do payload externo. Aceitar apenas
-  // chars seguros (PixPay usa alfanumerico + hifen).
-  if (!/^[a-zA-Z0-9_-]+$/.test(transactionId)) {
-    return NextResponse.json({ error: "transactionId invalido" }, { status: 400 });
-  }
+  // (sanitize ja foi feita no inicio do handler — defesa em profundidade
+  // contra injecao em jsonpath ou logs poluidos.)
   const result = await withAdmin(async (tx) => {
     // paymentDetails e um JSON array. Usamos jsonpath SQL para buscar
     // o transactionId em qualquer item do array (suporta split: parte

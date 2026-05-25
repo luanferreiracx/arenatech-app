@@ -175,6 +175,32 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
+        // Dedup SKU/barcode antes de criar (mesma logica do importCsv).
+        if (input.sku?.trim()) {
+          const dup = await tx.product.findFirst({
+            where: { sku: input.sku.trim(), deletedAt: null },
+            select: { id: true, name: true },
+          });
+          if (dup) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `SKU "${input.sku}" ja usado pelo produto "${dup.name}".`,
+            });
+          }
+        }
+        if (input.barcode?.trim()) {
+          const dup = await tx.product.findFirst({
+            where: { barcode: input.barcode.trim(), deletedAt: null },
+            select: { id: true, name: true },
+          });
+          if (dup) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Barcode "${input.barcode}" ja usado pelo produto "${dup.name}".`,
+            });
+          }
+        }
+
         // Cria categoria nova inline se solicitado (paridade Laravel nova_categoria)
         let inlineCategoryId: string | null = null;
         if (input.newCategoryName) {
@@ -1478,12 +1504,25 @@ export const stockRouter = createTRPCRouter({
   stockEntry: tenantProcedure
     .input(stockEntrySchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
+      }
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findFirst({
           where: { id: input.productId, deletedAt: null },
         });
         if (!product) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+        }
+
+        // Serializados nao usam currentStock — entrada via StockItem (compra
+        // de aparelhos / DevicePurchase).
+        if (product.isSerialized) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto serializado: registre a entrada pelo fluxo de Compra de Aparelhos (StockItem).",
+          });
         }
 
         // Produto com variacoes exige variationId
@@ -1533,12 +1572,22 @@ export const stockRouter = createTRPCRouter({
   stockExit: tenantProcedure
     .input(stockExitSchema)
     .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para baixa de estoque" });
+      }
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findFirst({
           where: { id: input.productId, deletedAt: null },
         });
         if (!product) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+        }
+        if (product.isSerialized) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto serializado: registre a baixa via venda ou descarte do StockItem.",
+          });
         }
 
         if (product.hasVariations) {
@@ -1596,49 +1645,82 @@ export const stockRouter = createTRPCRouter({
   /** Stock dashboard stats with alerts (enhanced) */
   stockDashboard: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const products = await tx.product.findMany({
-        where: { deletedAt: null, active: true },
-        select: {
-          id: true,
-          name: true,
-          sku: true,
-          minStock: true,
-          costPrice: true,
-          salePrice: true,
-        },
-      });
+      // Agregados sem carregar lista de produtos:
+      // - totalProducts via count
+      // - totalItems + totalCostValue via groupBy + sum
+      // - totalSaleValue via raw SQL (precisa JOIN com products.salePrice)
+      // - low/out of stock: top 20 ordenados (UI mostra alerts, nao lista cheia)
+      const [totalProducts, stockByProduct] = await Promise.all([
+        tx.product.count({ where: { deletedAt: null, active: true } }),
+        tx.stockItem.groupBy({
+          by: ["productId"],
+          where: { status: "AVAILABLE", deletedAt: null },
+          _count: { _all: true },
+          _sum: { costPrice: true },
+        }),
+      ]);
 
-      // Agrega contagem por produto via StockItem (status = AVAILABLE).
-      // Paridade Laravel: dashboard mostra valor real do estoque disponivel.
-      const stockByProduct = await tx.stockItem.groupBy({
-        by: ["productId"],
-        where: { status: "AVAILABLE", deletedAt: null },
-        _count: { _all: true },
-        _sum: { costPrice: true },
-      });
-      const stockMap = new Map(
-        stockByProduct.map((s) => [
-          s.productId,
-          { qty: s._count._all, cost: Number(s._sum.costPrice ?? 0) },
-        ]),
-      );
-
-      const productsWithStock = products.map((p) => {
-        const s = stockMap.get(p.id);
-        return { ...p, currentStock: s?.qty ?? 0 };
-      });
-
-      const totalProducts = productsWithStock.length;
-      const totalItems = Array.from(stockMap.values()).reduce((s, x) => s + x.qty, 0);
-      const totalCostValue = Array.from(stockMap.values()).reduce((s, x) => s + x.cost, 0);
-      const totalSaleValue = productsWithStock.reduce(
-        (s, p) => s + (stockMap.get(p.id)?.qty ?? 0) * Number(p.salePrice),
+      const totalItems = stockByProduct.reduce((s, x) => s + x._count._all, 0);
+      const totalCostValue = stockByProduct.reduce(
+        (s, x) => s + Number(x._sum.costPrice ?? 0),
         0,
       );
-      const lowStockProducts = productsWithStock.filter(
-        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
-      );
-      const outOfStockProducts = productsWithStock.filter((p) => p.currentStock === 0);
+
+      // totalSaleValue: SUM(stock_qty * sale_price) — raw SQL pra evitar
+      // carregar todos products no memo.
+      const saleValueRows = await tx.$queryRaw<Array<{ total: string | null }>>`
+        SELECT COALESCE(SUM(stock_count.qty * p.sale_price), 0)::text AS total
+        FROM products p
+        JOIN (
+          SELECT product_id, COUNT(*)::int AS qty
+          FROM stock_items
+          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
+          GROUP BY product_id
+        ) stock_count ON stock_count.product_id = p.id
+        WHERE p.deleted_at IS NULL AND p.active = true
+      `;
+      const totalSaleValue = Number(saleValueRows[0]?.total ?? 0);
+
+      // Low/out of stock: limita 20 cada — dashboard mostra alerta, nao
+      // tabela completa.
+      const lowStockRaw = await tx.$queryRaw<
+        Array<{ id: string; name: string; sku: string | null; minStock: number; currentStock: number }>
+      >`
+        SELECT p.id, p.name, p.sku, p.min_stock AS "minStock",
+               COALESCE(stock_count.qty, 0)::int AS "currentStock"
+        FROM products p
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int AS qty
+          FROM stock_items
+          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
+          GROUP BY product_id
+        ) stock_count ON stock_count.product_id = p.id
+        WHERE p.deleted_at IS NULL AND p.active = true
+          AND p.min_stock > 0
+          AND COALESCE(stock_count.qty, 0) <= p.min_stock
+          AND COALESCE(stock_count.qty, 0) > 0
+        ORDER BY (COALESCE(stock_count.qty, 0)::float / NULLIF(p.min_stock, 0)) ASC
+        LIMIT 20
+      `;
+      const lowStockProducts = lowStockRaw;
+
+      const outOfStockRaw = await tx.$queryRaw<
+        Array<{ id: string; name: string; sku: string | null; minStock: number; currentStock: number }>
+      >`
+        SELECT p.id, p.name, p.sku, p.min_stock AS "minStock", 0 AS "currentStock"
+        FROM products p
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int AS qty
+          FROM stock_items
+          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
+          GROUP BY product_id
+        ) stock_count ON stock_count.product_id = p.id
+        WHERE p.deleted_at IS NULL AND p.active = true
+          AND COALESCE(stock_count.qty, 0) = 0
+        ORDER BY p.name ASC
+        LIMIT 20
+      `;
+      const outOfStockProducts = outOfStockRaw;
 
       // Recent movements
       const recentMovements = await tx.stockMovement.findMany({

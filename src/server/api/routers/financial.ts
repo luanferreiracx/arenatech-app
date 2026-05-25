@@ -980,44 +980,41 @@ export const financialRouter = createTRPCRouter({
       // - Despesas operacionais: Installments PAYABLE.PAID (regime de caixa,
       //   paridade contas_pagar_parcelas)
       // - Lucro liquido = lucro bruto - despesas
-      const [revenueRows, expenseRows, partsCostRows] = await Promise.all([
-        ctx.withTenant(async (tx) =>
-          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-            SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                   COALESCE(SUM(CASE WHEN s.net_revenue_amount > 0 THEN s.net_revenue_amount ELSE s.total_amount END), 0)::float AS total
-            FROM sales s
-            WHERE s.status = 'COMPLETED'
-              AND s.deleted_at IS NULL
-              AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
-            GROUP BY 1
-          `,
-        ),
-        ctx.withTenant(async (tx) =>
-          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-            SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
-                   COALESCE(SUM(i.paid_amount), 0)::float AS total
-            FROM installments i
-            JOIN financial_transactions t ON t.id = i.transaction_id
-            WHERE i.status = 'PAID'
-              AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
-              AND t.type = 'PAYABLE'
-              AND t.deleted_at IS NULL
-            GROUP BY 1
-          `,
-        ),
-        ctx.withTenant(async (tx) =>
-          tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-            SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                   COALESCE(SUM(si.cost_price * si.quantity), 0)::float AS total
-            FROM sale_items si
-            JOIN sales s ON s.id = si.sale_id
-            WHERE s.status = 'COMPLETED'
-              AND s.deleted_at IS NULL
-              AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
-            GROUP BY 1
-          `,
-        ),
-      ]);
+      // Uma unica transacao com 3 queries serializadas — antes 3 transacoes
+      // paralelas (3 conexoes DB abertas). Reduz pressao no pool.
+      const { revenueRows, expenseRows, partsCostRows } = await ctx.withTenant(async (tx) => {
+        const rev = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+          SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+                 COALESCE(SUM(CASE WHEN s.net_revenue_amount > 0 THEN s.net_revenue_amount ELSE s.total_amount END), 0)::float AS total
+          FROM sales s
+          WHERE s.status = 'COMPLETED'
+            AND s.deleted_at IS NULL
+            AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+          GROUP BY 1
+        `;
+        const exp = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+          SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
+                 COALESCE(SUM(i.paid_amount), 0)::float AS total
+          FROM installments i
+          JOIN financial_transactions t ON t.id = i.transaction_id
+          WHERE i.status = 'PAID'
+            AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
+            AND t.type = 'PAYABLE'
+            AND t.deleted_at IS NULL
+          GROUP BY 1
+        `;
+        const parts = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
+          SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+                 COALESCE(SUM(si.cost_price * si.quantity), 0)::float AS total
+          FROM sale_items si
+          JOIN sales s ON s.id = si.sale_id
+          WHERE s.status = 'COMPLETED'
+            AND s.deleted_at IS NULL
+            AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+          GROUP BY 1
+        `;
+        return { revenueRows: rev, expenseRows: exp, partsCostRows: parts };
+      });
 
       const revenueByMonth = new Map(revenueRows.map((r) => [r.month, Number(r.total ?? 0)]));
       const expenseByMonth = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
@@ -1517,8 +1514,10 @@ export const financialRouter = createTRPCRouter({
         });
 
         for (const t of transactions) {
+          // Cancela PENDING e OVERDUE — antes so PENDING deixava OVERDUE
+          // pendurado como vencido eternamente apos cancelamento da venda.
           await tx.installment.updateMany({
-            where: { transactionId: t.id, status: "PENDING" },
+            where: { transactionId: t.id, status: { in: ["PENDING", "OVERDUE"] } },
             data: { status: "CANCELLED" },
           });
           await tx.financialTransaction.update({
