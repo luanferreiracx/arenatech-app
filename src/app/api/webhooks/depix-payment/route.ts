@@ -386,6 +386,23 @@ export async function POST(req: NextRequest) {
     }
   });
 
+  // Dispara NOTIFY pra rotas SSE escutando — frontend recebe confirmacao
+  // em tempo real sem polling. Payload: JSON pequeno com kind + id + transactionId.
+  // Apenas pra eventos que de fato marcaram PAID (nao "already").
+  if (!result.kind.includes("already")) {
+    await withAdmin(async (tx) => {
+      const payload = JSON.stringify({
+        kind: result.kind,
+        id: result.id,
+        transactionId,
+      });
+      // pg_notify aceita ate 8000 bytes; nosso payload < 200 bytes.
+      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${payload})`;
+    }).catch((err) => {
+      logger.warn("Falha ao emitir NOTIFY depix_paid", { err: String(err) });
+    });
+  }
+
   logger.info("Depix-payment webhook processado", {
     kind: result.kind,
     id: result.id,

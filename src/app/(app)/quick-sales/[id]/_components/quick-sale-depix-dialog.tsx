@@ -105,9 +105,21 @@ export function QuickSaleDepixDialog({
     setTaxIdConfirmed(true);
   };
 
-  // Polling de status a cada 4s
+  // SSE em tempo real (webhook -> pg_notify -> SSE) + polling fallback 30s.
   useEffect(() => {
     if (!transactionId || status === "paid" || status === "failed") return;
+
+    const es = new EventSource(`/api/sse/quick-sale/${quickSaleId}`);
+    es.addEventListener("paid", () => {
+      setStatus("paid");
+      toast.success("Pagamento confirmado!");
+      setTimeout(() => onPaid(), 1500);
+      es.close();
+    });
+    es.onerror = () => {
+      // Polling abaixo cobre.
+    };
+
     const interval = setInterval(() => {
       checkStatusMutation.mutate(
         { id: quickSaleId, transactionId },
@@ -126,8 +138,11 @@ export function QuickSaleDepixDialog({
           },
         },
       );
-    }, 4000);
-    return () => clearInterval(interval);
+    }, 30_000);
+    return () => {
+      es.close();
+      clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionId, status]);
 
@@ -220,7 +235,7 @@ export function QuickSaleDepixDialog({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
               </span>
-              Verificando pagamento a cada 4 segundos...
+              Aguardando confirmacao do pagamento...
             </div>
             <Button variant="outline" className="w-full" onClick={onClose}>
               Cancelar

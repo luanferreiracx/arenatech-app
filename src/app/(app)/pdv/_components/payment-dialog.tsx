@@ -41,6 +41,9 @@ interface PaymentEntry {
   installments: number;
   /** Valor que o cliente paga DE FATO (com acrescimo da maquininha). */
   totalPaidByCustomer: number;
+  /** Quando method=depix e operador marcou "ja recebi manualmente", nao
+   * gera QR Code — finaliza venda direto. Sem depixTransactionId. */
+  depixManual?: boolean;
 }
 
 /** Fallback quando o tenant nao tem PaymentMethod cadastrado ainda. */
@@ -83,6 +86,9 @@ export function PaymentDialog({
   const trpc = useTRPC();
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
   const [step, setStep] = useState<"select" | "form">("select");
+  // Quando DePix: operador pode marcar "ja recebi manualmente" pra finalizar
+  // sem gerar QR. Util quando cliente pagou via outro app antes da finalizacao.
+  const [depixManualMode, setDepixManualMode] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
   const [selectedLabel, setSelectedLabel] = useState<string>("");
   const [formAmount, setFormAmount] = useState("");
@@ -143,6 +149,7 @@ export function PaymentDialog({
     setSelectedPaymentMethodId(paymentMethodId);
     setFormAmount((remaining / 100).toFixed(2));
     setFormInstallments("1");
+    setDepixManualMode(false);
     setStep("form");
   };
 
@@ -168,11 +175,15 @@ export function PaymentDialog({
         amount: amountMercadoria,
         installments,
         totalPaidByCustomer,
+        ...(selectedMethod === "depix" && depixManualMode
+          ? { depixManual: true }
+          : {}),
       },
     ]);
 
     setSelectedMethod(null);
     setSelectedPaymentMethodId(null);
+    setDepixManualMode(false);
     setStep("select");
   };
 
@@ -211,12 +222,14 @@ export function PaymentDialog({
     // Se algum pagamento e via DePix, abre QR Code antes de finalizar.
     // Suporta split: parte da venda em DePix + parte em outra forma
     // (paridade Laravel iniciarDepix). Apenas 1 pagamento DePix por venda.
+    // Excecao: se operador marcou "ja recebido manualmente", pula o QR.
     const depixPayments = payments.filter((p) => p.method === "depix");
     if (depixPayments.length > 1) {
       toast.error("Use apenas 1 pagamento DePix por venda.");
       return;
     }
-    if (depixPayments.length === 1) {
+    const depixNeedsQr = depixPayments.find((p) => !p.depixManual);
+    if (depixNeedsQr) {
       setShowDepixQr(true);
       return;
     }
@@ -378,7 +391,14 @@ export function PaymentDialog({
                 className="flex items-center gap-2 bg-muted/50 rounded-md p-2.5 border-l-2 border-primary"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium">{p.label}</div>
+                  <div className="text-sm font-medium flex items-center gap-2">
+                    {p.label}
+                    {p.depixManual && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-600 uppercase font-semibold tracking-wide">
+                        Manual
+                      </span>
+                    )}
+                  </div>
                   {p.installments > 1 && (
                     <div className="text-xs text-muted-foreground">
                       {p.installments}x de{" "}
@@ -495,6 +515,24 @@ export function PaymentDialog({
                   {trocoDisplay > 0 ? formatCurrency(trocoDisplay) : "R$ 0,00"}
                 </div>
               </div>
+            )}
+
+            {selectedMethod === "depix" && (
+              <label className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={depixManualMode}
+                  onChange={(e) => setDepixManualMode(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold">Ja recebi via DePix (sem gerar QR)</div>
+                  <div className="text-muted-foreground">
+                    Use quando o cliente ja pagou em outro app/dispositivo.
+                    A venda finaliza sem aguardar confirmacao da PixPay.
+                  </div>
+                </div>
+              </label>
             )}
 
             <Button className="w-full gap-2" onClick={handleAddPayment}>

@@ -101,9 +101,24 @@ export function DepixQrDialog({
     setTaxIdConfirmed(true);
   };
 
-  // Polling de status a cada 4s
+  // SSE em tempo real (webhook PixPay -> pg_notify -> SSE -> aqui) + polling
+  // fallback de 30s pra caso webhook falhe ou conexao SSE caia.
   useEffect(() => {
     if (!transactionId || status === "paid" || status === "failed") return;
+
+    // 1) SSE: principal canal de confirmacao
+    const es = new EventSource(`/api/sse/sale/${saleId}`);
+    es.addEventListener("paid", () => {
+      setStatus("paid");
+      toast.success("Pagamento confirmado!");
+      setTimeout(() => onPaid(transactionId), 1500);
+      es.close();
+    });
+    es.onerror = () => {
+      // Falha silenciosa — polling abaixo cobre.
+    };
+
+    // 2) Polling fallback (30s)
     const interval = setInterval(() => {
       checkStatusMutation.mutate(
         { saleId, transactionId },
@@ -122,8 +137,11 @@ export function DepixQrDialog({
           },
         },
       );
-    }, 4000);
-    return () => clearInterval(interval);
+    }, 30_000);
+    return () => {
+      es.close();
+      clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionId, status]);
 
@@ -216,7 +234,7 @@ export function DepixQrDialog({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
               </span>
-              Verificando pagamento a cada 4 segundos...
+              Aguardando confirmacao do pagamento...
             </div>
             <Button variant="outline" className="w-full" onClick={onClose}>
               Cancelar
