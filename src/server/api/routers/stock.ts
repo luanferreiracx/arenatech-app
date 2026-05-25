@@ -701,10 +701,51 @@ export const stockRouter = createTRPCRouter({
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // Auto-cria/acha Product baseado em brand+model quando UI nao
+        // envia productId (form de Compra de Aparelhos nao tem select de
+        // Product — passa apenas marca/modelo livres). Sem isso, a compra
+        // entra orfa e o aparelho NAO aparece no PDV. Paridade Laravel
+        // `buscarOuCriarProduto`.
+        let resolvedProductId = input.productId ?? null;
+        if (!resolvedProductId && (input.brand || input.model)) {
+          const productName = [input.brand, input.model].filter(Boolean).join(" ").trim()
+            || "Aparelho seminovo";
+          const existing = await tx.product.findFirst({
+            where: {
+              name: productName,
+              isDevice: true,
+              isSerialized: true,
+              deletedAt: null,
+            },
+            select: { id: true },
+          });
+          if (existing) {
+            resolvedProductId = existing.id;
+          } else {
+            const created = await tx.product.create({
+              data: {
+                tenantId: ctx.tenantId,
+                name: productName,
+                brand: input.brand,
+                isDevice: true,
+                isSerialized: true,
+                currentStock: 0,
+                costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
+                salePrice: input.salePrice != null
+                  ? new Prisma.Decimal(input.salePrice).div(100)
+                  : new Prisma.Decimal(input.purchasePrice).div(100),
+                active: true,
+              },
+              select: { id: true },
+            });
+            resolvedProductId = created.id;
+          }
+        }
+
         const purchase = await tx.devicePurchase.create({
           data: {
             tenantId: ctx.tenantId,
-            productId: input.productId || null,
+            productId: resolvedProductId,
             customerId: input.customerId || null,
             supplierId: input.supplierId || null,
             sellerType: input.sellerType ?? (input.supplierId ? "supplier" : "customer"),
@@ -722,16 +763,16 @@ export const stockRouter = createTRPCRouter({
 
         // Cria entrada efetiva no estoque: StockMovement + StockItem AVAILABLE
         // (se produto serializado) OU increment de currentStock (se nao).
-        if (input.productId) {
+        if (resolvedProductId) {
           const product = await tx.product.findUnique({
-            where: { id: input.productId },
+            where: { id: resolvedProductId },
             select: { isSerialized: true },
           });
 
           await tx.stockMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              productId: input.productId,
+              productId: resolvedProductId,
               type: "ENTRY",
               quantity: 1,
               reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
@@ -754,19 +795,22 @@ export const stockRouter = createTRPCRouter({
             await tx.stockItem.create({
               data: {
                 tenantId: ctx.tenantId,
-                productId: input.productId,
+                productId: resolvedProductId,
                 imei: input.imei ?? null,
                 serialNumber: input.serial ?? null,
                 condition: conditionMap[input.condition] ?? "USED",
                 batteryHealth: input.batteryHealth ?? null,
                 costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
+                suggestedSalePrice: input.salePrice != null
+                  ? new Prisma.Decimal(input.salePrice).div(100)
+                  : null,
                 status: "AVAILABLE",
               },
             });
           } else {
             // Nao serializado: increment currentStock pra refletir entrada.
             await tx.product.update({
-              where: { id: input.productId },
+              where: { id: resolvedProductId },
               data: { currentStock: { increment: 1 } },
             });
           }
