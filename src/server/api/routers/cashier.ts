@@ -354,34 +354,51 @@ export const cashierRouter = createTRPCRouter({
    * List closed cash sessions pending review.
    * A session is pending review if `verified` is false.
    */
-  pendingReviews: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      const pendingSessions = await tx.cashSession.findMany({
-        where: {
-          closedAt: { not: null },
-          verified: false,
-        },
-        orderBy: { closedAt: "desc" },
-        take: 50,
+  pendingReviews: tenantProcedure
+    .input(
+      z
+        .object({
+          page: z.number().int().min(0).optional(),
+          pageSize: z.number().int().min(1).max(100).optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = input?.page ?? 0;
+      const pageSize = input?.pageSize ?? 20;
+      return ctx.withTenant(async (tx) => {
+        const where = { closedAt: { not: null }, verified: false } as const;
+        const [pendingSessions, total] = await Promise.all([
+          tx.cashSession.findMany({
+            where,
+            orderBy: { closedAt: "desc" },
+            skip: page * pageSize,
+            take: pageSize,
+          }),
+          tx.cashSession.count({ where }),
+        ]);
+
+        // Resolve user names via UserTenant — tenant-scoped, evita leak de
+        // users de outros tenants (table users global sem RLS).
+        const userIds = [...new Set(pendingSessions.map((r) => r.userId))];
+        const userTenants = userIds.length > 0
+          ? await tx.userTenant.findMany({
+              where: { tenantId: ctx.tenantId, userId: { in: userIds } },
+              select: { userId: true, user: { select: { name: true } } },
+            })
+          : [];
+        const userMap = new Map(userTenants.map((ut) => [ut.userId, ut.user.name]));
+
+        return {
+          data: pendingSessions.map((r) => ({
+            ...serializeSession(r),
+            userName: userMap.get(r.userId) ?? "Operador",
+          })),
+          total,
+          pageCount: Math.ceil(total / pageSize),
+        };
       });
-
-      // Resolve user names via UserTenant — tenant-scoped, evita leak de
-      // users de outros tenants (table users global sem RLS).
-      const userIds = [...new Set(pendingSessions.map((r) => r.userId))];
-      const userTenants = userIds.length > 0
-        ? await tx.userTenant.findMany({
-            where: { tenantId: ctx.tenantId, userId: { in: userIds } },
-            select: { userId: true, user: { select: { name: true } } },
-          })
-        : [];
-      const userMap = new Map(userTenants.map((ut) => [ut.userId, ut.user.name]));
-
-      return pendingSessions.map((r) => ({
-        ...serializeSession(r),
-        userName: userMap.get(r.userId) ?? "Operador",
-      }));
-    });
-  }),
+    }),
 
   /**
    * Review (conferir) a closed cash session.
@@ -468,9 +485,12 @@ export const cashierRouter = createTRPCRouter({
    */
   openCashiers: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Safety cap: tipicamente 1 por operador (max ~100). Limit defensivo.
       const openSessions = await tx.cashSession.findMany({
         where: { closedAt: null },
         select: { id: true, userId: true, openedAt: true },
+        orderBy: { openedAt: "desc" },
+        take: 200,
       });
 
       if (openSessions.length === 0) return [];
@@ -653,7 +673,7 @@ export const cashierRouter = createTRPCRouter({
 
         // Calculate balance and close
         const { calculateSessionBalance } = await import("@/server/services/cash-session.service");
-        const calculatedBalance = await calculateSessionBalance(tx as any, session.id);
+        const calculatedBalance = await calculateSessionBalance(tx as never, session.id);
 
         await tx.cashSession.update({
           where: { id: session.id },
@@ -666,6 +686,23 @@ export const cashierRouter = createTRPCRouter({
             closedAt: new Date(),
             closingNote: `Fechamento forcado: ${input.reason}`,
             verified: false,
+          },
+        });
+
+        // Audit explicito: fechamento forcado MASCARA divergencia (difference
+        // setado pra 0 mesmo se calculatedBalance != saldo fisico real).
+        // Registra pra rastreabilidade — gestor responsavel pela acao.
+        const { logAudit } = await import("@/server/services/audit-log.service");
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "force_close",
+          entity: "cash_session",
+          entityId: session.id,
+          payload: {
+            calculatedBalance,
+            originalUserId: session.userId,
+            reason: input.reason,
           },
         });
 

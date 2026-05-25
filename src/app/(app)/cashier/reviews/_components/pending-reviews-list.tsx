@@ -93,7 +93,7 @@ export function PendingReviewsList() {
 
   if (pendingQuery.isLoading) return <LoadingState />;
 
-  const data = pendingQuery.data ?? [];
+  const data = pendingQuery.data?.data ?? [];
 
   if (data.length === 0) {
     return (

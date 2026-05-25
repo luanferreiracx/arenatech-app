@@ -323,9 +323,11 @@ export const csvImportLineSchema = z.object({
   barcode: z.string().optional(),
   brand: z.string().optional(),
   category: z.string().optional(),
-  costPrice: z.number().min(0).optional(),
-  salePrice: z.number().min(0, "Preco de venda obrigatorio"),
-  promotionalPrice: z.number().min(0).optional(),
+  // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
+  // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
+  costPrice: z.number().int().min(0).optional(),
+  salePrice: z.number().int().min(0, "Preco de venda obrigatorio"),
+  promotionalPrice: z.number().int().min(0).optional(),
   minStock: z.number().int().min(0).optional(),
   quantity: z.number().int().min(0).optional(),
   isSerialized: z.boolean().optional(),

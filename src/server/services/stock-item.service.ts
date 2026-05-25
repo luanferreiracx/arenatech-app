@@ -27,50 +27,50 @@ export async function entrySerializedItems(
     }>
   }
 ): Promise<string[]> {
-  const createdIds: string[] = []
+  // Bulk insert: createManyAndReturn evita N round-trips no DB.
+  // Ganho real em imports grandes (50+ aparelhos).
+  const costDecimal = new Prisma.Decimal(params.costPrice).div(100)
+  const suggestedSaleDecimal = params.suggestedSalePrice
+    ? new Prisma.Decimal(params.suggestedSalePrice).div(100)
+    : null
 
-  for (const item of params.items) {
-    const stockItem = await tx.stockItem.create({
-      data: {
-        tenantId,
-        productId: params.productId,
-        variationId: params.variationId || null,
-        supplierId: params.supplierId || null,
-        imei: item.imei || null,
-        serialNumber: item.serialNumber || null,
-        condition: params.condition as any,
-        conservationGrade: params.conservationGrade || null,
-        batteryHealth: item.batteryHealth,
-        warrantyMonths: item.warrantyMonths,
-        costPrice: new Prisma.Decimal(params.costPrice).div(100),
-        suggestedSalePrice: params.suggestedSalePrice
-          ? new Prisma.Decimal(params.suggestedSalePrice).div(100)
-          : null,
-        invoiceNumber: params.invoiceNumber || null,
-        status: "AVAILABLE",
-        notes: item.notes || null,
-      },
-    })
+  const created = await tx.stockItem.createManyAndReturn({
+    data: params.items.map((item) => ({
+      tenantId,
+      productId: params.productId,
+      variationId: params.variationId || null,
+      supplierId: params.supplierId || null,
+      imei: item.imei || null,
+      serialNumber: item.serialNumber || null,
+      condition: params.condition as never,
+      conservationGrade: params.conservationGrade || null,
+      batteryHealth: item.batteryHealth,
+      warrantyMonths: item.warrantyMonths,
+      costPrice: costDecimal,
+      suggestedSalePrice: suggestedSaleDecimal,
+      invoiceNumber: params.invoiceNumber || null,
+      status: "AVAILABLE" as const,
+      notes: item.notes || null,
+    })),
+    select: { id: true },
+  })
 
-    await tx.stockMovement.create({
-      data: {
-        tenantId,
-        productId: params.productId,
-        variationId: params.variationId || null,
-        stockItemId: stockItem.id,
-        type: "ENTRY",
-        quantity: 1,
-        reason: params.invoiceNumber
-          ? `Entrada NF ${params.invoiceNumber}`
-          : "Entrada manual",
-        userId,
-      },
-    })
+  await tx.stockMovement.createMany({
+    data: created.map((s) => ({
+      tenantId,
+      productId: params.productId,
+      variationId: params.variationId || null,
+      stockItemId: s.id,
+      type: "ENTRY" as const,
+      quantity: 1,
+      reason: params.invoiceNumber
+        ? `Entrada NF ${params.invoiceNumber}`
+        : "Entrada manual",
+      userId,
+    })),
+  })
 
-    createdIds.push(stockItem.id)
-  }
-
-  return createdIds
+  return created.map((s) => s.id)
 }
 
 /**
