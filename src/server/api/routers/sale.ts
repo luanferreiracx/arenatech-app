@@ -2377,6 +2377,9 @@ export const saleRouter = createTRPCRouter({
         saleId: z.string().uuid(),
         /** CPF/CNPJ do pagador. Obrigatorio quando totalAmount >= R$ 500. */
         taxId: z.string().max(20).optional().nullable(),
+        /** Valor em centavos para o QR. Default: total da venda. Usado em
+         * split payment (parte em DePix + parte em outra forma). */
+        amountCents: z.number().int().min(1).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -2403,9 +2406,19 @@ export const saleRouter = createTRPCRouter({
       if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber PIX neste status" });
       }
-      const totalAmount = Number(sale.totalAmount);
+      const saleTotal = Number(sale.totalAmount);
+      // amountCents = valor parcial (split) ou total da venda como fallback.
+      const totalAmount = input.amountCents != null
+        ? input.amountCents / 100
+        : saleTotal;
       if (totalAmount <= 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da venda deve ser maior que zero" });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor do PIX deve ser maior que zero" });
+      }
+      if (input.amountCents != null && totalAmount > saleTotal + 0.01) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Valor do PIX nao pode ser maior que o total da venda",
+        });
       }
 
       // Regra DePix: valores >= R$ 500,00 exigem CPF/CNPJ do pagador (anti-fraude PixPay).
@@ -2437,9 +2450,13 @@ export const saleRouter = createTRPCRouter({
 
       // ETAPA 2 — Depix HTTP fora da tx. Envia whitelist=true se primeiro
       // dia + valor > R$ 500 (paridade Laravel chamarDeposit).
+      const isPartial = input.amountCents != null && totalAmount < saleTotal - 0.01;
+      const description = isPartial
+        ? `Venda ${sale.number} (parcial)`
+        : `Venda ${sale.number}`;
       const result = await createPixPayment(
         totalAmount,
-        `Venda ${sale.number}`,
+        description,
         sale.id,
         taxIdRaw || null,
         { whitelist: isFirstDay && totalAmount > 500 },

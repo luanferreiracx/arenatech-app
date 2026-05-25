@@ -209,15 +209,14 @@ export function PaymentDialog({
     }
 
     // Se algum pagamento e via DePix, abre QR Code antes de finalizar.
-    // O modal cuida de gerar o PIX, fazer polling, e dispara onPaid -> finalize.
-    const hasDepix = payments.some((p) => p.method === "depix");
-    if (hasDepix) {
-      // Limita: apenas DePix puro (sem split com outros metodos) por enquanto.
-      const allDepix = payments.every((p) => p.method === "depix");
-      if (!allDepix) {
-        toast.error("DePix nao pode ser combinado com outros metodos. Use apenas DePix.");
-        return;
-      }
+    // Suporta split: parte da venda em DePix + parte em outra forma
+    // (paridade Laravel iniciarDepix). Apenas 1 pagamento DePix por venda.
+    const depixPayments = payments.filter((p) => p.method === "depix");
+    if (depixPayments.length > 1) {
+      toast.error("Use apenas 1 pagamento DePix por venda.");
+      return;
+    }
+    if (depixPayments.length === 1) {
       setShowDepixQr(true);
       return;
     }
@@ -537,12 +536,13 @@ export function PaymentDialog({
           </Button>
         </div>
 
-        {/* DePix QR Code dialog (opens when payment includes DePix) */}
+        {/* DePix QR Code dialog (opens when payment includes DePix).
+            Em split, gera QR apenas para a parte DePix do carrinho. */}
         {showDepixQr && (
           <DepixQrDialog
             open={showDepixQr}
             saleId={saleId}
-            totalCents={totalAmount}
+            totalCents={payments.find((p) => p.method === "depix")?.amount ?? totalAmount}
             customerTaxId={customerTaxId ?? null}
             onClose={() => setShowDepixQr(false)}
             onPaid={(transactionId) => {

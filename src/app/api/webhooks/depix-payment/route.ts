@@ -194,19 +194,26 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── MATCH SALE OR OS (com idempotencia via WHERE status != alvo) ─────
+  // Sanitizacao: transactionId vem do payload externo. Aceitar apenas
+  // chars seguros (PixPay usa alfanumerico + hifen).
+  if (!/^[a-zA-Z0-9_-]+$/.test(transactionId)) {
+    return NextResponse.json({ error: "transactionId invalido" }, { status: 400 });
+  }
   const result = await withAdmin(async (tx) => {
-    // Tenta sale primeiro
-    const sale = await tx.sale.findFirst({
-      where: {
-        paymentDetails: {
-          path: ["depixTransactionId"],
-          equals: transactionId,
-        } as never,
-        // Idempotencia: nao atualiza se ja COMPLETED
-        status: { not: "COMPLETED" },
-      },
-      select: { id: true, tenantId: true, status: true, number: true, totalAmount: true },
-    });
+    // paymentDetails e um JSON array. Usamos jsonpath SQL para buscar
+    // o transactionId em qualquer item do array (suporta split: parte
+    // DePix + parte outra forma).
+    const jsonpath = `$[*] ? (@.depixTransactionId == "${transactionId}")`;
+    const matchingSales = await tx.$queryRaw<
+      Array<{ id: string; tenantId: string; status: string; number: string; totalAmount: string }>
+    >`
+      SELECT id, tenant_id AS "tenantId", status, number, total_amount AS "totalAmount"
+      FROM sales
+      WHERE status != 'COMPLETED'
+        AND payment_details @? ${jsonpath}::jsonpath
+      LIMIT 1
+    `;
+    const sale = matchingSales[0];
     if (sale) {
       await tx.sale.update({
         where: { id: sale.id },
@@ -300,15 +307,16 @@ export async function POST(req: NextRequest) {
 
     // Pode ser que sale/OS ja foi marcada (idempotencia OK). Antes de retornar
     // 404, confere se existe sale/OS com esse transactionId mas em status final.
-    const existingSale = await tx.sale.findFirst({
-      where: {
-        paymentDetails: {
-          path: ["depixTransactionId"],
-          equals: transactionId,
-        } as never,
-      },
-      select: { id: true, number: true, status: true },
-    });
+    // Usa jsonpath pra cobrir paymentDetails como array (split payment).
+    const existingSales = await tx.$queryRaw<
+      Array<{ id: string; number: string; status: string }>
+    >`
+      SELECT id, number, status
+      FROM sales
+      WHERE payment_details @? ${jsonpath}::jsonpath
+      LIMIT 1
+    `;
+    const existingSale = existingSales[0];
     if (existingSale) {
       return { kind: "sale_already_paid", id: existingSale.id, number: existingSale.number };
     }

@@ -71,7 +71,7 @@ export function DepixQrDialog({
     if (!open || transactionId || !taxIdConfirmed) return;
     const taxId = hasValidExisting ? existingTaxId : taxIdInput.replace(/\D/g, "");
     generateMutation.mutate(
-      { saleId, taxId: taxId || undefined },
+      { saleId, taxId: taxId || undefined, amountCents: totalCents },
       {
         onSuccess: (res) => {
           if (!res.transactionId) {
