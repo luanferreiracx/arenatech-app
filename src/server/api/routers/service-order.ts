@@ -22,6 +22,7 @@ import {
   listServiceOrdersSchema,
   createQuoteSchema,
   respondQuoteSchema,
+  adminRespondQuoteSchema,
   confirmPhysicalSignatureSchema,
   sendToLabSchema,
   receiveFromLabSchema,
@@ -338,7 +339,7 @@ export const serviceOrderRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createServiceOrderSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const txResult = await ctx.withTenant(async (tx) => {
         // Numero atomico via sequencia tenant-scoped (race-safe).
         const year = new Date().getFullYear();
         const { nextTenantNumber } = await import("@/server/services/tenant-number-sequence.service");
@@ -435,13 +436,54 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // TODO H2: notificar tecnico via WhatsApp ao criar OS (paridade
-        // Laravel `enviarNotificacaoTecnicoWhatsApp`). Bloqueado: User model
-        // nao tem campo `phone` ainda. Quando schema for atualizado, carregar
-        // technician.phone e disparar sendTextMessage best-effort aqui.
+        // Carrega dados pra notificacao WhatsApp do tecnico (fora da tx).
+        let technicianPhone: string | null = null;
+        let technicianName: string | null = null;
+        if (input.technicianId) {
+          const tech = await tx.user.findUnique({
+            where: { id: input.technicianId },
+            select: { name: true, phone: true },
+          });
+          technicianPhone = tech?.phone ?? null;
+          technicianName = tech?.name ?? null;
+        }
+        const customer = await tx.customer.findUnique({
+          where: { id: input.customerId },
+          select: { name: true },
+        });
 
-        return { id: order.id, number: order.number };
+        return {
+          id: order.id,
+          number: order.number,
+          technicianPhone,
+          technicianName,
+          customerName: customer?.name ?? null,
+        };
       });
+
+      // Notificacao WhatsApp do tecnico (paridade Laravel
+      // enviarNotificacaoTecnicoWhatsApp). Best-effort — falha nao bloqueia
+      // a criacao da OS.
+      if (txResult.technicianPhone) {
+        const text =
+          `🔧 *Nova OS atribuida a voce*\n\n` +
+          `OS: *${txResult.number}*\n` +
+          `Cliente: ${txResult.customerName ?? "—"}\n` +
+          (input.deviceBrand || input.deviceModel
+            ? `Aparelho: ${[input.deviceBrand, input.deviceModel].filter(Boolean).join(" ")}\n`
+            : "") +
+          (input.reportedProblem ? `Defeito relatado: ${input.reportedProblem}\n` : "") +
+          `\nAcesse o sistema pra mais detalhes.`;
+        sendTextMessage(txResult.technicianPhone, text).catch((err) => {
+          logger.warn("Falha ao notificar tecnico via WhatsApp", {
+            orderId: txResult.id,
+            technicianName: txResult.technicianName,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      return { id: txResult.id, number: txResult.number };
     }),
 
   // ── UPDATE ──
@@ -1274,6 +1316,58 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // ── Trigger automatico de comissao do tecnico ao finalizar OS ──
+        // Procura CommissionRule(type=SERVICE_ORDER, role=technician, active)
+        // e cria Commission(status=PENDING). Idempotente: nao duplica se ja
+        // existe Commission pra essa referenceId.
+        if (order.technicianId && input.paidAmount > 0) {
+          const existingCommission = await tx.commission.findFirst({
+            where: {
+              referenceType: "SERVICE_ORDER",
+              referenceId: order.id,
+              status: { not: "CANCELLED" },
+            },
+          });
+          if (!existingCommission) {
+            const rule = await tx.commissionRule.findFirst({
+              where: {
+                tenantId: ctx.tenantId,
+                type: "SERVICE_ORDER",
+                role: "technician",
+                active: true,
+              },
+            });
+            if (rule) {
+              const baseAmount = input.paidAmount; // cents
+              const ratePercent = Number(rule.ratePercent);
+              const variable = Math.round(baseAmount * (ratePercent / 100));
+              const fixed = rule.fixedAmount ? decimalToCents(rule.fixedAmount) : 0;
+              const totalCommission = variable + fixed;
+              if (totalCommission > 0) {
+                const paidAt = new Date();
+                await tx.commission.create({
+                  data: {
+                    tenantId: ctx.tenantId,
+                    userId: order.technicianId,
+                    ruleId: rule.id,
+                    type: "SERVICE_ORDER",
+                    status: "PENDING",
+                    referenceId: order.id,
+                    referenceType: "SERVICE_ORDER",
+                    referenceNumber: order.number,
+                    baseAmount: centsToPrisma(baseAmount),
+                    ratePercent: rule.ratePercent,
+                    commissionAmount: centsToPrisma(totalCommission),
+                    periodMonth: paidAt.getMonth() + 1,
+                    periodYear: paidAt.getFullYear(),
+                    notes: `Comissao automatica do pagamento da OS ${order.number}`,
+                  },
+                });
+              }
+            }
+          }
+        }
+
         return { success: true };
       });
     }),
@@ -1768,6 +1862,85 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
+  // ── ADMIN: respond quote without public link ──
+  /**
+   * Permite gestor/admin/operador aprovar ou rejeitar o orcamento diretamente
+   * (sem precisar enviar o link publico ao cliente). Paridade Laravel
+   * `aprovarOrcamentoManual`. Util quando cliente aprovou por telefone/loja.
+   */
+  adminRespondQuote: tenantProcedure
+    .input(adminRespondQuoteSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const quote = await tx.serviceOrderQuote.findUnique({
+          where: { id: input.quoteId },
+        });
+        if (!quote) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado" });
+        }
+        if (quote.status !== "pending") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
+        }
+
+        const userName = ctx.session.user.name ?? "Operador";
+        if (input.action === "approve") {
+          await tx.serviceOrderQuote.update({
+            where: { id: quote.id },
+            data: {
+              status: "approved",
+              approvedAt: new Date(),
+              customerNotes: input.notes ?? `Aprovado manualmente por ${userName}`,
+            },
+          });
+          await tx.serviceOrder.update({
+            where: { id: quote.orderId },
+            data: {
+              serviceAmount: quote.newServiceAmount,
+              partsAmount: quote.newPartsAmount,
+              discount: quote.newDiscount,
+              totalAmount: quote.newTotal,
+              pendingQuoteId: null,
+              budgetPending: false,
+            },
+          });
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: quote.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: null,
+              newStatus: "APPROVED",
+              notes: `Orcamento aprovado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
+            },
+          });
+        } else {
+          await tx.serviceOrderQuote.update({
+            where: { id: quote.id },
+            data: {
+              status: "rejected",
+              rejectedAt: new Date(),
+              customerNotes: input.notes ?? `Rejeitado manualmente por ${userName}`,
+            },
+          });
+          await tx.serviceOrder.update({
+            where: { id: quote.orderId },
+            data: { pendingQuoteId: null, budgetPending: false },
+          });
+          await tx.serviceOrderHistory.create({
+            data: {
+              tenantId: ctx.tenantId,
+              orderId: quote.orderId,
+              userId: ctx.session.user.id,
+              previousStatus: null,
+              newStatus: "IN_DIAGNOSIS",
+              notes: `Orcamento rejeitado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
+            },
+          });
+        }
+        return { success: true, action: input.action };
+      });
+    }),
+
   // ── SEND FOR DIGITAL SIGNATURE (Autentique) ──
   sendForSignature: tenantProcedure
     .input(z.object({
@@ -2183,7 +2356,9 @@ export const serviceOrderRouter = createTRPCRouter({
           name: p.name,
           brand: p.brand,
           sku: p.sku,
-          stock: 0, // TODO: Estoque-B will provide real stock
+          // Estoque real: filtramos apenas isSerialized=false acima, entao
+          // currentStock e a fonte da verdade.
+          stock: p.currentStock,
           costPrice: decimalToCents(p.costPrice),
           salePrice: decimalToCents(p.salePrice),
         }));

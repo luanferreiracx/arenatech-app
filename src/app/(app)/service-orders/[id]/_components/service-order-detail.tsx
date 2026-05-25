@@ -1041,13 +1041,15 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   date: Date;
                   kind: "status" | "signature";
                 };
-                const events: TimelineEvent[] = [];
+                const events: (TimelineEvent & { author?: string | null; notes?: string | null })[] = [];
                 // Status changes
                 for (const h of order.history as Array<{ id: string; newStatus: string; notes: string | null; userName: string; createdAt: Date }>) {
                   events.push({
                     id: h.id,
                     label: SERVICE_ORDER_STATUS_LABELS[h.newStatus as ServiceOrderStatus] ?? h.newStatus,
-                    detail: [h.userName, h.notes].filter(Boolean).join(" — ") || null,
+                    detail: h.userName || null,
+                    author: h.userName || null,
+                    notes: h.notes || null,
                     date: new Date(h.createdAt),
                     kind: "status",
                   });
@@ -1097,7 +1099,19 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                           {format(e.date, "dd/MM/yyyy HH:mm")}
                         </span>
                       </div>
-                      {e.detail && <p className="text-xs text-muted-foreground italic mt-1">{e.detail}</p>}
+                      {(e as { author?: string | null }).author && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          por {(e as { author: string }).author}
+                        </p>
+                      )}
+                      {(e as { notes?: string | null }).notes && (
+                        <p className="text-xs italic mt-1 px-2 py-1 rounded bg-muted/40 border-l-2 border-primary/40">
+                          “{(e as { notes: string }).notes}”
+                        </p>
+                      )}
+                      {e.kind === "signature" && e.detail && (
+                        <p className="text-xs text-muted-foreground italic mt-1">{e.detail}</p>
+                      )}
                     </div>
                   </div>
                 ));

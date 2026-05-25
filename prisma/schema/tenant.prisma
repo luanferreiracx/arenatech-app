@@ -25,6 +25,7 @@ model User {
   cpf          String   @unique
   name         String
   email        String?
+  phone        String?  // WhatsApp do usuario (tecnico/vendedor) — notificacao automatica de OS atribuida
   passwordHash String   @map("password_hash")
   isSuperAdmin Boolean  @default(false) @map("is_super_admin")
   createdAt    DateTime @default(now()) @map("created_at")
