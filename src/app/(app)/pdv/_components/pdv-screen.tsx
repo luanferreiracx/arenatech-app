@@ -188,6 +188,9 @@ export function PdvScreen() {
   const updateItemMutation = useMutation(
     trpc.sale.updateItemQuantity.mutationOptions(),
   );
+  const updateItemPriceMutation = useMutation(
+    trpc.sale.updateItemPrice.mutationOptions(),
+  );
   const removeItemMutation = useMutation(
     trpc.sale.removeItem.mutationOptions(),
   );
@@ -360,13 +363,20 @@ export function PdvScreen() {
       setEditingItemId(null);
       return;
     }
-
-    // Update via addItem with same product to update price
-    // Actually we need an updatePrice endpoint - for now, rebuild with remove+add
-    // Since we don't have a dedicated price update procedure, we skip inline editing
-    // and just close the editor
-    setEditingItemId(null);
-    toast.info("Edicao de preco inline sera implementada em breve.");
+    if (newPriceCents < 0) {
+      toast.error("Preco nao pode ser negativo");
+      return;
+    }
+    updateItemPriceMutation.mutate(
+      { saleId: draftId, itemId, unitPrice: newPriceCents },
+      {
+        onSuccess: () => {
+          setEditingItemId(null);
+          invalidateDraft();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
   };
 
   // -- Customer --
