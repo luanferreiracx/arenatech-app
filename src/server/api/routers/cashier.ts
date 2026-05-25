@@ -731,7 +731,7 @@ export const cashierRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
         }
 
-        await tx.cashMovement.create({
+        const movement = await tx.cashMovement.create({
           data: {
             tenantId: ctx.tenantId,
             cashSessionId: session.id,
@@ -743,6 +743,21 @@ export const cashierRouter = createTRPCRouter({
             referenceType: "sale_reversal",
             referenceId: input.saleId,
             createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        const { logAudit } = await import("@/server/services/audit-log.service");
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "cash_reversal",
+          entity: "cash_movement",
+          entityId: movement.id,
+          payload: {
+            sessionId: session.id,
+            saleId: input.saleId,
+            amountCents: input.amount,
+            description: input.description,
           },
         });
 
@@ -776,7 +791,7 @@ export const cashierRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
         }
 
-        await tx.cashMovement.create({
+        const movement = await tx.cashMovement.create({
           data: {
             tenantId: ctx.tenantId,
             cashSessionId: session.id,
@@ -787,6 +802,21 @@ export const cashierRouter = createTRPCRouter({
             description: `[AJUSTE] ${input.reason}`,
             referenceType: "manual_adjustment",
             createdByUserId: ctx.session.user.id,
+          },
+        });
+
+        const { logAudit } = await import("@/server/services/audit-log.service");
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "cash_manual_adjustment",
+          entity: "cash_movement",
+          entityId: movement.id,
+          payload: {
+            sessionId: session.id,
+            amountCents: input.amount,
+            nature: input.nature,
+            reason: input.reason,
           },
         });
 
@@ -883,10 +913,16 @@ interface Summary {
   totalSalesCash: number;
   totalSalesCard: number;
   totalSalesPix: number;
+  totalSalesDepix: number;
+  totalSalesOther: number;
   totalWithdrawals: number;
   totalDeposits: number;
   totalExpenses: number;
   salesCount: number;
+  /** Breakdown completo por metodo de pagamento (paymentMethod -> total em centavos).
+   * Inclui metodos custom (DePix, crediario, boleto, cheque, etc) que nao
+   * caem nos buckets principais. */
+  salesByMethod: Record<string, number>;
   /** Expected cash in drawer: opening + cash sales + deposits - withdrawals - expenses */
   expectedCashBalance: number;
 }
@@ -897,25 +933,30 @@ function buildSummary(session: SessionWithMovements): Summary {
   let totalSalesCash = 0;
   let totalSalesCard = 0;
   let totalSalesPix = 0;
+  let totalSalesDepix = 0;
+  let totalSalesOther = 0;
   let totalWithdrawals = 0;
   let totalDeposits = 0;
   let totalExpenses = 0;
   let salesCount = 0;
+  const salesByMethod: Record<string, number> = {};
 
   for (const m of session.movements) {
     const amount = decimalToCents(m.amount);
     switch (m.type) {
-      case "SALE":
+      case "SALE": {
         totalSales += amount;
         salesCount++;
-        if (m.paymentMethod === "dinheiro") totalSalesCash += amount;
-        else if (
-          m.paymentMethod === "cartao_credito" ||
-          m.paymentMethod === "cartao_debito"
-        )
+        const method = m.paymentMethod ?? "outros";
+        salesByMethod[method] = (salesByMethod[method] ?? 0) + amount;
+        if (method === "dinheiro") totalSalesCash += amount;
+        else if (method === "cartao_credito" || method === "cartao_debito")
           totalSalesCard += amount;
-        else if (m.paymentMethod === "pix") totalSalesPix += amount;
+        else if (method === "pix") totalSalesPix += amount;
+        else if (method === "depix") totalSalesDepix += amount;
+        else totalSalesOther += amount;
         break;
+      }
       case "WITHDRAWAL":
         totalWithdrawals += amount;
         break;
@@ -937,10 +978,13 @@ function buildSummary(session: SessionWithMovements): Summary {
     totalSalesCash,
     totalSalesCard,
     totalSalesPix,
+    totalSalesDepix,
+    totalSalesOther,
     totalWithdrawals,
     totalDeposits,
     totalExpenses,
     salesCount,
+    salesByMethod,
     expectedCashBalance,
   };
 }

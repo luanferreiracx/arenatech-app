@@ -2215,7 +2215,24 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao e pagamento de OS em rascunho" });
         }
 
-        // Delete sale items and the draft
+        // Cleanup completo: SaleItems, SaleUpgrades (e DevicePurchases
+        // orfas vinculadas via upgrade) + a propria Sale. Sem isso,
+        // upgrades ficam pendurados no banco apos cancelar fluxo OS.
+        const upgrades = await tx.saleUpgrade.findMany({
+          where: { saleId: input.saleId, devicePurchaseId: { not: null } },
+          select: { devicePurchaseId: true },
+        });
+        const orphanPurchaseIds = upgrades
+          .map((u) => u.devicePurchaseId)
+          .filter((id): id is string => !!id);
+        if (orphanPurchaseIds.length > 0) {
+          // Apaga apenas DevicePurchases criadas neste draft (nunca foram
+          // confirmadas como compra real — saleId nunca virou COMPLETED).
+          await tx.devicePurchase.deleteMany({
+            where: { id: { in: orphanPurchaseIds } },
+          });
+        }
+        await tx.saleUpgrade.deleteMany({ where: { saleId: input.saleId } });
         await tx.saleItem.deleteMany({ where: { saleId: input.saleId } });
         await tx.sale.delete({ where: { id: input.saleId } });
 

@@ -1658,35 +1658,44 @@ export const financialRouter = createTRPCRouter({
         const prevFrom = new Date(prevTo.getTime() - durationMs);
 
         async function periodStats(dateFrom: Date, dateTo: Date) {
-          const [receivables, payables] = await Promise.all([
-            tx.financialTransaction.aggregate({
+          // Filtra por paidAt da installment (regime de caixa) — antes era
+          // createdAt da transaction, que desalinha quando venda antiga e
+          // paga hoje (parcelada). DRE/comparativos usam mesma logica.
+          const [revenueAgg, expensesAgg] = await Promise.all([
+            tx.installment.aggregate({
               where: {
-                type: "RECEIVABLE",
                 status: { in: ["PAID", "PARTIALLY_PAID"] },
-                createdAt: { gte: dateFrom, lte: dateTo },
+                paidAt: { gte: dateFrom, lte: dateTo },
+                transaction: { type: "RECEIVABLE", deletedAt: null },
               },
               _sum: { paidAmount: true },
-              _count: true,
             }),
-            tx.financialTransaction.aggregate({
+            tx.installment.aggregate({
               where: {
-                type: "PAYABLE",
                 status: { in: ["PAID", "PARTIALLY_PAID"] },
-                createdAt: { gte: dateFrom, lte: dateTo },
+                paidAt: { gte: dateFrom, lte: dateTo },
+                transaction: { type: "PAYABLE", deletedAt: null },
               },
               _sum: { paidAmount: true },
-              _count: true,
             }),
           ]);
 
-          const revenue = Math.round(Number(receivables._sum.paidAmount ?? 0) * 100);
-          const expenses = Math.round(Number(payables._sum.paidAmount ?? 0) * 100);
+          // Conta transactions distintas que tiveram pagamento no periodo.
+          const txCountRows = await tx.$queryRaw<Array<{ count: bigint }>>`
+            SELECT COUNT(DISTINCT i.transaction_id) AS count
+            FROM installments i
+            WHERE i.status IN ('PAID', 'PARTIALLY_PAID')
+              AND i.paid_at BETWEEN ${dateFrom} AND ${dateTo}
+          `;
+
+          const revenue = Math.round(Number(revenueAgg._sum.paidAmount ?? 0) * 100);
+          const expenses = Math.round(Number(expensesAgg._sum.paidAmount ?? 0) * 100);
 
           return {
             revenue,
             expenses,
             profit: revenue - expenses,
-            transactionCount: (receivables._count ?? 0) + (payables._count ?? 0),
+            transactionCount: Number(txCountRows[0]?.count ?? 0),
           };
         }
 
