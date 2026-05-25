@@ -140,6 +140,17 @@ export const cashierRouter = createTRPCRouter({
         const declaredCents = input.declaredBalance;
         const differenceCents = declaredCents - calculatedCents;
 
+        // Threshold: diferenca > R$ 5 (500 centavos) OU > 1% do calculado
+        // exige nota de fechamento. Evita caixa fechado com -R$ 500 silencioso.
+        const absDiff = Math.abs(differenceCents);
+        const onePctCents = Math.max(500, Math.round(calculatedCents * 0.01));
+        if (absDiff > onePctCents && !input.closingNote?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Divergencia de R$ ${(absDiff / 100).toFixed(2)} exige observacao no fechamento.`,
+          });
+        }
+
         // Update session to close it
         await tx.cashSession.update({
           where: { id: session.id },
@@ -312,8 +323,10 @@ export const cashierRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findUnique({
-          where: { id: input.id },
+        // findFirst com tenantId explicito: defesa em profundidade caso
+        // RLS falhe. RLS ja filtra, mas este predicado e safety net.
+        const session = await tx.cashSession.findFirst({
+          where: { id: input.id, tenantId: ctx.tenantId },
           include: {
             movements: {
               orderBy: { createdAt: "asc" },
@@ -378,8 +391,8 @@ export const cashierRouter = createTRPCRouter({
     .input(reviewCashRegisterSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findUnique({
-          where: { id: input.cashSessionId },
+        const session = await tx.cashSession.findFirst({
+          where: { id: input.cashSessionId, tenantId: ctx.tenantId },
           include: { movements: true },
         });
 

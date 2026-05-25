@@ -536,11 +536,14 @@ export const saleRouter = createTRPCRouter({
 
         const totalCents = subtotalCents - discountAmountCents;
 
+        // discountValue armazena: centavos quando fixed; percentual (0-100)
+        // quando percentage. NAO usar centsToPrisma aqui (dividiria por 100
+        // e zeraria descontos percentuais).
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
             discountType: input.discountType,
-            discountValue: centsToPrisma(Math.round(input.discountValue)),
+            discountValue: new Prisma.Decimal(input.discountValue),
             discountAmount: centsToPrisma(discountAmountCents),
             discountReason: input.discountReason ?? null,
             subtotal: centsToPrisma(subtotalCents),
@@ -728,18 +731,40 @@ export const saleRouter = createTRPCRouter({
           // Decrementa currentStock: variacao quando item tem variationId,
           // senao produto. Serializados nao decrementam aqui (sao marcados
           // como SOLD na proxima etapa).
+          //
+          // updateMany com WHERE currentStock >= qty serve como compare-and-set
+          // atomico — se outro vendedor pegou o ultimo item paralelamente,
+          // count=0 e abortamos. Defesa contra oversell sem SELECT FOR UPDATE.
           for (const item of sale.items) {
             if (item.stockItemId) continue; // serializado, ja tratado abaixo
             if (item.variationId) {
-              await tx.productVariation.update({
-                where: { id: item.variationId },
+              const r = await tx.productVariation.updateMany({
+                where: {
+                  id: item.variationId,
+                  currentStock: { gte: item.quantity },
+                },
                 data: { currentStock: { decrement: item.quantity } },
               });
+              if (r.count !== 1) {
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message: `Estoque insuficiente para "${item.description}". Atualize o carrinho.`,
+                });
+              }
             } else {
-              await tx.product.update({
-                where: { id: item.productId },
+              const r = await tx.product.updateMany({
+                where: {
+                  id: item.productId,
+                  currentStock: { gte: item.quantity },
+                },
                 data: { currentStock: { decrement: item.quantity } },
               });
+              if (r.count !== 1) {
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message: `Estoque insuficiente para "${item.description}". Atualize o carrinho.`,
+                });
+              }
             }
           }
 
@@ -1314,15 +1339,20 @@ export const saleRouter = createTRPCRouter({
         }
 
         // Determina escopo: refund parcial (subset de itens) ou total.
+        // Filtra itens ja estornados (total=0) — idempotencia. Segundo
+        // refund das mesmas linhas e no-op em vez de duplicar movimento.
         const isPartial = input.itemIds && input.itemIds.length > 0
           && input.itemIds.length < sale.items.length;
-        const itemsToRefund = input.itemIds && input.itemIds.length > 0
+        const itemsCandidate = input.itemIds && input.itemIds.length > 0
           ? sale.items.filter((i) => input.itemIds!.includes(i.id))
           : sale.items;
+        const itemsToRefund = itemsCandidate.filter(
+          (i) => decimalToCents(i.total) > 0,
+        );
         if (itemsToRefund.length === 0) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Nenhum item valido para estornar",
+            message: "Nenhum item disponivel para estorno (ja foram estornados anteriormente).",
           });
         }
         // Calcula valor estornado (sum dos totais dos itens estornados)
@@ -1346,6 +1376,24 @@ export const saleRouter = createTRPCRouter({
                 userId: ctx.session.user.id,
               },
             });
+
+            // Restitui currentStock — espelha o decrement do finalize.
+            // Itens serializados NAO mexem em currentStock (status do
+            // StockItem e a fonte de verdade). Itens com defeito tampouco
+            // entram no estoque vendavel — vao para DEFECTIVE no StockItem
+            // ou descontam baixa permanente.
+            if (item.stockItemId || input.returnAsDefect) continue;
+            if (item.variationId) {
+              await tx.productVariation.update({
+                where: { id: item.variationId },
+                data: { currentStock: { increment: item.quantity } },
+              });
+            } else {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { currentStock: { increment: item.quantity } },
+              });
+            }
           }
           const stockItemIds = itemsToRefund
             .map((i) => i.stockItemId)
@@ -1409,18 +1457,23 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Cancela recebiveis APENAS em estorno total. Parcial nao cancela
-        // recebiveis ja gerados (cliente ainda pode pagar o restante).
+        // Cancela recebiveis. Em estorno total: cancela tudo. Em parcial:
+        // cancela parcelas PENDING ate cobrir refundedCents (a partir das
+        // ultimas vencimentos — preserva o que ja foi pago/proximo a pagar).
         let cancelledReceivables = 0;
-        if (!isPartial) {
-          const transactions = await tx.financialTransaction.findMany({
-            where: { saleId: input.saleId, status: { not: "CANCELLED" } },
-            select: { id: true },
-          });
-          if (transactions.length > 0) {
-            const transactionIds = transactions.map((t) => t.id);
+        const allTx = await tx.financialTransaction.findMany({
+          where: { saleId: input.saleId, status: { not: "CANCELLED" } },
+          select: { id: true },
+        });
+        if (allTx.length > 0) {
+          const transactionIds = allTx.map((t) => t.id);
+          if (!isPartial) {
+            // Total: cancela tudo
             await tx.installment.updateMany({
-              where: { transactionId: { in: transactionIds }, status: "PENDING" },
+              where: {
+                transactionId: { in: transactionIds },
+                status: { in: ["PENDING", "OVERDUE"] },
+              },
               data: { status: "CANCELLED" },
             });
             await tx.financialTransaction.updateMany({
@@ -1432,7 +1485,35 @@ export const saleRouter = createTRPCRouter({
                 cancelReason: input.reason,
               },
             });
-            cancelledReceivables = transactions.length;
+            cancelledReceivables = allTx.length;
+          } else {
+            // Parcial: cancela installments PENDING/OVERDUE comecando pelas
+            // ultimas (data mais distante) ate cobrir refundedCents.
+            const installments = await tx.installment.findMany({
+              where: {
+                transactionId: { in: transactionIds },
+                status: { in: ["PENDING", "OVERDUE"] },
+              },
+              orderBy: { dueDate: "desc" },
+              select: { id: true, amount: true, paidAmount: true },
+            });
+            let remainingToCancel = refundedCents;
+            const idsToCancel: string[] = [];
+            for (const inst of installments) {
+              if (remainingToCancel <= 0) break;
+              const installmentDueCents =
+                decimalToCents(inst.amount) - decimalToCents(inst.paidAmount);
+              if (installmentDueCents <= 0) continue;
+              idsToCancel.push(inst.id);
+              remainingToCancel -= installmentDueCents;
+            }
+            if (idsToCancel.length > 0) {
+              await tx.installment.updateMany({
+                where: { id: { in: idsToCancel } },
+                data: { status: "CANCELLED" },
+              });
+              cancelledReceivables = idsToCancel.length;
+            }
           }
         }
 
@@ -2484,6 +2565,43 @@ export const saleRouter = createTRPCRouter({
       );
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+      }
+
+      // ETAPA 3 — Persiste transactionId pendente em paymentDetails ja agora
+      // (antes do finalize). Sem isso, se o cliente paga antes do operador
+      // clicar Finalizar, o webhook chega e nao acha a venda (race finalize-
+      // webhook reportado no review #5).
+      //
+      // Append em paymentDetails JSON array — pode coexistir com pagamentos
+      // ja adicionados em split (ex: dinheiro + DePix). finalize sobrescreve
+      // paymentDetails depois com a versao definitiva.
+      if (result.transactionId) {
+        await ctx.withTenant(async (tx) => {
+          const current = (await tx.sale.findUnique({
+            where: { id: sale.id },
+            select: { paymentDetails: true },
+          }))?.paymentDetails;
+          const arr = Array.isArray(current)
+            ? (current as Array<Record<string, unknown>>)
+            : [];
+          // Evita duplicar se o operador re-gerou o PIX antes do anterior expirar.
+          const existing = arr.findIndex(
+            (p) => p?.depixTransactionId === result.transactionId,
+          );
+          const entry = {
+            method: "depix",
+            amount: Math.round(totalAmount * 100),
+            depixTransactionId: result.transactionId,
+            depixStatus: "pending",
+            installments: 1,
+          };
+          if (existing >= 0) arr[existing] = entry;
+          else arr.push(entry);
+          await tx.sale.update({
+            where: { id: sale.id },
+            data: { paymentDetails: arr as unknown as Prisma.InputJsonValue },
+          });
+        });
       }
 
       return {

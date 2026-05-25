@@ -144,10 +144,13 @@ export async function GET(
       crediario: "Crediario",
     };
 
-    // Format CPF
+    // Format CPF — sempre escapa quando invalido (cpf so digitos, sem
+    // chance de XSS via campo livre no banco vindo de migracao Laravel).
     const formatCpf = (cpf: string | null | undefined) => {
-      if (!cpf || cpf.length !== 11) return cpf ?? "";
-      return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
+      if (!cpf) return "";
+      const digits = cpf.replace(/\D/g, "");
+      if (digits.length !== 11) return esc(cpf);
+      return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
     };
 
     // Items HTML

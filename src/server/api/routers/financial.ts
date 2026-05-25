@@ -480,8 +480,8 @@ export const financialRouter = createTRPCRouter({
     .input(payInstallmentSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const installment = await tx.installment.findUnique({
-          where: { id: input.installmentId },
+        const installment = await tx.installment.findFirst({
+          where: { id: input.installmentId, tenantId: ctx.tenantId },
           include: { transaction: true },
         });
 
@@ -576,9 +576,19 @@ export const financialRouter = createTRPCRouter({
   reverseInstallment: tenantProcedure
     .input(reverseInstallmentSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: estorno e operacao sensivel — restringe a manager+.
+      const userRole = ctx.session.availableTenants.find(
+        (t) => t.id === ctx.tenantId,
+      )?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas gestores podem estornar parcelas pagas",
+        });
+      }
       return ctx.withTenant(async (tx) => {
-        const installment = await tx.installment.findUnique({
-          where: { id: input.installmentId },
+        const installment = await tx.installment.findFirst({
+          where: { id: input.installmentId, tenantId: ctx.tenantId },
           include: { transaction: true },
         });
 

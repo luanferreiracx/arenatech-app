@@ -479,21 +479,48 @@ export const stockRouter = createTRPCRouter({
         if (!product || product.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
+        if (product.isSerialized) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Ajuste de estoque so para produtos nao serializados. Use o fluxo de StockItem.",
+          });
+        }
 
-        // TODO: Estoque-B will handle stock tracking via StockItem
-        // For now, just create the movement record
+        const isExit = input.quantity < 0;
+        const qty = Math.abs(input.quantity);
+
+        // Atualiza saldo de fato (antes era TODO).
+        // Em saida: where currentStock >= qty evita negativo.
+        if (isExit) {
+          const r = await tx.product.updateMany({
+            where: { id: input.productId, currentStock: { gte: qty } },
+            data: { currentStock: { decrement: qty } },
+          });
+          if (r.count !== 1) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Estoque insuficiente: ${product.currentStock} unidades disponiveis.`,
+            });
+          }
+        } else {
+          await tx.product.update({
+            where: { id: input.productId },
+            data: { currentStock: { increment: qty } },
+          });
+        }
+
         await tx.stockMovement.create({
           data: {
             tenantId: ctx.tenantId,
             productId: input.productId,
-            type: input.quantity > 0 ? "ENTRY" : "EXIT",
-            quantity: Math.abs(input.quantity),
+            type: isExit ? "EXIT" : "ENTRY",
+            quantity: qty,
             reason: input.reason,
             userId: ctx.session.user.id,
           },
         });
 
-        return product;
+        return tx.product.findUnique({ where: { id: input.productId } });
       });
     }),
 
