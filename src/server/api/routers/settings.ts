@@ -208,8 +208,8 @@ export const settingsRouter = createTRPCRouter({
     .input(createPaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.create({
@@ -229,8 +229,8 @@ export const settingsRouter = createTRPCRouter({
     .input(updatePaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.update({
@@ -247,8 +247,8 @@ export const settingsRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
         return tx.paymentMethod.delete({
@@ -261,8 +261,8 @@ export const settingsRouter = createTRPCRouter({
     .input(upsertInstallmentRulesSchema)
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar regras de parcelamento" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar regras de parcelamento" });
       }
       return ctx.withTenant(async (tx) => {
         // Delete existing rules first
@@ -298,8 +298,8 @@ export const settingsRouter = createTRPCRouter({
     .input(updatePaymentMethodFullSchema)
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar formas de pagamento" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
         const { id, ...rest } = input;
@@ -317,8 +317,8 @@ export const settingsRouter = createTRPCRouter({
     .input(upsertPaymentRatesSchema)
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar taxas" });
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar taxas" });
       }
       return ctx.withTenant(async (tx) => {
         await tx.paymentMethodRate.deleteMany({
