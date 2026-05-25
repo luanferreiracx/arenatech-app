@@ -5,9 +5,6 @@ on:
     # Sao Paulo BRT = UTC-3. Horarios em UTC.
     # 03:00 BRT (06:00 UTC): mark-overdue + close-abandoned-cash-sessions + expire-rewards
     - cron: "0 6 * * *"
-    # 10:00 BRT (13:00 UTC): notify-warranty-expiring — horario civil (evita
-    # WhatsApp de madrugada pro cliente).
-    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       job:
@@ -19,7 +16,6 @@ on:
           - mark-overdue
           - close-abandoned-cash-sessions
           - expire-rewards
-          - notify-warranty-expiring
 
 jobs:
   mark-overdue:
@@ -58,18 +54,4 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 60 \
-            | tee /tmp/response.json
-
-  notify-warranty-expiring:
-    # Roda no schedule 10:00 BRT (13:00 UTC) ou manualmente. Horario civil
-    # para evitar WhatsApp ao cliente fora do horario comercial.
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 13 * * *') || inputs.job == '' || inputs.job == 'notify-warranty-expiring' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Invoca cron notify-warranty-expiring
-        run: |
-          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/notify-warranty-expiring" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            --max-time 120 \
             | tee /tmp/response.json
