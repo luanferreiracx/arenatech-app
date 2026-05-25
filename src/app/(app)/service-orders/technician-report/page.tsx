@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Printer } from "lucide-react";
 import Link from "next/link";
 
 function formatCents(cents: number): string {
@@ -50,12 +50,27 @@ export default function TechnicianReportPage() {
         title="Relatorio por Tecnico"
         subtitle="Desempenho individual de cada tecnico nas assistencias"
         actions={
-          <Button variant="outline" asChild>
-            <Link href="/service-orders">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Voltar
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+                if (filters.dateTo) params.set("dateTo", filters.dateTo);
+                if (filters.technicianId) params.set("technicianId", filters.technicianId);
+                window.open(`/api/service-orders/technician-report/pdf?${params.toString()}`, "_blank");
+              }}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Exportar PDF
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/service-orders">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Voltar
+              </Link>
+            </Button>
+          </div>
         }
       />
 

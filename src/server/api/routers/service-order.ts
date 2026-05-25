@@ -50,6 +50,7 @@ import {
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
+import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import {
   reserveStockForOsItem,
   releaseStockForOsItem,
@@ -82,6 +83,31 @@ function generateQuoteLink(): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+/**
+ * Restaura o status anterior da OS ao aprovar/rejeitar orcamento.
+ * Le o ultimo serviceOrderHistory com newStatus=WAITING_APPROVAL —
+ * ele guarda em previousStatus o status que a OS estava antes do quote.
+ * Fallback: APPROVED em aprovacao, IN_DIAGNOSIS em rejeicao.
+ */
+async function resolveStatusAfterQuote(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
+  orderId: string,
+  action: "approve" | "reject",
+): Promise<string> {
+  const lastWaiting = await tx.serviceOrderHistory.findFirst({
+    where: { orderId, newStatus: "WAITING_APPROVAL" },
+    orderBy: { createdAt: "desc" },
+    select: { previousStatus: true },
+  });
+  if (action === "approve") {
+    return (lastWaiting?.previousStatus as string | null) || "APPROVED";
+  }
+  // Rejeicao: volta pro status anterior ou IN_DIAGNOSIS (alinhado com
+  // logica antiga do respondToQuote).
+  return (lastWaiting?.previousStatus as string | null) || "IN_DIAGNOSIS";
 }
 
  
@@ -147,10 +173,10 @@ export const serviceOrderRouter = createTRPCRouter({
           where.technicianId = input.technicianId;
         }
         if (input.dateFrom) {
-          where.entryDate = { ...(where.entryDate ?? {}), gte: new Date(input.dateFrom) };
+          where.entryDate = { ...(where.entryDate ?? {}), gte: startOfDayBrt(input.dateFrom) };
         }
         if (input.dateTo) {
-          where.entryDate = { ...(where.entryDate ?? {}), lte: new Date(input.dateTo + "T23:59:59Z") };
+          where.entryDate = { ...(where.entryDate ?? {}), lte: endOfDayBrt(input.dateTo) };
         }
 
         // Search by number, customer name, CPF, IMEI, model
@@ -1619,11 +1645,17 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
+        // Avanca para WAITING_APPROVAL (era status "morto" sem entrada
+        // automatica). O status anterior fica gravado em
+        // serviceOrderHistory.previousStatus e e restaurado quando a OS
+        // for aprovada/rejeitada via respondToQuote / adminRespondQuote /
+        // approveQuoteManually.
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
             pendingQuoteId: quote.id,
             budgetPending: true,
+            status: "WAITING_APPROVAL",
           },
         });
 
@@ -1633,7 +1665,7 @@ export const serviceOrderRouter = createTRPCRouter({
             orderId: input.orderId,
             userId: ctx.session.user.id,
             previousStatus: order.status,
-            newStatus: order.status,
+            newStatus: "WAITING_APPROVAL",
             notes: `Orcamento criado. Motivo: ${input.reason}`,
           },
         });
@@ -1692,7 +1724,9 @@ export const serviceOrderRouter = createTRPCRouter({
           data: { status: "approved", approvedAt: new Date(), customerNotes: "Aprovado manualmente pelo administrador" },
         });
 
-        // Update OS values
+        // Restaura status anterior ao WAITING_APPROVAL (fallback APPROVED).
+        const restoredStatus = await resolveStatusAfterQuote(tx, input.orderId, "approve");
+
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -1702,6 +1736,7 @@ export const serviceOrderRouter = createTRPCRouter({
             totalAmount: quote.newTotal,
             pendingQuoteId: null,
             budgetPending: false,
+            status: restoredStatus as never,
           },
         });
 
@@ -1711,7 +1746,7 @@ export const serviceOrderRouter = createTRPCRouter({
             orderId: input.orderId,
             userId: ctx.session.user.id,
             previousStatus: order.status,
-            newStatus: order.status,
+            newStatus: restoredStatus,
             notes: "Orcamento aprovado manualmente pelo administrador",
           },
         });
@@ -1888,6 +1923,8 @@ export const serviceOrderRouter = createTRPCRouter({
             select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
           });
 
+          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "approve");
+
           // Update OS values
           await tx.serviceOrder.update({
             where: { id: quote.orderId },
@@ -1898,6 +1935,7 @@ export const serviceOrderRouter = createTRPCRouter({
               totalAmount: quote.newTotal,
               pendingQuoteId: null,
               budgetPending: false,
+              status: restoredStatus as never,
             },
           });
 
@@ -1919,8 +1957,8 @@ export const serviceOrderRouter = createTRPCRouter({
               tenantId: quote.tenantId,
               orderId: quote.orderId,
               userId: quote.userId,
-              previousStatus: null,
-              newStatus: "APPROVED",
+              previousStatus: "WAITING_APPROVAL",
+              newStatus: restoredStatus,
               notes: `Orcamento aprovado pelo cliente${input.customerNotes ? ". Obs: " + input.customerNotes : ""}`,
             },
           });
@@ -1934,9 +1972,11 @@ export const serviceOrderRouter = createTRPCRouter({
             },
           });
 
+          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "reject");
+
           await tx.serviceOrder.update({
             where: { id: quote.orderId },
-            data: { pendingQuoteId: null, budgetPending: false },
+            data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
           });
 
           await tx.serviceOrderHistory.create({
@@ -1944,8 +1984,8 @@ export const serviceOrderRouter = createTRPCRouter({
               tenantId: quote.tenantId,
               orderId: quote.orderId,
               userId: quote.userId,
-              previousStatus: null,
-              newStatus: "IN_DIAGNOSIS",
+              previousStatus: "WAITING_APPROVAL",
+              newStatus: restoredStatus,
               notes: `Orcamento rejeitado pelo cliente${input.customerNotes ? ". Obs: " + input.customerNotes : ""}`,
             },
           });
@@ -2001,6 +2041,7 @@ export const serviceOrderRouter = createTRPCRouter({
             where: { id: quote.orderId },
             select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
           });
+          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "approve");
           await tx.serviceOrder.update({
             where: { id: quote.orderId },
             data: {
@@ -2010,6 +2051,7 @@ export const serviceOrderRouter = createTRPCRouter({
               totalAmount: quote.newTotal,
               pendingQuoteId: null,
               budgetPending: false,
+              status: restoredStatus as never,
             },
           });
           if (
@@ -2029,8 +2071,8 @@ export const serviceOrderRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               orderId: quote.orderId,
               userId: ctx.session.user.id,
-              previousStatus: null,
-              newStatus: "APPROVED",
+              previousStatus: "WAITING_APPROVAL",
+              newStatus: restoredStatus,
               notes: `Orcamento aprovado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
             },
           });
@@ -2043,17 +2085,18 @@ export const serviceOrderRouter = createTRPCRouter({
               customerNotes: input.notes ?? `Rejeitado manualmente por ${userName}`,
             },
           });
+          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "reject");
           await tx.serviceOrder.update({
             where: { id: quote.orderId },
-            data: { pendingQuoteId: null, budgetPending: false },
+            data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
           });
           await tx.serviceOrderHistory.create({
             data: {
               tenantId: ctx.tenantId,
               orderId: quote.orderId,
               userId: ctx.session.user.id,
-              previousStatus: null,
-              newStatus: "IN_DIAGNOSIS",
+              previousStatus: "WAITING_APPROVAL",
+              newStatus: restoredStatus,
               notes: `Orcamento rejeitado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
             },
           });
@@ -2420,8 +2463,8 @@ export const serviceOrderRouter = createTRPCRouter({
 
         if (input.dateFrom || input.dateTo) {
           where.createdAt = {};
-          if (input.dateFrom) where.createdAt.gte = new Date(input.dateFrom);
-          if (input.dateTo) where.createdAt.lte = new Date(input.dateTo + "T23:59:59");
+          if (input.dateFrom) where.createdAt.gte = startOfDayBrt(input.dateFrom);
+          if (input.dateTo) where.createdAt.lte = endOfDayBrt(input.dateTo);
         }
         if (input.technicianId) where.technicianId = input.technicianId;
 

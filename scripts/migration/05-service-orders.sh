@@ -164,6 +164,9 @@ function q(s) { gsub("'\''", "'\'''\''", s); return s == "" ? "NULL" : "'\''" s 
 BEGIN { print "BEGIN;" }
 {
   id=$1; os_id=$2; serv=$3; prod=$4; tipo=$5; descricao=$6; qty=$7; valor=$8; subtotal=$9; cost=$10; criado=$11;
+  # Laravel tem enum (servico|produto|misto). Next.js so tem SERVICE|PRODUCT.
+  # Mapeamento: produto -> PRODUCT; servico/misto -> SERVICE (misto e tratado
+  # como servico no recalculo Laravel `recalcularValoresOS`, soma em valor_servico).
   pg_type = (tipo == "produto" || tipo == "PRODUCT") ? "PRODUCT" : "SERVICE";
   if (descricao == "") descricao = "Item migrado do Laravel";
   serv_sql = (serv != "0") ? "(SELECT new_id FROM _map_services WHERE old_id = " serv ")" : "NULL";

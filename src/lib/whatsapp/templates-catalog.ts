@@ -107,6 +107,17 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     body: "Olá, {{1}}! Sua Ordem de Serviço {{2}} foi aberta. Acompanhe o status em tempo real pelo link abaixo.",
   },
 
+  // ── Garantia vencendo (aviso 7 dias antes via cron) ──
+  os_garantia_vencendo: {
+    name: "os_garantia_vencendo",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 3,
+    body:
+      "Olá, {{1}}! A garantia da sua Ordem de Serviço {{2}} vai vencer em {{3}}. " +
+      "Se observar algum problema no aparelho, entre em contato antes para acionarmos a garantia.",
+  },
+
   // ── PDV — recibo + termos ──
   pdv_recibo_pdf: {
     name: "pdv_recibo_pdf",
@@ -148,6 +159,8 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   pdv_termo_pdf_link: "pdv_termo_pdf_link",
   // Rastreamento
   os_rastreamento: "os_rastreamento_link",
+  // Garantia
+  os_garantia_vencendo: "os_garantia_vencendo",
 };
 
 /**
@@ -162,6 +175,7 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   os_orcamento_pdf: "seu orçamento da ordem de serviço",
   os_conclusao: "a conclusão da sua ordem de serviço",
   os_rastreamento: "o acompanhamento da sua ordem de serviço",
+  os_garantia_vencendo: "o aviso de garantia vencendo da sua ordem de serviço",
   pdv_recibo_pdf: "o recibo da sua compra",
   pdv_termo_pdf_link: "o termo da sua compra",
 };

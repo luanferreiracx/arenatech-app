@@ -65,6 +65,9 @@ model ServiceOrder {
   warrantyType        String?             @map("warranty_type")
   warrantyMonths      Int                 @default(3) @map("warranty_months")
   originalOrderId     String?             @map("original_order_id") @db.Uuid
+  // Marca quando o cliente foi avisado por WhatsApp que a garantia vai
+  // vencer (cron /api/cron/notify-warranty-expiring). Evita aviso duplicado.
+  warrantyExpiryNotifiedAt DateTime? @map("warranty_expiry_notified_at")
 
   // Datas
   entryDate           DateTime            @default(now()) @map("entry_date")
