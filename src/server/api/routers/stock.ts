@@ -812,8 +812,8 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // Gera PAYABLE quando solicitado
-        if (input.generatePayable && input.purchasePrice > 0) {
+        // ── Pagamento da compra ───────────────────────────────────────
+        if (input.paymentMode && input.purchasePrice > 0) {
           let sellerName = "Fornecedor não identificado";
           if (input.supplierId) {
             const sup = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { name: true } });
@@ -822,59 +822,127 @@ export const stockRouter = createTRPCRouter({
             const cust = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
             sellerName = cust?.name ?? sellerName;
           }
-          const installmentsCount = input.payableInstallments ?? 1;
-          const firstDate = input.payableFirstDueDate ? new Date(input.payableFirstDueDate) : new Date();
-          const totalCents = input.purchasePrice;
-          const installmentAmount = Math.round(totalCents / installmentsCount);
-          const remainder = totalCents - installmentAmount * installmentsCount;
           const description = `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`;
+          const totalCents = input.purchasePrice;
 
-          const transaction = await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "PAYABLE",
-              status: "PENDING",
-              description,
-              supplierId: input.supplierId ?? undefined,
-              supplier: sellerName,
-              customerId: input.customerId ?? undefined,
-              totalAmount: new Prisma.Decimal(totalCents).div(100),
-              paidAmount: new Prisma.Decimal(0),
-              installmentsTotal: installmentsCount,
-              dueDate: firstDate,
-              emissionDate: new Date(),
-              referenceType: "device_purchase",
-              referenceId: purchase.id,
-              createdByUserId: ctx.session.user.id,
-            },
-          });
+          if (input.paymentMode === "now") {
+            // Pago agora: forma obrigatoria
+            if (!input.paymentMethodId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Selecione a forma de pagamento.",
+              });
+            }
+            const method = await tx.paymentMethod.findFirst({
+              where: { id: input.paymentMethodId, active: true },
+              select: { id: true, name: true, code: true, type: true },
+            });
+            if (!method) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Forma de pagamento invalida.",
+              });
+            }
 
-          // addMonthsSafe importado abaixo via require dinamico — evita
-          // adicionar import top do file. Tratamento de overflow (31/jan +
-          // 1mes = 28/29/fev) preservando o dia ate o limite.
-          const addMonthsSafe = (base: Date, months: number): Date => {
-            const d = new Date(base);
-            const day = d.getDate();
-            d.setDate(1);
-            d.setMonth(d.getMonth() + months);
-            const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-            d.setDate(Math.min(day, last));
-            return d;
-          };
-          const installments = Array.from({ length: installmentsCount }, (_, i) => {
-            const dueDate = addMonthsSafe(firstDate, i);
-            const amountCents = i === installmentsCount - 1 ? installmentAmount + remainder : installmentAmount;
-            return {
-              tenantId: ctx.tenantId,
-              transactionId: transaction.id,
-              number: i + 1,
-              amount: new Prisma.Decimal(amountCents).div(100),
-              paidAmount: new Prisma.Decimal(0),
-              dueDate,
-              status: "PENDING" as const,
+            await tx.financialTransaction.create({
+              data: {
+                tenantId: ctx.tenantId,
+                type: "PAYABLE",
+                status: "PAID",
+                description,
+                supplierId: input.supplierId ?? undefined,
+                supplier: sellerName,
+                customerId: input.customerId ?? undefined,
+                paymentMethodId: method.id,
+                totalAmount: new Prisma.Decimal(totalCents).div(100),
+                paidAmount: new Prisma.Decimal(totalCents).div(100),
+                installmentsTotal: 1,
+                dueDate: new Date(),
+                emissionDate: new Date(),
+                paidAt: new Date(),
+                referenceType: "device_purchase",
+                referenceId: purchase.id,
+                createdByUserId: ctx.session.user.id,
+              },
+            });
+
+            // Cash OUTCOME quando dinheiro ou PIX (saida fisica do caixa).
+            // Cartao/transferencia/boleto nao mexem em caixa fisico.
+            const cashLikeTypes: ReadonlyArray<typeof method.type> = ["CASH", "PIX"];
+            if (cashLikeTypes.includes(method.type)) {
+              const openSession = await tx.cashSession.findFirst({
+                where: { closedAt: null },
+                select: { id: true },
+              });
+              if (openSession) {
+                await tx.cashMovement.create({
+                  data: {
+                    tenantId: ctx.tenantId,
+                    cashSessionId: openSession.id,
+                    type: "WITHDRAWAL",
+                    amount: new Prisma.Decimal(totalCents).div(100),
+                    nature: "OUTCOME",
+                    paymentMethod: method.code ?? method.type.toLowerCase(),
+                    description: `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`,
+                    referenceId: purchase.id,
+                    referenceType: "device_purchase",
+                    createdByUserId: ctx.session.user.id,
+                  },
+                });
+              }
+            }
+          } else if (input.paymentMode === "payable") {
+            // A prazo: gera PAYABLE pendente com parcelas
+            const installmentsCount = input.payableInstallments ?? 1;
+            const firstDate = input.payableFirstDueDate ? new Date(input.payableFirstDueDate) : new Date();
+            const installmentAmount = Math.round(totalCents / installmentsCount);
+            const remainder = totalCents - installmentAmount * installmentsCount;
+
+            const transaction = await tx.financialTransaction.create({
+              data: {
+                tenantId: ctx.tenantId,
+                type: "PAYABLE",
+                status: "PENDING",
+                description,
+                supplierId: input.supplierId ?? undefined,
+                supplier: sellerName,
+                customerId: input.customerId ?? undefined,
+                totalAmount: new Prisma.Decimal(totalCents).div(100),
+                paidAmount: new Prisma.Decimal(0),
+                installmentsTotal: installmentsCount,
+                dueDate: firstDate,
+                emissionDate: new Date(),
+                referenceType: "device_purchase",
+                referenceId: purchase.id,
+                createdByUserId: ctx.session.user.id,
+              },
+            });
+
+            // Carbon-style addMonths (preserva dia ate ultimo dia do mes).
+            const addMonthsSafe = (base: Date, months: number): Date => {
+              const d = new Date(base);
+              const day = d.getDate();
+              d.setDate(1);
+              d.setMonth(d.getMonth() + months);
+              const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+              d.setDate(Math.min(day, last));
+              return d;
             };
-          });
-          await tx.installment.createMany({ data: installments });
+            const installments = Array.from({ length: installmentsCount }, (_, i) => {
+              const dueDate = addMonthsSafe(firstDate, i);
+              const amountCents = i === installmentsCount - 1 ? installmentAmount + remainder : installmentAmount;
+              return {
+                tenantId: ctx.tenantId,
+                transactionId: transaction.id,
+                number: i + 1,
+                amount: new Prisma.Decimal(amountCents).div(100),
+                paidAmount: new Prisma.Decimal(0),
+                dueDate,
+                status: "PENDING" as const,
+              };
+            });
+            await tx.installment.createMany({ data: installments });
+          }
         }
 
         return purchase;

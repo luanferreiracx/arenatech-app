@@ -130,8 +130,16 @@ export const createDevicePurchaseSchema = z.object({
   purchasePrice: z.number().int().min(0, "Preco de compra deve ser positivo"), // centavos
   salePrice: z.number().int().min(0).optional().nullable(), // centavos
   notes: z.string().max(500).optional().nullable(),
-  // Quando true, gera conta a pagar (PAYABLE) automaticamente com o valor da compra
-  generatePayable: z.boolean().optional(),
+  // Pagamento da compra. Dois modos:
+  //  - "now": paga imediatamente com 1 forma (CASH/PIX/DEPIX/CARD/etc).
+  //           Gera FinancialTransaction PAID e CashMovement OUTCOME quando
+  //           dinheiro/PIX/DePix e existir caixa aberto.
+  //  - "payable": gera PAYABLE pendente (compra a prazo). Aceita parcelamento.
+  //  - undefined: nao registra nada no financeiro (paridade legada).
+  paymentMode: z.enum(["now", "payable"]).optional(),
+  // Quando paymentMode = "now"
+  paymentMethodId: z.string().uuid().optional().nullable(),
+  // Quando paymentMode = "payable"
   payableInstallments: z.number().int().min(1).max(36).optional(),
   payableFirstDueDate: z.string().optional(),
 });

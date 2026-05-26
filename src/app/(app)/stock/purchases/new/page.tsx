@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import {
   createDevicePurchaseSchema,
@@ -29,7 +29,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { ImeiInput } from "@/components/inputs/imei-input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -59,13 +58,21 @@ export default function NewPurchasePage() {
       purchasePrice: 0,
       salePrice: null,
       notes: "",
-      generatePayable: false,
+      paymentMode: undefined,
+      paymentMethodId: null,
       payableInstallments: 1,
       payableFirstDueDate: new Date().toISOString().slice(0, 10),
     },
   });
 
-  const generatePayable = form.watch("generatePayable");
+  const paymentMode = form.watch("paymentMode");
+
+  // PaymentMethods do tenant para o select quando paymentMode === "now"
+  const { data: paymentMethods } = useQuery(
+    trpc.settings.listPaymentMethods.queryOptions(undefined, {
+      enabled: paymentMode === "now",
+    }),
+  );
 
   const mutation = useMutation(
     trpc.stock.createPurchase.mutationOptions({
@@ -130,9 +137,14 @@ export default function NewPurchasePage() {
                             sku: string | null;
                           }>;
                         }}
-                        getOptionLabel={(p) =>
-                          [p.brand, p.name].filter(Boolean).join(" — ") || p.name
-                        }
+                        getOptionLabel={(p) => {
+                          // products.name ja contem a marca em muitos casos
+                          // ("Apple iPhone 17 Pro"). Concatenar brand + name
+                          // produzia "Apple — Apple iPhone 17 Pro" (ou pior,
+                          // 3-4x "Apple" quando o name foi corrompido por
+                          // import). Mostra so o name — limpo e suficiente.
+                          return p.name;
+                        }}
                         getOptionValue={(p) => p.id}
                         placeholder="Buscar aparelho cadastrado..."
                         emptyMessage="Nenhum produto encontrado. Cadastre primeiro em Estoque → Produtos."
@@ -287,29 +299,72 @@ export default function NewPurchasePage() {
             </div>
           </FormSection>
 
-          <FormSection title="Conta a Pagar">
+          <FormSection title="Pagamento">
             <FormField
               control={form.control}
-              name="generatePayable"
+              name="paymentMode"
               render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                  <FormControl>
-                    <Checkbox
-                      checked={field.value ?? false}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Gerar conta a pagar automaticamente</FormLabel>
-                    <p className="text-xs text-muted-foreground">
-                      Cria uma transação PAYABLE no financeiro com o valor da compra. Útil para compras a prazo de fornecedores.
-                    </p>
-                  </div>
+                <FormItem>
+                  <FormLabel>Como vai pagar?</FormLabel>
+                  <Select
+                    onValueChange={(v) => field.onChange(v || undefined)}
+                    value={field.value ?? ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="now">Pagar agora (a vista)</SelectItem>
+                      <SelectItem value="payable">A prazo (conta a pagar)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    A vista: registra como pago no financeiro. Em dinheiro/PIX,
+                    gera saida no caixa aberto. A prazo: cria conta a pagar
+                    parcelada para quitar depois.
+                  </p>
+                  <FormMessage />
                 </FormItem>
               )}
             />
 
-            {generatePayable && (
+            {paymentMode === "now" && (
+              <div className="mt-4">
+                <FormField
+                  control={form.control}
+                  name="paymentMethodId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Forma de pagamento *</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value ?? ""}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {(paymentMethods ?? [])
+                            .filter((m) => m.active)
+                            .map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {paymentMode === "payable" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <FormField
                   control={form.control}
