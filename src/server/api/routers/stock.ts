@@ -706,7 +706,7 @@ export const stockRouter = createTRPCRouter({
         // livre — evita duplicatas e mantem catalogo limpo.
         const product = await tx.product.findFirst({
           where: { id: input.productId, deletedAt: null },
-          select: { id: true, name: true, brand: true, isDevice: true, isSerialized: true },
+          select: { id: true, name: true, brand: true, isDevice: true, isSerialized: true, hasVariations: true },
         });
         if (!product) {
           throw new TRPCError({
@@ -725,6 +725,29 @@ export const stockRouter = createTRPCRouter({
             code: "BAD_REQUEST",
             message: "Produto selecionado nao e serializado. Compra de aparelho exige produto serializado.",
           });
+        }
+
+        // Se o Product tem variacoes, exige variationId. Paridade Laravel:
+        // compra_aparelhos.variacao_id obrigatorio quando usa_variacoes=true.
+        let variation: { id: string; productId: string } | null = null;
+        if (product.hasVariations) {
+          if (!input.variationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione a variacao (armazenamento + cor) do aparelho.",
+            });
+          }
+          const v = await tx.productVariation.findFirst({
+            where: { id: input.variationId, deletedAt: null },
+            select: { id: true, productId: true },
+          });
+          if (!v || v.productId !== product.id) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Variacao nao pertence a este produto.",
+            });
+          }
+          variation = v;
         }
 
         const purchase = await tx.devicePurchase.create({
@@ -754,6 +777,7 @@ export const stockRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             productId: product.id,
+            variationId: variation?.id ?? null,
             type: "ENTRY",
             quantity: 1,
             reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
@@ -775,6 +799,7 @@ export const stockRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             productId: product.id,
+            variationId: variation?.id ?? null,
             imei: input.imei ?? null,
             serialNumber: input.serial ?? null,
             condition: conditionMap[input.condition] ?? "USED",

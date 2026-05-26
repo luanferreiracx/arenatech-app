@@ -114,6 +114,10 @@ export const createDevicePurchaseSchema = z.object({
   // sem digitar marca/modelo livre — evita duplicatas e garante que o
   // aparelho aparece no PDV.
   productId: z.string().uuid("Selecione o produto"),
+  // Variacao especifica (storage + cor). Obrigatorio se o Product tem
+  // variacoes ativas — validado no backend pra paridade Laravel
+  // (compra_aparelhos.variacao_id).
+  variationId: z.string().uuid().optional().nullable(),
   customerId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   sellerType: z.enum(["customer", "supplier"]).optional(),

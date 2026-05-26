@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { EntitySelector } from "@/components/domain/entity-selector";
+import { VariationPicker } from "@/components/inputs/variation-picker";
 import { MoneyInput } from "@/components/inputs/money-input";
 import {
   Form,
@@ -47,6 +48,7 @@ export default function NewPurchasePage() {
     defaultValues: {
       // productId obrigatorio (sem default — operador escolhe via combobox)
       productId: undefined as unknown as string,
+      variationId: null,
       customerId: null,
       supplierId: null,
       sellerType: "customer",
@@ -105,7 +107,11 @@ export default function NewPurchasePage() {
                         sku: string | null;
                       }>
                         value={field.value}
-                        onChange={(v) => field.onChange(v)}
+                        onChange={(v) => {
+                          field.onChange(v);
+                          // troca de produto reseta variation
+                          form.setValue("variationId", null);
+                        }}
                         searchFn={async (q) => {
                           const all = await queryClient.fetchQuery(
                             trpc.sale.searchProducts.queryOptions({
@@ -142,6 +148,25 @@ export default function NewPurchasePage() {
                         Cadastrar novo produto
                       </Link>
                     </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="variationId"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormControl>
+                      <VariationPicker
+                        productId={form.watch("productId") || null}
+                        value={field.value ?? null}
+                        onChange={(v) => field.onChange(v)}
+                        label="Armazenamento + Cor"
+                        showStock={false}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
