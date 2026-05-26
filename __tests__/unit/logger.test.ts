@@ -86,4 +86,65 @@ describe("logger", () => {
     // Should be a valid ISO date string
     expect(new Date(ts).toISOString()).toBe(ts);
   });
+
+  it("redaciona chaves sensiveis automaticamente", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logger.info("test", {
+      userId: "abc",
+      password: "super-secret",
+      apiKey: "sk_live_xxx",
+      token: "bearer-yyy",
+      nested: {
+        secret: "inner",
+        publicField: "ok",
+      },
+    });
+
+    const output = spy.mock.calls[0]?.[0] as string;
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    const context = parsed["context"] as Record<string, unknown>;
+
+    expect(context["userId"]).toBe("abc");
+    expect(context["password"]).toBe("***");
+    expect(context["apiKey"]).toBe("***");
+    expect(context["token"]).toBe("***");
+    const nested = context["nested"] as Record<string, unknown>;
+    expect(nested["secret"]).toBe("***");
+    expect(nested["publicField"]).toBe("ok");
+  });
+
+  it("redaciona match case-insensitive", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logger.info("test", {
+      Password: "x",
+      PASSWORD_HASH: "y",
+      Authorization: "Bearer abc",
+    });
+
+    const output = spy.mock.calls[0]?.[0] as string;
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    const context = parsed["context"] as Record<string, unknown>;
+
+    expect(context["Password"]).toBe("***");
+    expect(context["PASSWORD_HASH"]).toBe("***");
+    expect(context["Authorization"]).toBe("***");
+  });
+
+  it("redaciona dentro de arrays", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    logger.info("test", {
+      users: [
+        { id: 1, password: "x" },
+        { id: 2, token: "y" },
+      ],
+    });
+
+    const output = spy.mock.calls[0]?.[0] as string;
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    const context = parsed["context"] as Record<string, unknown>;
+    const users = context["users"] as Array<Record<string, unknown>>;
+
+    expect(users[0]?.["password"]).toBe("***");
+    expect(users[1]?.["token"]).toBe("***");
+  });
 });

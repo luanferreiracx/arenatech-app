@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { experimental_standaloneMiddleware } from "@trpc/server";
 import { rateLimit } from "@/lib/rate-limit";
+import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import type { Context } from "@/server/api/trpc";
 
 interface RateLimitMiddlewareOptions {
@@ -28,7 +29,7 @@ export function rateLimitMiddleware({ limit, windowMs, keyFn }: RateLimitMiddlew
     async ({ ctx, next, path }) => {
       const key = keyFn
         ? keyFn(ctx)
-        : ctx.session?.user?.id ?? getIpFromHeaders(ctx.headers) ?? "anon";
+        : ctx.session?.user?.id ?? extractSourceIp(ctx.headers) ?? "anon";
 
       const result = rateLimit({
         key: `trpc:${path}:${key}`,
@@ -48,10 +49,3 @@ export function rateLimitMiddleware({ limit, windowMs, keyFn }: RateLimitMiddlew
   );
 }
 
-function getIpFromHeaders(headers: Headers): string | null {
-  return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    headers.get("x-real-ip") ??
-    null
-  );
-}
