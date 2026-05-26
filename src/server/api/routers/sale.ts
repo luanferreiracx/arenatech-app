@@ -915,6 +915,7 @@ export const saleRouter = createTRPCRouter({
               paymentMethod: input.refundDueMethod ?? "cash",
               supplier: customerName,
               customerId: input.customerId ?? null,
+              saleId: sale.id,
               referenceType: "SALE_DOWNGRADE",
               referenceId: sale.id,
               createdByUserId: ctx.session.user.id,
@@ -938,6 +939,10 @@ export const saleRouter = createTRPCRouter({
                   totalAmount: centsToPrisma(payment.amount),
                   dueDate: new Date(),
                   paymentMethod: payment.method,
+                  // saleId e o link da discriminated union (consultado por
+                  // cancelReceivablesFromSale, refund, dashboard). referenceId
+                  // permanece para compat com queries antigas.
+                  saleId: sale.id,
                   referenceId: sale.id,
                   referenceType: "SALE",
                   customerId: input.customerId ?? null,
@@ -971,6 +976,7 @@ export const saleRouter = createTRPCRouter({
                   dueDate: new Date(),
                   paidAt: new Date(),
                   paymentMethod: payment.method,
+                  saleId: sale.id,
                   referenceId: sale.id,
                   referenceType: "SALE",
                   customerId: input.customerId ?? null,
@@ -992,6 +998,7 @@ export const saleRouter = createTRPCRouter({
               dueDate: new Date(),
               paidAt: new Date(),
               paymentMethod,
+              saleId: sale.id,
               referenceId: sale.id,
               referenceType: "SALE",
               customerId: input.customerId ?? null,

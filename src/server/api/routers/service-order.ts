@@ -786,8 +786,13 @@ export const serviceOrderRouter = createTRPCRouter({
                   emissionDate: new Date(),
                   paidAt: instantPay ? new Date() : null,
                   paymentMethod: paymentMethodUsed,
+                  // serviceOrderId e o link da discriminated union (queries
+                  // de cancelamento, refund, dashboard). referenceId permanece
+                  // pra compat com queries antigas que usam referenceType.
+                  serviceOrderId: order.id,
                   referenceType: "service_order",
                   referenceId: order.id,
+                  createdByUserId: ctx.session.user.id,
                 },
               });
 
@@ -835,7 +840,7 @@ export const serviceOrderRouter = createTRPCRouter({
   cancel: tenantProcedure
     .input(cancelOrderSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const txResult = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order || order.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
@@ -876,6 +881,45 @@ export const serviceOrderRouter = createTRPCRouter({
         // Release all reserved product stock
         const releasedCount = await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
 
+        // Cancela receivables pendentes vinculados a OS (FT + installments).
+        // Sem isso, mesmo apos cancelar a OS, parcelas pendentes ficavam
+        // vencendo eternamente — quebrava dashboard de contas a receber.
+        const pendingTransactions = await tx.financialTransaction.findMany({
+          where: {
+            serviceOrderId: input.id,
+            status: { notIn: ["CANCELLED", "PAID"] },
+          },
+          select: { id: true },
+        });
+        for (const t of pendingTransactions) {
+          await tx.installment.updateMany({
+            where: { transactionId: t.id, status: { in: ["PENDING", "OVERDUE"] } },
+            data: { status: "CANCELLED" },
+          });
+          await tx.financialTransaction.update({
+            where: { id: t.id },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: `OS cancelada: ${input.reason}`,
+            },
+          });
+        }
+
+        // Cancela PIX pendente (depix_status="pending") para evitar que
+        // cliente pague e webhook reactive uma OS cancelada.
+        const pixToCancel =
+          order.depixTransactionId && order.depixStatus === "pending"
+            ? order.depixTransactionId
+            : null;
+        if (pixToCancel) {
+          await tx.serviceOrder.update({
+            where: { id: input.id },
+            data: { depixTransactionId: null, depixStatus: "cancelled" },
+          });
+        }
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -888,6 +932,10 @@ export const serviceOrderRouter = createTRPCRouter({
         if (forced) noteParts.push("[FORCADO SEM TERMO DE DEVOLUCAO]");
         noteParts.push(input.reason);
         if (releasedCount > 0) noteParts.push(`(${releasedCount} item(ns) de estoque liberado(s))`);
+        if (pendingTransactions.length > 0) {
+          noteParts.push(`(${pendingTransactions.length} recebivel(is) cancelado(s))`);
+        }
+        if (pixToCancel) noteParts.push("(PIX pendente cancelado)");
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -900,8 +948,21 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        return { success: true };
+        return { success: true, pixToCancel };
       });
+
+      // Apos commit: dispara cancel HTTP best-effort (fora da tx).
+      if (txResult.pixToCancel) {
+        cancelPixPayment(txResult.pixToCancel).catch((err) => {
+          logger.warn("Falha ao cancelar PIX apos cancelar OS", {
+            orderId: input.id,
+            transactionId: txResult.pixToCancel,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      return { success: true };
     }),
 
   // ── UNCANCEL (admin only) ──
@@ -1329,8 +1390,10 @@ export const serviceOrderRouter = createTRPCRouter({
               emissionDate: new Date(),
               paidAt: instantPayment ? new Date() : null,
               paymentMethod: input.paymentMethod,
+              serviceOrderId: order.id,
               referenceType: "service_order",
               referenceId: order.id,
+              createdByUserId: userId,
             },
           });
 

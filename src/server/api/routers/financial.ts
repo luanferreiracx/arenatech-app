@@ -387,6 +387,11 @@ export const financialRouter = createTRPCRouter({
             emissionDate,
             paymentMethod: input.paymentMethod ?? null,
             notes: input.notes ?? null,
+            // Endpoint user-facing — sem vinculo a sale/OS, marca como manual
+            // para a discriminated union (vinculo correto a ausencia de
+            // saleId/serviceOrderId).
+            isManual: true,
+            createdByUserId: ctx.session.user.id,
           },
         });
 
@@ -1819,8 +1824,10 @@ export const financialRouter = createTRPCRouter({
             totalAmount: centsToPrismaDecimal(input.amount),
             paidAmount: new Prisma.Decimal(0),
             dueDate: new Date(),
+            saleId: input.saleId,
             referenceType: "sale",
             referenceId: input.saleId,
+            createdByUserId: ctx.session.user.id,
           },
         });
 
