@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import {
+  recordWebhookEvent,
+  markWebhookProcessed,
+  extractSourceIp,
+} from "@/lib/webhooks/replay-guard";
 
 export const runtime = "nodejs";
 
@@ -69,6 +74,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
+  // Replay protection: (documentId, eventType) identifica o evento unicamente.
+  const eventKey = `${documentId}:${eventType}`;
+  const isNewEvent = await recordWebhookEvent({
+    provider: "autentique",
+    eventId: eventKey,
+    eventType,
+    sourceIp: extractSourceIp(req.headers),
+    signatureValid: !!secret,
+    payload,
+  });
+  if (!isNewEvent) {
+    logger.info("Autentique webhook: evento duplicado", { eventKey });
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
   const signedAtStr = data.signed ? String(data.signed) : null;
   const signedAt = signedAtStr ? new Date(signedAtStr) : new Date();
 
@@ -112,6 +132,8 @@ export async function POST(req: NextRequest) {
       },
     });
   });
+
+  await markWebhookProcessed("autentique", eventKey, { ok: true });
 
   logger.info("OS marcada como assinada via webhook Autentique", {
     orderId: order.id,

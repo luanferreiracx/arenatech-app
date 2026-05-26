@@ -3,6 +3,11 @@ import { withAdmin } from "@/server/db"
 import { sendTextMessage } from "@/lib/services/whatsapp-service"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
+import {
+  recordWebhookEvent,
+  markWebhookProcessed,
+  extractSourceIp,
+} from "@/lib/webhooks/replay-guard"
 
 /**
  * POST /api/webhooks/pagbank
@@ -50,6 +55,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // Replay protection: identifica evento unicamente por charge.id + status.
+    const chargeId = String(charge.id ?? referenceId)
+    const eventKey = `${chargeId}:${chargeStatus}`
+    const isNewEvent = await recordWebhookEvent({
+      provider: "pagbank",
+      eventId: eventKey,
+      eventType: chargeStatus,
+      sourceIp: extractSourceIp(req.headers),
+      signatureValid: true,
+      payload: body,
+    })
+    if (!isNewEvent) {
+      logger.info("PagBank webhook: evento duplicado", { eventKey })
+      return NextResponse.json({ ok: true, duplicate: true })
+    }
+
     // Find QuickSale by reference
     await withAdmin(async (tx) => {
       const quickSale = await tx.quickSale.findFirst({
@@ -94,6 +115,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
+    await markWebhookProcessed("pagbank", eventKey, { ok: true })
     return NextResponse.json({ ok: true })
   } catch (err) {
     logger.error("PagBank webhook error", {

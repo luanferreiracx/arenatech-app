@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/server/db";
 import { logger } from "@/lib/logger";
+import {
+  recordWebhookEvent,
+  markWebhookProcessed,
+  extractSourceIp,
+} from "@/lib/webhooks/replay-guard";
 
 /**
  * POST /api/webhooks/depix-withdraw
@@ -61,6 +66,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: `unmapped status ${statusRaw}` });
     }
 
+    // Replay protection: (depixId, statusRaw) identifica o evento.
+    const eventKey = `${depixId}:${statusRaw}`;
+    const isNewEvent = await recordWebhookEvent({
+      provider: "depix_withdraw",
+      eventId: eventKey,
+      eventType: statusRaw,
+      sourceIp: extractSourceIp(req.headers),
+      signatureValid: true,
+      payload,
+    });
+    if (!isNewEvent) {
+      logger.info("Depix-withdraw webhook: evento duplicado", { eventKey });
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+
     logger.info("Depix-withdraw webhook", { depixId, statusRaw, mappedStatus });
 
     const result = await prisma.depixWithdraw.findFirst({
@@ -94,6 +114,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    await markWebhookProcessed("depix_withdraw", eventKey, { ok: true });
     return NextResponse.json({ ok: true, matched: true, id: result.id });
   } catch (error) {
     logger.error("Depix-withdraw webhook error", { error: String(error) });

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import {
+  recordWebhookEvent,
+  markWebhookProcessed,
+  extractSourceIp,
+} from "@/lib/webhooks/replay-guard";
 
 /**
  * POST /api/webhooks/nuvemfiscal
@@ -67,6 +72,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing identifier" }, { status: 400 });
     }
 
+    // Replay protection: (providerRef|accessKey + evento + data_evento)
+    // identifica o evento unicamente. Combinacao providerRef + event
+    // basta porque Nuvem Fiscal nao envia o mesmo (id, evento) 2x
+    // em curto periodo — eles agrupam por estado da nota.
+    const eventKey = `${providerRef || accessKey}:${event}`;
+    const isNewEvent = await recordWebhookEvent({
+      provider: "nuvemfiscal",
+      eventId: eventKey,
+      eventType: event,
+      sourceIp: extractSourceIp(req.headers),
+      signatureValid: true,
+      payload,
+    });
+    if (!isNewEvent) {
+      logger.info("Nuvem Fiscal webhook: evento duplicado", { eventKey });
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+
     const invoiceStatus = mapEventToStatus(event, statusFromPayload);
 
     const result = await withAdmin(async (tx) => {
@@ -106,6 +129,7 @@ export async function POST(req: NextRequest) {
       return { matched: true, invoiceId: invoice.id, tenantId: invoice.tenantId };
     });
 
+    await markWebhookProcessed("nuvemfiscal", eventKey, { ok: true });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     logger.error("Nuvem Fiscal webhook error", { error: String(error) });
