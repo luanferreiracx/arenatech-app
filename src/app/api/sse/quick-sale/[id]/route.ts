@@ -1,13 +1,16 @@
 import { NextRequest } from "next/server";
-import { Client } from "pg";
 import { auth } from "@/server/auth";
 import { withTenant } from "@/server/db";
-import { logger } from "@/lib/logger";
+import { subscribeDepixPaid } from "@/lib/sse/depix-notify-fanout";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** SSE pra venda avulsa (quick_sale) — espelho de /api/sse/sale/[saleId]. */
+/** SSE pra venda avulsa (quick_sale) — espelho de /api/sse/sale/[saleId].
+ *
+ * Usa o fanout LISTEN compartilhado (gap Sg20) ao inves de abrir uma
+ * conexao Postgres dedicada por cliente.
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -27,65 +30,48 @@ export async function GET(
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
-    async start(controller) {
-      const dbUrl = process.env.DATABASE_URL;
-      if (!dbUrl) {
-        controller.enqueue(encoder.encode("event: error\ndata: no database url\n\n"));
-        controller.close();
-        return;
-      }
-      const client = new Client({ connectionString: dbUrl });
+    start(controller) {
       let heartbeat: NodeJS.Timeout | null = null;
       let aborted = false;
+      let unsubscribe: (() => void) | null = null;
 
-      const cleanup = async () => {
+      const cleanup = () => {
         if (aborted) return;
         aborted = true;
         if (heartbeat) clearInterval(heartbeat);
-        try {
-          await client.end();
-        } catch { /* ignora */ }
+        if (unsubscribe) unsubscribe();
         try {
           controller.close();
-        } catch { /* ja fechado */ }
+        } catch {
+          /* ja fechado */
+        }
       };
 
-      req.signal.addEventListener("abort", () => {
-        void cleanup();
+      req.signal.addEventListener("abort", cleanup);
+
+      controller.enqueue(encoder.encode(`event: ready\ndata: ${id}\n\n`));
+
+      heartbeat = setInterval(() => {
+        if (aborted) return;
+        try {
+          controller.enqueue(encoder.encode(":heartbeat\n\n"));
+        } catch {
+          cleanup();
+        }
+      }, 25_000);
+
+      unsubscribe = subscribeDepixPaid((payload, raw) => {
+        if (aborted) return;
+        // Filtra quick_sale especificamente. Aceita kind="quick_sale" e
+        // "quick_sale_already_paid".
+        if (!payload.kind.startsWith("quick_sale")) return;
+        if (payload.id !== id) return;
+        try {
+          controller.enqueue(encoder.encode(`event: paid\ndata: ${raw}\n\n`));
+        } catch {
+          cleanup();
+        }
       });
-
-      try {
-        await client.connect();
-        await client.query("LISTEN depix_paid");
-        controller.enqueue(encoder.encode(`event: ready\ndata: ${id}\n\n`));
-        heartbeat = setInterval(() => {
-          if (aborted) return;
-          try {
-            controller.enqueue(encoder.encode(":heartbeat\n\n"));
-          } catch {
-            void cleanup();
-          }
-        }, 25_000);
-
-        client.on("notification", (msg) => {
-          if (aborted || !msg.payload) return;
-          try {
-            const data = JSON.parse(msg.payload) as { kind: string; id: string };
-            if (data.kind !== "quick_sale" || data.id !== id) return;
-            controller.enqueue(encoder.encode(`event: paid\ndata: ${msg.payload}\n\n`));
-          } catch (err) {
-            logger.warn("SSE quick_sale depix_paid: payload invalido", { err: String(err) });
-          }
-        });
-
-        client.on("error", (err) => {
-          logger.warn("SSE quick_sale pg client error", { err: String(err) });
-          void cleanup();
-        });
-      } catch (err) {
-        logger.error("SSE quick_sale setup failed", { err: String(err) });
-        await cleanup();
-      }
     },
   });
 

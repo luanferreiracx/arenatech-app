@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
-import { Client } from "pg";
 import { auth } from "@/server/auth";
 import { withTenant } from "@/server/db";
-import { logger } from "@/lib/logger";
+import { subscribeDepixPaid } from "@/lib/sse/depix-notify-fanout";
 
 export const runtime = "nodejs";
 // SSE requer streaming sem buffering — desabilita cache do Next.
@@ -16,7 +15,12 @@ export const dynamic = "force-dynamic";
  * (que vira fallback de 30s).
  *
  * Fluxo: PixPay webhook -> route depix-payment -> pg_notify('depix_paid', json)
- * -> esta rota (LISTEN) -> filtra pelo saleId -> emit 'paid' event no SSE.
+ * -> fanout compartilhado (subscribeDepixPaid) -> filtra pelo saleId
+ * -> emit 'paid' event no SSE.
+ *
+ * Mudanca gap Sg20: NAO abrimos mais conexao Postgres dedicada por
+ * cliente. Usamos o fanout LISTEN compartilhado em
+ * src/lib/sse/depix-notify-fanout.ts.
  */
 export async function GET(
   req: NextRequest,
@@ -41,30 +45,18 @@ export async function GET(
     return new Response("Forbidden", { status: 403 });
   }
 
-  // Stream SSE
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
-    async start(controller) {
-      // Conexao dedicada para LISTEN (nao pode usar pool do Prisma).
-      const dbUrl = process.env.DATABASE_URL;
-      if (!dbUrl) {
-        controller.enqueue(encoder.encode("event: error\ndata: no database url\n\n"));
-        controller.close();
-        return;
-      }
-      const client = new Client({ connectionString: dbUrl });
+    start(controller) {
       let heartbeat: NodeJS.Timeout | null = null;
       let aborted = false;
+      let unsubscribe: (() => void) | null = null;
 
-      const cleanup = async () => {
+      const cleanup = () => {
         if (aborted) return;
         aborted = true;
         if (heartbeat) clearInterval(heartbeat);
-        try {
-          await client.end();
-        } catch {
-          /* ignora erro no cleanup */
-        }
+        if (unsubscribe) unsubscribe();
         try {
           controller.close();
         } catch {
@@ -72,47 +64,33 @@ export async function GET(
         }
       };
 
-      req.signal.addEventListener("abort", () => {
-        void cleanup();
+      req.signal.addEventListener("abort", cleanup);
+
+      // Hello inicial
+      controller.enqueue(encoder.encode(`event: ready\ndata: ${saleId}\n\n`));
+
+      // Heartbeat pra manter conexao viva (proxies costumam matar > 60s sem trafego)
+      heartbeat = setInterval(() => {
+        if (aborted) return;
+        try {
+          controller.enqueue(encoder.encode(":heartbeat\n\n"));
+        } catch {
+          cleanup();
+        }
+      }, 25_000);
+
+      unsubscribe = subscribeDepixPaid((payload, raw) => {
+        if (aborted) return;
+        // Filtra: so emitir se for desta venda. Aceita kind="sale" e
+        // "sale_already_paid" (idempotente). Outras vendas e OS sao
+        // ignoradas silenciosamente.
+        if (payload.id !== saleId) return;
+        try {
+          controller.enqueue(encoder.encode(`event: paid\ndata: ${raw}\n\n`));
+        } catch {
+          cleanup();
+        }
       });
-
-      try {
-        await client.connect();
-        await client.query("LISTEN depix_paid");
-
-        // Hello inicial
-        controller.enqueue(encoder.encode(`event: ready\ndata: ${saleId}\n\n`));
-
-        // Heartbeat pra manter conexao viva (proxies costumam matar > 60s sem trafego)
-        heartbeat = setInterval(() => {
-          if (aborted) return;
-          try {
-            controller.enqueue(encoder.encode(":heartbeat\n\n"));
-          } catch {
-            void cleanup();
-          }
-        }, 25_000);
-
-        client.on("notification", (msg) => {
-          if (aborted || !msg.payload) return;
-          try {
-            const data = JSON.parse(msg.payload) as { kind: string; id: string; transactionId: string };
-            // Filtra: so emitir se for desta venda.
-            if (data.id !== saleId) return;
-            controller.enqueue(encoder.encode(`event: paid\ndata: ${msg.payload}\n\n`));
-          } catch (err) {
-            logger.warn("SSE depix_paid: payload invalido", { err: String(err) });
-          }
-        });
-
-        client.on("error", (err) => {
-          logger.warn("SSE pg client error", { err: String(err) });
-          void cleanup();
-        });
-      } catch (err) {
-        logger.error("SSE setup failed", { err: String(err) });
-        await cleanup();
-      }
     },
   });
 
