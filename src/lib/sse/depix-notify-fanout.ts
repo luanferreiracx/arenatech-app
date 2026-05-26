@@ -108,15 +108,17 @@ async function reconnect(): Promise<void> {
     }
   }
   if (subscribers.size === 0) return;
-  reconnectTimer = setTimeout(async () => {
+  reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    try {
-      await ensureConnection();
-    } catch (err) {
-      logger.warn("Fanout depix_paid: reconnect falhou", { err: String(err) });
-      // Tenta de novo em 5s.
-      void reconnect();
-    }
+    void (async () => {
+      try {
+        await ensureConnection();
+      } catch (err) {
+        logger.warn("Fanout depix_paid: reconnect falhou", { err: String(err) });
+        // Tenta de novo em 5s.
+        void reconnect();
+      }
+    })();
   }, 1000);
 }
 
