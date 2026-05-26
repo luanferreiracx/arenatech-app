@@ -232,9 +232,11 @@ describe("listMovementsSchema", () => {
 // ── Device Purchase ──
 
 describe("createDevicePurchaseSchema", () => {
-  it("aceita compra minima (productId obrigatorio)", () => {
+  it("aceita compra minima (productId + sellerType + customerId)", () => {
     const result = createDevicePurchaseSchema.safeParse({
       productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
       condition: "USED",
       purchasePrice: 50000,
     });
@@ -243,6 +245,37 @@ describe("createDevicePurchaseSchema", () => {
 
   it("rejeita compra sem productId", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita compra sem sellerType (vendedor obrigatorio)", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      condition: "USED",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita sellerType=customer sem customerId", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      condition: "USED",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita sellerType=supplier sem supplierId", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "supplier",
       condition: "USED",
       purchasePrice: 50000,
     });
@@ -252,6 +285,7 @@ describe("createDevicePurchaseSchema", () => {
   it("aceita compra completa", () => {
     const result = createDevicePurchaseSchema.safeParse({
       productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
       customerId: "550e8400-e29b-41d4-a716-446655440001",
       imei: "353456789012345",
       serial: "C39XXXXXYZ",

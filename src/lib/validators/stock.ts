@@ -122,9 +122,14 @@ export const createDevicePurchaseSchema = z.object({
   // variacoes ativas — validado no backend pra paridade Laravel
   // (compra_aparelhos.variacao_id).
   variationId: z.string().uuid().optional().nullable(),
+  // Vendedor OBRIGATORIO (paridade Laravel `tipo_vendedor` + required_if).
+  // Operador escolhe: cliente (PF revendendo seminovo) ou fornecedor (PJ).
+  // O id correspondente eh obrigatorio (refine abaixo).
+  sellerType: z.enum(["customer", "supplier"], {
+    message: "Selecione se o vendedor e cliente ou fornecedor",
+  }),
   customerId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
-  sellerType: z.enum(["customer", "supplier"]).optional(),
   imei: z.string().max(20).optional().nullable(),
   serial: z.string().max(50).optional().nullable(),
   // brand/model: removidos do input — extraidos de Product.brand + Product.name
@@ -146,6 +151,22 @@ export const createDevicePurchaseSchema = z.object({
   // Quando paymentMode = "payable"
   payableInstallments: z.number().int().min(1).max(36).optional(),
   payableFirstDueDate: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // Paridade Laravel: cliente_id required_if tipo_vendedor=cliente, idem fornecedor.
+  if (data.sellerType === "customer" && !data.customerId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["customerId"],
+      message: "Selecione o cliente vendedor",
+    });
+  }
+  if (data.sellerType === "supplier" && !data.supplierId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["supplierId"],
+      message: "Selecione o fornecedor",
+    });
+  }
 });
 
 export type CreateDevicePurchaseInput = z.infer<typeof createDevicePurchaseSchema>;

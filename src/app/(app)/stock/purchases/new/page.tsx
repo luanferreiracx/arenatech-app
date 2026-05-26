@@ -66,6 +66,7 @@ export default function NewPurchasePage() {
   });
 
   const paymentMode = form.watch("paymentMode");
+  const sellerType = form.watch("sellerType");
 
   // PaymentMethods do tenant para o select quando paymentMode === "now"
   const { data: paymentMethods } = useQuery(
@@ -98,6 +99,141 @@ export default function NewPurchasePage() {
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <FormSection title="Vendedor">
+            <FormField
+              control={form.control}
+              name="sellerType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tipo de Vendedor *</FormLabel>
+                  <Select
+                    onValueChange={(v) => {
+                      field.onChange(v);
+                      // troca de tipo reseta os ids
+                      form.setValue("customerId", null);
+                      form.setValue("supplierId", null);
+                    }}
+                    value={field.value ?? ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="customer">Cliente (pessoa fisica)</SelectItem>
+                      <SelectItem value="supplier">Fornecedor (PJ)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    De quem voce esta comprando este aparelho.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {sellerType === "customer" && (
+              <div className="mt-4">
+                <FormField
+                  control={form.control}
+                  name="customerId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Cliente *</FormLabel>
+                      <FormControl>
+                        <EntitySelector<{ id: string; name: string; cpf: string | null }>
+                          value={field.value ?? undefined}
+                          onChange={(v) => field.onChange(v ?? null)}
+                          searchFn={async (q) => {
+                            const res = await queryClient.fetchQuery(
+                              trpc.customer.list.queryOptions({
+                                search: q,
+                                pageSize: 20,
+                              }),
+                            );
+                            return res.data as Array<{
+                              id: string;
+                              name: string;
+                              cpf: string | null;
+                            }>;
+                          }}
+                          getOptionLabel={(c) =>
+                            c.cpf ? `${c.name} — CPF ${c.cpf}` : c.name
+                          }
+                          getOptionValue={(c) => c.id}
+                          placeholder="Buscar cliente por nome ou CPF..."
+                          emptyMessage="Nenhum cliente encontrado."
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Cliente nao cadastrado?{" "}
+                        <Link
+                          href="/customers/new"
+                          target="_blank"
+                          className="text-primary hover:underline"
+                        >
+                          Cadastrar novo cliente
+                        </Link>
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {sellerType === "supplier" && (
+              <div className="mt-4">
+                <FormField
+                  control={form.control}
+                  name="supplierId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fornecedor *</FormLabel>
+                      <FormControl>
+                        <EntitySelector<{ id: string; name: string; cnpj: string | null }>
+                          value={field.value ?? undefined}
+                          onChange={(v) => field.onChange(v ?? null)}
+                          searchFn={async (q) => {
+                            const term = q && q.trim().length > 0 ? q : "a";
+                            const res = await queryClient.fetchQuery(
+                              trpc.stock.searchSuppliers.queryOptions({
+                                search: term,
+                              }),
+                            );
+                            return res as Array<{
+                              id: string;
+                              name: string;
+                              cnpj: string | null;
+                            }>;
+                          }}
+                          getOptionLabel={(s) =>
+                            s.cnpj ? `${s.name} — CNPJ ${s.cnpj}` : s.name
+                          }
+                          getOptionValue={(s) => s.id}
+                          placeholder="Buscar fornecedor por nome ou CNPJ..."
+                          emptyMessage="Nenhum fornecedor encontrado."
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Fornecedor nao cadastrado?{" "}
+                        <Link
+                          href="/suppliers/new"
+                          target="_blank"
+                          className="text-primary hover:underline"
+                        >
+                          Cadastrar novo fornecedor
+                        </Link>
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+          </FormSection>
+
           <FormSection title="Dados do Aparelho">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField

@@ -727,6 +727,22 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
+        // Vendedor OBRIGATORIO (paridade Laravel CompraAparelhoController:78-81)
+        // — cliente (PF revendendo seminovo) ou fornecedor (PJ). Sem isso, o
+        // termo de responsabilidade e o financeiro ficam sem contraparte.
+        if (input.sellerType === "customer" && !input.customerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cliente vendedor e obrigatorio.",
+          });
+        }
+        if (input.sellerType === "supplier" && !input.supplierId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Fornecedor e obrigatorio.",
+          });
+        }
+
         // Se o Product tem variacoes, exige variationId. Paridade Laravel:
         // compra_aparelhos.variacao_id obrigatorio quando usa_variacoes=true.
         let variation: { id: string; productId: string } | null = null;
