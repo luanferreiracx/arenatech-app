@@ -32,6 +32,7 @@ import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
+import { generatePublicToken } from "@/lib/utils/public-link";
 
 // ── Helpers ──
 
@@ -45,12 +46,7 @@ function centsToPrisma(cents: number): Prisma.Decimal {
 }
 
 function generatePublicLink(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return generatePublicToken(12);
 }
 
 function serializeSale(sale: Record<string, unknown>) {

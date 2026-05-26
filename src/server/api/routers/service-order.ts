@@ -51,6 +51,7 @@ import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
+import { generatePublicToken } from "@/lib/utils/public-link";
 import {
   reserveStockForOsItem,
   releaseStockForOsItem,
@@ -68,21 +69,11 @@ function centsToPrisma(cents: number): Prisma.Decimal {
 }
 
 function generatePublicLink(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return generatePublicToken(12);
 }
 
 function generateQuoteLink(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 16; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return generatePublicToken(16);
 }
 
 /**

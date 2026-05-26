@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { sendTextMessage } from "@/lib/services/whatsapp-service"
 import { logger } from "@/lib/logger"
+import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
 /**
  * POST /api/webhooks/pagbank
@@ -25,8 +26,8 @@ export async function POST(req: NextRequest) {
       logger.error("PagBank webhook: PAGBANK_WEBHOOK_TOKEN ausente. Configure a env var.")
       return NextResponse.json({ error: "Service not configured" }, { status: 503 })
     }
-    const token = authHeader?.replace(/^Bearer\s+/i, "")
-    if (token !== expectedToken) {
+    const token = authHeader?.replace(/^Bearer\s+/i, "") ?? ""
+    if (!timingSafeEqualString(token, expectedToken)) {
       logger.warn("PagBank webhook: invalid token")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }

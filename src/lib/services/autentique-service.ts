@@ -39,7 +39,14 @@ interface AutentiqueConfig {
 
 function getConfig(): AutentiqueConfig | null {
   const apiKey = process.env.AUTENTIQUE_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Autentique: AUTENTIQUE_API_KEY ausente em prod. Configure a env ou desabilite assinatura digital.",
+      );
+    }
+    return null;
+  }
   return {
     apiKey,
     apiUrl: process.env.AUTENTIQUE_API_URL ?? "https://api.autentique.com.br/v2/graphql",

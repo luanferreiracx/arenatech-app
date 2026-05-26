@@ -7,9 +7,24 @@ import crypto from "node:crypto";
  * token e curto, com prazo de 1h e escopo por OS (tenant + orderId).
  *
  * Formato: base64url(payload).base64url(HMAC-SHA256(payload))
- * Payload: `${tenantId}.${orderId}.${expiresAt}`
+ * Payload: `${tenantId}.${orderId}.${expiresAt}.${kind}`
+ *
+ * Em prod, AUTH_SECRET (ou NEXTAUTH_SECRET) e obrigatorio — sem ele,
+ * `getSecret()` lanca em runtime ao tentar assinar/verificar. Em dev/test,
+ * fallback `dev-secret` permite rodar local sem configurar.
  */
-const SECRET = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? "dev-secret";
+function getSecret(): string {
+  const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "AUTH_SECRET (ou NEXTAUTH_SECRET) ausente em prod — assinatura de PDF publico nao pode ser gerada com fallback inseguro.",
+      );
+    }
+    return "dev-secret";
+  }
+  return secret;
+}
 
 /** Tipo do documento sendo entregado via WhatsApp.
  * - "receipt": recibo final da venda
@@ -24,7 +39,7 @@ export interface PublicPdfTokenPayload {
 }
 
 function sign(payload: string): string {
-  return crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
+  return crypto.createHmac("sha256", getSecret()).update(payload).digest("base64url");
 }
 
 export function createPublicPdfToken(

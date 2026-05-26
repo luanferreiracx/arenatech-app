@@ -8,6 +8,7 @@ import { compareSync } from "bcryptjs";
 import { randomUUID } from "crypto";
 import { logger } from "@/lib/logger";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
+import { escapeHtml } from "@/lib/utils/html";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -84,14 +85,16 @@ export const authRouter = createTRPCRouter({
       const baseUrl = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000";
       const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
-      // Send email
+      // Send email — escapa nome do usuario para evitar HTML injection.
+      // O link e gerado server-side (token UUID + baseUrl env) — seguro.
+      const safeName = escapeHtml(user.name);
       await sendEmail(
         user.email,
         "Arena Tech - Redefinir senha",
         `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
           <h2 style="color: #c9a55c;">Arena Tech</h2>
-          <p>Ola, ${user.name}!</p>
+          <p>Ola, ${safeName}!</p>
           <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
           <div style="text-align: center; margin: 32px 0;">
             <a href="${resetLink}"

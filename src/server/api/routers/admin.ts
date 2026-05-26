@@ -32,6 +32,7 @@ import {
 } from "@/lib/validators/addon";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
+import { randomBytes } from "node:crypto";
 
 // ── Helpers ──
 
@@ -55,8 +56,11 @@ function generateSlug(name: string): string {
 }
 
 function generateTempPassword(): string {
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `Arena@${num}`;
+  // 12 bytes -> 16 chars base64url (~96 bits). O prefixo "Arena@" mantem
+  // legibilidade para o usuario na hora de comunicar a senha temporaria,
+  // mas a entropia toda vem do sufixo aleatorio gerado por CSPRNG.
+  const suffix = randomBytes(12).toString("base64url");
+  return `Arena@${suffix}`;
 }
 
 export const adminRouter = createTRPCRouter({

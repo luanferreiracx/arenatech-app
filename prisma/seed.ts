@@ -15,6 +15,18 @@ async function main() {
     throw new Error("SUPERADMIN_CPF and SUPERADMIN_PASSWORD must be set in env");
   }
 
+  // Em prod, rejeitar placeholders inseguros conhecidos do .env.example.
+  // "changeme" e variantes sao usados em diversos repos como default e sao
+  // alvos triviais de scanners automatizados.
+  if (process.env.NODE_ENV === "production") {
+    const insecure = new Set(["changeme", "<change-me-required>", "password", "admin", "123456"]);
+    if (insecure.has(superPassword.toLowerCase()) || superPassword.length < 12) {
+      throw new Error(
+        "SUPERADMIN_PASSWORD inseguro em prod: deve ter >= 12 chars e nao ser placeholder.",
+      );
+    }
+  }
+
   // --- Tenants ---
   const tenantArena = await prisma.tenant.upsert({
     where: { slug: "arena-tech" },

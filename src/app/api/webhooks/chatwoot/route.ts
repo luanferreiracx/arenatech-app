@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
+import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
 /**
  * POST /api/webhooks/chatwoot
@@ -20,11 +21,22 @@ export async function POST(req: NextRequest) {
 
     logger.info("Chatwoot webhook received", { event })
 
-    // Verify webhook token
-    const token = req.headers.get("x-chatwoot-signature") ?? req.headers.get("authorization")
+    // Verify webhook token (timing-safe compare contra rotina e contra "Bearer X").
+    const token = req.headers.get("x-chatwoot-signature") ?? req.headers.get("authorization") ?? ""
     const expectedToken = process.env.CHATWOOT_WEBHOOK_TOKEN
-    if (expectedToken && token !== expectedToken && token !== `Bearer ${expectedToken}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!expectedToken) {
+      if (process.env.NODE_ENV === "production") {
+        logger.error("Chatwoot webhook: CHATWOOT_WEBHOOK_TOKEN ausente em prod — rejeitando.")
+        return NextResponse.json({ error: "Service not configured" }, { status: 503 })
+      }
+      logger.warn("Chatwoot webhook: sem CHATWOOT_WEBHOOK_TOKEN — aceitando em dev")
+    } else {
+      const okRaw = timingSafeEqualString(token, expectedToken)
+      const okBearer = timingSafeEqualString(token, `Bearer ${expectedToken}`)
+      if (!okRaw && !okBearer) {
+        logger.warn("Chatwoot webhook: invalid token")
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
     }
 
     // Determine tenant from account (Chatwoot account maps to tenant)

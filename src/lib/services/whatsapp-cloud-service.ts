@@ -31,13 +31,25 @@ function getConfig() {
   const phoneNumberId =
     process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
   const apiVersion = process.env.WHATSAPP_CLOUD_API_VERSION ?? "v22.0";
-  if (!token || !phoneNumberId) return null;
+  if (!token || !phoneNumberId) {
+    if (process.env.NODE_ENV === "production") {
+      // Em prod, mock-mode silencioso e perigoso: mensagens "enviadas" sao
+      // descartadas sem qualquer indicacao no UI. Falha cedo e ruidoso.
+      throw new Error(
+        "WhatsApp Cloud: WHATSAPP_CLOUD_TOKEN/PHONE_NUMBER_ID ausentes em prod. Configure as envs ou remova o uso de WA Cloud.",
+      );
+    }
+    return null;
+  }
   return {
     token,
     phoneNumberId,
     apiUrl: `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
   };
 }
+
+/** Timeout para chamadas a Graph API da Meta (Cloud API). */
+const META_FETCH_TIMEOUT_MS = 15_000;
 
 /**
  * Normaliza um numero brasileiro para o formato esperado pela Cloud API:
@@ -80,6 +92,7 @@ export async function sendCloudText(
         type: "text",
         text: { body },
       }),
+      signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
     });
     const json = (await res.json()) as {
       messages?: Array<{ id: string }>;
@@ -135,6 +148,7 @@ export async function sendCloudTemplate(
           components: components ?? [],
         },
       }),
+      signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
     });
     const json = (await res.json()) as {
       messages?: Array<{ id: string }>;

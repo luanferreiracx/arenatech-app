@@ -20,9 +20,17 @@ export async function POST(req: NextRequest) {
   const body = await req.text();
   const signature = req.headers.get("x-autentique-signature");
 
-  // Valida HMAC se segredo configurado. Em ambientes sem secret (dev), aceita.
+  // Valida HMAC se segredo configurado. Em prod, segredo e obrigatorio.
   const secret = process.env.AUTENTIQUE_WEBHOOK_SECRET;
-  if (secret) {
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error(
+        "Autentique webhook: AUTENTIQUE_WEBHOOK_SECRET ausente em prod — rejeitando.",
+      );
+      return NextResponse.json({ error: "Service not configured" }, { status: 503 });
+    }
+    logger.warn("Autentique webhook: sem AUTENTIQUE_WEBHOOK_SECRET — aceitando em dev");
+  } else {
     if (!signature) {
       logger.warn("Autentique webhook sem X-Autentique-Signature");
       return NextResponse.json({ error: "missing signature" }, { status: 401 });

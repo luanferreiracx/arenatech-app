@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { parseIPhoneListing } from "@/lib/services/iphone-listing-parser";
+import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 
 /**
  * POST /api/webhooks/evolution
@@ -26,9 +27,15 @@ import { parseIPhoneListing } from "@/lib/services/iphone-listing-parser";
  */
 export async function POST(req: NextRequest) {
   const expectedToken = process.env.EVOLUTION_WEBHOOK_TOKEN;
-  if (expectedToken) {
-    const header = req.headers.get("authorization");
-    if (header !== `Bearer ${expectedToken}`) {
+  if (!expectedToken) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error("Evolution webhook: EVOLUTION_WEBHOOK_TOKEN ausente em prod — rejeitando.");
+      return NextResponse.json({ error: "Service not configured" }, { status: 503 });
+    }
+    logger.warn("Evolution webhook: sem EVOLUTION_WEBHOOK_TOKEN — aceitando em dev");
+  } else {
+    const header = req.headers.get("authorization") ?? "";
+    if (!timingSafeEqualString(header, `Bearer ${expectedToken}`)) {
       logger.warn("Evolution webhook: invalid auth");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -33,6 +33,12 @@ export async function sendEmail(
   const from = process.env.EMAIL_FROM ?? "noreply@arenatechpi.com.br";
 
   if (!apiKey) {
+    // Em prod, mock-mode silencioso e perigoso (ex: reset de senha
+    // "enviado" mas nunca chega). Falha cedo e ruidoso.
+    if (process.env.NODE_ENV === "production") {
+      logger.error("Email: RESEND_API_KEY ausente em prod — recusando envio.", { to, subject });
+      return { success: false, error: "Servico de e-mail nao configurado" };
+    }
     logger.info("Email: mock mode (no RESEND_API_KEY)", { to, subject });
     return { success: true, messageId: `mock-email-${Date.now()}` };
   }

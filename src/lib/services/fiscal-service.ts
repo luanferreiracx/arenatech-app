@@ -7,6 +7,7 @@
  * @see https://dev.nuvemfiscal.com.br/docs/
  */
 
+import { randomBytes } from "node:crypto";
 import { logger } from "@/lib/logger";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -57,6 +58,13 @@ function getConfig(): NuvemFiscalConfig | null {
   const clientSecret = process.env.NUVEM_FISCAL_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
+    // Em prod, NUNCA aceitar mock-mode em emissao fiscal — falsificar NF-e
+    // seria fraude fiscal nao intencional.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Nuvem Fiscal: NUVEM_FISCAL_CLIENT_ID/SECRET ausentes em prod. Configurar as envs ou desabilitar emissao fiscal.",
+      );
+    }
     return null;
   }
 
@@ -326,12 +334,13 @@ function getNestedString(
 }
 
 function getMockEmitResult(): FiscalEmitResult {
-  const mockNum = Math.floor(Math.random() * 99999) + 1;
+  // Mock so e usado em dev/test (getConfig() lanca em prod).
+  const suffix = randomBytes(4).toString("hex");
   return {
     success: true,
-    providerRef: `mock-nfe-${mockNum}`,
-    accessKey: `${mockNum}`.padStart(44, "0"),
-    protocol: `MOCK-PROTO-${mockNum}`,
+    providerRef: `mock-nfe-${suffix}`,
+    accessKey: BigInt(`0x${suffix}`).toString().padStart(44, "0").slice(-44),
+    protocol: `MOCK-PROTO-${suffix}`,
     status: "autorizado",
   };
 }
