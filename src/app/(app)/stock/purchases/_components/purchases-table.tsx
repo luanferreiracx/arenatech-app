@@ -10,6 +10,7 @@ import { DataTable } from "@/components/domain/data-table";
 import { DataTableToolbar } from "@/components/domain/data-table/data-table-toolbar";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 import { deviceConditionLabels } from "@/lib/validators/stock";
 
@@ -60,6 +61,7 @@ export function PurchasesTable() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
+  const [confirmPhysicalId, setConfirmPhysicalId] = useState<string | null>(null);
 
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: trpc.stock.listPurchases.queryKey() });
@@ -238,12 +240,9 @@ export function PurchasesTable() {
               variant="ghost"
               className="h-7 w-7 text-success"
               title="Confirmar assinatura fisica"
+              aria-label="Confirmar assinatura fisica do termo"
               disabled={confirmPhysicalMut.isPending}
-              onClick={() => {
-                if (confirm("Confirmar assinatura fisica do termo?")) {
-                  confirmPhysicalMut.mutate({ id: r.id });
-                }
-              }}
+              onClick={() => setConfirmPhysicalId(r.id)}
             >
               <Check className="h-3.5 w-3.5" />
             </Button>
@@ -254,6 +253,7 @@ export function PurchasesTable() {
   ];
 
   return (
+    <>
     <DataTable
       columns={columns}
       data={(data?.data ?? []) as PurchaseRow[]}
@@ -275,5 +275,21 @@ export function PurchasesTable() {
         />
       }
     />
+
+    <ConfirmDialog
+      open={confirmPhysicalId !== null}
+      onOpenChange={(open) => { if (!open) setConfirmPhysicalId(null); }}
+      title="Confirmar assinatura fisica do termo?"
+      description="Marca o termo como assinado fisicamente pelo vendedor."
+      confirmLabel="Confirmar"
+      onConfirm={() => {
+        if (confirmPhysicalId) {
+          confirmPhysicalMut.mutate({ id: confirmPhysicalId });
+          setConfirmPhysicalId(null);
+        }
+      }}
+      isLoading={confirmPhysicalMut.isPending}
+    />
+    </>
   );
 }

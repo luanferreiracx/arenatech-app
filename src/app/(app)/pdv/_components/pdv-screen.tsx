@@ -38,6 +38,7 @@ import { PriceCheckDialog } from "./price-check-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { SelectStockItemDialog } from "./select-stock-item-dialog";
 import { SelectVariationDialog } from "./select-variation-dialog";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -427,12 +428,10 @@ export function PdvScreen() {
   };
 
   // -- New Sale (restart) --
-  const handleNewSale = () => {
-    if (
-      items.length > 0 &&
-      !confirm("Tem certeza? Todos os itens do carrinho serao removidos.")
-    )
-      return;
+  const [confirmNewSale, setConfirmNewSale] = useState(false);
+
+  const performNewSale = () => {
+    setConfirmNewSale(false);
     setDraftId(null);
     setCustomerId(undefined);
     setCustomerName(null);
@@ -444,6 +443,14 @@ export function PdvScreen() {
         toast.error(`Erro ao descartar rascunho: ${err.message}`);
       },
     });
+  };
+
+  const handleNewSale = () => {
+    if (items.length > 0) {
+      setConfirmNewSale(true);
+      return;
+    }
+    performNewSale();
   };
 
   // -- Keyboard shortcuts --
@@ -1025,6 +1032,16 @@ export function PdvScreen() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmNewSale}
+        onOpenChange={setConfirmNewSale}
+        title="Iniciar nova venda?"
+        description="Todos os itens do carrinho atual serao descartados."
+        confirmLabel="Iniciar nova venda"
+        variant="destructive"
+        onConfirm={performNewSale}
+      />
     </div>
   );
 }

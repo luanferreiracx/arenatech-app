@@ -63,6 +63,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
   // Uncovered day form state
   const [uncoveredDay, setUncoveredDay] = useState("");
   const [uncoveredReason, setUncoveredReason] = useState("");
+  const [confirmDeleteReversalId, setConfirmDeleteReversalId] = useState<string | null>(null);
 
   const monthOptions = getMonthOptions();
 
@@ -157,15 +158,23 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
   };
 
   const handleDeleteReversal = (reversalId: string) => {
-    if (!confirm("Remover este estorno?")) return;
+    setConfirmDeleteReversalId(reversalId);
+  };
+
+  const performDeleteReversal = () => {
+    if (!confirmDeleteReversalId) return;
     deleteReversalMutation.mutate(
-      { id: reversalId, providerId },
+      { id: confirmDeleteReversalId, providerId },
       {
         onSuccess: () => {
           toast.success("Estorno removido");
+          setConfirmDeleteReversalId(null);
           invalidate();
         },
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          setConfirmDeleteReversalId(null);
+        },
       },
     );
   };
@@ -551,6 +560,17 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
         description={`Fechar apuracao de ${String(month).padStart(2, "0")}/${year}? Isso gera uma conta a pagar e torna a memoria imutavel.`}
         onConfirm={handleClose}
         variant="destructive"
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteReversalId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteReversalId(null); }}
+        title="Remover este estorno?"
+        description="O lancamento de estorno sera removido e a apuracao sera recalculada."
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={performDeleteReversal}
+        isLoading={deleteReversalMutation.isPending}
       />
     </div>
   );

@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 
 function formatCurrency(v: unknown): string {
@@ -77,6 +78,8 @@ export function DeviceCatalogAdmin() {
   // Dialogs
   const [categoryDialog, setCategoryDialog] = useState<{ id?: string; name: string } | null>(null);
   const [deviceDialog, setDeviceDialog] = useState<Partial<CatalogDevice> | null>(null);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<{ id: string; name: string } | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: trpc.catalog.listCatalogCategories.queryKey() });
@@ -222,13 +225,10 @@ export function DeviceCatalogAdmin() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (confirm(`Remover categoria "${cat.name}"?`)) {
-                        deleteCategoryMut.mutate({ id: cat.id });
-                      }
-                    }}
+                    onClick={() => setConfirmDeleteCategory({ id: cat.id, name: cat.name })}
                     className="p-1 hover:text-destructive"
                     title="Excluir"
+                    aria-label={`Excluir categoria ${cat.name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -300,11 +300,10 @@ export function DeviceCatalogAdmin() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm(`Remover ${d.name}?`)) deleteDeviceMut.mutate({ id: d.id });
-                        }}
+                        onClick={() => setConfirmDeleteDevice({ id: d.id, name: d.name })}
                         className="p-1 hover:text-destructive"
                         title="Excluir"
+                        aria-label={`Excluir aparelho ${d.name}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -472,6 +471,38 @@ export function DeviceCatalogAdmin() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmDeleteCategory !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteCategory(null); }}
+        title={confirmDeleteCategory ? `Remover categoria "${confirmDeleteCategory.name}"?` : ""}
+        description="Os aparelhos vinculados ficarao sem categoria."
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmDeleteCategory) {
+            deleteCategoryMut.mutate({ id: confirmDeleteCategory.id });
+            setConfirmDeleteCategory(null);
+          }
+        }}
+        isLoading={deleteCategoryMut.isPending}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteDevice !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteDevice(null); }}
+        title={confirmDeleteDevice ? `Remover "${confirmDeleteDevice.name}"?` : ""}
+        description="O aparelho sera removido do catalogo."
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmDeleteDevice) {
+            deleteDeviceMut.mutate({ id: confirmDeleteDevice.id });
+            setConfirmDeleteDevice(null);
+          }
+        }}
+        isLoading={deleteDeviceMut.isPending}
+      />
     </div>
   );
 }

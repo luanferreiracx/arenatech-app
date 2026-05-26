@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -25,6 +27,7 @@ import { ArrowLeft, AlertTriangle } from "lucide-react";
 
 export default function InutilizarPage() {
   const trpc = useTRPC();
+  const [pendingInput, setPendingInput] = useState<InutilizarInput | null>(null);
 
   const form = useForm<InutilizarInput>({
     resolver: zodResolver(inutilizarSchema),
@@ -42,8 +45,12 @@ export default function InutilizarPage() {
       onSuccess: (data) => {
         toast.success(`${data.quantity} numero(s) inutilizado(s) com sucesso`);
         form.reset();
+        setPendingInput(null);
       },
-      onError: (err) => toast.error(err.message),
+      onError: (err) => {
+        toast.error(err.message);
+        setPendingInput(null);
+      },
     }),
   );
 
@@ -52,12 +59,13 @@ export default function InutilizarPage() {
       toast.error("Numero final deve ser maior ou igual ao inicial");
       return;
     }
-    const quantity = data.endNumber - data.startNumber + 1;
-    const modelName = data.model === "55" ? "NF-e" : "NFC-e";
-    if (confirm(`Inutilizar ${quantity} numero(s) de ${modelName} (${data.startNumber} a ${data.endNumber})?\n\nEsta acao e IRREVERSIVEL!`)) {
-      inutilizarMutation.mutate(data);
-    }
+    setPendingInput(data);
   });
+
+  const pendingQuantity = pendingInput
+    ? pendingInput.endNumber - pendingInput.startNumber + 1
+    : 0;
+  const pendingModelName = pendingInput?.model === "55" ? "NF-e" : "NFC-e";
 
   return (
     <div>
@@ -188,6 +196,23 @@ export default function InutilizarPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={pendingInput !== null}
+        onOpenChange={(open) => { if (!open) setPendingInput(null); }}
+        title="Inutilizar numeracao?"
+        description={
+          pendingInput
+            ? `Confirmar a inutilizacao de ${pendingQuantity} numero(s) de ${pendingModelName} (${pendingInput.startNumber} a ${pendingInput.endNumber})? Esta acao e IRREVERSIVEL.`
+            : ""
+        }
+        confirmLabel="Inutilizar (irreversivel)"
+        variant="destructive"
+        onConfirm={() => {
+          if (pendingInput) inutilizarMutation.mutate(pendingInput);
+        }}
+        isLoading={inutilizarMutation.isPending}
+      />
     </div>
   );
 }

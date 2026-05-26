@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/domain/empty-state";
 import { DataTable } from "@/components/domain/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Card } from "@/components/ui/card";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
@@ -111,15 +112,29 @@ export function ValuationsList() {
     }
   };
 
+  // Estado de confirmacao para delete singular. Antes esse handleDelete
+  // disparava o delete sem confirm — clique acidental no botao trash
+  // removia avaliacao sem volta.
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   const handleDelete = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
+  const performDelete = () => {
+    if (!deleteConfirmId) return;
     deleteMutation.mutate(
-      { id },
+      { id: deleteConfirmId },
       {
         onSuccess: () => {
           toast.success("Avaliacao removida");
+          setDeleteConfirmId(null);
           invalidate();
         },
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          setDeleteConfirmId(null);
+        },
       },
     );
   };
@@ -185,16 +200,26 @@ export function ValuationsList() {
     );
   };
 
+  const [deleteModelConfirm, setDeleteModelConfirm] = useState<string | null>(null);
+
   const handleDeleteModel = (modelo: string) => {
-    if (!confirm(`Excluir todas as avaliacoes do modelo "${modelo}"?`)) return;
+    setDeleteModelConfirm(modelo);
+  };
+
+  const performDeleteModel = () => {
+    if (!deleteModelConfirm) return;
     deleteModelMutation.mutate(
-      { modelo },
+      { modelo: deleteModelConfirm },
       {
         onSuccess: (data) => {
           toast.success(`${data.deleted} avaliacoes removidas`);
+          setDeleteModelConfirm(null);
           invalidate();
         },
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          setDeleteModelConfirm(null);
+        },
       },
     );
   };
@@ -537,6 +562,28 @@ export function ValuationsList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteConfirmId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}
+        title="Excluir avaliacao?"
+        description="Esta acao remove a avaliacao escolhida e nao pode ser desfeita."
+        confirmLabel="Excluir"
+        variant="destructive"
+        onConfirm={performDelete}
+        isLoading={deleteMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={deleteModelConfirm !== null}
+        onOpenChange={(open) => { if (!open) setDeleteModelConfirm(null); }}
+        title={`Excluir todas as avaliacoes do modelo "${deleteModelConfirm ?? ""}"?`}
+        description="Esta acao remove TODAS as avaliacoes do modelo selecionado e nao pode ser desfeita."
+        confirmLabel="Excluir tudo"
+        variant="destructive"
+        onConfirm={performDeleteModel}
+        isLoading={deleteModelMutation.isPending}
+      />
     </div>
   );
 }

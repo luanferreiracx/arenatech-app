@@ -5,6 +5,7 @@ import { Upload, Loader2, Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 
 interface LogoUploadProps {
@@ -24,6 +25,7 @@ export function LogoUpload({ currentUrl, onChange }: LogoUploadProps) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const uploadMutation = useMutation(
     trpc.settings.uploadLogo.mutationOptions({
@@ -146,9 +148,7 @@ export function LogoUpload({ currentUrl, onChange }: LogoUploadProps) {
             variant="outline"
             size="sm"
             className="text-destructive border-destructive/30"
-            onClick={() => {
-              if (confirm("Remover a logo da loja?")) deleteMutation.mutate();
-            }}
+            onClick={() => setConfirmRemove(true)}
             disabled={isLoading}
           >
             <Trash2 className="mr-2 h-3 w-3" />
@@ -156,6 +156,20 @@ export function LogoUpload({ currentUrl, onChange }: LogoUploadProps) {
           </Button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title="Remover a logo da loja?"
+        description="O logotipo sera removido dos documentos gerados (recibos, termos, etc.)."
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={() => {
+          deleteMutation.mutate();
+          setConfirmRemove(false);
+        }}
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 }

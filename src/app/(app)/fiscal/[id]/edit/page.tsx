@@ -1,11 +1,12 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { PageHeader } from "@/components/domain/page-header";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,9 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+
+  const [confirmAuthorize, setConfirmAuthorize] = useState(false);
+  const [removeItemId, setRemoveItemId] = useState<string | null>(null);
 
   const invoiceQuery = useQuery(trpc.fiscal.getById.queryOptions({ id }));
   const invoice = invoiceQuery.data;
@@ -127,11 +131,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           <div className="flex gap-2">
             {isEditable && (invoice.items?.length ?? 0) > 0 && (
               <Button
-                onClick={() => {
-                  if (confirm("Enviar NF-e para a SEFAZ?")) {
-                    authorizeMutation.mutate({ invoiceId: id });
-                  }
-                }}
+                onClick={() => setConfirmAuthorize(true)}
                 disabled={authorizeMutation.isPending}
               >
                 <Send className="mr-2 h-4 w-4" />
@@ -347,11 +347,8 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
-                                if (confirm("Remover este item?")) {
-                                  removeItemMutation.mutate({ invoiceId: id, itemId: item.id });
-                                }
-                              }}
+                              aria-label="Remover item da NF-e"
+                              onClick={() => setRemoveItemId(item.id)}
                             >
                               <X className="h-4 w-4" />
                             </Button>
@@ -377,6 +374,35 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           </Card>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmAuthorize}
+        onOpenChange={setConfirmAuthorize}
+        title="Enviar NF-e para a SEFAZ?"
+        description="A nota sera transmitida e autorizada pela SEFAZ. Apos autorizada, alteracoes so podem ser feitas via cancelamento ou carta de correcao."
+        confirmLabel="Enviar para SEFAZ"
+        onConfirm={() => {
+          setConfirmAuthorize(false);
+          authorizeMutation.mutate({ invoiceId: id });
+        }}
+        isLoading={authorizeMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={removeItemId !== null}
+        onOpenChange={(open) => { if (!open) setRemoveItemId(null); }}
+        title="Remover este item?"
+        description="O item sera removido da NF-e em rascunho."
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={() => {
+          if (removeItemId) {
+            removeItemMutation.mutate({ invoiceId: id, itemId: removeItemId });
+            setRemoveItemId(null);
+          }
+        }}
+        isLoading={removeItemMutation.isPending}
+      />
     </div>
   );
 }

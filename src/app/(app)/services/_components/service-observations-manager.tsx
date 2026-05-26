@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 
 interface ServiceObservation {
@@ -36,6 +37,7 @@ export function ServiceObservationsManager() {
   const [editing, setEditing] = useState<ServiceObservation | null>(null);
   const [title, setTitle] = useState("");
   const [observation, setObservation] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
 
   const listQuery = useQuery(trpc.catalog.listServiceObservations.queryOptions({}));
   const list = (listQuery.data ?? []) as ServiceObservation[];
@@ -163,11 +165,8 @@ export function ServiceObservationsManager() {
                       variant="ghost"
                       size="icon"
                       className="text-destructive"
-                      onClick={() => {
-                        if (confirm(`Excluir observacao "${obs.title}"?`)) {
-                          deleteMut.mutate({ id: obs.id });
-                        }
-                      }}
+                      aria-label={`Excluir observacao ${obs.title}`}
+                      onClick={() => setConfirmDelete({ id: obs.id, title: obs.title })}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -214,6 +213,22 @@ export function ServiceObservationsManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}
+        title={confirmDelete ? `Excluir observacao "${confirmDelete.title}"?` : ""}
+        description="A observacao sera removida e nao podera ser usada em novas OS."
+        confirmLabel="Excluir"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmDelete) {
+            deleteMut.mutate({ id: confirmDelete.id });
+            setConfirmDelete(null);
+          }
+        }}
+        isLoading={deleteMut.isPending}
+      />
     </div>
   );
 }

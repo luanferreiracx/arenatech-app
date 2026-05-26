@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 import { createWithdrawSchema, type CreateWithdrawInput, PIX_KEY_TYPE_LABELS } from "@/lib/validators/depix-withdraw";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export function NewWithdrawForm() {
   const router = useRouter();
   const trpc = useTRPC();
   const [selectedType, setSelectedType] = useState<string>("");
+  const [pendingWithdraw, setPendingWithdraw] = useState<CreateWithdrawInput | null>(null);
 
   const form = useForm<CreateWithdrawInput>({
     resolver: zodResolver(createWithdrawSchema),
@@ -68,10 +70,7 @@ export function NewWithdrawForm() {
   };
 
   const onSubmit = (data: CreateWithdrawInput) => {
-    if (!confirm(
-      `CONFIRMAR SAQUE?\n\nTipo Chave: ${PIX_KEY_TYPE_LABELS[data.pixKeyType]}\nChave PIX: ${data.pixKey}\nValor: ${formatCurrency(data.requestedAmount)}\n\nDeseja continuar?`
-    )) return;
-    createMutation.mutate(data);
+    setPendingWithdraw(data);
   };
 
   return (
@@ -218,6 +217,25 @@ export function NewWithdrawForm() {
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingWithdraw !== null}
+        onOpenChange={(open) => { if (!open) setPendingWithdraw(null); }}
+        title="Confirmar saque PIX?"
+        description={
+          pendingWithdraw
+            ? `Tipo: ${PIX_KEY_TYPE_LABELS[pendingWithdraw.pixKeyType]} | Chave: ${pendingWithdraw.pixKey} | Valor: ${formatCurrency(pendingWithdraw.requestedAmount)}. Esta operacao move dinheiro de verdade.`
+            : ""
+        }
+        confirmLabel="Confirmar saque"
+        onConfirm={() => {
+          if (pendingWithdraw) {
+            createMutation.mutate(pendingWithdraw);
+            setPendingWithdraw(null);
+          }
+        }}
+        isLoading={createMutation.isPending}
+      />
     </form>
   );
 }
