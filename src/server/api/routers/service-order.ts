@@ -1546,7 +1546,8 @@ export const serviceOrderRouter = createTRPCRouter({
   sendToLab: tenantProcedure
     .input(sendToLabSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: persistir status do lab + carregar dados do entregador.
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
           select: { status: true },
@@ -1562,40 +1563,46 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Paridade Laravel `enviarParaLaboratorio` (OrdemServicoController:2780-2820):
-        // dispara WhatsApp para o entregador atribuido. Best-effort.
-        let whatsappSent = false;
+        let deliveryPhone: string | null = null;
         if (input.deliveryPersonId && input.message) {
-          const deliveryPerson = await tx.deliveryPerson.findUnique({
+          const dp = await tx.deliveryPerson.findUnique({
             where: { id: input.deliveryPersonId },
+            select: { phone: true },
           });
-          if (deliveryPerson?.phone) {
-            try {
-              const result = await sendTextMessage(deliveryPerson.phone, input.message);
-              whatsappSent = result.success;
-            } catch {
-              // best-effort
-            }
-          }
+          deliveryPhone = dp?.phone ?? null;
         }
 
-        // Lab e evento paralelo ao status — registra como anotacao no historico
-        // sem mudar status. Paridade Laravel `enviarParaLaboratorio`.
+        return { order, deliveryPhone };
+      });
+
+      // WhatsApp HTTP fora da tx (best-effort).
+      let whatsappSent = false;
+      if (prep.deliveryPhone && input.message) {
+        try {
+          const result = await sendTextMessage(prep.deliveryPhone, input.message);
+          whatsappSent = result.success;
+        } catch {
+          // best-effort
+        }
+      }
+
+      // tx2: history.
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: whatsappSent
               ? "Aparelho enviado ao laboratorio externo (entregador notificado via WhatsApp)"
               : "Aparelho enviado ao laboratorio externo",
           },
         });
-
-        return { success: true, whatsappSent };
       });
+
+      return { success: true, whatsappSent };
     }),
 
   // ── RECEIVE FROM LAB ──
@@ -2423,27 +2430,31 @@ export const serviceOrderRouter = createTRPCRouter({
   checkSignatureStatus: tenantProcedure
     .input(z.object({ orderId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({
+      // tx1: validar + carregar order
+      const order = await ctx.withTenant(async (tx) => {
+        const o = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
         });
-        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
-        if (!order.signatureDocumentId) {
+        if (!o) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        if (!o.signatureDocumentId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum documento de assinatura enviado." });
         }
+        return o;
+      });
 
-        const status = await getDocumentStatus(order.signatureDocumentId);
+      // HTTP Autentique fora da tx (mesma logica das outras checkXxxStatus).
+      const status = await getDocumentStatus(order.signatureDocumentId!);
+      if (!status.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+      }
 
-        if (!status.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
-        }
-
-        if (status.signed && !order.signatureSignedAt) {
+      // tx2: aplicar resultado se acabou de ser assinado.
+      if (status.signed && !order.signatureSignedAt) {
+        await ctx.withTenant(async (tx) => {
           await tx.serviceOrder.update({
             where: { id: input.orderId },
             data: { signatureSignedAt: new Date() },
           });
-
           await tx.serviceOrderHistory.create({
             data: {
               tenantId: ctx.tenantId,
@@ -2454,14 +2465,14 @@ export const serviceOrderRouter = createTRPCRouter({
               notes: "Assinatura digital confirmada via Autentique",
             },
           });
-        }
+        });
+      }
 
-        return {
-          signed: status.signed,
-          signaturesCompleted: status.signaturesCompleted,
-          totalSignatures: status.totalSignatures,
-        };
-      });
+      return {
+        signed: status.signed,
+        signaturesCompleted: status.signaturesCompleted,
+        totalSignatures: status.totalSignatures,
+      };
     }),
 
   // ── LIST TECHNICIANS ──
@@ -2788,11 +2799,12 @@ export const serviceOrderRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // ── 4. NOTIFY DELIVERY PERSON ──
+  // ── 4. NOTIFY DELIVERY PERSON ── (HTTP fora da tx)
   notifyDeliveryPerson: tenantProcedure
     .input(notifyDeliveryPersonSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: validar + carregar.
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -2801,42 +2813,48 @@ export const serviceOrderRouter = createTRPCRouter({
         });
         if (!deliveryPerson) throw new TRPCError({ code: "NOT_FOUND", message: "Entregador nao encontrado" });
 
-        let whatsappSent = false;
-        if (deliveryPerson.phone) {
-          const result = await sendTextMessage(deliveryPerson.phone, input.message);
-          whatsappSent = result.success;
-          if (!result.success) {
-            logger.warn("Falha ao enviar WhatsApp para entregador", {
-              orderId: input.orderId,
-              deliveryPersonId: deliveryPerson.id,
-              error: result.error,
-            });
-          }
-        }
+        return { order, deliveryPerson };
+      });
 
+      // WhatsApp HTTP fora da tx.
+      let whatsappSent = false;
+      if (prep.deliveryPerson.phone) {
+        const result = await sendTextMessage(prep.deliveryPerson.phone, input.message);
+        whatsappSent = result.success;
+        if (!result.success) {
+          logger.warn("Falha ao enviar WhatsApp para entregador", {
+            orderId: input.orderId,
+            deliveryPersonId: prep.deliveryPerson.id,
+            error: result.error,
+          });
+        }
+      }
+
+      // tx2: persistir + history.
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
-          data: { deliveryPersonId: deliveryPerson.id },
+          data: { deliveryPersonId: prep.deliveryPerson.id },
         });
 
         const context = input.context ?? "generico";
         const noteText = context === "retirada"
-          ? `Solicitada retirada do aparelho no laboratorio. Entregador: ${deliveryPerson.name}`
-          : `Mensagem enviada ao entregador: ${deliveryPerson.name}`;
+          ? `Solicitada retirada do aparelho no laboratorio. Entregador: ${prep.deliveryPerson.name}`
+          : `Mensagem enviada ao entregador: ${prep.deliveryPerson.name}`;
 
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: `${noteText} (WhatsApp ${whatsappSent ? "enviado" : "nao enviado"})`,
           },
         });
-
-        return { success: true, whatsappSent };
       });
+
+      return { success: true, whatsappSent };
     }),
 
   // ── 5. SEND DELIVERY TERM ──
@@ -3224,11 +3242,12 @@ export const serviceOrderRouter = createTRPCRouter({
       return { signed: true, alreadySigned: false, cancelled: true };
     }),
 
-  // ── 11. SEND QUOTE VIA WHATSAPP ──
+  // ── 11. SEND QUOTE VIA WHATSAPP ── (HTTP fora da tx)
   sendQuoteWhatsApp: tenantProcedure
     .input(sendQuoteWhatsAppSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: validar + carregar order/quote/customer.
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -3250,34 +3269,37 @@ export const serviceOrderRouter = createTRPCRouter({
         const phone = input.phone ?? customer.phone;
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const approvalLink = `${appUrl}/quote/${quote.approvalLink}`;
-        const totalFormatted = (Number(quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        return { order, quote, customer, phone };
+      });
 
-        const caption = `Orcamento - OS #${order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
+      // HTTP (token gen + WhatsApp Cloud) FORA da tx.
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const approvalLink = `${appUrl}/quote/${prep.quote.approvalLink}`;
+      const totalFormatted = (Number(prep.quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-        // Usa sendPdfWithFallback (template `os_orcamento_pdf_link` fora da
-        // janela 24h Meta — paridade Laravel enviarPdfComFallbackTemplate).
-        // PDF baixado via rota publica HMAC-tokenizada (Meta acessa sem auth).
-        const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-        const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
-        const wa = await sendPdfWithFallback({
-          phone,
-          pdfUrl,
-          fileName: `OS_${order.number}_orcamento.pdf`,
-          caption,
-          contexto: "os_orcamento_pdf_link",
-          params: [customer.name, order.number, totalFormatted],
-          urlButtonParam: quote.approvalLink ?? undefined,
+      const caption = `Orcamento - OS #${prep.order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
+
+      const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
+      const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+      const wa = await sendPdfWithFallback({
+        phone: prep.phone,
+        pdfUrl,
+        fileName: `OS_${prep.order.number}_orcamento.pdf`,
+        caption,
+        contexto: "os_orcamento_pdf_link",
+        params: [prep.customer.name, prep.order.number, totalFormatted],
+        urlButtonParam: prep.quote.approvalLink ?? undefined,
+      });
+      if (!wa.success) {
+        logger.warn("Falha ao enviar orcamento por WhatsApp", {
+          orderId: input.orderId, error: wa.error,
         });
-        if (!wa.success) {
-          logger.warn("Falha ao enviar orcamento por WhatsApp", {
-            orderId: input.orderId, error: wa.error,
-          });
-        }
+      }
 
+      // tx2: registrar envio.
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrderQuote.update({
-          where: { id: quote.id },
+          where: { id: prep.quote.id },
           data: { sentToCustomer: true, sentAt: new Date() },
         });
 
@@ -3286,14 +3308,14 @@ export const serviceOrderRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: "Orcamento enviado para o cliente via WhatsApp",
           },
         });
-
-        return { success: true };
       });
+
+      return { success: true };
     }),
 
   // ── 12. CHECK QUOTE STATUS ──
@@ -3495,7 +3517,8 @@ export const serviceOrderRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: validar + ler customer/limites.
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -3508,7 +3531,6 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da OS deve ser maior que zero" });
         }
 
-        // CPF do cliente (anti-fraude PixPay)
         let customerCpf: string | null = null;
         let customerCnpj: string | null = null;
         if (order.customerId) {
@@ -3520,7 +3542,6 @@ export const serviceOrderRouter = createTRPCRouter({
           customerCnpj = c?.cnpj ?? null;
         }
 
-        // Regra DePix: valores >= R$ 500,00 exigem CPF/CNPJ do pagador.
         const taxIdRaw = (input.taxId ?? customerCpf ?? customerCnpj ?? "").replace(/\D/g, "");
         if (totalAmount >= 500 && taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
           throw new TRPCError({
@@ -3530,7 +3551,6 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Validacao de limites diarios por CPF (paridade Laravel DepixLimiteService).
         let isFirstDay = false;
         if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
           const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
@@ -3544,19 +3564,24 @@ export const serviceOrderRouter = createTRPCRouter({
           isFirstDay = limit.isFirstDay;
         }
 
-        const result = await createPixPayment(
-          totalAmount,
-          `OS ${order.number}`,
-          order.id,
-          taxIdRaw || null,
-          { whitelist: isFirstDay && totalAmount > 500 },
-        );
+        return { order, totalAmount, taxIdRaw, isFirstDay };
+      });
 
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
-        }
+      // HTTP PixPay/Depix FORA da tx.
+      const result = await createPixPayment(
+        prep.totalAmount,
+        `OS ${prep.order.number}`,
+        prep.order.id,
+        prep.taxIdRaw || null,
+        { whitelist: prep.isFirstDay && prep.totalAmount > 500 },
+      );
 
-        // Update OS with DEPIX transaction info
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
+      }
+
+      // tx2: persistir DePix transaction info.
+      await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -3570,19 +3595,19 @@ export const serviceOrderRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: "PIX gerado para pagamento",
           },
         });
-
-        return {
-          transactionId: result.transactionId,
-          qrCode: result.qrCode,
-          qrCodeBase64: result.qrCodeBase64,
-          pixKey: result.pixKey,
-        };
       });
+
+      return {
+        transactionId: result.transactionId,
+        qrCode: result.qrCode,
+        qrCodeBase64: result.qrCodeBase64,
+        pixKey: result.pixKey,
+      };
     }),
 
   /** Cancel pending PIX for OS */
