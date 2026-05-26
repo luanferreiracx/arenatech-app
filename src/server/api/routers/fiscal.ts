@@ -272,11 +272,21 @@ export const fiscalRouter = createTRPCRouter({
       });
     }),
 
-  /** Authorize invoice via Nuvem Fiscal */
+  /** Authorize invoice via Nuvem Fiscal.
+   *
+   * IMPORTANTE: chamada HTTP ao provider e feita FORA da tx — a chamada pode
+   * levar 10+ segundos (Nuvem Fiscal aguarda SEFAZ) e segurar a conexao
+   * Postgres por todo esse tempo exauria o pool.
+   * Fluxo:
+   *  1) tx1: marca invoice como PENDING + salva payload
+   *  2) HTTP fora da tx
+   *  3) tx2: atualiza status (AUTHORIZED/REJECTED) com resultado
+   */
   authorize: tenantProcedure
     .input(authorizeInvoiceSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ── tx1: validar + marcar PENDING ──
+      const prep = await ctx.withTenant(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },
           include: { items: true },
@@ -288,7 +298,6 @@ export const fiscalRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nota ja autorizada ou cancelada" });
         }
 
-        // Build payload for Nuvem Fiscal
         const payload = {
           modelo: invoice.type === "NFCE" ? "65" : "55",
           destinatario: {
@@ -311,8 +320,14 @@ export const fiscalRouter = createTRPCRouter({
           data: { status: "PENDING", payload },
         });
 
-        const result = await createAndAuthorizeInvoice(payload);
+        return { payload };
+      });
 
+      // ── HTTP fora da tx ──
+      const result = await createAndAuthorizeInvoice(prep.payload);
+
+      // ── tx2: aplicar resultado ──
+      return await ctx.withTenant(async (tx) => {
         if (result.success) {
           await tx.invoice.update({
             where: { id: input.invoiceId },
@@ -328,28 +343,28 @@ export const fiscalRouter = createTRPCRouter({
           });
           logger.info("Invoice authorized", { invoiceId: input.invoiceId });
           return { success: true, accessKey: result.accessKey };
-        } else {
-          await tx.invoice.update({
-            where: { id: input.invoiceId },
-            data: {
-              status: "REJECTED",
-              providerStatus: "rejected",
-              response: result as unknown as Prisma.InputJsonValue,
-            },
-          });
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: result.error ?? "Erro ao autorizar nota fiscal",
-          });
         }
+
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: {
+            status: "REJECTED",
+            providerStatus: "rejected",
+            response: result as unknown as Prisma.InputJsonValue,
+          },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error ?? "Erro ao autorizar nota fiscal",
+        });
       });
     }),
 
-  /** Cancel authorized invoice */
+  /** Cancel authorized invoice — HTTP fora da tx (ver authorize). */
   cancel: tenantProcedure
     .input(cancelInvoiceSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },
         });
@@ -362,33 +377,33 @@ export const fiscalRouter = createTRPCRouter({
         if (!invoice.providerRef) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nota sem referencia no provider" });
         }
+        return { providerRef: invoice.providerRef };
+      });
 
-        const result = await cancelInvoiceService(invoice.providerRef, input.reason);
+      const result = await cancelInvoiceService(prep.providerRef, input.reason);
 
-        if (result.success) {
-          await tx.invoice.update({
-            where: { id: input.invoiceId },
-            data: {
-              status: "CANCELLED",
-              cancelledAt: new Date(),
-            },
-          });
-          logger.info("Invoice cancelled", { invoiceId: input.invoiceId });
-          return { success: true };
-        } else {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: result.error ?? "Erro ao cancelar nota fiscal",
-          });
-        }
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error ?? "Erro ao cancelar nota fiscal",
+        });
+      }
+
+      return await ctx.withTenant(async (tx) => {
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: { status: "CANCELLED", cancelledAt: new Date() },
+        });
+        logger.info("Invoice cancelled", { invoiceId: input.invoiceId });
+        return { success: true };
       });
     }),
 
-  /** Send correction letter */
+  /** Send correction letter — HTTP fora da tx (ver authorize). */
   correctionLetter: tenantProcedure
     .input(correctionLetterSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },
         });
@@ -401,24 +416,24 @@ export const fiscalRouter = createTRPCRouter({
         if (!invoice.providerRef) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nota sem referencia no provider" });
         }
+        return { providerRef: invoice.providerRef };
+      });
 
-        const result = await sendCorrectionLetter(invoice.providerRef, input.reason);
+      const result = await sendCorrectionLetter(prep.providerRef, input.reason);
 
-        if (result.success) {
-          await tx.invoice.update({
-            where: { id: input.invoiceId },
-            data: {
-              status: "CORRECTION_LETTER",
-              correctionReason: input.reason,
-            },
-          });
-          return { success: true };
-        } else {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: result.error ?? "Erro ao enviar carta de correcao",
-          });
-        }
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.error ?? "Erro ao enviar carta de correcao",
+        });
+      }
+
+      return await ctx.withTenant(async (tx) => {
+        await tx.invoice.update({
+          where: { id: input.invoiceId },
+          data: { status: "CORRECTION_LETTER", correctionReason: input.reason },
+        });
+        return { success: true };
       });
     }),
 
@@ -665,24 +680,26 @@ export const fiscalRouter = createTRPCRouter({
       });
     }),
 
-  /** Send invoice by email */
+  /** Send invoice by email — HTTP fora da tx (ver authorize). */
   sendEmail: tenantProcedure
     .input(sendInvoiceEmailSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const invoice = await tx.invoice.findFirst({
+      const invoice = await ctx.withTenant(async (tx) => {
+        const inv = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },
           include: { items: true },
         });
-        if (!invoice) {
+        if (!inv) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Nota fiscal nao encontrada" });
         }
-        if (invoice.status !== "AUTHORIZED" && invoice.status !== "CORRECTION_LETTER") {
+        if (inv.status !== "AUTHORIZED" && inv.status !== "CORRECTION_LETTER") {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Apenas notas autorizadas podem ser enviadas por email",
           });
         }
+        return inv;
+      });
 
         const typeLabel = invoice.type === "NFCE" ? "NFC-e" : invoice.type === "NFSE" ? "NFS-e" : "NF-e";
         const numberStr = invoice.number ? `#${invoice.number}` : `#${invoice.id.slice(0, 8)}`;
@@ -745,29 +762,28 @@ export const fiscalRouter = createTRPCRouter({
           </div>
         `;
 
-        const subject = `${typeLabel} ${numberStr} - Arena Tech`;
-        const result = await sendEmail(input.email, subject, html);
+      const subject = `${typeLabel} ${numberStr} - Arena Tech`;
+      const result = await sendEmail(input.email, subject, html);
 
-        if (!result.success) {
-          logger.error("Failed to send invoice email", {
-            invoiceId: input.invoiceId,
-            email: input.email,
-            error: result.error,
-          });
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: result.error ?? "Erro ao enviar email",
-          });
-        }
-
-        logger.info("Invoice email sent", {
+      if (!result.success) {
+        logger.error("Failed to send invoice email", {
           invoiceId: input.invoiceId,
           email: input.email,
-          messageId: result.messageId,
+          error: result.error,
         });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error ?? "Erro ao enviar email",
+        });
+      }
 
-        return { success: true, messageId: result.messageId };
+      logger.info("Invoice email sent", {
+        invoiceId: input.invoiceId,
+        email: input.email,
+        messageId: result.messageId,
       });
+
+      return { success: true, messageId: result.messageId };
     }),
 
   /** Stats for fiscal dashboard */
