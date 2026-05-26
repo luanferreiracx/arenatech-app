@@ -121,8 +121,8 @@ export default function NewPurchasePage() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="customer">Cliente (pessoa fisica)</SelectItem>
-                      <SelectItem value="supplier">Fornecedor (PJ)</SelectItem>
+                      <SelectItem value="customer">Cliente (PF ou PJ)</SelectItem>
+                      <SelectItem value="supplier">Fornecedor (PF ou PJ)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
@@ -142,7 +142,12 @@ export default function NewPurchasePage() {
                     <FormItem>
                       <FormLabel>Cliente *</FormLabel>
                       <FormControl>
-                        <EntitySelector<{ id: string; name: string; cpf: string | null }>
+                        <EntitySelector<{
+                          id: string;
+                          name: string;
+                          cpf: string | null;
+                          cnpj: string | null;
+                        }>
                           value={field.value ?? undefined}
                           onChange={(v) => field.onChange(v ?? null)}
                           searchFn={async (q) => {
@@ -156,13 +161,19 @@ export default function NewPurchasePage() {
                               id: string;
                               name: string;
                               cpf: string | null;
+                              cnpj: string | null;
                             }>;
                           }}
-                          getOptionLabel={(c) =>
-                            c.cpf ? `${c.name} — CPF ${c.cpf}` : c.name
-                          }
+                          getOptionLabel={(c) => {
+                            // Cliente pode ser PF (cpf) ou PJ (cnpj) — mostra
+                            // o documento que estiver preenchido. Paridade
+                            // Laravel: tipo (PF/PJ) determina qual campo usar.
+                            if (c.cnpj) return `${c.name} — CNPJ ${c.cnpj}`;
+                            if (c.cpf) return `${c.name} — CPF ${c.cpf}`;
+                            return c.name;
+                          }}
                           getOptionValue={(c) => c.id}
-                          placeholder="Buscar cliente por nome ou CPF..."
+                          placeholder="Buscar cliente por nome, CPF ou CNPJ..."
                           emptyMessage="Nenhum cliente encontrado."
                         />
                       </FormControl>
@@ -192,7 +203,12 @@ export default function NewPurchasePage() {
                     <FormItem>
                       <FormLabel>Fornecedor *</FormLabel>
                       <FormControl>
-                        <EntitySelector<{ id: string; name: string; cnpj: string | null }>
+                        <EntitySelector<{
+                          id: string;
+                          name: string;
+                          cpf: string | null;
+                          cnpj: string | null;
+                        }>
                           value={field.value ?? undefined}
                           onChange={(v) => field.onChange(v ?? null)}
                           searchFn={async (q) => {
@@ -205,14 +221,19 @@ export default function NewPurchasePage() {
                             return res as Array<{
                               id: string;
                               name: string;
+                              cpf: string | null;
                               cnpj: string | null;
                             }>;
                           }}
-                          getOptionLabel={(s) =>
-                            s.cnpj ? `${s.name} — CNPJ ${s.cnpj}` : s.name
-                          }
+                          getOptionLabel={(s) => {
+                            // Fornecedor pode ser PF (cpf) ou PJ (cnpj) —
+                            // schema tem SupplierType{PF,PJ}.
+                            if (s.cnpj) return `${s.name} — CNPJ ${s.cnpj}`;
+                            if (s.cpf) return `${s.name} — CPF ${s.cpf}`;
+                            return s.name;
+                          }}
                           getOptionValue={(s) => s.id}
-                          placeholder="Buscar fornecedor por nome ou CNPJ..."
+                          placeholder="Buscar fornecedor por nome, CPF ou CNPJ..."
                           emptyMessage="Nenhum fornecedor encontrado."
                         />
                       </FormControl>
