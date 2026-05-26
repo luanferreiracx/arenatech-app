@@ -109,14 +109,18 @@ export type ListMovementsInput = z.infer<typeof listMovementsSchema>;
 // ── Device Purchase schemas ──
 
 export const createDevicePurchaseSchema = z.object({
-  productId: z.string().uuid().optional().nullable(),
+  // productId AGORA OBRIGATORIO. Operador escolhe um Product cadastrado
+  // (combobox) ou cria pela tela de Produtos antes. Paridade Laravel:
+  // sem digitar marca/modelo livre — evita duplicatas e garante que o
+  // aparelho aparece no PDV.
+  productId: z.string().uuid("Selecione o produto"),
   customerId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   sellerType: z.enum(["customer", "supplier"]).optional(),
   imei: z.string().max(20).optional().nullable(),
   serial: z.string().max(50).optional().nullable(),
-  brand: z.string().max(100).optional().nullable(),
-  model: z.string().max(200).optional().nullable(),
+  // brand/model: removidos do input — extraidos de Product.brand + Product.name
+  // no backend pra preencher DevicePurchase (legado).
   condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"]),
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
   purchasePrice: z.number().int().min(0, "Preco de compra deve ser positivo"), // centavos

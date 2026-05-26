@@ -701,58 +701,45 @@ export const stockRouter = createTRPCRouter({
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        // Auto-cria/acha Product baseado em brand+model quando UI nao
-        // envia productId (form de Compra de Aparelhos nao tem select de
-        // Product — passa apenas marca/modelo livres). Sem isso, a compra
-        // entra orfa e o aparelho NAO aparece no PDV. Paridade Laravel
-        // `buscarOuCriarProduto`.
-        let resolvedProductId = input.productId ?? null;
-        if (!resolvedProductId && (input.brand || input.model)) {
-          const productName = [input.brand, input.model].filter(Boolean).join(" ").trim()
-            || "Aparelho seminovo";
-          const existing = await tx.product.findFirst({
-            where: {
-              name: productName,
-              isDevice: true,
-              isSerialized: true,
-              deletedAt: null,
-            },
-            select: { id: true },
+        // Product OBRIGATORIO. Operador escolhe via combobox (Estoque ->
+        // Produtos cadastrados como aparelho serializado). Sem digitacao
+        // livre — evita duplicatas e mantem catalogo limpo.
+        const product = await tx.product.findFirst({
+          where: { id: input.productId, deletedAt: null },
+          select: { id: true, name: true, brand: true, isDevice: true, isSerialized: true },
+        });
+        if (!product) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto nao encontrado.",
           });
-          if (existing) {
-            resolvedProductId = existing.id;
-          } else {
-            const created = await tx.product.create({
-              data: {
-                tenantId: ctx.tenantId,
-                name: productName,
-                brand: input.brand,
-                isDevice: true,
-                isSerialized: true,
-                currentStock: 0,
-                costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
-                salePrice: input.salePrice != null
-                  ? new Prisma.Decimal(input.salePrice).div(100)
-                  : new Prisma.Decimal(input.purchasePrice).div(100),
-                active: true,
-              },
-              select: { id: true },
-            });
-            resolvedProductId = created.id;
-          }
+        }
+        if (!product.isDevice) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto selecionado nao esta marcado como 'Aparelho'. Edite o produto antes.",
+          });
+        }
+        if (!product.isSerialized) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto selecionado nao e serializado. Compra de aparelho exige produto serializado.",
+          });
         }
 
         const purchase = await tx.devicePurchase.create({
           data: {
             tenantId: ctx.tenantId,
-            productId: resolvedProductId,
+            productId: product.id,
             customerId: input.customerId || null,
             supplierId: input.supplierId || null,
             sellerType: input.sellerType ?? (input.supplierId ? "supplier" : "customer"),
             imei: input.imei || null,
             serial: input.serial || null,
-            brand: input.brand || null,
-            model: input.model || null,
+            // brand/model em DevicePurchase ficam como snapshot historico
+            // — derivados do Product no momento da compra.
+            brand: product.brand,
+            model: product.name,
             condition: input.condition,
             batteryHealth: input.batteryHealth ?? null,
             purchasePrice: new Prisma.Decimal(input.purchasePrice).div(100),
@@ -761,60 +748,44 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // Cria entrada efetiva no estoque: StockMovement + StockItem AVAILABLE
-        // (se produto serializado) OU increment de currentStock (se nao).
-        if (resolvedProductId) {
-          const product = await tx.product.findUnique({
-            where: { id: resolvedProductId },
-            select: { isSerialized: true },
-          });
+        // Cria entrada efetiva no estoque: StockMovement + StockItem AVAILABLE.
+        // Sempre serializado neste ponto (validacao acima).
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: product.id,
+            type: "ENTRY",
+            quantity: 1,
+            reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
+            referenceId: purchase.id,
+            referenceType: "device_purchase",
+            userId: ctx.session.user.id,
+          },
+        });
 
-          await tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: resolvedProductId,
-              type: "ENTRY",
-              quantity: 1,
-              reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
-              referenceId: purchase.id,
-              referenceType: "device_purchase",
-              userId: ctx.session.user.id,
-            },
-          });
-
-          if (product?.isSerialized) {
-            // Mapa de DeviceCondition (DevicePurchase) -> StockItemCondition.
-            const conditionMap: Record<string, "NEW" | "SEMI_NEW" | "USED" | "DISPLAY"> = {
-              NEW: "NEW",
-              SEMI_NEW: "SEMI_NEW",
-              USED: "USED",
-              DISPLAY: "DISPLAY",
-              REFURBISHED: "SEMI_NEW",
-              DEFECTIVE: "USED",
-            };
-            await tx.stockItem.create({
-              data: {
-                tenantId: ctx.tenantId,
-                productId: resolvedProductId,
-                imei: input.imei ?? null,
-                serialNumber: input.serial ?? null,
-                condition: conditionMap[input.condition] ?? "USED",
-                batteryHealth: input.batteryHealth ?? null,
-                costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
-                suggestedSalePrice: input.salePrice != null
-                  ? new Prisma.Decimal(input.salePrice).div(100)
-                  : null,
-                status: "AVAILABLE",
-              },
-            });
-          } else {
-            // Nao serializado: increment currentStock pra refletir entrada.
-            await tx.product.update({
-              where: { id: resolvedProductId },
-              data: { currentStock: { increment: 1 } },
-            });
-          }
-        }
+        const conditionMap: Record<string, "NEW" | "SEMI_NEW" | "USED" | "DISPLAY"> = {
+          NEW: "NEW",
+          SEMI_NEW: "SEMI_NEW",
+          USED: "USED",
+          DISPLAY: "DISPLAY",
+          REFURBISHED: "SEMI_NEW",
+          DEFECTIVE: "USED",
+        };
+        await tx.stockItem.create({
+          data: {
+            tenantId: ctx.tenantId,
+            productId: product.id,
+            imei: input.imei ?? null,
+            serialNumber: input.serial ?? null,
+            condition: conditionMap[input.condition] ?? "USED",
+            batteryHealth: input.batteryHealth ?? null,
+            costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
+            suggestedSalePrice: input.salePrice != null
+              ? new Prisma.Decimal(input.salePrice).div(100)
+              : null,
+            status: "AVAILABLE",
+          },
+        });
 
         // Gera PAYABLE quando solicitado
         if (input.generatePayable && input.purchasePrice > 0) {
@@ -831,8 +802,7 @@ export const stockRouter = createTRPCRouter({
           const totalCents = input.purchasePrice;
           const installmentAmount = Math.round(totalCents / installmentsCount);
           const remainder = totalCents - installmentAmount * installmentsCount;
-          const descModel = [input.brand, input.model].filter(Boolean).join(" ");
-          const description = `Compra ${descModel || "aparelho"}${input.imei ? ` — IMEI ${input.imei}` : ""}`;
+          const description = `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`;
 
           const transaction = await tx.financialTransaction.create({
             data: {

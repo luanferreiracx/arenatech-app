@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +15,7 @@ import {
 import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
+import { EntitySelector } from "@/components/domain/entity-selector";
 import { MoneyInput } from "@/components/inputs/money-input";
 import {
   Form,
@@ -43,14 +45,13 @@ export default function NewPurchasePage() {
   const form = useForm<CreateDevicePurchaseInput>({
     resolver: zodResolver(createDevicePurchaseSchema),
     defaultValues: {
-      productId: null,
+      // productId obrigatorio (sem default — operador escolhe via combobox)
+      productId: undefined as unknown as string,
       customerId: null,
       supplierId: null,
       sellerType: "customer",
       imei: "",
       serial: "",
-      brand: "",
-      model: "",
       condition: "USED",
       batteryHealth: null,
       purchasePrice: 0,
@@ -92,27 +93,55 @@ export default function NewPurchasePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="brand"
+                name="productId"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Marca</FormLabel>
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Modelo do Aparelho *</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value ?? ""} placeholder="Ex: Apple, Samsung" />
+                      <EntitySelector<{
+                        id: string;
+                        name: string;
+                        brand: string | null;
+                        sku: string | null;
+                      }>
+                        value={field.value}
+                        onChange={(v) => field.onChange(v)}
+                        searchFn={async (q) => {
+                          const all = await queryClient.fetchQuery(
+                            trpc.sale.searchProducts.queryOptions({
+                              query: q || "iphone",
+                              withStock: false,
+                            }),
+                          );
+                          // Filtra so aparelhos serializados — paridade
+                          // backend que rejeita outros tipos.
+                          return all.filter(
+                            (p) => p.isDevice && p.isSerialized,
+                          ) as Array<{
+                            id: string;
+                            name: string;
+                            brand: string | null;
+                            sku: string | null;
+                          }>;
+                        }}
+                        getOptionLabel={(p) =>
+                          [p.brand, p.name].filter(Boolean).join(" — ") || p.name
+                        }
+                        getOptionValue={(p) => p.id}
+                        placeholder="Buscar aparelho cadastrado..."
+                        emptyMessage="Nenhum produto encontrado. Cadastre primeiro em Estoque → Produtos."
+                      />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="model"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Modelo</FormLabel>
-                    <FormControl>
-                      <Input {...field} value={field.value ?? ""} placeholder="Ex: iPhone 14 Pro" />
-                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Aparelho precisa estar cadastrado como produto serializado.{" "}
+                      <Link
+                        href="/stock/new"
+                        target="_blank"
+                        className="text-primary hover:underline"
+                      >
+                        Cadastrar novo produto
+                      </Link>
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
