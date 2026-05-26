@@ -146,26 +146,21 @@ export const valuationRouter = createTRPCRouter({
     .input(bulkAdjustSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const valuations = await tx.deviceValuation.findMany({
-          where: { modelo: input.modelo, deletedAt: null },
-        });
-
-        if (valuations.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
-        }
-
+        // gap Va1: ANTES era loop com N updates (50+ avaliacoes -> 50+
+        // roundtrips dentro da mesma tx). Agora UM UPDATE atomico via
+        // $executeRaw — round() no SQL preserva 2 casas decimais.
         const factor = 1 + input.adjustPercent / 100;
-        let updated = 0;
 
-        for (const v of valuations) {
-          const currentValue = Number(v.valor);
-          const newValue = Math.round(currentValue * factor * 100) / 100;
+        const updated = await tx.$executeRaw`
+          UPDATE device_valuations
+          SET valor = ROUND(valor * ${factor}::numeric, 2),
+              updated_at = NOW()
+          WHERE modelo = ${input.modelo}
+            AND deleted_at IS NULL
+        `;
 
-          await tx.deviceValuation.update({
-            where: { id: v.id },
-            data: { valor: new Prisma.Decimal(newValue) },
-          });
-          updated++;
+        if (updated === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
         }
 
         logger.info("Bulk adjust valuations", {
@@ -237,26 +232,20 @@ export const valuationRouter = createTRPCRouter({
     .input(bulkAdjustFixedSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const valuations = await tx.deviceValuation.findMany({
-          where: { modelo: input.modelo, deletedAt: null },
-        });
-
-        if (valuations.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
-        }
-
+        // gap Va1 (espelho): UM UPDATE atomico. GREATEST(valor + delta, 0)
+        // garante o piso em zero igual ao Math.max original.
         const adjustReais = input.adjustAmount / 100;
-        let updated = 0;
 
-        for (const v of valuations) {
-          const currentValue = Number(v.valor);
-          const newValue = Math.max(0, currentValue + adjustReais);
+        const updated = await tx.$executeRaw`
+          UPDATE device_valuations
+          SET valor = GREATEST(valor + ${adjustReais}::numeric, 0),
+              updated_at = NOW()
+          WHERE modelo = ${input.modelo}
+            AND deleted_at IS NULL
+        `;
 
-          await tx.deviceValuation.update({
-            where: { id: v.id },
-            data: { valor: new Prisma.Decimal(newValue) },
-          });
-          updated++;
+        if (updated === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
         }
 
         logger.info("Bulk adjust fixed valuations", {
