@@ -219,12 +219,21 @@ describe("listMovementsSchema", () => {
 // ── Device Purchase ──
 
 describe("createDevicePurchaseSchema", () => {
-  it("aceita compra minima", () => {
+  it("aceita compra minima (productId obrigatorio)", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
       condition: "USED",
       purchasePrice: 50000,
     });
     expect(result.success).toBe(true);
+  });
+
+  it("rejeita compra sem productId", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      condition: "USED",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
   });
 
   it("aceita compra completa", () => {
@@ -233,8 +242,6 @@ describe("createDevicePurchaseSchema", () => {
       customerId: "550e8400-e29b-41d4-a716-446655440001",
       imei: "353456789012345",
       serial: "C39XXXXXYZ",
-      brand: "Apple",
-      model: "iPhone 14 Pro",
       condition: "REFURBISHED",
       batteryHealth: 85,
       purchasePrice: 350000,
@@ -246,6 +253,7 @@ describe("createDevicePurchaseSchema", () => {
 
   it("rejeita preco de compra negativo", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
       condition: "NEW",
       purchasePrice: -1000,
     });
@@ -254,6 +262,7 @@ describe("createDevicePurchaseSchema", () => {
 
   it("rejeita condicao invalida", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
       condition: "BROKEN",
       purchasePrice: 50000,
     });
@@ -262,6 +271,7 @@ describe("createDevicePurchaseSchema", () => {
 
   it("rejeita bateria acima de 100", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
       condition: "USED",
       purchasePrice: 50000,
       batteryHealth: 120,
@@ -271,6 +281,7 @@ describe("createDevicePurchaseSchema", () => {
 
   it("rejeita bateria negativa", () => {
     const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
       condition: "USED",
       purchasePrice: 50000,
       batteryHealth: -5,
