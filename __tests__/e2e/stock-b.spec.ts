@@ -3,9 +3,9 @@ import { fillField, fillByPlaceholder } from "./helpers/form.helper";
 import { gotoAndWait } from "./helpers/navigation.helper";
 
 /**
- * Estoque-B E2E — @business with maximum Nível 2 coverage.
- * Purchase form = Nível 2 (submit + redirect + verify in listing).
- * Entry/Exit forms = Nível 1.5 (EntitySelector blocks full submit without seed data).
+ * Estoque-B E2E — @business.
+ * Purchase form agora usa EntitySelector de Product (paridade Laravel — sem
+ * digitacao livre de marca/modelo) — bateu Nivel 1.5 sem seed do produto.
  * Listings = Nível 1 with meaningful presence checks.
  */
 
@@ -21,30 +21,28 @@ async function login(page: Page) {
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 }
 
-test.describe("Estoque-B — Compras de aparelhos (Nível 2)", () => {
+test.describe("Estoque-B — Compras de aparelhos", () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
   });
 
-  test("@business T-01 form compra preenche marca + modelo + IMEI e submit habilitado", async ({ page }) => {
+  test("@business T-01 form compra mostra combobox de Product + campos extras", async ({ page }) => {
     await gotoAndWait(page, "/stock/purchases/new");
-    await fillField(page, "brand", "Apple");
-    await fillField(page, "model", "iPhone 15 Pro E2E");
-    await fillField(page, "imei", "356938035643809");
-    await expect(page.locator("input[name='brand']")).not.toHaveValue("");
-    await expect(page.locator("input[name='model']")).not.toHaveValue("");
-    await expect(page.locator("input[name='imei']")).not.toHaveValue("");
-    await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
+    // Sem digitacao livre de marca/modelo — combobox de Product cadastrado.
+    await expect(page.getByText(/Modelo do Aparelho/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByPlaceholder(/Buscar aparelho cadastrado/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("input[name='imei']")).toBeVisible();
+    await expect(page.locator("input[name='serial']")).toBeVisible();
+    await expect(page.locator("button[type='submit']")).toBeVisible({ timeout: 10000 });
   });
 
-  test("@business T-02 form compra preenche serial + modelo e submit habilitado", async ({ page }) => {
+  test("@business T-02 form compra preenche IMEI + serial e submit visivel", async ({ page }) => {
     await gotoAndWait(page, "/stock/purchases/new");
-    await fillField(page, "brand", "Samsung");
-    await fillField(page, "model", "Galaxy S24 E2E");
+    await fillField(page, "imei", "356938035643809");
     await fillField(page, "serial", "SN-E2E-" + Date.now());
-    await expect(page.locator("input[name='brand']")).not.toHaveValue("");
+    await expect(page.locator("input[name='imei']")).not.toHaveValue("");
     await expect(page.locator("input[name='serial']")).not.toHaveValue("");
-    await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
+    await expect(page.locator("button[type='submit']")).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -107,13 +105,12 @@ test.describe("Estoque-B — Listagem e Dashboard", () => {
     await expect(page.locator("main").locator("table, button, a").first()).toBeVisible({ timeout: 5000 });
   });
 
-  test("@business T-09 form compra preenche IMEI e marca", async ({ page }) => {
+  test("@business T-09 form compra mostra link pra cadastrar produto novo", async ({ page }) => {
     await gotoAndWait(page, "/stock/purchases/new");
-    await fillField(page, "brand", "Xiaomi");
     await fillField(page, "imei", "490154203237518");
-    await expect(page.locator("input[name='brand']")).not.toHaveValue("");
     await expect(page.locator("input[name='imei']")).not.toHaveValue("");
-    await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
+    // Paridade Laravel: aparelho precisa estar cadastrado como Product.
+    await expect(page.getByRole("link", { name: /Cadastrar novo produto/i })).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -163,13 +160,11 @@ test.describe("Estoque-B — RLS + Navegação", () => {
     await expect(page.locator("main").locator("input, textarea, button").first()).toBeVisible({ timeout: 5000 });
   });
 
-  test("@business T-15 form compra com modelo + serial preenchidos", async ({ page }) => {
+  test("@business T-15 form compra com serial preenchido e combobox visivel", async ({ page }) => {
     await login(page);
     await gotoAndWait(page, "/stock/purchases/new");
-    await fillField(page, "model", "Pixel 9 E2E");
     await fillField(page, "serial", "PX9-SN-" + Date.now());
-    await expect(page.locator("input[name='model']")).not.toHaveValue("");
     await expect(page.locator("input[name='serial']")).not.toHaveValue("");
-    await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
+    await expect(page.getByPlaceholder(/Buscar aparelho cadastrado/i)).toBeVisible({ timeout: 10000 });
   });
 });
