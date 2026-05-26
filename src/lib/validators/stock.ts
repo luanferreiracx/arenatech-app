@@ -49,7 +49,11 @@ export const createProductSchema = z.object({
   unit: z.string().max(10).optional(),
   active: z.boolean().optional(),
   categoryId: z.string().uuid().optional().nullable(),
-  categoryIds: z.array(z.string().uuid()).min(1).max(3).optional(),
+  // Aceita array vazio porque o form de cadastro usa apenas `categoryId`
+  // (singular). `min(1)` quebrava handleSubmit silenciosamente quando o user
+  // nao tocava em multi-categorias (default = [] != undefined → Zod aplicava
+  // .min(1) e o submit nao disparava sem mostrar erro).
+  categoryIds: z.array(z.string().uuid()).max(3).optional(),
   /**
    * Cria uma categoria nova no submit (paridade Laravel `nova_categoria`).
    * A categoria criada eh adicionada como primaria (a frente das categoryIds).

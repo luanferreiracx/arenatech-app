@@ -100,9 +100,26 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
     }
   }
 
+  // Fallback quando handleSubmit rejeita silenciosamente — alguns campos
+  // sao validados pelo Zod mas nao tem <FormField> no UI (ex: categoryIds,
+  // attributeConfigIds). Sem isto o user clica em "Cadastrar" e nada acontece.
+  function onInvalid(errors: Record<string, unknown>) {
+    const firstKey = Object.keys(errors)[0];
+    if (!firstKey) {
+      toast.error("Verifique os campos do formulario.");
+      return;
+    }
+    const firstError = errors[firstKey] as { message?: string } | undefined;
+    toast.error(
+      firstError?.message
+        ? `${firstKey}: ${firstError.message}`
+        : "Verifique os campos do formulario.",
+    );
+  }
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-8">
         <FormSection title="Dados do Produto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField

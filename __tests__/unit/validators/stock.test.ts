@@ -84,6 +84,19 @@ describe("createProductSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("aceita categoryIds vazio (form usa categoryId singular)", () => {
+    // Regression: defaultValues do form mandava categoryIds: [] e o schema
+    // tinha .min(1).optional(), o que rejeitava silenciosamente o submit.
+    const result = createProductSchema.safeParse({
+      name: "Pelicula Generica",
+      costPrice: 200,
+      salePrice: 1500,
+      categoryId: null,
+      categoryIds: [],
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("updateProductSchema", () => {
