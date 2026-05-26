@@ -1,14 +1,15 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { PIX_KEY_TYPE_LABELS } from "@/lib/validators/depix-withdraw";
-import { RefreshCw, Plus, ArrowLeft, User, Calendar, Edit, Printer } from "lucide-react";
+import { RefreshCw, Plus, ArrowLeft, User, Calendar, Edit, Printer, Copy } from "lucide-react";
 import { toast } from "@/lib/toast";
 
 function formatCurrency(value: number): string {
@@ -35,12 +36,48 @@ interface WithdrawDetailProps {
 
 export function WithdrawDetail({ id }: WithdrawDetailProps) {
   const trpc = useTRPC();
-  const query = useQuery(trpc.depixWithdraw.getById.queryOptions({ id }));
+  const queryClient = useQueryClient();
+
+  // Polling enquanto status nao for terminal. Paridade Laravel
+  // show.blade.php que pollava /saques-depix/{id}/status via AJAX.
+  // Webhook tambem atualiza, mas o polling cobre o caso de retry/atraso.
+  const query = useQuery({
+    ...trpc.depixWithdraw.getById.queryOptions({ id }),
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      if (!status || status === "PENDING" || status === "PROCESSING") {
+        return 5000; // 5s
+      }
+      return false;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  // checkStatus consulta a API DePix diretamente. Roda a cada 15s enquanto
+  // saque nao chega em estado final — backup pro webhook caso ele atrase.
+  const checkStatusMutation = useMutation(
+    trpc.depixWithdraw.checkStatus.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: [["depixWithdraw"]] });
+      },
+    }),
+  );
+
+  useEffect(() => {
+    const status = query.data?.status;
+    if (status !== "PENDING" && status !== "PROCESSING") return;
+    const t = setInterval(() => {
+      if (checkStatusMutation.isPending) return;
+      checkStatusMutation.mutate({ id });
+    }, 15000);
+    return () => clearInterval(t);
+  }, [query.data?.status, id, checkStatusMutation]);
 
   if (query.isLoading) return <LoadingState />;
   if (!query.data) return <div className="text-center text-muted-foreground py-12">Saque nao encontrado.</div>;
 
   const w = query.data;
+  const isPolling = w.status === "PENDING" || w.status === "PROCESSING";
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
@@ -146,22 +183,56 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
         )}
 
         {/* Polling indicator */}
-        {(w.status === "PENDING" || w.status === "PROCESSING") && (
+        {isPolling && (
           <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/15 rounded-lg text-sm text-muted-foreground">
             <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span>Status sera atualizado automaticamente via webhook.</span>
+            <span>
+              Verificando status automaticamente
+              {checkStatusMutation.isPending ? " (consultando DePix...)" : ""}
+              ...
+            </span>
           </div>
         )}
       </div>
 
       {/* Sidebar */}
       <div className="space-y-4">
-        {/* Values */}
+        {/* Total a Enviar — destaque maximo enquanto saque nao foi enviado.
+            Eh o valor que o operador precisa enviar pra carteira DePix. */}
+        {w.depositAmount != null && isPolling && (
+          <Card className="p-6 border-2 border-warning bg-warning/5">
+            <p className="text-xs uppercase font-semibold text-warning-foreground/80 tracking-wider mb-2">
+              Enviar para a carteira DePix
+            </p>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-3xl font-bold text-warning-foreground">
+                {formatCurrency(w.depositAmount)}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    String((w.depositAmount ?? 0).toFixed(2)).replace(".", ","),
+                  );
+                  toast.success("Valor copiado!");
+                }}
+                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-warning text-warning-foreground hover:opacity-90"
+              >
+                <Copy className="w-3 h-3" /> Copiar
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Use exatamente este valor — taxa do gateway ja inclusa
+            </p>
+          </Card>
+        )}
+
+        {/* Resumo */}
         <Card className="p-6">
-          <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Valores</h3>
+          <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Resumo</h3>
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Valor Solicitado</span>
+              <span className="text-muted-foreground">Valor do Saque</span>
               <span className="font-medium">{formatCurrency(w.requestedAmount)}</span>
             </div>
             {w.fee != null && w.fee > 0 && (
@@ -171,21 +242,17 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
               </div>
             )}
             {w.depositAmount != null && (
-              <div className="flex justify-between text-sm text-warning font-semibold">
+              <div className="flex justify-between text-sm text-warning font-semibold border-t pt-2 mt-2">
                 <span>Total a Enviar</span>
                 <span>{formatCurrency(w.depositAmount)}</span>
               </div>
             )}
             {w.receivedAmount != null && (
-              <div className="flex justify-between text-sm text-success">
-                <span>Valor Recebido (PIX)</span>
+              <div className="flex justify-between text-sm text-success border-t pt-2 mt-2">
+                <span>Recebido (PIX)</span>
                 <span className="font-medium">{formatCurrency(w.receivedAmount)}</span>
               </div>
             )}
-            <div className="border-t pt-3 flex justify-between items-baseline">
-              <span className="font-semibold">Valor do Saque</span>
-              <span className="text-2xl font-bold text-primary">{formatCurrency(w.requestedAmount)}</span>
-            </div>
           </div>
         </Card>
 

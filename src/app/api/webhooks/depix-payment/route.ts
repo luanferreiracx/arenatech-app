@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { extractSourceIp } from "@/lib/webhooks/replay-guard";
+import {
+  handleDepixWithdrawWebhook,
+  type PixpayWithdrawPayload,
+} from "@/lib/webhooks/depix-withdraw-handler";
 
 export const runtime = "nodejs";
 
@@ -36,6 +41,7 @@ export const runtime = "nodejs";
  *   404 = transactionId desconhecido (sale/OS nao encontrada).
  */
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   const rawBody = await req.text();
 
   // ─── AUTH ────────────────────────────────────────────────────────────────
@@ -107,6 +113,21 @@ export async function POST(req: NextRequest) {
     payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+
+  // ─── BRANCH: saque (withdraw) ────────────────────────────────────────────
+  // Pixpay envia um unico webhook URL — ramifica por `webhookType=withdraw`
+  // (paridade Laravel `DepixWebhookController::handle`). Antes esse fluxo
+  // batia em `/depix-withdraw` (URL separada), o que deixava saques presos
+  // em PROCESSING pra sempre porque a URL nao estava configurada no painel.
+  if (payload.webhookType === "withdraw") {
+    const sourceIp = extractSourceIp(req.headers);
+    const result = await handleDepixWithdrawWebhook(
+      payload as PixpayWithdrawPayload,
+      sourceIp,
+      true,
+    );
+    return NextResponse.json(result.body, { status: result.status });
   }
 
   const transactionId = String(payload.qrId ?? payload.id ?? "");
@@ -208,7 +229,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
-  // ─── MATCH SALE OR OS (com idempotencia via WHERE status != alvo) ─────
+  // ─── MATCH + UPDATE + MARK PROCESSED + NOTIFY (transacao unica) ───────
+  // Consolidado em 1 withAdmin pra reduzir 3 round-trips e eliminar a janela
+  // onde o NOTIFY chegava antes do COMMIT do UPDATE (race com SSE).
   // (sanitize ja foi feita no inicio do handler — defesa em profundidade
   // contra injecao em jsonpath ou logs poluidos.)
   const result = await withAdmin(async (tx) => {
@@ -362,14 +385,19 @@ export async function POST(req: NextRequest) {
         data: { errorMessage: "transactionId nao encontrado" },
       }),
     ).catch(() => undefined);
-    logger.warn("Depix-payment webhook: transactionId desconhecido", { transactionId });
+    logger.warn("Depix-payment webhook: transactionId desconhecido", {
+      transactionId,
+      duration_ms: Date.now() - startedAt,
+    });
     return NextResponse.json(
       { error: "transactionId nao encontrado" },
       { status: 404 },
     );
   }
 
-  // Sucesso: marca evento como processado + registra uso de limite diario
+  // Sucesso: marca evento como processado + registra uso de limite + NOTIFY
+  // tudo na mesma transacao. pg_notify dispara no COMMIT, entao o SSE so
+  // recebe quando UPDATE da sale/OS ja esta visivel — evita race.
   await withAdmin(async (tx) => {
     await tx.depixWebhookEvent.updateMany({
       where: { transactionId, eventType: rawStatus },
@@ -379,46 +407,36 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Registra uso de limite por CPF (paridade Laravel DepixLimiteService::registrarUso)
-    if (
-      "tenantId" in result &&
-      "amount" in result &&
-      payload.payerTaxNumber &&
-      !result.kind.includes("already")
-    ) {
-      const { registerDepixUse } = await import("@/lib/services/depix-limit-service");
-      await registerDepixUse(
-        tx,
-        result.tenantId as string,
-        payload.payerTaxNumber,
-        result.amount as number,
-      ).catch((err) =>
-        logger.warn("Falha ao registrar uso de limite DePix", { err: String(err) }),
-      );
-    }
-  });
+    if (!result.kind.includes("already")) {
+      // Registra uso de limite por CPF (paridade Laravel DepixLimiteService::registrarUso)
+      if ("tenantId" in result && "amount" in result && payload.payerTaxNumber) {
+        const { registerDepixUse } = await import("@/lib/services/depix-limit-service");
+        await registerDepixUse(
+          tx,
+          result.tenantId as string,
+          payload.payerTaxNumber,
+          result.amount as number,
+        ).catch((err) =>
+          logger.warn("Falha ao registrar uso de limite DePix", { err: String(err) }),
+        );
+      }
 
-  // Dispara NOTIFY pra rotas SSE escutando — frontend recebe confirmacao
-  // em tempo real sem polling. Payload: JSON pequeno com kind + id + transactionId.
-  // Apenas pra eventos que de fato marcaram PAID (nao "already").
-  if (!result.kind.includes("already")) {
-    await withAdmin(async (tx) => {
-      const payload = JSON.stringify({
+      // NOTIFY pra rotas SSE escutando — frontend recebe confirmacao em
+      // tempo real sem polling. Mesma TX => garante COMMIT antes do dispatch.
+      const notifyPayload = JSON.stringify({
         kind: result.kind,
         id: result.id,
         transactionId,
       });
-      // pg_notify aceita ate 8000 bytes; nosso payload < 200 bytes.
-      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${payload})`;
-    }).catch((err) => {
-      logger.warn("Falha ao emitir NOTIFY depix_paid", { err: String(err) });
-    });
-  }
+      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${notifyPayload})`;
+    }
+  });
 
   logger.info("Depix-payment webhook processado", {
     kind: result.kind,
     id: result.id,
     number: result.number,
+    duration_ms: Date.now() - startedAt,
   });
   return NextResponse.json({ received: true, kind: result.kind });
 }
