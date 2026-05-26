@@ -150,7 +150,8 @@ export const chatbotRouter = createTRPCRouter({
       mediaUrl: z.string().max(500).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: validar + criar mensagem (com status pendente de envio).
+      const prep = await ctx.withTenant(async (tx) => {
         const conversation = await tx.chatbotConversation.findUnique({
           where: { id: input.conversationId },
         })
@@ -168,18 +169,20 @@ export const chatbotRouter = createTRPCRouter({
           },
         })
 
-        // Update conversation
         await tx.chatbotConversation.update({
           where: { id: input.conversationId },
           data: { lastMessageAt: new Date() },
         })
 
-        // Send via WhatsApp
-        const { sendTextMessage } = await import("@/lib/services/whatsapp-service")
-        await sendTextMessage(conversation.contactPhone, input.content)
-
-        return { messageId: message.id }
+        return { conversation, message }
       })
+
+      // WhatsApp fora da tx (gap Cb1): chamada HTTP Evolution pode demorar
+      // 1-5s e segurar conexao Postgres exauria pool sob carga.
+      const { sendTextMessage } = await import("@/lib/services/whatsapp-service")
+      await sendTextMessage(prep.conversation.contactPhone, input.content)
+
+      return { messageId: prep.message.id }
     }),
 
   // ═══════════════════════════════════════

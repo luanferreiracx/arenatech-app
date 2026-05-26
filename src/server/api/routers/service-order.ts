@@ -2843,7 +2843,8 @@ export const serviceOrderRouter = createTRPCRouter({
   sendDeliveryTerm: tenantProcedure
     .input(sendDeliveryTermSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // tx1: validar + carregar dados necessarios.
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -2863,29 +2864,46 @@ export const serviceOrderRouter = createTRPCRouter({
         const phone = input.phone ?? customer.phone;
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
-        // Generate delivery term PDF
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-entrega`;
-        let pdfBuffer: Buffer;
-        try {
-          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-          pdfBuffer = Buffer.from(await res.arrayBuffer());
-        } catch (err) {
-          logger.error("Failed to fetch delivery term PDF", { orderId: input.orderId, error: err });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de entrega" });
-        }
+        return { order, customer, phone };
+      });
 
-        const result = await createDocumentWithLink(
-          `Termo de Entrega - OS ${order.number}`,
-          [{ name: customer.name, whatsapp: formatWhatsApp(phone) }],
-          pdfBuffer,
-        );
+      // Fetch HTML + chamada Autentique FORA da tx (gap So10): cada chamada
+      // pode levar 5-15s, segurar a conexao Postgres exauria o pool.
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-entrega`;
+      let pdfBuffer: Buffer;
+      try {
+        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+        pdfBuffer = Buffer.from(await res.arrayBuffer());
+      } catch (err) {
+        logger.error("Failed to fetch delivery term PDF", { orderId: input.orderId, error: err });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de entrega" });
+      }
 
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
-        }
+      const result = await createDocumentWithLink(
+        `Termo de Entrega - OS ${prep.order.number}`,
+        [{ name: prep.customer.name, whatsapp: formatWhatsApp(prep.phone) }],
+        pdfBuffer,
+      );
 
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+      }
+
+      // WhatsApp tambem e best-effort, fora da tx.
+      if (result.signatureLink) {
+        const caption = `Termo de Entrega - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
+        await sendTextMessage(prep.phone, caption).catch((err) => {
+          logger.warn("WhatsApp envio do termo de entrega falhou", {
+            orderId: input.orderId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      // tx2: persistir resultado + historico.
+      return await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -2896,19 +2914,13 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Send via WhatsApp
-        if (result.signatureLink) {
-          const caption = `Termo de Entrega - OS #${order.number}\n\nOla, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
-          await sendTextMessage(phone, caption);
-        }
-
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: "Termo de entrega enviado para assinatura digital via WhatsApp",
           },
         });
@@ -2958,28 +2970,36 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
-  // ── 7. CHECK DELIVERY TERM STATUS ──
+  // ── 7. CHECK DELIVERY TERM STATUS ── (HTTP Autentique fora da tx)
   checkDeliveryTermStatus: tenantProcedure
     .input(checkDeliveryTermStatusSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
         if (order.deliveryTermSigned) {
-          return { signed: true, alreadySigned: true };
+          return { alreadySigned: true as const, order };
         }
 
         if (!order.deliveryTermAutentiqueId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de entrega nao foi enviado para assinatura digital." });
         }
 
-        const status = await getDocumentStatus(order.deliveryTermAutentiqueId);
-        if (!status.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
-        }
+        return { alreadySigned: false as const, order };
+      });
 
-        if (status.signed) {
+      if (prep.alreadySigned) {
+        return { signed: true, alreadySigned: true };
+      }
+
+      const status = await getDocumentStatus(prep.order.deliveryTermAutentiqueId!);
+      if (!status.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+      }
+
+      if (status.signed) {
+        await ctx.withTenant(async (tx) => {
           await tx.serviceOrder.update({
             where: { id: input.orderId },
             data: {
@@ -2995,22 +3015,22 @@ export const serviceOrderRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               orderId: input.orderId,
               userId: ctx.session.user.id,
-              previousStatus: order.status,
+              previousStatus: prep.order.status,
               newStatus: "DELIVERED",
               notes: "Termo de entrega assinado digitalmente e equipamento entregue ao cliente",
             },
           });
-        }
+        });
+      }
 
-        return { signed: status.signed, alreadySigned: false };
-      });
+      return { signed: status.signed, alreadySigned: false };
     }),
 
-  // ── 8. SEND RETURN TERM ──
+  // ── 8. SEND RETURN TERM ── (HTTP fora da tx — ver sendDeliveryTerm)
   sendReturnTerm: tenantProcedure
     .input(sendReturnTermSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -3023,31 +3043,44 @@ export const serviceOrderRouter = createTRPCRouter({
         const phone = input.phone ?? customer.phone;
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
-        // Generate return term PDF
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-        const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-devolucao`;
-        let pdfBuffer: Buffer;
-        try {
-          const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-          if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-          pdfBuffer = Buffer.from(await res.arrayBuffer());
-        } catch (err) {
-          logger.error("Failed to fetch return term PDF", { orderId: input.orderId, error: err });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de devolucao" });
-        }
+        return { order, customer, phone };
+      });
 
-        const result = await createDocumentWithLink(
-          `Termo de Devolucao - OS ${order.number}`,
-          [{ name: customer.name, whatsapp: formatWhatsApp(phone) }],
-          pdfBuffer,
-        );
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-devolucao`;
+      let pdfBuffer: Buffer;
+      try {
+        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
+        pdfBuffer = Buffer.from(await res.arrayBuffer());
+      } catch (err) {
+        logger.error("Failed to fetch return term PDF", { orderId: input.orderId, error: err });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de devolucao" });
+      }
 
-        if (!result.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
-        }
+      const result = await createDocumentWithLink(
+        `Termo de Devolucao - OS ${prep.order.number}`,
+        [{ name: prep.customer.name, whatsapp: formatWhatsApp(prep.phone) }],
+        pdfBuffer,
+      );
 
-        const reason = input.reason ?? "Equipamento devolvido ao cliente";
+      if (!result.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
+      }
 
+      if (result.signatureLink) {
+        const caption = `Termo de Devolucao - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
+        await sendTextMessage(prep.phone, caption).catch((err) => {
+          logger.warn("WhatsApp envio do termo de devolucao falhou", {
+            orderId: input.orderId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
+      const reason = input.reason ?? "Equipamento devolvido ao cliente";
+
+      return await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -3059,19 +3092,13 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Send via WhatsApp
-        if (result.signatureLink) {
-          const caption = `Termo de Devolucao - OS #${order.number}\n\nOla, ${customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
-          await sendTextMessage(phone, caption);
-        }
-
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
             notes: "Termo de devolucao enviado para assinatura digital via WhatsApp",
           },
         });
@@ -3127,66 +3154,74 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
-  // ── 10. CHECK RETURN TERM STATUS ──
+  // ── 10. CHECK RETURN TERM STATUS ── (HTTP Autentique fora da tx)
   checkReturnTermStatus: tenantProcedure
     .input(checkReturnTermStatusSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
         if (order.returnTermSigned) {
-          return { signed: true, alreadySigned: true, cancelled: false };
+          return { alreadySigned: true as const, order };
         }
 
         if (!order.returnTermAutentiqueId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo de devolucao nao foi enviado para assinatura digital." });
         }
 
-        const status = await getDocumentStatus(order.returnTermAutentiqueId);
-        if (!status.success) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
-        }
-
-        if (status.signed) {
-          const reason = order.cancellationReason ?? "Equipamento devolvido ao cliente";
-
-          await tx.serviceOrder.update({
-            where: { id: input.orderId },
-            data: {
-              returnTermSigned: true,
-              returnTermSignedAt: new Date(),
-              status: "CANCELLED",
-            },
-          });
-
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: ctx.tenantId,
-              orderId: input.orderId,
-              userId: ctx.session.user.id,
-              previousStatus: order.status,
-              newStatus: order.status,
-              notes: "Termo de devolucao assinado digitalmente pelo cliente",
-            },
-          });
-
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: ctx.tenantId,
-              orderId: input.orderId,
-              userId: ctx.session.user.id,
-              previousStatus: order.status,
-              newStatus: "CANCELLED",
-              notes: `OS cancelada - ${reason}`,
-            },
-          });
-
-          return { signed: true, alreadySigned: false, cancelled: true };
-        }
-
-        return { signed: false, alreadySigned: false, cancelled: false };
+        return { alreadySigned: false as const, order };
       });
+
+      if (prep.alreadySigned) {
+        return { signed: true, alreadySigned: true, cancelled: false };
+      }
+
+      const status = await getDocumentStatus(prep.order.returnTermAutentiqueId!);
+      if (!status.success) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: status.error ?? "Erro ao consultar Autentique" });
+      }
+
+      if (!status.signed) {
+        return { signed: false, alreadySigned: false, cancelled: false };
+      }
+
+      const reason = prep.order.cancellationReason ?? "Equipamento devolvido ao cliente";
+
+      await ctx.withTenant(async (tx) => {
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            returnTermSigned: true,
+            returnTermSignedAt: new Date(),
+            status: "CANCELLED",
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
+            notes: "Termo de devolucao assinado digitalmente pelo cliente",
+          },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: prep.order.status,
+            newStatus: "CANCELLED",
+            notes: `OS cancelada - ${reason}`,
+          },
+        });
+      });
+
+      return { signed: true, alreadySigned: false, cancelled: true };
     }),
 
   // ── 11. SEND QUOTE VIA WHATSAPP ──

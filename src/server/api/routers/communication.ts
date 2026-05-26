@@ -13,6 +13,32 @@ import { sendTextMessage, sendTemplateMessage } from "@/lib/services/whatsapp-se
 import { sendEmail } from "@/lib/services/email-service";
 import { logger } from "@/lib/logger";
 
+/**
+ * Helper: despacha mensagem por canal e retorna resultado normalizado.
+ * Chamado FORA de qualquer tx (HTTP/SMTP pode demorar varios segundos).
+ */
+async function dispatchMessage(
+  channel: string,
+  recipientPhone: string | null,
+  recipientEmail: string | null,
+  subject: string | null,
+  body: string,
+): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+  try {
+    if (channel === "WHATSAPP" && recipientPhone) {
+      const r = await sendTextMessage(recipientPhone, body);
+      return { success: r.success, providerMessageId: r.messageId, error: r.error };
+    }
+    if (channel === "EMAIL" && recipientEmail) {
+      const r = await sendEmail(recipientEmail, subject ?? "Mensagem Arena Tech", body);
+      return { success: r.success, providerMessageId: r.messageId, error: r.error };
+    }
+    return { success: false, error: "Canal ou destinatario invalido" };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erro desconhecido" };
+  }
+}
+
 export const communicationRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // MESSAGES
@@ -76,13 +102,13 @@ export const communicationRouter = createTRPCRouter({
       });
     }),
 
-  /** Send a message */
+  /** Send a message — HTTP/SMTP fora da tx (gap Co1). */
   send: tenantProcedure
     .input(sendMessageSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        // Create message record
-        const message = await tx.message.create({
+      // tx1: cria Message PENDING.
+      const message = await ctx.withTenant(async (tx) =>
+        tx.message.create({
           data: {
             tenantId: ctx.tenantId,
             channel: input.channel,
@@ -97,64 +123,39 @@ export const communicationRouter = createTRPCRouter({
             referenceType: input.referenceType ?? null,
             createdById: ctx.session.user.id,
           },
+        }),
+      );
+
+      // Envio fora da tx (HTTP/SMTP pode levar varios segundos).
+      const result = await dispatchMessage(
+        input.channel,
+        input.channel === "WHATSAPP" ? input.recipientPhone ?? null : null,
+        input.channel === "EMAIL" ? input.recipientEmail ?? null : null,
+        input.subject ?? null,
+        input.body,
+      );
+
+      // tx2: aplicar resultado.
+      await ctx.withTenant(async (tx) => {
+        await tx.message.update({
+          where: { id: message.id },
+          data: {
+            status: result.success ? "SENT" : "FAILED",
+            providerMessageId: result.providerMessageId ?? null,
+            errorMessage: result.error ?? null,
+            sentAt: result.success ? new Date() : null,
+          },
         });
-
-        // Send via appropriate channel
-        try {
-          if (input.channel === "WHATSAPP" && input.recipientPhone) {
-            const result = await sendTextMessage(input.recipientPhone, input.body);
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          } else if (input.channel === "EMAIL" && input.recipientEmail) {
-            const result = await sendEmail(
-              input.recipientEmail,
-              input.subject ?? "Mensagem Arena Tech",
-              input.body,
-            );
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          } else {
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: "FAILED",
-                errorMessage: "Canal ou destinatario invalido",
-              },
-            });
-          }
-        } catch (error) {
-          await tx.message.update({
-            where: { id: message.id },
-            data: {
-              status: "FAILED",
-              errorMessage: error instanceof Error ? error.message : "Erro desconhecido",
-            },
-          });
-        }
-
-        return { id: message.id };
       });
+
+      return { id: message.id };
     }),
 
-  /** Send message to a customer */
+  /** Send message to a customer — HTTP/SMTP fora da tx. */
   sendToCustomer: tenantProcedure
     .input(sendToCustomerSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const customer = await tx.customer.findUnique({
           where: { id: input.customerId },
           select: { name: true, phone: true, email: true, unsubscribed: true },
@@ -179,7 +180,6 @@ export const communicationRouter = createTRPCRouter({
           });
         }
 
-        // Create and send via the main send procedure logic
         const message = await tx.message.create({
           data: {
             tenantId: ctx.tenantId,
@@ -196,113 +196,79 @@ export const communicationRouter = createTRPCRouter({
             createdById: ctx.session.user.id,
           },
         });
-
-        try {
-          if (input.channel === "WHATSAPP" && customer.phone) {
-            const result = await sendTextMessage(customer.phone, input.body);
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          } else if (input.channel === "EMAIL" && customer.email) {
-            const result = await sendEmail(
-              customer.email,
-              input.subject ?? "Mensagem Arena Tech",
-              input.body,
-            );
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          }
-        } catch (error) {
-          await tx.message.update({
-            where: { id: message.id },
-            data: {
-              status: "FAILED",
-              errorMessage: error instanceof Error ? error.message : "Erro desconhecido",
-            },
-          });
-        }
-
-        return { id: message.id };
+        return { customer, message };
       });
+
+      const result = await dispatchMessage(
+        input.channel,
+        input.channel === "WHATSAPP" ? prep.customer.phone : null,
+        input.channel === "EMAIL" ? prep.customer.email : null,
+        input.subject ?? null,
+        input.body,
+      );
+
+      await ctx.withTenant(async (tx) => {
+        await tx.message.update({
+          where: { id: prep.message.id },
+          data: {
+            status: result.success ? "SENT" : "FAILED",
+            providerMessageId: result.providerMessageId ?? null,
+            errorMessage: result.error ?? null,
+            sentAt: result.success ? new Date() : null,
+          },
+        });
+      });
+
+      return { id: prep.message.id };
     }),
 
-  /** Resend a failed message */
+  /** Resend a failed message — HTTP/SMTP fora da tx. */
   resend: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const message = await tx.message.findUnique({ where: { id: input.id } });
-        if (!message) {
+      const message = await ctx.withTenant(async (tx) => {
+        const m = await tx.message.findUnique({ where: { id: input.id } });
+        if (!m) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem nao encontrada" });
         }
-        if (message.status !== "FAILED") {
+        if (m.status !== "FAILED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas mensagens com falha podem ser reenviadas" });
         }
-
-        try {
-          if (message.channel === "WHATSAPP" && message.recipientPhone) {
-            const result = await sendTextMessage(message.recipientPhone, message.body);
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          } else if (message.channel === "EMAIL" && message.recipientEmail) {
-            const result = await sendEmail(
-              message.recipientEmail,
-              message.subject ?? "Mensagem Arena Tech",
-              message.body,
-            );
-            await tx.message.update({
-              where: { id: message.id },
-              data: {
-                status: result.success ? "SENT" : "FAILED",
-                providerMessageId: result.messageId ?? null,
-                errorMessage: result.error ?? null,
-                sentAt: result.success ? new Date() : null,
-              },
-            });
-          }
-        } catch (error) {
-          await tx.message.update({
-            where: { id: message.id },
-            data: {
-              status: "FAILED",
-              errorMessage: error instanceof Error ? error.message : "Erro desconhecido",
-            },
-          });
-        }
-
-        return { success: true };
+        return m;
       });
+
+      const result = await dispatchMessage(
+        message.channel,
+        message.recipientPhone,
+        message.recipientEmail,
+        message.subject,
+        message.body,
+      );
+
+      await ctx.withTenant(async (tx) => {
+        await tx.message.update({
+          where: { id: message.id },
+          data: {
+            status: result.success ? "SENT" : "FAILED",
+            providerMessageId: result.providerMessageId ?? null,
+            errorMessage: result.error ?? null,
+            sentAt: result.success ? new Date() : null,
+          },
+        });
+      });
+
+      return { success: true };
     }),
 
   // ═══════════════════════════════════════
   // QUICK ACTIONS (OS-related notifications)
   // ═══════════════════════════════════════
 
-  /** Notify customer that OS is completed */
+  /** Notify customer that OS is completed — WhatsApp fora da tx. */
   notifyOsCompleted: tenantProcedure
     .input(z.object({ serviceOrderId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const so = await tx.serviceOrder.findUnique({
           where: { id: input.serviceOrderId },
         });
@@ -318,7 +284,6 @@ export const communicationRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado" });
         }
 
-        // Find template
         const template = await tx.messageTemplate.findUnique({
           where: { tenantId_slug: { tenantId: ctx.tenantId, slug: "os-completed" } },
         });
@@ -329,17 +294,21 @@ export const communicationRouter = createTRPCRouter({
               .replace(/\{\{os_number\}\}/g, so.number)
           : `Ola ${customer.name}! Sua ordem de servico ${so.number} foi concluida. Entre em contato para retirada.`;
 
-        const result = await sendTextMessage(customer.phone, body);
+        return { customerPhone: customer.phone, customerName: customer.name, body };
+      });
 
+      const result = await sendTextMessage(prep.customerPhone, prep.body);
+
+      await ctx.withTenant(async (tx) => {
         await tx.message.create({
           data: {
             tenantId: ctx.tenantId,
             channel: "WHATSAPP",
             direction: "OUTBOUND",
             status: result.success ? "SENT" : "FAILED",
-            recipientPhone: customer.phone,
-            recipientName: customer.name,
-            body,
+            recipientPhone: prep.customerPhone,
+            recipientName: prep.customerName,
+            body: prep.body,
             templateName: "os-completed",
             referenceId: input.serviceOrderId,
             referenceType: "SERVICE_ORDER",
@@ -349,39 +318,45 @@ export const communicationRouter = createTRPCRouter({
             createdById: ctx.session.user.id,
           },
         });
-
-        return { success: result.success };
       });
+
+      return { success: result.success };
     }),
 
-  /** Notify customer of OS status change */
+  /** Notify customer of OS status change — WhatsApp fora da tx. */
   notifyOsStatusChanged: tenantProcedure
     .input(z.object({ serviceOrderId: z.string().uuid(), newStatus: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const prep = await ctx.withTenant(async (tx) => {
         const so = await tx.serviceOrder.findUnique({
           where: { id: input.serviceOrderId },
         });
-        if (!so || !so.customerId) return { success: false };
+        if (!so || !so.customerId) return null;
 
         const customer = await tx.customer.findUnique({
           where: { id: so.customerId },
           select: { name: true, phone: true },
         });
-        if (!customer?.phone) return { success: false };
+        if (!customer?.phone) return null;
 
         const body = `Ola ${customer.name}! O status da sua OS ${so.number} foi atualizado para: ${input.newStatus}.`;
-        const result = await sendTextMessage(customer.phone, body);
+        return { customerPhone: customer.phone, customerName: customer.name, body };
+      });
 
+      if (!prep) return { success: false };
+
+      const result = await sendTextMessage(prep.customerPhone, prep.body);
+
+      await ctx.withTenant(async (tx) => {
         await tx.message.create({
           data: {
             tenantId: ctx.tenantId,
             channel: "WHATSAPP",
             direction: "OUTBOUND",
             status: result.success ? "SENT" : "FAILED",
-            recipientPhone: customer.phone,
-            recipientName: customer.name,
-            body,
+            recipientPhone: prep.customerPhone,
+            recipientName: prep.customerName,
+            body: prep.body,
             referenceId: input.serviceOrderId,
             referenceType: "SERVICE_ORDER",
             providerMessageId: result.messageId ?? null,
@@ -389,9 +364,9 @@ export const communicationRouter = createTRPCRouter({
             createdById: ctx.session.user.id,
           },
         });
-
-        return { success: result.success };
       });
+
+      return { success: result.success };
     }),
 
   // ═══════════════════════════════════════

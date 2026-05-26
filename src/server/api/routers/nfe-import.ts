@@ -374,7 +374,6 @@ export const nfeImportRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "NF-e nao esta pendente" })
         }
 
-        // Check all items are linked or ignored
         const pendingItems = nf.items.filter((i) => i.status === "PENDING")
         if (pendingItems.length > 0) {
           throw new TRPCError({
@@ -383,7 +382,6 @@ export const nfeImportRouter = createTRPCRouter({
           })
         }
 
-        // Mark as processing
         await tx.nfeImport.update({
           where: { id: input.nfeImportId },
           data: { status: "PROCESSING" },
@@ -391,63 +389,108 @@ export const nfeImportRouter = createTRPCRouter({
 
         try {
           const linkedItems = nf.items.filter((i) => i.status === "LINKED" && i.productId)
+          // gap Nf1: ANTES havia N+1 dentro da tx — um findUnique de product
+          // por item. Para NF-e com 50+ itens, a tx ficava aberta segurando
+          // a conexao Postgres por todos os roundtrips. Agora carregamos
+          // todos os products em UMA query.
+          const productIds = Array.from(
+            new Set(linkedItems.map((i) => i.productId).filter((p): p is string => !!p)),
+          )
+          const products = await tx.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, isSerialized: true, currentStock: true },
+          })
+          const productMap = new Map(products.map((p) => [p.id, p]))
+
           let importedCount = 0
+          // Acumulamos updates em memoria para emitir poucos comandos SQL.
+          // currentStock e atualizado em-memory para a mensagem de movement
+          // refletir o valor correto entre items repetidos do mesmo product.
+          const stockMovements: Array<{
+            productId: string
+            variationId: string | null
+            quantity: number
+            quantityBefore: number
+            quantityAfter: number
+          }> = []
+          const stockIncrements = new Map<string, number>()
+          const costUpdates = new Map<string, Prisma.Decimal>()
+          const importedItemIds: string[] = []
 
           for (const item of linkedItems) {
             const quantity = Math.round(Number(item.quantity))
             if (quantity <= 0 || !item.productId) continue
 
-            // Get product to check if serialized
-            const product = await tx.product.findUnique({
-              where: { id: item.productId },
-              select: { isSerialized: true, currentStock: true },
-            })
-
+            const product = productMap.get(item.productId)
             if (!product) continue
 
             if (!product.isSerialized) {
-              // Non-serialized: increment currentStock
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { currentStock: { increment: quantity } },
-              })
-
-              // Create stock movement
-              await tx.stockMovement.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  productId: item.productId,
-                  variationId: item.variationId ?? null,
-                  type: "ENTRY",
-                  quantity,
-                  quantityBefore: product.currentStock,
-                  quantityAfter: product.currentStock + quantity,
-                  reason: `Entrada NF-e ${nf.nfNumber ?? nf.accessKey.slice(0, 12)}`,
-                  referenceType: "nfe_import",
-                  referenceId: nf.id,
-                  userId: ctx.session.user.id,
-                },
+              const before = product.currentStock + (stockIncrements.get(item.productId) ?? 0)
+              const after = before + quantity
+              stockIncrements.set(
+                item.productId,
+                (stockIncrements.get(item.productId) ?? 0) + quantity,
+              )
+              stockMovements.push({
+                productId: item.productId,
+                variationId: item.variationId ?? null,
+                quantity,
+                quantityBefore: before,
+                quantityAfter: after,
               })
             }
 
-            // Update cost price if totalUnitCost is available
             if (item.totalUnitCost) {
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { costPrice: item.totalUnitCost },
-              })
+              costUpdates.set(item.productId, item.totalUnitCost)
             }
 
-            // Mark item as imported
-            await tx.nfeImportItem.update({
-              where: { id: item.id },
-              data: { status: "IMPORTED" },
-            })
-
+            importedItemIds.push(item.id)
             importedCount++
           }
 
-          // Mark NF as processed
+          // Aplica increments (um update por product).
+          for (const [productId, qty] of stockIncrements) {
+            await tx.product.update({
+              where: { id: productId },
+              data: { currentStock: { increment: qty } },
+            })
+          }
+
+          // Aplica cost updates.
+          for (const [productId, cost] of costUpdates) {
+            await tx.product.update({
+              where: { id: productId },
+              data: { costPrice: cost },
+            })
+          }
+
+          // Cria movements em batch.
+          if (stockMovements.length > 0) {
+            await tx.stockMovement.createMany({
+              data: stockMovements.map((m) => ({
+                tenantId: ctx.tenantId,
+                productId: m.productId,
+                variationId: m.variationId,
+                type: "ENTRY",
+                quantity: m.quantity,
+                quantityBefore: m.quantityBefore,
+                quantityAfter: m.quantityAfter,
+                reason: `Entrada NF-e ${nf.nfNumber ?? nf.accessKey.slice(0, 12)}`,
+                referenceType: "nfe_import",
+                referenceId: nf.id,
+                userId: ctx.session.user.id,
+              })),
+            })
+          }
+
+          // Marca todos os items como IMPORTED em uma query.
+          if (importedItemIds.length > 0) {
+            await tx.nfeImportItem.updateMany({
+              where: { id: { in: importedItemIds } },
+              data: { status: "IMPORTED" },
+            })
+          }
+
           await tx.nfeImport.update({
             where: { id: input.nfeImportId },
             data: {
@@ -460,7 +503,6 @@ export const nfeImportRouter = createTRPCRouter({
           logger.info("NF-e import completed", { nfeImportId: input.nfeImportId, importedCount })
           return { success: true, importedCount }
         } catch (err) {
-          // Mark as error
           await tx.nfeImport.update({
             where: { id: input.nfeImportId },
             data: {

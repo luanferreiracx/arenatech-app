@@ -250,23 +250,33 @@ export const interestRouter = createTRPCRouter({
   sendBatch: tenantProcedure
     .input(sendBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const interests = await tx.interest.findMany({
-          where: { id: { in: input.ids } },
-        });
+      // gap In1: ANTES, o loop de N envios HTTP rodava DENTRO de uma unica tx.
+      // Com N=50 interesses x ~2s por envio, a tx ficava aberta 100s e
+      // segurava a conexao Postgres todo esse tempo — exauria o pool.
+      //
+      // Agora cada interesse roda em microtransacoes separadas e o HTTP
+      // fica fora delas: tx1 cria Message PENDING + retorna ID, HTTP, tx2
+      // atualiza status + (se sucesso) cria interaction + atualiza status
+      // do interest.
 
-        let sent = 0;
-        let errors = 0;
+      // tx1: carrega todos os interesses (rapido).
+      const interests = await ctx.withTenant(async (tx) =>
+        tx.interest.findMany({ where: { id: { in: input.ids } } }),
+      );
 
-        for (const interest of interests) {
-          if (!interest.phone) {
-            errors++;
-            logger.warn("Interest sem telefone", { interestId: interest.id });
-            continue;
-          }
-          try {
-            // Cria Message real no modulo de comunicacao (WHATSAPP)
-            const message = await tx.message.create({
+      let sent = 0;
+      let errors = 0;
+
+      for (const interest of interests) {
+        if (!interest.phone) {
+          errors++;
+          logger.warn("Interest sem telefone", { interestId: interest.id });
+          continue;
+        }
+        try {
+          // tx1-per-interest: cria Message PENDING.
+          const messageId = await ctx.withTenant(async (tx) => {
+            const m = await tx.message.create({
               data: {
                 tenantId: ctx.tenantId,
                 channel: "WHATSAPP",
@@ -280,11 +290,16 @@ export const interestRouter = createTRPCRouter({
                 createdById: ctx.session.user.id,
               },
             });
+            return m.id;
+          });
 
-            // Envia via Evolution (whatsapp-service). Falha de envio nao reverte a tx.
-            const result = await sendTextMessage(interest.phone, input.message);
+          // HTTP fora da tx.
+          const result = await sendTextMessage(interest.phone, input.message);
+
+          // tx2-per-interest: aplica resultado + (se sucesso) interaction + status.
+          await ctx.withTenant(async (tx) => {
             await tx.message.update({
-              where: { id: message.id },
+              where: { id: messageId },
               data: {
                 status: result.success ? "SENT" : "FAILED",
                 providerMessageId: result.messageId ?? null,
@@ -293,43 +308,39 @@ export const interestRouter = createTRPCRouter({
               },
             });
 
-            if (!result.success) {
-              errors++;
-              continue;
+            if (result.success) {
+              await tx.interestInteraction.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  interestId: interest.id,
+                  userId: ctx.session.user.id,
+                  type: "WHATSAPP",
+                  description: `Mensagem enviada em lote: ${input.message.substring(0, 100)}`,
+                },
+              });
+
+              await tx.interest.update({
+                where: { id: interest.id },
+                data: {
+                  status: interest.status === "WAITING" ? "CONTACTED" : interest.status,
+                  lastNotifiedAt: new Date(),
+                },
+              });
             }
+          });
 
-            // SPEC RN-12: create interaction for each successful send
-            await tx.interestInteraction.create({
-              data: {
-                tenantId: ctx.tenantId,
-                interestId: interest.id,
-                userId: ctx.session.user.id,
-                type: "WHATSAPP",
-                description: `Mensagem enviada em lote: ${input.message.substring(0, 100)}`,
-              },
-            });
-
-            // SPEC RN-10: WAITING → CONTACTED + registrar lastNotifiedAt
-            await tx.interest.update({
-              where: { id: interest.id },
-              data: {
-                status: interest.status === "WAITING" ? "CONTACTED" : interest.status,
-                lastNotifiedAt: new Date(),
-              },
-            });
-
-            sent++;
-          } catch (e) {
-            logger.error("WhatsApp batch send failed", {
-              interestId: interest.id,
-              error: e instanceof Error ? e.message : String(e),
-            });
-            errors++;
-          }
+          if (result.success) sent++;
+          else errors++;
+        } catch (e) {
+          logger.error("WhatsApp batch send failed", {
+            interestId: interest.id,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          errors++;
         }
+      }
 
-        return { sent, errors };
-      });
+      return { sent, errors };
     }),
 
   /**
