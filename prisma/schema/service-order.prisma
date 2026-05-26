@@ -168,6 +168,14 @@ model ServiceOrder {
   @@index([tenantId, entryDate])
   @@index([tenantId, deletedAt])
   @@index([publicLink])
+  // Lookups cross-tenant disparados pelos webhooks Autentique + queries
+  // de garantia. Indices PARTIAL (definidos no SQL da migration) — a
+  // declaracao aqui e essencial para o Prisma reconhecer.
+  @@index([signatureDocumentId])
+  @@index([deliveryTermAutentiqueId])
+  @@index([returnTermAutentiqueId])
+  @@index([originalOrderId])
+  @@index([pendingQuoteId])
   @@map("service_orders")
 }
 
@@ -259,5 +267,6 @@ model ServiceOrderQuote {
 
   @@index([tenantId, orderId])
   @@index([approvalLink])
+  @@index([signatureDocumentId])
   @@map("service_order_quotes")
 }
