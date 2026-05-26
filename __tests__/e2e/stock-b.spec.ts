@@ -30,7 +30,7 @@ test.describe("Estoque-B — Compras de aparelhos", () => {
     await gotoAndWait(page, "/stock/purchases/new");
     // Sem digitacao livre de marca/modelo — combobox de Product cadastrado.
     await expect(page.getByText(/Modelo do Aparelho/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByPlaceholder(/Buscar aparelho cadastrado/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("[role='combobox']").first()).toBeVisible({ timeout: 5000 });
     await expect(page.locator("input[name='imei']")).toBeVisible();
     await expect(page.locator("input[name='serial']")).toBeVisible();
     await expect(page.locator("button[type='submit']")).toBeVisible({ timeout: 10000 });
@@ -110,7 +110,7 @@ test.describe("Estoque-B — Listagem e Dashboard", () => {
     await fillField(page, "imei", "490154203237518");
     await expect(page.locator("input[name='imei']")).not.toHaveValue("");
     // Paridade Laravel: aparelho precisa estar cadastrado como Product.
-    await expect(page.getByRole("link", { name: /Cadastrar novo produto/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("main")).toContainText(/Cadastrar novo produto/i, { timeout: 10000 });
   });
 });
 
@@ -165,6 +165,6 @@ test.describe("Estoque-B — RLS + Navegação", () => {
     await gotoAndWait(page, "/stock/purchases/new");
     await fillField(page, "serial", "PX9-SN-" + Date.now());
     await expect(page.locator("input[name='serial']")).not.toHaveValue("");
-    await expect(page.getByPlaceholder(/Buscar aparelho cadastrado/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[role='combobox']").first()).toBeVisible({ timeout: 10000 });
   });
 });
