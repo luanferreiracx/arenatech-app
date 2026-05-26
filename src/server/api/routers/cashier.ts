@@ -151,6 +151,36 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
+        // Conferencia por forma de pagamento (paridade Laravel): operador
+        // marca cada forma nao-dinheiro como "confere" ou informa o valor
+        // real. Persistimos em closingNote como bloco audit para nao
+        // precisar de schema novo.
+        let noteParts: string[] = [];
+        if (input.closingNote?.trim()) noteParts.push(input.closingNote.trim());
+        if (input.methodVerifications && input.methodVerifications.length > 0) {
+          const divergent = input.methodVerifications.filter(
+            (m) => !m.verified && typeof m.reportedAmount === "number" &&
+              typeof m.expectedAmount === "number" &&
+              m.reportedAmount !== m.expectedAmount,
+          );
+          const checked = input.methodVerifications.filter((m) => m.verified);
+          const audit = [
+            checked.length > 0
+              ? `Conferidas: ${checked.map((m) => m.method).join(", ")}`
+              : null,
+            divergent.length > 0
+              ? `Divergencias: ${divergent
+                  .map(
+                    (m) =>
+                      `${m.method} esperado=${((m.expectedAmount ?? 0) / 100).toFixed(2)} contado=${((m.reportedAmount ?? 0) / 100).toFixed(2)}`,
+                  )
+                  .join("; ")}`
+              : null,
+          ].filter(Boolean);
+          if (audit.length > 0) noteParts.push(`[Conferencia] ${audit.join(" | ")}`);
+        }
+        const finalNote = noteParts.length > 0 ? noteParts.join("\n").slice(0, 1500) : null;
+
         // Update session to close it
         await tx.cashSession.update({
           where: { id: session.id },
@@ -161,7 +191,7 @@ export const cashierRouter = createTRPCRouter({
             declaredBalance: centsToPrismaDecimal(declaredCents),
             calculatedBalance: centsToPrismaDecimal(calculatedCents),
             difference: centsToPrismaDecimal(differenceCents),
-            closingNote: input.closingNote ?? null,
+            closingNote: finalNote,
           },
         });
 

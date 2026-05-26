@@ -53,6 +53,23 @@ export const closeCashSessionSchema = z.object({
   /** Declared balance in centavos (reported by operator) */
   declaredBalance: z.number().int().min(0, "Saldo informado deve ser >= 0"),
   closingNote: z.string().max(500).optional(),
+  /**
+   * Conferencia das formas nao-dinheiro. Para cada metodo (ex.: "pix",
+   * "cartao_debito"): se `verified=true`, operador confirmou que valor
+   * confere; senao, `reportedAmount` traz o valor real conferido em
+   * centavos. Persistido no closingNote como bloco JSON para audit.
+   */
+  methodVerifications: z
+    .array(
+      z.object({
+        method: z.string().min(1).max(50),
+        verified: z.boolean(),
+        reportedAmount: z.number().int().min(0).optional(),
+        expectedAmount: z.number().int().min(0).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 /** Withdrawal (sangria) */

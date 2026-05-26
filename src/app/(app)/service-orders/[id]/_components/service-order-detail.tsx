@@ -104,10 +104,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [uncancelReason, setUncancelReason] = useState("");
   const [refundDialog, setRefundDialog] = useState(false);
   const [refundReason, setRefundReason] = useState("");
-  const [paymentDialog, setPaymentDialog] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("pix");
-  const [paymentDiscount, setPaymentDiscount] = useState(0);
-  const [paymentNotes, setPaymentNotes] = useState("");
+  // Pagamento da OS hoje passa pelo PDV (ADR 0042) — nao ha mais dialog
+  // local. `registerPaymentMut` permanece pro caso de garantia/cortesia
+  // (valor 0) que e disparado diretamente em um botao.
   const [addItemDialog, setAddItemDialog] = useState(false);
   const [newItemType, setNewItemType] = useState<"SERVICE" | "PRODUCT">("SERVICE");
   const [newItemDesc, setNewItemDesc] = useState("");
@@ -215,7 +214,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
   const registerPaymentMut = useMutation(
     trpc.serviceOrder.registerPayment.mutationOptions({
-      onSuccess: () => { toast.success("Pagamento registrado!"); setPaymentDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Pagamento registrado!"); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
@@ -1309,34 +1308,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           await sendForSignatureMut.mutateAsync({ orderId: id, whatsappOverride: phone });
         }}
       />
-
-      {/* Payment Dialog */}
-      <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Registrar Pagamento</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Forma de Pagamento</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => (<SelectItem key={k} value={k}>{v}</SelectItem>))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label>Desconto (opcional)</Label><MoneyInput value={paymentDiscount} onChange={setPaymentDiscount} /></div>
-            <div><Label>Observacao</Label><Input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Observacao do pagamento..." /></div>
-            <div className="rounded-lg bg-muted p-3 text-sm">
-              <div className="flex justify-between"><span>Valor Total</span><span className="font-mono">{formatMoney(order.totalAmount)}</span></div>
-              <div className="flex justify-between"><span>Desconto</span><span className="font-mono text-warning">-{formatMoney(paymentDiscount)}</span></div>
-              <div className="flex justify-between font-bold pt-1 border-t mt-1"><span>Valor a Pagar</span><span className="font-mono text-success">{formatMoney(Math.max(0, order.totalAmount - paymentDiscount))}</span></div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentDialog(false)}>Cancelar</Button>
-            <Button onClick={() => registerPaymentMut.mutate({ id, paymentMethod, paidAmount: Math.max(0, order.totalAmount - paymentDiscount), paymentDiscount, paymentNotes: paymentNotes || null })} disabled={registerPaymentMut.isPending}>Confirmar Pagamento</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Add Item Dialog */}
       <Dialog open={addItemDialog} onOpenChange={(open) => {

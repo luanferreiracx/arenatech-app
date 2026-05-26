@@ -102,9 +102,20 @@ export default function CloseCashierPage() {
   );
 
   function handleClose() {
+    // Empacota a conferencia das formas nao-dinheiro pra audit no
+    // closing note (ANTES, o backend ignorava methodAmounts/verifiedMethods
+    // — operador conferia mas nada era persistido).
+    const methodVerifications = nonCashMethods.map(([method, data]) => ({
+      method,
+      verified: verifiedMethods[method] ?? false,
+      expectedAmount: data.total,
+      reportedAmount: methodAmounts[method] ?? data.total,
+    }));
+
     closeMutation.mutate({
       declaredBalance: reportedBalance,
       closingNote: notes || undefined,
+      methodVerifications: methodVerifications.length > 0 ? methodVerifications : undefined,
     });
   }
 
