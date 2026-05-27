@@ -239,8 +239,25 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-        return { ...product, currentStock: 0 };
+        // Calcula currentStock real (paridade stock.list):
+        // - serializado: count(StockItem AVAILABLE)
+        // - com variations: SUM(variations.currentStock)
+        // - simples: usa products.currentStock
+        let currentStock: number;
+        if (product.isSerialized) {
+          currentStock = await tx.stockItem.count({
+            where: { productId: product.id, status: "AVAILABLE", deletedAt: null },
+          });
+        } else if (product.hasVariations) {
+          currentStock = product.variations.reduce(
+            (acc, v) => acc + (v.currentStock ?? 0),
+            0,
+          );
+        } else {
+          currentStock = product.currentStock;
+        }
+
+        return { ...product, currentStock };
       });
     }),
 

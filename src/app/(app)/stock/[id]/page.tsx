@@ -120,7 +120,11 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <CardTitle className="text-sm font-medium text-muted-foreground">Preco de Custo</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{formatCurrency(product.costPrice)}</div>
+            {product.hasVariations ? (
+              <div className="text-sm text-muted-foreground italic">por variacao</div>
+            ) : (
+              <div className="text-2xl font-bold font-mono">{formatCurrency(product.costPrice)}</div>
+            )}
           </CardContent>
         </Card>
 
@@ -129,7 +133,11 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <CardTitle className="text-sm font-medium text-muted-foreground">Preco de Venda</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{formatCurrency(product.salePrice)}</div>
+            {product.hasVariations ? (
+              <div className="text-sm text-muted-foreground italic">por variacao</div>
+            ) : (
+              <div className="text-2xl font-bold font-mono">{formatCurrency(product.salePrice)}</div>
+            )}
           </CardContent>
         </Card>
 

@@ -19,12 +19,13 @@ interface ProductRow {
   id: string;
   name: string;
   sku: string | null;
-  currentStock: number; // TODO: Estoque-B — stub as 0
+  currentStock: number;
   minStock: number;
   costPrice: { toNumber?: () => number } | number | string;
   salePrice: { toNumber?: () => number } | number | string;
   unit: string;
   active: boolean;
+  hasVariations: boolean;
 }
 
 function formatCurrency(value: ProductRow["salePrice"]): string {
@@ -112,16 +113,24 @@ export function ProductsTable() {
     {
       accessorKey: "costPrice",
       header: "Custo",
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{formatCurrency(row.original.costPrice)}</span>
-      ),
+      cell: ({ row }) =>
+        row.original.hasVariations ? (
+          // Pai com variations: o preco do pai eh media, nao reflete a realidade.
+          // Operador ve preco real ao escolher a variation no PDV/detalhe.
+          <span className="text-xs text-muted-foreground italic">por variacao</span>
+        ) : (
+          <span className="font-mono text-sm">{formatCurrency(row.original.costPrice)}</span>
+        ),
     },
     {
       accessorKey: "salePrice",
       header: "Venda",
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{formatCurrency(row.original.salePrice)}</span>
-      ),
+      cell: ({ row }) =>
+        row.original.hasVariations ? (
+          <span className="text-xs text-muted-foreground italic">por variacao</span>
+        ) : (
+          <span className="font-mono text-sm">{formatCurrency(row.original.salePrice)}</span>
+        ),
     },
     {
       id: "status",
