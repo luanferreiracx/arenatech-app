@@ -79,10 +79,17 @@ export default function NewPurchasePage() {
 
   const mutation = useMutation(
     trpc.stock.createPurchase.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (purchase) => {
         toast.success("Compra registrada com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["stock"]] });
-        router.push("/stock/purchases");
+        // Redireciona pra detalhe pra operador escolher enviar termo,
+        // confirmar assinatura fisica, imprimir etc. Sem isso, ele caia
+        // na listagem e tinha que clicar de novo na compra.
+        if (purchase?.id) {
+          router.push(`/stock/purchases/${purchase.id}`);
+        } else {
+          router.push("/stock/purchases");
+        }
       },
       onError: (error) => toast.error(error.message),
     }),
