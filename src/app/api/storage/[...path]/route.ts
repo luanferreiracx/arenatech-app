@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +55,7 @@ export async function GET(
     if ((err as { name?: string })?.name === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    console.error("Storage proxy error:", err);
+    logger.error("Storage proxy error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

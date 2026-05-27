@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { verifyPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 
 export const runtime = "nodejs";
@@ -45,7 +46,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("public sale PDF error:", err);
+    logger.error("public sale PDF error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

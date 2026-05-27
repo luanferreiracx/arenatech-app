@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
+import { logger } from "@/lib/logger"
 
 /**
  * GET /api/catalog/public
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ products, total: products.length })
   } catch (err) {
-    console.error("Public catalog error:", err)
+    logger.error("Public catalog error:", { err: String(err) })
     return NextResponse.json({ products: [], total: 0, error: "Internal error" }, { status: 500 })
   }
 }

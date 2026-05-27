@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
@@ -344,7 +345,7 @@ export async function GET(
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (err) {
-    console.error("Sale receipt generation error:", err);
+    logger.error("Sale receipt generation error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

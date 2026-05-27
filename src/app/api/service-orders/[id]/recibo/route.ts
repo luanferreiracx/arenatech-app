@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { formatCnpj, formatCpf } from "@/lib/utils";
@@ -231,7 +232,7 @@ export async function GET(
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (err) {
-    console.error("Recibo generation error:", err);
+    logger.error("Recibo generation error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

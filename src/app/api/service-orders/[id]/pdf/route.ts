@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
 
@@ -40,7 +41,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("PDF generation error:", err);
+    logger.error("PDF generation error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant } from "@/server/db";
 import { PIX_KEY_TYPE_LABELS } from "@/lib/validators/depix-withdraw";
@@ -95,7 +96,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("Depix comprovante generation error:", err);
+    logger.error("Depix comprovante generation error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant } from "@/server/db";
 
@@ -217,7 +218,7 @@ ${sale.phone ? `<div>Tel: ${esc(sale.phone)}</div>` : ""}
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (err) {
-    console.error("Quick sale recibo generation error:", err);
+    logger.error("Quick sale recibo generation error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

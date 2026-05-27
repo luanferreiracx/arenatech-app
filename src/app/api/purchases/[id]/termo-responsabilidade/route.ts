@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { buildPurchaseTermPdf } from "@/lib/pdf/purchase-term-builder";
 
@@ -39,7 +40,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("Purchase term PDF error:", err);
+    logger.error("Purchase term PDF error:", { err: String(err) });
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

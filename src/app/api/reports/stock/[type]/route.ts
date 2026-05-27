@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
@@ -353,7 +354,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("Stock report PDF error:", err);
+    logger.error("Stock report PDF error:", { err: String(err) });
     return NextResponse.json(
       { error: "Erro ao gerar PDF do relatorio" },
       { status: 500 },

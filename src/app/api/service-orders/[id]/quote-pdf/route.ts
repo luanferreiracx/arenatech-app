@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { formatCpf } from "@/lib/utils";
@@ -230,7 +231,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error("Quote PDF error:", error);
+    logger.error("Quote PDF error:", { err: String(error) });
     return NextResponse.json(
       { error: "Failed to generate quote PDF" },
       { status: 500 },
