@@ -28,8 +28,9 @@ function getSecret(): string {
 
 /** Tipo do documento sendo entregado via WhatsApp.
  * - "receipt": recibo final da venda
- * - "delivery": termo de entrega (inclui bloco de responsabilidade quando ha upgrade) */
-export type PublicPdfKind = "receipt" | "delivery";
+ * - "delivery": termo de entrega (inclui bloco de responsabilidade quando ha upgrade)
+ * - "purchase_term": termo de responsabilidade de compra de aparelho (devicePurchase) */
+export type PublicPdfKind = "receipt" | "delivery" | "purchase_term";
 
 export interface PublicPdfTokenPayload {
   tenantId: string;
@@ -81,7 +82,12 @@ export function verifyPublicPdfToken(token: string): PublicPdfTokenPayload | nul
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
 
   // Tokens antigos (sem kind) caem em "receipt" por compatibilidade.
-  const kind: PublicPdfKind = kindRaw === "delivery" ? "delivery" : "receipt";
+  const kind: PublicPdfKind =
+    kindRaw === "delivery"
+      ? "delivery"
+      : kindRaw === "purchase_term"
+        ? "purchase_term"
+        : "receipt";
 
   return { tenantId, orderId, expiresAt, kind };
 }

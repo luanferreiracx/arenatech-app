@@ -30,6 +30,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
+import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/whatsapp-recipient-picker";
 import { toast } from "@/lib/toast";
 import { deviceConditionLabels } from "@/lib/validators/stock";
 
@@ -89,6 +90,7 @@ export default function PurchaseDetailPage({ params }: PageProps) {
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [showPhysicalDialog, setShowPhysicalDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [signaturePhone, setSignaturePhone] = useState("");
 
   const cancelMutation = useMutation(
     trpc.stock.cancelPurchase.mutationOptions({
@@ -169,10 +171,16 @@ export default function PurchaseDetailPage({ params }: PageProps) {
                     Ver termo
                   </a>
                 </Button>
-                {!isTermSigned && !hasAutentique && (
-                  <Button variant="outline" onClick={() => setShowSendDialog(true)}>
+                {!isTermSigned && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSignaturePhone("");
+                      setShowSendDialog(true);
+                    }}
+                  >
                     <PenLine className="mr-2 h-4 w-4" />
-                    Enviar termo
+                    {hasAutentique ? "Reenviar termo" : "Enviar termo"}
                   </Button>
                 )}
                 {!isTermSigned && (
@@ -380,22 +388,31 @@ export default function PurchaseDetailPage({ params }: PageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Send term Autentique dialog */}
+      {/* Send term Autentique dialog (paridade PDV sale.sendForSignature) */}
       <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Enviar termo para Autentique</DialogTitle>
+            <DialogTitle>Enviar termo para assinatura digital</DialogTitle>
             <DialogDescription>
-              O termo de responsabilidade sera enviado por WhatsApp para o vendedor
-              assinar digitalmente.
+              Cria o documento no Autentique e envia o link de assinatura por WhatsApp.
             </DialogDescription>
           </DialogHeader>
+          <WhatsappRecipientPicker
+            options={(purchase.sellerPhones ?? []) as PhoneOption[]}
+            value={signaturePhone}
+            onValueChange={setSignaturePhone}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSendDialog(false)}>
               Cancelar
             </Button>
             <Button
-              onClick={() => sendTermMutation.mutate({ id })}
+              onClick={() =>
+                sendTermMutation.mutate({
+                  id,
+                  whatsappOverride: signaturePhone.trim() || undefined,
+                })
+              }
               disabled={sendTermMutation.isPending}
             >
               {sendTermMutation.isPending ? (
@@ -403,7 +420,7 @@ export default function PurchaseDetailPage({ params }: PageProps) {
               ) : (
                 <PenLine className="mr-2 h-4 w-4" />
               )}
-              Enviar
+              {hasAutentique ? "Reenviar" : "Enviar"}
             </Button>
           </DialogFooter>
         </DialogContent>

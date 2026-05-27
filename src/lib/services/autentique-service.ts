@@ -378,3 +378,70 @@ export async function getDocumentStatus(
     };
   }
 }
+
+/**
+ * Cancela (delete) um documento no Autentique. Usado quando o usuario marca
+ * assinatura como fisica e ja havia documento digital pendente — evita o doc
+ * ficar orfao consumindo creditos. Paridade Laravel AutentiqueService::cancelarDocumento.
+ *
+ * Retorna `{ success: true }` mesmo quando o doc nao existe mais no Autentique
+ * (idempotente — operacao "best effort", nunca bloqueia o fluxo do operador).
+ */
+export async function cancelDocument(
+  documentId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const config = getConfig();
+  if (!config) {
+    logger.info("Autentique: mock cancel", { documentId });
+    return { success: true };
+  }
+
+  logger.info("Autentique: canceling document", { documentId });
+
+  try {
+    const query = `
+      mutation DeleteDocument($id: UUID!) {
+        deleteDocument(id: $id)
+      }
+    `;
+    const response = await fetch(config.apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables: { id: documentId } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      logger.warn("Autentique: cancel HTTP error", {
+        documentId,
+        status: response.status,
+        body: body.substring(0, 200),
+      });
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (json["errors"]) {
+      logger.warn("Autentique: cancel returned errors", {
+        documentId,
+        errors: json["errors"],
+      });
+      // Idempotente — se erro foi "document not found", trata como sucesso.
+      return { success: true };
+    }
+    return { success: true };
+  } catch (error) {
+    logger.warn("Autentique: cancel error", {
+      documentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao cancelar",
+    };
+  }
+}

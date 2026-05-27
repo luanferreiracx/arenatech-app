@@ -974,10 +974,40 @@ export const stockRouter = createTRPCRouter({
           where: { id: input.id },
         });
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Carrega dados do vendedor (cliente ou fornecedor) — usado pra
+        // popular o WhatsappRecipientPicker no dialog de Enviar termo.
+        let sellerName: string | null = null;
+        let sellerPhones: Array<{ label: string; value: string }> = [];
+        if (purchase.sellerType === "customer" && purchase.customerId) {
+          const c = await tx.customer.findUnique({
+            where: { id: purchase.customerId },
+            select: { name: true, phone: true, phoneSecondary: true },
+          });
+          if (c) {
+            sellerName = c.name;
+            if (c.phone) sellerPhones.push({ label: `Telefone — ${c.phone}`, value: c.phone });
+            if (c.phoneSecondary && c.phoneSecondary !== c.phone) {
+              sellerPhones.push({ label: `Secundario — ${c.phoneSecondary}`, value: c.phoneSecondary });
+            }
+          }
+        } else if (purchase.sellerType === "supplier" && purchase.supplierId) {
+          const s = await tx.supplier.findUnique({
+            where: { id: purchase.supplierId },
+            select: { name: true, phone: true },
+          });
+          if (s) {
+            sellerName = s.name;
+            if (s.phone) sellerPhones.push({ label: `Telefone — ${s.phone}`, value: s.phone });
+          }
+        }
+
         return {
           ...purchase,
           purchasePrice: Math.round(Number(purchase.purchasePrice) * 100),
           salePrice: purchase.salePrice ? Math.round(Number(purchase.salePrice) * 100) : null,
+          sellerName,
+          sellerPhones,
         };
       });
     }),
@@ -1132,7 +1162,8 @@ export const stockRouter = createTRPCRouter({
   confirmPurchasePhysicalSignature: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      // ETAPA 1 — atualiza no banco em tx curta
+      const docToCancel = await ctx.withTenant(async (tx) => {
         const purchase = await tx.devicePurchase.findUnique({
           where: { id: input.id },
         });
@@ -1149,8 +1180,24 @@ export const stockRouter = createTRPCRouter({
             termSignedByUserId: ctx.session.user.id,
           },
         });
-        return { success: true };
+        return purchase.autentiqueDocumentId;
       });
+
+      // ETAPA 2 — se ja existia documento Autentique pendente, cancela best-effort
+      // (paridade Laravel CompraAparelhoController:371-383). Evita docs orfaos
+      // consumindo creditos e elimina a chance do cliente assinar depois do
+      // operador ja ter marcado como fisica.
+      if (docToCancel) {
+        const { cancelDocument } = await import("@/lib/services/autentique-service");
+        await cancelDocument(docToCancel).catch((err) => {
+          logger.warn("Falha ao cancelar doc Autentique apos confirmar fisica", {
+            purchaseId: input.id,
+            err: String(err),
+          });
+        });
+      }
+
+      return { success: true };
     }),
 
   /**
@@ -1158,18 +1205,22 @@ export const stockRouter = createTRPCRouter({
    * Paridade `CompraAparelhoController::enviarTermoAutentique`.
    */
   sendPurchaseTermAutentique: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({
+      id: z.string().uuid(),
+      // Numero customizado override (paridade PDV sale.sendForSignature).
+      whatsappOverride: z.string().min(10).max(20).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       // ETAPA 1 — fetch dados em tx curta
-      const { sellerName, sellerPhone } = await ctx.withTenant(async (tx) => {
+      const { sellerName, sellerPhone, wasResend, purchaseNumber } = await ctx.withTenant(async (tx) => {
         const purchase = await tx.devicePurchase.findUnique({ where: { id: input.id } });
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
         if (purchase.termSigned) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi assinado." });
         }
-        if (purchase.autentiqueDocumentId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Termo ja foi enviado para Autentique." });
-        }
+        // Reenvio permitido (paridade PDV): se ja havia doc, considera resend
+        // e sobrescreve com novo. Doc antigo fica orfao no Autentique — best
+        // effort cancelar abaixo.
         let sellerName = "";
         let sellerPhone: string | null = null;
         if (purchase.sellerType === "customer" && purchase.customerId) {
@@ -1185,13 +1236,20 @@ export const stockRouter = createTRPCRouter({
           });
           if (supplier) { sellerName = supplier.name; sellerPhone = supplier.phone; }
         }
-        if (!sellerPhone) {
+        const whatsapp = input.whatsappOverride || sellerPhone;
+        if (!whatsapp) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Vendedor sem telefone cadastrado para envio via Autentique.",
+            message: "Vendedor sem telefone cadastrado. Informe um numero.",
           });
         }
-        return { sellerName, sellerPhone };
+        return {
+          sellerName: sellerName || "Vendedor",
+          sellerPhone: whatsapp,
+          wasResend: !!purchase.autentiqueDocumentId,
+          purchaseNumber: input.id.slice(0, 8),
+          oldDocId: purchase.autentiqueDocumentId,
+        };
       });
 
       // ETAPA 2 — gera PDF via builder direto (sem HTTP/cookies) e envia
@@ -1206,7 +1264,7 @@ export const stockRouter = createTRPCRouter({
       }
 
       const result = await createDocumentWithLink(
-        `Termo de Responsabilidade - Compra ${input.id.slice(0, 8)}`,
+        `Termo de Responsabilidade - Compra ${purchaseNumber}`,
         [{ name: sellerName, whatsapp: formatWhatsApp(sellerPhone) }],
         pdfBuffer,
       );
@@ -1229,9 +1287,61 @@ export const stockRouter = createTRPCRouter({
         });
       });
 
+      // ETAPA 4 — envia link + PDF via WhatsApp Meta Cloud (paridade PDV
+      // sale.sendForSignature). Falha nao bloqueia — operador tem o link
+      // na UI pra enviar manualmente se necessario.
+      if (result.signatureLink) {
+        try {
+          const { sendPdfWithFallback } = await import("@/lib/whatsapp/send-with-fallback");
+          const { createPublicPdfToken } = await import("@/lib/whatsapp/public-pdf-token");
+          const { extractShortlinkToken } = await import("@/lib/services/autentique-service");
+          const pdfToken = createPublicPdfToken(
+            ctx.tenantId,
+            input.id,
+            60 * 60 * 1000,
+            "purchase_term",
+          );
+          const appUrl =
+            process.env.NEXT_PUBLIC_APP_URL ??
+            process.env.NEXTAUTH_URL ??
+            "http://localhost:3000";
+          const pdfUrl = `${appUrl}/api/whatsapp-media/purchase/pdf/${pdfToken}`;
+          const autentiqueToken = extractShortlinkToken(result.signatureLink);
+          const caption =
+            `📋 *Arena Tech - Termo de Responsabilidade*\n\n` +
+            `Ola, ${sellerName}! Para assinar digitalmente o termo da venda do seu aparelho:\n${result.signatureLink}`;
+          const wa = await sendPdfWithFallback({
+            phone: sellerPhone,
+            pdfUrl,
+            fileName: `Compra_${purchaseNumber}_termo_responsabilidade.pdf`,
+            caption,
+            contexto: "pdv_termo_pdf_link",
+            params: [sellerName, purchaseNumber],
+            urlButtonParam: autentiqueToken ?? undefined,
+          });
+          if (!wa.success) {
+            logger.warn("Falha ao enviar termo de compra via WhatsApp", {
+              purchaseId: input.id, error: wa.error,
+            });
+          } else {
+            logger.info("Termo de compra enviado por WhatsApp", {
+              purchaseId: input.id,
+              via: wa.via,
+              templateUsed: wa.templateUsed,
+            });
+          }
+        } catch (err) {
+          logger.warn("Erro ao despachar WhatsApp do termo de compra", {
+            purchaseId: input.id,
+            err: String(err),
+          });
+        }
+      }
+
       logger.info("Purchase term sent to Autentique", {
         purchaseId: input.id,
         documentId: result.documentId,
+        wasResend,
       });
       return { success: true, signatureLink: result.signatureLink };
     }),
