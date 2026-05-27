@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
     logger.error("[cron-mark-overdue] CRON_SECRET not configured");
     return NextResponse.json({ error: "Cron secret not configured" }, { status: 500 });
   }
-  if (authHeader !== `Bearer ${expectedSecret}`) {
+  if (!timingSafeEqualString(authHeader ?? "", `Bearer ${expectedSecret}`)) {
     logger.warn("[cron-mark-overdue] Unauthorized cron attempt");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

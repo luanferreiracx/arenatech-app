@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { autoCloseAbandonedSessions } from "@/server/services/cash-session.service"
 import { prisma } from "@/server/db"
 import { logger } from "@/lib/logger"
+import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
 export const dynamic = "force-dynamic"
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  if (authHeader !== `Bearer ${expectedSecret}`) {
+  if (!timingSafeEqualString(authHeader ?? "", `Bearer ${expectedSecret}`)) {
     logger.warn("[cron] Unauthorized cron attempt")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
