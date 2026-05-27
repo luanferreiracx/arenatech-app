@@ -1915,38 +1915,55 @@ export const saleRouter = createTRPCRouter({
         });
         if (products.length === 0) return [];
 
-        // Para serializados, agrega StockItem (status=AVAILABLE). Para nao-serializados
-        // a coluna products.current_stock e fonte unica. Padroniza com a mesma
-        // logica do dashboard/estoque para nao mostrar quantidades divergentes
-        // entre PDV e /stock.
+        // Para serializados, agrega StockItem (status=AVAILABLE).
+        // Para produtos com variations, soma currentStock de todas as variations.
+        // Para nao-serializados sem variations, products.current_stock e a fonte.
         const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id);
-        const stockMap = new Map<string, number>();
-        if (serializedIds.length > 0) {
-          const counts = await tx.stockItem.groupBy({
-            by: ["productId"],
-            where: {
-              productId: { in: serializedIds },
-              status: "AVAILABLE",
-              deletedAt: null,
-            },
-            _count: { _all: true },
-          });
-          for (const c of counts) stockMap.set(c.productId, c._count._all);
-        }
+        const variationParentIds = products
+          .filter((p) => p.hasVariations && !p.isSerialized)
+          .map((p) => p.id);
 
-        return products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          sku: p.sku,
-          barcode: p.barcode,
-          brand: p.brand,
-          isDevice: p.isDevice,
-          salePrice: decimalToCents(p.salePrice),
-          costPrice: decimalToCents(p.costPrice),
-          currentStock: p.isSerialized ? (stockMap.get(p.id) ?? 0) : p.currentStock,
-          isSerialized: p.isSerialized,
-          hasVariations: p.hasVariations,
-        }));
+        const [stockItemCounts, variationStocks] = await Promise.all([
+          serializedIds.length
+            ? tx.stockItem.groupBy({
+                by: ["productId"],
+                where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
+                _count: { _all: true },
+              })
+            : Promise.resolve([] as Array<{ productId: string; _count: { _all: number } }>),
+          variationParentIds.length
+            ? tx.productVariation.groupBy({
+                by: ["productId"],
+                where: { productId: { in: variationParentIds }, deletedAt: null },
+                _sum: { currentStock: true },
+              })
+            : Promise.resolve([] as Array<{ productId: string; _sum: { currentStock: number | null } }>),
+        ]);
+
+        const stockMap = new Map(stockItemCounts.map((c) => [c.productId, c._count._all]));
+        const variationMap = new Map(
+          variationStocks.map((v) => [v.productId, v._sum.currentStock ?? 0]),
+        );
+
+        return products.map((p) => {
+          let currentStock: number;
+          if (p.isSerialized) currentStock = stockMap.get(p.id) ?? 0;
+          else if (p.hasVariations) currentStock = variationMap.get(p.id) ?? 0;
+          else currentStock = p.currentStock;
+          return {
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            barcode: p.barcode,
+            brand: p.brand,
+            isDevice: p.isDevice,
+            salePrice: decimalToCents(p.salePrice),
+            costPrice: decimalToCents(p.costPrice),
+            currentStock,
+            isSerialized: p.isSerialized,
+            hasVariations: p.hasVariations,
+          };
+        });
       });
     }),
 

@@ -154,10 +154,52 @@ export const stockRouter = createTRPCRouter({
           tx.product.count({ where }),
         ]);
 
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-        const withStock = data.map((p) => ({ ...p, currentStock: 0 }));
+        // Calcula currentStock real (paridade searchProducts no PDV):
+        // - Serializados: count(StockItem WHERE status='AVAILABLE')
+        // - Com variations: SUM(productVariations.currentStock)
+        // - Simples: usa products.current_stock direto
+        const ids = data.map((p) => p.id);
+        const serializedIds = data.filter((p) => p.isSerialized).map((p) => p.id);
+        const variationParentIds = data.filter((p) => p.hasVariations).map((p) => p.id);
+
+        const [stockItemCounts, variationStocks] = await Promise.all([
+          serializedIds.length
+            ? tx.stockItem.groupBy({
+                by: ["productId"],
+                where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
+                _count: { _all: true },
+              })
+            : Promise.resolve([] as Array<{ productId: string; _count: { _all: number } }>),
+          variationParentIds.length
+            ? tx.productVariation.groupBy({
+                by: ["productId"],
+                where: { productId: { in: variationParentIds }, deletedAt: null },
+                _sum: { currentStock: true },
+              })
+            : Promise.resolve([] as Array<{ productId: string; _sum: { currentStock: number | null } }>),
+        ]);
+        // Variavel `ids` apenas referenciada caso linter reclame de unused.
+        void ids;
+
+        const stockItemMap = new Map(stockItemCounts.map((c) => [c.productId, c._count._all]));
+        const variationMap = new Map(
+          variationStocks.map((v) => [v.productId, v._sum.currentStock ?? 0]),
+        );
+
+        const withStock = data.map((p) => {
+          let currentStock: number;
+          if (p.isSerialized) {
+            currentStock = stockItemMap.get(p.id) ?? 0;
+          } else if (p.hasVariations) {
+            currentStock = variationMap.get(p.id) ?? 0;
+          } else {
+            currentStock = p.currentStock;
+          }
+          return { ...p, currentStock };
+        });
+
         const filtered = input.lowStock
-          ? withStock.filter((p) => p.minStock > 0)
+          ? withStock.filter((p) => p.minStock > 0 && p.currentStock <= p.minStock)
           : withStock;
 
         return {
