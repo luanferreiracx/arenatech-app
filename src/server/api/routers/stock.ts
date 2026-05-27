@@ -779,6 +779,37 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
+        // Preco minimo R$ 1,00 (defesa em profundidade — validator ja
+        // garante, mas backend nao confia no client).
+        if (input.purchasePrice < 100) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Preco de compra obrigatorio (minimo R$ 1,00).",
+          });
+        }
+
+        // IMEI ou Serial obrigatorio. Se IMEI informado, checa duplicidade —
+        // mesmo aparelho nao pode dar entrada duas vezes.
+        if (!input.imei && !input.serial) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Informe IMEI ou numero de serie do aparelho.",
+          });
+        }
+        if (input.imei) {
+          const cleanImei = input.imei.replace(/\D/g, "");
+          const existing = await tx.stockItem.findFirst({
+            where: { imei: cleanImei, deletedAt: null },
+            select: { id: true, status: true, product: { select: { name: true } } },
+          });
+          if (existing) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `IMEI ${cleanImei} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}).`,
+            });
+          }
+        }
+
         // Se o Product tem variacoes, exige variationId. Paridade Laravel:
         // compra_aparelhos.variacao_id obrigatorio quando usa_variacoes=true.
         let variation: { id: string; productId: string } | null = null;

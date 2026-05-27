@@ -232,7 +232,31 @@ describe("listMovementsSchema", () => {
 // ── Device Purchase ──
 
 describe("createDevicePurchaseSchema", () => {
-  it("aceita compra minima (productId + sellerType + customerId)", () => {
+  it("aceita compra minima (productId + sellerType + customerId + IMEI valido + preco)", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809", // IMEI valido Luhn
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("aceita compra com serial em vez de IMEI (laptops/iPad WiFi)", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      serial: "C39XXXXXYZ",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita compra sem IMEI nem serial", () => {
     const result = createDevicePurchaseSchema.safeParse({
       productId: "550e8400-e29b-41d4-a716-446655440000",
       sellerType: "customer",
@@ -240,7 +264,31 @@ describe("createDevicePurchaseSchema", () => {
       condition: "USED",
       purchasePrice: 50000,
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita IMEI com Luhn invalido", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "123456789012345",
+      purchasePrice: 50000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita preco de compra zerado", () => {
+    const result = createDevicePurchaseSchema.safeParse({
+      productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
+      condition: "USED",
+      imei: "356938035643809",
+      purchasePrice: 0,
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejeita compra sem productId", () => {
@@ -287,7 +335,7 @@ describe("createDevicePurchaseSchema", () => {
       productId: "550e8400-e29b-41d4-a716-446655440000",
       sellerType: "customer",
       customerId: "550e8400-e29b-41d4-a716-446655440001",
-      imei: "353456789012345",
+      imei: "356938035643809", // IMEI valido Luhn
       serial: "C39XXXXXYZ",
       condition: "REFURBISHED",
       batteryHealth: 85,
@@ -301,7 +349,10 @@ describe("createDevicePurchaseSchema", () => {
   it("rejeita preco de compra negativo", () => {
     const result = createDevicePurchaseSchema.safeParse({
       productId: "550e8400-e29b-41d4-a716-446655440000",
+      sellerType: "customer",
+      customerId: "550e8400-e29b-41d4-a716-446655440001",
       condition: "NEW",
+      imei: "356938035643809",
       purchasePrice: -1000,
     });
     expect(result.success).toBe(false);

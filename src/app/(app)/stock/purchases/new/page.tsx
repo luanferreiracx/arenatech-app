@@ -46,15 +46,16 @@ export default function NewPurchasePage() {
   const form = useForm<CreateDevicePurchaseInput>({
     resolver: zodResolver(createDevicePurchaseSchema),
     defaultValues: {
-      // productId obrigatorio (sem default — operador escolhe via combobox)
+      // Sem defaults para os campos criticos — forca operador a escolher
+      // ativamente para evitar entrada acidental por click prematuro.
       productId: undefined as unknown as string,
       variationId: null,
       customerId: null,
       supplierId: null,
-      sellerType: "customer",
+      sellerType: undefined as unknown as "customer" | "supplier",
       imei: "",
       serial: "",
-      condition: "USED",
+      condition: undefined as unknown as "NEW" | "SEMI_NEW" | "USED" | "DISPLAY" | "REFURBISHED" | "DEFECTIVE",
       batteryHealth: null,
       purchasePrice: 0,
       salePrice: null,
@@ -91,6 +92,30 @@ export default function NewPurchasePage() {
     mutation.mutate(data);
   }
 
+  // Mostra toast com primeiro erro quando o operador clica em "Registrar"
+  // antes de preencher tudo — evita "botao nao faz nada" silencioso.
+  function onInvalid(errors: Record<string, unknown>) {
+    const FIELD_LABELS: Record<string, string> = {
+      productId: "Modelo do aparelho",
+      sellerType: "Tipo de vendedor",
+      customerId: "Cliente vendedor",
+      supplierId: "Fornecedor",
+      condition: "Condicao do aparelho",
+      purchasePrice: "Preco de compra",
+      imei: "IMEI",
+      serial: "Numero de serie",
+      paymentMethodId: "Forma de pagamento",
+    };
+    const firstKey = Object.keys(errors)[0];
+    if (!firstKey) {
+      toast.error("Verifique os campos do formulario.");
+      return;
+    }
+    const err = errors[firstKey] as { message?: string } | undefined;
+    const label = FIELD_LABELS[firstKey] ?? firstKey;
+    toast.error(err?.message ? `${label}: ${err.message}` : `Preencha ${label}`);
+  }
+
   return (
     <div>
       <PageHeader
@@ -99,7 +124,7 @@ export default function NewPurchasePage() {
       />
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-8">
           <FormSection title="Vendedor">
             <FormField
               control={form.control}

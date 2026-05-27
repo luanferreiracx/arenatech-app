@@ -134,9 +134,13 @@ export const createDevicePurchaseSchema = z.object({
   serial: z.string().max(50).optional().nullable(),
   // brand/model: removidos do input — extraidos de Product.brand + Product.name
   // no backend pra preencher DevicePurchase (legado).
-  condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"]),
+  condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"], {
+    message: "Selecione a condicao do aparelho",
+  }),
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
-  purchasePrice: z.number().int().min(0, "Preco de compra deve ser positivo"), // centavos
+  // Preco minimo R$ 1,00 (100 centavos) — bloqueia entrada acidental
+  // com valor zerado por click prematuro em "Registrar Compra".
+  purchasePrice: z.number().int().min(100, "Informe o preco de compra (minimo R$ 1,00)"), // centavos
   salePrice: z.number().int().min(0).optional().nullable(), // centavos
   notes: z.string().max(500).optional().nullable(),
   // Pagamento da compra. Dois modos:
@@ -166,6 +170,51 @@ export const createDevicePurchaseSchema = z.object({
       path: ["supplierId"],
       message: "Selecione o fornecedor",
     });
+  }
+
+  // IMEI obrigatorio para celulares (todas as condicoes envolvem aparelho
+  // serializado — sem IMEI, nao da pra controlar estoque nem responsabilizar).
+  // Se nao tiver IMEI, ao menos um serial deve ser informado (paridade Laravel
+  // CompraAparelhoController validation rules).
+  const imei = data.imei?.replace(/\D/g, "") ?? "";
+  const serial = data.serial?.trim() ?? "";
+  if (!imei && !serial) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["imei"],
+      message: "Informe IMEI ou numero de serie do aparelho",
+    });
+  }
+  // Quando informado, IMEI deve ser valido (15 digitos + Luhn). Defesa em
+  // profundidade: o input ja valida no front, mas backend nao pode confiar.
+  if (imei) {
+    if (imei.length !== 15) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["imei"],
+        message: "IMEI deve ter 15 digitos",
+      });
+    } else {
+      // Luhn check (mesma logica de @/lib/validators/imei isValidLuhn)
+      let sum = 0;
+      let alt = false;
+      for (let i = imei.length - 1; i >= 0; i--) {
+        let n = Number(imei[i]);
+        if (alt) {
+          n *= 2;
+          if (n > 9) n -= 9;
+        }
+        sum += n;
+        alt = !alt;
+      }
+      if (sum % 10 !== 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["imei"],
+          message: "IMEI invalido (falha Luhn)",
+        });
+      }
+    }
   }
 });
 
