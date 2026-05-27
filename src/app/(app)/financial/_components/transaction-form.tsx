@@ -7,6 +7,7 @@ import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/inputs/date-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -261,9 +262,18 @@ export function TransactionForm() {
 
             <div>
               <Label>Data de Emissao *</Label>
-              <Input
-                type="date"
-                {...register("emissionDate", { required: "Data de emissao e obrigatoria" })}
+              <Controller
+                control={control}
+                name="emissionDate"
+                rules={{ required: "Data de emissao e obrigatoria" }}
+                render={({ field }) => (
+                  <DateInput
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Data de emissao"
+                    required
+                  />
+                )}
               />
               {errors.emissionDate && (
                 <p className="text-sm text-destructive mt-1">{errors.emissionDate.message}</p>

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -84,26 +85,20 @@ export default function CashierHistoryPage() {
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <Label className="text-sm">Data Inicio</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPage(0);
-                }}
+                onChange={(v) => { setDateFrom(v); setPage(0); }}
                 className="w-44"
+                aria-label="Data de inicio"
               />
             </div>
             <div>
               <Label className="text-sm">Data Fim</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPage(0);
-                }}
+                onChange={(v) => { setDateTo(v); setPage(0); }}
                 className="w-44"
+                aria-label="Data de fim"
               />
             </div>
             {(dateFrom || dateTo) && (

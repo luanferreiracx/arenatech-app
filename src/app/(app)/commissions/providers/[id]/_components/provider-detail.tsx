@@ -7,6 +7,7 @@ import { Search, Lock, FileText, Calendar, Undo2, Plus, X, Calculator } from "lu
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -394,11 +395,11 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           <div className="grid grid-cols-[130px_1fr_120px_1fr_auto] gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={reversalDate}
-                onChange={(e) => setReversalDate(e.target.value)}
+                onChange={setReversalDate}
                 className="h-8 text-xs"
+                aria-label="Data do estorno"
               />
             </div>
             <div>
@@ -506,13 +507,13 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           <div className="flex gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={uncoveredDay}
-                onChange={(e) => setUncoveredDay(e.target.value)}
+                onChange={setUncoveredDay}
                 className="h-8 text-xs"
                 min={`${year}-${String(month).padStart(2, "0")}-01`}
                 max={`${year}-${String(month).padStart(2, "0")}-${new Date(year, month, 0).getDate()}`}
+                aria-label="Dia de remoto"
               />
             </div>
             <div className="flex-1">

@@ -11,6 +11,7 @@ import { DataTable } from "@/components/domain/data-table";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import {
   Select,
   SelectContent,
@@ -275,20 +276,20 @@ export function ServiceOrdersTable() {
           </SelectContent>
         </Select>
         <div className="flex items-center gap-2">
-          <Input
-            type="date"
+          <DateInput
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            onChange={(v) => { setDateFrom(v); setPage(0); }}
             className="w-[150px]"
             placeholder="De"
+            aria-label="Data de inicio"
           />
           <span className="text-muted-foreground text-xs">ate</span>
-          <Input
-            type="date"
+          <DateInput
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            onChange={(v) => { setDateTo(v); setPage(0); }}
             className="w-[150px]"
             placeholder="Ate"
+            aria-label="Data de fim"
           />
         </div>
       </div>

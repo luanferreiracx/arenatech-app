@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -140,18 +141,18 @@ export function WithdrawalsContent() {
           </div>
           <div>
             <Label className="text-xs">Data Inicio</Label>
-            <Input
-              type="date"
+            <DateInput
               value={filters.dateFrom}
-              onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+              onChange={(v) => setFilters((f) => ({ ...f, dateFrom: v }))}
+              aria-label="Data de inicio"
             />
           </div>
           <div>
             <Label className="text-xs">Data Fim</Label>
-            <Input
-              type="date"
+            <DateInput
               value={filters.dateTo}
-              onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+              onChange={(v) => setFilters((f) => ({ ...f, dateTo: v }))}
+              aria-label="Data de fim"
             />
           </div>
         </div>

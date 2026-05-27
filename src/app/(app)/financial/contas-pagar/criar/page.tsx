@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -178,7 +179,11 @@ export default function CreatePayablePage() {
                   <FormItem>
                     <FormLabel>Primeiro Vencimento</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <DateInput
+                        value={(field.value as string) ?? ""}
+                        onChange={field.onChange}
+                        aria-label="Primeiro vencimento"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

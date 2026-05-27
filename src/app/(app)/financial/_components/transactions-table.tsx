@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import {
   Select,
   SelectContent,
@@ -158,23 +159,23 @@ export function TransactionsTable({
             </SelectContent>
           </Select>
 
-          <Input
-            type="date"
+          <DateInput
             value={filters.dateFrom}
-            onChange={(e) =>
-              onFiltersChange((f) => ({ ...f, dateFrom: e.target.value, page: 0 }))
+            onChange={(v) =>
+              onFiltersChange((f) => ({ ...f, dateFrom: v, page: 0 }))
             }
             className="w-[150px]"
             placeholder="De"
+            aria-label="Data de inicio"
           />
-          <Input
-            type="date"
+          <DateInput
             value={filters.dateTo}
-            onChange={(e) =>
-              onFiltersChange((f) => ({ ...f, dateTo: e.target.value, page: 0 }))
+            onChange={(v) =>
+              onFiltersChange((f) => ({ ...f, dateTo: v, page: 0 }))
             }
             className="w-[150px]"
             placeholder="Ate"
+            aria-label="Data de fim"
           />
 
           {hasActiveFilters && (

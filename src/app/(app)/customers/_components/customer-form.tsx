@@ -17,6 +17,7 @@ import { CpfInput } from "@/components/inputs/cpf-input";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
 import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -224,7 +225,17 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
           {watchType === "PF" && (
             <div className="space-y-2">
               <Label>Data de nascimento</Label>
-              <Input type="date" {...form.register("birthDate")} />
+              <Controller
+                control={form.control}
+                name="birthDate"
+                render={({ field }) => (
+                  <DateInput
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Data de nascimento"
+                  />
+                )}
+              />
             </div>
           )}
         </div>

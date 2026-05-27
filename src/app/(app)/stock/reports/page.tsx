@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/inputs/date-input";
 import { ShoppingCart, Package, BarChart3, AlertTriangle, Download } from "lucide-react";
 import { PosicaoEstoqueTab } from "./_components/posicao-estoque-tab";
 import { MovimentacoesTab } from "./_components/movimentacoes-tab";
@@ -78,20 +79,18 @@ export default function StockReportsPage() {
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="text-sm font-medium mb-1 block">Data Inicio</label>
-              <input
-                type="date"
-                className="border rounded-md px-3 py-2 text-sm bg-background"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={setDateFrom}
+                aria-label="Data de inicio"
               />
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Data Fim</label>
-              <input
-                type="date"
-                className="border rounded-md px-3 py-2 text-sm bg-background"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={setDateTo}
+                aria-label="Data de fim"
               />
             </div>
           </div>

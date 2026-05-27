@@ -5,6 +5,7 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -79,20 +80,20 @@ export function CashFlowReport() {
           <div className="flex flex-wrap gap-4 items-end">
             <div>
               <Label>Data Inicial</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={setDateFrom}
                 className="w-[160px]"
+                aria-label="Data inicial"
               />
             </div>
             <div>
               <Label>Data Final</Label>
-              <Input
-                type="date"
+              <DateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={setDateTo}
                 className="w-[160px]"
+                aria-label="Data final"
               />
             </div>
             <div>

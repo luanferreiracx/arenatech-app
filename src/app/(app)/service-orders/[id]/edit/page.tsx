@@ -4,9 +4,10 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -105,7 +106,7 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
   const isSigned: boolean = !!order.signatureSignedAt || !!order.physicalSignature;
   const isCompleted: boolean = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
 
-  const { register, handleSubmit, watch, setValue } = useForm({
+  const { register, handleSubmit, watch, setValue, control } = useForm({
     defaultValues: {
       deviceType: order.deviceType ?? "",
       deviceBrand: order.deviceBrand ?? "",
@@ -244,7 +245,20 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
               <Label htmlFor="isWarranty">OS de Garantia</Label>
             </div>
             <div className="space-y-2"><Label>Prazo Garantia (meses)</Label><Input type="number" min={0} max={120} {...register("warrantyMonths", { valueAsNumber: true })} readOnly={isCompleted} /></div>
-            <div className="space-y-2"><Label>Data Prevista</Label><Input type="date" {...register("estimatedDate")} /></div>
+            <div className="space-y-2">
+              <Label>Data Prevista</Label>
+              <Controller
+                control={control}
+                name="estimatedDate"
+                render={({ field }) => (
+                  <DateInput
+                    value={(field.value as string) ?? ""}
+                    onChange={field.onChange}
+                    aria-label="Data prevista de entrega"
+                  />
+                )}
+              />
+            </div>
           </div>
         </div>
 

@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Eye, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import {
   Select,
   SelectContent,
@@ -267,25 +268,19 @@ export function SalesTable() {
           </SelectContent>
         </Select>
 
-        <Input
-          type="date"
+        <DateInput
           value={dateFrom}
-          onChange={(e) => {
-            setDateFrom(e.target.value);
-            setPage(0);
-          }}
+          onChange={(v) => { setDateFrom(v); setPage(0); }}
           className="w-36"
-          title="Data inicio"
+          aria-label="Data de inicio"
+          placeholder="Data inicio"
         />
-        <Input
-          type="date"
+        <DateInput
           value={dateTo}
-          onChange={(e) => {
-            setDateTo(e.target.value);
-            setPage(0);
-          }}
+          onChange={(v) => { setDateTo(v); setPage(0); }}
           className="w-36"
-          title="Data fim"
+          aria-label="Data de fim"
+          placeholder="Data fim"
         />
 
         {hasFilters && (

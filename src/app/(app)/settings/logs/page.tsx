@@ -5,6 +5,7 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -72,11 +73,11 @@ export default function AuditLogsPage() {
             </div>
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Data Inicio</Label>
-              <Input type="date" value={filters.dateFrom} onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value, page: 0 }))} />
+              <DateInput value={filters.dateFrom} onChange={(v) => setFilters((f) => ({ ...f, dateFrom: v, page: 0 }))} aria-label="Data de inicio" />
             </div>
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Data Fim</Label>
-              <Input type="date" value={filters.dateTo} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value, page: 0 }))} />
+              <DateInput value={filters.dateTo} onChange={(v) => setFilters((f) => ({ ...f, dateTo: v, page: 0 }))} aria-label="Data de fim" />
             </div>
             <div>
               {(filters.action || filters.entity || filters.dateFrom || filters.dateTo) && (

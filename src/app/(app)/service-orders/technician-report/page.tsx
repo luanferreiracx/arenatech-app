@@ -5,6 +5,7 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -83,11 +84,11 @@ export default function TechnicianReportPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Data Inicio</Label>
-              <Input type="date" value={filters.dateFrom} onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))} />
+              <DateInput value={filters.dateFrom} onChange={(v) => setFilters((f) => ({ ...f, dateFrom: v }))} aria-label="Data de inicio" />
             </div>
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Data Fim</Label>
-              <Input type="date" value={filters.dateTo} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} />
+              <DateInput value={filters.dateTo} onChange={(v) => setFilters((f) => ({ ...f, dateTo: v }))} aria-label="Data de fim" />
             </div>
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Tecnico</Label>

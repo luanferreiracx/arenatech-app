@@ -18,6 +18,7 @@ import { FormActions } from "@/components/domain/forms/form-actions";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { VariationPicker } from "@/components/inputs/variation-picker";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { DateInput } from "@/components/inputs/date-input";
 import {
   Form,
   FormControl,
@@ -551,10 +552,10 @@ export default function NewPurchasePage() {
                     <FormItem>
                       <FormLabel>Vencimento da 1ª parcela</FormLabel>
                       <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
-                          value={field.value ?? ""}
+                        <DateInput
+                          value={(field.value as string) ?? ""}
+                          onChange={field.onChange}
+                          aria-label="Vencimento da primeira parcela"
                         />
                       </FormControl>
                       <FormMessage />

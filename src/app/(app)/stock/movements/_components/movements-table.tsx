@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 
 interface MovementRow {
@@ -133,20 +134,20 @@ export function MovementsTable() {
         </div>
         <div>
           <Label className="text-xs mb-1 block">Data Inicio</Label>
-          <Input
-            type="date"
+          <DateInput
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            onChange={(v) => { setDateFrom(v); setPage(0); }}
             className="w-[160px]"
+            aria-label="Data de inicio"
           />
         </div>
         <div>
           <Label className="text-xs mb-1 block">Data Fim</Label>
-          <Input
-            type="date"
+          <DateInput
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            onChange={(v) => { setDateTo(v); setPage(0); }}
             className="w-[160px]"
+            aria-label="Data de fim"
           />
         </div>
       </div>

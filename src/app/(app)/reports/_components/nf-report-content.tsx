@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -53,11 +54,11 @@ export function NfReportContent() {
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <Label className="text-xs uppercase">De</Label>
-            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <DateInput value={dateFrom} onChange={setDateFrom} aria-label="Data de inicio" />
           </div>
           <div>
             <Label className="text-xs uppercase">Ate</Label>
-            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <DateInput value={dateTo} onChange={setDateTo} aria-label="Data de fim" />
           </div>
           <div>
             <Label className="text-xs uppercase">Status</Label>
