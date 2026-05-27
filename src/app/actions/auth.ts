@@ -16,7 +16,7 @@ export async function loginAction(formData: FormData) {
     headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     headerStore.get("x-real-ip") ??
     "unknown";
-  const rl = rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });
+  const rl = await rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });
   if (!rl.success) {
     return { error: "Muitas tentativas. Aguarde um minuto e tente novamente." };
   }
@@ -35,7 +35,7 @@ export async function loginAction(formData: FormData) {
   }
 
   // Successful login — reset rate limit for this IP
-  resetRateLimit(`login:${ip}`);
+  await resetRateLimit(`login:${ip}`);
 
   // Determine where to redirect based on session
   const session = await auth();

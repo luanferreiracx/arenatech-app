@@ -31,7 +31,7 @@ export function rateLimitMiddleware({ limit, windowMs, keyFn }: RateLimitMiddlew
         ? keyFn(ctx)
         : ctx.session?.user?.id ?? extractSourceIp(ctx.headers) ?? "anon";
 
-      const result = rateLimit({
+      const result = await rateLimit({
         key: `trpc:${path}:${key}`,
         limit,
         windowMs,
