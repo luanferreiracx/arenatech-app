@@ -29,7 +29,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { EntitySelector } from "@/components/domain/entity-selector";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { PaymentDialog } from "./payment-dialog";
@@ -38,6 +37,7 @@ import { PriceCheckDialog } from "./price-check-dialog";
 import { UpgradeDialog } from "./upgrade-dialog";
 import { SelectStockItemDialog } from "./select-stock-item-dialog";
 import { SelectVariationDialog } from "./select-variation-dialog";
+import { CustomerDialog } from "./customer-dialog";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
 function formatCurrency(cents: number): string {
@@ -944,39 +944,17 @@ export function PdvScreen() {
         </div>
       </div>
 
-      {/* -- Customer Dialog -- */}
-      <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Selecionar Cliente</DialogTitle>
-            <DialogDescription>
-              Busque o cliente pelo nome, CPF ou telefone
-            </DialogDescription>
-          </DialogHeader>
-          <EntitySelector
-            value={customerId}
-            onChange={handleSelectCustomer}
-            onSelect={(item: { name: string; cpf?: string | null; cnpj?: string | null }) => {
-              setCustomerName(item.name);
-              setCustomerTaxId(item.cpf ?? item.cnpj ?? null);
-            }}
-            searchFn={async (query: string) => {
-              const res = await queryClient.fetchQuery(
-                trpc.customer.list.queryOptions({
-                  search: query,
-                  page: 0,
-                  pageSize: 10,
-                }),
-              );
-              return res.data as Array<{ id: string; name: string }>;
-            }}
-            getOptionLabel={(item: { name: string }) => item.name}
-            getOptionValue={(item: { id: string }) => item.id}
-            placeholder="Buscar cliente..."
-            emptyMessage="Nenhum cliente encontrado"
-          />
-        </DialogContent>
-      </Dialog>
+      {/* -- Customer Dialog (busca + cadastro inline) -- */}
+      <CustomerDialog
+        open={showCustomerDialog}
+        onOpenChange={setShowCustomerDialog}
+        currentCustomerId={customerId}
+        onSelected={(id, name, taxId) => {
+          handleSelectCustomer(id);
+          setCustomerName(name);
+          setCustomerTaxId(taxId);
+        }}
+      />
 
       {/* -- Discount Dialog -- */}
       <DiscountDialog

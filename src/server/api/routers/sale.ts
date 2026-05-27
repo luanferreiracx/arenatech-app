@@ -583,20 +583,12 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // totalAmount AGORA eh liquido pos-upgrade (paridade Laravel
+        // PdvService:85-87): sale.totalAmount = subtotal - desconto - upgrade.
+        // Quanto o cliente paga em outras formas eh diretamente totalCents.
         const totalCents = decimalToCents(sale.totalAmount);
         const refundDueCents = decimalToCents(sale.refundDueAmount);
-        // Upgrade abate do que o cliente paga em outras formas — paridade
-        // Laravel: upgrade entra como "forma de pagamento" virtual.
-        const upgradesForFinalize = await tx.saleUpgrade.findMany({
-          where: { saleId: sale.id },
-          select: { abatedValue: true },
-        });
-        const upgradeAbateForFinalize = upgradesForFinalize.reduce(
-          (sum, u) => sum + decimalToCents(u.abatedValue),
-          0,
-        );
-        // Quanto o cliente ainda precisa pagar em outras formas.
-        const amountDueAfterUpgradeCents = Math.max(0, totalCents - upgradeAbateForFinalize);
+        const amountDueAfterUpgradeCents = totalCents;
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -2791,6 +2783,8 @@ export const saleRouter = createTRPCRouter({
             saleId: input.saleId,
             brand: input.brand ?? null,
             model: input.model,
+            storage: input.storage ?? null,
+            color: input.color ?? null,
             imei: input.imei ? input.imei.replace(/\D/g, "") : null,
             serialNumber: input.serialNumber ?? null,
             condition: input.condition,
@@ -2946,13 +2940,23 @@ async function recalculateSale(
     discountAmountCents = Math.round(subtotalCents * (pct / 100));
   }
 
-  // Paridade Laravel: totalAmount = valor BRUTO da venda (subtotal - desconto).
-  // O upgrade NAO eh subtraido do total; eh tratado como "forma de pagamento"
-  // que abate o que o cliente paga em outras formas (paymentDetails).
-  const netAfterDiscount = subtotalCents - discountAmountCents;
-  const totalCents = Math.max(0, netAfterDiscount);
-  // Downgrade: upgrade excede valor da venda — diferenca a devolver ao cliente.
-  const refundDueCents = Math.max(0, upgradeAbateCents - netAfterDiscount);
+  // Paridade Laravel PdvService::registrarVenda (linhas 85-87, 186):
+  //   $liquido = subtotal - desconto - upgradesAbatido
+  //   $valorMercadoria = max(0, $liquido)
+  //   sale.valor_total = $valorMercadoria
+  //
+  // totalAmount eh o LIQUIDO que o cliente paga em formas de pagamento
+  // (dinheiro/PIX/cartao/etc). O upgrade ja abateu a parte mercantil; o
+  // restante eh o que falta cobrar. Em downgrade (liquido < 0), totalAmount=0
+  // e refundDueAmount = abs(liquido) eh a diferenca que a loja devolve.
+  //
+  // Antes esse calculo persistia totalAmount BRUTO (subtotal - desconto),
+  // levando o operador a cobrar a mais e a UI a mostrar troco inflado.
+  const netAfterDiscountAndUpgrade = subtotalCents - discountAmountCents - upgradeAbateCents;
+  const totalCents = Math.max(0, netAfterDiscountAndUpgrade);
+  const refundDueCents = netAfterDiscountAndUpgrade < 0
+    ? Math.abs(netAfterDiscountAndUpgrade)
+    : 0;
 
   const updated = await tx.sale.update({
     where: { id: saleId },

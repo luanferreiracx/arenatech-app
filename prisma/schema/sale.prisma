@@ -125,6 +125,10 @@ model SaleUpgrade {
   saleId              String   @map("sale_id") @db.Uuid
   brand               String?
   model               String
+  /** Capacidade do aparelho (ex: "128GB", "256GB"). Opcional. */
+  storage             String?
+  /** Cor do aparelho (ex: "Preto", "Titanio Natural"). Opcional. */
+  color               String?
   imei                String?
   serialNumber        String?  @map("serial_number")
   condition           String   @default("USED") // USED | NEW

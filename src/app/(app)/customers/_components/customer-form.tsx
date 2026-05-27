@@ -233,6 +233,7 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
                     value={field.value ?? ""}
                     onChange={field.onChange}
                     aria-label="Data de nascimento"
+                    yearDropdown
                   />
                 )}
               />

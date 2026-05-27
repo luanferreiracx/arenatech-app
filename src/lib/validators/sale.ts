@@ -229,6 +229,10 @@ export const addSaleUpgradeSchema = z.object({
   saleId: z.string().uuid(),
   brand: z.string().max(100).optional().nullable(),
   model: z.string().min(1).max(100),
+  /** Capacidade ex: "128GB", "256GB", "1TB". Opcional. */
+  storage: z.string().max(20).optional().nullable(),
+  /** Cor do aparelho. Opcional. */
+  color: z.string().max(50).optional().nullable(),
   imei: z.string().max(20).optional().nullable(),
   serialNumber: z.string().max(50).optional().nullable(),
   /** Condicoes alinhadas com StockItemCondition. */

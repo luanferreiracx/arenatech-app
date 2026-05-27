@@ -33,6 +33,16 @@ interface DateInputProps {
   "aria-label"?: string;
   id?: string;
   required?: boolean;
+  /**
+   * Quando true, mostra dropdowns de mes e ano no header do calendario
+   * (em vez de so navegar mes-a-mes). Util pra datas de nascimento onde
+   * o operador precisa voltar 30+ anos rapido.
+   */
+  yearDropdown?: boolean;
+  /** Ano minimo no dropdown. Default 1925 quando yearDropdown=true. */
+  fromYear?: number;
+  /** Ano maximo no dropdown. Default ano atual quando yearDropdown=true. */
+  toYear?: number;
 }
 
 function isoToDate(iso: string): Date | undefined {
@@ -58,12 +68,21 @@ export function DateInput({
   max,
   id,
   required,
+  yearDropdown,
+  fromYear,
+  toYear,
   ...rest
 }: DateInputProps) {
   const [open, setOpen] = useState(false);
   const selected = isoToDate(value);
   const minDate = isoToDate(min ?? "");
   const maxDate = isoToDate(max ?? "");
+
+  const currentYear = new Date().getFullYear();
+  const resolvedFromYear = fromYear ?? 1925;
+  const resolvedToYear = toYear ?? currentYear;
+  const startMonth = new Date(resolvedFromYear, 0, 1);
+  const endMonth = new Date(resolvedToYear, 11, 31);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -95,6 +114,10 @@ export function DateInput({
           }}
           locale={ptBR}
           initialFocus
+          captionLayout={yearDropdown ? "dropdown" : "label"}
+          startMonth={yearDropdown ? startMonth : undefined}
+          endMonth={yearDropdown ? endMonth : undefined}
+          defaultMonth={selected ?? (yearDropdown ? new Date(currentYear - 30, 0, 1) : undefined)}
           disabled={(date) => {
             if (minDate && date < minDate) return true;
             if (maxDate && date > maxDate) return true;

@@ -30,6 +30,8 @@ interface UpgradeRow {
   id: string;
   brand: string | null;
   model: string;
+  storage?: string | null;
+  color?: string | null;
   imei: string | null;
   appraisedValue: number; // cents
   abatedValue: number; // cents
@@ -77,6 +79,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
   // Form de dados do aparelho (so aparece apos selecionar modelo).
   const [imei, setImei] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
+  const [storage, setStorage] = useState("");
+  const [color, setColor] = useState("");
   const [condition, setCondition] = useState<"USED" | "NEW" | "SEMI_NEW" | "DISPLAY">("SEMI_NEW");
   const [batteryHealth, setBatteryHealth] = useState<number | "">("");
   const [appraisedValue, setAppraisedValue] = useState(0);
@@ -146,6 +150,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
         setDebounced("");
         setImei("");
         setSerialNumber("");
+        setStorage("");
+        setColor("");
         setCondition("SEMI_NEW");
         setBatteryHealth("");
         setAppraisedValue(0);
@@ -180,6 +186,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
     setSelected(null);
     setImei("");
     setSerialNumber("");
+    setStorage("");
+    setColor("");
     setBatteryHealth("");
     setAppraisedValue(0);
     setAbatedValue(0);
@@ -210,6 +218,8 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
       saleId,
       brand: selected.brand,
       model: selected.model,
+      storage: storage.trim() || null,
+      color: color.trim() || null,
       imei: imei.trim() || null,
       serialNumber: serialNumber.trim() || null,
       condition,
@@ -247,6 +257,11 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                 <div>
                   <p className="font-medium">
                     {[u.brand, u.model].filter(Boolean).join(" ") || u.model}
+                    {(u.storage || u.color) && (
+                      <span className="text-xs font-normal text-muted-foreground ml-1">
+                        ({[u.storage, u.color].filter(Boolean).join(" / ")})
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Avaliado {formatMoney(u.appraisedValue)} • Abate {formatMoney(u.abatedValue)}
@@ -399,6 +414,28 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                   value={serialNumber}
                   onChange={(e) => setSerialNumber(e.target.value)}
                   placeholder="S/N (opcional se IMEI informado)"
+                  maxLength={50}
+                />
+              </div>
+            </div>
+
+            {/* Capacidade + Cor */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Capacidade</Label>
+                <Input
+                  value={storage}
+                  onChange={(e) => setStorage(e.target.value)}
+                  placeholder="Ex.: 128GB, 256GB, 1TB"
+                  maxLength={20}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Cor</Label>
+                <Input
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder="Ex.: Preto, Titanio Natural"
                   maxLength={50}
                 />
               </div>
