@@ -267,6 +267,11 @@ export default function PurchaseDetailPage({ params }: PageProps) {
             <CardTitle className="text-sm">Termo de responsabilidade</CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-2">
+            {!isTermSigned && !isCancelled && (
+              <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                ⚠ Aparelho bloqueado para venda no PDV ate a assinatura do termo.
+              </div>
+            )}
             {isTermSigned ? (
               <div className="flex items-center gap-2 text-green-500">
                 <CheckCircle2 className="h-4 w-4" />

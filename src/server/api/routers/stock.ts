@@ -72,6 +72,42 @@ import {
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { Prisma } from "@prisma/client";
 
+/**
+ * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
+ * Chamado quando termo de responsabilidade eh assinado (fisica ou Autentique).
+ * Match por (productId, imei OU serialNumber) — o StockItem foi criado com esses
+ * mesmos campos no createPurchase.
+ */
+async function releaseStockItemForPurchase(
+  tx: Prisma.TransactionClient,
+  purchase: {
+    productId: string | null;
+    imei: string | null;
+    serial: string | null;
+  },
+): Promise<void> {
+  if (!purchase.productId) return;
+  // Localiza StockItem dessa compra que ainda esta BLOCKED. IMEI eh o
+  // identificador preferido; serial fallback.
+  const where: Prisma.StockItemWhereInput = {
+    productId: purchase.productId,
+    status: "BLOCKED",
+    deletedAt: null,
+  };
+  if (purchase.imei) {
+    where.imei = purchase.imei;
+  } else if (purchase.serial) {
+    where.serialNumber = purchase.serial;
+  } else {
+    // Sem identificador unico — nao da pra ligar com seguranca.
+    return;
+  }
+  await tx.stockItem.updateMany({
+    where,
+    data: { status: "AVAILABLE", notes: null },
+  });
+}
+
 export const stockRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // PRODUCTS
@@ -811,6 +847,10 @@ export const stockRouter = createTRPCRouter({
           REFURBISHED: "SEMI_NEW",
           DEFECTIVE: "USED",
         };
+        // Aparelho entra BLOQUEADO no estoque ate o termo de responsabilidade
+        // ser assinado (fisica ou Autentique). Libera automaticamente em
+        // confirmPurchasePhysicalSignature e checkPurchaseSignatureStatus.
+        // Operador NAO consegue vender no PDV ate liberar — reduz risco legal.
         await tx.stockItem.create({
           data: {
             tenantId: ctx.tenantId,
@@ -824,7 +864,8 @@ export const stockRouter = createTRPCRouter({
             suggestedSalePrice: input.salePrice != null
               ? new Prisma.Decimal(input.salePrice).div(100)
               : null,
-            status: "AVAILABLE",
+            status: "BLOCKED",
+            notes: "Aguardando assinatura do termo de responsabilidade",
           },
         });
 
@@ -1162,7 +1203,7 @@ export const stockRouter = createTRPCRouter({
   confirmPurchasePhysicalSignature: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — atualiza no banco em tx curta
+      // ETAPA 1 — atualiza compra + libera StockItem (BLOCKED -> AVAILABLE)
       const docToCancel = await ctx.withTenant(async (tx) => {
         const purchase = await tx.devicePurchase.findUnique({
           where: { id: input.id },
@@ -1180,6 +1221,8 @@ export const stockRouter = createTRPCRouter({
             termSignedByUserId: ctx.session.user.id,
           },
         });
+        // Libera o StockItem dessa compra (estava BLOCKED aguardando assinatura)
+        await releaseStockItemForPurchase(tx, purchase);
         return purchase.autentiqueDocumentId;
       });
 
@@ -1372,7 +1415,7 @@ export const stockRouter = createTRPCRouter({
         });
       }
 
-      // ETAPA 3 — persiste se assinado
+      // ETAPA 3 — persiste se assinado + libera StockItem
       if (status.signed) {
         await ctx.withTenant(async (tx) => {
           await tx.devicePurchase.update({
@@ -1383,6 +1426,7 @@ export const stockRouter = createTRPCRouter({
               termSignedVia: "autentique",
             },
           });
+          await releaseStockItemForPurchase(tx, purchase);
         });
         return { signed: true, status: "signed" };
       }
