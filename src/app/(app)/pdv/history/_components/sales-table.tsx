@@ -442,6 +442,7 @@ export function SalesTable() {
                           size="icon"
                           className="h-8 w-8"
                           asChild
+                          aria-label="Ver detalhes da venda"
                         >
                           <Link href={`/pdv/${sale.id as string}`}>
                             <Eye className="h-4 w-4" />
@@ -470,6 +471,7 @@ export function SalesTable() {
                 className="h-8 w-8"
                 disabled={page <= 0}
                 onClick={() => setPage((p) => p - 1)}
+                aria-label="Pagina anterior"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -479,6 +481,7 @@ export function SalesTable() {
                 className="h-8 w-8"
                 disabled={page >= totalPages - 1}
                 onClick={() => setPage((p) => p + 1)}
+                aria-label="Proxima pagina"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

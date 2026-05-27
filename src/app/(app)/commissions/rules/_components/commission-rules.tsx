@@ -109,10 +109,21 @@ export function CommissionRules() {
                   <span className={`text-xs px-2 py-0.5 rounded ${rule.active ? "bg-green-500/15 text-green-500" : "bg-red-500/15 text-red-500"}`}>
                     {rule.active ? "Ativa" : "Inativa"}
                   </span>
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(rule)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Editar regra de comissao"
+                    onClick={() => handleEdit(rule)}
+                  >
                     <Edit className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteId(rule.id)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    aria-label="Excluir regra de comissao"
+                    onClick={() => setDeleteId(rule.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

@@ -694,6 +694,7 @@ export function PdvScreen() {
                             variant="outline"
                             size="icon"
                             className="h-7 w-7"
+                            aria-label={`Diminuir quantidade de ${item.description}`}
                             onClick={() =>
                               item.quantity > 1
                                 ? handleUpdateQuantity(
@@ -712,6 +713,7 @@ export function PdvScreen() {
                             variant="outline"
                             size="icon"
                             className="h-7 w-7"
+                            aria-label={`Aumentar quantidade de ${item.description}`}
                             onClick={() =>
                               handleUpdateQuantity(item.id, item.quantity + 1)
                             }
@@ -757,6 +759,7 @@ export function PdvScreen() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
+                          aria-label={`Remover ${item.description} do carrinho`}
                           onClick={() =>
                             handleRemoveItem(item.id, item.description)
                           }

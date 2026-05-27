@@ -150,6 +150,7 @@ export default function SuppliersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={`Ver detalhes de ${supplier.name}`}
                             onClick={() => router.push(`/stock/suppliers/${supplier.id}`)}
                             title="Detalhes"
                           >
@@ -158,6 +159,7 @@ export default function SuppliersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={`Editar ${supplier.name}`}
                             onClick={() => router.push(`/stock/suppliers/${supplier.id}/edit`)}
                             title="Editar"
                           >
@@ -166,6 +168,7 @@ export default function SuppliersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={`Excluir ${supplier.name}`}
                             onClick={() => setDeleteId(supplier.id)}
                             title="Excluir"
                           >

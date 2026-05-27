@@ -137,7 +137,13 @@ export function ProductsTable() {
       header: "",
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            asChild
+            aria-label={`Ver detalhes de ${row.original.name}`}
+          >
             <Link href={`/stock/${row.original.id}`}>
               <Eye className="h-4 w-4" />
             </Link>
@@ -146,6 +152,7 @@ export function ProductsTable() {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
+            aria-label={`Ajustar estoque de ${row.original.name}`}
             onClick={() => setAdjustTarget({
               id: row.original.id,
               name: row.original.name,
@@ -154,7 +161,13 @@ export function ProductsTable() {
           >
             <span className="text-xs font-medium">+/-</span>
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            asChild
+            aria-label={`Editar ${row.original.name}`}
+          >
             <Link href={`/stock/${row.original.id}/edit`}>
               <Pencil className="h-4 w-4" />
             </Link>
@@ -163,6 +176,7 @@ export function ProductsTable() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-destructive"
+            aria-label={`Excluir ${row.original.name}`}
             onClick={() => setDeleteTarget(row.original.id)}
           >
             <Trash2 className="h-4 w-4" />

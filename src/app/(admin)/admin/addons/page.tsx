@@ -290,6 +290,7 @@ export default function AddonsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
+                          aria-label={`Editar addon ${addon.name}`}
                           onClick={() => openEdit(addon)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -298,6 +299,7 @@ export default function AddonsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
+                          aria-label={`Alternar addon ${addon.name}`}
                           onClick={() => toggleMutation.mutate({ id: addon.id })}
                         >
                           <Power className="h-4 w-4" />
@@ -306,6 +308,7 @@ export default function AddonsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive"
+                          aria-label={`Excluir addon ${addon.name}`}
                           onClick={() => setDeleteId(addon.id)}
                         >
                           <Trash2 className="h-4 w-4" />

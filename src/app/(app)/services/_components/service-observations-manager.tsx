@@ -158,7 +158,12 @@ export function ServiceObservationsManager() {
                     />
                   </td>
                   <td className="py-2 pr-4 text-right">
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(obs)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Editar observacao ${obs.title}`}
+                      onClick={() => openEdit(obs)}
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button

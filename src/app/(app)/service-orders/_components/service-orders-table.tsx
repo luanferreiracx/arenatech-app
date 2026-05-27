@@ -154,12 +154,22 @@ const columns: ColumnDef<OrderRow>[] = [
     header: "",
     cell: ({ row }) => (
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          asChild
+          aria-label={`Ver detalhes da OS ${row.original.number}`}
+        >
           <Link href={`/service-orders/${row.original.id}`}>
             <Eye className="h-4 w-4" />
           </Link>
         </Button>
-        <Button variant="ghost" size="icon" asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          asChild
+          aria-label={`Editar OS ${row.original.number}`}
+        >
           <Link href={`/service-orders/${row.original.id}/edit`}>
             <Pencil className="h-4 w-4" />
           </Link>

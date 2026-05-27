@@ -117,7 +117,7 @@ export default function NfeDetailPage({ params }: PageProps) {
       <PageHeader
         title={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="ghost" size="icon" asChild aria-label="Voltar para lista de NF-e">
               <Link href="/stock/nfe">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
@@ -288,6 +288,7 @@ export default function NfeDetailPage({ params }: PageProps) {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Desvincular item"
                               onClick={() => unlinkMutation.mutate({ itemId })}
                               title="Desvincular"
                             >
@@ -298,6 +299,7 @@ export default function NfeDetailPage({ params }: PageProps) {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Ignorar item"
                               onClick={() => ignoreMutation.mutate({ itemId })}
                               title="Ignorar item"
                             >

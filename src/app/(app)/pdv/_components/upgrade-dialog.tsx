@@ -257,6 +257,7 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                   variant="ghost"
                   size="icon"
                   className="text-destructive"
+                  aria-label="Remover upgrade"
                   disabled={removeMut.isPending}
                   onClick={() => removeMut.mutate({ id: u.id })}
                 >
@@ -350,7 +351,13 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                   <p className="text-xs text-muted-foreground">Marca: {selected.brand}</p>
                 )}
               </div>
-              <Button variant="ghost" size="icon" onClick={clearModel} title="Trocar modelo">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={clearModel}
+                title="Trocar modelo"
+                aria-label="Trocar modelo selecionado"
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>

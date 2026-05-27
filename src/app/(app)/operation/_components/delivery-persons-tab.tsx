@@ -76,8 +76,21 @@ export function DeliveryPersonsTab() {
                   <p className="text-sm text-muted-foreground">{item.phone ?? ""} {item.email ? `| ${item.email}` : ""}</p>
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}><Edit className="h-4 w-4" /></Button>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteId(item.id)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Editar entregador ${item.name}`}
+                    onClick={() => handleEdit(item)}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    aria-label={`Excluir entregador ${item.name}`}
+                    onClick={() => setDeleteId(item.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

@@ -168,6 +168,7 @@ export default function FinancialCategoriesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label={`Excluir categoria ${cat.name}`}
                       onClick={() => deleteMut.mutate({ id: cat.id })}
                     >
                       <Trash2 className="h-4 w-4" />

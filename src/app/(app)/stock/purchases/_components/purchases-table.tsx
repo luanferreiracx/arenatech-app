@@ -186,7 +186,14 @@ export function PurchasesTable() {
       id: "open",
       header: "",
       cell: ({ row }) => (
-        <Button size="icon" variant="ghost" className="h-7 w-7" asChild title="Abrir detalhe">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          asChild
+          title="Abrir detalhe"
+          aria-label="Abrir detalhe da compra"
+        >
           <Link href={`/stock/purchases/${row.original.id}`}>
             <Eye className="h-3.5 w-3.5" />
           </Link>
@@ -207,7 +214,14 @@ export function PurchasesTable() {
         }
         return (
           <div className="flex items-center gap-1">
-            <Button size="icon" variant="ghost" className="h-7 w-7" asChild title="Baixar PDF do termo">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              asChild
+              title="Baixar PDF do termo"
+              aria-label="Baixar PDF do termo de responsabilidade"
+            >
               <Link href={`/api/purchases/${r.id}/termo-responsabilidade`} target="_blank">
                 <FileText className="h-3.5 w-3.5" />
               </Link>
@@ -218,6 +232,7 @@ export function PurchasesTable() {
                 variant="ghost"
                 className="h-7 w-7"
                 title="Enviar para Autentique"
+                aria-label="Enviar termo para Autentique"
                 disabled={sendAutentiqueMut.isPending}
                 onClick={() => sendAutentiqueMut.mutate({ id: r.id })}
               >
@@ -229,6 +244,7 @@ export function PurchasesTable() {
                 variant="ghost"
                 className="h-7 w-7"
                 title="Verificar status no Autentique"
+                aria-label="Verificar status da assinatura no Autentique"
                 disabled={checkStatusMut.isPending}
                 onClick={() => checkStatusMut.mutate({ id: r.id })}
               >

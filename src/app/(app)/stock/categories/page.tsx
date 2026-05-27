@@ -119,12 +119,18 @@ export default function CategoriesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label="Confirmar criacao da categoria"
                           onClick={() => newName.trim() && createMutation.mutate({ name: newName.trim() })}
                           disabled={!newName.trim() || createMutation.isPending}
                         >
                           <Check className="h-4 w-4 text-green-500" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setIsAdding(false)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Cancelar criacao"
+                          onClick={() => setIsAdding(false)}
+                        >
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -167,12 +173,18 @@ export default function CategoriesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Salvar categoria ${cat.name}`}
                               onClick={() => editName.trim() && updateMutation.mutate({ id: cat.id, name: editName.trim() })}
                               disabled={!editName.trim() || updateMutation.isPending}
                             >
                               <Check className="h-4 w-4 text-green-500" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setEditId(null)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Cancelar edicao"
+                              onClick={() => setEditId(null)}
+                            >
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
@@ -181,6 +193,7 @@ export default function CategoriesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Editar categoria ${cat.name}`}
                               onClick={() => { setEditId(cat.id); setEditName(cat.name); }}
                             >
                               <Pencil className="h-4 w-4" />
@@ -188,6 +201,7 @@ export default function CategoriesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Excluir categoria ${cat.name}`}
                               onClick={() => setDeleteId(cat.id)}
                               disabled={cat._count.products > 0}
                               title={cat._count.products > 0 ? "Categoria com produtos vinculados" : "Excluir"}

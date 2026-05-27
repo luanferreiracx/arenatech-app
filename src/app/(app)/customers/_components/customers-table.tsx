@@ -119,12 +119,24 @@ function buildColumns(
     header: "",
     cell: ({ row }) => (
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          asChild
+          aria-label={`Ver detalhes de ${row.original.name}`}
+        >
           <Link href={`/customers/${row.original.id}`}>
             <Eye className="h-4 w-4" />
           </Link>
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          asChild
+          aria-label={`Editar ${row.original.name}`}
+        >
           <Link href={`/customers/${row.original.id}/edit`}>
             <Pencil className="h-4 w-4" />
           </Link>
@@ -137,6 +149,7 @@ function buildColumns(
             disabled={isRestorePending}
             onClick={() => onRestore(row.original.id)}
             title="Restaurar cliente"
+            aria-label={`Restaurar ${row.original.name}`}
           >
             <RotateCcw className="h-4 w-4" />
           </Button>

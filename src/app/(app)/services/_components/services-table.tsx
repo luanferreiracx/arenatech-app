@@ -172,7 +172,13 @@ export function ServicesManageTable() {
       header: "",
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            asChild
+            aria-label={`Editar servico ${row.original.name}`}
+          >
             <Link href={`/services/${row.original.id}/edit`}>
               <Pencil className="h-4 w-4" />
             </Link>
@@ -183,6 +189,11 @@ export function ServicesManageTable() {
             className="h-8 w-8"
             onClick={() => toggleMutation.mutate({ id: row.original.id })}
             title={row.original.active ? "Desativar" : "Ativar"}
+            aria-label={
+              row.original.active
+                ? `Desativar servico ${row.original.name}`
+                : `Ativar servico ${row.original.name}`
+            }
           >
             {row.original.active ? (
               <ToggleRight className="h-4 w-4 text-green-600" />
@@ -194,6 +205,7 @@ export function ServicesManageTable() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-destructive"
+            aria-label={`Excluir servico ${row.original.name}`}
             onClick={() => setDeleteTarget(row.original.id)}
           >
             <Trash2 className="h-4 w-4" />

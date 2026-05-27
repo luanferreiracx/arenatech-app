@@ -413,6 +413,7 @@ export function PaymentDialog({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 text-destructive"
+                  aria-label="Remover forma de pagamento"
                   onClick={() => handleRemovePayment(i)}
                 >
                   <X className="h-3 w-3" />
@@ -453,6 +454,7 @@ export function PaymentDialog({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
+                aria-label="Voltar para selecao de forma de pagamento"
                 onClick={() => setStep("select")}
               >
                 <ChevronLeft className="h-4 w-4" />
