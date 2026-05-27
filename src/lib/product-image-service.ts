@@ -111,6 +111,30 @@ function validateImage(buffer: Buffer, mimeType: string): void {
   if (buffer.length > MAX_SIZE_BYTES) {
     throw new Error(`Imagem excede o limite de 10MB.`)
   }
+  // Validacao por magic bytes — defesa contra upload de arquivo com
+  // mimeType forjado pelo cliente (ex.: shell PHP renomeado com
+  // Content-Type image/jpeg).
+  if (!hasValidImageMagic(buffer)) {
+    throw new Error("Arquivo nao e uma imagem valida (JPG/PNG/WebP).")
+  }
+}
+
+/** Verifica magic bytes JPG/PNG/WebP. */
+function hasValidImageMagic(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return true
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
+    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
+  ) return true
+  // WebP: "RIFF" .... "WEBP" (bytes 0-3 = RIFF, bytes 8-11 = WEBP)
+  if (
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+  ) return true
+  return false
 }
 
 // --- MinIO helpers ---
@@ -137,6 +161,12 @@ function getKeyFromUrl(url: string): string | null {
 async function uploadToMinio(key: string, buffer: Buffer, contentType: string): Promise<void> {
   const endpoint = getMinioEndpoint()
   const bucket = getMinioBucket()
+  // Em prod, S3_ACCESS_KEY/S3_SECRET_KEY sao obrigatorios. Em dev, o
+  // compose.yaml ja exporta credenciais — fallback so dispara se infra
+  // local estiver mal configurada.
+  if (process.env.NODE_ENV === "production" && (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY)) {
+    throw new Error("S3_ACCESS_KEY/S3_SECRET_KEY ausentes em prod.")
+  }
   const accessKey = process.env.S3_ACCESS_KEY || "minioadmin"
   const secretKey = process.env.S3_SECRET_KEY || "minioadmin"
 
@@ -176,6 +206,12 @@ async function uploadToMinio(key: string, buffer: Buffer, contentType: string): 
 async function deleteFromMinio(key: string): Promise<void> {
   const endpoint = getMinioEndpoint()
   const bucket = getMinioBucket()
+  // Em prod, S3_ACCESS_KEY/S3_SECRET_KEY sao obrigatorios. Em dev, o
+  // compose.yaml ja exporta credenciais — fallback so dispara se infra
+  // local estiver mal configurada.
+  if (process.env.NODE_ENV === "production" && (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY)) {
+    throw new Error("S3_ACCESS_KEY/S3_SECRET_KEY ausentes em prod.")
+  }
   const accessKey = process.env.S3_ACCESS_KEY || "minioadmin"
   const secretKey = process.env.S3_SECRET_KEY || "minioadmin"
 

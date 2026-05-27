@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
+import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
@@ -1950,7 +1951,10 @@ export const serviceOrderRouter = createTRPCRouter({
     }),
 
   // ── PUBLIC: respond to quote ──
+  // Rate limit: 20 respostas por IP/15min — protege contra spam mesmo
+  // que o atacante tenha obtido um link valido.
   respondToQuote: publicProcedure
+    .use(rateLimitMiddleware({ limit: 20, windowMs: 15 * 60 * 1000 }))
     .input(respondQuoteSchema)
     .mutation(async ({ input }) => {
       const txResult = await withAdmin(async (tx) => {
