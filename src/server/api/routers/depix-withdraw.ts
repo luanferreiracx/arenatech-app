@@ -333,23 +333,72 @@ export const depixWithdrawRouter = createTRPCRouter({
         const { getDepixWithdrawStatus } = await import("@/lib/services/depix-service");
         const result = await getDepixWithdrawStatus(w.depixId);
         if (result.success && result.status) {
-          // PixPay status: "unsent" | "sent" | "expired" | "failed"
+          // PixPay status: "unsent" | "sending" | "sent" | "send" | "paid"
+          // | "completed" | "expired" | "failed" | "error" | "rejected"
+          // | "cancelled". Paridade Laravel statusMap linhas 968-979.
+          const raw = result.status.toLowerCase();
           let newStatus: typeof w.status = w.status;
-          if (result.status === "sent" || result.status === "completed") newStatus = "SENT";
-          else if (result.status === "expired") newStatus = "CANCELLED";
-          else if (result.status === "failed") newStatus = "FAILED";
+          if (
+            raw === "sent" ||
+            raw === "send" ||
+            raw === "sending" ||
+            raw === "paid" ||
+            raw === "completed"
+          ) {
+            newStatus = "SENT";
+          } else if (raw === "expired") {
+            newStatus = "CANCELLED";
+          } else if (raw === "failed" || raw === "error" || raw === "rejected") {
+            newStatus = "FAILED";
+          } else if (raw === "cancelled" || raw === "canceled") {
+            newStatus = "CANCELLED";
+          }
 
-          if (newStatus !== w.status) {
+          // Extrai dados do raw (paridade campos do webhook + Laravel
+          // SaqueDepix::comprovante depende de blockchain_tx_id).
+          const rawData = result.raw ?? {};
+          const blockchainTxId =
+            (rawData.blockchain_tx_id as string | undefined) ??
+            (rawData.txid as string | undefined) ??
+            (rawData.transactionId as string | undefined) ??
+            null;
+          const receivedAmount =
+            (rawData.received_amount as number | string | undefined) ??
+            (rawData.receivedAmount as number | string | undefined) ??
+            (rawData.amount as number | string | undefined) ??
+            null;
+          const fee =
+            (rawData.fee as number | string | undefined) ??
+            (rawData.taxa as number | string | undefined) ??
+            null;
+
+          // Atualiza sempre que conseguimos novos dados — nao apenas
+          // quando muda status. Operador pode ver receivedAmount mesmo
+          // antes do gateway concluir.
+          const shouldUpdate =
+            newStatus !== w.status ||
+            (blockchainTxId && blockchainTxId !== w.blockchainTxId) ||
+            (receivedAmount != null && w.receivedAmount == null) ||
+            (fee != null && w.fee == null);
+
+          if (shouldUpdate) {
             await ctx.withTenant(async (tx) =>
               tx.depixWithdraw.update({
                 where: { id: w.id },
-                data: { status: newStatus },
+                data: {
+                  status: newStatus,
+                  blockchainTxId: blockchainTxId ?? undefined,
+                  receivedAmount: receivedAmount != null ? Number(receivedAmount) : undefined,
+                  fee: fee != null ? Number(fee) : undefined,
+                  apiResponse: rawData as never,
+                },
               }),
             );
-            logger.info("DepixWithdraw status atualizado via API", {
+            logger.info("DepixWithdraw atualizado via API", {
               id: w.id,
-              from: w.status,
-              to: newStatus,
+              fromStatus: w.status,
+              toStatus: newStatus,
+              hasBlockchainTxId: !!blockchainTxId,
             });
           }
 
@@ -357,9 +406,12 @@ export const depixWithdrawRouter = createTRPCRouter({
           return {
             status: newStatus,
             statusLabel: DEPIX_STATUS_LABELS[newStatus] ?? newStatus,
-            receivedAmount: decimalToNumber(w.receivedAmount),
-            fee: decimalToNumber(w.fee),
-            blockchainTxId: w.blockchainTxId,
+            receivedAmount:
+              receivedAmount != null
+                ? Number(receivedAmount)
+                : decimalToNumber(w.receivedAmount),
+            fee: fee != null ? Number(fee) : decimalToNumber(w.fee),
+            blockchainTxId: blockchainTxId ?? w.blockchainTxId,
             isFinal,
           };
         }

@@ -38,9 +38,17 @@ export async function GET(
     if (!withdraw) {
       return NextResponse.json({ error: "Saque nao encontrado" }, { status: 404 });
     }
-    if (withdraw.status !== "SENT") {
+    // Bloqueia apenas saques que ainda nem o gateway aceitou (PENDING) ou
+    // foram cancelados. Quando ja esta em PROCESSING o operador tem direito
+    // ao comprovante como protocolo da solicitacao (mesmo padrao Laravel
+    // SaqueDepixController::comprovante linhas 344-365).
+    if (
+      withdraw.status === "PENDING" ||
+      withdraw.status === "FAILED" ||
+      withdraw.status === "CANCELLED"
+    ) {
       return NextResponse.json(
-        { error: "Comprovante disponivel apenas para saques concluidos" },
+        { error: "Comprovante disponivel apenas para saques processando ou concluidos" },
         { status: 403 },
       );
     }

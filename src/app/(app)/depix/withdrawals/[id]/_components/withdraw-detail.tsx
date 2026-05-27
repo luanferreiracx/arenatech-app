@@ -259,14 +259,14 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
         {/* Actions */}
         <Card className="p-4 space-y-2">
           <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Acoes</h3>
-          {w.status === "SENT" && (
+          {(w.status === "SENT" || w.status === "PROCESSING") && (
             <Button
               variant="outline"
               className="w-full justify-center"
               onClick={() => window.open(`/api/depix/withdrawals/${id}/comprovante`, "_blank")}
             >
               <Printer className="w-4 h-4 mr-2" />
-              Comprovante
+              {w.status === "SENT" ? "Comprovante" : "Protocolo do saque"}
             </Button>
           )}
           <Button variant="outline" className="w-full justify-center" asChild>
