@@ -198,6 +198,7 @@ function VariationRow({
           type="button"
           variant="ghost"
           size="icon"
+          aria-label="Remover variacao"
           onClick={onRemove}
           className="h-7 w-7"
         >

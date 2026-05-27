@@ -213,7 +213,7 @@ export function WithdrawalsContent() {
                       </StatusBadge>
                     </td>
                     <td className="p-3 text-center">
-                      <Button variant="ghost" size="icon" asChild>
+                      <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes do saque">
                         <Link href={`/depix/withdrawals/${w.id}`}>
                           <Eye className="w-4 h-4" />
                         </Link>

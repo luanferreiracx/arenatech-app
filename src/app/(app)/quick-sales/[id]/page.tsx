@@ -89,7 +89,7 @@ export default function QuickSaleDetailPage() {
       <PageHeader
         title={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild aria-label="Voltar para lista de vendas rapidas">
               <Link href="/quick-sales"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
             <CreditCard className="h-5 w-5 text-primary" />

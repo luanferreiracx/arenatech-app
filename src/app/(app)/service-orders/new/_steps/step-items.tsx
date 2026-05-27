@@ -88,6 +88,7 @@ function ItemRow({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Remover item ${index + 1}`}
           onClick={() => onRemove(index)}
           className="text-destructive hover:text-destructive"
         >

@@ -91,8 +91,21 @@ export function PlansList() {
                   {plan.description && <p className="text-xs text-muted-foreground mt-1">{plan.description}</p>}
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(plan)}><Edit className="h-4 w-4" /></Button>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteId(plan.id)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Editar plano ${plan.name}`}
+                    onClick={() => handleEdit(plan)}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    aria-label={`Excluir plano ${plan.name}`}
+                    onClick={() => setDeleteId(plan.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

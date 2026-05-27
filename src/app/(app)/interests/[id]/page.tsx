@@ -257,7 +257,13 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
                     </div>
                     <p className="mt-1 text-sm">{interaction.description}</p>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeleteInteractionId(interaction.id)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    aria-label="Excluir interacao"
+                    onClick={() => setDeleteInteractionId(interaction.id)}
+                  >
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>

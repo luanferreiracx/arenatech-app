@@ -237,7 +237,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
       <PageHeader
         title={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild aria-label="Voltar para historico de vendas">
               <Link href="/pdv/history">
                 <ArrowLeft className="h-4 w-4" />
               </Link>

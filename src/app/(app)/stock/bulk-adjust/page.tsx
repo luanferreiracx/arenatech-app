@@ -183,6 +183,7 @@ export default function BulkAdjustStockPage() {
                             type="button"
                             variant="ghost"
                             size="icon"
+                            aria-label="Remover linha do ajuste"
                             onClick={() => removeRow(r.productId)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />

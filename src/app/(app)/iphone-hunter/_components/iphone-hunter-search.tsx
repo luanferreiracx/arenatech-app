@@ -232,7 +232,7 @@ export function IPhoneHunterSearch() {
                 </TableCell>
                 <TableCell>
                   {item.whatsappLink && (
-                    <Button asChild variant="ghost" size="icon">
+                    <Button asChild variant="ghost" size="icon" aria-label="Abrir conversa no WhatsApp">
                       <a href={item.whatsappLink} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="h-4 w-4" />
                       </a>

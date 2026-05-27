@@ -218,6 +218,7 @@ export default function RefundsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-green-500"
+                            aria-label="Processar estorno"
                             onClick={() => setProcessId(r.id)}
                           >
                             <CheckCircle className="h-4 w-4" />
@@ -226,6 +227,7 @@ export default function RefundsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-destructive"
+                            aria-label="Cancelar estorno"
                             onClick={() => setCancelId(r.id)}
                           >
                             <XCircle className="h-4 w-4" />

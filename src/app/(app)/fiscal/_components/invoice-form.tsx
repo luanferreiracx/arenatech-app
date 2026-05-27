@@ -115,6 +115,7 @@ export function InvoiceForm() {
                     variant="ghost"
                     size="icon"
                     className="text-destructive"
+                    aria-label="Remover item da NF"
                     onClick={() => fields.length > 1 && remove(index)}
                     disabled={fields.length <= 1}
                   >

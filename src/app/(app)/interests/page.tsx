@@ -160,12 +160,17 @@ export default function InterestsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" asChild>
+                      <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes do interesse">
                         <Link href={`/interests/${interest.id}`}>
                           <Eye className="h-4 w-4" />
                         </Link>
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(interest.id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Excluir interesse"
+                        onClick={() => setDeleteId(interest.id)}
+                      >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>

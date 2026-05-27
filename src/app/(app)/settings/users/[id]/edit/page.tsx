@@ -96,7 +96,7 @@ export default function EditUserPage() {
       <PageHeader
         title={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild aria-label="Voltar para lista de usuarios">
               <Link href="/settings/users"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
             <UserCog className="h-5 w-5 text-primary" />
