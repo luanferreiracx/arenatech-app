@@ -2520,13 +2520,19 @@ export const serviceOrderRouter = createTRPCRouter({
 
   // ── LIST TECHNICIANS ──
   listTechnicians: tenantProcedure.query(async ({ ctx }) => {
-    // Tecnicos = usuarios do tenant com role "technician".
-    // Paridade Laravel `carregarTecnicosUsuarios` (Prestador::tecnicos()->ativos()
-    // / fallback eh_tecnico): apenas usuarios efetivamente tecnicos aparecem na
-    // lista de responsavel pela OS — nao todos os usuarios do tenant.
+    // Quem pode ser o tecnico responsavel pela OS.
+    //
+    // No Laravel, "ser tecnico" e o flag `eh_tecnico` no Usuario — INDEPENDENTE
+    // do papel de login (um admin/dono pode ter eh_tecnico=true). O Next.js nao
+    // tem esse flag separado: o papel do tenant e o unico sinal. Para nao excluir
+    // o caso comum (dono/admin que tambem faz os reparos) e ao mesmo tempo nao
+    // listar o balcao (operator/cashier) como tecnico, incluimos os papeis
+    // operacionais que realmente executam servico: technician, owner, admin,
+    // manager. Operadores e caixas (frente de loja) ficam de fora.
+    const TECH_ELIGIBLE_ROLES = ["technician", "owner", "admin", "manager"];
     const userTenants = await withAdmin(async (adminTx) => {
       return adminTx.userTenant.findMany({
-        where: { tenantId: ctx.tenantId, role: "technician" },
+        where: { tenantId: ctx.tenantId, role: { in: TECH_ELIGIBLE_ROLES } },
         select: {
           user: { select: { id: true, name: true } },
           role: true,
@@ -2535,11 +2541,15 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     });
 
-    return userTenants.map((ut) => ({
-      id: ut.user.id,
-      name: ut.user.name,
-      role: ut.role,
-    }));
+    // Tecnicos "de verdade" (role technician) primeiro; depois os demais
+    // elegiveis — facilita o operador encontrar o tecnico dedicado no topo.
+    return userTenants
+      .map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role }))
+      .sort((a, b) => {
+        if (a.role === "technician" && b.role !== "technician") return -1;
+        if (a.role !== "technician" && b.role === "technician") return 1;
+        return a.name.localeCompare(b.name);
+      });
   }),
 
   // ── LIST VENDORS ──

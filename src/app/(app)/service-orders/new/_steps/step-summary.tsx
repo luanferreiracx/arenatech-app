@@ -73,7 +73,7 @@ export function StepSummary({ data, onChange }: Props) {
             getOptionLabel={(u) => u.name}
             getOptionValue={(u) => u.id}
             placeholder="Selecionar tecnico..."
-            emptyMessage="Nenhum tecnico encontrado."
+            emptyMessage="Nenhum tecnico disponivel. Cadastre um usuario com a funcao Tecnico em Configuracoes > Usuarios."
           />
         </div>
 
