@@ -107,13 +107,25 @@ export function getNextStatusOptions(current: ServiceOrderStatus): ServiceOrderS
   return next;
 }
 
-/** Allowed status transitions. Key=current, value=allowed next statuses */
+/**
+ * Allowed status transitions. Key=current, value=allowed next statuses.
+ *
+ * Fase de servico (OPEN..IN_PROGRESS): permite SALTO PARA FRENTE livre ate
+ * COMPLETED (paridade Laravel, que nao tem maquina de estados — aceita
+ * quase qualquer transicao, bloqueando so via guard de assinatura/lab/
+ * orcamento no servidor). O front exibe alerta de confirmacao ao pular
+ * etapas. WAITING_APPROVAL e a unica que so libera APPROVED (precisa
+ * decisao do cliente sobre o orcamento) alem de avancos para frente.
+ *
+ * Fase pos-conclusao (COMPLETED..DELIVERED): mantida estrita — pagamento
+ * e entrega exigem ordem + assinaturas (gates no servidor).
+ */
 export const ALLOWED_TRANSITIONS: Record<string, ServiceOrderStatus[]> = {
-  OPEN: ["IN_DIAGNOSIS", "CANCELLED"],
-  IN_DIAGNOSIS: ["WAITING_APPROVAL", "APPROVED", "WAITING_PARTS", "IN_PROGRESS", "CANCELLED"],
-  WAITING_APPROVAL: ["APPROVED", "CANCELLED"],
-  APPROVED: ["WAITING_PARTS", "IN_PROGRESS", "CANCELLED"],
-  WAITING_PARTS: ["IN_PROGRESS", "APPROVED", "CANCELLED"],
+  OPEN: ["IN_DIAGNOSIS", "WAITING_APPROVAL", "APPROVED", "WAITING_PARTS", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  IN_DIAGNOSIS: ["WAITING_APPROVAL", "APPROVED", "WAITING_PARTS", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  WAITING_APPROVAL: ["APPROVED", "WAITING_PARTS", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  APPROVED: ["WAITING_PARTS", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+  WAITING_PARTS: ["IN_PROGRESS", "APPROVED", "COMPLETED", "CANCELLED"],
   IN_PROGRESS: ["COMPLETED", "WAITING_PARTS", "CANCELLED"],
   COMPLETED: ["PAID", "CANCELLED"],
   PAID: ["READY_FOR_PICKUP", "DELIVERED"],
@@ -123,6 +135,20 @@ export const ALLOWED_TRANSITIONS: Record<string, ServiceOrderStatus[]> = {
   CANCELLED: [], // admin can uncancell
   REFUNDED: [], // final state
 };
+
+/**
+ * True se a transicao "pula" etapas do fluxo principal (ex.: OPEN→COMPLETED).
+ * Usado pelo front para exibir alerta de confirmacao antes de avancar.
+ */
+export function isSkippingSteps(
+  current: ServiceOrderStatus,
+  next: ServiceOrderStatus,
+): boolean {
+  const ci = STATUS_FLOW.indexOf(current);
+  const ni = STATUS_FLOW.indexOf(next);
+  if (ci === -1 || ni === -1) return false;
+  return ni - ci > 1;
+}
 
 export const serviceOrderItemTypeEnum = z.enum(["SERVICE", "PRODUCT"]);
 export type ServiceOrderItemType = z.infer<typeof serviceOrderItemTypeEnum>;

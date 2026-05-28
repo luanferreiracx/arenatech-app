@@ -26,6 +26,7 @@ import {
   deviceTypeEnum,
   warrantyTypeEnum,
   ALLOWED_TRANSITIONS,
+  isSkippingSteps,
   STATUS_FLOW,
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/validators/service-order";
@@ -419,6 +420,37 @@ describe("ALLOWED_TRANSITIONS", () => {
 
   it("COMPLETED can go to PAID", () => {
     expect(ALLOWED_TRANSITIONS.COMPLETED).toContain("PAID");
+  });
+
+  it("permite saltar etapas para frente ate COMPLETED (item 3)", () => {
+    // Fase de servico: qualquer status pre-COMPLETED pode pular direto pra concluir.
+    expect(ALLOWED_TRANSITIONS.OPEN).toContain("COMPLETED");
+    expect(ALLOWED_TRANSITIONS.IN_DIAGNOSIS).toContain("COMPLETED");
+    expect(ALLOWED_TRANSITIONS.APPROVED).toContain("COMPLETED");
+    expect(ALLOWED_TRANSITIONS.WAITING_PARTS).toContain("COMPLETED");
+  });
+
+  it("mantem fase pos-conclusao estrita", () => {
+    // PAID nao pode pular direto pra DELIVERED sem passar pelos gates? Ainda
+    // pode ir a DELIVERED (regra existente), mas COMPLETED nao salta PAID.
+    expect(ALLOWED_TRANSITIONS.COMPLETED).not.toContain("DELIVERED");
+    expect(ALLOWED_TRANSITIONS.COMPLETED).not.toContain("READY_FOR_PICKUP");
+  });
+});
+
+describe("isSkippingSteps", () => {
+  it("detecta salto de etapas no fluxo principal", () => {
+    expect(isSkippingSteps("OPEN", "COMPLETED")).toBe(true);
+    expect(isSkippingSteps("IN_DIAGNOSIS", "IN_PROGRESS")).toBe(true);
+  });
+
+  it("nao considera salto a transicao para o proximo imediato", () => {
+    expect(isSkippingSteps("OPEN", "IN_DIAGNOSIS")).toBe(false);
+    expect(isSkippingSteps("IN_PROGRESS", "COMPLETED")).toBe(false);
+  });
+
+  it("retorna false para status fora do fluxo principal", () => {
+    expect(isSkippingSteps("OPEN", "CANCELLED")).toBe(false);
   });
 });
 

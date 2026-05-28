@@ -31,6 +31,7 @@ import {
   Wrench,
   UserCog,
   Search,
+  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +68,7 @@ import {
   DEVICE_INFO_ITEMS,
   WARRANTY_TYPE_LABELS,
   getNextStatusOptions,
+  isSkippingSteps,
   type ServiceOrderStatus,
   type ChecklistData,
   type DeviceInfoData,
@@ -157,6 +159,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [notifyDeliveryContext, setNotifyDeliveryContext] = useState<"retirada" | "envio" | "generico">("retirada");
   const [notifyDeliveryMessage, setNotifyDeliveryMessage] = useState("");
   const [deleteDialog, setDeleteDialog] = useState(false);
+  // Confirmacao ao pular etapas direto para Concluida (item 3).
+  const [skipCompleteDialog, setSkipCompleteDialog] = useState(false);
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
@@ -940,6 +944,23 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     </Button>
                   );
                 })}
+
+                {/* Atalho: concluir direto pulando etapas (item 3). So aparece
+                    se o fluxo principal tem etapas intermediarias e a transicao
+                    direta para COMPLETED e permitida pelo backend. */}
+                {status !== "COMPLETED" &&
+                  isSkippingSteps(status, "COMPLETED") &&
+                  (ALLOWED_TRANSITIONS[status] ?? []).includes("COMPLETED") &&
+                  !nextOptions.includes("COMPLETED") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSkipCompleteDialog(true)}
+                      disabled={updateStatusMut.isPending}
+                    >
+                      <CheckCheck className="mr-1 h-3 w-3" />Concluir agora (pular etapas)
+                    </Button>
+                  )}
               </div>
             )}
             {nextOptions.length === 0 && allowed.length === 0 && (
@@ -1440,6 +1461,20 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Pular etapas: concluir direto (item 3) */}
+      <ConfirmDialog
+        open={skipCompleteDialog}
+        onOpenChange={setSkipCompleteDialog}
+        title="Concluir OS pulando etapas?"
+        description={`A OS sera marcada como Concluida, pulando as etapas intermediarias do fluxo (diagnostico, aprovacao, execucao). Confirme que o servico foi de fato finalizado.`}
+        confirmLabel="Concluir OS"
+        onConfirm={() => {
+          setSkipCompleteDialog(false);
+          updateStatusMut.mutate({ id, status: "COMPLETED", notes: "Concluida pulando etapas" });
+        }}
+        isLoading={updateStatusMut.isPending}
+      />
 
       {/* Cancel Dialog */}
       <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>

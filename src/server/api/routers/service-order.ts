@@ -78,6 +78,21 @@ function generateQuoteLink(): string {
 }
 
 /**
+ * Privilegio para forcar operacoes que normalmente exigem assinatura do
+ * cliente (cancelar sem termo, entregar sem termo, etc.). Paridade Laravel
+ * `role === 'admin'`, mas aqui ampliamos para adm/gerente conforme pedido:
+ * superadmin OU role do tenant em [owner, admin, manager].
+ */
+function canForceSignatureOps(ctx: {
+  session: { user: { isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> };
+  tenantId: string;
+}): boolean {
+  if (ctx.session.user.isSuperAdmin === true) return true;
+  const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
+/**
  * Restaura o status anterior da OS ao aprovar/rejeitar orcamento.
  * Le o ultimo serviceOrderHistory com newStatus=WAITING_APPROVAL —
  * ele guarda em previousStatus o status que a OS estava antes do quote.
@@ -640,11 +655,11 @@ export const serviceOrderRouter = createTRPCRouter({
         // OS sem valor (cortesia) ou de garantia podem pular o fluxo de PDV
         const totalAmountNum = Number(order.totalAmount);
         const canSkipPdv = totalAmountNum <= 0 || order.isWarranty;
-        const isAdmin = ctx.session.user.isSuperAdmin === true;
+        const canForce = canForceSignatureOps(ctx);
 
         // C2: Bloquear PAID via updateStatus direto. Pagamento deve passar por
         // `registerPayment` (que registra caixa + financeiro). Excecoes:
-        // OS de garantia / sem valor; admin com flag `force`.
+        // OS de garantia / sem valor; admin/gerente com flag `force`.
         if (newStatus === "PAID" && !canSkipPdv && !input.force) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -652,17 +667,17 @@ export const serviceOrderRouter = createTRPCRouter({
               "Pagamento de OS deve ser registrado via PDV. Use 'Receber Pagamento' para prosseguir.",
           });
         }
-        if (newStatus === "PAID" && input.force && !isAdmin) {
+        if (newStatus === "PAID" && input.force && !canForce) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Apenas administradores podem forcar status=PAID fora do PDV.",
+            message: "Apenas administradores ou gerentes podem forcar status=PAID fora do PDV.",
           });
         }
 
-        // C4: Bloquear DELIVERED sem termo de entrega assinado (admin pode bypassar)
+        // C4: Bloquear DELIVERED sem termo de entrega assinado (adm/gerente pode bypassar)
         if (newStatus === "DELIVERED" && !canSkipPdv) {
           const termSigned = order.deliveryTermSigned || order.deliveryTermPhysical;
-          if (!termSigned && !(input.force && isAdmin)) {
+          if (!termSigned && !(input.force && canForce)) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message:
@@ -856,10 +871,10 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // Paridade Laravel (`OrdemServicoController::cancelar`): TODA OS tem
         // aparelho fisico do cliente — exige termo de devolucao assinado
-        // (Autentique OU fisico) antes do cancelamento. Admin pode forcar
-        // via input.force - registrado como '[FORCADO]' no historico.
+        // (Autentique OU fisico) antes do cancelamento. Admin/gerente pode
+        // forcar via input.force - registrado como '[FORCADO]' no historico.
         const termSigned = order.returnTermSigned || order.returnTermPhysical;
-        const isAdmin = ctx.session.user.isSuperAdmin === true;
+        const canForce = canForceSignatureOps(ctx);
 
         let forced = false;
         if (!termSigned) {
@@ -870,10 +885,10 @@ export const serviceOrderRouter = createTRPCRouter({
                 "O termo de devolucao deve ser assinado antes do cancelamento. Envie o termo para assinatura ou confirme a devolucao fisica.",
             });
           }
-          if (!isAdmin) {
+          if (!canForce) {
             throw new TRPCError({
               code: "FORBIDDEN",
-              message: "Apenas administradores podem forcar cancelamento sem termo de devolucao.",
+              message: "Apenas administradores ou gerentes podem forcar cancelamento sem termo de devolucao.",
             });
           }
           forced = true;
@@ -2481,14 +2496,18 @@ export const serviceOrderRouter = createTRPCRouter({
 
   // ── LIST TECHNICIANS ──
   listTechnicians: tenantProcedure.query(async ({ ctx }) => {
-    // Technicians = users linked to this tenant
+    // Tecnicos = usuarios do tenant com role "technician".
+    // Paridade Laravel `carregarTecnicosUsuarios` (Prestador::tecnicos()->ativos()
+    // / fallback eh_tecnico): apenas usuarios efetivamente tecnicos aparecem na
+    // lista de responsavel pela OS — nao todos os usuarios do tenant.
     const userTenants = await withAdmin(async (adminTx) => {
       return adminTx.userTenant.findMany({
-        where: { tenantId: ctx.tenantId },
+        where: { tenantId: ctx.tenantId, role: "technician" },
         select: {
           user: { select: { id: true, name: true } },
           role: true,
         },
+        orderBy: { user: { name: "asc" } },
       });
     });
 
