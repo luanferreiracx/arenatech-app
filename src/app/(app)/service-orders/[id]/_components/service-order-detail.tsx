@@ -893,99 +893,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* Status Stepper */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Status</h3>
-            <StatusStepper status={status} />
-
-            {/* Bloqueio: nao avancar status enquanto OS nao foi assinada */}
-            {!isSigned && !isCancelled && !isRefunded && nextOptions.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border">
-                <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
-                  <strong className="text-warning">Assinatura de entrada pendente.</strong>
-                  <p className="text-muted-foreground mt-1">
-                    Confirme a assinatura do cliente (Autentique ou fisica) antes de avancar
-                    o status da OS. O aparelho fica sob responsabilidade da loja apenas
-                    apos a assinatura.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Action buttons — paridade com Laravel: so o proximo status do fluxo
-                (e o seguinte se o proximo for opcional). PAID abre dialog de pagamento.
-                Bloqueado enquanto OS nao for assinada. */}
-            {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && isSigned && (
-              <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-                {nextOptions.map((s) => {
-                  if (s === "PAID") {
-                    // OS sem valor ou garantia: pula PDV e registra direto via
-                    // registerPayment (paridade com Laravel `podePularPdv`).
-                    const skipPdv = Number(order.totalAmount) <= 0 || order.isWarranty;
-                    if (skipPdv) {
-                      return (
-                        <Button
-                          key={s}
-                          size="sm"
-                          onClick={() => registerPaymentMut.mutate({
-                            id,
-                            paymentMethod: order.isWarranty ? "garantia" : "cortesia",
-                            paidAmount: order.totalAmount,
-                          })}
-                          disabled={registerPaymentMut.isPending}
-                        >
-                          <DollarSign className="mr-1 h-3 w-3" />Marcar como Paga
-                        </Button>
-                      );
-                    }
-                    return (
-                      <Button
-                        key={s}
-                        size="sm"
-                        onClick={() => createFromOSMut.mutate({ serviceOrderId: id })}
-                        disabled={createFromOSMut.isPending}
-                      >
-                        <DollarSign className="mr-1 h-3 w-3" />Receber Pagamento (PDV)
-                      </Button>
-                    );
-                  }
-                  return (
-                    <Button
-                      key={s}
-                      size="sm"
-                      onClick={() => updateStatusMut.mutate({ id, status: s, notes: null })}
-                      disabled={updateStatusMut.isPending}
-                    >
-                      Avancar para: {SERVICE_ORDER_STATUS_LABELS[s]}
-                    </Button>
-                  );
-                })}
-
-                {/* Atalho: concluir direto pulando etapas (item 3). So aparece
-                    se o fluxo principal tem etapas intermediarias e a transicao
-                    direta para COMPLETED e permitida pelo backend. */}
-                {status !== "COMPLETED" &&
-                  isSkippingSteps(status, "COMPLETED") &&
-                  (ALLOWED_TRANSITIONS[status] ?? []).includes("COMPLETED") &&
-                  !nextOptions.includes("COMPLETED") && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSkipCompleteDialog(true)}
-                      disabled={updateStatusMut.isPending}
-                    >
-                      <CheckCheck className="mr-1 h-3 w-3" />Concluir agora (pular etapas)
-                    </Button>
-                  )}
-              </div>
-            )}
-            {nextOptions.length === 0 && allowed.length === 0 && (
-              <div className="mt-4 pt-4 border-t border-border text-sm text-muted-foreground">
-                {SPECIAL_STATUSES.includes(status) ? "OS em estado especial." : "Sem transicoes disponiveis."}
-              </div>
-            )}
-          </div>
-
           {/* Problem & Diagnostics */}
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1174,6 +1081,101 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
         {/* Right Column (1/3) */}
         <div className="space-y-6">
+          {/* Status Stepper — coluna de acoes (status fica no topo da sidebar,
+              deixando a coluna esquerda na ordem do Laravel:
+              Cliente -> Equipamento -> Problema -> ...). */}
+          <div className="rounded-lg border border-border p-4">
+            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Status</h3>
+            <StatusStepper status={status} />
+
+            {/* Bloqueio: nao avancar status enquanto OS nao foi assinada */}
+            {!isSigned && !isCancelled && !isRefunded && nextOptions.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
+                  <strong className="text-warning">Assinatura de entrada pendente.</strong>
+                  <p className="text-muted-foreground mt-1">
+                    Confirme a assinatura do cliente (Autentique ou fisica) antes de avancar
+                    o status da OS. O aparelho fica sob responsabilidade da loja apenas
+                    apos a assinatura.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons — paridade com Laravel: so o proximo status do fluxo
+                (e o seguinte se o proximo for opcional). PAID abre dialog de pagamento.
+                Bloqueado enquanto OS nao for assinada. */}
+            {nextOptions.length > 0 && !order.budgetPending && !isCancelled && !isRefunded && isSigned && (
+              <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+                {nextOptions.map((s) => {
+                  if (s === "PAID") {
+                    // OS sem valor ou garantia: pula PDV e registra direto via
+                    // registerPayment (paridade com Laravel `podePularPdv`).
+                    const skipPdv = Number(order.totalAmount) <= 0 || order.isWarranty;
+                    if (skipPdv) {
+                      return (
+                        <Button
+                          key={s}
+                          size="sm"
+                          onClick={() => registerPaymentMut.mutate({
+                            id,
+                            paymentMethod: order.isWarranty ? "garantia" : "cortesia",
+                            paidAmount: order.totalAmount,
+                          })}
+                          disabled={registerPaymentMut.isPending}
+                        >
+                          <DollarSign className="mr-1 h-3 w-3" />Marcar como Paga
+                        </Button>
+                      );
+                    }
+                    return (
+                      <Button
+                        key={s}
+                        size="sm"
+                        onClick={() => createFromOSMut.mutate({ serviceOrderId: id })}
+                        disabled={createFromOSMut.isPending}
+                      >
+                        <DollarSign className="mr-1 h-3 w-3" />Receber Pagamento (PDV)
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      key={s}
+                      size="sm"
+                      onClick={() => updateStatusMut.mutate({ id, status: s, notes: null })}
+                      disabled={updateStatusMut.isPending}
+                    >
+                      Avancar para: {SERVICE_ORDER_STATUS_LABELS[s]}
+                    </Button>
+                  );
+                })}
+
+                {/* Atalho: concluir direto pulando etapas (item 3). So aparece
+                    se o fluxo principal tem etapas intermediarias e a transicao
+                    direta para COMPLETED e permitida pelo backend. */}
+                {status !== "COMPLETED" &&
+                  isSkippingSteps(status, "COMPLETED") &&
+                  (ALLOWED_TRANSITIONS[status] ?? []).includes("COMPLETED") &&
+                  !nextOptions.includes("COMPLETED") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSkipCompleteDialog(true)}
+                      disabled={updateStatusMut.isPending}
+                    >
+                      <CheckCheck className="mr-1 h-3 w-3" />Concluir agora (pular etapas)
+                    </Button>
+                  )}
+              </div>
+            )}
+            {nextOptions.length === 0 && allowed.length === 0 && (
+              <div className="mt-4 pt-4 border-t border-border text-sm text-muted-foreground">
+                {SPECIAL_STATUSES.includes(status) ? "OS em estado especial." : "Sem transicoes disponiveis."}
+              </div>
+            )}
+          </div>
+
           {/* Payment Card */}
           <div className="rounded-lg border border-border p-4">
             <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Pagamento</h3>
