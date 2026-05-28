@@ -52,6 +52,17 @@ export async function buildSaleReceiptPdf(
   // Header data + logo
   const header = await loadTenantHeader(tenantId);
 
+  // Settings de garantia (fallback quando StockItem.warrantyMonths e null).
+  // Paridade Laravel: garantia por condicao (novo vs usado) vinda das settings.
+  const warrantySettings = await withTenant(tenantId, async (tx) =>
+    tx.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { warrantyNewMonths: true, warrantyUsedMonths: true },
+    }),
+  );
+  const warrantyNew = warrantySettings?.warrantyNewMonths ?? 12;
+  const warrantyUsed = warrantySettings?.warrantyUsedMonths ?? 3;
+
   // Resolve item metadata (stock item: imei, serial, condition, battery) — opcional.
   const stockItemIds = sale.items
     .map((it) => it.stockItemId)
@@ -67,6 +78,7 @@ export async function buildSaleReceiptPdf(
             condition: true,
             batteryHealth: true,
             warrantyMonths: true,
+            product: { select: { isDevice: true } },
           },
         }),
       )
@@ -91,6 +103,13 @@ export async function buildSaleReceiptPdf(
       signedViaAutentique: !!sale.signatureSignedAt && !sale.physicalSignature,
       items: sale.items.map((it) => {
         const si = it.stockItemId ? stockItemMap.get(it.stockItemId) : null;
+        // Garantia: usa warrantyMonths do StockItem; senao cai pro padrao das
+        // settings por condicao (novo vs usado). So aplica fallback pra
+        // aparelhos (isDevice) — acessorios sem garantia ficam null.
+        let warrantyMonths = si?.warrantyMonths ?? null;
+        if (warrantyMonths == null && si?.product?.isDevice) {
+          warrantyMonths = si.condition && si.condition !== "NEW" ? warrantyUsed : warrantyNew;
+        }
         return {
           description: it.description,
           quantity: it.quantity,
@@ -100,7 +119,7 @@ export async function buildSaleReceiptPdf(
           serial: si?.serialNumber ?? null,
           condition: si?.condition ?? null,
           batteryHealth: si?.batteryHealth ?? null,
-          warrantyMonths: si?.warrantyMonths ?? null,
+          warrantyMonths,
           isUpgrade: false, // SaleItem nao tem flag de upgrade — upgrades sao tabela separada
         };
       }),
