@@ -170,8 +170,19 @@ export const serviceOrderRouter = createTRPCRouter({
         const pageSize = input.pageSize ?? 10;
         const skip = page * pageSize;
 
-         
+
         const where: any = { deletedAt: null };
+
+        // Tecnico (nao admin/gerente) ve apenas as proprias OS. Paridade
+        // Laravel OrdemServicoController::index ($user->eh_tecnico &&
+        // role !== 'admin' => where tecnico_responsavel_usuario_id = user.id).
+        const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+        const isPrivileged =
+          ctx.session.user.isSuperAdmin === true ||
+          role === "owner" || role === "admin" || role === "manager";
+        if (role === "technician" && !isPrivileged) {
+          where.technicianId = ctx.session.user.id;
+        }
 
         if (input.status) {
           where.status = input.status;
@@ -272,9 +283,19 @@ export const serviceOrderRouter = createTRPCRouter({
   // ── STATS ──
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Tecnico (nao privilegiado) ve apenas os contadores das proprias OS
+      // — espelha o escopo de `list`. Paridade Laravel index.
+      const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      const isPrivileged =
+        ctx.session.user.isSuperAdmin === true ||
+        role === "owner" || role === "admin" || role === "manager";
+      const statsWhere: { deletedAt: null; technicianId?: string } = { deletedAt: null };
+      if (role === "technician" && !isPrivileged) {
+        statsWhere.technicianId = ctx.session.user.id;
+      }
       const counts = await tx.serviceOrder.groupBy({
         by: ["status"],
-        where: { deletedAt: null },
+        where: statsWhere,
         _count: true,
       });
 
@@ -784,7 +805,9 @@ export const serviceOrderRouter = createTRPCRouter({
                 where: { id: order.customerId },
                 select: { name: true },
               });
-              const instantPay = ["dinheiro", "pix"].includes(paymentMethodUsed);
+              // Paridade Laravel FinanceiroService: dinheiro/pix/depix sao
+              // pagamentos instantaneos (recebivel ja nasce PAID).
+              const instantPay = ["dinheiro", "pix", "depix"].includes(paymentMethodUsed);
               const amtDec = centsToPrisma(paidCents);
 
               const rcv = await tx.financialTransaction.create({
@@ -1371,7 +1394,8 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // ── Generate financial receivable (parity with Laravel gerarRecebiveisOS) ──
         const paidAmountDecimal = centsToPrisma(input.paidAmount);
-        const instantPayment = ["dinheiro", "pix"].includes(input.paymentMethod);
+        // Paridade Laravel: dinheiro/pix/depix = instantaneo (recebivel PAID).
+        const instantPayment = ["dinheiro", "pix", "depix"].includes(input.paymentMethod);
 
         // Avoid duplicates
         const existingReceivable = await tx.financialTransaction.findFirst({
