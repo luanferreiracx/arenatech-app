@@ -847,16 +847,34 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
-        // IMEI ou Serial obrigatorio. Se IMEI informado, checa duplicidade —
-        // mesmo aparelho nao pode dar entrada duas vezes.
-        if (!input.imei && !input.serial) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Informe IMEI ou numero de serie do aparelho.",
+        // IMEI normalizado (so digitos) — usado tanto na checagem quanto no
+        // INSERT, garantindo consistencia com a unique constraint
+        // (tenant_id, imei) WHERE imei IS NOT NULL AND deleted_at IS NULL.
+        // CRITICO: string vazia "" precisa virar NULL. Aparelhos sem IMEI
+        // (AirPods, iPad WiFi) mandam "" do form — se salvar "", a constraint
+        // (que ignora apenas NULL, nao "") rejeita o 2o aparelho sem IMEI.
+        const cleanImei = input.imei && input.imei.replace(/\D/g, "").length > 0
+          ? input.imei.replace(/\D/g, "")
+          : null;
+        // Idem para serial: "" -> null pra nao confundir filtros/relatorios.
+        const cleanSerial = input.serial && input.serial.trim().length > 0
+          ? input.serial.trim()
+          : null;
+
+        // IMEI ou Serial obrigatorio para aparelhos que tem identificador
+        // unico (celular). AirPods/acessorios sem IMEI nem serial sao aceitos
+        // (nao da pra exigir identificador que o produto nao tem).
+        // Mantemos a validacao branda: so exige se NENHUM dos dois vier.
+        if (!cleanImei && !cleanSerial) {
+          // Permitido para produtos sem identificador (AirPods etc) — apenas
+          // loga. Se quiser bloquear no futuro, faca por categoria.
+          logger.info("Compra de aparelho sem IMEI/serial", {
+            productId: product.id,
+            productName: product.name,
           });
         }
-        if (input.imei) {
-          const cleanImei = input.imei.replace(/\D/g, "");
+
+        if (cleanImei) {
           const existing = await tx.stockItem.findFirst({
             where: { imei: cleanImei, deletedAt: null },
             select: { id: true, status: true, product: { select: { name: true } } },
@@ -864,7 +882,7 @@ export const stockRouter = createTRPCRouter({
           if (existing) {
             throw new TRPCError({
               code: "CONFLICT",
-              message: `IMEI ${cleanImei} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}).`,
+              message: `IMEI ${cleanImei} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}). Se foi uma tentativa anterior que falhou, cancele a compra correspondente antes.`,
             });
           }
         }
@@ -899,8 +917,8 @@ export const stockRouter = createTRPCRouter({
             customerId: input.customerId || null,
             supplierId: input.supplierId || null,
             sellerType: input.sellerType ?? (input.supplierId ? "supplier" : "customer"),
-            imei: input.imei || null,
-            serial: input.serial || null,
+            imei: cleanImei,
+            serial: cleanSerial,
             // brand/model em DevicePurchase ficam como snapshot historico
             // — derivados do Product no momento da compra.
             brand: product.brand,
@@ -922,7 +940,7 @@ export const stockRouter = createTRPCRouter({
             variationId: variation?.id ?? null,
             type: "ENTRY",
             quantity: 1,
-            reason: `Compra de aparelho${input.imei ? ` — IMEI: ${input.imei}` : ""}`,
+            reason: `Compra de aparelho${cleanImei ? ` — IMEI: ${cleanImei}` : ""}`,
             referenceId: purchase.id,
             referenceType: "device_purchase",
             userId: ctx.session.user.id,
@@ -946,8 +964,8 @@ export const stockRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             productId: product.id,
             variationId: variation?.id ?? null,
-            imei: input.imei ?? null,
-            serialNumber: input.serial ?? null,
+            imei: cleanImei,
+            serialNumber: cleanSerial,
             condition: conditionMap[input.condition] ?? "USED",
             batteryHealth: input.batteryHealth ?? null,
             costPrice: new Prisma.Decimal(input.purchasePrice).div(100),
