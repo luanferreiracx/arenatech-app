@@ -230,6 +230,10 @@ export function PaymentDialog({
     }
     const depixNeedsQr = depixPayments.find((p) => !p.depixManual);
     if (depixNeedsQr) {
+      // Abre o QR. O Dialog do payment fica oculto (open=false) enquanto o
+      // QR esta aberto, sem desmontar o componente — evita aninhar dois
+      // Radix Dialogs (que conflitam no overlay/foco e deixavam o QR
+      // invisivel atras do payment-dialog).
       setShowDepixQr(true);
       return;
     }
@@ -352,7 +356,10 @@ export function PaymentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    {/* Oculta o payment-dialog enquanto o QR DePix esta aberto (sem desmontar,
+        pra preservar o state). Evita Radix Dialogs aninhados. */}
+    <Dialog open={open && !showDepixQr} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Finalizar Venda</DialogTitle>
@@ -575,23 +582,24 @@ export function PaymentDialog({
               : "Confirmar Pagamento"}
           </Button>
         </div>
-
-        {/* DePix QR Code dialog (opens when payment includes DePix).
-            Em split, gera QR apenas para a parte DePix do carrinho. */}
-        {showDepixQr && (
-          <DepixQrDialog
-            open={showDepixQr}
-            saleId={saleId}
-            totalCents={payments.find((p) => p.method === "depix")?.amount ?? totalAmount}
-            customerTaxId={customerTaxId ?? null}
-            onClose={() => setShowDepixQr(false)}
-            onPaid={(transactionId) => {
-              setShowDepixQr(false);
-              runFinalize(transactionId);
-            }}
-          />
-        )}
       </DialogContent>
     </Dialog>
+
+    {/* QR DePix — fora do Dialog do payment (evita aninhar Radix Dialogs).
+        O payment-dialog ja foi fechado quando este abre. */}
+    {showDepixQr && (
+      <DepixQrDialog
+        open={showDepixQr}
+        saleId={saleId}
+        totalCents={payments.find((p) => p.method === "depix")?.amount ?? totalAmount}
+        customerTaxId={customerTaxId ?? null}
+        onClose={() => setShowDepixQr(false)}
+        onPaid={(transactionId) => {
+          setShowDepixQr(false);
+          runFinalize(transactionId);
+        }}
+      />
+    )}
+    </>
   );
 }
