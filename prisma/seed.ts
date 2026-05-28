@@ -110,6 +110,54 @@ async function main() {
     create: { userId: operadorMulti.id, tenantId: tenantTest.id, role: "operator" },
   });
 
+  // --- Tecnico (role technician) — popula o dropdown de tecnicos da OS ---
+  // Item 7: a lista de tecnicos da OS filtra por role="technician". Sem um
+  // usuario tecnico, o dropdown fica vazio. Seed de um tecnico por tenant
+  // operacional.
+  const tecnicoCpf = process.env.TECNICO_ARENA_CPF ?? "39053344705";
+  const tecnicoPassword = process.env.TECNICO_ARENA_PASSWORD ?? "Tecnico@2026";
+  const tecnicoArena = await prisma.user.upsert({
+    where: { cpf: tecnicoCpf },
+    update: { name: "Tecnico Arena", passwordHash: hashSync(tecnicoPassword, BCRYPT_ROUNDS) },
+    create: {
+      cpf: tecnicoCpf,
+      name: "Tecnico Arena",
+      email: "tecnico@arenatechpi.com.br",
+      passwordHash: hashSync(tecnicoPassword, BCRYPT_ROUNDS),
+      isSuperAdmin: false,
+    },
+  });
+  await prisma.userTenant.upsert({
+    where: { userId_tenantId: { userId: tecnicoArena.id, tenantId: tenantArena.id } },
+    update: { role: "technician" },
+    create: { userId: tecnicoArena.id, tenantId: tenantArena.id, role: "technician" },
+  });
+  console.log(`User: ${tecnicoArena.name} (${tecnicoArena.id}) [technician]`);
+
+  // --- Entregadores (item 8) ---
+  // Laravel nao tem seed de entregadores (gerenciados via CRUD). Como nao ha
+  // dado de origem para migrar, populamos padroes uteis por tenant operacional.
+  // Idempotente: cria so se nao existir entregador com mesmo nome no tenant.
+  const entregadoresPadrao = [
+    { name: "Motoboy Express", phone: "86999990001" },
+    { name: "Entregas Rapidas PI", phone: "86999990002" },
+    { name: "Logistica Arena", phone: "86999990003" },
+  ];
+  for (const tenant of [tenantArena, tenantTest]) {
+    for (const e of entregadoresPadrao) {
+      const existing = await prisma.deliveryPerson.findFirst({
+        where: { tenantId: tenant.id, name: e.name, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) {
+        await prisma.deliveryPerson.create({
+          data: { tenantId: tenant.id, name: e.name, phone: e.phone, active: true },
+        });
+      }
+    }
+    console.log(`Entregadores garantidos para tenant ${tenant.slug}`);
+  }
+
   // --- No-access user (no tenants, not super admin) ---
   const noAccessCpf = process.env.NOACCESS_CPF ?? "98765432100";
   const noAccessPassword = process.env.NOACCESS_PASSWORD ?? "NoAccess@2026";
