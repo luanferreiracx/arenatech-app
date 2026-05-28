@@ -22,6 +22,7 @@ interface PurchaseRow {
   model: string | null;
   condition: string;
   batteryHealth: number | null;
+  notes: string | null;
   purchasePrice: { toNumber?: () => number } | number | string;
   salePrice: { toNumber?: () => number } | number | string | null;
   createdAt: string | Date;
@@ -137,6 +138,19 @@ export function PurchasesTable() {
           {row.original.imei && (
             <span className="block text-xs text-muted-foreground">
               IMEI: {row.original.imei}
+            </span>
+          )}
+          {row.original.serial && !row.original.imei && (
+            <span className="block text-xs text-muted-foreground">
+              S/N: {row.original.serial}
+            </span>
+          )}
+          {row.original.notes && (
+            <span
+              className="block text-xs italic text-muted-foreground/80 mt-0.5 max-w-[220px] truncate"
+              title={row.original.notes}
+            >
+              Obs: {row.original.notes}
             </span>
           )}
         </div>

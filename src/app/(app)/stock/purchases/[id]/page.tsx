@@ -329,16 +329,16 @@ export default function PurchaseDetailPage({ params }: PageProps) {
         </Card>
       </div>
 
-      {(purchase.notes as string | null) && (
-        <Card className="mt-4">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Observacoes</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {purchase.notes as string}
-          </CardContent>
-        </Card>
-      )}
+      <Card className="mt-4">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Observacoes</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground whitespace-pre-wrap">
+          {(purchase.notes as string | null)?.trim() || (
+            <span className="italic">Sem observacoes.</span>
+          )}
+        </CardContent>
+      </Card>
 
       {isCancelled && (purchase.cancellationReason as string | null) && (
         <Card className="mt-4 border-destructive/20">
