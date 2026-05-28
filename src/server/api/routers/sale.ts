@@ -276,7 +276,11 @@ export const saleRouter = createTRPCRouter({
           }
           const stockItem = await tx.stockItem.findUnique({
             where: { id: input.stockItemId },
-            select: { id: true, productId: true, status: true, costPrice: true, suggestedSalePrice: true },
+            select: {
+              id: true, productId: true, status: true, costPrice: true,
+              suggestedSalePrice: true, imei: true, serialNumber: true,
+              condition: true, batteryHealth: true, warrantyMonths: true,
+            },
           });
           if (!stockItem) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Item de estoque nao encontrado" });
@@ -300,6 +304,17 @@ export const saleRouter = createTRPCRouter({
           }
           const unitPriceCents = input.unitPrice
             || (stockItem.suggestedSalePrice ? decimalToCents(stockItem.suggestedSalePrice) : decimalToCents(product.salePrice));
+          // Garantia: usa do StockItem; senao padrao das settings por condicao.
+          let warrantyMonths = stockItem.warrantyMonths ?? null;
+          if (warrantyMonths == null) {
+            const settings = await tx.tenantSettings.findUnique({
+              where: { tenantId: ctx.tenantId },
+              select: { warrantyNewMonths: true, warrantyUsedMonths: true },
+            });
+            warrantyMonths = stockItem.condition === "NEW"
+              ? (settings?.warrantyNewMonths ?? 12)
+              : (settings?.warrantyUsedMonths ?? 3);
+          }
           await tx.saleItem.create({
             data: {
               tenantId: ctx.tenantId,
@@ -311,6 +326,12 @@ export const saleRouter = createTRPCRouter({
               unitPrice: centsToPrisma(unitPriceCents),
               costPrice: stockItem.costPrice,
               total: centsToPrisma(unitPriceCents),
+              // Snapshot do aparelho no momento da venda.
+              imei: stockItem.imei,
+              serial: stockItem.serialNumber,
+              condition: stockItem.condition,
+              batteryHealth: stockItem.batteryHealth,
+              warrantyMonths,
             },
           });
           return recalculateSale(tx, input.saleId, ctx.tenantId);

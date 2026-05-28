@@ -105,6 +105,16 @@ model SaleItem {
   costPrice       Decimal  @default(0) @map("cost_price") @db.Decimal(10, 2)
   discount        Decimal  @default(0) @db.Decimal(10, 2)
   total           Decimal  @db.Decimal(10, 2)
+  // Snapshot do aparelho no momento da venda (paridade Laravel
+  // pdv_venda_itens). Persistir aqui (em vez de derivar do StockItem)
+  // garante que o recibo/garantia continuem corretos mesmo se o StockItem
+  // for alterado/removido depois, e cobre dados migrados sem StockItem.
+  imei            String?
+  serial          String?
+  condition       String?
+  batteryHealth   Int?     @map("battery_health")
+  warrantyMonths  Int?     @map("warranty_months")
+  ehUpgrade       Boolean  @default(false) @map("eh_upgrade")
   createdAt       DateTime @default(now()) @map("created_at")
 
   sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)

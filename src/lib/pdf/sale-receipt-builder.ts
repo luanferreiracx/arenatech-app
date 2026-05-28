@@ -103,24 +103,33 @@ export async function buildSaleReceiptPdf(
       signedViaAutentique: !!sale.signatureSignedAt && !sale.physicalSignature,
       items: sale.items.map((it) => {
         const si = it.stockItemId ? stockItemMap.get(it.stockItemId) : null;
-        // Garantia: usa warrantyMonths do StockItem; senao cai pro padrao das
-        // settings por condicao (novo vs usado). So aplica fallback pra
-        // aparelhos (isDevice) — acessorios sem garantia ficam null.
-        let warrantyMonths = si?.warrantyMonths ?? null;
-        if (warrantyMonths == null && si?.product?.isDevice) {
-          warrantyMonths = si.condition && si.condition !== "NEW" ? warrantyUsed : warrantyNew;
+        // Prioriza o snapshot persistido no SaleItem (paridade Laravel
+        // pdv_venda_itens). Fallback pro StockItem quando o item nao tem
+        // snapshot (vendas antigas antes do snapshot). Por ultimo, garantia
+        // padrao das settings por condicao pra aparelhos.
+        const itAny = it as typeof it & {
+          imei?: string | null; serial?: string | null; condition?: string | null;
+          batteryHealth?: number | null; warrantyMonths?: number | null; ehUpgrade?: boolean;
+        };
+        const imei = itAny.imei ?? si?.imei ?? null;
+        const serial = itAny.serial ?? si?.serialNumber ?? null;
+        const condition = itAny.condition ?? si?.condition ?? null;
+        const batteryHealth = itAny.batteryHealth ?? si?.batteryHealth ?? null;
+        let warrantyMonths = itAny.warrantyMonths ?? si?.warrantyMonths ?? null;
+        if (warrantyMonths == null && (si?.product?.isDevice || imei || serial)) {
+          warrantyMonths = condition && condition !== "NEW" ? warrantyUsed : warrantyNew;
         }
         return {
           description: it.description,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           total: it.total,
-          imei: si?.imei ?? null,
-          serial: si?.serialNumber ?? null,
-          condition: si?.condition ?? null,
-          batteryHealth: si?.batteryHealth ?? null,
+          imei,
+          serial,
+          condition,
+          batteryHealth,
           warrantyMonths,
-          isUpgrade: false, // SaleItem nao tem flag de upgrade — upgrades sao tabela separada
+          isUpgrade: itAny.ehUpgrade ?? false,
         };
       }),
       upgrades: sale.upgrades.map((upg) => ({
