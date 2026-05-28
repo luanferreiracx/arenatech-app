@@ -14,6 +14,8 @@ import {
   ExternalLink,
   Copy,
   Loader2,
+  User,
+  Building2,
 } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
 import { Button } from "@/components/ui/button";
@@ -135,6 +137,14 @@ export default function PurchaseDetailPage({ params }: PageProps) {
   const purchasePrice = purchase.purchasePrice as number;
   const salePrice = purchase.salePrice as number | null;
   const autentiqueLink = purchase.autentiqueLink as string | null;
+  const seller = purchase.seller as {
+    kind: "customer" | "supplier";
+    name: string;
+    document: string | null;
+    documentType: "CPF" | "CNPJ" | null;
+    phone: string | null;
+    email: string | null;
+  } | null;
 
   return (
     <div>
@@ -202,6 +212,52 @@ export default function PurchaseDetailPage({ params }: PageProps) {
           </div>
         }
       />
+
+      {/* Vendedor (cliente PF/PJ ou fornecedor PF/PJ de quem comprou) */}
+      <Card className="mt-4">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            {seller?.kind === "supplier" ? (
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <User className="h-4 w-4 text-muted-foreground" />
+            )}
+            Vendedor — {seller?.kind === "supplier" ? "Fornecedor" : "Cliente"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          {seller ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Nome</span>
+                <span className="font-medium text-right">{seller.name}</span>
+              </div>
+              {seller.document && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{seller.documentType ?? "Doc"}</span>
+                  <span className="font-mono text-xs">{seller.document}</span>
+                </div>
+              )}
+              {seller.phone && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Telefone</span>
+                  <span>{seller.phone}</span>
+                </div>
+              )}
+              {seller.email && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Email</span>
+                  <span className="truncate max-w-[180px]" title={seller.email}>
+                    {seller.email}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-muted-foreground italic">Vendedor nao identificado.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <Card>

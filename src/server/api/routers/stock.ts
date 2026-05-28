@@ -783,8 +783,34 @@ export const stockRouter = createTRPCRouter({
           tx.devicePurchase.count({ where }),
         ]);
 
+        // Resolve nome do vendedor (cliente ou fornecedor) pra exibir na lista.
+        const customerIds = [
+          ...new Set(data.filter((d) => d.customerId).map((d) => d.customerId!)),
+        ];
+        const supplierIds = [
+          ...new Set(data.filter((d) => d.supplierId).map((d) => d.supplierId!)),
+        ];
+        const [customers, suppliers] = await Promise.all([
+          customerIds.length
+            ? tx.customer.findMany({ where: { id: { in: customerIds } }, select: { id: true, name: true } })
+            : Promise.resolve([] as Array<{ id: string; name: string }>),
+          supplierIds.length
+            ? tx.supplier.findMany({ where: { id: { in: supplierIds } }, select: { id: true, name: true } })
+            : Promise.resolve([] as Array<{ id: string; name: string }>),
+        ]);
+        const customerMap = new Map(customers.map((c) => [c.id, c.name]));
+        const supplierMap = new Map(suppliers.map((s) => [s.id, s.name]));
+
+        const dataWithSeller = data.map((d) => ({
+          ...d,
+          sellerName:
+            d.sellerType === "supplier"
+              ? supplierMap.get(d.supplierId ?? "") ?? null
+              : customerMap.get(d.customerId ?? "") ?? null,
+        }));
+
         return {
-          data,
+          data: dataWithSeller,
           total,
           pageCount: Math.ceil(total / pageSize),
         };
@@ -1124,14 +1150,25 @@ export const stockRouter = createTRPCRouter({
         });
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // Carrega dados do vendedor (cliente ou fornecedor) — usado pra
-        // popular o WhatsappRecipientPicker no dialog de Enviar termo.
+        // Carrega dados do vendedor (cliente ou fornecedor) — exibido na view
+        // de detalhe e usado pra popular o WhatsappRecipientPicker no envio
+        // do termo.
         let sellerName: string | null = null;
         let sellerPhones: Array<{ label: string; value: string }> = [];
+        let seller: {
+          kind: "customer" | "supplier";
+          id: string;
+          name: string;
+          document: string | null;
+          documentType: "CPF" | "CNPJ" | null;
+          phone: string | null;
+          email: string | null;
+        } | null = null;
+
         if (purchase.sellerType === "customer" && purchase.customerId) {
           const c = await tx.customer.findUnique({
             where: { id: purchase.customerId },
-            select: { name: true, phone: true, phoneSecondary: true },
+            select: { id: true, name: true, cpf: true, cnpj: true, phone: true, phoneSecondary: true, email: true },
           });
           if (c) {
             sellerName = c.name;
@@ -1139,15 +1176,33 @@ export const stockRouter = createTRPCRouter({
             if (c.phoneSecondary && c.phoneSecondary !== c.phone) {
               sellerPhones.push({ label: `Secundario — ${c.phoneSecondary}`, value: c.phoneSecondary });
             }
+            seller = {
+              kind: "customer",
+              id: c.id,
+              name: c.name,
+              document: c.cnpj ?? c.cpf ?? null,
+              documentType: c.cnpj ? "CNPJ" : c.cpf ? "CPF" : null,
+              phone: c.phone ?? null,
+              email: c.email ?? null,
+            };
           }
         } else if (purchase.sellerType === "supplier" && purchase.supplierId) {
           const s = await tx.supplier.findUnique({
             where: { id: purchase.supplierId },
-            select: { name: true, phone: true },
+            select: { id: true, name: true, cpf: true, cnpj: true, phone: true, email: true },
           });
           if (s) {
             sellerName = s.name;
             if (s.phone) sellerPhones.push({ label: `Telefone — ${s.phone}`, value: s.phone });
+            seller = {
+              kind: "supplier",
+              id: s.id,
+              name: s.name,
+              document: s.cnpj ?? s.cpf ?? null,
+              documentType: s.cnpj ? "CNPJ" : s.cpf ? "CPF" : null,
+              phone: s.phone ?? null,
+              email: s.email ?? null,
+            };
           }
         }
 
@@ -1157,6 +1212,7 @@ export const stockRouter = createTRPCRouter({
           salePrice: purchase.salePrice ? Math.round(Number(purchase.salePrice) * 100) : null,
           sellerName,
           sellerPhones,
+          seller,
         };
       });
     }),

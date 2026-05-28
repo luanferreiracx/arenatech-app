@@ -23,6 +23,8 @@ interface PurchaseRow {
   condition: string;
   batteryHealth: number | null;
   notes: string | null;
+  sellerType: string | null;
+  sellerName: string | null;
   purchasePrice: { toNumber?: () => number } | number | string;
   salePrice: { toNumber?: () => number } | number | string | null;
   createdAt: string | Date;
@@ -155,6 +157,21 @@ export function PurchasesTable() {
           )}
         </div>
       ),
+    },
+    {
+      id: "seller",
+      header: "Vendedor",
+      cell: ({ row }) =>
+        row.original.sellerName ? (
+          <div>
+            <span className="text-sm">{row.original.sellerName}</span>
+            <span className="block text-xs text-muted-foreground">
+              {row.original.sellerType === "supplier" ? "Fornecedor" : "Cliente"}
+            </span>
+          </div>
+        ) : (
+          <span className="text-muted-foreground text-sm">-</span>
+        ),
     },
     {
       accessorKey: "condition",
