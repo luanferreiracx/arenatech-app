@@ -490,6 +490,22 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <FileText className="mr-2 h-4 w-4" />PDF
               </Link>
             </Button>
+            {/* Termo de Entrega — disponivel apos pagamento (entrega do aparelho). */}
+            {["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+              <Button variant="outline" asChild>
+                <Link href={`/api/service-orders/${order.id}/termo-entrega`} target="_blank">
+                  <FileText className="mr-2 h-4 w-4" />Termo Entrega
+                </Link>
+              </Button>
+            )}
+            {/* Termo de Devolucao — usado no cancelamento (devolucao sem servico). */}
+            {!isCancelled && !isRefunded && !isDelivered && (
+              <Button variant="outline" asChild>
+                <Link href={`/api/service-orders/${order.id}/termo-devolucao`} target="_blank">
+                  <FileText className="mr-2 h-4 w-4" />Termo Devolucao
+                </Link>
+              </Button>
+            )}
             {/* Recibo PDF + reenvio WhatsApp — paridade Laravel: apos pagamento. */}
             {["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
               <>
