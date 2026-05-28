@@ -57,6 +57,17 @@ type DraftSale = {
   totalAmount: number;
   customerId: string | null;
   upgrades?: DraftUpgrade[];
+  // Pagamento de OS: checkout puro. Itens vem da OS (read-only), nao do carrinho.
+  isOSPayment?: boolean;
+  serviceOrderId?: string | null;
+  osItems?: OsPaymentItem[];
+};
+
+type OsPaymentItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
 };
 
 type DraftUpgrade = {
@@ -175,6 +186,10 @@ export function PdvScreen() {
 
   const draft = draftQuery.data as unknown as DraftSale | undefined;
   const items: DraftItem[] = draft?.items ?? [];
+  // Pagamento de OS: PDV vira checkout read-only. Sem busca de produto, sem
+  // editar/remover itens, sem upgrade. So desconto + forma de pagamento.
+  const isOSPayment = draft?.isOSPayment === true;
+  const osItems: OsPaymentItem[] = draft?.osItems ?? [];
 
   // -- Search Products --
   const searchQuery = useQuery(
@@ -536,25 +551,36 @@ export function PdvScreen() {
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-bold text-foreground">
-            PDV - Ponto de Venda
+            {isOSPayment ? "PDV - Recebimento de OS" : "PDV - Ponto de Venda"}
           </h1>
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-xs"
-              onClick={() => setShowPriceCheckDialog(true)}
-            >
-              <DollarSign className="h-4 w-4" />
-              Consultar Preco
-            </Button>
+            {!isOSPayment && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-xs"
+                onClick={() => setShowPriceCheckDialog(true)}
+              >
+                <DollarSign className="h-4 w-4" />
+                Consultar Preco
+              </Button>
+            )}
             <span className="bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm font-bold">
-              Nova Venda
+              {isOSPayment ? "Pagamento de OS" : "Nova Venda"}
             </span>
           </div>
         </div>
 
-        {/* Search */}
+        {/* Aviso de checkout de OS (read-only) */}
+        {isOSPayment && (
+          <div className="mb-3 rounded-md border border-info bg-info/10 p-3 text-sm text-muted-foreground">
+            Recebimento de Ordem de Servico. Os itens abaixo vem da OS e nao
+            podem ser editados aqui — o PDV apenas registra o pagamento.
+          </div>
+        )}
+
+        {/* Search — oculto no pagamento de OS (checkout puro) */}
+        {!isOSPayment && (
         <div ref={searchContainerRef} className="relative mb-3 z-20">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -641,6 +667,7 @@ export function PdvScreen() {
             </div>
           )}
         </div>
+        )}
 
         {/* Cart table */}
         <Card className="flex-1 overflow-hidden flex flex-col relative z-10">
@@ -664,7 +691,32 @@ export function PdvScreen() {
                 </tr>
               </thead>
               <tbody>
-                {items.length === 0 ? (
+                {isOSPayment ? (
+                  // Itens da OS — read-only (item 4). Sem qtd/preco/remover.
+                  osItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-12 text-muted-foreground">
+                        OS sem itens detalhados — apenas o valor total sera cobrado.
+                      </td>
+                    </tr>
+                  ) : (
+                    osItems.map((it, idx) => (
+                      <tr key={idx} className="border-b border-border">
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-sm">{it.description}</span>
+                        </td>
+                        <td className="px-2 py-3 text-center text-sm">{it.quantity}</td>
+                        <td className="px-4 py-3 text-right text-sm">
+                          {formatCurrency(it.unitPrice)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-medium">
+                          {formatCurrency(it.total)}
+                        </td>
+                        <td className="w-10" />
+                      </tr>
+                    ))
+                  )
+                ) : items.length === 0 ? (
                   <tr>
                     <td
                       colSpan={5}
@@ -867,24 +919,32 @@ export function PdvScreen() {
             Desconto
           </Button>
 
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2"
-            disabled={!draft || draft.id.startsWith("os-payment-")}
-            onClick={() => setShowUpgradeDialog(true)}
-          >
-            <ArrowRightLeft className="h-4 w-4" />
-            Aparelho de Entrada {(draft?.upgrades?.length ?? 0) > 0 && `(${draft?.upgrades?.length})`}
-          </Button>
+          {/* Upgrade (aparelho de entrada) nao se aplica a recebimento de OS. */}
+          {!isOSPayment && (
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              disabled={!draft}
+              onClick={() => setShowUpgradeDialog(true)}
+            >
+              <ArrowRightLeft className="h-4 w-4" />
+              Aparelho de Entrada {(draft?.upgrades?.length ?? 0) > 0 && `(${draft?.upgrades?.length})`}
+            </Button>
+          )}
 
           {(() => {
             const hasDeviceItem = items.some((it) => it.isDevice);
             const blockedNoCustomer = hasDeviceItem && !customerId;
+            // Pagamento de OS: habilita finalizar com base no total da OS
+            // (carrinho vazio e esperado — itens vem da OS, read-only).
+            const canFinalize = isOSPayment
+              ? totalAmount > 0
+              : items.length > 0 && !blockedNoCustomer;
             return (
               <>
                 <Button
                   className="w-full h-12 text-base gap-2"
-                  disabled={items.length === 0 || blockedNoCustomer}
+                  disabled={!canFinalize}
                   onClick={() => setShowPaymentDialog(true)}
                   title={
                     blockedNoCustomer
@@ -893,9 +953,9 @@ export function PdvScreen() {
                   }
                 >
                   <CreditCard className="h-5 w-5" />
-                  Finalizar Venda
+                  {isOSPayment ? "Receber Pagamento" : "Finalizar Venda"}
                 </Button>
-                {blockedNoCustomer && (
+                {!isOSPayment && blockedNoCustomer && (
                   <p className="text-xs text-orange-600 text-center px-2 -mt-1">
                     Selecione um cliente para vender aparelho.
                   </p>

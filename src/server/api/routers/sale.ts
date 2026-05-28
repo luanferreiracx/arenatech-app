@@ -181,10 +181,30 @@ export const saleRouter = createTRPCRouter({
           ...it,
           isDevice: isDeviceMap.get(it.productId) ?? false,
         }));
-        return serializeSale({
-          ...sale,
-          items: itemsWithDevice,
-        } as unknown as Record<string, unknown>);
+
+        // Pagamento de OS: anexa os itens da OS (read-only) para o PDV exibir.
+        // A venda em si nao carrega sale_items (checkout puro — ver createFromOS).
+        let osItems: Array<{ description: string; quantity: number; unitPrice: number; total: number }> = [];
+        if (sale.isOSPayment && sale.serviceOrderId) {
+          const osItemRows = await tx.serviceOrderItem.findMany({
+            where: { orderId: sale.serviceOrderId },
+            select: { description: true, quantity: true, unitPrice: true, total: true },
+          });
+          osItems = osItemRows.map((i) => ({
+            description: i.description,
+            quantity: Number(i.quantity),
+            unitPrice: decimalToCents(i.unitPrice),
+            total: decimalToCents(i.total),
+          }));
+        }
+
+        return {
+          ...serializeSale({
+            ...sale,
+            items: itemsWithDevice,
+          } as unknown as Record<string, unknown>),
+          osItems,
+        };
       });
     }),
 
@@ -505,10 +525,11 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        const subtotalCents = sale.items.reduce(
-          (sum, item) => sum + decimalToCents(item.total),
-          0,
-        );
+        // Pagamento de OS: subtotal vem do total da OS (gravado em sale.subtotal),
+        // pois nao ha sale_items. Venda normal: soma dos itens.
+        const subtotalCents = sale.isOSPayment
+          ? decimalToCents(sale.subtotal)
+          : sale.items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
 
         let discountAmountCents: number;
         if (input.discountType === "percentage") {
@@ -576,10 +597,18 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        if (sale.items.length === 0) {
+        // Pagamento de OS e checkout puro (sem sale_items — o total vem da OS).
+        // Para vendas normais, carrinho vazio e erro.
+        if (sale.items.length === 0 && !sale.isOSPayment) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Carrinho vazio",
+          });
+        }
+        if (sale.isOSPayment && decimalToCents(sale.totalAmount) <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "OS sem valor a receber.",
           });
         }
 
@@ -2169,7 +2198,15 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Esta OS ja possui uma venda finalizada" });
         }
 
-        // Create draft sale linked to OS
+        // Pagamento de OS via PDV e um CHECKOUT puro: o PDV nao reabre o
+        // carrinho da OS. O estoque dos itens-produto ja foi reservado/baixado
+        // quando foram adicionados a OS (reserveStockForOsItem) — copiar para
+        // sale_items e baixar de novo no finalize causaria DUPLA baixa.
+        //
+        // Portanto NAO copiamos itens. Gravamos o total da OS direto na venda;
+        // os itens sao exibidos read-only no PDV a partir da propria OS. O
+        // finalize trata isOSPayment como pagamento (sem mexer em estoque).
+        const osTotal = order.totalAmount;
         const draftNumber = `DRAFT-OS-${order.number}-${Date.now()}`;
         const sale = await tx.sale.create({
           data: {
@@ -2180,40 +2217,13 @@ export const saleRouter = createTRPCRouter({
             status: "DRAFT",
             serviceOrderId: order.id,
             isOSPayment: true,
+            subtotal: osTotal,
+            totalAmount: osTotal,
             publicLink: generatePublicLink(),
           },
         });
 
-        // Copy OS items as sale items.
-        // Laravel grava `produto_id NULL` para itens só-serviço; aqui a coluna e
-        // NOT NULL no schema atual, entao usamos productId quando existe e caimos
-        // em serviceId so quando o item for um servico cadastrado. NUNCA usar
-        // `item.id` (ServiceOrderItem.id) — gera ids fantasma em relatorios.
-        const osItems = order.items;
-        if (osItems.length > 0) {
-          const items = osItems.map((item) => {
-            const productId = item.productId ?? item.serviceId;
-            if (!productId) {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: `Item "${item.description}" da OS nao tem produto/servico vinculado e nao pode virar item de venda.`,
-              });
-            }
-            return {
-              tenantId: ctx.tenantId,
-              saleId: sale.id,
-              productId,
-              description: item.description,
-              quantity: Math.max(1, Math.round(Number(item.quantity))),
-              unitPrice: item.unitPrice,
-              costPrice: item.costPrice,
-              total: item.total,
-            };
-          });
-          await tx.saleItem.createMany({ data: items });
-        }
-
-        return recalculateSale(tx, sale.id, ctx.tenantId);
+        return serializeSale(sale as unknown as Record<string, unknown>);
       });
     }),
 
@@ -2918,20 +2928,28 @@ async function recalculateSale(
   saleId: string,
   _tenantId: string,
 ) {
-  const items = await tx.saleItem.findMany({ where: { saleId } });
-  const subtotalCents = items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
-
-  // Upgrades abatem do total (paridade Laravel — `valor_abatido`).
-  const upgrades = await tx.saleUpgrade.findMany({ where: { saleId } });
-  const upgradeAbateCents = upgrades.reduce(
-    (sum, u) => sum + decimalToCents(u.abatedValue),
-    0,
-  );
-
   const sale = await tx.sale.findUnique({ where: { id: saleId } });
   if (!sale) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
   }
+
+  const items = await tx.saleItem.findMany({ where: { saleId } });
+  // Pagamento de OS e checkout puro (sem sale_items): a base do subtotal e o
+  // total da OS, ja gravado em sale.subtotal por createFromOS. Para vendas
+  // normais, o subtotal vem da soma dos itens do carrinho.
+  const subtotalCents = sale.isOSPayment
+    ? decimalToCents(sale.subtotal)
+    : items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
+
+  // Upgrades abatem do total (paridade Laravel — `valor_abatido`).
+  // Nao se aplicam a pagamento de OS.
+  const upgrades = sale.isOSPayment
+    ? []
+    : await tx.saleUpgrade.findMany({ where: { saleId } });
+  const upgradeAbateCents = upgrades.reduce(
+    (sum, u) => sum + decimalToCents(u.abatedValue),
+    0,
+  );
 
   // Recalculate discount if percentage
   let discountAmountCents = decimalToCents(sale.discountAmount);
