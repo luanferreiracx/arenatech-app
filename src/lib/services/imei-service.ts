@@ -1,5 +1,36 @@
+import { execFile } from "node:child_process";
 import { logger } from "@/lib/logger";
 import { isValidLuhn } from "@/lib/validators/imei";
+
+/**
+ * Consulta a CheckIMEI via `curl` (libcurl) em vez de fetch/undici.
+ *
+ * Motivo: a API rejeita o handshake TLS do Node (fetch e o modulo https) com
+ * a mensagem enganosa "Wrong IP - please reset or disable ip protection",
+ * provavelmente um filtro de fingerprint TLS (JA3) no WAF. O libcurl passa —
+ * e exatamente o que o Laravel/Guzzle (PHP cURL) usa em producao. Confirmado
+ * na VPS: PHP file_get_contents/Node = "Wrong IP"; curl/PHP cURL = OK.
+ *
+ * A key vai via stdin (`curl -K -`), nunca em argv (evita vazar no `ps`/logs).
+ */
+function curlGet(url: string, timeoutSec = 30): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "curl",
+      ["-sS", "--fail-with-body", "--max-time", String(timeoutSec), "-K", "-"],
+      { timeout: (timeoutSec + 5) * 1000, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error && !stdout) {
+          reject(new Error(stderr || error.message));
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+    // Config via stdin: a URL (com a key) nunca aparece na lista de processos.
+    child.stdin?.end(`url = "${url}"\n`);
+  });
+}
 
 /**
  * Resultado de consulta de dispositivo Apple via CheckIMEI.com.
@@ -56,8 +87,8 @@ const CHECKIMEI_BASE = "https://alpha.imeicheck.com/api/php-api";
 /**
  * Consulta um dispositivo Apple por IMEI (15 digitos) ou Serial (8-17 alfanum).
  *
- * Em producao usa a API real CheckIMEI.com (IMEI_API_KEY + IMEI_SERVICE_ID).
- * Sem credenciais, retorna mock para desenvolvimento.
+ * Em producao usa a API real CheckIMEI.com via curl/libcurl
+ * (IMEI_CHECK_API_KEY + IMEI_CHECK_SERVICE_ID). Sem credenciais, retorna mock.
  *
  * Paridade Laravel IMEICheckService::consultarDispositivo.
  */
@@ -78,25 +109,23 @@ export async function queryDevice(identificador: string): Promise<DeviceCheckRes
   url.searchParams.set("service", serviceId);
   url.searchParams.set("imei", id);
 
-  let response: Response;
+  let raw: string;
   try {
-    response = await fetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(30_000),
-    });
+    raw = await curlGet(url.toString());
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new Error("Timeout ao consultar API de IMEI");
-    }
-    throw error;
+    logger.error("IMEI: curl error", {
+      identificador: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error("Erro ao consultar API de IMEI");
   }
 
-  if (!response.ok) {
-    logger.error("IMEI: API error", { identificador: id, status: response.status });
-    throw new Error(`Erro HTTP ao consultar API (${response.status})`);
+  let data: Record<string, unknown> | null;
+  try {
+    data = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("Resposta invalida da API de IMEI");
   }
-
-  const data = (await response.json()) as Record<string, unknown> | null;
   if (!data) {
     throw new Error("Resposta invalida da API de IMEI");
   }

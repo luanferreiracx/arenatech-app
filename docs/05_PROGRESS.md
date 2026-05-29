@@ -262,6 +262,25 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — CONSULTA IMEI: "Wrong IP" era fingerprint TLS, nao filtro de IP
+
+Sintoma: app retornava "Wrong IP - please reset or disable ip protection" mesmo com a key correta (a mesma do Laravel). Dono afirmou (corretamente) que a CheckIMEI nao tem filtro de IP. Investigacao na VPS, lado a lado, mesma key, mesmo IPv6, mesmo instante:
+
+- curl (libcurl) => OK
+- PHP cURL (= Laravel/Guzzle) => OK
+- PHP file_get_contents => "Wrong IP"
+- Node fetch / modulo https (HTTP/1.1 e HTTP/2, com headers identicos) => "Wrong IP"
+
+Conclusao: a API (WAF) bloqueia por **fingerprint TLS (JA3)** e responde "Wrong IP" como mensagem generica. So clientes libcurl passam. O Laravel funciona porque Guzzle usa cURL; nosso app falhava porque o fetch do Node usa o TLS do Node. Nao tem relacao com IPv4/IPv6 nem allowlist (descartado por teste: PHP-curl e Node na MESMA rede IPv6 — curl OK, Node falha).
+
+**Fix:** `imei-service.ts` agora consulta a CheckIMEI via `curl` (libcurl) como subprocesso (`execFile`), replicando o Laravel. A key vai por stdin (`curl -K -`), nunca em argv (sem vazar em ps/logs). `Dockerfile` runner stage ganha `apk add --no-cache curl`. Parsing da resposta inalterado.
+
+**Infra:** testado com rede Docker IPv6 temporaria + forwarding — usado so pra diagnostico, REVERTIDO (forwarding=0, rede removida). Nada persistido.
+
+**Validacao:** typecheck OK | lint 0 erros | 703 unit OK | build OK. Deploy via CI (rebuild da imagem com curl).
+
+---
+
 ### 2026-05-29 — CONSULTAS: credenciais em producao (deploy)
 
 `.env.production` da VPS tinha as chaves de IMEI com nomes ANTIGOS (`IMEI_API_URL`/`IMEI_API_KEY`) que o codigo novo nao le, e nao tinha `MEUDANFE_API_KEY`. Por isso a consulta nao funcionava nem em prod.

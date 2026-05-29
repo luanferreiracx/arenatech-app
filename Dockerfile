@@ -51,6 +51,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
+# curl (libcurl) e necessario para a consulta CheckIMEI: a API rejeita o
+# handshake TLS do Node (fetch/undici) com "Wrong IP", mas aceita o do libcurl
+# — mesmo comportamento do Laravel/Guzzle. Ver imei-service.ts.
+RUN apk add --no-cache curl
+
 # Prisma CLI + deps em pasta isolada (/opt/prisma) para nao colidir com o
 # standalone que tem package.json proprio + pnpm packageManager.
 # Resultado: ~270MB nesse layer (vs ~1GB do node_modules completo).
