@@ -250,14 +250,12 @@ export async function POST(req: NextRequest) {
     `;
     const sale = matchingSales[0];
     if (sale) {
-      await tx.sale.update({
-        where: { id: sale.id },
-        data: {
-          status: "COMPLETED",
-          paidAmount: sale.totalAmount,
-          saleDate: paidAt,
-        },
-      });
+      // PDV: o webhook NAO conclui a venda. Paridade Laravel (DepixService
+      // nao tem branch 'pdv' — webhook so atualiza a DepixTransacao). A venda
+      // fica em DRAFT e o operador conclui manualmente via finalize (unico
+      // lugar que baixa estoque + cria financeiro/caixa, com o contexto do
+      // operador). Aqui so notificamos via SSE pra o QR aberto mostrar "pago".
+      // Isso elimina o risco de uma venda COMPLETED sem efeitos colaterais.
       return {
         kind: "sale",
         id: sale.id,

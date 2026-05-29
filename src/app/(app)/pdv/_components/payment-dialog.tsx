@@ -44,6 +44,8 @@ interface PaymentEntry {
   /** Quando method=depix e operador marcou "ja recebi manualmente", nao
    * gera QR Code — finaliza venda direto. Sem depixTransactionId. */
   depixManual?: boolean;
+  /** transactionId da PixPay quando o leg DePix foi confirmado via QR. */
+  depixTransactionId?: string;
 }
 
 /** Fallback quando o tenant nao tem PaymentMethod cadastrado ainda. */
@@ -97,6 +99,10 @@ export function PaymentDialog({
   const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
   const [showDepixQr, setShowDepixQr] = useState(false);
+  // Leg DePix aguardando confirmacao do QR. So entra em `payments` quando o
+  // pagamento e confirmado (onPaid). Paridade Laravel: QR ao adicionar o leg,
+  // conclusao manual depois.
+  const [pendingDepix, setPendingDepix] = useState<PaymentEntry | null>(null);
   const isDowngrade = refundDueAmount > 0;
 
   // Carrega formas cadastradas (com taxas+politica). Se nao houver,
@@ -162,29 +168,47 @@ export function PaymentDialog({
     }
 
     const valorPagoCents = Math.round(amountReais * 100);
+
+    // DePix deve ser o ULTIMO pagamento: cobre todo o valor restante
+    // (paridade Laravel modal-pagamento — depois dele restante=0 e nao ha
+    // mais formas a adicionar). Vale para QR e para "ja recebido".
+    if (selectedMethod === "depix" && Math.abs(valorPagoCents - remaining) > 1) {
+      toast.error(
+        `O DePix deve cobrir o valor restante completo (${formatCurrency(remaining)}). Adicione as outras formas primeiro e use o DePix por ultimo.`,
+      );
+      return;
+    }
+
     const amountMercadoria = Math.min(valorPagoCents, remaining);
     const totalPaidByCustomer = valorPagoCents;
     const installments = parseInt(formInstallments, 10) || 1;
 
-    setPayments((prev) => [
-      ...prev,
-      {
-        method: selectedMethod,
-        paymentMethodId: selectedPaymentMethodId,
-        label: selectedLabel,
-        amount: amountMercadoria,
-        installments,
-        totalPaidByCustomer,
-        ...(selectedMethod === "depix" && depixManualMode
-          ? { depixManual: true }
-          : {}),
-      },
-    ]);
+    const leg: PaymentEntry = {
+      method: selectedMethod,
+      paymentMethodId: selectedPaymentMethodId,
+      label: selectedLabel,
+      amount: amountMercadoria,
+      installments,
+      totalPaidByCustomer,
+      ...(selectedMethod === "depix" && depixManualMode ? { depixManual: true } : {}),
+    };
 
     setSelectedMethod(null);
     setSelectedPaymentMethodId(null);
     setDepixManualMode(false);
     setStep("select");
+
+    // DePix com QR: gera o QR AGORA (paridade Laravel — QR ao adicionar o
+    // leg, nao no Confirmar). O leg so entra no carrinho quando o pagamento
+    // for confirmado (onPaid). A conclusao da venda continua MANUAL.
+    if (leg.method === "depix" && !leg.depixManual) {
+      setPendingDepix(leg);
+      setShowDepixQr(true);
+      return;
+    }
+
+    // Demais formas (e DePix "ja recebido manualmente"): entram direto.
+    setPayments((prev) => [...prev, leg]);
   };
 
   const handleRemovePayment = (index: number) => {
@@ -219,29 +243,13 @@ export function PaymentDialog({
       return;
     }
 
-    // Se algum pagamento e via DePix, abre QR Code antes de finalizar.
-    // Suporta split: parte da venda em DePix + parte em outra forma
-    // (paridade Laravel iniciarDepix). Apenas 1 pagamento DePix por venda.
-    // Excecao: se operador marcou "ja recebido manualmente", pula o QR.
-    const depixPayments = payments.filter((p) => p.method === "depix");
-    if (depixPayments.length > 1) {
-      toast.error("Use apenas 1 pagamento DePix por venda.");
-      return;
-    }
-    const depixNeedsQr = depixPayments.find((p) => !p.depixManual);
-    if (depixNeedsQr) {
-      // Abre o QR. O Dialog do payment fica oculto (open=false) enquanto o
-      // QR esta aberto, sem desmontar o componente — evita aninhar dois
-      // Radix Dialogs (que conflitam no overlay/foco e deixavam o QR
-      // invisivel atras do payment-dialog).
-      setShowDepixQr(true);
-      return;
-    }
-
+    // DePix ja foi confirmado via QR ANTES (o leg so entra em `payments`
+    // depois do pagamento). A conclusao aqui e manual e roda o finalize com
+    // todas as formas ja montadas. Paridade Laravel: finalizarVenda manual.
     runFinalize();
   };
 
-  const runFinalize = (depixTransactionId?: string) => {
+  const runFinalize = () => {
     finalizeMutation.mutate(
       {
         saleId,
@@ -252,11 +260,9 @@ export function PaymentDialog({
           amount: p.amount,
           installments: p.installments,
           totalPaidByCustomer: p.totalPaidByCustomer,
-          // Vincula o transactionId DePix no payment correspondente — assim o
-          // webhook PixPay consegue achar a venda quando confirmar o pagamento.
-          ...(p.method === "depix" && depixTransactionId
-            ? { depixTransactionId }
-            : {}),
+          // Vincula o transactionId DePix no leg — gravado em paymentDetails
+          // para rastreabilidade (o webhook PixPay localiza a venda por ele).
+          ...(p.depixTransactionId ? { depixTransactionId: p.depixTransactionId } : {}),
         })),
         observations: observations || null,
       },
@@ -591,12 +597,24 @@ export function PaymentDialog({
       <DepixQrDialog
         open={showDepixQr}
         saleId={saleId}
-        totalCents={payments.find((p) => p.method === "depix")?.amount ?? totalAmount}
+        totalCents={pendingDepix?.amount ?? remaining}
         customerTaxId={customerTaxId ?? null}
-        onClose={() => setShowDepixQr(false)}
-        onPaid={(transactionId) => {
+        onClose={() => {
+          // Cancelou o QR (cliente nao pagou) — descarta o leg DePix pendente.
           setShowDepixQr(false);
-          runFinalize(transactionId);
+          setPendingDepix(null);
+        }}
+        onPaid={(transactionId) => {
+          // DePix confirmado: adiciona o leg ao carrinho com o transactionId.
+          // NAO finaliza — a conclusao e manual (operador clica Confirmar).
+          if (pendingDepix) {
+            setPayments((prev) => [
+              ...prev,
+              { ...pendingDepix, depixTransactionId: transactionId },
+            ]);
+          }
+          setPendingDepix(null);
+          setShowDepixQr(false);
         }}
       />
     )}
