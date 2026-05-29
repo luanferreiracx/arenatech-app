@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,6 +38,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CustomerQuickCreate } from "@/components/domain/customer-quick-create";
 
 export default function NewPurchasePage() {
   const router = useRouter();
@@ -69,6 +78,12 @@ export default function NewPurchasePage() {
 
   const paymentMode = form.watch("paymentMode");
   const sellerType = form.watch("sellerType");
+
+  // Cadastro de cliente inline (sem sair da compra). Guarda o rotulo do
+  // cliente recem-criado pra o EntitySelector exibir o nome ja selecionado
+  // (ele so deriva label dos resultados de busca, que nao incluem o novo).
+  const [showCreateCustomer, setShowCreateCustomer] = useState(false);
+  const [createdCustomerLabel, setCreatedCustomerLabel] = useState<string | null>(null);
 
   // PaymentMethods do tenant para o select quando paymentMode === "now"
   const { data: paymentMethods } = useQuery(
@@ -206,19 +221,20 @@ export default function NewPurchasePage() {
                             return c.name;
                           }}
                           getOptionValue={(c) => c.id}
+                          initialLabel={createdCustomerLabel}
                           placeholder="Buscar cliente por nome, CPF ou CNPJ..."
                           emptyMessage="Nenhum cliente encontrado."
                         />
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
                         Cliente nao cadastrado?{" "}
-                        <Link
-                          href="/customers/new"
-                          target="_blank"
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateCustomer(true)}
                           className="text-primary hover:underline"
                         >
                           Cadastrar novo cliente
-                        </Link>
+                        </button>
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -626,6 +642,31 @@ export default function NewPurchasePage() {
           />
         </form>
       </Form>
+
+      <Dialog open={showCreateCustomer} onOpenChange={setShowCreateCustomer}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo Cliente</DialogTitle>
+            <DialogDescription>
+              Cadastre o vendedor sem sair da compra. Ele sera vinculado
+              automaticamente.
+            </DialogDescription>
+          </DialogHeader>
+          <CustomerQuickCreate
+            onCreated={(c) => {
+              const docLabel = c.cnpj
+                ? `${c.name} — CNPJ ${c.cnpj}`
+                : c.cpf
+                  ? `${c.name} — CPF ${c.cpf}`
+                  : c.name;
+              setCreatedCustomerLabel(docLabel);
+              form.setValue("customerId", c.id, { shouldValidate: true });
+              setShowCreateCustomer(false);
+            }}
+            onCancel={() => setShowCreateCustomer(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import {
   Dialog,
@@ -9,15 +9,11 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntitySelector } from "@/components/domain/entity-selector";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, UserPlus } from "lucide-react";
-import { toast } from "@/lib/toast";
+import { CustomerQuickCreate } from "@/components/domain/customer-quick-create";
+import { UserPlus } from "lucide-react";
 
 interface CustomerDialogProps {
   open: boolean;
@@ -43,61 +39,6 @@ export function CustomerDialog({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"search" | "create">("search");
-
-  // Form de cadastro rapido
-  const [type, setType] = useState<"PF" | "PJ">("PF");
-  const [name, setName] = useState("");
-  const [doc, setDoc] = useState(""); // CPF ou CNPJ conforme type
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-
-  const createMutation = useMutation(
-    trpc.customer.create.mutationOptions({
-      onSuccess: (created) => {
-        toast.success(`Cliente ${created.name} cadastrado.`);
-        onSelected(
-          created.id,
-          created.name,
-          (created.cpf ?? created.cnpj ?? null) as string | null,
-        );
-        // reseta form e fecha
-        setName("");
-        setDoc("");
-        setPhone("");
-        setEmail("");
-        onOpenChange(false);
-        setTab("search");
-      },
-      onError: (err) => toast.error(err.message),
-    }),
-  );
-
-  function handleCreate() {
-    if (name.trim().length < 2) {
-      toast.error("Informe o nome do cliente.");
-      return;
-    }
-    if (phone.replace(/\D/g, "").length < 10) {
-      toast.error("Telefone deve ter ao menos 10 digitos.");
-      return;
-    }
-    const docDigits = doc.replace(/\D/g, "");
-    if (type === "PF" && docDigits.length !== 11) {
-      toast.error("CPF deve ter 11 digitos.");
-      return;
-    }
-    if (type === "PJ" && docDigits.length !== 14) {
-      toast.error("CNPJ deve ter 14 digitos.");
-      return;
-    }
-    createMutation.mutate({
-      type,
-      name: name.trim(),
-      phone: phone.replace(/\D/g, ""),
-      ...(type === "PF" ? { cpf: docDigits } : { cnpj: docDigits }),
-      ...(email.trim() ? { email: email.trim() } : {}),
-    });
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -159,84 +100,15 @@ export function CustomerDialog({
             />
           </TabsContent>
 
-          <TabsContent value="create" className="mt-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={type === "PF" ? "default" : "outline"}
-                onClick={() => setType("PF")}
-                size="sm"
-              >
-                Pessoa Fisica
-              </Button>
-              <Button
-                type="button"
-                variant={type === "PJ" ? "default" : "outline"}
-                onClick={() => setType("PJ")}
-                size="sm"
-              >
-                Pessoa Juridica
-              </Button>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="customer-name">
-                {type === "PF" ? "Nome completo" : "Razao social"} *
-              </Label>
-              <Input
-                id="customer-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={type === "PF" ? "Ex: Maria da Silva" : "Ex: Loja XYZ Ltda"}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="customer-doc">{type === "PF" ? "CPF" : "CNPJ"} *</Label>
-              <Input
-                id="customer-doc"
-                value={doc}
-                onChange={(e) => setDoc(e.target.value.replace(/\D/g, "").slice(0, type === "PF" ? 11 : 14))}
-                placeholder={type === "PF" ? "Apenas numeros" : "Apenas numeros"}
-                inputMode="numeric"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="customer-phone">Telefone (WhatsApp) *</Label>
-              <Input
-                id="customer-phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                placeholder="Com DDD"
-                inputMode="numeric"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="customer-email">Email (opcional)</Label>
-              <Input
-                id="customer-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="cliente@exemplo.com"
-              />
-            </div>
-
-            <DialogFooter className="gap-2 mt-2">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleCreate} disabled={createMutation.isPending}>
-                {createMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <UserPlus className="mr-2 h-4 w-4" />
-                )}
-                Cadastrar e usar
-              </Button>
-            </DialogFooter>
+          <TabsContent value="create" className="mt-4">
+            <CustomerQuickCreate
+              onCreated={(c) => {
+                onSelected(c.id, c.name, c.cpf ?? c.cnpj ?? null);
+                onOpenChange(false);
+                setTab("search");
+              }}
+              onCancel={() => onOpenChange(false)}
+            />
           </TabsContent>
         </Tabs>
       </DialogContent>
