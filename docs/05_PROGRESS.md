@@ -262,6 +262,17 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — CONSULTAS: credenciais em producao (deploy)
+
+`.env.production` da VPS tinha as chaves de IMEI com nomes ANTIGOS (`IMEI_API_URL`/`IMEI_API_KEY`) que o codigo novo nao le, e nao tinha `MEUDANFE_API_KEY`. Por isso a consulta nao funcionava nem em prod.
+
+- Backup `.env.production.bak.20260529-123435`.
+- Removidas linhas mortas `IMEI_API_*`; adicionadas as canonicas `IMEI_CHECK_API_KEY`, `IMEI_CHECK_SERVICE_ID=39`, `MEUDANFE_API_KEY` (mesmos valores do `.env.local`). Permissao 600.
+- Container `arenatech-app` recriado (`docker compose -f docker-compose.prod.yml up -d --no-deps app`) — sobe limpo, env visivel no processo.
+- Validado da VPS: CheckIMEI autentica (orderId retornado, sem "Wrong IP"); MeuDANFE autentica a Api-Key. Ambas prontas para IMEIs/chaves reais.
+
+---
+
 ### 2026-05-29 — CONSULTAS: remove cota + mock honesto + erro visivel (follow-up)
 
 Dono reportou: IMEI mostrando aparelhos aleatorios + "consultas disponiveis" + DANFE com PDF mock. Diagnostico: o dev server rodava em modo mock (server desatualizado) — as chaves reais ESTAO no `.env.local`. Testado direto: CheckIMEI tem allowlist de IP — do localhost retorna "Wrong IP", da VPS de producao FUNCIONA (IP ja liberado). meudanfe acessivel, chave valida.
