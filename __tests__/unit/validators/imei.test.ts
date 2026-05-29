@@ -3,6 +3,9 @@ import {
   imeiSchema,
   queryImeiSchema,
   listImeiQueriesSchema,
+  deviceIdentifierSchema,
+  isValidDeviceIdentifier,
+  validateNfeSchema,
 } from "@/lib/validators/imei";
 
 describe("imeiSchema", () => {
@@ -29,11 +32,51 @@ describe("imeiSchema", () => {
 });
 
 describe("queryImeiSchema", () => {
-  it("aceita consulta valida", () => {
-    expect(queryImeiSchema.safeParse({ imei: "490154203237518" }).success).toBe(true);
+  it("aceita consulta valida por IMEI", () => {
+    expect(queryImeiSchema.safeParse({ identificador: "490154203237518" }).success).toBe(true);
+  });
+  it("aceita consulta valida por Serial Apple", () => {
+    expect(queryImeiSchema.safeParse({ identificador: "C39XK0AAJCL7" }).success).toBe(true);
   });
   it("rejeita IMEI com Luhn invalido", () => {
-    expect(queryImeiSchema.safeParse({ imei: "123456789012345" }).success).toBe(false);
+    expect(queryImeiSchema.safeParse({ identificador: "123456789012345" }).success).toBe(false);
+  });
+});
+
+describe("deviceIdentifierSchema / isValidDeviceIdentifier", () => {
+  it("aceita IMEI valido (Luhn)", () => {
+    expect(isValidDeviceIdentifier("490154203237518")).toBe(true);
+    expect(deviceIdentifierSchema.safeParse("490154203237518").success).toBe(true);
+  });
+  it("aceita Serial Apple alfanumerico (8-17 chars)", () => {
+    expect(isValidDeviceIdentifier("C39XK0AAJCL7")).toBe(true); // 12 chars
+    expect(isValidDeviceIdentifier("DNPQ1234XY")).toBe(true); // 10 chars
+  });
+  it("normaliza para maiusculas", () => {
+    const parsed = deviceIdentifierSchema.safeParse("c39xk0aajcl7");
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).toBe("C39XK0AAJCL7");
+  });
+  it("rejeita 15 digitos com Luhn invalido (nao cai como serial)", () => {
+    expect(isValidDeviceIdentifier("123456789012345")).toBe(false);
+  });
+  it("rejeita string curta demais (<8)", () => {
+    expect(isValidDeviceIdentifier("ABC123")).toBe(false);
+  });
+  it("rejeita caracteres nao alfanumericos", () => {
+    expect(isValidDeviceIdentifier("C39-XK0AAJ")).toBe(false);
+  });
+});
+
+describe("validateNfeSchema", () => {
+  it("aceita chave com 44 digitos", () => {
+    expect(validateNfeSchema.safeParse({ chave: "1".repeat(44) }).success).toBe(true);
+  });
+  it("rejeita chave com menos de 44 digitos", () => {
+    expect(validateNfeSchema.safeParse({ chave: "1".repeat(43) }).success).toBe(false);
+  });
+  it("rejeita chave com letras", () => {
+    expect(validateNfeSchema.safeParse({ chave: "A".repeat(44) }).success).toBe(false);
   });
 });
 

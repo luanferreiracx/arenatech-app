@@ -1,15 +1,18 @@
 import { PageHeader } from "@/components/domain/page-header";
-import { ImeiConsult } from "./_components/imei-consult";
+import { ConsultaPanel } from "./_components/consulta-panel";
 
 export const metadata = {
-  title: "Consulta IMEI | Arena Tech",
+  title: "Consultas | Arena Tech",
 };
 
-export default function ImeiPage() {
+export default function ConsultaPage() {
   return (
     <div>
-      <PageHeader title="Consulta IMEI" subtitle="Consulte informacoes de dispositivos por IMEI" />
-      <ImeiConsult />
+      <PageHeader
+        title="Consultas"
+        subtitle="Consulte dispositivos Apple por IMEI/Serial e baixe o DANFE de uma NF-e pela chave de acesso"
+      />
+      <ConsultaPanel />
     </div>
   );
 }

@@ -262,6 +262,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — CONSULTAS: IMEI/Serial (API real CheckIMEI) + NF-e DANFE (meudanfe)
+
+Auditoria + reescrita do modulo de Consulta contra `ConsultaController` (Laravel unifica IMEI/Serial + NF-e). Gaps grandes encontrados e corrigidos:
+
+- **G1 — IMEI: contrato de API errado.** O `imei-service.ts` chamava `${apiUrl}/check` POST Bearer — nao bate com a CheckIMEI real (`alpha.imeicheck.com/api/php-api/create` GET com `key/service/imei`). Reescrito (`queryDevice`) com o contrato correto + parsing rico (info basica, garantia, seguranca/iCloud/blacklist, status, AppleCare, validacoes locais Luhn/TAC). Env vars canonicas `IMEI_CHECK_API_KEY` / `IMEI_CHECK_SERVICE_ID`.
+- **G2 — IMEI: nao aceitava Serial Apple.** Validator so aceitava IMEI 15-digitos Luhn. Novo `deviceIdentifierSchema` aceita IMEI **ou** Serial Apple (8-17 alfanum), paridade Laravel. Campo do input renomeado `imei` -> `identificador`. Consulta com status logico != success libera o slot de cota (nao cobra consulta sem resultado).
+- **G3 — Consulta NF-e: modulo inteiro faltando.** Novo `nfe-danfe-service.ts` (meudanfe: PUT /v2/fd/add/{chave} -> espera 1s -> GET /v2/fd/get/da/{chave} -> PDF base64). Procedure `imei.validateNfe`. Mock dev gera PDF minimo valido.
+- **UI:** `/imei` virou "Consultas" com abas (IMEI/Serial com display rico + NF-e com visualizar/baixar DANFE). Nav + breadcrumb atualizados.
+- **Cota/billing:** mantida a cota mensal fixa (50) — decisao do dono: nao implementar planos+addons compraveis pra tenants por enquanto.
+- **Cobertura:** +9 unit tests (deviceIdentifier IMEI/Serial, normalizacao, validateNfe chave).
+
+**Validacao:** typecheck OK (nos arquivos do modulo) | lint 0 erros | 703 unit OK | build dos arquivos do modulo OK.
+**Nota:** ha trabalho de outra sessao (OS budget/quote) inacabado e quebrando typecheck no working tree (`service-order.ts`, `service-order-detail.tsx`, `quote/[link]`) — NAO commitado, NAO incluso neste commit. Sinalizado ao dono.
+
+---
+
 ### 2026-05-29 — AVALIACAO DE APARELHOS: auditoria + correcao de ordenacao, validade e RBAC
 
 Auditoria do modulo Valuation (protocolo arenatech-module-audit) contra `AvaliacaoController`. Modulo ja maduro (CRUD, ajuste %/R$, duplicar, deletar modelo, WhatsApp), mas com 3 gaps reais:

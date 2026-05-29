@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Smartphone, Shield, AlertTriangle, CheckCircle, XCircle, Clock } from "lucide-react";
+import {
+  Search,
+  Smartphone,
+  Shield,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -10,42 +18,75 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/domain/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
+import { isValidDeviceIdentifier } from "@/lib/validators/imei";
+
+interface DeviceResult {
+  success: boolean;
+  tipoConsulta: "IMEI" | "Serial";
+  identificador: string;
+  error?: string;
+  message?: string;
+  infoBasica?: {
+    modelo: string | null;
+    modeloCodigo: string | null;
+    imei: string | null;
+    serial: string | null;
+    meid: string | null;
+    fabricante: string;
+  };
+  garantia?: {
+    status: string | null;
+    ativa: boolean;
+    dataExpiracao: string | null;
+    paisCompra: string | null;
+  };
+  seguranca?: {
+    icloudLock: string;
+    bloqueioOperadora: string | null;
+    blacklist: string;
+    blacklistBloqueado: boolean;
+  };
+  status?: {
+    ativado: string | null;
+    recondicionado: string | null;
+    appleCareElegivel: string | null;
+  };
+}
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <span className="text-sm text-muted-foreground">{label}: </span>
+      <span className="font-medium">{value ?? "-"}</span>
+    </div>
+  );
+}
 
 export function ImeiConsult() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [imei, setImei] = useState("");
-  const [result, setResult] = useState<{
-    imei: string;
-    brand: string;
-    model: string;
-    blacklisted: boolean;
-    warranty: { status: string; expiry: string | null };
-    carrier: string;
-    icloudLock?: string;
-  } | null>(null);
+  const [identificador, setIdentificador] = useState("");
+  const [result, setResult] = useState<DeviceResult | null>(null);
   const [page, setPage] = useState(0);
 
   const queryMutation = useMutation(trpc.imei.query.mutationOptions());
-
-  const historyQuery = useQuery(
-    trpc.imei.history.queryOptions({ page, pageSize: 10 }),
-  );
-
+  const historyQuery = useQuery(trpc.imei.history.queryOptions({ page, pageSize: 10 }));
   const quotaQuery = useQuery(trpc.imei.getQuota.queryOptions());
 
   const handleSearch = () => {
-    const cleaned = imei.replace(/\D/g, "");
-    if (cleaned.length !== 15) {
-      toast.error("IMEI deve ter 15 digitos");
+    const cleaned = identificador.trim().toUpperCase();
+    if (!isValidDeviceIdentifier(cleaned)) {
+      toast.error("Informe um IMEI (15 digitos) ou Serial Apple (8-17 caracteres)");
       return;
     }
-
     queryMutation.mutate(
-      { imei: cleaned },
+      { identificador: cleaned },
       {
         onSuccess: (data) => {
-          setResult(data as unknown as typeof result);
+          setResult(data as unknown as DeviceResult);
+          if (!data.success) {
+            toast.error(data.message ?? data.error ?? "Consulta sem resultado");
+          }
           queryClient.invalidateQueries({ queryKey: trpc.imei.history.queryKey() });
           queryClient.invalidateQueries({ queryKey: trpc.imei.getQuota.queryKey() });
         },
@@ -57,14 +98,13 @@ export function ImeiConsult() {
   const quota = quotaQuery.data;
 
   const historyColumns = [
-    { accessorKey: "imei", header: "IMEI" },
+    { accessorKey: "imei", header: "IMEI / Serial" },
     {
       accessorKey: "result",
       header: "Dispositivo",
       cell: ({ row }: { row: { original: { result: unknown } } }) => {
-        const r = row.original.result as Record<string, unknown> | null;
-        if (!r) return "-";
-        return `${r.brand ?? ""} ${r.model ?? ""}`;
+        const r = row.original.result as { infoBasica?: { modelo?: string | null } } | null;
+        return r?.infoBasica?.modelo ?? "-";
       },
     },
     { accessorKey: "status", header: "Status" },
@@ -72,7 +112,10 @@ export function ImeiConsult() {
       accessorKey: "createdAt",
       header: "Data",
       cell: ({ row }: { row: { original: { createdAt: string | Date } } }) =>
-        new Date(row.original.createdAt).toLocaleDateString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        new Date(row.original.createdAt).toLocaleDateString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
     },
   ];
 
@@ -83,9 +126,9 @@ export function ImeiConsult() {
         <CardContent className="p-4">
           <div className="flex gap-3">
             <Input
-              value={imei}
-              onChange={(e) => setImei(e.target.value.replace(/\D/g, "").slice(0, 15))}
-              placeholder="Digite o IMEI (15 digitos)"
+              value={identificador}
+              onChange={(e) => setIdentificador(e.target.value.toUpperCase().slice(0, 17))}
+              placeholder="IMEI (15 digitos) ou Serial Apple"
               className="flex-1 text-lg font-mono"
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             />
@@ -103,55 +146,99 @@ export function ImeiConsult() {
       </Card>
 
       {/* Result */}
-      {result && (
+      {result?.success && result.infoBasica && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Smartphone className="h-5 w-5" />
-              {result.brand} {result.model}
+              {result.infoBasica.modelo ?? "Dispositivo"}
+              {result.infoBasica.modeloCodigo && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({result.infoBasica.modeloCodigo})
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Blacklist:</span>
-                {result.blacklisted ? (
-                  <span className="flex items-center gap-1 text-destructive font-medium">
-                    <XCircle className="h-4 w-4" /> Sim
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-green-500 font-medium">
-                    <CheckCircle className="h-4 w-4" /> Nao
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Garantia:</span>
-                <span className={`font-medium ${result.warranty.status === "active" ? "text-green-500" : "text-yellow-500"}`}>
-                  {result.warranty.status === "active" ? "Ativa" : "Expirada"}
-                  {result.warranty.expiry && ` (ate ${new Date(result.warranty.expiry).toLocaleDateString("pt-BR")})`}
-                </span>
-              </div>
-              <div>
-                <span className="text-sm text-muted-foreground">Operadora: </span>
-                <span className="font-medium">{result.carrier}</span>
-              </div>
-              {result.icloudLock !== undefined && (
-                <div className="flex items-center gap-2">
-                  {result.icloudLock === "ON" ? (
-                    <span className="flex items-center gap-1 text-destructive font-medium">
-                      <AlertTriangle className="h-4 w-4" /> iCloud: Ativado
+          <CardContent className="space-y-6">
+            {/* Info basica */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Fabricante" value={result.infoBasica.fabricante} />
+              <Field label="Tipo" value={result.tipoConsulta} />
+              {result.infoBasica.imei && <Field label="IMEI" value={result.infoBasica.imei} />}
+              {result.infoBasica.serial && <Field label="Serial" value={result.infoBasica.serial} />}
+              {result.infoBasica.meid && <Field label="MEID" value={result.infoBasica.meid} />}
+            </div>
+
+            {/* Garantia */}
+            {result.garantia && (
+              <div className="border-t pt-4 space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Clock className="h-4 w-4" /> Garantia
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Status:</span>
+                    <span className={`font-medium ${result.garantia.ativa ? "text-green-500" : "text-yellow-500"}`}>
+                      {result.garantia.status ?? (result.garantia.ativa ? "Ativa" : "Expirada")}
                     </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-green-500 font-medium">
-                      <CheckCircle className="h-4 w-4" /> iCloud: Desativado
-                    </span>
+                  </div>
+                  {result.garantia.dataExpiracao && (
+                    <Field label="Expira em" value={result.garantia.dataExpiracao} />
+                  )}
+                  {result.garantia.paisCompra && (
+                    <Field label="Pais de compra" value={result.garantia.paisCompra} />
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {/* Seguranca */}
+            {result.seguranca && (
+              <div className="border-t pt-4 space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Shield className="h-4 w-4" /> Seguranca
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Blacklist:</span>
+                    {result.seguranca.blacklistBloqueado ? (
+                      <span className="flex items-center gap-1 text-destructive font-medium">
+                        <XCircle className="h-4 w-4" /> {result.seguranca.blacklist}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-green-500 font-medium">
+                        <CheckCircle className="h-4 w-4" /> Sem restricoes
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">iCloud:</span>
+                    {result.seguranca.icloudLock === "Ligado" ? (
+                      <span className="flex items-center gap-1 text-destructive font-medium">
+                        <AlertTriangle className="h-4 w-4" /> Ligado
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-green-500 font-medium">
+                        <CheckCircle className="h-4 w-4" /> Desligado
+                      </span>
+                    )}
+                  </div>
+                  <Field label="Operadora" value={result.seguranca.bloqueioOperadora} />
+                </div>
+              </div>
+            )}
+
+            {/* Status do dispositivo */}
+            {result.status && (
+              <div className="border-t pt-4 space-y-2">
+                <h4 className="text-sm font-semibold">Status do dispositivo</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Ativado" value={result.status.ativado} />
+                  <Field label="Recondicionado" value={result.status.recondicionado} />
+                  <Field label="AppleCare elegivel" value={result.status.appleCareElegivel} />
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

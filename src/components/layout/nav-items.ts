@@ -81,7 +81,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Simulador", href: "/simulator", icon: Calculator },
       { label: "Avaliar Aparelho", href: "/valuations", icon: Star },
-      { label: "Consulta IMEI", href: "/imei", icon: Shield },
+      { label: "Consultas", href: "/imei", icon: Shield },
       { label: "Checklist", href: "/checklist", icon: CheckSquare },
       {
         label: "Buscar iPhones",

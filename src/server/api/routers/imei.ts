@@ -2,8 +2,9 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { queryImeiSchema, listImeiQueriesSchema } from "@/lib/validators/imei";
-import { queryImei as queryImeiService } from "@/lib/services/imei-service";
+import { queryImeiSchema, listImeiQueriesSchema, validateNfeSchema } from "@/lib/validators/imei";
+import { queryDevice } from "@/lib/services/imei-service";
+import { validateNfe } from "@/lib/services/nfe-danfe-service";
 import { logger } from "@/lib/logger";
 
 export const imeiRouter = createTRPCRouter({
@@ -76,9 +77,9 @@ export const imeiRouter = createTRPCRouter({
       }
 
       // ── 2) Chamada HTTP fora da tx (gap Ix11 — http-inside-tx) ──
-      let result: Awaited<ReturnType<typeof queryImeiService>>;
+      let result: Awaited<ReturnType<typeof queryDevice>>;
       try {
-        result = await queryImeiService(input.imei);
+        result = await queryDevice(input.identificador);
       } catch (error) {
         // Falha de rede / 5xx: libera o slot reservado (best-effort).
         // Sem isso, falhas transientes ficam consumindo quota.
@@ -91,7 +92,7 @@ export const imeiRouter = createTRPCRouter({
             data: {
               tenantId: ctx.tenantId,
               userId,
-              imei: input.imei,
+              imei: input.identificador,
               status: "error",
               errorMessage: error instanceof Error ? error.message : "Erro desconhecido",
             },
@@ -104,23 +105,34 @@ export const imeiRouter = createTRPCRouter({
         });
       }
 
+      // Consulta logica falhou (API respondeu mas status != success): libera o
+      // slot — nao faz sentido cobrar cota por consulta que nao retornou dados.
+      if (!result.success) {
+        await ctx.withTenant(async (tx) => {
+          await tx.imeiQuota.updateMany({
+            where: { tenantId: ctx.tenantId, periodMonth, periodYear },
+            data: { usedCount: { decrement: 1 } },
+          });
+        }).catch(() => undefined);
+      }
+
       // ── 3) Salva o registro de consulta ──
       const queryRecord = await ctx.withTenant(async (tx) =>
         tx.imeiQuery.create({
           data: {
             tenantId: ctx.tenantId,
             userId,
-            imei: input.imei,
+            imei: input.identificador,
             result: result as unknown as Prisma.InputJsonValue,
-            status: result.valid ? "success" : "error",
+            status: result.success ? "success" : "error",
             errorMessage: result.error ?? null,
           },
         }),
       );
 
       logger.info("IMEI query", {
-        imei: input.imei,
-        valid: result.valid,
+        identificador: input.identificador,
+        success: result.success,
         userId,
       });
 
@@ -128,6 +140,19 @@ export const imeiRouter = createTRPCRouter({
         id: queryRecord.id,
         ...result,
       };
+    }),
+
+  /** Consulta/validacao de NF-e por chave de acesso (baixa o DANFE PDF). Gratuito. */
+  validateNfe: tenantProcedure
+    .input(validateNfeSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await validateNfe(input.chave);
+      logger.info("NFe validate", {
+        chave: input.chave,
+        success: result.success,
+        userId: ctx.session.user.id,
+      });
+      return result;
     }),
 
   /** List query history */

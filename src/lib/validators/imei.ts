@@ -28,12 +28,46 @@ export const imeiSchema = z
   .regex(/^\d{15}$/, "IMEI deve conter apenas digitos")
   .refine(isValidLuhn, "IMEI invalido (falha na validacao Luhn)");
 
-// ── Query IMEI ──
+// ── Identificador de consulta: IMEI (15 digitos) ou Serial Apple (8-17 alfanum) ──
+
+/**
+ * Aceita IMEI (15 digitos numericos com Luhn valido) OU Serial Apple
+ * (8-17 caracteres alfanumericos). Paridade Laravel ConsultaController.
+ */
+export function isValidDeviceIdentifier(value: string): boolean {
+  const id = value.trim().toUpperCase();
+  const isImei = /^\d{15}$/.test(id) && isValidLuhn(id);
+  const isSerial = /^[A-Z0-9]{8,17}$/.test(id) && !/^\d{15}$/.test(id);
+  return isImei || isSerial;
+}
+
+export const deviceIdentifierSchema = z
+  .string()
+  .trim()
+  .min(8, "Informe um IMEI (15 digitos) ou Serial Apple (8-17 caracteres)")
+  .max(17, "Identificador muito longo")
+  .transform((v) => v.toUpperCase())
+  .refine(
+    isValidDeviceIdentifier,
+    "Deve ser um IMEI (15 digitos com Luhn valido) ou Serial Apple (8-17 alfanumericos)",
+  );
+
+// ── Query IMEI/Serial ──
 
 export const queryImeiSchema = z.object({
-  imei: imeiSchema,
+  identificador: deviceIdentifierSchema,
 });
 export type QueryImeiInput = z.infer<typeof queryImeiSchema>;
+
+// ── Consulta NF-e (chave de acesso 44 digitos) ──
+
+export const validateNfeSchema = z.object({
+  chave: z
+    .string()
+    .trim()
+    .regex(/^\d{44}$/, "Chave de acesso invalida! Deve conter exatamente 44 digitos numericos."),
+});
+export type ValidateNfeInput = z.infer<typeof validateNfeSchema>;
 
 // ── List Queries ──
 

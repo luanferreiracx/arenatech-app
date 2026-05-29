@@ -16,7 +16,7 @@ const segmentLabels: Record<string, string> = {
   financial: "Financeiro",
   fiscal: "Fiscal",
   commissions: "Comissões",
-  imei: "Consulta IMEI",
+  imei: "Consultas",
   operation: "Operação",
   communication: "Comunicação",
   settings: "Configurações",
