@@ -71,7 +71,6 @@ export function ImeiConsult() {
 
   const queryMutation = useMutation(trpc.imei.query.mutationOptions());
   const historyQuery = useQuery(trpc.imei.history.queryOptions({ page, pageSize: 10 }));
-  const quotaQuery = useQuery(trpc.imei.getQuota.queryOptions());
 
   const handleSearch = () => {
     const cleaned = identificador.trim().toUpperCase();
@@ -88,14 +87,11 @@ export function ImeiConsult() {
             toast.error(data.message ?? data.error ?? "Consulta sem resultado");
           }
           queryClient.invalidateQueries({ queryKey: trpc.imei.history.queryKey() });
-          queryClient.invalidateQueries({ queryKey: trpc.imei.getQuota.queryKey() });
         },
         onError: (err) => toast.error(err.message),
       },
     );
   };
-
-  const quota = quotaQuery.data;
 
   const historyColumns = [
     { accessorKey: "imei", header: "IMEI / Serial" },
@@ -137,13 +133,25 @@ export function ImeiConsult() {
               {queryMutation.isPending ? "Consultando..." : "Consultar"}
             </Button>
           </div>
-          {quota && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Consultas: {quota.usedCount}/{quota.monthlyLimit} este mes
-            </p>
-          )}
         </CardContent>
       </Card>
+
+      {/* Erro de consulta */}
+      {result && !result.success && (
+        <Card className="border-destructive/40">
+          <CardContent className="p-4 flex items-start gap-3">
+            <XCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-destructive">
+                {result.error ?? "Consulta sem resultado"}
+              </p>
+              {result.message && (
+                <p className="text-sm text-muted-foreground mt-1">{result.message}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Result */}
       {result?.success && result.infoBasica && (

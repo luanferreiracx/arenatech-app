@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — CONSULTAS: remove cota + mock honesto + erro visivel (follow-up)
+
+Dono reportou: IMEI mostrando aparelhos aleatorios + "consultas disponiveis" + DANFE com PDF mock. Diagnostico: o dev server rodava em modo mock (server desatualizado) — as chaves reais ESTAO no `.env.local`. Testado direto: CheckIMEI tem allowlist de IP — do localhost retorna "Wrong IP", da VPS de producao FUNCIONA (IP ja liberado). meudanfe acessivel, chave valida.
+
+- **Cota removida (decisao do dono):** `imei.query` nao reserva/conta mais cota; `getQuota` removido; indicador "Consultas: x/y" removido da UI. Tabela `imei_quotas` mantida (sem migration) mas nao usada.
+- **Mock honesto:** modelo do mock IMEI agora e "[DADO FICTICIO — API nao configurada]" (era iPhone aleatorio plausivel, enganoso); DANFE mock diz "DANFE FICTICIO - API nao configurada" com Length do stream calculado (PDF valido).
+- **Erro visivel:** quando a consulta IMEI retorna success=false (ex: Wrong IP, IMEI invalido), a UI mostra card de erro vermelho com a mensagem da API (antes so toast).
+
+**Producao:** CheckIMEI + meudanfe testadas da VPS — ambas OK (IP allowlistado). Em localhost a CheckIMEI recusa por IP (esperado).
+
+**Validacao:** typecheck OK | lint 0 erros | 703 unit OK | build OK.
+
+---
+
 ### 2026-05-29 — CONSULTAS: IMEI/Serial (API real CheckIMEI) + NF-e DANFE (meudanfe)
 
 Auditoria + reescrita do modulo de Consulta contra `ConsultaController` (Laravel unifica IMEI/Serial + NF-e). Gaps grandes encontrados e corrigidos:

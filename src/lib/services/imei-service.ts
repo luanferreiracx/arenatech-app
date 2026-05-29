@@ -227,22 +227,15 @@ function nowBr(): string {
 
 function getMockResult(id: string): DeviceCheckResult {
   const imei = isImei(id);
-  const lastChar = id[id.length - 1] ?? "0";
-  const variant = (lastChar.charCodeAt(0) % 5);
-  const models = [
-    { model: "iPhone 15 Pro", code: "MTV03" },
-    { model: "iPhone 14", code: "MPVP3" },
-    { model: "iPhone 13 Pro Max", code: "MLLA3" },
-    { model: "iPhone SE (3rd gen)", code: "MMXN3" },
-    { model: "iPhone 12", code: "MGJ73" },
-  ];
-  const selected = models[variant]!;
+  const variant = ((id[id.length - 1] ?? "0").charCodeAt(0) % 5);
+  // Modelo deixa EXPLICITO que e mock — nunca confundir com resultado real.
+  const selected = { model: "[DADO FICTICIO — API nao configurada]", code: "MOCK" };
   const blacklisted = variant === 4;
   const warrantyActive = variant > 1;
 
   const result: DeviceCheckResult = {
     success: true,
-    source: "Mock (dev)",
+    source: "Mock (dev — sem credenciais)",
     queriedAt: nowBr(),
     tipoConsulta: imei ? "IMEI" : "Serial",
     identificador: id,

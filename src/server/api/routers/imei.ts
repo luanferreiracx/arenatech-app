@@ -8,86 +8,18 @@ import { validateNfe } from "@/lib/services/nfe-danfe-service";
 import { logger } from "@/lib/logger";
 
 export const imeiRouter = createTRPCRouter({
-  /** Query IMEI from external service */
+  /** Query IMEI/Serial from external service (CheckIMEI). Sem cota — gratuito. */
   query: tenantProcedure
     .input(queryImeiSchema)
     .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      const periodMonth = now.getMonth() + 1;
-      const periodYear = now.getFullYear();
       const userId = ctx.session.user.id;
 
-      // ── 1) Reserva atomica de slot (corrige race condition) ──
-      // Antes: read-then-increment permitia que N requests concorrentes
-      // passassem o `if (usedCount < limit)` simultaneamente e estourassem
-      // a quota. Agora `UPDATE ... WHERE used_count < monthly_limit` e
-      // atomico no Postgres: se 0 linhas afetadas, quota esgotou.
-      const reservation = await ctx.withTenant(async (tx) => {
-        // Garante que o registro de quota exista (idempotente).
-        await tx.imeiQuota.upsert({
-          where: {
-            tenantId_periodMonth_periodYear: {
-              tenantId: ctx.tenantId,
-              periodMonth,
-              periodYear,
-            },
-          },
-          create: {
-            tenantId: ctx.tenantId,
-            monthlyLimit: 50,
-            usedCount: 0,
-            periodMonth,
-            periodYear,
-          },
-          update: {},
-        });
-
-        // UPDATE atomico com condicao em outra coluna — Prisma nao expoe
-        // isso via API de model; usamos $executeRaw com bind seguro.
-        const updatedRows = await tx.$executeRaw`
-          UPDATE imei_quotas
-          SET used_count = used_count + 1, updated_at = NOW()
-          WHERE tenant_id = ${ctx.tenantId}::uuid
-            AND period_month = ${periodMonth}
-            AND period_year = ${periodYear}
-            AND used_count < monthly_limit
-        `;
-
-        if (updatedRows === 0) {
-          const q = await tx.imeiQuota.findUnique({
-            where: {
-              tenantId_periodMonth_periodYear: {
-                tenantId: ctx.tenantId,
-                periodMonth,
-                periodYear,
-              },
-            },
-            select: { monthlyLimit: true },
-          });
-          return { reserved: false as const, limit: q?.monthlyLimit ?? 50 };
-        }
-        return { reserved: true as const };
-      });
-
-      if (!reservation.reserved) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Cota mensal de consultas IMEI atingida (${reservation.limit}). Contate o administrador.`,
-        });
-      }
-
-      // ── 2) Chamada HTTP fora da tx (gap Ix11 — http-inside-tx) ──
+      // Chamada HTTP fora de qualquer tx.
       let result: Awaited<ReturnType<typeof queryDevice>>;
       try {
         result = await queryDevice(input.identificador);
       } catch (error) {
-        // Falha de rede / 5xx: libera o slot reservado (best-effort).
-        // Sem isso, falhas transientes ficam consumindo quota.
         await ctx.withTenant(async (tx) => {
-          await tx.imeiQuota.updateMany({
-            where: { tenantId: ctx.tenantId, periodMonth, periodYear },
-            data: { usedCount: { decrement: 1 } },
-          });
           await tx.imeiQuery.create({
             data: {
               tenantId: ctx.tenantId,
@@ -105,18 +37,7 @@ export const imeiRouter = createTRPCRouter({
         });
       }
 
-      // Consulta logica falhou (API respondeu mas status != success): libera o
-      // slot — nao faz sentido cobrar cota por consulta que nao retornou dados.
-      if (!result.success) {
-        await ctx.withTenant(async (tx) => {
-          await tx.imeiQuota.updateMany({
-            where: { tenantId: ctx.tenantId, periodMonth, periodYear },
-            data: { usedCount: { decrement: 1 } },
-          });
-        }).catch(() => undefined);
-      }
-
-      // ── 3) Salva o registro de consulta ──
+      // Salva o registro de consulta (historico).
       const queryRecord = await ctx.withTenant(async (tx) =>
         tx.imeiQuery.create({
           data: {
@@ -185,33 +106,6 @@ export const imeiRouter = createTRPCRouter({
         };
       });
     }),
-
-  /** Get current month's quota */
-  getQuota: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      const now = new Date();
-      const periodMonth = now.getMonth() + 1;
-      const periodYear = now.getFullYear();
-
-      const quota = await tx.imeiQuota.findUnique({
-        where: {
-          tenantId_periodMonth_periodYear: {
-            tenantId: ctx.tenantId,
-            periodMonth,
-            periodYear,
-          },
-        },
-      });
-
-      return {
-        monthlyLimit: quota?.monthlyLimit ?? 50,
-        usedCount: quota?.usedCount ?? 0,
-        remaining: (quota?.monthlyLimit ?? 50) - (quota?.usedCount ?? 0),
-        periodMonth,
-        periodYear,
-      };
-    });
-  }),
 
   /** Get a specific query by ID */
   getById: tenantProcedure

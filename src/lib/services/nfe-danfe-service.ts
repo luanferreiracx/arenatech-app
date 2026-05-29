@@ -115,16 +115,22 @@ export async function validateNfe(chave: string): Promise<NfeValidateResult> {
  * exercitar o fluxo de download sem credenciais.
  */
 function getMockResult(chave: string): NfeValidateResult {
+  // Stream de conteudo deixando EXPLICITO que e ficticio (sem credenciais).
+  const stream =
+    `BT /F1 11 Tf 20 90 Td (DANFE FICTICIO - API nao configurada) Tj ` +
+    `0 -22 Td (Chave: ${chave}) Tj ` +
+    `0 -22 Td (Configure MEUDANFE_API_KEY) Tj ET`;
+  const streamLen = Buffer.byteLength(stream, "utf-8");
   const pdf = `%PDF-1.1
 1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
-3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 120]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
-4 0 obj<</Length 90>>stream
-BT /F1 10 Tf 20 80 Td (DANFE MOCK - Arena Tech) Tj 0 -20 Td (Chave: ${chave}) Tj ET
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 360 160]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length ${streamLen}>>stream
+${stream}
 endstream endobj
 5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
 trailer<</Root 1 0 R>>
 %%EOF`;
   const pdfBase64 = Buffer.from(pdf, "utf-8").toString("base64");
-  return { success: true, pdfBase64, fileName: `nfe-${chave}.pdf` };
+  return { success: true, pdfBase64, fileName: `nfe-ficticio-${chave}.pdf` };
 }
