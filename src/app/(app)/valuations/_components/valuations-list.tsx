@@ -36,6 +36,7 @@ export function ValuationsList() {
   const [armazenamento, setArmazenamento] = useState("");
   const [saudeBateria, setSaudeBateria] = useState("");
   const [valor, setValor] = useState(0);
+  const [validadeDias, setValidadeDias] = useState<number | undefined>(undefined);
   const [adjustPercent, setAdjustPercent] = useState(0);
   const [adjustModelo, setAdjustModelo] = useState("");
   const [dupSource, setDupSource] = useState("");
@@ -75,6 +76,7 @@ export function ValuationsList() {
     setArmazenamento("");
     setSaudeBateria("");
     setValor(0);
+    setValidadeDias(undefined);
     setEditingId(null);
   };
 
@@ -85,7 +87,7 @@ export function ValuationsList() {
     }
     if (editingId) {
       updateMutation.mutate(
-        { id: editingId, modelo, armazenamento, saudeBateria, valor },
+        { id: editingId, modelo, armazenamento, saudeBateria, valor, validadeDias },
         {
           onSuccess: () => {
             toast.success("Avaliacao atualizada");
@@ -98,7 +100,7 @@ export function ValuationsList() {
       );
     } else {
       createMutation.mutate(
-        { modelo, armazenamento, saudeBateria, valor },
+        { modelo, armazenamento, saudeBateria, valor, validadeDias },
         {
           onSuccess: () => {
             toast.success("Avaliacao criada");
@@ -244,12 +246,13 @@ export function ValuationsList() {
     );
   };
 
-  const openEdit = (row: { id: string; modelo: string; armazenamento: string; saudeBateria: string; valor: number }) => {
+  const openEdit = (row: { id: string; modelo: string; armazenamento: string; saudeBateria: string; valor: number; validadeDias: number }) => {
     setEditingId(row.id);
     setModelo(row.modelo);
     setArmazenamento(row.armazenamento);
     setSaudeBateria(row.saudeBateria);
     setValor(row.valor);
+    setValidadeDias(row.validadeDias);
     setShowCreateDialog(true);
   };
 
@@ -386,6 +389,24 @@ export function ValuationsList() {
             <div>
               <Label>Valor de Compra</Label>
               <MoneyInput value={valor} onChange={setValor} />
+            </div>
+            <div>
+              <Label>Validade (dias)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={validadeDias ?? ""}
+                onChange={(e) =>
+                  setValidadeDias(
+                    e.target.value === "" ? undefined : Number(e.target.value),
+                  )
+                }
+                placeholder="Padrao do tenant"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Deixe em branco para usar a validade padrao das configuracoes.
+              </p>
             </div>
           </div>
           <DialogFooter>

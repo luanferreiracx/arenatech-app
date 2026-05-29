@@ -262,6 +262,19 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — AVALIACAO DE APARELHOS: auditoria + correcao de ordenacao, validade e RBAC
+
+Auditoria do modulo Valuation (protocolo arenatech-module-audit) contra `AvaliacaoController`. Modulo ja maduro (CRUD, ajuste %/R$, duplicar, deletar modelo, WhatsApp), mas com 3 gaps reais:
+
+- **G1 — Ordenacao quebrada (bug de fidelidade):** `list` e `formatWhatsAppMessage` usavam `orderBy asc` string puro — "128GB" vinha antes de "64GB" e a saude de bateria ficava fora de ordem. O Laravel ordena com `orderByRaw` (REGEXP numerico + CASE). Novo `src/lib/valuation-ordering.ts` (`storageSortKey` converte GB/TB, `batterySortKey` ordem semantica, `compareValuations` composto). Aplicado na listagem (paginacao em memoria — tabela pequena por tenant) e na mensagem WhatsApp que o cliente recebe.
+- **G2 — Edicao zerava validade:** UI de editar nunca passava `validadeDias` — toda edicao resetava a validade pro default. Adicionado campo "Validade (dias)" no dialog + propagacao no create/update/openEdit. Branco = usa default do tenant.
+- **G3 — RBAC ausente:** no Laravel todo store/update/destroy/ajuste exige role admin; nossas procedures nao checavam nada (qualquer usuario alterava preco de compra). Adicionado `assertCanManageValuations` (owner/manager) nas 7 mutations.
+- **G4 — Cobertura:** 8 unit tests novos para ordenacao (inclui regressao do bug 128GB<64GB).
+
+**Validacao:** typecheck OK | lint 0 erros | 693 unit OK (8 novos) | build OK.
+
+---
+
 ### 2026-05-29 — SIMULADOR: taxas exibidas ao cliente separadas das taxas reais do PDV
 
 Gap de paridade nao capturado antes: no Laravel o simulador usa `configuracoes_parcelamento` (taxas EXIBIDAS AO CLIENTE, com margem embutida pelo lojista para mitigar risco operacional) — **propositalmente separadas** das taxas reais do PDV/financeiro (`FormaPagamentoTaxa`). O nosso simulador estava reusando `PaymentMethod.feePercent` + `InstallmentRule.feePercent` (taxas de custo do PDV), furando a margem do lojista. **Decisao do dono:** SIM, usa taxa separada — a taxa do simulador e geralmente superior a real.

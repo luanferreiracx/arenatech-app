@@ -16,6 +16,7 @@ import {
 } from "@/lib/validators/valuation";
 import { logger } from "@/lib/logger";
 import { logAudit } from "@/server/services/audit-log.service";
+import { compareValuations } from "@/lib/valuation-ordering";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -24,6 +25,26 @@ function decimalToCents(v: Prisma.Decimal | null | undefined): number {
 
 function centsToPrisma(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
+}
+
+/**
+ * RBAC: avaliacao = tabela de precos de compra (sensivel). No Laravel todo
+ * store/update/destroy/ajuste exige role admin. Aqui alinhamos ao padrao do
+ * projeto: apenas owner/manager pode alterar.
+ */
+function assertCanManageValuations(ctx: {
+  session: { availableTenants: Array<{ id: string; role: string }> };
+  tenantId: string;
+}): void {
+  const role = ctx.session.availableTenants.find(
+    (t) => t.id === ctx.tenantId,
+  )?.role;
+  if (role !== "owner" && role !== "manager") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Apenas dono ou gerente pode gerenciar avaliacoes.",
+    });
+  }
 }
 
 export const valuationRouter = createTRPCRouter({
@@ -41,18 +62,17 @@ export const valuationRouter = createTRPCRouter({
         if (input.modelo) where.modelo = input.modelo;
         if (input.armazenamento) where.armazenamento = input.armazenamento;
 
-        const [data, total] = await Promise.all([
-          tx.deviceValuation.findMany({
-            where,
-            orderBy: [{ modelo: "asc" }, { armazenamento: "asc" }, { saudeBateria: "asc" }],
-            skip: page * pageSize,
-            take: pageSize,
-          }),
-          tx.deviceValuation.count({ where }),
-        ]);
+        // Ordenacao numerica/semantica (storage + bateria) nao e expressavel no
+        // orderBy do Prisma — fazemos em memoria. A tabela de precos por tenant
+        // e pequena, entao buscar tudo e paginar em memoria e seguro e garante
+        // a ordem correta na paginacao (paridade Laravel orderByRaw).
+        const all = await tx.deviceValuation.findMany({ where });
+        all.sort(compareValuations);
+        const total = all.length;
+        const pageItems = all.slice(page * pageSize, page * pageSize + pageSize);
 
         return {
-          data: data.map((v) => ({
+          data: pageItems.map((v) => ({
             ...v,
             valor: decimalToCents(v.valor),
           })),
@@ -79,6 +99,7 @@ export const valuationRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createValuationSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         // Le validade default do tenant (TenantAssistanceSettings.valuationValidityDays)
         // ou usa 7 dias como fallback global.
@@ -108,6 +129,7 @@ export const valuationRouter = createTRPCRouter({
   update: tenantProcedure
     .input(updateValuationSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         const existing = await tx.deviceValuation.findUnique({ where: { id: input.id } });
         if (!existing || existing.deletedAt) {
@@ -132,6 +154,7 @@ export const valuationRouter = createTRPCRouter({
   delete: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         await tx.deviceValuation.update({
           where: { id: input.id },
@@ -145,6 +168,7 @@ export const valuationRouter = createTRPCRouter({
   bulkAdjust: tenantProcedure
     .input(bulkAdjustSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         // gap Va1: ANTES era loop com N updates (50+ avaliacoes -> 50+
         // roundtrips dentro da mesma tx). Agora UM UPDATE atomico via
@@ -185,6 +209,7 @@ export const valuationRouter = createTRPCRouter({
   duplicateModel: tenantProcedure
     .input(duplicateModelSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         const sourceEntries = await tx.deviceValuation.findMany({
           where: { modelo: input.sourceModelo, deletedAt: null },
@@ -231,6 +256,7 @@ export const valuationRouter = createTRPCRouter({
   bulkAdjustFixed: tenantProcedure
     .input(bulkAdjustFixedSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         // gap Va1 (espelho): UM UPDATE atomico. GREATEST(valor + delta, 0)
         // garante o piso em zero igual ao Math.max original.
@@ -270,6 +296,7 @@ export const valuationRouter = createTRPCRouter({
   deleteModel: tenantProcedure
     .input(deleteModelSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageValuations(ctx);
       return ctx.withTenant(async (tx) => {
         const result = await tx.deviceValuation.updateMany({
           where: { modelo: input.modelo, deletedAt: null },
@@ -310,8 +337,9 @@ export const valuationRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const valuations = await tx.deviceValuation.findMany({
           where: { modelo: input.modelo, deletedAt: null },
-          orderBy: [{ armazenamento: "asc" }, { saudeBateria: "asc" }],
         });
+        // Ordena numerico/semantico (armazenamento crescente, bateria melhor->pior)
+        valuations.sort(compareValuations);
 
         if (valuations.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
