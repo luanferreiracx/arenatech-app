@@ -1152,6 +1152,69 @@ export const serviceOrderRouter = createTRPCRouter({
           data: { status: "CANCELLED" },
         });
 
+        // P5b: se a OS foi paga via PDV, estorna a Sale vinculada (sem itens —
+        // pagamento puro): saida de caixa + cancela recebiveis + status REFUNDED.
+        // CAS no status evita estorno duplo se a venda for estornada em paralelo.
+        let saleRefunded = false;
+        const linkedSale = await tx.sale.findFirst({
+          where: {
+            serviceOrderId: input.id,
+            isOSPayment: true,
+            status: "COMPLETED",
+            deletedAt: null,
+          },
+          select: { id: true, number: true, totalAmount: true },
+        });
+        if (linkedSale) {
+          const cas = await tx.sale.updateMany({
+            where: { id: linkedSale.id, status: "COMPLETED" },
+            data: { status: "REFUNDED" },
+          });
+          if (cas.count === 1) {
+            saleRefunded = true;
+            const refundedCents = decimalToCents(linkedSale.totalAmount);
+            const openSession = await tx.cashSession.findFirst({
+              where: { userId: ctx.session.user.id, closedAt: null },
+            });
+            if (openSession && refundedCents > 0) {
+              await tx.cashMovement.create({
+                data: {
+                  tenantId: ctx.tenantId,
+                  cashSessionId: openSession.id,
+                  type: "WITHDRAWAL",
+                  amount: centsToPrisma(refundedCents),
+                  nature: "OUTCOME",
+                  paymentMethod: null,
+                  description: `Estorno venda ${linkedSale.number} (OS ${order.number})`,
+                  referenceId: linkedSale.id,
+                  referenceType: "SALE_REFUND",
+                  createdByUserId: ctx.session.user.id,
+                },
+              });
+            }
+            const saleTx = await tx.financialTransaction.findMany({
+              where: { saleId: linkedSale.id, status: { not: "CANCELLED" } },
+              select: { id: true },
+            });
+            if (saleTx.length > 0) {
+              const ids = saleTx.map((t) => t.id);
+              await tx.installment.updateMany({
+                where: { transactionId: { in: ids }, status: { in: ["PENDING", "OVERDUE"] } },
+                data: { status: "CANCELLED" },
+              });
+              await tx.financialTransaction.updateMany({
+                where: { id: { in: ids } },
+                data: {
+                  status: "CANCELLED",
+                  cancelledAt: new Date(),
+                  cancelledByUserId: ctx.session.user.id,
+                  cancelReason: `Estorno OS ${order.number}: ${input.reason}`,
+                },
+              });
+            }
+          }
+        }
+
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -1163,7 +1226,8 @@ export const serviceOrderRouter = createTRPCRouter({
               `[ESTORNO] ${input.reason}` +
               (cancelledCommissions.count > 0
                 ? ` (${cancelledCommissions.count} comissao(oes) cancelada(s))`
-                : ""),
+                : "") +
+              (saleRefunded ? ` (venda ${linkedSale!.number} estornada)` : ""),
           },
         });
 
