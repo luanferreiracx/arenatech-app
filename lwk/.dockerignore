@@ -1,0 +1,11 @@
+wallet_data/
+.env
+.env.local
+.git
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+README.md
+dashboard.html
+docker-compose.yml

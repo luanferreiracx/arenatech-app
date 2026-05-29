@@ -1,0 +1,19 @@
+# Dados da carteira — contem mnemonic/descriptor. NUNCA versionar.
+wallet_data/
+*.txt
+!requirements.txt
+mnemonic.txt
+descriptor.txt
+seen_txids.json
+pending_txids.json
+labels.json
+
+# Env local
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

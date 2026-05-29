@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Depix Wallet · LWK</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;800&family=JetBrains+Mono:wght@300;400;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --green: #00e676;
+    --green-dim: #00e67622;
+    --yellow: #ffd600;
+    --red: #ff1744;
+    --blue: #2979ff;
+    --text: #e8e8f0;
+    --muted: #555570;
+    --radius: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+  }
+
+  /* ── Background grid ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,230,118,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,230,118,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .layout { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px; margin-bottom: 32px;
+  }
+  .logo {
+    width: 42px; height: 42px;
+    background: var(--green);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 18px;
+    color: #000;
+  }
+  header h1 { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  header p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .badge {
+    margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    padding: 4px 10px; border-radius: 20px; text-transform: uppercase;
+    background: var(--green-dim); color: var(--green); border: 1px solid var(--green);
+  }
+
+  /* ── Config bar ── */
+  .config-bar {
+    display: flex; gap: 10px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 16px; margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .config-bar label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .config-bar input {
+    flex: 1; min-width: 180px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: inherit; font-size: 12px; padding: 7px 10px;
+    outline: none; transition: border-color .2s;
+  }
+  .config-bar input:focus { border-color: var(--green); }
+
+  /* ── Cards grid ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #2e2e44; }
+
+  .card-header { display: flex; align-items: center; gap: 10px; }
+  .card-icon {
+    width: 34px; height: 34px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .icon-green  { background: var(--green-dim); }
+  .icon-blue   { background: #2979ff18; }
+  .icon-yellow { background: #ffd60020; }
+  .icon-red    { background: #ff174420; }
+
+  .card-title  { font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; }
+  .card-desc   { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+  /* ── Fields ── */
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .field input, .field select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: inherit; font-size: 12px; padding: 8px 10px;
+    outline: none; transition: border-color .2s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--green); }
+
+  /* ── Button ── */
+  .btn {
+    padding: 10px 16px; border: none; border-radius: 7px; cursor: pointer;
+    font-family: 'Syne', sans-serif; font-weight: 600; font-size: 12px;
+    letter-spacing: .5px; text-transform: uppercase; transition: all .2s;
+  }
+  .btn-green  { background: var(--green); color: #000; }
+  .btn-blue   { background: var(--blue);  color: #fff; }
+  .btn-yellow { background: var(--yellow);color: #000; }
+  .btn-red    { background: var(--red);   color: #fff; }
+  .btn:hover  { opacity: .85; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+  /* ── Response box ── */
+  .response {
+    background: #07070d; border: 1px solid var(--border);
+    border-radius: 7px; padding: 12px;
+    font-size: 11px; line-height: 1.7;
+    min-height: 60px; max-height: 200px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+    color: var(--muted); transition: border-color .3s;
+  }
+  .response.ok  { border-color: var(--green); color: var(--green); }
+  .response.err { border-color: var(--red);   color: var(--red);   }
+
+  /* ── Balance display ── */
+  .balance-big {
+    text-align: center; padding: 12px 0;
+    font-family: 'Syne', sans-serif; font-size: 36px; font-weight: 800;
+    color: var(--green); letter-spacing: -1px;
+  }
+  .balance-label { text-align: center; font-size: 11px; color: var(--muted); margin-top: -4px; }
+
+  /* ── Spinner ── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle;
+    margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <header>
+    <div class="logo">₿</div>
+    <div>
+      <h1>Depix Wallet</h1>
+      <p>Liquid Wallet Kit · REST API Dashboard</p>
+    </div>
+    <div class="badge" id="net-badge">mainnet</div>
+  </header>
+
+  <!-- Config -->
+  <div class="config-bar">
+    <label>API URL</label>
+    <input id="apiUrl" value="http://localhost:5000" placeholder="http://seu-servidor:5000">
+    <label>API Key</label>
+    <input id="apiKey" type="password" placeholder="opcional">
+  </div>
+
+  <div class="grid">
+
+    <!-- ── Status ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon icon-green">🟢</div>
+        <div>
+          <div class="card-title">Status da API</div>
+          <div class="card-desc">Verifica se a carteira está online.</div>
+        </div>
+      </div>
+      <button class="btn btn-green" onclick="doStatus()">Verificar Status</button>
+      <div class="response" id="resp-status">—</div>
+    </div>
+
+    <!-- ── Saldo ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon icon-yellow">💰</div>
+        <div>
+          <div class="card-title">Saldo Depix</div>
+          <div class="card-desc">Consulta saldo de L-BRL (Depix) e outros ativos Liquid.</div>
+        </div>
+      </div>
+      <div class="balance-big" id="depix-amount">—</div>
+      <div class="balance-label">R$ (Depix · L-BRL)</div>
+      <button class="btn btn-yellow" onclick="doBalance()">Consultar Saldo</button>
+      <div class="response" id="resp-balance">—</div>
+    </div>
+
+    <!-- ── Novo Endereço ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon icon-blue">📬</div>
+        <div>
+          <div class="card-title">Endereço de Recebimento</div>
+          <div class="card-desc">Gera endereço confidencial Liquid para receber Depix.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Index (opcional)</label>
+        <input id="addr-index" type="number" placeholder="deixe vazio para próximo disponível">
+      </div>
+      <button class="btn btn-blue" onclick="doNewAddress()">Gerar Endereço</button>
+      <div class="response" id="resp-address">—</div>
+    </div>
+
+    <!-- ── Transferência ── -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon icon-red">🚀</div>
+        <div>
+          <div class="card-title">Transferir Depix</div>
+          <div class="card-desc">Envia Depix para outro endereço Liquid.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Endereço destino</label>
+        <input id="tx-to" placeholder="VJL... (endereço Liquid confidencial)">
+      </div>
+      <div class="field">
+        <label>Valor (R$ Depix)</label>
+        <input id="tx-amount" type="number" step="0.01" placeholder="10.50">
+      </div>
+      <div class="field">
+        <label>Fee rate (sat/vbyte)</label>
+        <input id="tx-fee" type="number" step="0.01" value="0.1">
+      </div>
+      <button class="btn btn-red" onclick="doTransfer()">Enviar Transferência</button>
+      <div class="response" id="resp-transfer">—</div>
+    </div>
+
+    <!-- ── Transações ── -->
+    <div class="card" style="grid-column: 1/-1">
+      <div class="card-header">
+        <div class="card-icon icon-green">📋</div>
+        <div>
+          <div class="card-title">Histórico de Transações</div>
+          <div class="card-desc">Lista as últimas transações da carteira.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div class="field" style="flex:0 0 120px">
+          <label>Limite</label>
+          <input id="tx-limit" type="number" value="10">
+        </div>
+        <button class="btn btn-green" onclick="doTransactions()">Listar Transações</button>
+      </div>
+      <div class="response" id="resp-txlist" style="max-height:280px">—</div>
+    </div>
+
+  </div><!-- /grid -->
+</div><!-- /layout -->
+
+<script>
+  const getBase = () => document.getElementById('apiUrl').value.replace(/\/$/, '');
+  const getKey  = () => document.getElementById('apiKey').value;
+
+  function headers() {
+    const h = { 'Content-Type': 'application/json' };
+    const k = getKey();
+    if (k) h['X-API-Key'] = k;
+    return h;
+  }
+
+  async function callApi(method, path, body, respEl) {
+    const el = document.getElementById(respEl);
+    el.className = 'response';
+    el.textContent = '⏳ Aguardando...';
+    try {
+      const opts = { method, headers: headers() };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(getBase() + path, opts);
+      const data = await r.json();
+      el.className = 'response ' + (r.ok ? 'ok' : 'err');
+      el.textContent = JSON.stringify(data, null, 2);
+      return { ok: r.ok, data };
+    } catch(e) {
+      el.className = 'response err';
+      el.textContent = '❌ Erro: ' + e.message + '\n\nVerifique se a API está acessível e o CORS está habilitado.';
+      return { ok: false };
+    }
+  }
+
+  async function doStatus() {
+    const res = await callApi('GET', '/status', null, 'resp-status');
+    if (res.ok && res.data.network) {
+      document.getElementById('net-badge').textContent = res.data.network;
+    }
+  }
+
+  async function doBalance() {
+    const res = await callApi('GET', '/balance', null, 'resp-balance');
+    if (res.ok && res.data) {
+      const amt = res.data.depix_balance ?? '?';
+      document.getElementById('depix-amount').textContent =
+        typeof amt === 'number' ? amt.toLocaleString('pt-BR', {minimumFractionDigits: 2}) : amt;
+    }
+  }
+
+  async function doNewAddress() {
+    const idx = document.getElementById('addr-index').value;
+    const body = idx !== '' ? { index: parseInt(idx) } : {};
+    await callApi('POST', '/address/new', body, 'resp-address');
+  }
+
+  async function doTransfer() {
+    const to     = document.getElementById('tx-to').value;
+    const amount = parseFloat(document.getElementById('tx-amount').value);
+    const fee    = parseFloat(document.getElementById('tx-fee').value) || 0.1;
+    if (!to || !amount) {
+      const el = document.getElementById('resp-transfer');
+      el.className = 'response err';
+      el.textContent = '⚠️ Preencha o endereço destino e o valor.';
+      return;
+    }
+    await callApi('POST', '/transfer', { to, amount, fee_rate: fee }, 'resp-transfer');
+  }
+
+  async function doTransactions() {
+    const limit = parseInt(document.getElementById('tx-limit').value) || 10;
+    await callApi('GET', `/transactions?limit=${limit}`, null, 'resp-txlist');
+  }
+</script>
+</body>
+</html>
