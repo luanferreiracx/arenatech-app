@@ -3,13 +3,15 @@ import { logger } from "@/lib/logger";
 import { isValidLuhn } from "@/lib/validators/imei";
 
 /**
- * Consulta a CheckIMEI via `curl` (libcurl) em vez de fetch/undici.
+ * Consulta a CheckIMEI via `curl` forcando IPv6 (`-6`).
  *
- * Motivo: a API rejeita o handshake TLS do Node (fetch e o modulo https) com
- * a mensagem enganosa "Wrong IP - please reset or disable ip protection",
- * provavelmente um filtro de fingerprint TLS (JA3) no WAF. O libcurl passa —
- * e exatamente o que o Laravel/Guzzle (PHP cURL) usa em producao. Confirmado
- * na VPS: PHP file_get_contents/Node = "Wrong IP"; curl/PHP cURL = OK.
+ * Causa raiz (confirmada na VPS, mesma key do Laravel): a API aceita IPv6 e
+ * REJEITA IPv4 com "Wrong IP - please reset or disable ip protection". O
+ * Laravel funciona porque PHP/cURL usa IPv6 por padrao. O Node tem dois
+ * problemas: (1) o fetch/undici prefere IPv4 mesmo com IPv6 disponivel, e
+ * (2) nao da pra carregar undici Agent no build standalone p/ forcar familia.
+ * Solucao: curl com `-6` (egress IPv6 = caminho aceito), escopado so a esta
+ * chamada. Requer que o container tenha rota IPv6 (enable_ipv6 na rede Docker).
  *
  * A key vai via stdin (`curl -K -`), nunca em argv (evita vazar no `ps`/logs).
  */
@@ -17,7 +19,7 @@ function curlGet(url: string, timeoutSec = 30): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       "curl",
-      ["-sS", "--fail-with-body", "--max-time", String(timeoutSec), "-K", "-"],
+      ["-sS", "-6", "--fail-with-body", "--max-time", String(timeoutSec), "-K", "-"],
       { timeout: (timeoutSec + 5) * 1000, maxBuffer: 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error && !stdout) {

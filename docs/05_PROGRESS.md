@@ -262,6 +262,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — CONSULTA IMEI: causa raiz era IPv4 vs IPv6 (correcao definitiva)
+
+Correcao anterior (curl por "fingerprint TLS") estava com a razao errada. Matriz completa testada na VPS (mesma key do Laravel):
+- curl -6 (IPv6) => OK ; curl -4 (IPv4) => "Wrong IP"
+- PHP cURL IPv6 => OK ; PHP cURL forcado IPv4 => "Wrong IP"
+- Node fetch (egress IPv4 por padrao, mesmo com IPv6 na rede) => "Wrong IP" ; Node forcado ipv6first => OK
+
+**Causa raiz:** a CheckIMEI aceita IPv6 e REJEITA IPv4 com "Wrong IP". O Laravel funciona porque PHP usa IPv6 por padrao. O Node falhava por dois motivos: (1) fetch/undici prefere IPv4, (2) o container Docker nao tinha rota IPv6.
+
+**Fix (dois lados):**
+- Codigo: `imei-service.ts` consulta via `curl -6` (forca IPv6, escopado so a essa chamada; undici Agent nao carrega no build standalone). curl ja estava no Dockerfile.
+- Infra VPS: `enable_ipv6: true` + `gateway_mode_ipv6=nat` + subnet IPv6 na rede `arenatech` do `docker-compose.prod.yml`; IPv6 forwarding persistente em `/etc/sysctl.d/99-ipv6-forward.conf`. Rede recriada + stack reiniciado.
+
+**Validacao:** typecheck/lint/unit/build local OK; validado em prod end-to-end (consulta IMEI sem "Wrong IP").
+
+---
+
 ### 2026-05-29 — OS: rodada 3 (bugs reportados + cluster financeiro + variacoes)
 
 Continuacao da auditoria, agora com bugs vistos em uma OS real + cluster financeiro + P8.

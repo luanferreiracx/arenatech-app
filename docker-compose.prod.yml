@@ -85,3 +85,12 @@ volumes:
 networks:
   arenatech:
     driver: bridge
+    # IPv6 habilitado: a API CheckIMEI aceita IPv6 e rejeita IPv4 ("Wrong IP").
+    # Sem isso, o container so tem egress IPv4 e a consulta de IMEI falha.
+    # NAT66 (gateway_mode_ipv6=nat) mascara p/ o IPv6 global do host.
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv6: nat
+    ipam:
+      config:
+        - subnet: fd00:a2e:a7ec::/64
