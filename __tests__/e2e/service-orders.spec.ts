@@ -111,6 +111,15 @@ async function fillProblemStep(page: Page, problem: string) {
   }, problem);
 }
 
+/** Apos "Criar OS", dispensa o modal de envio de rastreamento (vai pro detalhe). */
+async function dismissTrackingModal(page: Page) {
+  const cancelBtn = page.getByRole("dialog").getByRole("button", { name: /^Cancelar$/ });
+  await cancelBtn.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+  if (await cancelBtn.isVisible().catch(() => false)) {
+    await cancelBtn.click({ force: true });
+  }
+}
+
 test.describe("OS — Listagem", () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
@@ -249,6 +258,7 @@ test.describe("OS — Wizard de Criação", () => {
     const submitBtn = page.locator("button:has-text('Criar OS')");
     await submitBtn.waitFor({ state: "visible", timeout: 10000 });
     await submitBtn.click({ force: true });
+    await dismissTrackingModal(page);
 
     // Verify: should redirect to /service-orders/{id}
     await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
@@ -278,6 +288,7 @@ test.describe("OS — Wizard de Criação", () => {
 
     // Step 5: Submit
     await page.locator("button:has-text('Criar OS')").click({ force: true });
+    await dismissTrackingModal(page);
     await page.waitForURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
 
     // Go to listing and verify the OS appears in the table
@@ -306,6 +317,7 @@ test.describe("OS — Detalhe e Edição", () => {
     await page.waitForTimeout(300);
     await wizardNext(page);
     await page.locator("button:has-text('Criar OS')").click({ force: true });
+    await dismissTrackingModal(page);
     await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
 
     // Now we're on the detail page — verify content
@@ -336,6 +348,7 @@ test.describe("OS — Detalhe e Edição", () => {
     await wizardNext(page);
     // Step 5: submit
     await page.locator("button:has-text('Criar OS')").click({ force: true });
+    await dismissTrackingModal(page);
     await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
 
     // Verify detail page shows the problem
@@ -357,6 +370,7 @@ async function createOsAndOpenDetail(page: Page, problem: string) {
   await page.waitForTimeout(300);
   await wizardNext(page); // → step 5
   await page.locator("button:has-text('Criar OS')").click({ force: true });
+  await dismissTrackingModal(page);
   await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
   await expect(page.locator("main")).toContainText(/OS\d+/, { timeout: 15000 });
 }
