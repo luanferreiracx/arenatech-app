@@ -343,6 +343,71 @@ test.describe("OS — Detalhe e Edição", () => {
   });
 });
 
+/** Cria uma OS completa via wizard e retorna na pagina de detalhe. */
+async function createOsAndOpenDetail(page: Page, problem: string) {
+  const customerName = await ensureCustomerExists(page);
+  await gotoAndWait(page, "/service-orders/new");
+  await selectEntityOption(page, customerName);
+  await page.waitForTimeout(300);
+  await wizardNext(page); // → step 2
+  await page.waitForTimeout(300);
+  await wizardNext(page); // → step 3
+  await fillProblemStep(page, problem);
+  await wizardNext(page); // → step 4
+  await page.waitForTimeout(300);
+  await wizardNext(page); // → step 5
+  await page.locator("button:has-text('Criar OS')").click({ force: true });
+  await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
+  await expect(page.locator("main")).toContainText(/OS\d+/, { timeout: 15000 });
+}
+
+/** Adiciona um item de servico (so descricao; valor 0 e suficiente p/ o fluxo). */
+async function addServiceItem(page: Page, description: string) {
+  await page.locator("button:has-text('Adicionar')").first().click({ force: true });
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Adicionar Item")).toBeVisible({ timeout: 10000 });
+  await dialog.locator("input").first().fill(description);
+  await dialog.getByRole("button", { name: "Adicionar" }).click({ force: true });
+  await expect(dialog).toBeHidden({ timeout: 15000 });
+}
+
+test.describe("OS — Orçamento e Autorização", () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+  });
+
+  test("@business T-15 editar itens antes da assinatura e livre; apos assinatura cria pendencia e operador envia para autorizacao", async ({ page }) => {
+    await createOsAndOpenDetail(page, `OS-Orcamento-${Date.now()}`);
+
+    // Painel de revisao de orcamento (titulo do painel, nao a nota do historico).
+    const pendingPanel = page.getByRole("heading", { name: /Aguardando Autoriza/i });
+
+    // Regime A: adicionar item antes da assinatura — sem painel de autorizacao.
+    await addServiceItem(page, "Servico inicial E2E");
+    await expect(page.locator("main")).toContainText(/Servico inicial E2E/, { timeout: 15000 });
+    await expect(pendingPanel).toHaveCount(0);
+
+    // Confirma a assinatura de entrada (fisica).
+    await page.getByRole("button", { name: /Confirmar Assinatura Fisica/i }).click({ force: true });
+    await expect(page.getByRole("button", { name: /Confirmar Assinatura Fisica/i })).toHaveCount(0, { timeout: 15000 });
+
+    // Regime B: editar itens apos a assinatura cria revisao pendente.
+    await addServiceItem(page, "Servico adicional E2E");
+    await expect(pendingPanel).toBeVisible({ timeout: 15000 });
+
+    // Operador (sem permissao de gerente) nao ve "Autorizar agora".
+    await expect(page.getByRole("button", { name: /Autorizar agora/i })).toHaveCount(0);
+
+    // Operador envia para autorizacao do cliente (motivo obrigatorio).
+    await page.getByPlaceholder(/Diagnostico identificou/i).fill("Troca de bateria alem da tela");
+    await page.getByRole("button", { name: /Enviar para autoriza/i }).click({ force: true });
+
+    // Apos enviar, o painel passa a oferecer "Reenviar ao cliente".
+    await expect(page.getByRole("button", { name: /Reenviar ao cliente/i })).toBeVisible({ timeout: 15000 });
+    await expect(pendingPanel).toBeVisible();
+  });
+});
+
 test.describe("OS — Navegação", () => {
   test.beforeEach(async ({ page }) => {
     await login(page);

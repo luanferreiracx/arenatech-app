@@ -85,23 +85,39 @@ export async function GET(
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
     const approvalLink = `${appUrl}/quote/${quote.approvalLink}`;
 
-    // Items table
-    let itemsHtml = "";
-    if (order.items.length > 0) {
-      itemsHtml = `<table class="items"><thead><tr>
+    // Formatador para valores em centavos (snapshots).
+    const fmtCents = (c: unknown) =>
+      "R$ " + (Number(c ?? 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    type SnapItem = { description: string; quantity: number; total: number };
+    const renderSnapshot = (items: SnapItem[]): string => {
+      if (!items.length) return "";
+      let html = `<table class="items"><thead><tr>
         <th style="text-align: left;">Item</th>
         <th style="text-align: center; width: 50px;">Qtd</th>
         <th style="text-align: right; width: 80px;">Valor</th>
       </tr></thead><tbody>`;
-      for (const item of order.items) {
-        itemsHtml += `<tr>
+      for (const item of items) {
+        html += `<tr>
           <td>${esc(item.description)}</td>
           <td style="text-align: center;">${Math.round(Number(item.quantity))}</td>
-          <td style="text-align: right;">${fmt(item.total)}</td>
+          <td style="text-align: right;">${fmtCents(item.total)}</td>
         </tr>`;
       }
-      itemsHtml += "</tbody></table>";
-    }
+      return html + "</tbody></table>";
+    };
+
+    // Itens anteriores (snapshot autorizado) e novos (snapshot enviado, fallback
+    // para os itens atuais da OS, que sao a fonte da verdade).
+    const previousItems = (quote.previousItemsSnapshot ?? []) as unknown as SnapItem[];
+    const newItems = (quote.newItemsSnapshot ?? order.items.map((i) => ({
+      description: i.description,
+      quantity: Number(i.quantity),
+      total: Math.round(Number(i.total) * 100),
+    }))) as unknown as SnapItem[];
+
+    const previousItemsHtml = renderSnapshot(previousItems);
+    const newItemsHtml = renderSnapshot(newItems);
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -153,23 +169,24 @@ export async function GET(
     ${order.imei ? `<div class="row"><span class="label">IMEI:</span> <span>${esc(order.imei)}</span></div>` : ""}
   </div>
 
-  ${itemsHtml ? `
+  ${previousItemsHtml ? `
   <div class="section">
-    <div class="section-title">SERVICOS JA APROVADOS (orcamento original)</div>
-    <div style="background: #e8f5e9; border: 2px solid #28a745; border-radius: 6px; padding: 10px;">
-      ${itemsHtml}
-      <div class="row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #28a745;">
-        <span class="value">Total ja aprovado:</span>
+    <div class="section-title">ORCAMENTO ANTERIOR (ja autorizado)</div>
+    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 10px;">
+      ${previousItemsHtml}
+      <div class="row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #dee2e6;">
+        <span class="value">Total anterior:</span>
         <span class="value">${fmt(quote.previousTotal)}</span>
       </div>
     </div>
   </div>` : ""}
 
   <div class="section">
-    <div class="section-title">SERVICOS ADICIONAIS — AGUARDANDO APROVACAO</div>
+    <div class="section-title">NOVO ORCAMENTO — AGUARDANDO APROVACAO</div>
     <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 6px; padding: 10px;">
       <div class="reason"><strong>Motivo:</strong> ${esc(quote.reason)}</div>
       ${quote.additionalServices ? `<p style="font-size: 9pt; margin-top: 4px;"><strong>Detalhes:</strong> ${esc(quote.additionalServices)}</p>` : ""}
+      ${newItemsHtml ? `<div style="margin-top: 10px;">${newItemsHtml}</div>` : ""}
       <div class="comparison" style="margin-top: 10px;">
         <div class="col previous">
           <h3>Valores Anteriores</h3>

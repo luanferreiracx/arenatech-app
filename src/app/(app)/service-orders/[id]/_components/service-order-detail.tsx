@@ -132,12 +132,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [costsEditing, setCostsEditing] = useState(false);
   const [partsCostEdit, setPartsCostEdit] = useState(0);
   const [otherCostEdit, setOtherCostEdit] = useState(0);
-  const [quoteDialog, setQuoteDialog] = useState(false);
-  const [quoteServiceAmount, setQuoteServiceAmount] = useState(0);
-  const [quotePartsAmount, setQuotePartsAmount] = useState(0);
-  const [quoteDiscount, setQuoteDiscount] = useState(0);
-  const [quoteReason, setQuoteReason] = useState("");
-  const [quoteAdditional, setQuoteAdditional] = useState("");
+  // Revisao de orcamento (autorizacao pos-assinatura)
+  const [budgetReason, setBudgetReason] = useState("");
+  // Edicao inline de item
+  const [editItemId, setEditItemId] = useState<string | null>(null);
+  const [editItemDesc, setEditItemDesc] = useState("");
+  const [editItemQty, setEditItemQty] = useState(1);
+  const [editItemPrice, setEditItemPrice] = useState(0);
+  // Edicao inline de desconto
+  const [discountEditing, setDiscountEditing] = useState(false);
+  const [discountEdit, setDiscountEdit] = useState(0);
   // New dialogs — Sprint 1A
   const [signatureDialog, setSignatureDialog] = useState(false);
   const [trackingDialog, setTrackingDialog] = useState(false);
@@ -295,23 +299,30 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
-  const createQuoteMut = useMutation(
-    trpc.serviceOrder.createQuote.mutationOptions({
-      onSuccess: () => { toast.success("Orcamento criado!"); setQuoteDialog(false); invalidateOrder(); },
+  const updateItemMut = useMutation(
+    trpc.serviceOrder.updateItem.mutationOptions({
+      onSuccess: () => { toast.success("Item atualizado!"); setEditItemId(null); invalidateOrder(); },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateDiscountMut = useMutation(
+    trpc.serviceOrder.updateDiscount.mutationOptions({
+      onSuccess: () => { toast.success("Desconto atualizado!"); setDiscountEditing(false); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const cancelQuoteMut = useMutation(
     trpc.serviceOrder.cancelQuote.mutationOptions({
-      onSuccess: () => { toast.success("Orcamento cancelado!"); invalidateOrder(); },
+      onSuccess: () => { toast.success("Alteracao cancelada — itens revertidos."); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const approveQuoteMut = useMutation(
     trpc.serviceOrder.approveQuoteManually.mutationOptions({
-      onSuccess: () => { toast.success("Orcamento aprovado!"); invalidateOrder(); },
+      onSuccess: () => { toast.success("Orcamento autorizado!"); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
@@ -429,9 +440,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
-  const sendQuoteWhatsAppMut = useMutation(
-    trpc.serviceOrder.sendQuoteWhatsApp.mutationOptions({
-      onSuccess: () => { toast.success("Orcamento enviado por WhatsApp!"); invalidateOrder(); },
+  const requestBudgetApprovalMut = useMutation(
+    trpc.serviceOrder.requestBudgetApproval.mutationOptions({
+      onSuccess: (data: { whatsappSent: boolean }) => {
+        toast.success(data.whatsappSent ? "Orcamento enviado ao cliente por WhatsApp!" : "Orcamento marcado como enviado (WhatsApp indisponivel).");
+        invalidateOrder();
+      },
       onError: (e) => toast.error(e.message),
     })
   );
@@ -465,8 +479,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const isCancelled = status === "CANCELLED";
   const isRefunded = status === "REFUNDED";
   const isDelivered = status === "DELIVERED";
-  const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+  // Assinatura de entrada confirmada (Autentique, fisica ou signature-pad) —
+  // espelha isEntrySigned() no servidor.
+  const isSigned = !!order.signatureSignedAt || order.physicalSignature || !!order.entrySignatureAt;
   const isAdmin = order.viewerIsAdmin === true;
+  // Itens so podem ser alterados fora dos estados finalizados (paridade com o
+  // guard do servidor em add/update/removeItem).
+  const canEditItems = !isCancelled && !isRefunded && !["PAID", "DELIVERED"].includes(status);
   const checklist = (order.entryChecklist ?? {}) as ChecklistData;
   const deviceInfo = (order.deviceInfo ?? {}) as DeviceInfoData;
   const pendingQuote = order.quotes?.find((q: { status: string }) => q.status === "pending");
@@ -775,46 +794,76 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Pending Quote Alert */}
-      {pendingQuote && (
-        <div className="rounded-lg border-2 border-purple-500 bg-purple-500/10 p-4 mb-6">
-          <h3 className="font-semibold text-purple-400 flex items-center gap-2 mb-3">
-            <DollarSign className="h-5 w-5" />Orcamento Pendente
-          </h3>
-          <div className="grid grid-cols-2 gap-4 text-sm mb-3">
-            <div>
-              <p className="text-muted-foreground">Valor Anterior</p>
-              <p className="font-semibold">{formatMoney(pendingQuote.previousTotal)}</p>
+      {/* Budget revision pending authorization */}
+      {pendingQuote && (() => {
+        const diff = pendingQuote.newTotal - pendingQuote.previousTotal;
+        const sent = pendingQuote.sentToCustomer;
+        return (
+          <div className="rounded-lg border-2 border-purple-500 bg-purple-500/10 p-4 mb-6">
+            <h3 className="font-semibold text-purple-400 flex items-center gap-2 mb-1">
+              <DollarSign className="h-5 w-5" />Alteracao de Orcamento — Aguardando Autorizacao
+            </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              {sent
+                ? "Enviado ao cliente — aguardando resposta. Voce pode reenviar, autorizar manualmente ou cancelar a alteracao."
+                : "O orcamento foi alterado apos a assinatura. Envie ao cliente para autorizar, autorize manualmente (gerente) ou cancele a alteracao."}
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-sm mb-3">
+              <div>
+                <p className="text-muted-foreground text-xs">Valor Anterior</p>
+                <p className="font-semibold font-mono">{formatMoney(pendingQuote.previousTotal)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Novo Valor</p>
+                <p className="font-semibold text-purple-400 font-mono">{formatMoney(pendingQuote.newTotal)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Diferenca</p>
+                <p className={`font-semibold font-mono ${diff > 0 ? "text-warning" : diff < 0 ? "text-success" : ""}`}>
+                  {diff > 0 ? "+" : ""}{formatMoney(diff)}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-muted-foreground">Novo Valor</p>
-              <p className="font-semibold text-purple-400">{formatMoney(pendingQuote.newTotal)}</p>
+            <div className="mb-3">
+              <Label className="text-xs">Motivo da alteracao (enviado ao cliente)</Label>
+              <Textarea
+                value={budgetReason}
+                onChange={(e) => setBudgetReason(e.target.value)}
+                placeholder="Ex.: Diagnostico identificou troca de bateria alem da tela."
+                rows={2}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={!budgetReason.trim() || requestBudgetApprovalMut.isPending}
+                onClick={() => requestBudgetApprovalMut.mutate({
+                  orderId: id,
+                  reason: budgetReason.trim(),
+                  additionalServices: null,
+                  phone: order.customer?.phone ?? null,
+                })}
+              >
+                <MessageCircle className="mr-1 h-3 w-3" />{sent ? "Reenviar ao cliente" : "Enviar para autorizacao"}
+              </Button>
+              {order.viewerCanAuthorize && (
+                <Button size="sm" variant="outline" onClick={() => approveQuoteMut.mutate({ orderId: id })} disabled={approveQuoteMut.isPending}>
+                  <Check className="mr-1 h-3 w-3" />Autorizar agora (gerente)
+                </Button>
+              )}
+              <Button size="sm" variant="outline" asChild>
+                <a href={`/api/service-orders/${id}/quote-pdf`} target="_blank" rel="noopener noreferrer">
+                  <FileText className="mr-1 h-3 w-3" />PDF Orcamento
+                </a>
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => cancelQuoteMut.mutate({ orderId: id })} disabled={cancelQuoteMut.isPending}>
+                <X className="mr-1 h-3 w-3" />Cancelar alteracao (reverter)
+              </Button>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground mb-3">Motivo: {pendingQuote.reason}</p>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => approveQuoteMut.mutate({ orderId: id })}>
-              <Check className="mr-1 h-3 w-3" />Aprovar Manual
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={sendQuoteWhatsAppMut.isPending}
-              onClick={() => sendQuoteWhatsAppMut.mutate({ orderId: id })}
-            >
-              <MessageCircle className="mr-1 h-3 w-3" />Enviar por WhatsApp
-            </Button>
-            <Button size="sm" variant="outline" asChild>
-              <a href={`/api/service-orders/${id}/quote-pdf`} target="_blank" rel="noopener noreferrer">
-                <FileText className="mr-1 h-3 w-3" />PDF Orcamento
-              </a>
-            </Button>
-            <Button size="sm" variant="destructive" onClick={() => cancelQuoteMut.mutate({ orderId: id })}>
-              <X className="mr-1 h-3 w-3" />Cancelar Orcamento
-            </Button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Lab External — paridade Laravel: 4 acoes (enviar, receber, cancelar, notificar entregador).
           Mostra card de envio quando OS esta em andamento (nao iniciada, nao cancelada).
@@ -950,37 +999,93 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Itens</h3>
-              {!isCancelled && !isRefunded && !isDelivered && (
+              {canEditItems && (
                 <Button size="sm" variant="outline" onClick={() => { setNewItemDesc(""); setNewItemQty(1); setNewItemPrice(0); setAddItemDialog(true); }}>
                   <Plus className="mr-1 h-3 w-3" />Adicionar
                 </Button>
               )}
             </div>
+            {/* Aviso: edicao apos assinatura exige autorizacao do cliente */}
+            {canEditItems && isSigned && !order.budgetPending && (
+              <p className="text-xs text-warning mb-3 rounded bg-warning/10 px-2 py-1">
+                Alterar itens apos a assinatura cria uma revisao de orcamento que precisa da autorizacao do cliente (ou de um gerente).
+              </p>
+            )}
             {order.items.length === 0 ? (
               <p className="text-muted-foreground text-sm text-center py-4">Nenhum item cadastrado.</p>
             ) : (
               <div className="space-y-2">
                 {order.items.map((item: { id: string; type: string; description: string; quantity: number; unitPrice: number; total: number }) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-b-0 text-sm">
-                    <div className="flex-1">
-                      <StatusBadge variant={item.type === "SERVICE" ? "info" : "warning"} className="mr-2 text-[10px]">
-                        {item.type === "SERVICE" ? "Servico" : "Produto"}
-                      </StatusBadge>
-                      <span>{item.description}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-muted-foreground">{item.quantity}x {formatMoney(item.unitPrice)}</span>
-                      <span className="font-mono font-medium w-24 text-right">{formatMoney(item.total)}</span>
-                      {!isCancelled && !isRefunded && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItemMut.mutate({ id: item.id })}>
-                          <Trash2 className="h-3 w-3" />
+                  editItemId === item.id ? (
+                    <div key={item.id} className="space-y-2 py-2 border-b border-border last:border-b-0">
+                      <Input value={editItemDesc} onChange={(e) => setEditItemDesc(e.target.value)} placeholder="Descricao" className="text-sm" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-20">
+                          <Label className="text-[10px] text-muted-foreground">Qtd</Label>
+                          <Input type="number" min={1} value={editItemQty} onChange={(e) => setEditItemQty(Math.max(1, Number(e.target.value) || 1))} className="text-sm" />
+                        </div>
+                        <div className="flex-1">
+                          <Label className="text-[10px] text-muted-foreground">Valor unitario</Label>
+                          <MoneyInput value={editItemPrice} onChange={setEditItemPrice} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" disabled={!editItemDesc.trim() || updateItemMut.isPending} onClick={() => updateItemMut.mutate({ id: item.id, description: editItemDesc.trim(), quantity: editItemQty, unitPrice: editItemPrice })}>
+                          <Check className="mr-1 h-3 w-3" />Salvar
                         </Button>
-                      )}
+                        <Button size="sm" variant="ghost" onClick={() => setEditItemId(null)}>Cancelar</Button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-b-0 text-sm">
+                      <div className="flex-1">
+                        <StatusBadge variant={item.type === "SERVICE" ? "info" : "warning"} className="mr-2 text-[10px]">
+                          {item.type === "SERVICE" ? "Servico" : "Produto"}
+                        </StatusBadge>
+                        <span>{item.description}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-muted-foreground">{item.quantity}x {formatMoney(item.unitPrice)}</span>
+                        <span className="font-mono font-medium w-24 text-right">{formatMoney(item.total)}</span>
+                        {canEditItems && (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItemMut.mutate({ id: item.id })}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
                 ))}
-                <div className="flex justify-end pt-2 border-t-2 border-primary">
-                  <span className="font-bold text-primary font-mono text-lg">{formatMoney(order.totalAmount)}</span>
+                {/* Breakdown: servico + pecas - desconto = total */}
+                <div className="pt-2 border-t-2 border-primary space-y-1 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal servicos</span><span className="font-mono">{formatMoney(order.serviceAmount)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal pecas</span><span className="font-mono">{formatMoney(order.partsAmount)}</span></div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Desconto</span>
+                    {discountEditing ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-28"><MoneyInput value={discountEdit} onChange={setDiscountEdit} /></div>
+                        <Button size="icon" className="h-7 w-7" disabled={updateDiscountMut.isPending} onClick={() => updateDiscountMut.mutate({ id, discount: discountEdit })}><Check className="h-3 w-3" /></Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDiscountEditing(false)}><X className="h-3 w-3" /></Button>
+                      </div>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-warning">-{formatMoney(order.discount)}</span>
+                        {canEditItems && (
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setDiscountEdit(order.discount); setDiscountEditing(true); }}><Pencil className="h-3 w-3" /></Button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-border">
+                    <span className="font-bold text-primary">Total</span>
+                    <span className="font-bold text-primary font-mono text-lg">{formatMoney(order.totalAmount)}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1313,13 +1418,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {/* Create Quote */}
-          {!isCancelled && !isRefunded && !isDelivered && !order.budgetPending && (
-            <Button variant="outline" className="w-full" onClick={() => { setQuoteServiceAmount(order.serviceAmount); setQuotePartsAmount(order.partsAmount); setQuoteDiscount(order.discount); setQuoteReason(""); setQuoteAdditional(""); setQuoteDialog(true); }}>
-              <Send className="mr-2 h-4 w-4" />Criar Orcamento Adicional
-            </Button>
-          )}
-
           {/* Public Link */}
           {order.publicLink && (
             <div className="rounded-lg border border-border p-4">
@@ -1584,25 +1682,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setRefundDialog(false)}>Voltar</Button>
             <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => { refundMut.mutate({ id, reason: refundReason }); setRefundDialog(false); }}>Confirmar Estorno</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Quote Dialog */}
-      <Dialog open={quoteDialog} onOpenChange={setQuoteDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Novo Orcamento Adicional</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Novo Valor de Servico</Label><MoneyInput value={quoteServiceAmount} onChange={setQuoteServiceAmount} /></div>
-            <div><Label>Novo Valor de Pecas</Label><MoneyInput value={quotePartsAmount} onChange={setQuotePartsAmount} /></div>
-            <div><Label>Desconto</Label><MoneyInput value={quoteDiscount} onChange={setQuoteDiscount} /></div>
-            <div className="rounded-lg bg-muted p-3 text-sm"><div className="flex justify-between font-bold"><span>Novo Total</span><span className="font-mono text-primary">{formatMoney(quoteServiceAmount + quotePartsAmount - quoteDiscount)}</span></div></div>
-            <div><Label>Motivo da Alteracao *</Label><Textarea value={quoteReason} onChange={(e) => setQuoteReason(e.target.value)} rows={2} /></div>
-            <div><Label>Servicos Adicionais</Label><Textarea value={quoteAdditional} onChange={(e) => setQuoteAdditional(e.target.value)} rows={2} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQuoteDialog(false)}>Cancelar</Button>
-            <Button disabled={!quoteReason || createQuoteMut.isPending} onClick={() => createQuoteMut.mutate({ orderId: id, newServiceAmount: quoteServiceAmount, newPartsAmount: quotePartsAmount, newDiscount: quoteDiscount, reason: quoteReason, additionalServices: quoteAdditional || null })}>Criar Orcamento</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

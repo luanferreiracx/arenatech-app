@@ -8,9 +8,9 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-05-23
+**Ultima atualizacao:** 2026-05-28
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
-**Progresso E2E:** 125/125 @business verde no pre-push (paridade total na suite reduzida)
+**Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `main`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
@@ -261,6 +261,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-28 — OS: valores unificados nos itens + autorizacao de orcamento pos-assinatura
+
+Reformulacao completa de "alteracao de orcamento / valores na OS". A causa-raiz era um conflito arquitetural: os totais eram items-driven (`recalculateOrderTotals`), mas o fluxo de orcamento gravava valores flat (`createQuote`) sem mexer nos itens — a proxima operacao de item apagava o valor aprovado (corrupcao de dados).
+
+**Modelo (decisao do dono):** itens da OS = fonte unica da verdade; toda edicao (add/editar/remover/desconto) e feita direto nos itens. A partir da confirmacao da assinatura de entrada, qualquer alteracao exige nova autorizacao do cliente (envio manual via WhatsApp) ou de adm/gerente. Rejeitar reverte os itens ao snapshot anterior (estoque reconciliado).
+
+- **Schema:** `ServiceOrderQuote` ganhou `previousItemsSnapshot` + `newItemsSnapshot` (JSONB). Migration `20260528160000_os_quote_item_snapshots`.
+- **Router:** helpers `isEntrySigned`, `ensureBudgetRevision` (cria revisao pendente capturando snapshot pre-edicao), `syncBudgetRevision`, `revertItemsToSnapshot`, `applyQuoteApproval`/`applyQuoteRejection`. `addItem/updateItem/removeItem` + novo `updateDiscount` operam em regime A (livre pre-assinatura) ou B (cria pendencia pos-assinatura). `createQuote`+`sendQuoteWhatsApp` flat removidos → novo `requestBudgetApproval`. Approve nao sobrescreve mais valores (itens ja sao a verdade); reject reverte. Gate: pagamento bloqueado com `budgetPending`. RBAC de autorizacao manual agora cobre super admin; `adminRespondQuote` ganhou RBAC.
+- **UI detalhe:** edicao inline por item + breakdown (servico/pecas/desconto/total) + desconto editavel; painel "Alteracao de Orcamento — Aguardando Autorizacao" (enviar/autorizar/reverter); dialogo flat removido. `viewerCanAuthorize` gateia "Autorizar agora".
+- **Pagina publica + PDF do orcamento:** agora itemizados (anterior vs novo via snapshots).
+
+**Validacao:** typecheck OK | lint 0 erros | 677 unit + 12 integracao OK | build OK | e2e novo T-15 (regime A livre → assinatura → regime B pendente → operador envia) verde.
+
+---
 
 ### 2026-05-23 — PDV: fluxo de upgrade/downgrade de aparelhos com fidelidade total ao Laravel
 

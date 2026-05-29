@@ -447,17 +447,34 @@ export const listServiceOrdersSchema = z.object({
 
 export type ListServiceOrdersInput = z.infer<typeof listServiceOrdersSchema>;
 
-/** Create quote (orcamento adicional) */
-export const createQuoteSchema = z.object({
-  orderId: z.string().uuid(),
-  newServiceAmount: z.number().int().min(0), // centavos
-  newPartsAmount: z.number().int().min(0).optional(), // centavos
-  newDiscount: z.number().int().min(0).optional(), // centavos
-  reason: z.string().min(1, "Motivo obrigatorio").max(1000),
-  additionalServices: z.string().max(1000).optional().nullable(),
+/**
+ * Editar desconto da OS inline (centavos).
+ *
+ * O desconto continua um campo da OS (nao um item). Em regime pos-assinatura
+ * dispara revisao de orcamento como qualquer alteracao de valor.
+ */
+export const updateDiscountSchema = z.object({
+  id: z.string().uuid(),
+  discount: z.number().int().min(0), // centavos
 });
 
-export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+export type UpdateDiscountInput = z.infer<typeof updateDiscountSchema>;
+
+/**
+ * Solicitar autorizacao do orcamento revisado (envio manual ao cliente).
+ *
+ * Substitui o antigo `createQuote` flat: o orcamento e derivado dos itens atuais
+ * (ja refletidos como pendingQuote). Aqui o operador informa o motivo da
+ * alteracao e dispara a mensagem ao cliente.
+ */
+export const requestBudgetApprovalSchema = z.object({
+  orderId: z.string().uuid(),
+  reason: z.string().min(1, "Motivo obrigatorio").max(1000),
+  additionalServices: z.string().max(1000).optional().nullable(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
+
+export type RequestBudgetApprovalInput = z.infer<typeof requestBudgetApprovalSchema>;
 
 /** Approve/reject quote (public page) */
 export const respondQuoteSchema = z.object({
@@ -581,12 +598,6 @@ export const confirmPhysicalReturnTermSchema = z.object({
 /** Check return term status (Autentique) */
 export const checkReturnTermStatusSchema = z.object({
   orderId: z.string().uuid(),
-});
-
-/** Send quote via WhatsApp */
-export const sendQuoteWhatsAppSchema = z.object({
-  orderId: z.string().uuid(),
-  phone: z.string().min(8).max(30).optional().nullable(),
 });
 
 /** Check quote status (polling) */

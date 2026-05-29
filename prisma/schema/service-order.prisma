@@ -244,6 +244,14 @@ model ServiceOrderQuote {
   newPartsAmount        Decimal  @default(0) @map("new_parts_amount") @db.Decimal(10, 2)
   newDiscount           Decimal  @default(0) @map("new_discount") @db.Decimal(10, 2)
   newTotal              Decimal  @default(0) @map("new_total") @db.Decimal(10, 2)
+  // Snapshot dos itens nos dois lados da revisao. previousItemsSnapshot e
+  // capturado quando a revisao comeca (estado autorizado anterior) — usado para
+  // REVERTER os itens na rejeicao e exibir o orcamento anterior itemizado.
+  // newItemsSnapshot e capturado no envio/aprovacao — usado na pagina publica
+  // e no PDF enviado ao cliente. Formato: array de
+  // { type, description, quantity, unitPrice, total } em centavos.
+  previousItemsSnapshot Json?    @map("previous_items_snapshot")
+  newItemsSnapshot      Json?    @map("new_items_snapshot")
   reason                String
   additionalServices    String?  @map("additional_services")
   status                String   @default("pending") // pending, approved, rejected

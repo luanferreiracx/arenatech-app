@@ -20,8 +20,9 @@ import {
   uncancelOrderSchema,
   refundOrderSchema,
   updateCostsSchema,
+  updateDiscountSchema,
   listServiceOrdersSchema,
-  createQuoteSchema,
+  requestBudgetApprovalSchema,
   respondQuoteSchema,
   adminRespondQuoteSchema,
   attachNfseSchema,
@@ -39,7 +40,6 @@ import {
   sendReturnTermSchema,
   confirmPhysicalReturnTermSchema,
   checkReturnTermStatusSchema,
-  sendQuoteWhatsAppSchema,
   checkQuoteStatusSchema,
   updateTechnicalInfoSchema,
   updateTechnicianSchema,
@@ -383,6 +383,13 @@ export const serviceOrderRouter = createTRPCRouter({
           // Expose admin flag para UI poder mostrar botões restritos sem
           // depender de useSession no client.
           viewerIsAdmin: ctx.session.user.isSuperAdmin === true,
+          // Pode autorizar orcamento manualmente (mesma RBAC de approveQuoteManually):
+          // super admin ou role owner/admin/manager no tenant.
+          viewerCanAuthorize:
+            ctx.session.user.isSuperAdmin === true ||
+            ["owner", "admin", "manager"].includes(
+              ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "",
+            ),
           history: order.history.map((h) => ({
             ...h,
             userName: userMap.get(h.userId) ?? "Sistema",
@@ -1143,6 +1150,10 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // Regime B (OS ja assinada): abre/garante revisao de orcamento ANTES de
+        // mutar, capturando o estado autorizado anterior para revert na rejeicao.
+        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+
         const itemTotal = input.unitPrice * input.quantity;
 
         // Reserve stock for product items
@@ -1172,6 +1183,8 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // Recalculate totals
         await recalculateOrderTotals(tx, input.orderId, ctx.tenantId);
+        // Atualiza os valores `new*` da revisao pendente (se houver).
+        await syncBudgetRevision(tx, input.orderId);
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -1197,20 +1210,41 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!item) throw new TRPCError({ code: "NOT_FOUND" });
 
         // Consistencia com add/remove: nao alterar item em OS finalizada.
-        const order = await tx.serviceOrder.findUnique({
-          where: { id: item.orderId },
-          select: { status: true },
-        });
-        if (order && ["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+        const order = await tx.serviceOrder.findUnique({ where: { id: item.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "OS nao pode ter itens alterados no status atual.",
           });
         }
 
+        // Regime B: garante revisao de orcamento antes de mutar.
+        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+
         const quantity = input.quantity ?? Number(item.quantity);
         const unitPrice = input.unitPrice !== undefined ? input.unitPrice : decimalToCents(item.unitPrice);
         const total = unitPrice * quantity;
+
+        // Reconcilia estoque quando a quantidade de um item-produto muda.
+        if (item.type === "PRODUCT" && item.productId && input.quantity !== undefined) {
+          const delta = input.quantity - Number(item.quantity);
+          if (delta > 0) {
+            await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+              productId: item.productId,
+              quantity: delta,
+              orderId: item.orderId,
+              itemDescription: item.description,
+            });
+          } else if (delta < 0) {
+            await releaseStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+              productId: item.productId,
+              quantity: -delta,
+              orderId: item.orderId,
+              reason: `Ajuste de quantidade na OS: ${item.description}`,
+            });
+          }
+        }
 
         await tx.serviceOrderItem.update({
           where: { id: input.id },
@@ -1224,6 +1258,7 @@ export const serviceOrderRouter = createTRPCRouter({
         });
 
         await recalculateOrderTotals(tx, item.orderId, item.tenantId);
+        await syncBudgetRevision(tx, item.orderId);
         return { success: true };
       });
     }),
@@ -1238,16 +1273,17 @@ export const serviceOrderRouter = createTRPCRouter({
 
         // Paridade Laravel `OrdemServicoController::removerItem`: nao remover item
         // de OS ja paga ou entregue (quebraria historico financeiro).
-        const order = await tx.serviceOrder.findUnique({
-          where: { id: item.orderId },
-          select: { status: true },
-        });
-        if (order && ["PAID", "DELIVERED"].includes(order.status)) {
+        const order = await tx.serviceOrder.findUnique({ where: { id: item.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "OS ja paga nao pode ter itens removidos.",
+            message: "OS nao pode ter itens removidos no status atual.",
           });
         }
+
+        // Regime B: garante revisao de orcamento (snapshot inclui o item removido).
+        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
 
         // Release stock for product items
         if (item.type === "PRODUCT" && item.productId) {
@@ -1261,6 +1297,7 @@ export const serviceOrderRouter = createTRPCRouter({
 
         await tx.serviceOrderItem.delete({ where: { id: input.id } });
         await recalculateOrderTotals(tx, item.orderId, item.tenantId);
+        await syncBudgetRevision(tx, item.orderId);
 
         return { success: true };
       });
@@ -1278,6 +1315,15 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Pagamento so pode ser registrado em OS concluida.",
+          });
+        }
+
+        // Gate: orcamento com alteracao pendente nao pode ser pago ate o cliente
+        // (ou gerente/adm) autorizar — evita cobrar valor nao acordado.
+        if (order.budgetPending) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Orcamento aguardando autorizacao — nao e possivel registrar pagamento.",
           });
         }
 
@@ -1510,6 +1556,8 @@ export const serviceOrderRouter = createTRPCRouter({
     }),
 
   // ── UPDATE COSTS (inline) ──
+  // Custos internos (partsCost/otherCost) sao independentes do total cobrado do
+  // cliente — nao disparam revisao de orcamento.
   updateCosts: tenantProcedure
     .input(updateCostsSchema)
     .mutation(async ({ ctx, input }) => {
@@ -1521,6 +1569,34 @@ export const serviceOrderRouter = createTRPCRouter({
             otherCost: centsToPrisma(input.otherCost),
           },
         });
+        return { success: true };
+      });
+    }),
+
+  // ── UPDATE DISCOUNT (inline) ──
+  // Desconto e parte do total do cliente — em regime pos-assinatura dispara
+  // revisao de orcamento como qualquer alteracao de valor.
+  updateDiscount: tenantProcedure
+    .input(updateDiscountSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Desconto nao pode ser alterado no status atual.",
+          });
+        }
+
+        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+
+        await tx.serviceOrder.update({
+          where: { id: input.id },
+          data: { discount: centsToPrisma(input.discount) },
+        });
+        await recalculateOrderTotals(tx, input.id, ctx.tenantId);
+        await syncBudgetRevision(tx, input.id);
         return { success: true };
       });
     }),
@@ -1706,76 +1782,10 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
-  // ── CREATE QUOTE (orcamento adicional) ──
-  createQuote: tenantProcedure
-    .input(createQuoteSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
-        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
-
-        if (order.budgetPending) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Ja existe orcamento pendente." });
-        }
-
-        if (["CANCELLED", "DELIVERED", "READY_FOR_PICKUP"].includes(order.status)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao e possivel criar orcamento para esta OS." });
-        }
-
-        const newPartsAmount = input.newPartsAmount ?? 0;
-        const newDiscount = input.newDiscount ?? 0;
-        const newTotal = input.newServiceAmount + newPartsAmount - newDiscount;
-
-        const quote = await tx.serviceOrderQuote.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousServiceAmount: order.serviceAmount,
-            previousPartsAmount: order.partsAmount,
-            previousDiscount: order.discount,
-            previousTotal: order.totalAmount,
-            newServiceAmount: centsToPrisma(input.newServiceAmount),
-            newPartsAmount: centsToPrisma(newPartsAmount),
-            newDiscount: centsToPrisma(newDiscount),
-            newTotal: centsToPrisma(newTotal),
-            reason: input.reason,
-            additionalServices: input.additionalServices ?? null,
-            status: "pending",
-            approvalLink: generateQuoteLink(),
-          },
-        });
-
-        // Avanca para WAITING_APPROVAL (era status "morto" sem entrada
-        // automatica). O status anterior fica gravado em
-        // serviceOrderHistory.previousStatus e e restaurado quando a OS
-        // for aprovada/rejeitada via respondToQuote / adminRespondQuote /
-        // approveQuoteManually.
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: {
-            pendingQuoteId: quote.id,
-            budgetPending: true,
-            status: "WAITING_APPROVAL",
-          },
-        });
-
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: "WAITING_APPROVAL",
-            notes: `Orcamento criado. Motivo: ${input.reason}`,
-          },
-        });
-
-        return { id: quote.id, approvalLink: quote.approvalLink };
-      });
-    }),
-
-  // ── CANCEL QUOTE ──
+  // ── CANCEL QUOTE (cancelar alteracao — reverte itens) ──
+  // A equipe descarta a revisao de orcamento em andamento: reverte os itens ao
+  // estado autorizado anterior (snapshot), reconcilia estoque e restaura o
+  // status. Mesmo efeito de uma rejeicao, porem iniciado internamente.
   cancelQuote: tenantProcedure
     .input(z.object({ orderId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -1785,14 +1795,41 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum orcamento pendente." });
         }
 
+        const quote = await tx.serviceOrderQuote.findUnique({ where: { id: order.pendingQuoteId } });
+        if (!quote) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Orcamento nao encontrado." });
+        }
+
         await tx.serviceOrderQuote.update({
-          where: { id: order.pendingQuoteId },
+          where: { id: quote.id },
           data: { status: "rejected", rejectedAt: new Date(), customerNotes: "Cancelado pela equipe" },
         });
 
+        // Reverte itens ao estado anterior autorizado.
+        const snapshot = (quote.previousItemsSnapshot ?? []) as unknown as ItemSnapshot[];
+        await revertItemsToSnapshot(
+          tx,
+          { id: order.id, tenantId: ctx.tenantId },
+          snapshot,
+          decimalToCents(quote.previousDiscount),
+          ctx.session.user.id,
+        );
+
+        const restoredStatus = await resolveStatusAfterQuote(tx, input.orderId, "reject");
         await tx.serviceOrder.update({
           where: { id: input.orderId },
-          data: { pendingQuoteId: null, budgetPending: false },
+          data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
+        });
+
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: "WAITING_APPROVAL",
+            newStatus: restoredStatus,
+            notes: "Alteracao de orcamento cancelada pela equipe — itens revertidos",
+          },
         });
 
         return { success: true };
@@ -1803,11 +1840,16 @@ export const serviceOrderRouter = createTRPCRouter({
   approveQuoteManually: tenantProcedure
     .input(z.object({ orderId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // RBAC: paridade Laravel `aprovarOrcamentoManual` exige role admin.
+      // RBAC: paridade Laravel `aprovarOrcamentoManual` exige gerente/admin.
+      // Super admin sempre pode.
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      const canAuthorize =
+        ctx.session.user.isSuperAdmin === true ||
+        userRole === "owner" || userRole === "admin" || userRole === "manager";
+      if (!canAuthorize) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para aprovar orcamento manualmente" });
       }
+      const userName = ctx.session.user.name ?? "Administrador";
       const txResult = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || !order.pendingQuoteId) {
@@ -1819,57 +1861,17 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Orcamento nao encontrado ou ja processado." });
         }
 
-        // Approve
-        await tx.serviceOrderQuote.update({
-          where: { id: quote.id },
-          data: { status: "approved", approvedAt: new Date(), customerNotes: "Aprovado manualmente pelo administrador" },
-        });
+        const pixToCancel = await applyQuoteApproval(
+          tx,
+          order,
+          quote,
+          ctx.session.user.id,
+          ctx.tenantId,
+          `Orcamento aprovado manualmente por ${userName}`,
+          `Aprovado manualmente por ${userName}`,
+        );
 
-        // Restaura status anterior ao WAITING_APPROVAL (fallback APPROVED).
-        const restoredStatus = await resolveStatusAfterQuote(tx, input.orderId, "approve");
-
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: {
-            serviceAmount: quote.newServiceAmount,
-            partsAmount: quote.newPartsAmount,
-            discount: quote.newDiscount,
-            totalAmount: quote.newTotal,
-            pendingQuoteId: null,
-            budgetPending: false,
-            status: restoredStatus as never,
-          },
-        });
-
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: restoredStatus,
-            notes: "Orcamento aprovado manualmente pelo administrador",
-          },
-        });
-
-        // Sinaliza que o PIX (se houver) precisa ser cancelado: valor da OS
-        // mudou, qualquer transacao DePix anterior nao bate mais.
-        const valueChanged = !quote.newTotal.equals(order.totalAmount);
-        const oldDepixTransactionId = order.depixTransactionId;
-        if (valueChanged && oldDepixTransactionId && order.depixStatus === "pending") {
-          await tx.serviceOrder.update({
-            where: { id: input.orderId },
-            data: { depixTransactionId: null, depixStatus: "cancelled" },
-          });
-        }
-
-        return {
-          success: true,
-          pixToCancel:
-            valueChanged && oldDepixTransactionId && order.depixStatus === "pending"
-              ? oldDepixTransactionId
-              : null,
-        };
+        return { success: true, pixToCancel };
       });
 
       // Apos commit: dispara cancel HTTP best-effort
@@ -2009,90 +2011,31 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
         }
 
+        const order = await tx.serviceOrder.findUnique({ where: { id: quote.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+
+        const obs = input.customerNotes ? ". Obs: " + input.customerNotes : "";
         let pixToCancel: string | null = null;
         if (input.action === "approve") {
-          await tx.serviceOrderQuote.update({
-            where: { id: quote.id },
-            data: {
-              status: "approved",
-              approvedAt: new Date(),
-              customerNotes: input.customerNotes ?? null,
-            },
-          });
-
-          // Carrega OS pra checar PIX pendente que precisa ser cancelado
-          // se o valor mudou (paridade Laravel cancelarVendaDepixPorMudancaOrcamento).
-          const orderPre = await tx.serviceOrder.findUnique({
-            where: { id: quote.orderId },
-            select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
-          });
-
-          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "approve");
-
-          // Update OS values
-          await tx.serviceOrder.update({
-            where: { id: quote.orderId },
-            data: {
-              serviceAmount: quote.newServiceAmount,
-              partsAmount: quote.newPartsAmount,
-              discount: quote.newDiscount,
-              totalAmount: quote.newTotal,
-              pendingQuoteId: null,
-              budgetPending: false,
-              status: restoredStatus as never,
-            },
-          });
-
-          if (
-            orderPre &&
-            !quote.newTotal.equals(orderPre.totalAmount) &&
-            orderPre.depixTransactionId &&
-            orderPre.depixStatus === "pending"
-          ) {
-            await tx.serviceOrder.update({
-              where: { id: quote.orderId },
-              data: { depixTransactionId: null, depixStatus: "cancelled" },
-            });
-            pixToCancel = orderPre.depixTransactionId;
-          }
-
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: quote.tenantId,
-              orderId: quote.orderId,
-              userId: quote.userId,
-              previousStatus: "WAITING_APPROVAL",
-              newStatus: restoredStatus,
-              notes: `Orcamento aprovado pelo cliente${input.customerNotes ? ". Obs: " + input.customerNotes : ""}`,
-            },
-          });
+          pixToCancel = await applyQuoteApproval(
+            tx,
+            order,
+            quote,
+            quote.userId,
+            quote.tenantId,
+            `Orcamento aprovado pelo cliente${obs}`,
+            input.customerNotes ?? null,
+          );
         } else {
-          await tx.serviceOrderQuote.update({
-            where: { id: quote.id },
-            data: {
-              status: "rejected",
-              rejectedAt: new Date(),
-              customerNotes: input.customerNotes ?? null,
-            },
-          });
-
-          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "reject");
-
-          await tx.serviceOrder.update({
-            where: { id: quote.orderId },
-            data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
-          });
-
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: quote.tenantId,
-              orderId: quote.orderId,
-              userId: quote.userId,
-              previousStatus: "WAITING_APPROVAL",
-              newStatus: restoredStatus,
-              notes: `Orcamento rejeitado pelo cliente${input.customerNotes ? ". Obs: " + input.customerNotes : ""}`,
-            },
-          });
+          await applyQuoteRejection(
+            tx,
+            order,
+            quote,
+            quote.userId,
+            quote.tenantId,
+            `Orcamento rejeitado pelo cliente${obs}`,
+            input.customerNotes ?? null,
+          );
         }
 
         return { success: true, action: input.action, pixToCancel };
@@ -2118,6 +2061,15 @@ export const serviceOrderRouter = createTRPCRouter({
   adminRespondQuote: tenantProcedure
     .input(adminRespondQuoteSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: so gerente/admin/owner (ou super admin) autoriza/rejeita manualmente.
+      const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      const canAuthorize =
+        ctx.session.user.isSuperAdmin === true ||
+        role === "owner" || role === "admin" || role === "manager";
+      if (!canAuthorize) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para responder orcamento manualmente" });
+      }
+      const userName = ctx.session.user.name ?? "Operador";
       const txResult = await ctx.withTenant(async (tx) => {
         const quote = await tx.serviceOrderQuote.findUnique({
           where: { id: input.quoteId },
@@ -2129,81 +2081,31 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
         }
 
+        const order = await tx.serviceOrder.findUnique({ where: { id: quote.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+
+        const obs = input.notes ? ". Obs: " + input.notes : "";
         let pixToCancel: string | null = null;
-        const userName = ctx.session.user.name ?? "Operador";
         if (input.action === "approve") {
-          await tx.serviceOrderQuote.update({
-            where: { id: quote.id },
-            data: {
-              status: "approved",
-              approvedAt: new Date(),
-              customerNotes: input.notes ?? `Aprovado manualmente por ${userName}`,
-            },
-          });
-          // Snapshot do total atual antes do update p/ comparar com newTotal.
-          const orderPre = await tx.serviceOrder.findUnique({
-            where: { id: quote.orderId },
-            select: { totalAmount: true, depixTransactionId: true, depixStatus: true },
-          });
-          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "approve");
-          await tx.serviceOrder.update({
-            where: { id: quote.orderId },
-            data: {
-              serviceAmount: quote.newServiceAmount,
-              partsAmount: quote.newPartsAmount,
-              discount: quote.newDiscount,
-              totalAmount: quote.newTotal,
-              pendingQuoteId: null,
-              budgetPending: false,
-              status: restoredStatus as never,
-            },
-          });
-          if (
-            orderPre &&
-            !quote.newTotal.equals(orderPre.totalAmount) &&
-            orderPre.depixTransactionId &&
-            orderPre.depixStatus === "pending"
-          ) {
-            await tx.serviceOrder.update({
-              where: { id: quote.orderId },
-              data: { depixTransactionId: null, depixStatus: "cancelled" },
-            });
-            pixToCancel = orderPre.depixTransactionId;
-          }
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: ctx.tenantId,
-              orderId: quote.orderId,
-              userId: ctx.session.user.id,
-              previousStatus: "WAITING_APPROVAL",
-              newStatus: restoredStatus,
-              notes: `Orcamento aprovado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
-            },
-          });
+          pixToCancel = await applyQuoteApproval(
+            tx,
+            order,
+            quote,
+            ctx.session.user.id,
+            ctx.tenantId,
+            `Orcamento aprovado manualmente por ${userName}${obs}`,
+            input.notes ?? `Aprovado manualmente por ${userName}`,
+          );
         } else {
-          await tx.serviceOrderQuote.update({
-            where: { id: quote.id },
-            data: {
-              status: "rejected",
-              rejectedAt: new Date(),
-              customerNotes: input.notes ?? `Rejeitado manualmente por ${userName}`,
-            },
-          });
-          const restoredStatus = await resolveStatusAfterQuote(tx, quote.orderId, "reject");
-          await tx.serviceOrder.update({
-            where: { id: quote.orderId },
-            data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
-          });
-          await tx.serviceOrderHistory.create({
-            data: {
-              tenantId: ctx.tenantId,
-              orderId: quote.orderId,
-              userId: ctx.session.user.id,
-              previousStatus: "WAITING_APPROVAL",
-              newStatus: restoredStatus,
-              notes: `Orcamento rejeitado manualmente por ${userName}${input.notes ? ". Obs: " + input.notes : ""}`,
-            },
-          });
+          await applyQuoteRejection(
+            tx,
+            order,
+            quote,
+            ctx.session.user.id,
+            ctx.tenantId,
+            `Orcamento rejeitado manualmente por ${userName}${obs}`,
+            input.notes ?? `Rejeitado manualmente por ${userName}`,
+          );
         }
         return { success: true, action: input.action, pixToCancel };
       });
@@ -3299,17 +3201,20 @@ export const serviceOrderRouter = createTRPCRouter({
       return { signed: true, alreadySigned: false, cancelled: true };
     }),
 
-  // ── 11. SEND QUOTE VIA WHATSAPP ── (HTTP fora da tx)
-  sendQuoteWhatsApp: tenantProcedure
-    .input(sendQuoteWhatsAppSchema)
+  // ── 11. REQUEST BUDGET APPROVAL ── (envia revisao ao cliente, HTTP fora da tx)
+  // Substitui o antigo createQuote+sendQuoteWhatsApp: a revisao ja existe
+  // (auto-criada na edicao dos itens). Aqui o operador registra o motivo,
+  // congela o snapshot dos novos itens e dispara a mensagem ao cliente.
+  requestBudgetApproval: tenantProcedure
+    .input(requestBudgetApprovalSchema)
     .mutation(async ({ ctx, input }) => {
-      // tx1: validar + carregar order/quote/customer.
+      // tx1: validar + registrar motivo/snapshot + carregar customer.
       const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
         if (!order.pendingQuoteId || !order.budgetPending) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao existe orcamento pendente para enviar." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nao ha alteracao de orcamento para autorizar." });
         }
 
         const quote = await tx.serviceOrderQuote.findUnique({ where: { id: order.pendingQuoteId } });
@@ -3326,7 +3231,20 @@ export const serviceOrderRouter = createTRPCRouter({
         const phone = input.phone ?? customer.phone;
         if (!phone) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum telefone disponivel." });
 
-        return { order, quote, customer, phone };
+        // Congela o motivo + snapshot dos itens atuais (estado enviado ao cliente).
+        const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
+        const updatedQuote = await tx.serviceOrderQuote.update({
+          where: { id: quote.id },
+          data: {
+            reason: input.reason,
+            additionalServices: input.additionalServices ?? null,
+            newItemsSnapshot: snapshotItems(items) as unknown as Prisma.InputJsonValue,
+            sentToCustomer: true,
+            sentAt: new Date(),
+          },
+        });
+
+        return { order, quote: updatedQuote, customer, phone };
       });
 
       // HTTP (token gen + WhatsApp Cloud) FORA da tx.
@@ -3353,13 +3271,8 @@ export const serviceOrderRouter = createTRPCRouter({
         });
       }
 
-      // tx2: registrar envio.
+      // tx2: registrar envio no historico.
       await ctx.withTenant(async (tx) => {
-        await tx.serviceOrderQuote.update({
-          where: { id: prep.quote.id },
-          data: { sentToCustomer: true, sentAt: new Date() },
-        });
-
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -3367,12 +3280,12 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: prep.order.status,
             newStatus: prep.order.status,
-            notes: "Orcamento enviado para o cliente via WhatsApp",
+            notes: `Orcamento enviado para o cliente via WhatsApp. Motivo: ${input.reason}`,
           },
         });
       });
 
-      return { success: true };
+      return { success: true, whatsappSent: wa.success };
     }),
 
   // ── 12. CHECK QUOTE STATUS ──
@@ -3722,6 +3635,325 @@ async function recalculateOrderTotals(tx: any, orderId: string, _tenantId: strin
       serviceAmount: new Prisma.Decimal(serviceAmount),
       partsAmount: new Prisma.Decimal(partsAmount),
       totalAmount: new Prisma.Decimal(Math.max(0, totalAmount)),
+    },
+  });
+}
+
+// ── Helpers: revisao de orcamento (autorizacao pos-assinatura) ──
+
+/**
+ * Snapshot de um item para JSON (valores em centavos). Inclui serviceId/productId
+ * e costPrice para permitir recriar o item (e reservar estoque) na reversao.
+ */
+type ItemSnapshot = {
+  type: "SERVICE" | "PRODUCT";
+  serviceId: string | null;
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPrice: number; // centavos
+  costPrice: number; // centavos
+  total: number; // centavos
+};
+
+
+function snapshotItems(items: any[]): ItemSnapshot[] {
+  return items.map((i) => ({
+    type: i.type,
+    serviceId: i.serviceId ?? null,
+    productId: i.productId ?? null,
+    description: i.description,
+    quantity: Number(i.quantity),
+    unitPrice: decimalToCents(i.unitPrice),
+    costPrice: decimalToCents(i.costPrice),
+    total: decimalToCents(i.total),
+  }));
+}
+
+/**
+ * True quando a assinatura de ENTRADA do cliente foi confirmada no sistema
+ * (Autentique, fisica ou signature-pad). A partir desse ponto o aparelho esta
+ * sob responsabilidade da loja com o orcamento aceito — qualquer alteracao de
+ * valor exige nova autorizacao do cliente (decisao do dono).
+ */
+function isEntrySigned(order: {
+  physicalSignature?: boolean | null;
+  signatureSignedAt?: Date | null;
+  entrySignatureAt?: Date | null;
+}): boolean {
+  return (
+    !!order.physicalSignature ||
+    order.signatureSignedAt != null ||
+    order.entrySignatureAt != null
+  );
+}
+
+/**
+ * Garante que existe uma revisao de orcamento pendente quando a OS ja foi
+ * assinada (regime B). Deve ser chamado ANTES de mutar os itens — captura o
+ * estado autorizado anterior (previous* + previousItemsSnapshot) para permitir
+ * reverter na rejeicao. Idempotente: se ja ha quote pendente, nao faz nada.
+ *
+ * `order` deve ser a linha pre-edicao (com amounts, status e flags de assinatura).
+ * Retorna o id do quote pendente (novo ou existente) ou null se regime A.
+ */
+
+async function ensureBudgetRevision(
+  tx: any,
+  order: any,
+  userId: string,
+  tenantId: string,
+): Promise<string | null> {
+  if (!isEntrySigned(order)) return null; // regime A — edicao livre
+  if (order.pendingQuoteId) return order.pendingQuoteId; // ja em revisao
+
+  const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
+  const prevSnapshot = snapshotItems(items);
+
+  const quote = await tx.serviceOrderQuote.create({
+    data: {
+      tenantId,
+      orderId: order.id,
+      userId,
+      previousServiceAmount: order.serviceAmount,
+      previousPartsAmount: order.partsAmount,
+      previousDiscount: order.discount,
+      previousTotal: order.totalAmount,
+      // new* iniciam iguais ao anterior; syncBudgetRevision atualiza apos a edicao.
+      newServiceAmount: order.serviceAmount,
+      newPartsAmount: order.partsAmount,
+      newDiscount: order.discount,
+      newTotal: order.totalAmount,
+      previousItemsSnapshot: prevSnapshot as unknown as Prisma.InputJsonValue,
+      reason: "Alteracao de itens do orcamento",
+      status: "pending",
+      approvalLink: generateQuoteLink(),
+    },
+  });
+
+  await tx.serviceOrder.update({
+    where: { id: order.id },
+    data: {
+      pendingQuoteId: quote.id,
+      budgetPending: true,
+      status: "WAITING_APPROVAL",
+    },
+  });
+
+  await tx.serviceOrderHistory.create({
+    data: {
+      tenantId,
+      orderId: order.id,
+      userId,
+      previousStatus: order.status,
+      newStatus: "WAITING_APPROVAL",
+      notes: "Orcamento alterado apos assinatura — aguardando autorizacao",
+    },
+  });
+
+  return quote.id;
+}
+
+/**
+ * Atualiza os valores novos (new) do quote pendente com os totais atuais da OS.
+ * Chamado APOS recalculateOrderTotals em cada edicao de item/desconto no
+ * regime B. Nao toca nos valores anteriores nem nos snapshots.
+ */
+
+async function syncBudgetRevision(tx: any, orderId: string): Promise<void> {
+  const order = await tx.serviceOrder.findUnique({
+    where: { id: orderId },
+    select: {
+      pendingQuoteId: true,
+      serviceAmount: true,
+      partsAmount: true,
+      discount: true,
+      totalAmount: true,
+    },
+  });
+  if (!order?.pendingQuoteId) return;
+
+  const quote = await tx.serviceOrderQuote.findUnique({
+    where: { id: order.pendingQuoteId },
+    select: { status: true },
+  });
+  if (!quote || quote.status !== "pending") return;
+
+  await tx.serviceOrderQuote.update({
+    where: { id: order.pendingQuoteId },
+    data: {
+      newServiceAmount: order.serviceAmount,
+      newPartsAmount: order.partsAmount,
+      newDiscount: order.discount,
+      newTotal: order.totalAmount,
+    },
+  });
+}
+
+/**
+ * Reverte os itens da OS para um snapshot (rejeicao de orcamento / cancelar
+ * alteracao). Reconcilia estoque: libera o reservado atual, recria os itens do
+ * snapshot e re-reserva (best-effort — loga se faltar estoque, sem abortar).
+ * Restaura tambem o desconto e recalcula os totais.
+ */
+
+async function revertItemsToSnapshot(
+  tx: any,
+  order: { id: string; tenantId: string },
+  snapshot: ItemSnapshot[],
+  previousDiscountCents: number,
+  userId: string,
+): Promise<void> {
+  // 1. Libera estoque dos itens-produto atuais.
+  await releaseAllOsItems(tx, order.tenantId, userId, order.id);
+
+  // 2. Remove itens atuais.
+  await tx.serviceOrderItem.deleteMany({ where: { orderId: order.id } });
+
+  // 3. Recria a partir do snapshot.
+  if (snapshot.length > 0) {
+    await tx.serviceOrderItem.createMany({
+      data: snapshot.map((s) => ({
+        tenantId: order.tenantId,
+        orderId: order.id,
+        type: s.type,
+        serviceId: s.serviceId ?? null,
+        productId: s.productId ?? null,
+        description: s.description,
+        quantity: new Prisma.Decimal(s.quantity),
+        unitPrice: centsToPrisma(s.unitPrice),
+        costPrice: centsToPrisma(s.costPrice),
+        total: centsToPrisma(s.total),
+      })),
+    });
+
+    // 4. Re-reserva estoque dos itens-produto (best-effort).
+    for (const s of snapshot) {
+      if (s.type === "PRODUCT" && s.productId) {
+        try {
+          await reserveStockForOsItem(tx, order.tenantId, userId, {
+            productId: s.productId,
+            quantity: s.quantity,
+            orderId: order.id,
+            itemDescription: s.description,
+          });
+        } catch (err) {
+          logger.warn("Estoque insuficiente ao reverter item da OS", {
+            orderId: order.id,
+            productId: s.productId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  }
+
+  // 5. Restaura desconto e recalcula.
+  await tx.serviceOrder.update({
+    where: { id: order.id },
+    data: { discount: centsToPrisma(previousDiscountCents) },
+  });
+  await recalculateOrderTotals(tx, order.id, order.tenantId);
+}
+
+/**
+ * Aprova a revisao de orcamento. Como os itens ja sao a fonte da verdade (e os
+ * totais ja refletem a alteracao), aqui apenas: registra o snapshot aprovado,
+ * limpa a pendencia, restaura o status anterior e cancela PIX que nao bate mais.
+ * Retorna o transactionId de PIX a cancelar fora da tx (ou null).
+ */
+
+async function applyQuoteApproval(
+  tx: any,
+  order: any,
+  quote: any,
+  userId: string,
+  tenantId: string,
+  noteText: string,
+  customerNotes: string | null,
+): Promise<string | null> {
+  const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
+  await tx.serviceOrderQuote.update({
+    where: { id: quote.id },
+    data: {
+      status: "approved",
+      approvedAt: new Date(),
+      customerNotes,
+      newItemsSnapshot: snapshotItems(items) as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  const restoredStatus = await resolveStatusAfterQuote(tx, order.id, "approve");
+  await tx.serviceOrder.update({
+    where: { id: order.id },
+    data: { pendingQuoteId: null, budgetPending: false, status: restoredStatus as never },
+  });
+
+  await tx.serviceOrderHistory.create({
+    data: {
+      tenantId,
+      orderId: order.id,
+      userId,
+      previousStatus: "WAITING_APPROVAL",
+      newStatus: restoredStatus,
+      notes: noteText,
+    },
+  });
+
+  // PIX foi gerado contra o total anterior; se o orcamento mudou, cancela.
+  const valueChanged = !quote.newTotal.equals(quote.previousTotal);
+  if (valueChanged && order.depixTransactionId && order.depixStatus === "pending") {
+    await tx.serviceOrder.update({
+      where: { id: order.id },
+      data: { depixTransactionId: null, depixStatus: "cancelled" },
+    });
+    return order.depixTransactionId;
+  }
+  return null;
+}
+
+/**
+ * Rejeita a revisao de orcamento: reverte os itens ao estado autorizado anterior
+ * (snapshot, com reconciliacao de estoque), restaura o desconto e leva a OS de
+ * volta para diagnostico para renegociar (decisao do dono).
+ */
+
+async function applyQuoteRejection(
+  tx: any,
+  order: any,
+  quote: any,
+  userId: string,
+  tenantId: string,
+  noteText: string,
+  customerNotes: string | null,
+): Promise<void> {
+  await tx.serviceOrderQuote.update({
+    where: { id: quote.id },
+    data: { status: "rejected", rejectedAt: new Date(), customerNotes },
+  });
+
+  const snapshot = (quote.previousItemsSnapshot ?? []) as unknown as ItemSnapshot[];
+  await revertItemsToSnapshot(
+    tx,
+    { id: order.id, tenantId },
+    snapshot,
+    decimalToCents(quote.previousDiscount),
+    userId,
+  );
+
+  await tx.serviceOrder.update({
+    where: { id: order.id },
+    data: { pendingQuoteId: null, budgetPending: false, status: "IN_DIAGNOSIS" },
+  });
+
+  await tx.serviceOrderHistory.create({
+    data: {
+      tenantId,
+      orderId: order.id,
+      userId,
+      previousStatus: "WAITING_APPROVAL",
+      newStatus: "IN_DIAGNOSIS",
+      notes: noteText,
     },
   });
 }

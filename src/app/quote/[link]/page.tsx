@@ -114,6 +114,21 @@ export default function QuoteApprovalPage({
           )}
         </div>
 
+        {/* Itemized new budget */}
+        {Array.isArray(quote.newItemsSnapshot) && quote.newItemsSnapshot.length > 0 && (
+          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+            <h3 className="font-bold text-gray-800 mb-2">Itens do Orcamento</h3>
+            <div className="space-y-1">
+              {(quote.newItemsSnapshot as Array<{ description: string; quantity: number; unitPrice: number; total: number }>).map((it, idx) => (
+                <div key={idx} className="flex justify-between text-sm text-gray-700">
+                  <span>{it.quantity}x {it.description}</span>
+                  <span className="font-mono">{formatMoney(it.total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Values Comparison */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div className="bg-gray-100 rounded-lg p-4 text-center">
