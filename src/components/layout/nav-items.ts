@@ -156,6 +156,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Config. Gerais", href: "/settings", icon: Settings },
       { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard },
+      { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent },
       { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck },
       { label: "Usuarios", href: "/settings/users", icon: UserCog },
       { label: "Seguranca", href: "/settings/security", icon: Lock },

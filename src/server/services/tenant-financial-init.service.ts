@@ -1,4 +1,10 @@
 import type { PrismaClient } from "@prisma/client"
+import {
+  DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
+  DEFAULT_SIMULATOR_CREDIT_AVISTA_FEE,
+  DEFAULT_SIMULATOR_DEBIT_FEE,
+  defaultSimulatorTiers,
+} from "@/lib/simulator-defaults"
 
 const FIXED_CATEGORIES = [
   { code: "VENDAS", name: "Vendas", type: "RECEITA" as const },
@@ -63,6 +69,29 @@ export async function tenantFinancialInit(
         active: true,
         acceptsChange: pm.acceptsChange ?? false,
       })),
+    })
+  }
+
+  // Seed default simulator rate config (taxas exibidas ao cliente, com margem).
+  // Idempotente: so cria se ainda nao existir.
+  const existingSimConfig = await tx.simulatorRateConfig.findUnique({
+    where: { tenantId },
+  })
+  if (!existingSimConfig) {
+    await tx.simulatorRateConfig.create({
+      data: {
+        tenantId,
+        creditAvistaFeePercent: DEFAULT_SIMULATOR_CREDIT_AVISTA_FEE,
+        debitFeePercent: DEFAULT_SIMULATOR_DEBIT_FEE,
+        maxInstallments: DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
+        tiers: {
+          create: defaultSimulatorTiers().map((t) => ({
+            tenantId,
+            installments: t.installments,
+            feePercent: t.feePercent,
+          })),
+        },
+      },
     })
   }
 }

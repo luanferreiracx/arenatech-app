@@ -8,7 +8,7 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-05-28
+**Ultima atualizacao:** 2026-05-29
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `main`
@@ -261,6 +261,21 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-05-29 — SIMULADOR: taxas exibidas ao cliente separadas das taxas reais do PDV
+
+Gap de paridade nao capturado antes: no Laravel o simulador usa `configuracoes_parcelamento` (taxas EXIBIDAS AO CLIENTE, com margem embutida pelo lojista para mitigar risco operacional) — **propositalmente separadas** das taxas reais do PDV/financeiro (`FormaPagamentoTaxa`). O nosso simulador estava reusando `PaymentMethod.feePercent` + `InstallmentRule.feePercent` (taxas de custo do PDV), furando a margem do lojista. **Decisao do dono:** SIM, usa taxa separada — a taxa do simulador e geralmente superior a real.
+
+- **Schema:** novos models `SimulatorRateConfig` (singleton por tenant: `creditAvistaFeePercent`, `debitFeePercent`, `maxInstallments`) + `SimulatorInstallmentTier` (relacional, substitui as 35 colunas `juros_Nx` do Laravel — resolve a lacuna "redesenhar como tabela relacional"). RLS em ambas. Migration `20260529120000_simulator_rate_config`.
+- **Defaults:** `src/lib/simulator-defaults.ts` replica a escala Laravel (2x/3x=0, 4x=1.99, +0.50/parcela ate 36x=17.99).
+- **Router:** `simulate` agora le de `SimulatorRateConfig` (gross-up identico). `getOrCreateSimulatorConfig` cria com defaults se tenant nao tiver (tenants migrados antes da feature continuam funcionando). Novas procedures `getConfig`/`updateConfig` (RBAC owner/manager). So exibe parcela com taxa > 0 (paridade).
+- **Init:** `tenantFinancialInit` seeda a config-padrao para tenants novos.
+- **UI:** `/settings/installments` (antes redirect stub) virou a tela "Taxas do Simulador" — credito a vista + debito + max parcelas (2-36) + grid de taxas por parcela com show/hide por max + botao "Restaurar taxas-padrao". Nav atualizado.
+- **Backfill prod:** `scripts/backfill-simulator-rates.ts` deriva a config das taxas ja existentes (InstallmentRule do cartao de credito) para preservar exatamente o que o cliente ja via em producao — rodar no deploy com `tsx --env-file`.
+
+**Validacao:** typecheck OK | lint 0 erros | 685 unit OK (8 novos) | build OK | migration aplicada local.
+
+---
 
 ### 2026-05-28 — OS: valores unificados nos itens + autorizacao de orcamento pos-assinatura
 

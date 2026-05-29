@@ -1,18 +1,71 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { simulateSchema } from "@/lib/validators/simulator";
+import {
+  simulateSchema,
+  updateSimulatorConfigSchema,
+} from "@/lib/validators/simulator";
 import type { SimulationResult } from "@/lib/validators/simulator";
+import {
+  DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
+  DEFAULT_SIMULATOR_CREDIT_AVISTA_FEE,
+  DEFAULT_SIMULATOR_DEBIT_FEE,
+  defaultSimulatorTiers,
+} from "@/lib/simulator-defaults";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
+
+type SimulatorTx = Omit<
+  PrismaClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
+type ConfigWithTiers = Prisma.SimulatorRateConfigGetPayload<{
+  include: { tiers: true };
+}>;
+
+/**
+ * Carrega a config de taxas do simulador. Se o tenant ainda nao tem (ex: tenant
+ * migrado antes desta feature), cria com os defaults Laravel — mantem o
+ * simulador funcional sem exigir configuracao previa.
+ */
+async function getOrCreateSimulatorConfig(
+  tx: SimulatorTx,
+  tenantId: string,
+): Promise<ConfigWithTiers> {
+  const existing = await tx.simulatorRateConfig.findUnique({
+    where: { tenantId },
+    include: { tiers: true },
+  });
+  if (existing) return existing;
+
+  return tx.simulatorRateConfig.create({
+    data: {
+      tenantId,
+      creditAvistaFeePercent: DEFAULT_SIMULATOR_CREDIT_AVISTA_FEE,
+      debitFeePercent: DEFAULT_SIMULATOR_DEBIT_FEE,
+      maxInstallments: DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
+      tiers: {
+        create: defaultSimulatorTiers().map((t) => ({
+          tenantId,
+          installments: t.installments,
+          feePercent: t.feePercent,
+        })),
+      },
+    },
+    include: { tiers: true },
+  });
+}
 
 /**
  * Simulador de parcelamento.
  *
- * Usa as taxas de InstallmentRule do tenant. A formula e identica ao Laravel:
- * valorComTaxa = (valor * 100) / (100 - taxa)
+ * IMPORTANTE: usa as taxas EXIBIDAS AO CLIENTE (SimulatorRateConfig), que tem
+ * margem embutida pelo lojista para mitigar risco operacional. NAO usa as taxas
+ * reais do PDV/financeiro (PaymentMethod.feePercent / PaymentMethodRate).
+ * Paridade Laravel SimuladorParcelamentoService (configuracoes_parcelamento).
  *
- * As taxas de debito e credito avista vem de PaymentMethod.feePercent.
- * As taxas de parcelamento vem de InstallmentRule.feePercent.
+ * Formula gross-up: valorComTaxa = (valor * 100) / (100 - taxa)
  */
 export const simulatorRouter = createTRPCRouter({
   simulate: tenantProcedure
@@ -23,51 +76,34 @@ export const simulatorRouter = createTRPCRouter({
         const valorEntrada = input.valorEntrada ?? 0;
         const valorFinanciar = Math.max(0, valorProduto - valorEntrada);
 
-        // Get payment methods with their fees
-        const paymentMethods = await tx.paymentMethod.findMany({
-          where: { active: true },
-          include: {
-            installmentRules: {
-              orderBy: { installments: "asc" },
-            },
-          },
-        });
+        const config = await getOrCreateSimulatorConfig(tx, ctx.tenantId);
 
-        // Find debit and credit methods
-        const debitMethod = paymentMethods.find((pm) => pm.type === "DEBIT_CARD");
-        const creditMethod = paymentMethods.find((pm) => pm.type === "CREDIT_CARD");
+        const taxaDebito = Number(config.debitFeePercent);
+        const taxaAvista = Number(config.creditAvistaFeePercent);
 
-        const taxaDebito = debitMethod ? Number(debitMethod.feePercent) : 0;
-        const taxaAvista = creditMethod ? Number(creditMethod.feePercent) : 0;
-
-        // Calculate debit total
         const debitoTotal = grossUp(valorFinanciar, taxaDebito);
-
-        // Calculate credit a vista
         const avistaTotal = grossUp(valorFinanciar, taxaAvista);
 
-        // Calculate installments from rules
-        const parcelas: SimulationResult["parcelas"] = [];
-
-        if (creditMethod) {
-          const rules = creditMethod.installmentRules;
-          for (const rule of rules) {
-            const n = rule.installments;
-            const taxa = Number(rule.feePercent);
-
-            // Check minimum amount
-            const minAmount = Number(rule.minAmount);
-            if (minAmount > 0 && valorFinanciar < minAmount) continue;
-
+        // Parcelas a partir dos tiers cadastrados, limitadas a maxInstallments.
+        // Paridade Laravel: so exibe parcela com taxa > 0 (juros 0 = nao oferta).
+        const parcelas: SimulationResult["parcelas"] = config.tiers
+          .filter(
+            (tier) =>
+              tier.installments <= config.maxInstallments &&
+              Number(tier.feePercent) > 0,
+          )
+          .sort((a, b) => a.installments - b.installments)
+          .map((tier) => {
+            const n = tier.installments;
+            const taxa = Number(tier.feePercent);
             const total = grossUp(valorFinanciar, taxa);
-            parcelas.push({
+            return {
               n,
               taxa,
               total,
               parcela: Math.round((total / n) * 100) / 100,
-            });
-          }
-        }
+            };
+          });
 
         const result: SimulationResult = {
           valorProduto,
@@ -76,10 +112,83 @@ export const simulatorRouter = createTRPCRouter({
           debito: { taxa: taxaDebito, total: debitoTotal },
           avista: { taxa: taxaAvista, total: avistaTotal },
           parcelas,
-          maxParcelas: parcelas.length > 0 ? parcelas[parcelas.length - 1]!.n : 1,
+          maxParcelas: config.maxInstallments,
         };
 
         return result;
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // RATE CONFIG (taxas exibidas ao cliente)
+  // ═══════════════════════════════════════
+
+  /**
+   * Retorna a config de taxas do simulador (cria com defaults se inexistente).
+   */
+  getConfig: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const config = await getOrCreateSimulatorConfig(tx, ctx.tenantId);
+      return {
+        creditAvistaFeePercent: Number(config.creditAvistaFeePercent),
+        debitFeePercent: Number(config.debitFeePercent),
+        maxInstallments: config.maxInstallments,
+        tiers: config.tiers
+          .slice()
+          .sort((a, b) => a.installments - b.installments)
+          .map((t) => ({
+            installments: t.installments,
+            feePercent: Number(t.feePercent),
+          })),
+      };
+    });
+  }),
+
+  /**
+   * Atualiza a config de taxas do simulador. Substitui todos os tiers.
+   * Apenas owner/manager (config sensivel de precificacao).
+   */
+  updateConfig: tenantProcedure
+    .input(updateSimulatorConfigSchema)
+    .mutation(async ({ ctx, input }) => {
+      const role = ctx.session.availableTenants.find(
+        (t) => t.id === ctx.tenantId,
+      )?.role;
+      if (role !== "owner" && role !== "manager") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas dono ou gerente pode alterar as taxas do simulador.",
+        });
+      }
+
+      return ctx.withTenant(async (tx) => {
+        const config = await getOrCreateSimulatorConfig(tx, ctx.tenantId);
+
+        await tx.simulatorRateConfig.update({
+          where: { id: config.id },
+          data: {
+            creditAvistaFeePercent: input.creditAvistaFeePercent,
+            debitFeePercent: input.debitFeePercent,
+            maxInstallments: input.maxInstallments,
+          },
+        });
+
+        // Substitui os tiers (delete-all + recreate dentro da mesma tx)
+        await tx.simulatorInstallmentTier.deleteMany({
+          where: { configId: config.id },
+        });
+        if (input.tiers.length > 0) {
+          await tx.simulatorInstallmentTier.createMany({
+            data: input.tiers.map((t) => ({
+              tenantId: ctx.tenantId,
+              configId: config.id,
+              installments: t.installments,
+              feePercent: t.feePercent,
+            })),
+          });
+        }
+
+        return { success: true };
       });
     }),
 

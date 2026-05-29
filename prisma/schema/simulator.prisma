@@ -26,3 +26,45 @@ model SimulatorSession {
   @@index([tenantId, customerId])
   @@map("simulator_sessions")
 }
+
+/// Taxas EXIBIDAS AO CLIENTE no simulador de parcelamento.
+///
+/// IMPORTANTE: sao taxas proprias, separadas das taxas reais do PDV/financeiro
+/// (PaymentMethod.feePercent / PaymentMethodRate). O lojista embute margem aqui
+/// para mitigar risco operacional — a taxa do simulador e geralmente SUPERIOR
+/// a taxa real que a loja paga a operadora. Paridade Laravel
+/// `configuracoes_parcelamento` (taxa_credito_avista, taxa_debito, juros_Nx,
+/// max_parcelas), redesenhada: as 35 colunas juros_Nx viram linhas relacionais
+/// em SimulatorInstallmentTier.
+model SimulatorRateConfig {
+  id                      String   @id @default(uuid()) @db.Uuid
+  tenantId                String   @unique @map("tenant_id") @db.Uuid
+  // Taxa de credito a vista (1x) exibida ao cliente
+  creditAvistaFeePercent  Decimal  @default(0) @map("credit_avista_fee_percent") @db.Decimal(5, 2)
+  // Taxa de debito exibida ao cliente
+  debitFeePercent         Decimal  @default(0) @map("debit_fee_percent") @db.Decimal(5, 2)
+  // Numero maximo de parcelas mostradas no simulador (2 a 36)
+  maxInstallments         Int      @default(12) @map("max_installments")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  tiers SimulatorInstallmentTier[]
+
+  @@map("simulator_rate_configs")
+}
+
+/// Taxa exibida ao cliente para cada quantidade de parcelas (2x..36x).
+/// Substitui as colunas juros_2x..juros_36x do Laravel por linhas.
+model SimulatorInstallmentTier {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  configId      String   @map("config_id") @db.Uuid
+  installments  Int
+  feePercent    Decimal  @default(0) @map("fee_percent") @db.Decimal(5, 2)
+
+  config SimulatorRateConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@unique([configId, installments])
+  @@index([tenantId])
+  @@map("simulator_installment_tiers")
+}
