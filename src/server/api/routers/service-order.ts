@@ -1478,13 +1478,17 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         const discount = (input.paymentDiscount ?? 0) + rewardDiscountCents;
+        // P6: o desconto de recompensa reduz o valor efetivamente recebido — o
+        // recebivel/caixa/paidAmount refletem o liquido (nao o bruto). Para o
+        // caso comum (sem recompensa) `collected` == input.paidAmount.
+        const collectedCents = Math.max(0, input.paidAmount - rewardDiscountCents);
 
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
             status: "PAID",
             paymentMethod: input.paymentMethod,
-            paidAmount: centsToPrisma(input.paidAmount),
+            paidAmount: centsToPrisma(collectedCents),
             paymentDiscount: centsToPrisma(discount),
             paymentNotes: (input.paymentNotes ?? "") + rewardNote || null,
             paymentDate: new Date(),
@@ -1503,13 +1507,15 @@ export const serviceOrderRouter = createTRPCRouter({
         });
 
         // ── Register cash movement (parity with Laravel CaixaService) ──
-        if (openSession) {
+        // So quando ha valor recebido (cortesia/garantia gratuita = R$0 nao gera
+        // movimento de caixa).
+        if (openSession && collectedCents > 0) {
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
               cashSessionId: openSession.id,
               type: "SALE",
-              amount: centsToPrisma(input.paidAmount),
+              amount: centsToPrisma(collectedCents),
               nature: "INCOME",
               paymentMethod: input.paymentMethod,
               description: `Pagamento OS ${order.number}`,
@@ -1521,7 +1527,7 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         // ── Generate financial receivable (parity with Laravel gerarRecebiveisOS) ──
-        const paidAmountDecimal = centsToPrisma(input.paidAmount);
+        const paidAmountDecimal = centsToPrisma(collectedCents);
         // Paridade Laravel: dinheiro/pix/depix = instantaneo (recebivel PAID).
         const instantPayment = ["dinheiro", "pix", "depix"].includes(input.paymentMethod);
 
@@ -1536,7 +1542,7 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        if (!existingReceivable && input.paidAmount > 0) {
+        if (!existingReceivable && collectedCents > 0) {
           // Load customer name
           const customer = await tx.customer.findUnique({
             where: { id: order.customerId },
@@ -1582,8 +1588,9 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         // ── Trigger automatico de comissao do tecnico ao finalizar OS ──
-        // Mesma logica usada pelo finalize do PDV (service compartilhado).
-        await createOsTechnicianCommission(tx, ctx.tenantId, order, input.paidAmount);
+        // Mesma logica usada pelo finalize do PDV (service compartilhado). Base =
+        // valor liquido recebido (cortesia/garantia gratuita = 0 → sem comissao).
+        await createOsTechnicianCommission(tx, ctx.tenantId, order, collectedCents);
 
         return { success: true };
       });

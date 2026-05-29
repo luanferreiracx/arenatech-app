@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -1218,25 +1218,44 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                 {nextOptions.map((s) => {
                   if (s === "PAID") {
-                    // OS sem valor ou garantia: pula PDV e registra direto via
-                    // registerPayment (paridade com Laravel `podePularPdv`).
-                    const skipPdv = Number(order.totalAmount) <= 0 || order.isWarranty;
-                    if (skipPdv) {
+                    // OS sem valor: cortesia direta (R$0).
+                    if (Number(order.totalAmount) <= 0) {
                       return (
                         <Button
                           key={s}
                           size="sm"
-                          onClick={() => registerPaymentMut.mutate({
-                            id,
-                            paymentMethod: order.isWarranty ? "garantia" : "cortesia",
-                            paidAmount: order.totalAmount,
-                          })}
+                          onClick={() => registerPaymentMut.mutate({ id, paymentMethod: "cortesia", paidAmount: 0 })}
                           disabled={registerPaymentMut.isPending}
                         >
                           <DollarSign className="mr-1 h-3 w-3" />Marcar como Paga
                         </Button>
                       );
                     }
+                    // Garantia: pode ser cortesia (defeito de fabrica → R$0) OU
+                    // cobrada (mau uso / defeito nao relacionado → PDV). O operador
+                    // escolhe por caso (decisao do dono).
+                    if (order.isWarranty) {
+                      return (
+                        <Fragment key={s}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => registerPaymentMut.mutate({ id, paymentMethod: "garantia", paidAmount: 0 })}
+                            disabled={registerPaymentMut.isPending}
+                          >
+                            <DollarSign className="mr-1 h-3 w-3" />Cortesia (garantia)
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => createFromOSMut.mutate({ serviceOrderId: id })}
+                            disabled={createFromOSMut.isPending}
+                          >
+                            <DollarSign className="mr-1 h-3 w-3" />Cobrar via PDV
+                          </Button>
+                        </Fragment>
+                      );
+                    }
+                    // OS normal com valor: pagamento via PDV.
                     return (
                       <Button
                         key={s}
