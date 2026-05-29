@@ -45,6 +45,21 @@ function centsToPrisma(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
 }
 
+/**
+ * Detecta pagamento em dinheiro de forma robusta. Normaliza acentos/caixa/
+ * espacos antes de comparar — antes a checagem batia so em "dinheiro"|"cash"|
+ * "DINHEIRO" literais, deixando passar "Dinheiro" / " dinheiro " e burlando a
+ * exigencia de caixa aberto.
+ */
+function isCashMethod(method: string): boolean {
+  const norm = method
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+  return norm === "dinheiro" || norm === "cash" || norm === "money" || norm === "especie";
+}
+
 function generatePublicLink(): string {
   return generatePublicToken(12);
 }
@@ -872,9 +887,7 @@ export const saleRouter = createTRPCRouter({
 
         // Paridade Laravel PdvService::registrarVenda — entrada/saida em DINHEIRO
         // exige caixa aberto. Sem isso, valor entraria fantasma no financeiro.
-        const hasCashPayment = payments.some(
-          (p) => p.method === "dinheiro" || p.method === "cash" || p.method === "DINHEIRO",
-        );
+        const hasCashPayment = payments.some((p) => isCashMethod(p.method));
         const downgradeInCash = refundDueCents > 0 && input.refundDueMethod === "cash";
         if ((hasCashPayment || downgradeInCash) && !openSession) {
           throw new TRPCError({
@@ -1165,7 +1178,9 @@ export const saleRouter = createTRPCRouter({
           const productName = [upg.brand, upg.model].filter(Boolean).join(" ") || "Aparelho seminovo";
           let product = await tx.product.findFirst({
             where: {
-              name: productName,
+              // case-insensitive: evita criar produto duplicado so por
+              // diferenca de caixa (ex: "iPhone 12" vs "iphone 12").
+              name: { equals: productName, mode: "insensitive" },
               isDevice: true,
               isSerialized: true,
               deletedAt: null,
@@ -1298,8 +1313,10 @@ export const saleRouter = createTRPCRouter({
                         : null,
                     fee: withdrawResult.fee != null ? new Prisma.Decimal(withdrawResult.fee) : null,
                     expiration: withdrawResult.expiration ? new Date(withdrawResult.expiration) : null,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    apiResponse: (withdrawResult.raw ?? null) as any,
+                    apiResponse:
+                      withdrawResult.raw == null
+                        ? Prisma.JsonNull
+                        : (withdrawResult.raw as Prisma.InputJsonValue),
                     status: withdrawResult.status === "sent" ? "SENT" : "PROCESSING",
                     userId: ctx.session.user.id,
                     userName: ctx.session.user.name ?? null,
@@ -1519,6 +1536,15 @@ export const saleRouter = createTRPCRouter({
               referenceType: "SALE_REFUND",
               createdByUserId: ctx.session.user.id,
             },
+          });
+        } else {
+          // Sem caixa aberto nao da pra registrar a saida — antes isso era
+          // silencioso (gaveta sub-reportada). Log estruturado pra auditoria.
+          logger.warn("Estorno sem caixa aberto — saida nao registrada na gaveta", {
+            saleId: sale.id,
+            number: sale.number,
+            refundedCents,
+            userId: ctx.session.user.id,
           });
         }
 
@@ -1987,7 +2013,7 @@ export const saleRouter = createTRPCRouter({
           variationStocks.map((v) => [v.productId, v._sum.currentStock ?? 0]),
         );
 
-        return products.map((p) => {
+        const mapped = products.map((p) => {
           let currentStock: number;
           if (p.isSerialized) currentStock = stockMap.get(p.id) ?? 0;
           else if (p.hasVariations) currentStock = variationMap.get(p.id) ?? 0;
@@ -2006,6 +2032,10 @@ export const saleRouter = createTRPCRouter({
             hasVariations: p.hasVariations,
           };
         });
+        // withStock: filtra itens sem estoque ja no servidor (antes o input era
+        // ignorado e o filtro vivia so no cliente — produtos zerados voltavam
+        // ao PDV). currentStock ja agrega StockItem AVAILABLE / variations.
+        return input.withStock ? mapped.filter((p) => p.currentStock > 0) : mapped;
       });
     }),
 
@@ -2709,12 +2739,31 @@ export const saleRouter = createTRPCRouter({
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao cancelar PIX" });
       }
+      // Remove a entry pendente do paymentDetails do rascunho — senao um QR
+      // abandonado deixa lixo no draft (e um webhook tardio acharia a venda).
+      // So mexe em DRAFT; venda finalizada tem paymentDetails definitivo.
+      await ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({
+          where: { id: input.saleId },
+          select: { status: true, paymentDetails: true },
+        });
+        if (!sale || sale.status !== "DRAFT" || !Array.isArray(sale.paymentDetails)) return;
+        const arr = (sale.paymentDetails as Array<Record<string, unknown>>).filter(
+          (p) => p?.depixTransactionId !== input.transactionId,
+        );
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: { paymentDetails: arr as unknown as Prisma.InputJsonValue },
+        });
+      });
       return { success: true };
     }),
 
   /**
-   * Consulta status atual de uma transacao PIX e atualiza a venda quando pago.
-   * Paridade Laravel `consultarStatusPix`. Botao manual de "Verificar PIX".
+   * Consulta o status atual de uma transacao PIX (advisory, read-only). NAO
+   * altera a venda — a conclusao e sempre manual pelo operador (finalize).
+   * Usado como fallback de polling do DepixQrDialog pra detectar o pagamento.
+   * Paridade Laravel `consultarStatusPix`.
    */
   checkPixStatus: tenantProcedure
     .input(checkSalePixStatusSchema)

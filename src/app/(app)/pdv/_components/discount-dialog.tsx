@@ -23,6 +23,8 @@ interface DiscountDialogProps {
     reason: string | null,
   ) => void;
   isPending: boolean;
+  /** Subtotal em centavos — limita o desconto fixo (nao pode passar disso). */
+  subtotalCents?: number;
 }
 
 export function DiscountDialog({
@@ -30,6 +32,7 @@ export function DiscountDialog({
   onOpenChange,
   onApply,
   isPending,
+  subtotalCents,
 }: DiscountDialogProps) {
   const [discountType, setDiscountType] = useState<"fixed" | "percentage">(
     "fixed",
@@ -41,6 +44,18 @@ export function DiscountDialog({
     const value = parseFloat(discountValue) || 0;
     if (value <= 0) {
       toast.error("Informe um valor de desconto valido");
+      return;
+    }
+    if (discountType === "percentage" && value > 100) {
+      toast.error("O percentual de desconto nao pode passar de 100%.");
+      return;
+    }
+    if (
+      discountType === "fixed" &&
+      subtotalCents != null &&
+      Math.round(value * 100) > subtotalCents
+    ) {
+      toast.error("O desconto nao pode ser maior que o subtotal da venda.");
       return;
     }
     onApply(discountType, value, discountReason || null);

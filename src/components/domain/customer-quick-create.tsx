@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,19 @@ export function CustomerQuickCreate({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
+  // Checagem de duplicidade por documento (so quando completo). NUNCA faz
+  // auto-preenchimento via API externa — apenas alerta se ja existe cliente
+  // com o mesmo CPF/CNPJ no tenant.
+  const docDigits = doc.replace(/\D/g, "");
+  const docComplete = type === "PF" ? docDigits.length === 11 : docDigits.length === 14;
+  const dupQuery = useQuery(
+    trpc.customer.checkDuplicate.queryOptions(
+      type === "PF" ? { cpf: docDigits } : { cnpj: docDigits },
+      { enabled: docComplete },
+    ),
+  );
+  const duplicate = docComplete && dupQuery.data?.duplicate ? dupQuery.data.customer : null;
+
   const createMutation = useMutation(
     trpc.customer.create.mutationOptions({
       onSuccess: (created) => {
@@ -68,13 +81,16 @@ export function CustomerQuickCreate({
       toast.error("Telefone deve ter ao menos 10 digitos.");
       return;
     }
-    const docDigits = doc.replace(/\D/g, "");
     if (type === "PF" && docDigits.length !== 11) {
       toast.error("CPF deve ter 11 digitos.");
       return;
     }
     if (type === "PJ" && docDigits.length !== 14) {
       toast.error("CNPJ deve ter 14 digitos.");
+      return;
+    }
+    if (duplicate) {
+      toast.error(`Ja existe um cliente com este ${type === "PF" ? "CPF" : "CNPJ"}: ${duplicate.name}.`);
       return;
     }
     createMutation.mutate({
@@ -130,6 +146,12 @@ export function CustomerQuickCreate({
           placeholder="Apenas numeros"
           inputMode="numeric"
         />
+        {duplicate && (
+          <p className="text-xs text-destructive">
+            Ja existe um cliente com este {type === "PF" ? "CPF" : "CNPJ"}:{" "}
+            <strong>{duplicate.name}</strong>.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1">
@@ -160,7 +182,7 @@ export function CustomerQuickCreate({
             Cancelar
           </Button>
         )}
-        <Button type="button" onClick={handleCreate} disabled={createMutation.isPending}>
+        <Button type="button" onClick={handleCreate} disabled={createMutation.isPending || !!duplicate}>
           {createMutation.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (

@@ -65,6 +65,16 @@ export function DepixQrDialog({
 
   const generateMutation = useMutation(trpc.sale.generatePix.mutationOptions());
   const checkStatusMutation = useMutation(trpc.sale.checkPixStatus.mutationOptions());
+  const cancelMutation = useMutation(trpc.sale.cancelPix.mutationOptions());
+
+  // Cancela o QR: limpa a entry pendente do rascunho (server) e fecha. Fire-
+  // and-forget — nao bloqueia o fechamento (cancelPixPayment expira sozinho).
+  const handleCancel = () => {
+    if (transactionId) {
+      cancelMutation.mutate({ saleId, transactionId });
+    }
+    onClose();
+  };
 
   // Gera o PIX assim que abrir (apos confirmar tax id se necessario)
   useEffect(() => {
@@ -159,7 +169,7 @@ export function DepixQrDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && handleCancel()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Pagamento via DePix</DialogTitle>
@@ -188,7 +198,7 @@ export function DepixQrDialog({
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="outline" onClick={handleCancel}>
                 Cancelar
               </Button>
               <Button onClick={confirmTaxId}>Continuar</Button>
@@ -244,7 +254,7 @@ export function DepixQrDialog({
               </span>
               Aguardando confirmacao do pagamento...
             </div>
-            <Button variant="outline" className="w-full" onClick={onClose}>
+            <Button variant="outline" className="w-full" onClick={handleCancel}>
               Cancelar
             </Button>
           </div>

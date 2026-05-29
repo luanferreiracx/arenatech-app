@@ -137,6 +137,10 @@ export function PdvScreen() {
 
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  // Guarda contra criar 2 rascunhos quando initDraft e disparado em sequencia
+  // rapida (ex: mount + handleNewSale) — antes 2 chains abandon+create podiam
+  // correr e deixar um draft orfao.
+  const initInFlightRef = useRef(false);
 
   // -- Create Draft (zera carrinho anterior antes de criar novo) --
   const abandonDraftMutation = useMutation(
@@ -147,6 +151,8 @@ export function PdvScreen() {
   );
 
   const initDraft = useCallback(() => {
+    if (initInFlightRef.current) return; // ja ha um abandon+create em andamento
+    initInFlightRef.current = true;
     setDraftError(null);
     // Abandona qualquer DRAFT anterior do operador antes de criar um novo.
     // Decisao do dono: PDV nunca reaproveita carrinho — sair e voltar = zero.
@@ -160,6 +166,9 @@ export function PdvScreen() {
           },
           onError: (err) => {
             setDraftError(err.message);
+          },
+          onSettled: () => {
+            initInFlightRef.current = false;
           },
         });
       },
@@ -471,6 +480,11 @@ export function PdvScreen() {
   // -- Keyboard shortcuts --
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Nao dispara atalhos do PDV com um dialog/modal aberto (pagamento,
+      // desconto, cliente, upgrade, QR DePix...). Radix cuida do Escape; F2/F8
+      // abririam busca/pagamento por baixo do modal.
+      if (document.querySelector('[data-slot="dialog-content"]')) return;
+
       const target = e.target as HTMLElement;
       const isInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
@@ -1022,6 +1036,7 @@ export function PdvScreen() {
         onOpenChange={setShowDiscountDialog}
         onApply={handleApplyDiscount}
         isPending={applyDiscountMutation.isPending}
+        subtotalCents={subtotal}
       />
 
       {/* -- Price Check Dialog -- */}

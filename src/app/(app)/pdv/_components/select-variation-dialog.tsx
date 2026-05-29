@@ -60,14 +60,17 @@ export function SelectVariationDialog({
           </div>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {query.data.map((v) => (
+            {query.data.map((v) => {
+              const outOfStock = v.currentStock <= 0;
+              return (
               <button
                 key={v.id}
                 type="button"
+                disabled={outOfStock}
                 onClick={() =>
                   onSelect({ id: v.id, salePrice: v.salePrice, label: v.label })
                 }
-                className="w-full text-left p-3 border border-border rounded-md hover:border-primary hover:bg-accent transition-colors flex items-center justify-between gap-3"
+                className="w-full text-left p-3 border border-border rounded-md hover:border-primary hover:bg-accent transition-colors flex items-center justify-between gap-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:bg-transparent"
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">{v.label}</div>
@@ -93,7 +96,8 @@ export function SelectVariationDialog({
                   {formatCurrency(v.salePrice)}
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </DialogContent>

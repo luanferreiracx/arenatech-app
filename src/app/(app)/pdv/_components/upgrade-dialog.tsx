@@ -465,7 +465,12 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                   max={100}
                   value={batteryHealth}
                   onChange={(e) =>
-                    setBatteryHealth(e.target.value === "" ? "" : Number(e.target.value))
+                    setBatteryHealth(
+                      e.target.value === ""
+                        ? ""
+                        : // clamp 0-100: o atributo max nao impede digitacao
+                          Math.min(100, Math.max(0, Number(e.target.value))),
+                    )
                   }
                   placeholder="Ex.: 85"
                 />
