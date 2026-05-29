@@ -199,7 +199,7 @@ export async function GET(req: NextRequest) {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new NextResponse(buffer as any, {
+    return new NextResponse(buffer as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="relatorio-tecnicos-${dateFrom}_${dateTo}.pdf"`,

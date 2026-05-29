@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
+import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
 
 /**
  * POST /api/webhooks/chatwoot
@@ -39,13 +40,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Determine tenant from account (Chatwoot account maps to tenant)
+    // Determine tenant from account (Chatwoot account maps to tenant).
+    // CHATWOOT_ACCOUNT_TENANT_MAP (JSON {accountId: tenantId}) resolve o tenant
+    // pelo payload em deploys multi-conta; cai no DEFAULT_TENANT_ID quando nao
+    // mapeado (compat com deploy single-tenant atual).
     const account = body.account as Record<string, unknown> | undefined
     const accountId = String(account?.id ?? "")
-
-    // For now, use global admin context to find tenant by Chatwoot account
-    // In production, this would be mapped via a config table
-    const tenantId = process.env.DEFAULT_TENANT_ID
+    const accountTenantMap: Record<string, string> = (() => {
+      try {
+        return JSON.parse(process.env.CHATWOOT_ACCOUNT_TENANT_MAP ?? "{}") as Record<string, string>
+      } catch {
+        return {}
+      }
+    })()
+    const tenantId = accountTenantMap[accountId] ?? process.env.DEFAULT_TENANT_ID
 
     if (!tenantId) {
       logger.warn("Chatwoot webhook: no tenant mapping", { accountId })
@@ -60,6 +68,24 @@ export async function POST(req: NextRequest) {
         const conversation = body.conversation as Record<string, unknown> | undefined
 
         if (!message || !conversation) break
+
+        // Idempotencia: o Chatwoot pode reentregar message_created. Sem guard,
+        // um replay criava ChatbotMessage duplicada. Dedup pela id da mensagem.
+        const messageId = String(body.id ?? "")
+        if (messageId) {
+          const isNew = await recordWebhookEvent({
+            provider: "chatwoot",
+            eventId: `message:${messageId}`,
+            eventType: event,
+            sourceIp: extractSourceIp(req.headers),
+            signatureValid: !!expectedToken,
+            payload: body,
+          })
+          if (!isNew) {
+            logger.info("Chatwoot webhook: mensagem duplicada, ignorando", { messageId })
+            break
+          }
+        }
 
         const isIncoming = messageType === "incoming"
         const senderType = String(sender?.type ?? "")

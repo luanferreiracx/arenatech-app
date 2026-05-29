@@ -1,8 +1,5 @@
-import { getAvailableQuantity } from "@/server/services/product.service"
-
 // Use `any` for tx type to support both PrismaClient and Omit<PrismaClient, ...>
 // from withTenant() transactions. This matches the pattern used across the codebase.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TxClient = any
 
 /**
@@ -45,21 +42,21 @@ export async function reserveStockForOsItem(
     return
   }
 
-  // Validate stock availability
-  const available = await getAvailableQuantity(tx, tenantId, params.productId)
-  if (available < params.quantity) {
-    throw new Error(
-      `Estoque insuficiente para "${product.name}": disponível ${available}, solicitado ${params.quantity}`
-    )
-  }
-
   const before = product.currentStock
 
-  // Decrement stock
-  await tx.product.update({
-    where: { id: params.productId },
+  // Decrement com compare-and-set atomico: so baixa se currentStock >= qty.
+  // Substitui o check-then-decrement (getAvailableQuantity + update), que sob
+  // concorrencia (READ COMMITTED) deixava 2 reservas passarem e o estoque ir
+  // abaixo de zero. Para nao-serializado, available === currentStock.
+  const dec = await tx.product.updateMany({
+    where: { id: params.productId, currentStock: { gte: params.quantity } },
     data: { currentStock: { decrement: params.quantity } },
   })
+  if (dec.count !== 1) {
+    throw new Error(
+      `Estoque insuficiente para "${product.name}": disponível ${before}, solicitado ${params.quantity}`
+    )
+  }
 
   // Create RESERVE movement
   await tx.stockMovement.create({

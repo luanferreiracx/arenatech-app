@@ -33,7 +33,7 @@ export async function GET(
       return NextResponse.json({ error: "Venda nao encontrada" }, { status: 404 });
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new NextResponse(buffer as any, {
+    return new NextResponse(buffer as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="termo-entrega-${id.slice(0, 8)}.pdf"`,

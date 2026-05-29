@@ -2095,27 +2095,29 @@ export const stockRouter = createTRPCRouter({
           if (!variation || variation.productId !== input.productId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao nao pertence a este produto." });
           }
-          if (variation.currentStock < input.quantity) {
+          // compare-and-set atomico (evita oversell sob concorrencia)
+          const rv = await tx.productVariation.updateMany({
+            where: { id: input.variationId, currentStock: { gte: input.quantity } },
+            data: { currentStock: { decrement: input.quantity } },
+          });
+          if (rv.count !== 1) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: `Estoque insuficiente para esta variacao (atual: ${variation.currentStock}).`,
             });
           }
-          await tx.productVariation.update({
-            where: { id: input.variationId },
+        } else {
+          // compare-and-set atomico (evita oversell sob concorrencia)
+          const rp = await tx.product.updateMany({
+            where: { id: input.productId, currentStock: { gte: input.quantity } },
             data: { currentStock: { decrement: input.quantity } },
           });
-        } else {
-          if (product.currentStock < input.quantity) {
+          if (rp.count !== 1) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: `Estoque insuficiente (atual: ${product.currentStock}).`,
             });
           }
-          await tx.product.update({
-            where: { id: input.productId },
-            data: { currentStock: { decrement: input.quantity } },
-          });
         }
 
         await tx.stockMovement.create({
@@ -3078,6 +3080,30 @@ export const stockRouter = createTRPCRouter({
           }
         }
 
+        // Dedup contra DB sem N+1: 1 findMany pra todos os SKUs/barcodes do CSV
+        // (antes era 2 findFirst por linha — centenas de queries num arquivo grande).
+        const csvSkus = input.lines.map((l) => l.sku).filter((s): s is string => !!s);
+        const csvBarcodes = input.lines.map((l) => l.barcode).filter((b): b is string => !!b);
+        const existingProducts =
+          csvSkus.length || csvBarcodes.length
+            ? await tx.product.findMany({
+                where: {
+                  deletedAt: null,
+                  OR: [
+                    ...(csvSkus.length ? [{ sku: { in: csvSkus } }] : []),
+                    ...(csvBarcodes.length ? [{ barcode: { in: csvBarcodes } }] : []),
+                  ],
+                },
+                select: { sku: true, barcode: true },
+              })
+            : [];
+        const existingSku = new Set(
+          existingProducts.map((p) => p.sku).filter((s): s is string => !!s),
+        );
+        const existingBarcode = new Set(
+          existingProducts.map((p) => p.barcode).filter((b): b is string => !!b),
+        );
+
         for (let i = 0; i < input.lines.length; i++) {
           const line = input.lines[i]!;
           if (lineErrors.has(i)) {
@@ -3085,26 +3111,14 @@ export const stockRouter = createTRPCRouter({
             continue;
           }
           try {
-            // Dedup contra DB: ja existe produto com SKU/barcode neste tenant?
-            if (line.sku) {
-              const exists = await tx.product.findFirst({
-                where: { sku: line.sku, deletedAt: null },
-                select: { id: true },
-              });
-              if (exists) {
-                errors.push(`Linha ${i + 1} (${line.name}): SKU "${line.sku}" ja existe`);
-                continue;
-              }
+            // Dedup contra DB (via Sets pre-carregados — sem query por linha).
+            if (line.sku && existingSku.has(line.sku)) {
+              errors.push(`Linha ${i + 1} (${line.name}): SKU "${line.sku}" ja existe`);
+              continue;
             }
-            if (line.barcode) {
-              const exists = await tx.product.findFirst({
-                where: { barcode: line.barcode, deletedAt: null },
-                select: { id: true },
-              });
-              if (exists) {
-                errors.push(`Linha ${i + 1} (${line.name}): Barcode "${line.barcode}" ja existe`);
-                continue;
-              }
+            if (line.barcode && existingBarcode.has(line.barcode)) {
+              errors.push(`Linha ${i + 1} (${line.name}): Barcode "${line.barcode}" ja existe`);
+              continue;
             }
 
             // Resolve category

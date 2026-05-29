@@ -347,7 +347,7 @@ export async function GET(
     const buffer = await renderPdfToBuffer(doc);
     const filename = `${type}-${new Date().toISOString().slice(0, 10)}.pdf`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new NextResponse(buffer as any, {
+    return new NextResponse(buffer as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${filename}"`,

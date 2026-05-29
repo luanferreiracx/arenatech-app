@@ -1673,13 +1673,18 @@ export const financialRouter = createTRPCRouter({
         });
 
         let totalPaid = 0;
+        let paidCount = 0;
 
         for (const installment of payable) {
           const amountDue = Number(installment.amount) - Number(installment.paidAmount);
           const amountCents = Math.round(amountDue * 100);
 
-          await tx.installment.update({
-            where: { id: installment.id },
+          // compare-and-set: so baixa se a parcela AINDA esta PENDING/OVERDUE.
+          // Sem isso, duas baixas-em-lote concorrentes (ou duplo-clique) pagavam
+          // a mesma parcela duas vezes e criavam CashMovement duplicado — caixa
+          // superestimado. Espelha o guard do payInstallment.
+          const upd = await tx.installment.updateMany({
+            where: { id: installment.id, status: { in: ["PENDING", "OVERDUE"] } },
             data: {
               paidAmount: installment.amount,
               paidAt: new Date(),
@@ -1688,6 +1693,7 @@ export const financialRouter = createTRPCRouter({
               status: "PAID",
             },
           });
+          if (upd.count !== 1) continue; // ja foi paga por outra chamada — pula
 
           await recalculateTransactionStatus(tx as never, installment.transactionId);
 
@@ -1710,9 +1716,10 @@ export const financialRouter = createTRPCRouter({
           }
 
           totalPaid += amountCents;
+          paidCount += 1;
         }
 
-        return { success: true, paidCount: payable.length, totalPaidCents: totalPaid };
+        return { success: true, paidCount, totalPaidCents: totalPaid };
       });
     }),
 

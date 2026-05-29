@@ -45,7 +45,7 @@ export async function GET(
     const buffer = Buffer.from(await res.Body.transformToByteArray());
     const contentType = res.ContentType ?? "application/octet-stream";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new NextResponse(buffer as any, {
+    return new NextResponse(buffer as BodyInit, {
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=3600, immutable",
