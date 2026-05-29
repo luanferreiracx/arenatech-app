@@ -964,14 +964,18 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div className="rounded-lg border border-border p-4">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Checklist de Entrada</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                {/* Renderiza TODOS os itens (espelha o wizard). Nao-tocado/null = N/A
+                    — antes itens undefined eram ocultados e o checklist parecia
+                    incompleto vs o que foi preenchido. */}
                 {CHECKLIST_ITEMS.map((item) => {
                   const val = checklist[item.key];
-                  if (val === undefined) return null;
+                  const isOk = val === true;
+                  const isNok = val === false;
                   return (
                     <div key={item.key} className="flex items-center gap-2 py-1">
-                      {val === true && <Check className="w-4 h-4 text-success" />}
-                      {val === false && <X className="w-4 h-4 text-destructive" />}
-                      {val === null && <Minus className="w-4 h-4 text-muted-foreground" />}
+                      {isOk && <Check className="w-4 h-4 text-success" />}
+                      {isNok && <X className="w-4 h-4 text-destructive" />}
+                      {!isOk && !isNok && <Minus className="w-4 h-4 text-muted-foreground" />}
                       <span>{item.label}</span>
                     </div>
                   );

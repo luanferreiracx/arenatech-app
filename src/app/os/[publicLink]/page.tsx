@@ -133,12 +133,6 @@ export default function PublicOrderPage({
           <div className="rounded-lg border border-border bg-card p-6 mb-6">
             <h3 className="font-semibold mb-2">Problema Relatado</h3>
             <p className="text-sm text-muted-foreground">{order.reportedProblem}</p>
-            {order.diagnosedProblem && (
-              <div className="mt-3">
-                <h4 className="font-medium text-sm">Diagnostico</h4>
-                <p className="text-sm text-muted-foreground">{order.diagnosedProblem}</p>
-              </div>
-            )}
           </div>
         )}
 
@@ -169,7 +163,7 @@ export default function PublicOrderPage({
               Historico
             </h3>
             <div className="space-y-3">
-              {order.history.map((h: { newStatus: string; notes: string | null; createdAt: Date }, i: number) => (
+              {order.history.map((h: { newStatus: string; createdAt: Date }, i: number) => (
                 <div key={i} className="flex items-start gap-3 text-sm">
                   <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
                   <div>
@@ -179,7 +173,6 @@ export default function PublicOrderPage({
                     <span className="text-muted-foreground ml-2">
                       {format(new Date(h.createdAt), "dd/MM/yyyy HH:mm")}
                     </span>
-                    {h.notes && <p className="text-muted-foreground text-xs mt-0.5">{h.notes}</p>}
                   </div>
                 </div>
               ))}

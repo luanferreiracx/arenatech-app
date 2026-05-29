@@ -1049,6 +1049,33 @@ export const serviceOrderRouter = createTRPCRouter({
           reReserved++;
         }
 
+        // P5a: restaura os recebiveis que o cancel cancelou (simetria). So os
+        // que foram cancelados PELO cancelamento desta OS (cancelReason com o
+        // prefixo "OS cancelada:") voltam para PENDING.
+        const cancelledTx = await tx.financialTransaction.findMany({
+          where: {
+            serviceOrderId: input.id,
+            status: "CANCELLED",
+            cancelReason: { startsWith: "OS cancelada:" },
+          },
+          select: { id: true },
+        });
+        for (const t of cancelledTx) {
+          await tx.installment.updateMany({
+            where: { transactionId: t.id, status: "CANCELLED" },
+            data: { status: "PENDING" },
+          });
+          await tx.financialTransaction.update({
+            where: { id: t.id },
+            data: {
+              status: "PENDING",
+              cancelledAt: null,
+              cancelledByUserId: null,
+              cancelReason: null,
+            },
+          });
+        }
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -1066,7 +1093,8 @@ export const serviceOrderRouter = createTRPCRouter({
             newStatus: "IN_DIAGNOSIS",
             notes:
               `[DESCANCELAMENTO] ${input.reason}` +
-              (reReserved > 0 ? ` (${reReserved} item(ns) de estoque re-reservado(s))` : ""),
+              (reReserved > 0 ? ` (${reReserved} item(ns) de estoque re-reservado(s))` : "") +
+              (cancelledTx.length > 0 ? ` (${cancelledTx.length} recebivel(is) restaurado(s))` : ""),
           },
         });
 
@@ -1920,7 +1948,8 @@ export const serviceOrderRouter = createTRPCRouter({
           deviceType: order.deviceType,
           deviceModel: order.deviceModel,
           reportedProblem: order.reportedProblem,
-          diagnosedProblem: order.diagnosedProblem,
+          // diagnosedProblem e notas do historico sao INTERNOS — nao expor no
+          // link publico do cliente (pode conter diagnostico tecnico/custos).
           totalAmount: decimalToCents(order.totalAmount),
           entryDate: order.entryDate,
           estimatedDate: order.estimatedDate,
@@ -1935,7 +1964,6 @@ export const serviceOrderRouter = createTRPCRouter({
           })),
           history: order.history.map((h) => ({
             newStatus: h.newStatus,
-            notes: h.notes,
             createdAt: h.createdAt,
           })),
         };
