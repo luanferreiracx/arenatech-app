@@ -275,7 +275,9 @@ Correcao anterior (curl por "fingerprint TLS") estava com a razao errada. Matriz
 - Codigo: `imei-service.ts` consulta via `curl -6` (forca IPv6, escopado so a essa chamada; undici Agent nao carrega no build standalone). curl ja estava no Dockerfile.
 - Infra VPS: `enable_ipv6: true` + `gateway_mode_ipv6=nat` + subnet IPv6 na rede `arenatech` do `docker-compose.prod.yml`; IPv6 forwarding persistente em `/etc/sysctl.d/99-ipv6-forward.conf`. Rede recriada + stack reiniciado.
 
-**Validacao:** typecheck/lint/unit/build local OK; validado em prod end-to-end (consulta IMEI sem "Wrong IP").
+**Validacao:** typecheck/lint/unit/build local OK; validado em prod end-to-end — `curl -6` de dentro do container retorna `orderId` (sem "Wrong IP").
+
+**Hiccup no deploy (resolvido):** a mudanca de network no compose fez o passo `up --no-deps app` do CI falhar ("network has active endpoints") e o app ficou down ~1min. Corrigido com `docker compose down && up` manual na VPS (recria a rede com IPv6). App de volta no ar; deploys seguintes do CI rodam limpos. Lição documentada em memoria [[reference_compose_network_change_deploy]].
 
 ---
 
