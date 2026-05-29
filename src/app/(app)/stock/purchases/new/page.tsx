@@ -160,6 +160,9 @@ export default function NewPurchasePage() {
                       // troca de tipo reseta os ids
                       form.setValue("customerId", null);
                       form.setValue("supplierId", null);
+                      // limpa o rotulo do cliente recem-criado pra nao exibir
+                      // nome antigo no selector quando o id ja foi zerado
+                      setCreatedCustomerLabel(null);
                     }}
                     value={field.value ?? ""}
                   >

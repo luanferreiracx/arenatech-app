@@ -62,12 +62,18 @@ export async function withTenant<T>(
 ): Promise<T> {
   // Validate UUID format to prevent SQL injection via tenantId interpolation
   const validTenantId = uuidSchema.parse(tenantId);
-  return prisma.$transaction(async (tx) => {
-    // SET ROLE first — app_user is subject to RLS (superuser/owner bypasses it)
-    await tx.$executeRawUnsafe(`SET LOCAL ROLE app_user`);
-    await tx.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${validTenantId}'`);
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      // SET ROLE first — app_user is subject to RLS (superuser/owner bypasses it)
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE app_user`);
+      await tx.$executeRawUnsafe(`SET LOCAL app.current_tenant_id = '${validTenantId}'`);
+      return fn(tx);
+    },
+    // Default Prisma timeout (5s) e curto demais para o mutation mais pesado
+    // (finalize do PDV: imports dinamicos + loops de itens + upgrades). Sobe o
+    // teto para 20s; maxWait 10s evita falha quando o pool esta saturado.
+    { timeout: 20_000, maxWait: 10_000 },
+  );
 }
 
 /**
@@ -82,8 +88,11 @@ export async function withTenant<T>(
 export async function withAdmin<T>(
   fn: (tx: TransactionClient) => Promise<T>,
 ): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL ROLE app_admin`);
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE app_admin`);
+      return fn(tx);
+    },
+    { timeout: 20_000, maxWait: 10_000 },
+  );
 }

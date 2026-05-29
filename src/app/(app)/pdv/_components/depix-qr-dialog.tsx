@@ -106,12 +106,20 @@ export function DepixQrDialog({
   useEffect(() => {
     if (!transactionId || status === "paid" || status === "failed") return;
 
+    // Timer do delay de 1.5s ate chamar onPaid. Guardado pra ser cancelado no
+    // cleanup — senao o finalize dispararia mesmo se o operador fechasse o QR
+    // dentro dessa janela.
+    let paidTimer: ReturnType<typeof setTimeout> | null = null;
+    const confirmPaid = () => {
+      setStatus("paid");
+      toast.success("Pagamento confirmado!");
+      paidTimer = setTimeout(() => onPaid(transactionId), 1500);
+    };
+
     // 1) SSE: principal canal de confirmacao
     const es = new EventSource(`/api/sse/sale/${saleId}`);
     es.addEventListener("paid", () => {
-      setStatus("paid");
-      toast.success("Pagamento confirmado!");
-      setTimeout(() => onPaid(transactionId), 1500);
+      confirmPaid();
       es.close();
     });
     es.onerror = () => {
@@ -125,9 +133,7 @@ export function DepixQrDialog({
         {
           onSuccess: (res) => {
             if (res.status === "paid") {
-              setStatus("paid");
-              toast.success("Pagamento confirmado!");
-              setTimeout(() => onPaid(transactionId), 1500);
+              confirmPaid();
             } else if (res.status === "failed" || res.status === "expired") {
               setStatus("failed");
               toast.error(
@@ -141,6 +147,7 @@ export function DepixQrDialog({
     return () => {
       es.close();
       clearInterval(interval);
+      if (paidTimer) clearTimeout(paidTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionId, status]);
@@ -222,6 +229,7 @@ export function DepixQrDialog({
                 <input
                   readOnly
                   value={qrCode}
+                  aria-label="Codigo PIX copia e cola"
                   className="flex-1 px-2 py-1 text-xs font-mono bg-muted rounded border border-border"
                 />
                 <Button type="button" variant="outline" size="sm" onClick={copy}>
