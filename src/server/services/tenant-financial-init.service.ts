@@ -94,6 +94,16 @@ export async function tenantFinancialInit(
       },
     })
   }
+
+  // Seed config de taxa DePix (entrada R$0,99+1,5% / saida R$0,99+1,7%).
+  // Idempotente. So o seed LOCAL aqui — a carteira LWK e provisionada FORA
+  // desta transacao (chamada HTTP), via provisionDepixWallet().
+  const existingFeeConfig = await tx.tenantDepixFeeConfig.findUnique({
+    where: { tenantId },
+  })
+  if (!existingFeeConfig) {
+    await tx.tenantDepixFeeConfig.create({ data: { tenantId } })
+  }
 }
 
 export { FIXED_CATEGORIES, DEFAULT_PAYMENT_METHODS }

@@ -176,6 +176,18 @@ async function main() {
 
   // Ensure no tenant links
   await prisma.userTenant.deleteMany({ where: { userId: noAccessUser.id } });
+
+  // --- DePix fee config (seed local idempotente) ---
+  // Provisionamento da carteira LWK eh feito separadamente (precisa do
+  // servico LWK no ar); aqui so garantimos a config de taxa default.
+  for (const t of [tenantArena, tenantTest]) {
+    await prisma.tenantDepixFeeConfig.upsert({
+      where: { tenantId: t.id },
+      update: {},
+      create: { tenantId: t.id },
+    });
+  }
+  console.log("DePix fee config seeded (arena-tech, loja-teste).");
 }
 
 main()

@@ -20,6 +20,7 @@ import { settingsRouter } from "@/server/api/routers/settings";
 import { valuationRouter } from "@/server/api/routers/valuation";
 import { adminRouter } from "@/server/api/routers/admin";
 import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
+import { depixWalletRouter } from "@/server/api/routers/depix-wallet";
 import { providerCommissionRouter } from "@/server/api/routers/provider-commission";
 import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
@@ -35,6 +36,7 @@ export const appRouter = createTRPCRouter({
   reward: rewardRouter,
   chatbot: chatbotRouter,
   depixWithdraw: depixWithdrawRouter,
+  depixWallet: depixWalletRouter,
   auth: authRouter,
   cashier: cashierRouter,
   catalog: catalogRouter,

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
+import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import {
   createPlanSchema,
@@ -274,7 +275,7 @@ export const adminRouter = createTRPCRouter({
   approvePreRegistration: adminProcedure
     .input(approvePreRegistrationSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withAdmin(async (tx) => {
+      const approved = await ctx.withAdmin(async (tx) => {
         const pr = await tx.preRegistration.findUnique({ where: { id: input.id } });
         if (!pr) throw new TRPCError({ code: "NOT_FOUND" });
         if (pr.status !== "PENDING") {
@@ -312,7 +313,7 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
-        // Seed FIXED financial categories (ADR 0034)
+        // Seed FIXED financial categories (ADR 0034) + fee config DePix
         await tenantFinancialInit(tx as any, tenant.id);
 
         // Update pre-registration
@@ -333,6 +334,16 @@ export const adminRouter = createTRPCRouter({
 
         return { tenantId: tenant.id, userId: user.id, tempPassword };
       });
+
+      // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK).
+      await provisionDepixWallet(approved.tenantId).catch((err) =>
+        logger.error("Falha ao provisionar carteira DePix (approvePreRegistration)", {
+          tenantId: approved.tenantId,
+          err: String(err),
+        }),
+      );
+
+      return approved;
     }),
 
   rejectPreRegistration: adminProcedure
@@ -366,7 +377,7 @@ export const adminRouter = createTRPCRouter({
   createTenant: adminProcedure
     .input(createTenantSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withAdmin(async (tx) => {
+      const created = await ctx.withAdmin(async (tx) => {
         const slug = generateSlug(input.name);
         const tempPassword = generateTempPassword();
 
@@ -407,6 +418,9 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
+        // Seed financeiro + fee config DePix (idempotente, local).
+        await tenantFinancialInit(tx as any, tenant.id);
+
         logger.info("Tenant created manually", {
           tenantId: tenant.id,
           userId,
@@ -415,6 +429,17 @@ export const adminRouter = createTRPCRouter({
 
         return { tenantId: tenant.id, userId, tempPassword: existingUser ? null : tempPassword };
       });
+
+      // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK). Falha
+      // nao reverte o tenant — carteira recuperavel via depixWallet.provision.
+      await provisionDepixWallet(created.tenantId).catch((err) =>
+        logger.error("Falha ao provisionar carteira DePix (createTenant)", {
+          tenantId: created.tenantId,
+          err: String(err),
+        }),
+      );
+
+      return created;
     }),
 
   deleteTenant: adminProcedure

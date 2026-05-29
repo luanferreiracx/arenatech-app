@@ -1,0 +1,45 @@
+/// Vinculo entre tenant e sua carteira Liquid/DePix (gerida pelo servico LWK).
+///
+/// O mnemonic/chave privada NUNCA fica no Postgres — vive so no volume do
+/// servico LWK (WALLET_DATA_DIR/{tenant_id}/, chmod 0600). Aqui guardamos
+/// apenas o descriptor PUBLICO (watch-only) e o endereco mestre de
+/// recebimento. Uma carteira por tenant (PK = tenant_id).
+model TenantDepixWallet {
+  tenantId           String    @id @map("tenant_id") @db.Uuid
+  /// Descriptor publico (watch-only) — permite ver saldo/historico, NAO gastar.
+  liquidDescriptor   String    @map("liquid_descriptor") @db.Text
+  /// Endereco Liquid de recebimento (index 0). Tambem destino das taxas quando
+  /// for a carteira mestre da Arena Tech.
+  masterAddress      String    @map("master_address")
+  network            String    @default("mainnet")
+  /// Endereco pra abastecer L-BTC de fee de rede (previsto p/ fase 2; toda tx
+  /// Liquid paga fee em L-BTC, nao DePix). Nao usado na fase 1.
+  lbtcFundingAddress String?   @map("lbtc_funding_address")
+  provisionedAt      DateTime? @map("provisioned_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("tenant_depix_wallets")
+}
+
+/// Configuracao de taxas que a Arena Tech cobra do tenant por transacao DePix.
+/// Repassada on-chain pra carteira mestre da Arena Tech. Editavel por tenant
+/// (defaults abaixo). Empilha sobre a taxa do off-ramp PixPay no saque.
+///
+/// Entrada (deposito): entryFeeFixed (centavos) + entryFeePercent (%).
+/// Saida (saque):      exitFeeFixed (centavos) + exitFeePercent (%).
+model TenantDepixFeeConfig {
+  tenantId        String   @id @map("tenant_id") @db.Uuid
+  /// Taxa fixa de entrada em centavos (default R$ 0,99 = 99)
+  entryFeeFixed   Int      @default(99) @map("entry_fee_fixed")
+  /// Taxa percentual de entrada (default 1,5%)
+  entryFeePercent Decimal  @default(1.5) @map("entry_fee_percent") @db.Decimal(5, 2)
+  /// Taxa fixa de saida em centavos (default R$ 0,99 = 99)
+  exitFeeFixed    Int      @default(99) @map("exit_fee_fixed")
+  /// Taxa percentual de saida (default 1,7%)
+  exitFeePercent  Decimal  @default(1.7) @map("exit_fee_percent") @db.Decimal(5, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_depix_fee_configs")
+}
