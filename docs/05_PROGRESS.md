@@ -344,9 +344,15 @@ Auditoria do modulo OS apos a reformulacao de orcamento. 7 achados corrigidos (P
 - **P4 — comissao no PDV:** novo `os-commission.service.ts` (`createOsTechnicianCommission`) compartilhado por `registerPayment` e pelo finalize do PDV. Antes, OS paga via PDV (caminho comum) nunca gerava comissao do tecnico.
 - **P1 (refund) — confirmado correto:** modelo "reserva = baixa imediata"; refund so ocorre em OS entregue (peca consumida), logo nao libera estoque (paridade Laravel).
 
-**Backlog exposto (nao corrigido nesta rodada):** P3 (uncancel nao re-reserva), P5 (refund deixa recebivel/comissao orfaos), P6 (registerPayment sem validar paid+desconto==total), P7 (garantia via updateStatus grava recebivel cheio), P8 (produtos com variacao mis-contam), R6/P9 (menores).
+**Rodada 2 (mesmo dia) — lote seguro do backlog:**
+- **P3 (estoque):** `uncancel` re-reserva os itens-produto liberados no cancel (simetria); falha se a peca foi consumida por outra OS no meio-tempo.
+- **P5 (parcial):** `refund` cancela comissoes PENDING/APPROVED do tecnico (nao se paga comissao por OS estornada). Comissao PAGA nao e mexida.
+- **R6:** editar itens/desconto apos enviar o orcamento reseta `sentToCustomer` (exige reenvio — cliente nao aprova valores defasados).
+- **P9 (parcial):** `getByCustomer` ganhou `take: 50`.
 
-**Validacao:** typecheck OK | lint 0 erros | 685 unit+integracao OK | build OK | e2e OS 15/15.
+**Backlog restante (decisao do dono — cluster financeiro + schema):** restauracao de recebiveis no `uncancel`; P6 (registerPayment validar paid+desconto==total + refletir desconto de recompensa no recebivel); P7 (garantia via updateStatus grava recebivel cheio para servico gratuito); P5-restante (Sale vinculada continua COMPLETED no refund de OS paga via PDV); P8 (itens da OS sem variationId — estoque base vs variacoes); byPublicLink expoe diagnostico/historico.
+
+**Validacao:** typecheck OK | lint 0 erros | 703 unit+integracao OK | build OK | e2e OS 15/15.
 
 ---
 

@@ -1029,6 +1029,26 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas OS canceladas podem ser descanceladas." });
         }
 
+        // P3: re-reserva o estoque liberado no cancel (simetria). Se uma peca
+        // foi consumida por outra OS no meio-tempo, reserveStockForOsItem lanca
+        // e o descancelamento falha — nao reativa uma OS sem estoque disponivel.
+        const productItems = await tx.serviceOrderItem.findMany({
+          where: { orderId: input.id, type: "PRODUCT" },
+        });
+        let reReserved = 0;
+        for (const item of productItems) {
+          if (!item.productId) continue;
+          const qty = Number(item.quantity);
+          if (qty <= 0) continue;
+          await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
+            productId: item.productId,
+            quantity: qty,
+            orderId: input.id,
+            itemDescription: item.description,
+          });
+          reReserved++;
+        }
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -1044,7 +1064,9 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: "CANCELLED",
             newStatus: "IN_DIAGNOSIS",
-            notes: `[DESCANCELAMENTO] ${input.reason}`,
+            notes:
+              `[DESCANCELAMENTO] ${input.reason}` +
+              (reReserved > 0 ? ` (${reReserved} item(ns) de estoque re-reservado(s))` : ""),
           },
         });
 
@@ -1079,6 +1101,18 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
+        // P5: cancela comissao ainda nao paga do tecnico — nao se paga comissao
+        // por uma OS estornada. Comissoes ja PAGAS nao sao mexidas (clawback
+        // exige fluxo financeiro proprio).
+        const cancelledCommissions = await tx.commission.updateMany({
+          where: {
+            referenceType: "SERVICE_ORDER",
+            referenceId: input.id,
+            status: { in: ["PENDING", "APPROVED"] },
+          },
+          data: { status: "CANCELLED" },
+        });
+
         await tx.serviceOrderHistory.create({
           data: {
             tenantId: ctx.tenantId,
@@ -1086,7 +1120,11 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: "DELIVERED",
             newStatus: "REFUNDED",
-            notes: `[ESTORNO] ${input.reason}`,
+            notes:
+              `[ESTORNO] ${input.reason}` +
+              (cancelledCommissions.count > 0
+                ? ` (${cancelledCommissions.count} comissao(oes) cancelada(s))`
+                : ""),
           },
         });
 
@@ -2583,6 +2621,9 @@ export const serviceOrderRouter = createTRPCRouter({
             items: { select: { description: true, type: true } },
           },
           orderBy: { createdAt: "desc" },
+          // P9: limite — usado p/ checagem de garantia; clientes antigos podem
+          // ter dezenas de OS. As mais recentes bastam.
+          take: 50,
         });
 
         const techIds = [...new Set(orders.map((o) => o.technicianId).filter(Boolean))] as string[];
@@ -3734,7 +3775,7 @@ async function syncBudgetRevision(tx: any, orderId: string): Promise<void> {
 
   const quote = await tx.serviceOrderQuote.findUnique({
     where: { id: order.pendingQuoteId },
-    select: { status: true },
+    select: { status: true, sentToCustomer: true },
   });
   if (!quote || quote.status !== "pending") return;
 
@@ -3745,6 +3786,9 @@ async function syncBudgetRevision(tx: any, orderId: string): Promise<void> {
       newPartsAmount: order.partsAmount,
       newDiscount: order.discount,
       newTotal: order.totalAmount,
+      // R6: se o orcamento ja tinha sido enviado, a nova edicao o torna defasado
+      // — exige reenvio para o cliente nao aprovar valores antigos.
+      ...(quote.sentToCustomer ? { sentToCustomer: false } : {}),
     },
   });
 }
