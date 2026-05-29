@@ -476,6 +476,7 @@ export const serviceOrderRouter = createTRPCRouter({
               type: item.type,
               serviceId: item.serviceId ?? null,
               productId: item.productId ?? null,
+              variationId: item.variationId ?? null,
               description: item.description,
               quantity: new Prisma.Decimal(item.quantity),
               unitPrice: centsToPrisma(item.unitPrice),
@@ -489,6 +490,7 @@ export const serviceOrderRouter = createTRPCRouter({
             if (item.type === "PRODUCT" && item.productId) {
               await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
                 productId: item.productId,
+                variationId: item.variationId ?? null,
                 quantity: item.quantity,
                 orderId: order.id,
                 itemDescription: item.description,
@@ -1306,6 +1308,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (input.type === "PRODUCT" && input.productId) {
           await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
             productId: input.productId,
+            variationId: input.variationId ?? null,
             quantity: input.quantity,
             orderId: input.orderId,
             itemDescription: input.description,
@@ -1319,6 +1322,7 @@ export const serviceOrderRouter = createTRPCRouter({
             type: input.type,
             serviceId: input.serviceId ?? null,
             productId: input.productId ?? null,
+            variationId: input.variationId ?? null,
             description: input.description,
             quantity: new Prisma.Decimal(input.quantity),
             unitPrice: centsToPrisma(input.unitPrice),
@@ -1378,6 +1382,7 @@ export const serviceOrderRouter = createTRPCRouter({
           if (delta > 0) {
             await reserveStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
               productId: item.productId,
+              variationId: item.variationId ?? null,
               quantity: delta,
               orderId: item.orderId,
               itemDescription: item.description,
@@ -1385,6 +1390,7 @@ export const serviceOrderRouter = createTRPCRouter({
           } else if (delta < 0) {
             await releaseStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
               productId: item.productId,
+              variationId: item.variationId ?? null,
               quantity: -delta,
               orderId: item.orderId,
               reason: `Ajuste de quantidade na OS: ${item.description}`,
@@ -1435,6 +1441,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (item.type === "PRODUCT" && item.productId) {
           await releaseStockForOsItem(tx, ctx.tenantId, ctx.session.user.id, {
             productId: item.productId,
+            variationId: item.variationId ?? null,
             quantity: Number(item.quantity),
             orderId: item.orderId,
             reason: `Item removido da OS: ${item.description}`,
@@ -2794,6 +2801,12 @@ export const serviceOrderRouter = createTRPCRouter({
           where,
           orderBy: { name: "asc" },
           take: limit,
+          include: {
+            variations: {
+              where: { active: true, deletedAt: null },
+              include: { attributeValues: { include: { attributeValue: true } } },
+            },
+          },
         });
 
         return products.map((p) => ({
@@ -2801,11 +2814,24 @@ export const serviceOrderRouter = createTRPCRouter({
           name: p.name,
           brand: p.brand,
           sku: p.sku,
-          // Estoque real: filtramos apenas isSerialized=false acima, entao
-          // currentStock e a fonte da verdade.
+          // Produtos sem variacao: currentStock e a fonte da verdade. Com
+          // variacao, o estoque/preco vem de cada variacao (abaixo).
           stock: p.currentStock,
           costPrice: decimalToCents(p.costPrice),
           salePrice: decimalToCents(p.salePrice),
+          hasVariations: p.hasVariations,
+          variations: p.hasVariations
+            ? p.variations.map((v) => ({
+                id: v.id,
+                label:
+                  v.attributeValues
+                    .map((av) => av.attributeValue.displayValue ?? av.attributeValue.value)
+                    .join(" / ") || (v.sku ?? "Variacao"),
+                stock: v.currentStock,
+                salePrice: decimalToCents(v.salePrice ?? p.salePrice),
+                costPrice: decimalToCents(v.costPrice ?? p.costPrice),
+              }))
+            : [],
         }));
       });
     }),
@@ -3763,6 +3789,7 @@ type ItemSnapshot = {
   type: "SERVICE" | "PRODUCT";
   serviceId: string | null;
   productId: string | null;
+  variationId: string | null;
   description: string;
   quantity: number;
   unitPrice: number; // centavos
@@ -3776,6 +3803,7 @@ function snapshotItems(items: any[]): ItemSnapshot[] {
     type: i.type,
     serviceId: i.serviceId ?? null,
     productId: i.productId ?? null,
+    variationId: i.variationId ?? null,
     description: i.description,
     quantity: Number(i.quantity),
     unitPrice: decimalToCents(i.unitPrice),
@@ -3947,6 +3975,7 @@ async function revertItemsToSnapshot(
         type: s.type,
         serviceId: s.serviceId ?? null,
         productId: s.productId ?? null,
+        variationId: s.variationId ?? null,
         description: s.description,
         quantity: new Prisma.Decimal(s.quantity),
         unitPrice: centsToPrisma(s.unitPrice),
@@ -3960,6 +3989,7 @@ async function revertItemsToSnapshot(
       if (s.type === "PRODUCT" && s.productId) {
         await reserveStockForOsItem(tx, order.tenantId, userId, {
           productId: s.productId,
+          variationId: s.variationId ?? null,
           quantity: s.quantity,
           orderId: order.id,
           itemDescription: s.description,

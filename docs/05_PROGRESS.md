@@ -262,6 +262,29 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-29 — OS: rodada 3 (bugs reportados + cluster financeiro + variacoes)
+
+Continuacao da auditoria, agora com bugs vistos em uma OS real + cluster financeiro + P8.
+
+**Bugs/UX:**
+- Checklist do detalhe renderiza os 15 itens (nao-tocado = N/A); antes itens nao marcados sumiam e parecia divergir do preenchido.
+- Termos: `termsOfService` + `warrantyPolicy` (Config > Assistencia, os mesmos do PDF) agora aparecem no detalhe da OS.
+- Alerta ao tecnico na criacao migrado de Evolution para Cloud API (`sendCloudText`) — nao chegava em producao.
+- Ao criar OS, modal de confirmacao oferece enviar o link de rastreamento ao cliente (sendTracking com phone opcional → fallback telefone do cliente).
+- byPublicLink nao expoe mais `diagnosedProblem` nem notas internas do historico.
+
+**Financeiro (cluster decidido pelo dono):**
+- P5a: `uncancel` restaura recebiveis cancelados pelo `cancel` (+ re-reserva estoque).
+- P5b: estornar OS paga via PDV agora estorna a Sale vinculada (saida de caixa + cancela recebiveis + REFUNDED com CAS).
+- P6: desconto de recompensa reduz o valor liquido recebido (recebivel/caixa/paidAmount/comissao usam `collected`).
+- P7: pagamento de garantia oferece "Cortesia (R$0)" OU "Cobrar via PDV" — antes gravava recebivel cheio para servico gratuito.
+
+**P8 — variacoes no estoque da OS:** `ServiceOrderItem.variationId` (migration `20260529150000`). Reserva/baixa ocorre na `ProductVariation.currentStock` (paridade PDV) quando ha variationId, nao no estoque base. `searchParts` retorna variacoes; o add-item do detalhe abre escolha de variacao para produtos com variacoes. snapshot/revert carregam variationId. (Wizard de criacao nao vincula produtos a estoque — sem impacto.)
+
+**Validacao:** typecheck OK | lint 0 erros | 703 unit+integracao OK | build OK.
+
+---
+
 ### 2026-05-29 — CONSULTA IMEI: "Wrong IP" era fingerprint TLS, nao filtro de IP
 
 Sintoma: app retornava "Wrong IP - please reset or disable ip protection" mesmo com a key correta (a mesma do Laravel). Dono afirmou (corretamente) que a CheckIMEI nao tem filtro de IP. Investigacao na VPS, lado a lado, mesma key, mesmo IPv6, mesmo instante:

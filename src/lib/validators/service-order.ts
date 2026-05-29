@@ -262,6 +262,7 @@ export const createItemSchema = z.object({
   type: serviceOrderItemTypeEnum,
   serviceId: z.string().uuid().optional().nullable(),
   productId: z.string().uuid().optional().nullable(),
+  variationId: z.string().uuid().optional().nullable(),
   description: z.string().min(1, "Descricao obrigatoria"),
   quantity: z.number().int().min(1, "Quantidade minima 1"),
   unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
@@ -370,6 +371,7 @@ export const addItemSchema = z.object({
   type: serviceOrderItemTypeEnum,
   serviceId: z.string().uuid().optional().nullable(),
   productId: z.string().uuid().optional().nullable(),
+  variationId: z.string().uuid().optional().nullable(),
   description: z.string().min(1, "Descricao obrigatoria"),
   quantity: z.number().int().min(1),
   unitPrice: z.number().int().min(0), // centavos

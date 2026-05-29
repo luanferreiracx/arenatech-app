@@ -24,11 +24,48 @@ export async function reserveStockForOsItem(
   userId: string,
   params: {
     productId: string
+    variationId?: string | null
     quantity: number
     orderId: string
     itemDescription: string
   }
 ): Promise<void> {
+  // Produto com variacao: reserva na ProductVariation.currentStock (paridade
+  // com o PDV/sale.finalize), nao no estoque base. CAS via `gte`.
+  if (params.variationId) {
+    const variation = await tx.productVariation.findUnique({
+      where: { id: params.variationId },
+      select: { currentStock: true },
+    })
+    if (!variation) return
+    const before = variation.currentStock
+    const cas = await tx.productVariation.updateMany({
+      where: { id: params.variationId, currentStock: { gte: params.quantity } },
+      data: { currentStock: { decrement: params.quantity } },
+    })
+    if (cas.count !== 1) {
+      throw new Error(
+        `Estoque insuficiente para a variacao: disponivel ${before}, solicitado ${params.quantity}`
+      )
+    }
+    await tx.stockMovement.create({
+      data: {
+        tenantId,
+        productId: params.productId,
+        variationId: params.variationId,
+        type: "RESERVE",
+        quantity: params.quantity,
+        quantityBefore: before,
+        quantityAfter: before - params.quantity,
+        reason: `Reserva para OS: ${params.itemDescription}`,
+        referenceType: "service_order",
+        referenceId: params.orderId,
+        userId,
+      },
+    })
+    return
+  }
+
   const product = await tx.product.findUnique({
     where: { id: params.productId },
     select: { id: true, isSerialized: true, currentStock: true, name: true },
@@ -85,11 +122,42 @@ export async function releaseStockForOsItem(
   userId: string,
   params: {
     productId: string
+    variationId?: string | null
     quantity: number
     orderId: string
     reason: string
   }
 ): Promise<void> {
+  // Produto com variacao: devolve para a ProductVariation.currentStock.
+  if (params.variationId) {
+    const variation = await tx.productVariation.findUnique({
+      where: { id: params.variationId },
+      select: { currentStock: true },
+    })
+    if (!variation) return
+    const before = variation.currentStock
+    await tx.productVariation.update({
+      where: { id: params.variationId },
+      data: { currentStock: { increment: params.quantity } },
+    })
+    await tx.stockMovement.create({
+      data: {
+        tenantId,
+        productId: params.productId,
+        variationId: params.variationId,
+        type: "RELEASE",
+        quantity: params.quantity,
+        quantityBefore: before,
+        quantityAfter: before + params.quantity,
+        reason: params.reason,
+        referenceType: "service_order",
+        referenceId: params.orderId,
+        userId,
+      },
+    })
+    return
+  }
+
   const product = await tx.product.findUnique({
     where: { id: params.productId },
     select: { id: true, isSerialized: true, currentStock: true },
@@ -150,6 +218,7 @@ export async function releaseAllOsItems(
 
     await releaseStockForOsItem(tx, tenantId, userId, {
       productId: item.productId,
+      variationId: item.variationId ?? null,
       quantity,
       orderId,
       reason: `Estoque liberado — OS cancelada: ${item.description}`,

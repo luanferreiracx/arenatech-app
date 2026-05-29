@@ -115,7 +115,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [newItemQty, setNewItemQty] = useState(1);
   const [newItemPrice, setNewItemPrice] = useState(0);
   const [newItemProductId, setNewItemProductId] = useState<string | null>(null);
+  const [newItemVariationId, setNewItemVariationId] = useState<string | null>(null);
   const [newItemCostPrice, setNewItemCostPrice] = useState(0);
+  // Produto com variacoes selecionado e aguardando escolha da variacao.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [pendingVariationProduct, setPendingVariationProduct] = useState<any | null>(null);
   const [partsSearch, setPartsSearch] = useState("");
   const [partsDebounced, setPartsDebounced] = useState("");
   useEffect(() => {
@@ -1496,6 +1500,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         setAddItemDialog(open);
         if (!open) {
           setNewItemProductId(null);
+          setNewItemVariationId(null);
+          setPendingVariationProduct(null);
           setNewItemCostPrice(0);
           setPartsSearch("");
           setPartsDebounced("");
@@ -1508,6 +1514,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Select value={newItemType} onValueChange={(v) => {
                 setNewItemType(v as "SERVICE" | "PRODUCT");
                 setNewItemProductId(null);
+                setNewItemVariationId(null);
+                setPendingVariationProduct(null);
                 setNewItemCostPrice(0);
                 setPartsSearch("");
                 setPartsDebounced("");
@@ -1538,7 +1546,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                           key={p.id}
                           type="button"
                           onClick={() => {
+                            // Produto com variacoes: abre escolha da variacao em
+                            // vez de finalizar (o estoque vive na variacao).
+                            if (p.hasVariations && p.variations.length > 0) {
+                              setPendingVariationProduct(p);
+                              setPartsSearch("");
+                              setPartsDebounced("");
+                              return;
+                            }
                             setNewItemProductId(p.id);
+                            setNewItemVariationId(null);
                             setNewItemDesc(p.name);
                             setNewItemPrice(p.salePrice);
                             setNewItemCostPrice(p.costPrice);
@@ -1554,7 +1571,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                               {p.sku && `• ${p.sku}`}
                             </span>
                             <span>
-                              Estoque: {p.stock} • {(p.salePrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                              {p.hasVariations
+                                ? `${p.variations.length} variacao(oes)`
+                                : `Estoque: ${p.stock} • ${(p.salePrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
                             </span>
                           </div>
                         </button>
@@ -1565,6 +1584,41 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <p className="text-xs text-muted-foreground">
                   Selecione uma peca acima ou digite a descricao manualmente abaixo.
                 </p>
+              </div>
+            )}
+
+            {/* Escolha da variacao do produto selecionado. */}
+            {newItemType === "PRODUCT" && !newItemProductId && pendingVariationProduct && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Variacao de {pendingVariationProduct.name}</Label>
+                  <Button variant="ghost" size="sm" onClick={() => setPendingVariationProduct(null)}>Voltar</Button>
+                </div>
+                <div className="border border-border rounded-md max-h-48 overflow-y-auto bg-background">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {pendingVariationProduct.variations.map((v: any) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      disabled={v.stock <= 0}
+                      onClick={() => {
+                        setNewItemProductId(pendingVariationProduct.id);
+                        setNewItemVariationId(v.id);
+                        setNewItemDesc(`${pendingVariationProduct.name} — ${v.label}`);
+                        setNewItemPrice(v.salePrice);
+                        setNewItemCostPrice(v.costPrice);
+                        setPendingVariationProduct(null);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-muted border-b border-border/40 last:border-b-0 transition-colors disabled:opacity-50"
+                    >
+                      <div className="text-sm font-medium">{v.label}</div>
+                      <div className="text-xs text-muted-foreground flex justify-between">
+                        <span>{v.stock <= 0 ? "Sem estoque" : `Estoque: ${v.stock}`}</span>
+                        <span>{(v.salePrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1579,6 +1633,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   size="sm"
                   onClick={() => {
                     setNewItemProductId(null);
+                    setNewItemVariationId(null);
                     setNewItemCostPrice(0);
                     setNewItemDesc("");
                     setNewItemPrice(0);
@@ -1613,7 +1668,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   description: newItemDesc,
                   quantity: newItemQty,
                   unitPrice: newItemPrice,
-                  ...(newItemProductId ? { productId: newItemProductId, costPrice: newItemCostPrice } : {}),
+                  ...(newItemProductId
+                    ? { productId: newItemProductId, costPrice: newItemCostPrice, variationId: newItemVariationId }
+                    : {}),
                 })
               }
             >

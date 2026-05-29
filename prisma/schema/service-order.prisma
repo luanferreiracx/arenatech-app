@@ -186,6 +186,10 @@ model ServiceOrderItem {
   type            ServiceOrderItemType
   serviceId       String?              @map("service_id") @db.Uuid
   productId       String?              @map("product_id") @db.Uuid
+  // Variacao do produto (quando o produto tem variacoes). A reserva/baixa de
+  // estoque ocorre na ProductVariation.currentStock, nao na base — paridade
+  // com o PDV (sale.finalize). Null para produtos sem variacao/servicos.
+  variationId     String?              @map("variation_id") @db.Uuid
   description     String
   quantity        Decimal              @default(1) @db.Decimal(10, 2)
   unitPrice       Decimal              @map("unit_price") @db.Decimal(10, 2)
