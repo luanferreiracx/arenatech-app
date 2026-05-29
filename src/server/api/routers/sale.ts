@@ -1617,17 +1617,24 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total
+        // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total.
+        // compare-and-set no status: dois estornos concorrentes da mesma venda
+        // serializam no lock de linha do UPDATE; o perdedor ve o status ja
+        // alterado (count=0), lanca e faz ROLLBACK de toda a tx (estoque,
+        // CashMovement, recebiveis) — evita estorno/saida de caixa em dobro.
         if (isPartial) {
           // Recalcula total = total atual - refundedCents
           const newTotal = decimalToCents(sale.totalAmount) - refundedCents;
-          await tx.sale.update({
-            where: { id: input.saleId },
+          const r = await tx.sale.updateMany({
+            where: { id: input.saleId, status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] } },
             data: {
               status: "PARTIALLY_REFUNDED",
               totalAmount: centsToPrisma(Math.max(0, newTotal)),
             },
           });
+          if (r.count !== 1) {
+            throw new TRPCError({ code: "CONFLICT", message: "Venda ja estornada por outra operacao." });
+          }
           // Marca itens estornados (paridade Laravel `estornado`): zera total
           // e desconto desse item. Mantem o registro para auditoria.
           await tx.saleItem.updateMany({
@@ -1635,8 +1642,8 @@ export const saleRouter = createTRPCRouter({
             data: { total: centsToPrisma(0), discount: centsToPrisma(0) },
           });
         } else {
-          await tx.sale.update({
-            where: { id: input.saleId },
+          const r = await tx.sale.updateMany({
+            where: { id: input.saleId, status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] } },
             data: {
               status: "REFUNDED",
               cancelledAt: new Date(),
@@ -1644,6 +1651,9 @@ export const saleRouter = createTRPCRouter({
               cancellationReason: input.reason,
             },
           });
+          if (r.count !== 1) {
+            throw new TRPCError({ code: "CONFLICT", message: "Venda ja estornada por outra operacao." });
+          }
         }
 
         // Auditoria (paridade PdvVendaAuditoria)

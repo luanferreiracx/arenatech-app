@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { Copy, CheckCircle2, Loader2, X } from "lucide-react";
@@ -53,6 +53,8 @@ export function DepixQrDialog({
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"pending" | "paid" | "failed">("pending");
+  // Garante que onPaid seja agendado uma unica vez (SSE OU polling, nao ambos).
+  const paidFiredRef = useRef(false);
 
   // Regra DePix: PIX >= R$ 500 exige CPF/CNPJ. Se cliente nao tem cadastrado,
   // pede ao operador antes de gerar o QR.
@@ -121,6 +123,10 @@ export function DepixQrDialog({
     // dentro dessa janela.
     let paidTimer: ReturnType<typeof setTimeout> | null = null;
     const confirmPaid = () => {
+      // Idempotente: SSE e polling sao dois canais independentes de confirmacao.
+      // Sem o guard, ambos disparavam onPaid e o leg DePix entrava 2x no carrinho.
+      if (paidFiredRef.current) return;
+      paidFiredRef.current = true;
       setStatus("paid");
       toast.success("Pagamento confirmado!");
       paidTimer = setTimeout(() => onPaid(transactionId), 1500);

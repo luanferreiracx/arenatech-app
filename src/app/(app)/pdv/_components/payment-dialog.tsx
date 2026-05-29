@@ -217,6 +217,9 @@ export function PaymentDialog({
   };
 
   const handleFinalize = () => {
+    // Guarda contra duplo-clique/Enter antes do botao desabilitar (o servidor
+    // ja barra via guard de status DRAFT, mas evita 2 chamadas + toast confuso).
+    if (finalizeMutation.isPending) return;
     if (isDowngrade) {
       // Downgrade: cliente nao paga; loja devolve refundDueAmount.
       finalizeMutation.mutate(

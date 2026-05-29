@@ -22,6 +22,12 @@ export async function GET(
   const tenantId = req.cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
   if (!tenantId) return new Response("No active tenant", { status: 403 });
 
+  // Defense-in-depth: re-valida membership do tenant (cookie nao confiavel).
+  const isMember =
+    session.user.isSuperAdmin === true ||
+    session.availableTenants.some((t) => t.id === tenantId);
+  if (!isMember) return new Response("Forbidden", { status: 403 });
+
   const owns = await withTenant(tenantId, async (tx) => {
     const q = await tx.quickSale.findUnique({ where: { id }, select: { id: true } });
     return !!q;

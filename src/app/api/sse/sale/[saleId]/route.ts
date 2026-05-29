@@ -37,6 +37,15 @@ export async function GET(
   if (!tenantId) {
     return new Response("No active tenant", { status: 403 });
   }
+  // Defense-in-depth: o x-active-tenant vem de cookie. Re-valida membership
+  // aqui tambem (nao so no proxy) — senao um cookie forjado apontando pra outro
+  // tenant aplicaria RLS daquele tenant e vazaria o stream de pagamento.
+  const isMember =
+    session.user.isSuperAdmin === true ||
+    session.availableTenants.some((t) => t.id === tenantId);
+  if (!isMember) {
+    return new Response("Forbidden", { status: 403 });
+  }
   const owns = await withTenant(tenantId, async (tx) => {
     const s = await tx.sale.findUnique({ where: { id: saleId }, select: { id: true } });
     return !!s;
