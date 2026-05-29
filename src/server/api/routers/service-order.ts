@@ -50,6 +50,7 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
+import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
@@ -346,6 +347,12 @@ export const serviceOrderRouter = createTRPCRouter({
           select: { id: true, name: true, cpf: true, cnpj: true, phone: true, phoneSecondary: true, email: true },
         });
 
+        // Termos/garantia configurados (exibidos dentro da OS, paridade Laravel).
+        const assistance = await tx.tenantAssistanceSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { termsOfService: true, warrantyPolicy: true },
+        });
+
         // Load users (technician, created by, vendor) via withAdmin
         const userIds = [order.createdById, order.technicianId, order.vendorId, order.refundedById].filter(Boolean) as string[];
         const historyUserIds = order.history.map((h) => h.userId);
@@ -391,6 +398,8 @@ export const serviceOrderRouter = createTRPCRouter({
             ["owner", "admin", "manager"].includes(
               ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "",
             ),
+          termsOfService: assistance?.termsOfService ?? null,
+          warrantyPolicy: assistance?.warrantyPolicy ?? null,
           history: order.history.map((h) => ({
             ...h,
             userName: userMap.get(h.userId) ?? "Sistema",
@@ -538,7 +547,9 @@ export const serviceOrderRouter = createTRPCRouter({
             : "") +
           (input.reportedProblem ? `Defeito relatado: ${input.reportedProblem}\n` : "") +
           `\nAcesse o sistema pra mais detalhes.`;
-        sendTextMessage(txResult.technicianPhone, text).catch((err) => {
+        // Cloud API (mesmo canal das demais notificacoes da OS) — o
+        // sendTextMessage/Evolution antigo nao chegava em producao.
+        sendCloudText(txResult.technicianPhone, text).catch((err) => {
           logger.warn("Falha ao notificar tecnico via WhatsApp", {
             orderId: txResult.id,
             technicianName: txResult.technicianName,
@@ -2733,7 +2744,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(sendTrackingSchema)
     .mutation(async ({ ctx, input }) => {
       // Fetch curto na tx — envio HTTP fora.
-      const { order, customerName, appUrl, trackingUrl } = await ctx.withTenant(async (tx) => {
+      const { order, customerName, phone, trackingUrl } = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
         if (!order.publicLink) {
@@ -2741,14 +2752,18 @@ export const serviceOrderRouter = createTRPCRouter({
         }
         const customer = await tx.customer.findUnique({
           where: { id: order.customerId },
-          select: { name: true },
+          select: { name: true, phone: true },
         });
+        const phone = input.phone ?? customer?.phone ?? null;
+        if (!phone) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone para envio." });
+        }
         const appUrl =
           process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
         return {
           order,
           customerName: customer?.name ?? "Cliente",
-          appUrl,
+          phone,
           trackingUrl: `${appUrl}/os/${order.publicLink}`,
         };
       });
@@ -2756,7 +2771,7 @@ export const serviceOrderRouter = createTRPCRouter({
       const freeText = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\nArena Tech`;
       // Template fora da janela 24h — paridade Laravel `os_rastreamento`.
       const result = await sendTextWithFallback({
-        phone: input.phone,
+        phone,
         freeText,
         contexto: "os_rastreamento",
         params: [customerName, order.number],

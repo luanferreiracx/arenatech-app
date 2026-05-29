@@ -552,10 +552,10 @@ export const searchPartsSchema = z.object({
   limit: z.number().int().min(1).max(50).optional(),
 });
 
-/** Send tracking link via WhatsApp */
+/** Send tracking link via WhatsApp. Phone opcional — fallback p/ telefone do cliente. */
 export const sendTrackingSchema = z.object({
   orderId: z.string().uuid(),
-  phone: z.string().min(8).max(30),
+  phone: z.string().min(8).max(30).optional().nullable(),
 });
 
 /** Notify delivery person via WhatsApp */

@@ -1397,6 +1397,28 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
 
+          {/* Termos e Garantia (texto configurado em Configuracoes > Assistencia,
+              tambem impresso no PDF da OS). Paridade Laravel: termo dentro da OS. */}
+          {(order.termsOfService || order.warrantyPolicy) && (
+            <div className="rounded-lg border border-border p-4">
+              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Termos</h3>
+              <div className="space-y-3 text-sm">
+                {order.termsOfService && (
+                  <div>
+                    <p className="text-muted-foreground text-xs mb-1">Termos de servico</p>
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.termsOfService}</p>
+                  </div>
+                )}
+                {order.warrantyPolicy && (
+                  <div>
+                    <p className="text-muted-foreground text-xs mb-1">Politica de garantia</p>
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.warrantyPolicy}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Responsible */}
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">

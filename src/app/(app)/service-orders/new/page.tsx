@@ -6,6 +6,7 @@ import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/domain/page-header";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { StepCustomer } from "./_steps/step-customer";
@@ -35,13 +36,27 @@ export default function NewServiceOrderPage() {
     isWarranty: false,
     warrantyMonths: 3,
   });
+  // OS recem-criada — dispara o modal de confirmacao de envio do rastreamento.
+  const [createdOrder, setCreatedOrder] = useState<{ id: string; number: string } | null>(null);
+
+  const sendTrackingMut = useMutation(
+    trpc.serviceOrder.sendTracking.mutationOptions({
+      onSuccess: () => toast.success("Link de rastreamento enviado ao cliente!"),
+      onError: (e) => toast.error(e.message),
+      onSettled: () => {
+        if (createdOrder) router.push(`/service-orders/${createdOrder.id}`);
+      },
+    })
+  );
 
   const createMutation = useMutation(
     trpc.serviceOrder.create.mutationOptions({
       onSuccess: (result) => {
         toast.success(`OS ${result.number} criada com sucesso!`);
         void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
-        router.push(`/service-orders/${result.id}`);
+        // Abre o modal de confirmacao de envio do rastreamento ao cliente; o
+        // redirecionamento para o detalhe acontece apos enviar ou pular.
+        setCreatedOrder({ id: result.id, number: result.number });
       },
       onError: (err) => {
         toast.error(err.message ?? "Erro ao criar OS");
@@ -176,6 +191,24 @@ export default function NewServiceOrderPage() {
           </Button>
         )}
       </div>
+
+      {/* Confirmacao de envio do link de rastreamento ao cliente apos criar a OS. */}
+      <ConfirmDialog
+        open={!!createdOrder}
+        onOpenChange={(o) => {
+          // Fechar sem enviar (Cancelar/Pular) = vai pro detalhe sem rastreamento.
+          if (!o && createdOrder && !sendTrackingMut.isPending) {
+            router.push(`/service-orders/${createdOrder.id}`);
+          }
+        }}
+        title={`OS ${createdOrder?.number ?? ""} criada`}
+        description="Enviar o link de rastreamento ao cliente por WhatsApp agora?"
+        confirmLabel="Enviar rastreamento"
+        isLoading={sendTrackingMut.isPending}
+        onConfirm={() => {
+          if (createdOrder) sendTrackingMut.mutate({ orderId: createdOrder.id });
+        }}
+      />
     </div>
   );
 }
