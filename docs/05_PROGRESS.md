@@ -277,6 +277,25 @@ Gap de paridade nao capturado antes: no Laravel o simulador usa `configuracoes_p
 
 ---
 
+### 2026-05-29 — OS: hardening pos-auditoria (assinatura, reversao, estoque, comissao)
+
+Auditoria do modulo OS apos a reformulacao de orcamento. 7 achados corrigidos (P1 confirmado correto, mantido):
+
+- **R1 — gate de assinatura:** `updateStatus`/`update` agora usam `isEntrySigned` (inclui `entrySignatureAt`). Antes, assinatura via signature-pad travava o avanco de status (UI dizia "assinado", servidor nao).
+- **R2 — quote legado:** `revertItemsToSnapshot` ignora itens quando `previousItemsSnapshot` e null (orcamentos pendentes de antes da migration de snapshots). Antes, rejeitar zerava todos os itens.
+- **R3 — integridade de estoque na reversao:** removido o best-effort silencioso; se a re-reserva nao puder ser satisfeita, a tx faz rollback (sem item-sem-reserva).
+- **R4 — link publico:** `assertOrderAcceptsQuote` bloqueia aprovar/rejeitar/enviar orcamento quando a OS esta excluida ou terminal (evita reativar OS cancelada/entregue via link antigo).
+- **R5 — concorrencia:** indice unico parcial `service_order_quotes_one_pending_per_order` (1 orcamento pending por OS) + dedup. Migration `20260529130000_os_quote_single_pending`.
+- **P2 — delete libera estoque:** `delete` agora chama `releaseAllOsItems` (consistente com `cancel`).
+- **P4 — comissao no PDV:** novo `os-commission.service.ts` (`createOsTechnicianCommission`) compartilhado por `registerPayment` e pelo finalize do PDV. Antes, OS paga via PDV (caminho comum) nunca gerava comissao do tecnico.
+- **P1 (refund) — confirmado correto:** modelo "reserva = baixa imediata"; refund so ocorre em OS entregue (peca consumida), logo nao libera estoque (paridade Laravel).
+
+**Backlog exposto (nao corrigido nesta rodada):** P3 (uncancel nao re-reserva), P5 (refund deixa recebivel/comissao orfaos), P6 (registerPayment sem validar paid+desconto==total), P7 (garantia via updateStatus grava recebivel cheio), P8 (produtos com variacao mis-contam), R6/P9 (menores).
+
+**Validacao:** typecheck OK | lint 0 erros | 685 unit+integracao OK | build OK | e2e OS 15/15.
+
+---
+
 ### 2026-05-28 — OS: valores unificados nos itens + autorizacao de orcamento pos-assinatura
 
 Reformulacao completa de "alteracao de orcamento / valores na OS". A causa-raiz era um conflito arquitetural: os totais eram items-driven (`recalculateOrderTotals`), mas o fluxo de orcamento gravava valores flat (`createQuote`) sem mexer nos itens — a proxima operacao de item apagava o valor aprovado (corrupcao de dados).

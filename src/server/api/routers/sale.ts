@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
+import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -1126,6 +1127,14 @@ export const saleRouter = createTRPCRouter({
                 notes: `Pagamento via PDV - venda ${saleNumber}`,
               },
             });
+            // P4: comissao do tecnico tambem no pagamento via PDV (antes so o
+            // registerPayment criava — caminho comum da UI ficava sem comissao).
+            await createOsTechnicianCommission(
+              tx,
+              ctx.tenantId,
+              { id: order.id, number: order.number, technicianId: order.technicianId },
+              totalCents,
+            );
           }
         }
 

@@ -58,6 +58,7 @@ import {
   releaseStockForOsItem,
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
+import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
 // ── Helpers ──
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -564,7 +565,7 @@ export const serviceOrderRouter = createTRPCRouter({
         // Paridade Laravel `update`:
         // - osAssinada → bloqueia equipamento/IMEI/problema relatado/entryChecklist/deviceInfo
         // - osConcluida → bloqueia ADICIONALMENTE diagnosedProblem/internalNotes/warrantyMonths
-        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        const isSigned = isEntrySigned(order);
         const isCompleted = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
         const lockedFields = new Set<string>();
         if (isSigned) {
@@ -649,11 +650,11 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Exigir assinatura de entrada (Autentique OU fisica) antes de avancar o
-        // status para alem de OPEN. Cancelamento e estados especiais sao excecao.
-        // Paridade com regra do Laravel: aparelho na loja exige assinatura antes
-        // de iniciar o fluxo de servico.
-        const isSigned = !!order.signatureSignedAt || order.physicalSignature;
+        // Exigir assinatura de entrada (Autentique, fisica OU signature-pad) antes
+        // de avancar o status para alem de OPEN. Cancelamento e estados especiais
+        // sao excecao. Paridade com regra do Laravel: aparelho na loja exige
+        // assinatura antes de iniciar o fluxo de servico.
+        const isSigned = isEntrySigned(order);
         const isCancelOrSpecial =
           newStatus === "CANCELLED" || newStatus === "REFUNDED" || newStatus === "IN_WARRANTY";
         if (!isSigned && !isCancelOrSpecial) {
@@ -1120,6 +1121,10 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // P2: libera o estoque reservado pelos itens-produto (consistente com
+        // `cancel`) — uma OS excluida nao deve manter peças fora do estoque.
+        await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
+
         // Soft delete
         await tx.serviceOrder.update({
           where: { id: input.id },
@@ -1500,56 +1505,8 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         // ── Trigger automatico de comissao do tecnico ao finalizar OS ──
-        // Procura CommissionRule(type=SERVICE_ORDER, role=technician, active)
-        // e cria Commission(status=PENDING). Idempotente: nao duplica se ja
-        // existe Commission pra essa referenceId.
-        if (order.technicianId && input.paidAmount > 0) {
-          const existingCommission = await tx.commission.findFirst({
-            where: {
-              referenceType: "SERVICE_ORDER",
-              referenceId: order.id,
-              status: { not: "CANCELLED" },
-            },
-          });
-          if (!existingCommission) {
-            const rule = await tx.commissionRule.findFirst({
-              where: {
-                tenantId: ctx.tenantId,
-                type: "SERVICE_ORDER",
-                role: "technician",
-                active: true,
-              },
-            });
-            if (rule) {
-              const baseAmount = input.paidAmount; // cents
-              const ratePercent = Number(rule.ratePercent);
-              const variable = Math.round(baseAmount * (ratePercent / 100));
-              const fixed = rule.fixedAmount ? decimalToCents(rule.fixedAmount) : 0;
-              const totalCommission = variable + fixed;
-              if (totalCommission > 0) {
-                const paidAt = new Date();
-                await tx.commission.create({
-                  data: {
-                    tenantId: ctx.tenantId,
-                    userId: order.technicianId,
-                    ruleId: rule.id,
-                    type: "SERVICE_ORDER",
-                    status: "PENDING",
-                    referenceId: order.id,
-                    referenceType: "SERVICE_ORDER",
-                    referenceNumber: order.number,
-                    baseAmount: centsToPrisma(baseAmount),
-                    ratePercent: rule.ratePercent,
-                    commissionAmount: centsToPrisma(totalCommission),
-                    periodMonth: paidAt.getMonth() + 1,
-                    periodYear: paidAt.getFullYear(),
-                    notes: `Comissao automatica do pagamento da OS ${order.number}`,
-                  },
-                });
-              }
-            }
-          }
-        }
+        // Mesma logica usada pelo finalize do PDV (service compartilhado).
+        await createOsTechnicianCommission(tx, ctx.tenantId, order, input.paidAmount);
 
         return { success: true };
       });
@@ -1794,6 +1751,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!order || !order.pendingQuoteId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum orcamento pendente." });
         }
+        assertOrderAcceptsQuote(order);
 
         const quote = await tx.serviceOrderQuote.findUnique({ where: { id: order.pendingQuoteId } });
         if (!quote) {
@@ -1806,7 +1764,7 @@ export const serviceOrderRouter = createTRPCRouter({
         });
 
         // Reverte itens ao estado anterior autorizado.
-        const snapshot = (quote.previousItemsSnapshot ?? []) as unknown as ItemSnapshot[];
+        const snapshot = (quote.previousItemsSnapshot ?? null) as ItemSnapshot[] | null;
         await revertItemsToSnapshot(
           tx,
           { id: order.id, tenantId: ctx.tenantId },
@@ -3212,6 +3170,7 @@ export const serviceOrderRouter = createTRPCRouter({
       const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+        assertOrderAcceptsQuote(order);
 
         if (!order.pendingQuoteId || !order.budgetPending) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nao ha alteracao de orcamento para autorizar." });
@@ -3793,17 +3752,28 @@ async function syncBudgetRevision(tx: any, orderId: string): Promise<void> {
 /**
  * Reverte os itens da OS para um snapshot (rejeicao de orcamento / cancelar
  * alteracao). Reconcilia estoque: libera o reservado atual, recria os itens do
- * snapshot e re-reserva (best-effort — loga se faltar estoque, sem abortar).
- * Restaura tambem o desconto e recalcula os totais.
+ * snapshot e re-reserva. Restaura tambem o desconto e recalcula os totais.
+ *
+ * R2 — `snapshot` null = quote legado (criado antes da migration de snapshots,
+ * sem estado de itens). Nesse caso NAO mexe nos itens nem no desconto: apenas
+ * deixa a OS como esta (a rejeicao em si limpa a pendencia/status no chamador).
+ *
+ * R3 — se a re-reserva nao puder ser satisfeita (peca foi consumida por outra OS
+ * no meio-tempo), `reserveStockForOsItem` lanca e a tx inteira faz rollback —
+ * integridade de estoque acima de UX. A rejeicao falha e o orcamento continua
+ * pendente para a equipe resolver.
  */
 
 async function revertItemsToSnapshot(
   tx: any,
   order: { id: string; tenantId: string },
-  snapshot: ItemSnapshot[],
+  snapshot: ItemSnapshot[] | null,
   previousDiscountCents: number,
   userId: string,
 ): Promise<void> {
+  // R2: quote legado sem snapshot de itens — nao reverte itens/desconto.
+  if (snapshot == null) return;
+
   // 1. Libera estoque dos itens-produto atuais.
   await releaseAllOsItems(tx, order.tenantId, userId, order.id);
 
@@ -3827,23 +3797,15 @@ async function revertItemsToSnapshot(
       })),
     });
 
-    // 4. Re-reserva estoque dos itens-produto (best-effort).
+    // 4. Re-reserva estoque dos itens-produto. Falha => rollback (R3).
     for (const s of snapshot) {
       if (s.type === "PRODUCT" && s.productId) {
-        try {
-          await reserveStockForOsItem(tx, order.tenantId, userId, {
-            productId: s.productId,
-            quantity: s.quantity,
-            orderId: order.id,
-            itemDescription: s.description,
-          });
-        } catch (err) {
-          logger.warn("Estoque insuficiente ao reverter item da OS", {
-            orderId: order.id,
-            productId: s.productId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        await reserveStockForOsItem(tx, order.tenantId, userId, {
+          productId: s.productId,
+          quantity: s.quantity,
+          orderId: order.id,
+          itemDescription: s.description,
+        });
       }
     }
   }
@@ -3854,6 +3816,20 @@ async function revertItemsToSnapshot(
     data: { discount: centsToPrisma(previousDiscountCents) },
   });
   await recalculateOrderTotals(tx, order.id, order.tenantId);
+}
+
+/**
+ * R4 — rejeita responder/enviar orcamento quando a OS nao esta mais elegivel
+ * (excluida ou em estado terminal). Evita que um link publico antigo reative
+ * uma OS cancelada/entregue/estornada.
+ */
+function assertOrderAcceptsQuote(order: { deletedAt: Date | null; status: string }): void {
+  if (order.deletedAt || ["CANCELLED", "REFUNDED", "DELIVERED"].includes(order.status)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Esta OS nao esta mais disponivel para alteracao de orcamento.",
+    });
+  }
 }
 
 /**
@@ -3872,6 +3848,7 @@ async function applyQuoteApproval(
   noteText: string,
   customerNotes: string | null,
 ): Promise<string | null> {
+  assertOrderAcceptsQuote(order);
   const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
   await tx.serviceOrderQuote.update({
     where: { id: quote.id },
@@ -3927,12 +3904,13 @@ async function applyQuoteRejection(
   noteText: string,
   customerNotes: string | null,
 ): Promise<void> {
+  assertOrderAcceptsQuote(order);
   await tx.serviceOrderQuote.update({
     where: { id: quote.id },
     data: { status: "rejected", rejectedAt: new Date(), customerNotes },
   });
 
-  const snapshot = (quote.previousItemsSnapshot ?? []) as unknown as ItemSnapshot[];
+  const snapshot = (quote.previousItemsSnapshot ?? null) as ItemSnapshot[] | null;
   await revertItemsToSnapshot(
     tx,
     { id: order.id, tenantId },
