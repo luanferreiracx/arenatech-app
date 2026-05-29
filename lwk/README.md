@@ -55,15 +55,24 @@ docker compose up -d --build
 
 ## 3. Endpoints da API
 
-| Método | Rota            | Descrição                             |
-|--------|-----------------|---------------------------------------|
-| GET    | `/`             | Info geral                            |
-| GET    | `/status`       | Status da carteira e config           |
-| POST   | `/address/new`  | Gera endereço de recebimento          |
-| GET    | `/balance`      | Saldo Depix e todos os ativos         |
-| POST   | `/transfer`     | Transfere Depix                       |
-| GET    | `/transactions` | Histórico de transações               |
-| GET    | `/wallet/info`  | Descriptor da carteira                |
+| Método | Rota            | Auth | Descrição                                      |
+|--------|-----------------|------|------------------------------------------------|
+| GET    | `/`             | não  | Info geral                                     |
+| GET    | `/health`       | não  | Probe — 200 só se wallet + Esplora ok (503 se degradado) |
+| GET    | `/status`       | sim  | Status da carteira e config                    |
+| POST   | `/address/new`  | sim  | Gera endereço de recebimento                   |
+| GET    | `/balance`      | sim  | Saldo DePix e todos os ativos                  |
+| POST   | `/transfer`     | sim  | Transfere DePix (suporta `Idempotency-Key`)    |
+| GET    | `/transactions` | sim  | Histórico de transações                        |
+| GET    | `/wallet/info`  | sim  | Info da rede/asset (NÃO expõe descriptor)      |
+
+> **`/transfer` idempotente:** envie o header `Idempotency-Key: <uuid>`. Se a
+> mesma key chegar de novo (ex.: retry por timeout), a API devolve o txid já
+> transmitido em vez de transferir de novo. Essencial para o PDV não duplicar saque.
+
+> **Webhook assinado:** cada POST de depósito leva `X-Signature: sha256=<hmac>`
+> (HMAC-SHA256 do corpo com `WEBHOOK_SECRET`). O receptor (PDV) deve recalcular
+> e comparar antes de confiar no payload. Há retry com backoff (3 tentativas).
 
 ---
 

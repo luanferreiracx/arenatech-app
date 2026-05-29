@@ -22,13 +22,21 @@ services:
 
       # ── Webhook ───────────────────────────────────────────────────
       # URL que recebe os depositos detectados (pending + confirmed).
+      # Use https — o secret/payload trafegam em claro em http.
       WEBHOOK_URL: ${WEBHOOK_URL:-}
-      # Segredo enviado no header X-Webhook-Secret pro receptor validar.
+      # Segredo: enviado em X-Webhook-Secret + assina o corpo (HMAC-SHA256
+      # em X-Signature) pro receptor validar integridade/origem.
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
       # Intervalo (s) entre verificacoes de novos depositos.
       MONITOR_INTERVAL: ${MONITOR_INTERVAL:-30}
       # Confirmacoes on-chain pra considerar deposito final.
       CONFIRMATIONS_REQUIRED: ${CONFIRMATIONS_REQUIRED:-2}
+
+      # ── Hardening ──────────────────────────────────────────────────
+      # CSV de origens permitidas no CORS (default: dashboard local).
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5000}
+      # Teto do fee_rate (sat/vB) aceito no /transfer — evita fee absurda.
+      FEE_RATE_MAX: ${FEE_RATE_MAX:-1.0}
 
       WALLET_DATA_DIR: /app/wallet_data
     networks:
@@ -38,11 +46,12 @@ services:
       restart_policy:
         condition: on-failure
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/').read()"]
+      # /health valida wallet + Esplora (responde 503 se degradado). Sem auth.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').status==200 else 1)"]
       interval: 30s
-      timeout: 5s
+      timeout: 8s
       retries: 3
-      start_period: 20s
+      start_period: 25s
 
 volumes:
   lwk_wallet_data:
