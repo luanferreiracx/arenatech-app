@@ -704,12 +704,17 @@ export const saleRouter = createTRPCRouter({
             }
           } else {
             // Sem paymentMethodId — assume LOJA_ABSORVE com taxa 0 (paridade
-            // comportamento anterior: dinheiro/pix sem cadastro).
+            // comportamento anterior: dinheiro/pix sem cadastro). Se o
+            // operador digitou um totalPaidByCustomer > amount (ex: maquininha
+            // passou o acrescimo direto), preserva o excedente como surcharge
+            // pra refletir o que o cliente realmente pagou.
+            const manualPaid = payment.totalPaidByCustomer ?? payment.amount;
+            const surcharge = Math.max(0, manualPaid - payment.amount);
             breakdown = {
-              surcharge: 0,
+              surcharge,
               operatorFee: 0,
               netRevenue: payment.amount,
-              totalPaid: payment.amount,
+              totalPaid: payment.amount + surcharge,
             };
           }
           totalSurcharge += breakdown.surcharge;

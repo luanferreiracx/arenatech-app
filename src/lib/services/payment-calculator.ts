@@ -153,10 +153,19 @@ export function calculatePayment(input: CalculatePaymentInput): PaymentBreakdown
     base.operatorFee = surcharge;
     base.netRevenue = valorMercadoria;
   } else {
-    // LOJA_ABSORVE: cliente paga preço normal; loja deduz taxa do recebido.
+    // LOJA_ABSORVE: por padrao a loja absorve a taxa (cliente paga so o valor
+    // da mercadoria). MAS se o operador informou um totalPaidManual MAIOR que
+    // a mercadoria, significa que o cliente pagou mais (tipicamente a
+    // maquininha passou o acrescimo direto ao cliente, mesmo a config sendo
+    // LOJA_ABSORVE). Registramos a diferenca como `surcharge` pra refletir o
+    // valor que o cliente REALMENTE pagou — senao o recibo e a view da venda
+    // exibem so o valor do carrinho e o excedente desaparece.
     const fee = Math.round((valorMercadoria * feePercent) / 100) + base.feeFixed;
-    base.surcharge = 0;
-    base.totalPaid = valorMercadoria;
+    const totalPaid = totalPaidManual != null && totalPaidManual > valorMercadoria
+      ? totalPaidManual
+      : valorMercadoria;
+    base.surcharge = totalPaid - valorMercadoria;
+    base.totalPaid = totalPaid;
     base.operatorFee = fee;
     base.netRevenue = valorMercadoria - fee;
   }

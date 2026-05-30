@@ -95,6 +95,10 @@ export async function buildSaleReceiptPdf(
       discountType: sale.discountType,
       discountValue: sale.discountValue,
       paidAmount: sale.paidAmount,
+      // Acrescimo do cartao/parcelamento: diferenca entre o que o cliente
+      // pagou na maquininha e o valor da venda. Exibido como "Acrescimo" e
+      // "Total pago pelo cliente" no recibo quando > 0.
+      surchargeAmount: sale.surchargeAmount,
       changeAmount: sale.changeAmount,
       paymentDetails: sale.paymentDetails,
       observations: sale.observations,

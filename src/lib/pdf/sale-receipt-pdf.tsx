@@ -13,6 +13,7 @@ export interface SaleReceiptPdfData {
     discountType?: string | null;
     discountValue?: unknown;
     paidAmount: unknown;
+    surchargeAmount?: unknown;
     changeAmount: unknown;
     paymentDetails: unknown;
     observations: string | null;
@@ -294,6 +295,8 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
   const subtotal = sale.subtotal != null ? Number(sale.subtotal) : Number(sale.totalAmount);
   const discount = Number(sale.discountAmount ?? 0);
   const total = Number(sale.totalAmount);
+  const surcharge = Number(sale.surchargeAmount ?? 0);
+  const customerPaidTotal = total + surcharge;
   const refundDue = Number(sale.refundDueAmount ?? 0);
   const upgrades = sale.upgrades ?? [];
 
@@ -493,6 +496,18 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
               <Text style={styles.totaisTotalLabel}>TOTAL</Text>
               <Text style={styles.totaisTotalValue}>{fmtBRL(total)}</Text>
             </View>
+            {surcharge > 0 && (
+              <>
+                <View style={styles.totaisRow}>
+                  <Text style={styles.totaisLabel}>Acrescimo (cartao/parcelamento)</Text>
+                  <Text style={styles.totaisValue}>+{fmtBRL(surcharge)}</Text>
+                </View>
+                <View style={styles.totaisRow}>
+                  <Text style={styles.totaisLabel}>Total pago pelo cliente</Text>
+                  <Text style={styles.totaisValue}>{fmtBRL(customerPaidTotal)}</Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
 

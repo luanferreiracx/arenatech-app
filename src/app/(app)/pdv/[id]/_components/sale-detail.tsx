@@ -507,6 +507,18 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             <span>Total</span>
             <span className="text-primary">{formatCurrency(sale.totalAmount as number)}</span>
           </div>
+          {(sale.surchargeAmount as number) > 0 && (
+            <>
+              <div className="flex justify-between text-sm text-muted-foreground pt-1">
+                <span>Acrescimo (cartao/parcelamento)</span>
+                <span>+{formatCurrency(sale.surchargeAmount as number)}</span>
+              </div>
+              <div className="flex justify-between text-sm font-semibold">
+                <span>Total pago pelo cliente</span>
+                <span>{formatCurrency((sale.totalAmount as number) + (sale.surchargeAmount as number))}</span>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
