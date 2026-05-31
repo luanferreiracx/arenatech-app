@@ -127,6 +127,17 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
       "Olá, {{1}}! Segue em anexo o termo da venda {{2}}. " +
       "Toque no botão abaixo para assinar digitalmente.",
   },
+
+  // ── Simulador de parcelamento — PDF anexo (HEADER DOCUMENT) ──
+  // NOTA: este template tem APENAS 1 parametro no body (so o nome).
+  simulacao_pdf: {
+    name: "simulacao_pdf",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 1,
+    hasDocumentHeader: true,
+    body: "Olá, {{1}}! Segue em anexo a simulação solicitada. Qualquer dúvida, é só responder por aqui!",
+  },
 };
 
 /**
@@ -148,6 +159,8 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   pdv_termo_pdf_link: "pdv_termo_pdf_link",
   // Rastreamento
   os_rastreamento: "os_rastreamento_link",
+  // Simulador
+  simulacao_pdf: "simulacao_pdf",
 };
 
 /**
@@ -164,4 +177,5 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   os_rastreamento: "o acompanhamento da sua ordem de serviço",
   pdv_recibo_pdf: "o recibo da sua compra",
   pdv_termo_pdf_link: "o termo da sua compra",
+  simulacao_pdf: "a simulação de parcelamento",
 };

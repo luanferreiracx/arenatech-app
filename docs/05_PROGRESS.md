@@ -262,6 +262,18 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-31 — SIMULADOR: /investigate — WhatsApp via Cloud API + limpeza + correcoes
+
+/investigate do modulo simulador. Gaps vs Laravel cobertos:
+
+- **G1+G2+G3 — Enviar WhatsApp via Cloud API (PDF anexado):** template `simulacao_pdf` estava APROVADO na Meta mas ausente do catalogo Next (`templates-catalog.ts`) — inalcancavel. Adicionado (params:1, hasDocumentHeader) + contexto + assunto. Novo PDF real `@react-pdf` (`simulator-pdf.tsx` + builder) servido por rota de midia transiente (`/api/whatsapp-media/simulator/pdf/[token]`). Como a simulacao nao e entidade, o token e HMAC-assinado carregando o payload (`signed-payload-token.ts`, TTL 1h, sem Redis/banco). Procedure `simulator.sendWhatsApp` stateless usa `sendPdfWithFallback` (texto na janela 24h / template fora). `genericPdfFallback` exclui `simulacao_pdf`. **wa.me descartado — numero da loja so via Cloud API.**
+- **G4 — Codigo morto removido:** model `SimulatorSession` + procedures saveSession/listSessions/getSession/sendWhatsApp (antigo) dropados. Migration `20260531120000_drop_simulator_sessions`.
+- **G5 — `simulate` virou query pura:** sem lazy-create com escrita; `loadSimulatorConfig` read-only, `computeSimulation` compartilhado. Criacao de config so no seed/updateConfig.
+- **G6 — Validacao entrada < produto:** `simulateSchema` + `sendSimulationWhatsAppSchema` com refine. UI tambem bloqueia.
+- **G7 — UI Copiar + Limpar + Enviar WhatsApp:** botoes adicionados (mensagem formatada paridade Laravel; dialog tel/nome).
+
+**Validacao:** typecheck OK | lint 0 erros | 711 unit OK (7 novos) | build OK | smoke do PDF (@react-pdf, %PDF valido). Migration aplicada local.
+
 ### 2026-05-29 — CONSULTA IMEI: causa raiz era IPv4 vs IPv6 (correcao definitiva)
 
 Correcao anterior (curl por "fingerprint TLS") estava com a razao errada. Matriz completa testada na VPS (mesma key do Laravel):

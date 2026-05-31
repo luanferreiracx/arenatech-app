@@ -1,32 +1,3 @@
-/// Sessao de simulacao de parcelamento. Permite historico + reaproveitamento.
-/// Paridade Laravel `Simulacao` (referencia legacy).
-model SimulatorSession {
-  id            String   @id @default(uuid()) @db.Uuid
-  tenantId      String   @map("tenant_id") @db.Uuid
-  // Cliente vinculado (opcional - simulacao avulsa nao exige cadastro)
-  customerId    String?  @map("customer_id") @db.Uuid
-  customerName  String?  @map("customer_name")
-  customerPhone String?  @map("customer_phone")
-  // Valores em centavos (consistencia com resto do projeto)
-  productValueCents Int  @map("product_value_cents")
-  downPaymentCents  Int  @default(0) @map("down_payment_cents")
-  // Resultado completo da simulacao (array de opcoes por metodo/n. parcelas)
-  resultPayload Json     @map("result_payload")
-  // Quando convertida em venda real
-  convertedToSaleId String? @map("converted_to_sale_id") @db.Uuid
-  convertedAt   DateTime? @map("converted_at")
-  // Quando enviado via WhatsApp/email
-  sentAt        DateTime? @map("sent_at")
-  sentVia       String?   @map("sent_via") // whatsapp_cloud, email, manual
-  createdByUserId String  @map("created_by_user_id") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@index([tenantId, createdAt])
-  @@index([tenantId, customerId])
-  @@map("simulator_sessions")
-}
-
 /// Taxas EXIBIDAS AO CLIENTE no simulador de parcelamento.
 ///
 /// IMPORTANTE: sao taxas proprias, separadas das taxas reais do PDV/financeiro

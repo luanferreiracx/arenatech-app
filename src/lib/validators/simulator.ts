@@ -2,11 +2,36 @@ import { z } from "zod";
 
 // ── Simulate ──
 
-export const simulateSchema = z.object({
-  valorProduto: z.number().min(0.01, "Valor do produto obrigatorio"),
-  valorEntrada: z.number().min(0).optional(),
-});
+export const simulateSchema = z
+  .object({
+    valorProduto: z.number().min(0.01, "Valor do produto obrigatorio"),
+    valorEntrada: z.number().min(0).optional(),
+  })
+  .refine(
+    (d) => (d.valorEntrada ?? 0) < d.valorProduto,
+    {
+      message: "A entrada nao pode ser maior ou igual ao valor do produto",
+      path: ["valorEntrada"],
+    },
+  );
 export type SimulateInput = z.infer<typeof simulateSchema>;
+
+// ── Enviar WhatsApp (stateless — recalcula + gera PDF + envia via Cloud API) ──
+
+export const sendSimulationWhatsAppSchema = z
+  .object({
+    phone: z.string().min(10, "Telefone obrigatorio").max(20),
+    customerName: z.string().max(150).optional(),
+    valorProduto: z.number().min(0.01),
+    valorEntrada: z.number().min(0).optional(),
+  })
+  .refine((d) => (d.valorEntrada ?? 0) < d.valorProduto, {
+    message: "A entrada nao pode ser maior ou igual ao valor do produto",
+    path: ["valorEntrada"],
+  });
+export type SendSimulationWhatsAppInput = z.infer<
+  typeof sendSimulationWhatsAppSchema
+>;
 
 // ── Rate config (taxas exibidas ao cliente) ──
 

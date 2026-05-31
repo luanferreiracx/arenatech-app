@@ -3,7 +3,11 @@ import {
   defaultSimulatorTiers,
   DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
 } from "@/lib/simulator-defaults";
-import { updateSimulatorConfigSchema } from "@/lib/validators/simulator";
+import {
+  updateSimulatorConfigSchema,
+  simulateSchema,
+  sendSimulationWhatsAppSchema,
+} from "@/lib/validators/simulator";
 
 describe("defaultSimulatorTiers", () => {
   const tiers = defaultSimulatorTiers();
@@ -72,6 +76,48 @@ describe("updateSimulatorConfigSchema", () => {
       updateSimulatorConfigSchema.safeParse({
         ...valid,
         tiers: [{ installments: 1, feePercent: 0 }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("simulateSchema — validacao entrada < produto", () => {
+  it("aceita entrada menor que produto", () => {
+    expect(simulateSchema.safeParse({ valorProduto: 1000, valorEntrada: 200 }).success).toBe(true);
+  });
+  it("aceita sem entrada", () => {
+    expect(simulateSchema.safeParse({ valorProduto: 1000 }).success).toBe(true);
+  });
+  it("rejeita entrada igual ao produto", () => {
+    expect(simulateSchema.safeParse({ valorProduto: 1000, valorEntrada: 1000 }).success).toBe(false);
+  });
+  it("rejeita entrada maior que produto", () => {
+    expect(simulateSchema.safeParse({ valorProduto: 1000, valorEntrada: 1500 }).success).toBe(false);
+  });
+});
+
+describe("sendSimulationWhatsAppSchema", () => {
+  it("aceita envio valido", () => {
+    expect(
+      sendSimulationWhatsAppSchema.safeParse({
+        phone: "86999998888",
+        customerName: "Joao",
+        valorProduto: 2000,
+        valorEntrada: 0,
+      }).success,
+    ).toBe(true);
+  });
+  it("rejeita telefone curto", () => {
+    expect(
+      sendSimulationWhatsAppSchema.safeParse({ phone: "123", valorProduto: 2000 }).success,
+    ).toBe(false);
+  });
+  it("rejeita entrada >= produto", () => {
+    expect(
+      sendSimulationWhatsAppSchema.safeParse({
+        phone: "86999998888",
+        valorProduto: 1000,
+        valorEntrada: 1000,
       }).success,
     ).toBe(false);
   });

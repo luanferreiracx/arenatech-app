@@ -106,7 +106,8 @@ function variantPdfOfLink(key: string): string | null {
 
 /** Generico PDF aprovado que serve de fallback global. */
 function genericPdfFallback(originalKey: string): string | null {
-  if (["os_orcamento_pdf", "os_recibo_pdf"].includes(originalKey)) return null;
+  // simulacao_pdf nao deve cair no generico de OS (texto/assunto errado p/ cliente).
+  if (["os_orcamento_pdf", "os_recibo_pdf", "simulacao_pdf"].includes(originalKey)) return null;
   return "os_orcamento_pdf";
 }
 
