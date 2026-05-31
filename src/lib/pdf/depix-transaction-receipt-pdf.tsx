@@ -101,7 +101,7 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
 
         <Text style={styles.sectionTitle}>Valores</Text>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>{tx.kind === "DEPOSIT" ? "Pago pelo cliente" : "Valor solicitado"}</Text>
+          <Text style={styles.rowLabel}>{tx.kind === "DEPOSIT" ? "Pago pelo cliente" : "Debitado do saldo"}</Text>
           <Text style={styles.rowValue}>{fmtBRL(tx.grossAmountCents)}</Text>
         </View>
         <View style={styles.row}>

@@ -57,15 +57,15 @@ export default function DepixWithdrawPage() {
       pixKey: "",
       recipientName: "",
       recipientTaxId: "",
-      grossAmountCents: 0,
+      netAmountCents: 0,
       idempotencyKey,
     },
   });
 
-  const amount = form.watch("grossAmountCents");
+  const netAmount = form.watch("netAmountCents");
   const previewQuery = useQuery({
-    ...trpc.depixTransaction.previewFee.queryOptions({ kind: "WITHDRAW", grossAmountCents: amount }),
-    enabled: amount >= 200,
+    ...trpc.depixTransaction.previewFee.queryOptions({ kind: "WITHDRAW", amountCents: netAmount }),
+    enabled: netAmount >= 200,
   });
 
   const createMutation = useMutation(
@@ -85,8 +85,10 @@ export default function DepixWithdrawPage() {
   };
 
   const balance = overviewQuery.data?.balance.depix ?? 0;
-  const required = (amount + (previewQuery.data?.feeArenaTechCents ?? 0)) / 100;
-  const insufficient = amount >= 200 && required > balance;
+  // Gross = bruto a debitar do saldo (calculado pela inversa). Saldo precisa cobrir gross.
+  const grossCents = previewQuery.data?.grossCents ?? 0;
+  const required = grossCents / 100;
+  const insufficient = netAmount >= 200 && grossCents > 0 && required > balance;
 
   return (
     <div>
@@ -153,44 +155,48 @@ export default function DepixWithdrawPage() {
 
         <FormSection title="Valor" description={`Saldo disponivel: ${formatBRL(balance * 100)}`}>
           <div>
-            <Label>Valor a sacar (bruto)</Label>
+            <Label>Valor a receber pelo destinatario</Label>
             <MoneyInput
-              value={form.watch("grossAmountCents")}
-              onChange={(v) => form.setValue("grossAmountCents", v)}
+              value={form.watch("netAmountCents")}
+              onChange={(v) => form.setValue("netAmountCents", v)}
               placeholder="R$ 0,00"
             />
-            {form.formState.errors.grossAmountCents && (
-              <p className="text-xs text-destructive mt-1">{form.formState.errors.grossAmountCents.message}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              E o valor que o destinatario recebe via PIX. As taxas sao
+              adicionadas em cima e debitadas do seu saldo.
+            </p>
+            {form.formState.errors.netAmountCents && (
+              <p className="text-xs text-destructive mt-1">{form.formState.errors.netAmountCents.message}</p>
             )}
             {insufficient && (
               <p className="text-xs text-destructive mt-1">
-                Saldo insuficiente. Necessario {formatBRL(required * 100)} (gross + taxa Arena Tech).
+                Saldo insuficiente. Necessario {formatBRL(grossCents)} pra esse valor liquido.
               </p>
             )}
           </div>
         </FormSection>
 
-        {amount >= 200 && previewQuery.data && (
+        {netAmount >= 200 && previewQuery.data && (
           <Card className="p-4 my-6 space-y-2 text-sm">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Breakdown</p>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Resumo</p>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Voce envia (debita do saldo)</span>
-              <span className="tabular-nums font-semibold">{formatBRL(previewQuery.data.grossCents + previewQuery.data.feeArenaTechCents)}</span>
+              <span className="text-muted-foreground">Destinatario recebe</span>
+              <span className="tabular-nums">{formatBRL(previewQuery.data.netCents)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Taxa Arena Tech</span>
-              <span className="tabular-nums">− {formatBRL(previewQuery.data.feeArenaTechCents)}</span>
+              <span className="tabular-nums">+ {formatBRL(previewQuery.data.feeArenaTechCents)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Taxa PixPay (estimada)</span>
-              <span className="tabular-nums">− {formatBRL(previewQuery.data.feePixPayEstimatedCents)}</span>
+              <span className="tabular-nums">+ {formatBRL(previewQuery.data.feePixPayEstimatedCents)}</span>
             </div>
             <div className="flex justify-between border-t pt-2 mt-2 font-semibold">
-              <span>Destinatario recebe (estimado)</span>
-              <span className="tabular-nums">{formatBRL(previewQuery.data.netCents)}</span>
+              <span>Voce paga (debita do saldo)</span>
+              <span className="tabular-nums">{formatBRL(previewQuery.data.grossCents)}</span>
             </div>
             <p className="text-xs text-muted-foreground pt-2">
-              Os valores reais (especialmente da taxa PixPay) sao conhecidos apos confirmar.
+              Taxa PixPay eh estimada — valor real eh confirmado ao iniciar o saque.
             </p>
           </Card>
         )}
@@ -199,7 +205,7 @@ export default function DepixWithdrawPage() {
           <Button asChild variant="outline">
             <Link href="/depix-wallet">Cancelar</Link>
           </Button>
-          <Button type="submit" disabled={insufficient || amount < 200 || createMutation.isPending}>
+          <Button type="submit" disabled={insufficient || netAmount < 200 || createMutation.isPending}>
             {createMutation.isPending ? "Enviando…" : "Sacar"}
           </Button>
         </div>
@@ -209,7 +215,7 @@ export default function DepixWithdrawPage() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title="Confirmar saque"
-        description={`Voce esta sacando ${formatBRL(amount)} para a chave PIX informada. A operacao e on-chain e nao pode ser desfeita.`}
+        description={`Destinatario vai receber ${formatBRL(netAmount)} via PIX. ${formatBRL(grossCents)} sera debitado do seu saldo DePix. A operacao e on-chain e nao pode ser desfeita.`}
         confirmLabel="Confirmar saque"
         onConfirm={() => form.handleSubmit(onSubmit)()}
       />

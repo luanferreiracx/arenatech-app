@@ -26,7 +26,7 @@ export default function DepixReceivePage() {
 
   // Preview da taxa Arena Tech (R$0,99 + 1,5%) — atualiza on-the-fly.
   const previewQuery = useQuery({
-    ...trpc.depixTransaction.previewFee.queryOptions({ kind: "DEPOSIT", grossAmountCents: amount }),
+    ...trpc.depixTransaction.previewFee.queryOptions({ kind: "DEPOSIT", amountCents: amount }),
     enabled: amount >= 200,
   });
 

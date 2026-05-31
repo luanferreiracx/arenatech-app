@@ -20,7 +20,7 @@ import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
 import {
   calcDepositFee,
-  calcWithdrawFee,
+  calcWithdrawFromNet,
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
@@ -366,7 +366,8 @@ export interface CreateWithdrawArgs {
   pixKey: string;
   recipientName?: string | null;
   recipientTaxId: string;
-  grossAmountCents: number;
+  /** Quanto o DESTINATARIO recebe (em centavos). Sistema calcula o bruto. */
+  netAmountCents: number;
   idempotencyKey?: string;
 }
 
@@ -387,13 +388,16 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     if (existing) return existing;
   }
 
-  // Carrega config de taxa + estima.
+  // Calcula o BRUTO a partir do liquido (inverso): destinatario recebe
+  // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
+  // Tech + taxa PixPay estimada).
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  const breakdown = calcWithdrawFee(args.grossAmountCents, cfg, {
+  const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg, {
     pixpayPct: PIXPAY_PCT_WITHDRAW,
   });
+  const grossAmountCents = breakdown.grossCents;
 
-  // Valida saldo DePix do tenant: precisa cobrir gross + feeArena.
+  // Valida saldo DePix do tenant: precisa cobrir o gross calculado.
   const balance = await lwk.getBalance(args.tenantId);
   if (!balance.success) {
     throw new TRPCError({
@@ -401,7 +405,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       message: "Nao foi possivel consultar saldo (LWK indisponivel)",
     });
   }
-  const requiredBrl = (args.grossAmountCents + breakdown.feeArenaTechCents) / 100;
+  const requiredBrl = grossAmountCents / 100;
   if ((balance.depixBalance ?? 0) < requiredBrl) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -418,8 +422,13 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         number,
         kind: "WITHDRAW",
         status: "PENDING",
-        grossAmountCents: args.grossAmountCents,
+        // grossAmountCents aqui guarda a ESTIMATIVA inicial — sera ajustado
+        // apos o PixPay retornar o depositAmountInCents real (etapa 3).
+        grossAmountCents,
         feeArenaTechCents: breakdown.feeArenaTechCents,
+        // O netAmountCents do registro eh o que o destinatario recebe — eh
+        // o input do usuario, valor pretendido. PixPay confirma exato.
+        netAmountCents: args.netAmountCents,
         pixKeyType: args.pixKeyType,
         pixKey,
         recipientName: args.recipientName ?? null,
@@ -431,11 +440,13 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   });
 
-  // ETAPA 2: chama PixPay createDepixWithdraw (fora da tx).
+  // ETAPA 2: chama PixPay createDepixWithdraw passando o valor LIQUIDO
+  // (o que o destinatario recebe). PixPay retorna depositAmount (quanto
+  // de DePix precisamos enviar pra esse valor chegar).
   const pp = await createDepixWithdraw(
     pixKey,
     args.pixKeyType,
-    args.grossAmountCents / 100,
+    args.netAmountCents / 100,
     taxId,
   );
   if (!pp.success || !pp.id || !pp.depositAddress) {
@@ -451,11 +462,18 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   }
 
-  const depositAmountCents = pp.depositAmountInCents ?? args.grossAmountCents;
-  const payoutAmountCents = pp.payoutAmountInCents ?? args.grossAmountCents;
+  // PixPay retorna depositAmountInCents (quanto DePix mandar) e
+  // payoutAmountInCents (= o valor liquido que o destinatario recebe).
+  // Como passamos o net e o PixPay confirma, payoutAmountCents == netAmountCents.
+  const depositAmountCents = pp.depositAmountInCents ?? args.netAmountCents;
+  const payoutAmountCents = pp.payoutAmountInCents ?? args.netAmountCents;
   const feePixPayCents = Math.max(0, depositAmountCents - payoutAmountCents);
 
-  // ETAPA 3: persiste dados PixPay.
+  // ETAPA 3: persiste dados PixPay + ajusta gross com valor REAL do PixPay.
+  // O gross final eh depositAmount (DePix pro off-ramp) + feeArena (DePix
+  // pra Arena Tech). Se PixPay cobrou um pouco mais/menos do que a estimativa
+  // calcWithdrawFromNet previu, ajustamos aqui.
+  const finalGrossCents = depositAmountCents + breakdown.feeArenaTechCents;
   await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixTransaction.update({
       where: { id: created.id },
@@ -464,6 +482,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         pixpayDepositAddress: pp.depositAddress,
         feePixPayCents,
         netAmountCents: payoutAmountCents,
+        grossAmountCents: finalGrossCents,
       },
     }),
   );
@@ -539,7 +558,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   logger.info("Saque DePix transmitido", {
     txId: created.id,
     withdrawTxId: sweep.txid,
-    grossCents: args.grossAmountCents,
+    grossCents: finalGrossCents,
     feeArenaTechCents: breakdown.feeArenaTechCents,
     feePixPayCents,
     netCents: payoutAmountCents,

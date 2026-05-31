@@ -137,7 +137,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
             <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Resumo</h3>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">{isDeposit ? "Valor pago pelo cliente" : "Valor solicitado"}</dt>
+                <dt className="text-muted-foreground">{isDeposit ? "Valor pago pelo cliente" : "Debitado do saldo"}</dt>
                 <dd className="font-semibold tabular-nums">{formatBRL(t.grossAmountCents)}</dd>
               </div>
               <div className="flex justify-between">

@@ -69,8 +69,9 @@ export function calcDepositFee(
 }
 
 /**
- * Taxa do saque. PixPay estimada padrao: 1,3% + R$ 0,99 (observado em prod —
- * confirmado quando o createDepixWithdraw retorna depositAmount/payoutAmount).
+ * Taxa do saque, calculada A PARTIR DO BRUTO (forward).
+ * PixPay estimada padrao: 1,3% + R$ 0,99 (observado em prod — confirmado
+ * quando o createDepixWithdraw retorna depositAmount/payoutAmount).
  */
 export function calcWithdrawFee(
   grossCents: number,
@@ -87,5 +88,54 @@ export function calcWithdrawFee(
     feeArenaTechCents: feeArena,
     feePixPayEstimatedCents: feePixPay,
     netCents: net,
+  };
+}
+
+/**
+ * Inversa do saque: o usuario informa o LIQUIDO que o destinatario deve
+ * receber, e calculamos o bruto que precisa sair da carteira (com taxas
+ * empilhadas).
+ *
+ * Algebra:
+ *   net = gross - feeArena - feePixPay
+ *   feeArena   = exitFixed + gross * exitPct/100
+ *   feePixPay  = pixpayFixed + gross * pixpayPct/100
+ *   gross = (net + exitFixed + pixpayFixed) / (1 - (exitPct + pixpayPct)/100)
+ *
+ * Ajuste de centavos: o arredondamento individual de cada percentual pode
+ * gerar diferenca de 1 sat com o calculo direto — reconciliamos no fim
+ * forcando net = gross - feeArena - feePixPay exato (somando o "drift" no
+ * feeArena pra simplificar — eh a nossa taxa, podemos cobrar +1 sat).
+ */
+export function calcWithdrawFromNet(
+  netCents: number,
+  cfg: DepixFeeConfig,
+  opts: { pixpayPct?: number; pixpayFixedCents?: number } = {},
+): WithdrawFeeBreakdown {
+  const pixpayPct = opts.pixpayPct ?? 1.3;
+  const pixpayFixed = opts.pixpayFixedCents ?? 99;
+  const totalPct = cfg.exitFeePercent + pixpayPct;
+  if (totalPct >= 100) {
+    // Config degenerada — impossivel calcular bruto. Devolve net=0 pra UI mostrar erro.
+    return { grossCents: 0, feeArenaTechCents: 0, feePixPayEstimatedCents: 0, netCents };
+  }
+  const numerator = netCents + cfg.exitFeeFixed + pixpayFixed;
+  const denominator = 1 - totalPct / 100;
+  // ceil pra garantir que net pretendido eh atingido apos arredondamentos
+  let grossCents = Math.ceil(numerator / denominator);
+  // Calcula as taxas a partir do bruto resolvido
+  const feeArena = cfg.exitFeeFixed + pct(grossCents, cfg.exitFeePercent);
+  const feePixPay = pixpayFixed + pct(grossCents, pixpayPct);
+  // Drift de arredondamento (positivo: gross excede em +1 sat).
+  // Reduz o gross — garante:
+  //   (a) consistencia forward(inverse(net)) = net
+  //   (b) tenant central permanece com fee Arena Tech = 0 exato
+  const drift = grossCents - feeArena - feePixPay - netCents;
+  if (drift > 0) grossCents -= drift;
+  return {
+    grossCents,
+    feeArenaTechCents: feeArena,
+    feePixPayEstimatedCents: feePixPay,
+    netCents,
   };
 }

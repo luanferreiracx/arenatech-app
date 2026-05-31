@@ -11,7 +11,7 @@ import {
 } from "@/lib/validators/depix-transaction";
 import {
   calcDepositFee,
-  calcWithdrawFee,
+  calcWithdrawFromNet,
 } from "@/lib/services/depix-transaction-fee";
 import {
   createDeposit,
@@ -42,7 +42,9 @@ export const depixTransactionRouter = createTRPCRouter({
       return tx;
     }),
 
-  /** Cria saque: 1 tx LWK com 2 outputs (off-ramp PixPay + taxa Arena Tech). */
+  /** Cria saque: usuario informa valor LIQUIDO (quanto o destinatario recebe);
+   *  sistema calcula o bruto a debitar. 1 tx LWK com 2 outputs (off-ramp
+   *  PixPay + taxa Arena Tech). */
   createWithdraw: tenantProcedure
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
@@ -54,7 +56,7 @@ export const depixTransactionRouter = createTRPCRouter({
         pixKey: input.pixKey,
         recipientName: input.recipientName ?? null,
         recipientTaxId: input.recipientTaxId,
-        grossAmountCents: input.grossAmountCents,
+        netAmountCents: input.netAmountCents,
         idempotencyKey: input.idempotencyKey,
       });
       return tx;
@@ -195,20 +197,24 @@ export const depixTransactionRouter = createTRPCRouter({
     };
   }),
 
-  /** Calcula breakdown de taxa (preview pra UI antes de confirmar). */
+  /** Calcula breakdown de taxa (preview pra UI antes de confirmar).
+   *  - DEPOSIT: usuario informa o BRUTO (cliente paga X via PIX); calcula
+   *    o liquido que cai na carteira do tenant.
+   *  - WITHDRAW: usuario informa o LIQUIDO (destinatario recebe X via PIX);
+   *    calcula o bruto que sai da carteira do tenant. */
   previewFee: tenantProcedure
     .input(
       z.object({
         kind: z.enum(["DEPOSIT", "WITHDRAW"]),
-        grossAmountCents: z.number().int().min(1),
+        amountCents: z.number().int().min(1),
       }),
     )
     .query(async ({ ctx, input }) => {
       // Usa o loadFeeConfig do service (aplica guard de tenant central).
       const feeCfg = await ctx.withTenant(async (db) => loadFeeConfig(db, ctx.tenantId));
       return input.kind === "DEPOSIT"
-        ? calcDepositFee(input.grossAmountCents, feeCfg)
-        : calcWithdrawFee(input.grossAmountCents, feeCfg);
+        ? calcDepositFee(input.amountCents, feeCfg)
+        : calcWithdrawFromNet(input.amountCents, feeCfg);
     }),
 });
 

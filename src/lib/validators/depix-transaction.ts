@@ -45,8 +45,12 @@ export const createWithdrawSchema = z.object({
     .min(11)
     .max(18)
     .refine(isValidTaxId, "CPF/CNPJ invalido"),
-  /** Valor BRUTO solicitado em centavos (o que sai da carteira do tenant). */
-  grossAmountCents: z
+  /**
+   * Valor LIQUIDO em centavos — o quanto o destinatario deve receber via PIX.
+   * O sistema calcula automaticamente o bruto (gross) a debitar do saldo,
+   * adicionando taxa Arena Tech + taxa PixPay (estimada).
+   */
+  netAmountCents: z
     .number()
     .int()
     .min(200, "Valor minimo R$ 2,00")
