@@ -717,6 +717,17 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // C2 (auditoria): Bloquear CANCELLED via updateStatus. O cancelamento
+        // exige termo de devolucao, RBAC, liberar estoque, cancelar recebiveis
+        // e PIX — tudo na procedure `cancel`. Aceitar CANCELLED direto aqui
+        // pularia todos esses gates e zeraria o trabalho do `cancel`.
+        if (newStatus === "CANCELLED") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Use a acao 'Cancelar OS' para cancelar — o cancelamento exige termo de devolucao e libera estoque/recebiveis.",
+          });
+        }
+
         // C4: Bloquear DELIVERED sem termo de entrega assinado (adm/gerente pode bypassar)
         if (newStatus === "DELIVERED" && !canSkipPdv) {
           const termSigned = order.deliveryTermSigned || order.deliveryTermPhysical;
@@ -730,9 +741,9 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         // C5: Se ha termo de devolucao em curso (enviado mas nao assinado) e o
-        // usuario decide retomar a OS, limpar os campos do termo.
-        const interruptingReturnTerm =
-          order.returnTermSent && !order.returnTermSigned && newStatus !== "CANCELLED";
+        // usuario decide retomar a OS, limpar os campos do termo. (CANCELLED ja
+        // foi bloqueado acima em C2, entao nao precisa checar aqui.)
+        const interruptingReturnTerm = order.returnTermSent && !order.returnTermSigned;
 
 
         const updateData: any = { status: newStatus };
