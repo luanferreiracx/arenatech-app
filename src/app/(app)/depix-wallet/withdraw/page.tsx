@@ -28,6 +28,7 @@ import {
   createWithdrawSchema,
   type CreateWithdrawInput,
 } from "@/lib/validators/depix-transaction";
+import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
 
 function formatBRL(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -65,7 +66,7 @@ export default function DepixWithdrawPage() {
   const netAmount = form.watch("netAmountCents");
   const previewQuery = useQuery({
     ...trpc.depixTransaction.previewFee.queryOptions({ kind: "WITHDRAW", amountCents: netAmount }),
-    enabled: netAmount >= 200,
+    enabled: netAmount >= DEPIX_LIMITS.MIN_CENTS,
   });
 
   const createMutation = useMutation(
@@ -88,7 +89,7 @@ export default function DepixWithdrawPage() {
   // Gross = bruto a debitar do saldo (calculado pela inversa). Saldo precisa cobrir gross.
   const grossCents = previewQuery.data?.grossCents ?? 0;
   const required = grossCents / 100;
-  const insufficient = netAmount >= 200 && grossCents > 0 && required > balance;
+  const insufficient = netAmount >= DEPIX_LIMITS.MIN_CENTS && grossCents > 0 && required > balance;
 
   return (
     <div>
@@ -153,7 +154,10 @@ export default function DepixWithdrawPage() {
           </div>
         </FormSection>
 
-        <FormSection title="Valor" description={`Saldo disponivel: ${formatBRL(balance * 100)}`}>
+        <FormSection
+          title="Valor"
+          description={`Min R$ 10,00 — Max R$ 5.000,00 · Saldo disponivel: ${formatBRL(balance * 100)}`}
+        >
           <div>
             <Label>Valor a receber pelo destinatario</Label>
             <MoneyInput
@@ -176,7 +180,7 @@ export default function DepixWithdrawPage() {
           </div>
         </FormSection>
 
-        {netAmount >= 200 && previewQuery.data && (
+        {netAmount >= DEPIX_LIMITS.MIN_CENTS && previewQuery.data && (
           <Card className="p-4 my-6 space-y-2 text-sm">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Resumo</p>
             <div className="flex justify-between">

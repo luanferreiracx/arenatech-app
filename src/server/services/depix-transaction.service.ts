@@ -31,8 +31,6 @@ import {
   getDepixWithdrawStatus,
 } from "@/lib/services/depix-service";
 
-const PIXPAY_PCT_WITHDRAW = Number(process.env.PIXPAY_FEE_ESTIMATE_PCT_WITHDRAW ?? "1.3");
-
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
   entryFeePercent: 0,
@@ -392,9 +390,9 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
   // Tech + taxa PixPay estimada).
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg, {
-    pixpayPct: PIXPAY_PCT_WITHDRAW,
-  });
+  // Tabela PixPay escalonada esta dentro de calcWithdrawFromNet (calibrada
+  // empiricamente em prod). Nao precisa passar pct via opts mais.
+  const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg);
   const grossAmountCents = breakdown.grossCents;
 
   // Valida saldo DePix do tenant: precisa cobrir o gross calculado.

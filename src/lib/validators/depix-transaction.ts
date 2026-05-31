@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
 
 /** Status labels pra UI. */
 export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
@@ -19,14 +20,14 @@ export const DEPIX_TX_KIND_LABELS: Record<string, string> = {
 
 const VALID_PIX_KEY_TYPES = ["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"] as const;
 
-/** Cria deposito: tenant escolhe quanto quer receber via PIX. */
+/** Cria deposito: tenant escolhe quanto quer receber via PIX.
+ *  Min R$ 10 (abaixo, as taxas devoram), Max R$ 5.000 (limite PixPay). */
 export const createDepositSchema = z.object({
-  /** Valor BRUTO em centavos (o que o cliente paga). Min R$2, max R$6000. */
   grossAmountCents: z
     .number()
     .int()
-    .min(200, "Valor minimo R$ 2,00")
-    .max(600000, "Valor maximo R$ 6.000,00"),
+    .min(DEPIX_LIMITS.MIN_CENTS, "Valor minimo R$ 10,00")
+    .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
 });
 export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 
@@ -49,12 +50,13 @@ export const createWithdrawSchema = z.object({
    * Valor LIQUIDO em centavos — o quanto o destinatario deve receber via PIX.
    * O sistema calcula automaticamente o bruto (gross) a debitar do saldo,
    * adicionando taxa Arena Tech + taxa PixPay (estimada).
+   * Min R$ 10 (abaixo, as taxas devoram), Max R$ 5.000 (limite PixPay).
    */
   netAmountCents: z
     .number()
     .int()
-    .min(200, "Valor minimo R$ 2,00")
-    .max(600000, "Valor maximo R$ 6.000,00"),
+    .min(DEPIX_LIMITS.MIN_CENTS, "Valor minimo R$ 10,00")
+    .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
   /** Cliente-side UUID pra idempotencia em retry. */
   idempotencyKey: z.string().uuid().optional(),
 });
