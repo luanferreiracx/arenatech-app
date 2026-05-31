@@ -46,6 +46,7 @@ import {
   updateTechnicianSchema,
   getByCustomerSchema,
   sendReceiptSchema,
+  notifyCompletionSchema,
   ALLOWED_TRANSITIONS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
@@ -3629,6 +3630,63 @@ export const serviceOrderRouter = createTRPCRouter({
       }
 
       return { success: true, sent };
+    }),
+
+  // ── NOTIFY COMPLETION (reenviar "OS pronta para retirada") ──
+  // Paridade Laravel OrdemServicoController::notificarConclusao. A notificacao
+  // automatica ocorre uma vez no updateStatus -> COMPLETED; aqui o operador
+  // pode REENVIAR enquanto a OS estiver concluida/paga/aguardando retirada.
+  notifyCompletion: tenantProcedure
+    .input(notifyCompletionSchema)
+    .mutation(async ({ ctx, input }) => {
+      const prep = await ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A notificacao so pode ser enviada quando a OS estiver concluida, paga ou aguardando retirada.",
+          });
+        }
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId },
+          select: { name: true, phone: true },
+        });
+        const phone = input.phone ?? customer?.phone ?? null;
+        if (!phone) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente nao possui telefone cadastrado." });
+        }
+        return { order, phone, customerName: customer?.name ?? "Cliente" };
+      });
+
+      // Cloud free-text + template os_concluida como fallback.
+      const text = `Ola, ${prep.customerName}!\n\nSua Ordem de Servico ${prep.order.number} foi concluida e ja esta pronta para retirada.\n\nArena Tech`;
+      const wa = await sendTextWithFallback({
+        phone: prep.phone,
+        freeText: text,
+        contexto: "os_conclusao",
+        params: [prep.customerName, prep.order.number],
+      });
+      if (!wa.success) {
+        logger.warn("Falha ao reenviar notificacao de conclusao", {
+          orderId: input.orderId, error: wa.error,
+        });
+      }
+
+      await ctx.withTenant(async (tx) => {
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: prep.order.status,
+            newStatus: prep.order.status,
+            notes: `Notificacao de conclusao reenviada via WhatsApp${wa.success ? "" : " (falhou)"}`,
+          },
+        });
+      });
+
+      return { success: true, sent: wa.success };
     }),
 
   // ═══════════════════════════════════════

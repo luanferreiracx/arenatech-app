@@ -630,3 +630,9 @@ export const sendReceiptSchema = z.object({
   orderId: z.string().uuid(),
   phone: z.string().min(8).max(30).optional().nullable(),
 });
+
+/** Reenviar a notificacao "OS pronta para retirada" (paridade Laravel notificarConclusao). */
+export const notifyCompletionSchema = z.object({
+  orderId: z.string().uuid(),
+  phone: z.string().min(8).max(30).optional().nullable(),
+});
