@@ -6,6 +6,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
+import { buildServiceOrderTermoEntregaPdf, buildServiceOrderTermoDevolucaoPdf } from "@/lib/pdf/service-order-terms-builder";
 import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
@@ -2983,17 +2984,17 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, customer, phone };
       });
 
-      // Fetch HTML + chamada Autentique FORA da tx (gap So10): cada chamada
-      // pode levar 5-15s, segurar a conexao Postgres exauria o pool.
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-entrega`;
+      // PDF do termo via builder direto (gerado em processo). Antes ia via
+      // fetch HTTP no proprio endpoint /api/service-orders/[id]/termo-entrega,
+      // que exige cookie de sessao — o fetch server-to-server nao propaga o
+      // cookie e sempre retornava 401 em producao.
       let pdfBuffer: Buffer;
       try {
-        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-        pdfBuffer = Buffer.from(await res.arrayBuffer());
+        const pdf = await buildServiceOrderTermoEntregaPdf(ctx.tenantId, input.orderId);
+        if (!pdf) throw new Error("OS not found");
+        pdfBuffer = pdf;
       } catch (err) {
-        logger.error("Failed to fetch delivery term PDF", { orderId: input.orderId, error: err });
+        logger.error("Failed to build delivery term PDF", { orderId: input.orderId, error: err });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de entrega" });
       }
 
@@ -3162,15 +3163,15 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, customer, phone };
       });
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const pdfUrl = `${appUrl}/api/service-orders/${input.orderId}/termo-devolucao`;
+      // PDF do termo via builder direto (mesmo motivo do sendDeliveryTerm:
+      // fetch HTTP server-to-server nao propaga cookie e o endpoint exige auth).
       let pdfBuffer: Buffer;
       try {
-        const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-        pdfBuffer = Buffer.from(await res.arrayBuffer());
+        const pdf = await buildServiceOrderTermoDevolucaoPdf(ctx.tenantId, input.orderId);
+        if (!pdf) throw new Error("OS not found");
+        pdfBuffer = pdf;
       } catch (err) {
-        logger.error("Failed to fetch return term PDF", { orderId: input.orderId, error: err });
+        logger.error("Failed to build return term PDF", { orderId: input.orderId, error: err });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do termo de devolucao" });
       }
 
