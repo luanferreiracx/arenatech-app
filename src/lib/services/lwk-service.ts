@@ -52,20 +52,31 @@ function getConfig(): LwkConfig | null {
   return { baseUrl: baseUrl.replace(/\/$/, ""), apiKey };
 }
 
+interface LwkFetchOpts {
+  body?: Record<string, unknown>;
+  idempotencyKey?: string;
+  timeoutMs?: number;
+}
+
 async function lwkFetch(
   config: LwkConfig,
   method: "GET" | "POST",
   path: string,
+  opts: LwkFetchOpts = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
   try {
+    const headers: Record<string, string> = {
+      "X-API-Key": config.apiKey,
+      Accept: "application/json",
+    };
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
     const resp = await fetch(`${config.baseUrl}${path}`, {
       method,
-      headers: {
-        "X-API-Key": config.apiKey,
-        Accept: "application/json",
-      },
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
     });
     let body: Record<string, unknown> = {};
@@ -134,6 +145,200 @@ export async function getBalance(tenantId: string): Promise<BalanceResult> {
     };
   } catch (error) {
     logger.error("LWK getBalance erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+export interface LwkTransferRecipient {
+  to: string;
+  /** Valor em REAIS (Decimal arredondado pelo LWK pra 8 casas). */
+  amountBrl: number;
+}
+
+export interface LwkTransferResult {
+  success: boolean;
+  txid?: string;
+  feeSatoshis?: number;
+  accepted?: boolean;
+  broadcastVia?: string;
+  /** True se o LWK identificou que e replay da mesma Idempotency-Key. */
+  idempotentReplay?: boolean;
+  error?: string;
+}
+
+/**
+ * Transfere DePix (ou outro asset Liquid) com 1+ recipients atomicamente.
+ * Usado no SAQUE (2 outputs: liquido pro off-ramp + taxa pra Arena Tech) e
+ * na cobranca da taxa do DEPOSITO (1 output: taxa pra Arena Tech).
+ *
+ * Idempotencia: passe a mesma key em retry -> LWK retorna o mesmo txid sem
+ * transferir 2x. Critico pra evitar saque duplicado.
+ */
+export async function transfer(
+  tenantId: string,
+  recipients: LwkTransferRecipient[],
+  opts: { feeRate?: number; idempotencyKey?: string; assetId?: string } = {},
+): Promise<LwkTransferResult> {
+  if (!recipients.length || recipients.length > 5) {
+    return { success: false, error: "recipients: 1 a 5" };
+  }
+  const config = getConfig();
+  if (!config) {
+    logger.warn("LWK transfer: mock mode", { tenantId, recipients: recipients.length });
+    return {
+      success: true,
+      txid: `mock-tx-${Date.now()}`,
+      feeSatoshis: 40,
+      accepted: true,
+      broadcastVia: "mock",
+    };
+  }
+  try {
+    const body: Record<string, unknown> = {
+      recipients: recipients.map((r) => ({ to: r.to, amount: r.amountBrl })),
+    };
+    if (opts.feeRate !== undefined) body.fee_rate = opts.feeRate;
+    if (opts.assetId) body.asset_id = opts.assetId;
+
+    const { ok, status, body: resp } = await lwkFetch(
+      config,
+      "POST",
+      `/wallet/${tenantId}/transfer`,
+      { body, idempotencyKey: opts.idempotencyKey, timeoutMs: 60_000 },
+    );
+    if (!ok) {
+      logger.error("LWK transfer falhou", { tenantId, status, error: resp.error });
+      return { success: false, error: String(resp.error ?? `HTTP ${status}`) };
+    }
+    return {
+      success: true,
+      txid: resp.txid as string | undefined,
+      feeSatoshis: resp.fee_satoshis as number | undefined,
+      accepted: resp.accepted as boolean | undefined,
+      broadcastVia: resp.broadcast_via as string | undefined,
+      idempotentReplay: resp.idempotent_replay as boolean | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK transfer erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+export interface LwkAddressResult {
+  success: boolean;
+  address?: string;
+  label?: string;
+  index?: number;
+  network?: string;
+  error?: string;
+}
+
+/**
+ * Gera um endereco de recebimento na carteira do tenant, com um label
+ * customizado (usado pra match exato no webhook do monitor — passar o
+ * transactionId do deposito como `user`).
+ */
+export async function generateAddress(
+  tenantId: string,
+  user: string,
+  index?: number,
+): Promise<LwkAddressResult> {
+  const config = getConfig();
+  if (!config) {
+    const mockAddr = `lq1mock${user.replace(/-/g, "").slice(0, 16)}${Date.now().toString(36).slice(-6)}`;
+    return {
+      success: true,
+      address: mockAddr,
+      label: `${user.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30)}_${Math.random().toString(16).slice(2, 10)}`,
+      index: index ?? 0,
+      network: "mainnet",
+    };
+  }
+  try {
+    const body: Record<string, unknown> = { user };
+    if (index !== undefined) body.index = index;
+    const { ok, status, body: resp } = await lwkFetch(
+      config,
+      "POST",
+      `/wallet/${tenantId}/address/new`,
+      { body },
+    );
+    if (!ok) {
+      return { success: false, error: String(resp.error ?? `HTTP ${status}`) };
+    }
+    return {
+      success: true,
+      address: resp.address as string | undefined,
+      label: resp.label as string | undefined,
+      index: resp.index as number | undefined,
+      network: resp.network as string | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK generateAddress erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+export interface LwkTxBalance {
+  amount: number;
+  satoshis: number;
+  is_depix: boolean;
+}
+export interface LwkTxItem {
+  txid: string;
+  height: number | null;
+  timestamp: number | null;
+  feeSatoshis: number | null;
+  confirmations: number;
+  status: "confirmed" | "pending";
+  balance: Record<string, LwkTxBalance>;
+}
+export interface LwkListTxsResult {
+  success: boolean;
+  transactions?: LwkTxItem[];
+  error?: string;
+}
+
+/** Lista transacoes da carteira do tenant (mais recentes primeiro). */
+export async function listTransactions(
+  tenantId: string,
+  limit = 20,
+): Promise<LwkListTxsResult> {
+  const config = getConfig();
+  if (!config) return { success: true, transactions: [] };
+  try {
+    const { ok, status, body } = await lwkFetch(
+      config,
+      "GET",
+      `/wallet/${tenantId}/transactions?limit=${Math.max(1, Math.min(limit, 100))}`,
+    );
+    if (!ok) {
+      return { success: false, error: String(body.error ?? `HTTP ${status}`) };
+    }
+    const rawTxs = (body.transactions ?? []) as Array<Record<string, unknown>>;
+    return {
+      success: true,
+      transactions: rawTxs.map((t) => ({
+        txid: String(t.txid ?? ""),
+        height: (t.height as number | null) ?? null,
+        timestamp: (t.timestamp as number | null) ?? null,
+        feeSatoshis: (t.fee_satoshis as number | null) ?? null,
+        confirmations: Number(t.confirmations ?? 0),
+        status: (t.status as "confirmed" | "pending") ?? "pending",
+        balance: (t.balance as Record<string, LwkTxBalance>) ?? {},
+      })),
+    };
+  } catch (error) {
+    logger.error("LWK listTransactions erro", {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     });

@@ -1,0 +1,121 @@
+/// Transacao DePix multi-tenant unificada (deposito + saque) via carteira LWK.
+///
+/// Modulo novo da Fase 2 — NAO se confunde com DepixWithdraw (legacy PixPay
+/// direto, sem LWK). O fluxo aqui vai por carteira LWK propria do tenant,
+/// com rateio de taxa ON-CHAIN automatico pra carteira mestre da Arena Tech.
+///
+/// Taxa Arena Tech (defaults): entrada R$0,99+1,5% / saida R$0,99+1,7%.
+/// Sempre on-chain — sem ledger pendente.
+enum DepixTransactionKind {
+  DEPOSIT
+  WITHDRAW
+}
+
+enum DepixTransactionStatus {
+  PENDING                   // criado, aguardando proximo passo
+  PROCESSING                // PIX pago / saque enviado, aguardando confirmacao
+  PROCESSING_FEE            // (deposito) recebimento confirmado, debitando taxa
+  COMPLETED                 // tudo concluido
+  COMPLETED_FEE_PENDING     // sucesso parcial: deposito ok mas taxa falhou (reconciliar)
+  FAILED                    // erro irrecuperavel
+  CANCELLED                 // cancelado pelo operador
+  EXPIRED                   // QR expirou antes do pagamento
+}
+
+model TenantDepixTransaction {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tenantId              String                  @map("tenant_id") @db.Uuid
+  /// Numero humano: TXD-YYYYMMDD-NNNNN (deposito) ou TXW-YYYYMMDD-NNNNN (saque)
+  number                String                  @unique
+  kind                  DepixTransactionKind
+  status                DepixTransactionStatus  @default(PENDING)
+
+  /// Valor BRUTO solicitado (centavos). Para deposito, eh o valor do PIX
+  /// que o cliente paga. Para saque, eh o valor que o tenant quer mover.
+  grossAmountCents      Int                     @map("gross_amount_cents")
+  /// Taxa cobrada pela Arena Tech (centavos). Sempre on-chain.
+  feeArenaTechCents     Int                     @default(0) @map("fee_arena_tech_cents")
+  /// Taxa do gateway PixPay (centavos). So saque conhece o valor real
+  /// (PixPay retorna depositAmountInCents - payoutAmountInCents).
+  feePixPayCents        Int?                    @map("fee_pixpay_cents")
+  /// Valor liquido (centavos): no deposito eh o que cai no tenant
+  /// (gross - feeArenaTech - feePixPay), no saque eh o que o destinatario
+  /// recebe via PIX (payoutAmountInCents).
+  netAmountCents        Int?                    @map("net_amount_cents")
+
+  /// ─── SAQUE ──────────────────────────────────────────────────────────
+  /// Chave PIX e dados do destinatario do saque.
+  pixKeyType            PixKeyType?             @map("pix_key_type")
+  pixKey                String?                 @map("pix_key")
+  recipientName         String?                 @map("recipient_name")
+  recipientTaxId        String?                 @map("recipient_tax_id")
+  /// ID retornado pelo PixPay no createDepixWithdraw.
+  pixpayDepixId         String?                 @map("pixpay_depix_id")
+  /// Endereco Liquid do off-ramp PixPay (pra onde mandamos DePix do saque).
+  pixpayDepositAddress  String?                 @map("pixpay_deposit_address")
+  /// txid da tx LWK que enviou o saque (1 tx com 2 outputs: pixpay + arena).
+  withdrawTxId          String?                 @map("withdraw_tx_id")
+
+  /// ─── DEPOSITO ───────────────────────────────────────────────────────
+  /// QR code BR Code (texto copia-cola) gerado pelo PixPay.
+  qrCode                String?                 @map("qr_code") @db.Text
+  /// QR code em base64 (PNG), ja pronto pra <img src=...>.
+  qrCodeBase64          String?                 @map("qr_code_base64") @db.Text
+  /// Endereco Liquid dedicado gerado pra ESTE deposito (via LWK address/new).
+  /// Usado pra match exato no webhook do monitor.
+  depositAddress        String?                 @map("deposit_address")
+  /// Label LWK = transactionId (vem no payload do webhook em label.user).
+  depositLabel          String?                 @map("deposit_label")
+  /// txid on-chain do deposito recebido (PixPay -> tenant via LWK).
+  depositTxId           String?                 @map("deposit_tx_id")
+  confirmations         Int?                    @default(0)
+
+  /// ─── AUDITORIA ──────────────────────────────────────────────────────
+  apiResponse           Json?                   @map("api_response")
+  errorMessage          String?                 @map("error_message") @db.Text
+  expiresAt             DateTime?               @map("expires_at")
+  userId                String                  @map("user_id") @db.Uuid
+  userName              String?                 @map("user_name")
+  /// Idempotency-Key pra evitar saque/deposito duplicado em retry.
+  idempotencyKey        String?                 @map("idempotency_key")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  completedAt           DateTime?               @map("completed_at")
+
+  feeLedgerEntries      TenantDepixFeeLedger[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, kind, status, createdAt])
+  @@index([tenantId, depositLabel])
+  @@index([tenantId, depositTxId])
+  @@index([tenantId, withdrawTxId])
+  @@index([pixpayDepixId])
+  @@map("tenant_depix_transactions")
+}
+
+/// Historico de cobrancas de taxa Arena Tech. Como na Fase 2 a taxa eh
+/// SEMPRE on-chain, todo registro nasce ja com status=SETTLED + o txid
+/// da tx LWK que liquidou. Vira historico/auditoria, nao divida pendente.
+///
+/// PENDING_SETTLEMENT existe so como fallback (deposito cujo transfer
+/// de taxa falhou — entra em COMPLETED_FEE_PENDING e o ledger fica
+/// pendente ate reconciliacao).
+model TenantDepixFeeLedger {
+  id              String                 @id @default(uuid()) @db.Uuid
+  tenantId        String                 @map("tenant_id") @db.Uuid
+  transactionId   String                 @map("transaction_id") @db.Uuid
+  kind            DepixTransactionKind
+  amountCents     Int                    @map("amount_cents")
+  /// "PENDING_SETTLEMENT" | "SETTLED"
+  status          String                 @default("PENDING_SETTLEMENT")
+  settledAt       DateTime?              @map("settled_at")
+  /// txid LWK que liquidou a taxa (1 tx pra saque, tx separada pra deposito).
+  settlementTxId  String?                @map("settlement_tx_id")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  transaction     TenantDepixTransaction @relation(fields: [transactionId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([transactionId])
+  @@map("tenant_depix_fee_ledger")
+}

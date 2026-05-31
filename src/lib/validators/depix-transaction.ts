@@ -1,0 +1,84 @@
+import { z } from "zod";
+
+/** Status labels pra UI. */
+export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Aguardando pagamento",
+  PROCESSING: "Processando",
+  PROCESSING_FEE: "Concluindo (taxa)",
+  COMPLETED: "Concluido",
+  COMPLETED_FEE_PENDING: "Concluido (taxa pendente)",
+  FAILED: "Falhou",
+  CANCELLED: "Cancelado",
+  EXPIRED: "Expirado",
+};
+
+export const DEPIX_TX_KIND_LABELS: Record<string, string> = {
+  DEPOSIT: "Deposito",
+  WITHDRAW: "Saque",
+};
+
+const VALID_PIX_KEY_TYPES = ["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"] as const;
+
+/** Cria deposito: tenant escolhe quanto quer receber via PIX. */
+export const createDepositSchema = z.object({
+  /** Valor BRUTO em centavos (o que o cliente paga). Min R$2, max R$6000. */
+  grossAmountCents: z
+    .number()
+    .int()
+    .min(200, "Valor minimo R$ 2,00")
+    .max(600000, "Valor maximo R$ 6.000,00"),
+});
+export type CreateDepositInput = z.infer<typeof createDepositSchema>;
+
+/** Valida CPF/CNPJ — paridade Laravel. Aceita so digitos ou formatado. */
+function isValidTaxId(taxId: string): boolean {
+  const digits = taxId.replace(/\D/g, "");
+  return digits.length === 11 || digits.length === 14;
+}
+
+export const createWithdrawSchema = z.object({
+  pixKeyType: z.enum(VALID_PIX_KEY_TYPES),
+  pixKey: z.string().min(1).max(255),
+  recipientName: z.string().max(200).optional().nullable(),
+  recipientTaxId: z
+    .string()
+    .min(11)
+    .max(18)
+    .refine(isValidTaxId, "CPF/CNPJ invalido"),
+  /** Valor BRUTO solicitado em centavos (o que sai da carteira do tenant). */
+  grossAmountCents: z
+    .number()
+    .int()
+    .min(200, "Valor minimo R$ 2,00")
+    .max(600000, "Valor maximo R$ 6.000,00"),
+  /** Cliente-side UUID pra idempotencia em retry. */
+  idempotencyKey: z.string().uuid().optional(),
+});
+export type CreateWithdrawInput = z.infer<typeof createWithdrawSchema>;
+
+export const listTransactionsSchema = z.object({
+  kind: z.enum(["DEPOSIT", "WITHDRAW", "ALL"]).optional(),
+  status: z
+    .enum([
+      "PENDING",
+      "PROCESSING",
+      "PROCESSING_FEE",
+      "COMPLETED",
+      "COMPLETED_FEE_PENDING",
+      "FAILED",
+      "CANCELLED",
+      "EXPIRED",
+      "ALL",
+    ])
+    .optional(),
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>;
+
+export const cancelTransactionSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.string().max(500).optional(),
+});

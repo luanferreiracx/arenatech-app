@@ -132,6 +132,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp },
       { label: "DRE", href: "/financial/dre", icon: BarChart3 },
       { label: "Saques DePix", href: "/depix/withdrawals", icon: Banknote },
+      { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet },
     ],
   },
   {

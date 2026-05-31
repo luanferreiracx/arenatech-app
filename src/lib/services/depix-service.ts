@@ -101,7 +101,7 @@ export async function createPixPayment(
   description: string,
   referenceId: string,
   taxNumber?: string | null,
-  options?: { whitelist?: boolean },
+  options?: { whitelist?: boolean; depixAddress?: string },
 ): Promise<DepixCreateResult> {
   const config = getConfig();
 
@@ -126,8 +126,12 @@ export async function createPixPayment(
   if (taxNumber) {
     payload.endUserTaxNumber = taxNumber.replace(/\D/g, "");
   }
-  if (config.depixAddress) {
-    payload.depixAddress = config.depixAddress;
+  // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
+  // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
+  // (fluxo legacy do PDV/OS/QuickSale).
+  const depixAddress = options?.depixAddress ?? config.depixAddress;
+  if (depixAddress) {
+    payload.depixAddress = depixAddress;
   }
   // Primeiro dia + valor > R$ 500: PixPay exige whitelist=true (paridade Laravel).
   if (options?.whitelist) {
