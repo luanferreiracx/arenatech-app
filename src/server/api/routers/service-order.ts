@@ -3217,14 +3217,19 @@ export const serviceOrderRouter = createTRPCRouter({
       }
 
       if (status.signed) {
+        // M4: so avanca para DELIVERED se a OS ja estiver paga (PAID/READY_FOR_PICKUP),
+        // mesmo gate que confirmPhysicalDeliveryTerm e confirmPhysicalSignature(delivery).
+        // Cliente assinando o termo antes do pagamento nao deve pular o fluxo financeiro.
+        const canDeliver = ["PAID", "READY_FOR_PICKUP"].includes(prep.order.status);
         await ctx.withTenant(async (tx) => {
           await tx.serviceOrder.update({
             where: { id: input.orderId },
             data: {
               deliveryTermSigned: true,
               deliveryTermSignedAt: new Date(),
-              status: "DELIVERED",
-              deliveredDate: new Date(),
+              ...(canDeliver
+                ? { status: "DELIVERED", deliveredDate: new Date() }
+                : {}),
             },
           });
 
@@ -3234,8 +3239,10 @@ export const serviceOrderRouter = createTRPCRouter({
               orderId: input.orderId,
               userId: ctx.session.user.id,
               previousStatus: prep.order.status,
-              newStatus: "DELIVERED",
-              notes: "Termo de entrega assinado digitalmente e equipamento entregue ao cliente",
+              newStatus: canDeliver ? "DELIVERED" : prep.order.status,
+              notes: canDeliver
+                ? "Termo de entrega assinado digitalmente e equipamento entregue ao cliente"
+                : "Termo de entrega assinado digitalmente (aguardando pagamento para entregar)",
             },
           });
         });
