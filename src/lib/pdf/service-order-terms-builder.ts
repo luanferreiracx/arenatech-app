@@ -11,6 +11,21 @@ import { formatCpf } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 import { valorPorExtenso } from "@/lib/valor-por-extenso";
 
+/**
+ * Adiciona N meses preservando o "ultimo dia do mes" (paridade Carbon::addMonths).
+ * Evita o overflow do setMonth nativo: Jan 31 + 1m → Feb 31 → Mar 3 (errado).
+ * Com o clamp, Jan 31 + 1m → Feb 28/29 (correto).
+ */
+function addMonthsClamped(d: Date, months: number): Date {
+  const r = new Date(d);
+  const day = r.getDate();
+  r.setDate(1);
+  r.setMonth(r.getMonth() + months);
+  const lastDay = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(day, lastDay));
+  return r;
+}
+
 async function loadCommon(tenantId: string, orderId: string) {
   const order = await withTenant(tenantId, async (tx) =>
     tx.serviceOrder.findUnique({
@@ -66,8 +81,7 @@ export async function buildServiceOrderReciboPdf(
   const valorPago = Number(order.paidAmount ?? valorTotal);
   const prazoGarantia = order.warrantyMonths ?? 3;
   const dataConclusao = order.completedDate ?? new Date();
-  const vencimentoGarantia = new Date(dataConclusao);
-  vencimentoGarantia.setMonth(vencimentoGarantia.getMonth() + prazoGarantia);
+  const vencimentoGarantia = addMonthsClamped(dataConclusao, prazoGarantia);
 
   const data: ReciboPdfData = {
     store,
