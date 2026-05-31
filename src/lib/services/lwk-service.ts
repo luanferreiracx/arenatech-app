@@ -134,7 +134,15 @@ export async function getBalance(tenantId: string): Promise<BalanceResult> {
     return { success: true, depixBalance: 0, depixAssetId: DEPIX_ASSET_ID };
   }
   try {
-    const { ok, status, body } = await lwkFetch(config, "GET", `/wallet/${tenantId}/balance`);
+    // sync=false: usa saldo cached (rapido). Sync de verdade roda no
+    // monitor de fundo a cada MONITOR_INTERVAL — evita timeout no
+    // dashboard quando a Esplora rate-limita.
+    const { ok, status, body } = await lwkFetch(
+      config,
+      "GET",
+      `/wallet/${tenantId}/balance?sync=false`,
+      { timeoutMs: 12_000 },
+    );
     if (!ok) {
       return { success: false, error: String(body.error ?? `HTTP ${status}`) };
     }

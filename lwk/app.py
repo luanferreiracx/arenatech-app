@@ -201,28 +201,52 @@ def _write_secret(path, content):
         pass
 
 
-def get_tip_height():
+def get_tip_height(per_attempt_timeout=8):
+    """Tip da blockchain. Cada Esplora tem timeout via thread (a lib lwk
+    nao expoe timeout nativo). Retorna None se todas falharem ou timeoutarem."""
     for url in ESPLORA_URLS:
-        try:
-            return lwk.EsploraClient(url, get_network()).tip().height()
-        except Exception:
-            pass
+        result = {"tip": None}
+        def _try():
+            try:
+                result["tip"] = lwk.EsploraClient(url, get_network()).tip().height()
+            except Exception:
+                pass
+        t = threading.Thread(target=_try, daemon=True)
+        t.start()
+        t.join(timeout=per_attempt_timeout)
+        if result["tip"] is not None:
+            return result["tip"]
+        if t.is_alive():
+            logger.warning(f"get_tip_height timeout [{url}]")
     return None
 
 
 def sync_wallet(wollet, silent=False):
-    """Sincroniza carteira. Retorna True se algum Esplora respondeu."""
+    """Sincroniza carteira. Retorna True se algum Esplora respondeu.
+    Cada attempt tem timeout via thread — a lib lwk pode ficar hanging
+    quando a Esplora rate-limita."""
     for url in ESPLORA_URLS:
-        try:
-            client = lwk.EsploraClient(url, get_network())
-            update = client.full_scan(wollet)
-            if update:
-                wollet.apply_update(update)
+        result = {"ok": False, "error": None}
+        def _try():
+            try:
+                client = lwk.EsploraClient(url, get_network())
+                update = client.full_scan(wollet)
+                if update:
+                    wollet.apply_update(update)
+                result["ok"] = True
+            except Exception as e:
+                result["error"] = str(e)
+        t = threading.Thread(target=_try, daemon=True)
+        t.start()
+        t.join(timeout=20)
+        if result["ok"]:
             if not silent:
                 logger.info(f"Carteira sincronizada via {url}")
             return True
-        except Exception as e:
-            logger.warning(f"Sync falhou [{url}]: {e}")
+        if t.is_alive():
+            logger.warning(f"Sync timeout [{url}] (>20s)")
+        elif result["error"]:
+            logger.warning(f"Sync falhou [{url}]: {result['error']}")
     logger.error("Todos os servidores Esplora falharam.")
     return False
 
@@ -580,14 +604,24 @@ def index():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Probe sem auth: 200 so se algum Esplora responde."""
+    """Liveness probe (sem auth, sem rede). Retorna 200 se o processo
+    Python esta vivo. NAO bloqueia em chamadas Esplora — quando a
+    Esplora rate-limita, o /health ainda responde rapido."""
+    return jsonify({"status": "ok", "network": NETWORK_NAME})
+
+
+@app.route("/readiness", methods=["GET"])
+def readiness():
+    """Readiness probe (sem auth) que CONSULTA Esplora. 503 se nao
+    consegue ler tip — sinaliza pro orquestrador que requests externos
+    podem falhar agora. Usado pra healthcheck mais agressivo."""
     try:
-        tip = get_tip_height()
+        tip = get_tip_height(per_attempt_timeout=5)
         if tip is None:
             return jsonify({"status": "degraded", "reason": "esplora_unreachable"}), 503
         return jsonify({"status": "ok", "tip_height": tip, "network": NETWORK_NAME})
     except Exception as e:
-        logger.error(f"Health check falhou: {e}")
+        logger.error(f"Readiness check falhou: {e}")
         return jsonify({"status": "down"}), 503
 
 
@@ -660,11 +694,21 @@ def wallet_balance(tenant_id):
     if bad:
         return bad
     try:
-        with wallet_lock(tenant_id):
+        do_sync = request.args.get("sync", "true").lower() != "false"
+        lock = wallet_lock(tenant_id)
+        # Quando sync=false, NAO bloqueia esperando o lock: se o monitor
+        # esta segurando (porque ta no full_scan demorado), retorna o
+        # saldo cached lendo a wallet em paralelo. balance() so le o cache
+        # interno (nao toca rede), entao acesso concorrente eh seguro.
+        acquired = lock.acquire(timeout=15 if do_sync else 1)
+        try:
             wollet, _, _, _ = load_or_create_wallet(tenant_id)
-            if request.args.get("sync", "true").lower() != "false":
+            if do_sync and acquired:
                 sync_wallet(wollet, silent=True)
             bal = wollet.balance()
+        finally:
+            if acquired:
+                lock.release()
         assets        = {}
         depix_balance = 0.0
         for asset_id, amount in bal.items():
