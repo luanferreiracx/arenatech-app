@@ -132,7 +132,19 @@ export default function DepixSettingsPage() {
         )}
       </Card>
 
-      {/* Taxas */}
+      {/* Aviso pro tenant central */}
+      {feeQuery.data && "isCentralTenant" in feeQuery.data && feeQuery.data.isCentralTenant && (
+        <Card className="p-4 mb-6 border-blue-500/30 bg-blue-500/5">
+          <p className="text-sm">
+            <strong>Voce esta no tenant central (Arena Tech).</strong> Como
+            voce <em>recebe</em> as taxas de intermediacao dos demais tenants,
+            voce nao paga taxa pra si mesmo. As taxas abaixo ficam fixas em zero.
+          </p>
+        </Card>
+      )}
+
+      {/* Taxas (escondido pro tenant central — sempre zero) */}
+      {!(feeQuery.data && "isCentralTenant" in feeQuery.data && feeQuery.data.isCentralTenant) && (
       <form
         onSubmit={form.handleSubmit((data) => updateMutation.mutate(data))}
         className="space-y-6"
@@ -192,6 +204,7 @@ export default function DepixSettingsPage() {
 
         <FormActions isLoading={updateMutation.isPending} submitLabel="Salvar taxas" />
       </form>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantProcedure, CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import {
   createDepositSchema,
   createWithdrawSchema,
@@ -12,12 +12,12 @@ import {
 import {
   calcDepositFee,
   calcWithdrawFee,
-  type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import {
   createDeposit,
   createWithdraw,
   checkTransactionStatus,
+  loadFeeConfig,
 } from "@/server/services/depix-transaction.service";
 import * as lwk from "@/lib/services/lwk-service";
 import { logger } from "@/lib/logger";
@@ -158,22 +158,17 @@ export const depixTransactionRouter = createTRPCRouter({
 
   /** Breakdown de taxas + saldo + master address pra UI. */
   getOverview: tenantProcedure.query(async ({ ctx }) => {
-    const [wallet, cfg, balance] = await Promise.all([
+    const [wallet, feeCfg, balance] = await Promise.all([
       ctx.withTenant(async (db) =>
         db.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
       ),
-      ctx.withTenant(async (db) =>
-        db.tenantDepixFeeConfig.findUnique({ where: { tenantId: ctx.tenantId } }),
-      ),
+      // Usa o loadFeeConfig do service: aplica guard de tenant central (taxa=0).
+      ctx.withTenant(async (db) => loadFeeConfig(db, ctx.tenantId)),
       lwk.getBalance(ctx.tenantId),
     ]);
-
-    const feeCfg: DepixFeeConfig = {
-      entryFeeFixed: cfg?.entryFeeFixed ?? 99,
-      entryFeePercent: Number(cfg?.entryFeePercent ?? 1.5),
-      exitFeeFixed: cfg?.exitFeeFixed ?? 99,
-      exitFeePercent: Number(cfg?.exitFeePercent ?? 1.7),
-    };
+    // Tenant central nao paga taxa pra si mesmo (eh quem RECEBE).
+    const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+    const isCentralTenant = activeTenant?.slug === CENTRAL_TENANT_SLUG;
 
     if (!balance.success) {
       logger.warn("Overview: lwk getBalance falhou", {
@@ -191,6 +186,7 @@ export const depixTransactionRouter = createTRPCRouter({
           }
         : { provisioned: false, masterAddress: null, network: null },
       feeConfig: feeCfg,
+      isCentralTenant,
       balance: {
         depix: balance.depixBalance ?? 0,
         success: balance.success,
@@ -208,15 +204,8 @@ export const depixTransactionRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const cfg = await ctx.withTenant(async (db) =>
-        db.tenantDepixFeeConfig.findUnique({ where: { tenantId: ctx.tenantId } }),
-      );
-      const feeCfg: DepixFeeConfig = {
-        entryFeeFixed: cfg?.entryFeeFixed ?? 99,
-        entryFeePercent: Number(cfg?.entryFeePercent ?? 1.5),
-        exitFeeFixed: cfg?.exitFeeFixed ?? 99,
-        exitFeePercent: Number(cfg?.exitFeePercent ?? 1.7),
-      };
+      // Usa o loadFeeConfig do service (aplica guard de tenant central).
+      const feeCfg = await ctx.withTenant(async (db) => loadFeeConfig(db, ctx.tenantId));
       return input.kind === "DEPOSIT"
         ? calcDepositFee(input.grossAmountCents, feeCfg)
         : calcWithdrawFee(input.grossAmountCents, feeCfg);

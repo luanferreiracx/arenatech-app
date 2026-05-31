@@ -1,4 +1,5 @@
-import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+import { createTRPCRouter, tenantProcedure, CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import {
   updateDepixFeeConfigSchema,
   DEFAULT_DEPIX_FEE,
@@ -11,24 +12,38 @@ function decimalToNumber(d: unknown): number {
 }
 
 export const depixWalletRouter = createTRPCRouter({
-  /** Config de taxa do tenant. Retorna defaults se ainda nao existe. */
+  /** Config de taxa do tenant. Retorna defaults se ainda nao existe.
+   *  isCentralTenant=true sinaliza pra UI que o tenant central nao paga
+   *  taxa (eh quem RECEBE) — UI deve desabilitar/avisar. */
   getFeeConfig: tenantProcedure.query(async ({ ctx }) => {
+    const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+    const isCentralTenant = activeTenant?.slug === CENTRAL_TENANT_SLUG;
     const cfg = await ctx.withTenant(async (tx) =>
       tx.tenantDepixFeeConfig.findUnique({ where: { tenantId: ctx.tenantId } }),
     );
-    if (!cfg) return { ...DEFAULT_DEPIX_FEE };
+    if (!cfg) return { ...DEFAULT_DEPIX_FEE, isCentralTenant };
     return {
       entryFeeFixed: cfg.entryFeeFixed,
       entryFeePercent: decimalToNumber(cfg.entryFeePercent),
       exitFeeFixed: cfg.exitFeeFixed,
       exitFeePercent: decimalToNumber(cfg.exitFeePercent),
+      isCentralTenant,
     };
   }),
 
-  /** Atualiza a config de taxa do tenant (upsert). */
+  /** Atualiza a config de taxa do tenant (upsert).
+   *  Tenant central nao pode mudar (config fixa em zero — ele recebe as
+   *  taxas dos demais, nao paga). */
   updateFeeConfig: tenantProcedure
     .input(updateDepixFeeConfigSchema)
     .mutation(async ({ ctx, input }) => {
+      const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+      if (activeTenant?.slug === CENTRAL_TENANT_SLUG) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Tenant central nao paga taxa pra si mesmo (config fixa em zero).",
+        });
+      }
       await ctx.withTenant(async (tx) =>
         tx.tenantDepixFeeConfig.upsert({
           where: { tenantId: ctx.tenantId },

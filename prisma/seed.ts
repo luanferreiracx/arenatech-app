@@ -178,15 +178,30 @@ async function main() {
   await prisma.userTenant.deleteMany({ where: { userId: noAccessUser.id } });
 
   // --- DePix fee config (seed local idempotente) ---
-  // Provisionamento da carteira LWK eh feito separadamente (precisa do
-  // servico LWK no ar); aqui so garantimos a config de taxa default.
-  for (const t of [tenantArena, tenantTest]) {
-    await prisma.tenantDepixFeeConfig.upsert({
-      where: { tenantId: t.id },
-      update: {},
-      create: { tenantId: t.id },
-    });
-  }
+  // Tenant central (arena-tech) recebe as taxas dos demais tenants — nao
+  // paga taxa pra si mesmo. Demais tenants ganham config com defaults
+  // (R$ 0,99 + 1,5% entrada / R$ 0,99 + 1,7% saida).
+  await prisma.tenantDepixFeeConfig.upsert({
+    where: { tenantId: tenantArena.id },
+    update: {
+      entryFeeFixed: 0,
+      entryFeePercent: 0,
+      exitFeeFixed: 0,
+      exitFeePercent: 0,
+    },
+    create: {
+      tenantId: tenantArena.id,
+      entryFeeFixed: 0,
+      entryFeePercent: 0,
+      exitFeeFixed: 0,
+      exitFeePercent: 0,
+    },
+  });
+  await prisma.tenantDepixFeeConfig.upsert({
+    where: { tenantId: tenantTest.id },
+    update: {},
+    create: { tenantId: tenantTest.id },
+  });
   console.log("DePix fee config seeded (arena-tech, loja-teste).");
 }
 

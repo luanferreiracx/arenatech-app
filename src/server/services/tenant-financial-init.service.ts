@@ -98,12 +98,41 @@ export async function tenantFinancialInit(
   // Seed config de taxa DePix (entrada R$0,99+1,5% / saida R$0,99+1,7%).
   // Idempotente. So o seed LOCAL aqui — a carteira LWK e provisionada FORA
   // desta transacao (chamada HTTP), via provisionDepixWallet().
+  //
+  // Tenant central (Arena Tech): seedado com taxa ZERO. Ele eh quem RECEBE
+  // as taxas dos demais tenants; nao paga taxa pra si mesmo. O loadFeeConfig
+  // do servico tambem aplica esse guard em runtime.
+  const isCentralTenant = await isCentralTenantId(tx, tenantId)
   const existingFeeConfig = await tx.tenantDepixFeeConfig.findUnique({
     where: { tenantId },
   })
   if (!existingFeeConfig) {
-    await tx.tenantDepixFeeConfig.create({ data: { tenantId } })
+    await tx.tenantDepixFeeConfig.create({
+      data: isCentralTenant
+        ? {
+            tenantId,
+            entryFeeFixed: 0,
+            entryFeePercent: 0,
+            exitFeeFixed: 0,
+            exitFeePercent: 0,
+          }
+        : { tenantId },
+    })
   }
+}
+
+async function isCentralTenantId(
+  tx: PrismaClient,
+  tenantId: string,
+): Promise<boolean> {
+  // Importacao tardia pra evitar dependencia circular (trpc.ts importa
+  // varios services indiretamente).
+  const { CENTRAL_TENANT_SLUG } = await import("@/server/api/trpc")
+  const t = await tx.tenant.findUnique({
+    where: { id: tenantId },
+    select: { slug: true },
+  })
+  return t?.slug === CENTRAL_TENANT_SLUG
 }
 
 export { FIXED_CATEGORIES, DEFAULT_PAYMENT_METHODS }

@@ -16,6 +16,7 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { withTenant, withAdmin } from "@/server/db";
+import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
 import {
   calcDepositFee,
@@ -32,14 +33,41 @@ import {
 
 const PIXPAY_PCT_WITHDRAW = Number(process.env.PIXPAY_FEE_ESTIMATE_PCT_WITHDRAW ?? "1.3");
 
+const ZERO_FEE: DepixFeeConfig = {
+  entryFeeFixed: 0,
+  entryFeePercent: 0,
+  exitFeeFixed: 0,
+  exitFeePercent: 0,
+};
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-async function loadFeeConfig(
+/** Cache do id do tenant central — invalida raramente (so muda em recreate). */
+let _centralTenantIdCache: string | null = null;
+async function getCentralTenantId(): Promise<string | null> {
+  if (_centralTenantIdCache) return _centralTenantIdCache;
+  const t = await withAdmin(async (tx) =>
+    tx.tenant.findUnique({ where: { slug: CENTRAL_TENANT_SLUG }, select: { id: true } }),
+  );
+  if (t) _centralTenantIdCache = t.id;
+  return t?.id ?? null;
+}
+
+export async function loadFeeConfig(
   tx: Prisma.TransactionClient,
   tenantId: string,
 ): Promise<DepixFeeConfig> {
+  // GUARD: tenant central (Arena Tech) eh quem RECEBE as taxas — nao paga
+  // taxa pra si mesmo. Mesmo se a config no DB tiver valores, retorna ZERO.
+  // Isto evita: (a) tx on-chain desnecessaria pagando taxa pra Arena Tech
+  // de Arena Tech, (b) desperdicio de fee L-BTC, (c) erro humano que
+  // configure cobranca por engano no tenant central.
+  const centralId = await getCentralTenantId();
+  if (centralId && tenantId === centralId) {
+    return ZERO_FEE;
+  }
   const cfg = await tx.tenantDepixFeeConfig.findUnique({ where: { tenantId } });
   // Defaults se ainda nao foi criado (fail-safe).
   return {
@@ -225,6 +253,21 @@ export async function settleDepositConfirmed(args: {
       },
     }),
   );
+
+  // Fee zero (tenant central) -> nao dispara tx on-chain. Marca COMPLETED direto.
+  if (breakdown.feeArenaTechCents <= 0) {
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: txRow.id },
+        data: { status: "COMPLETED", completedAt: new Date() },
+      }),
+    );
+    logger.info("Deposito DePix concluido (sem taxa — tenant central)", {
+      txId: txRow.id,
+      grossCents: grossActualCents,
+    });
+    return { matched: true, completed: true };
+  }
 
   // Dispara a TX LWK de cobranca de taxa: tenant -> Arena Tech.
   let arenaMaster: string;
@@ -425,31 +468,36 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     }),
   );
 
-  // ETAPA 4: 1 tx LWK com 2 outputs (off-ramp + Arena Tech).
-  let arenaMaster: string;
-  try {
-    arenaMaster = await getArenaMasterAddress();
-  } catch (err) {
-    await withTenant(args.tenantId, async (tx) =>
-      tx.tenantDepixTransaction.update({
-        where: { id: created.id },
-        data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
-      }),
-    );
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Carteira mestre Arena Tech indisponivel",
-    });
+  // ETAPA 4: tx LWK. Se tem taxa Arena Tech > 0, 2 outputs (off-ramp +
+  // Arena Tech) atomicamente. Se tenant central (taxa=0), so 1 output
+  // pro off-ramp — nao precisa buscar masterAddress.
+  const recipients: lwk.LwkTransferRecipient[] = [
+    { to: pp.depositAddress, amountBrl: depositAmountCents / 100 },
+  ];
+  if (breakdown.feeArenaTechCents > 0) {
+    try {
+      const arenaMaster = await getArenaMasterAddress();
+      recipients.push({
+        to: arenaMaster,
+        amountBrl: breakdown.feeArenaTechCents / 100,
+      });
+    } catch (err) {
+      await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: created.id },
+          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+        }),
+      );
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Carteira mestre Arena Tech indisponivel",
+      });
+    }
   }
 
-  const sweep = await lwk.transfer(
-    args.tenantId,
-    [
-      { to: pp.depositAddress, amountBrl: depositAmountCents / 100 },
-      { to: arenaMaster, amountBrl: breakdown.feeArenaTechCents / 100 },
-    ],
-    { idempotencyKey: created.id },
-  );
+  const sweep = await lwk.transfer(args.tenantId, recipients, {
+    idempotencyKey: created.id,
+  });
   if (!sweep.success || !sweep.txid) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
@@ -463,7 +511,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   }
 
-  // ETAPA 5: persiste txid + ledger SETTLED.
+  // ETAPA 5: persiste txid + ledger SETTLED (so se houve taxa cobrada).
   const final = await withTenant(args.tenantId, async (tx) => {
     const updated = await tx.tenantDepixTransaction.update({
       where: { id: created.id },
@@ -472,17 +520,19 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         status: "PROCESSING",
       },
     });
-    await tx.tenantDepixFeeLedger.create({
-      data: {
-        tenantId: args.tenantId,
-        transactionId: created.id,
-        kind: "WITHDRAW",
-        amountCents: breakdown.feeArenaTechCents,
-        status: "SETTLED",
-        settlementTxId: sweep.txid!,
-        settledAt: new Date(),
-      },
-    });
+    if (breakdown.feeArenaTechCents > 0) {
+      await tx.tenantDepixFeeLedger.create({
+        data: {
+          tenantId: args.tenantId,
+          transactionId: created.id,
+          kind: "WITHDRAW",
+          amountCents: breakdown.feeArenaTechCents,
+          status: "SETTLED",
+          settlementTxId: sweep.txid!,
+          settledAt: new Date(),
+        },
+      });
+    }
     return updated;
   });
 
