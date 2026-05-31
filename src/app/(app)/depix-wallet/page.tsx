@@ -57,6 +57,25 @@ export default function DepixWalletPage() {
         subtitle="Carteira Liquid propria — depositos e saques com rateio de taxa automatico"
       />
 
+      {/* Alerta L-BTC baixo (taxa de rede). Sem L-BTC, saques falham. */}
+      {o?.balance.success && o.balance.lbtcSat < 1000 && o?.wallet.provisioned && o.wallet.masterAddress && (
+        <Card className="p-4 mb-4 border-amber-500/40 bg-amber-500/5">
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+            ⚠ Saldo L-BTC baixo ({o.balance.lbtcSat} sat)
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            L-BTC (Liquid Bitcoin) eh necessario pra pagar a taxa de rede em saques.
+            Sem saldo suficiente, saques vao falhar. Envie ~5.000 sat (centavos
+            de R$) pra esse mesmo endereco da carteira:
+          </p>
+          {o.wallet.masterAddress && (
+            <p className="font-mono text-xs break-all mt-2 p-2 bg-muted/30 rounded">
+              {o.wallet.masterAddress}
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* Hero */}
       <Card className="p-6 mb-6">
         <div className="flex items-start justify-between gap-4">

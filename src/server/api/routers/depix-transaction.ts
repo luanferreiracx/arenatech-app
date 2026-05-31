@@ -191,6 +191,8 @@ export const depixTransactionRouter = createTRPCRouter({
       isCentralTenant,
       balance: {
         depix: balance.depixBalance ?? 0,
+        /** Saldo L-BTC em sat. Limite seguro recomendado: >= 1000 sat. */
+        lbtcSat: balance.lbtcSatoshis ?? 0,
         success: balance.success,
         error: balance.error ?? null,
       },

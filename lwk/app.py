@@ -866,6 +866,17 @@ def transfer(tenant_id):
 
             txid, used_url = broadcast_with_fallback(tx)
         except Exception as e:
+            # Categoriza erros comuns pra mensagem amigavel pro client.
+            # Detalhe completo vai pro log (vem da lib lwk).
+            err_str = str(e)
+            if "InsufficientFunds" in err_str:
+                # Identifica se eh L-BTC (asset 6f0279...) — fee de rede.
+                # Asset DePix: 02f22f...df5189
+                if "6f0279" in err_str.lower():
+                    return fail("insufficient_lbtc", 400, log_detail=f"transfer[{tenant_id}]: {e}")
+                return fail("insufficient_depix", 400, log_detail=f"transfer[{tenant_id}]: {e}")
+            if "RecipientsAmountZero" in err_str or "BelowDust" in err_str:
+                return fail("amount_too_small", 400, log_detail=f"transfer[{tenant_id}]: {e}")
             return fail("falha ao transferir", 500, log_detail=f"transfer[{tenant_id}]: {e}")
 
     accepted = verify_in_mempool(txid)

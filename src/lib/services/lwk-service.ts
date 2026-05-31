@@ -35,8 +35,13 @@ export interface BalanceResult {
   success: boolean;
   depixBalance?: number;
   depixAssetId?: string;
+  /** Saldo L-BTC em satoshis. Necessario pra pagar fee de rede em saques. */
+  lbtcSatoshis?: number;
   error?: string;
 }
+
+/** Asset ID do L-BTC (Liquid Bitcoin) — usado pra pagar fee de rede. */
+const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d";
 
 export interface MasterAddressResult {
   success: boolean;
@@ -146,10 +151,17 @@ export async function getBalance(tenantId: string): Promise<BalanceResult> {
     if (!ok) {
       return { success: false, error: String(body.error ?? `HTTP ${status}`) };
     }
+    // Extrai saldo L-BTC dos all_assets (usado pra pagar fee de rede).
+    const allAssets = (body.all_assets ?? {}) as Record<
+      string,
+      { satoshis?: number }
+    >;
+    const lbtcSatoshis = Number(allAssets[LBTC_ASSET_ID]?.satoshis ?? 0);
     return {
       success: true,
       depixBalance: Number(body.depix_balance ?? 0),
       depixAssetId: body.depix_asset_id as string | undefined,
+      lbtcSatoshis,
     };
   } catch (error) {
     logger.error("LWK getBalance erro", {
@@ -224,7 +236,19 @@ export async function transfer(
     );
     if (!ok) {
       logger.error("LWK transfer falhou", { tenantId, status, error: resp.error });
-      return { success: false, error: String(resp.error ?? `HTTP ${status}`) };
+      // Traduz codigos do LWK pra mensagens em PT-BR amigaveis ao client.
+      const code = String(resp.error ?? "");
+      let msg: string;
+      if (code === "insufficient_lbtc") {
+        msg = "Saldo L-BTC insuficiente pra pagar a taxa de rede. Abasteca a carteira com L-BTC pra continuar operando.";
+      } else if (code === "insufficient_depix") {
+        msg = "Saldo DePix insuficiente.";
+      } else if (code === "amount_too_small") {
+        msg = "Valor muito pequeno (abaixo do minimo da rede Liquid).";
+      } else {
+        msg = code || `HTTP ${status}`;
+      }
+      return { success: false, error: msg };
     }
     return {
       success: true,
