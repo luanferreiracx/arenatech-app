@@ -357,6 +357,9 @@ export const updateStatusSchema = z.object({
   paymentMethod: z.string().max(50).optional().nullable(),
   paymentNotes: z.string().max(500).optional().nullable(),
   paymentDiscount: z.number().int().min(0).optional(), // centavos
+  // Recompensa (RewardAction APPROVED) usada como desconto no PAID-path.
+  // Paridade Laravel: updateStatus aceita recompensa_id ao marcar como paga.
+  rewardActionId: z.string().uuid().optional().nullable(),
   notifyWhatsapp: z.boolean().optional(),
   notifyPhone: z.string().max(30).optional().nullable(),
   // Admin bypass: forca PAID fora do PDV / forca DELIVERED sem termo assinado

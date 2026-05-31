@@ -768,16 +768,29 @@ export const serviceOrderRouter = createTRPCRouter({
           updateData.deliveredDate = new Date();
         }
 
+        let rewardDiscountCents = 0;
+        let rewardNote = "";
         if (newStatus === "PAID") {
           updateData.paymentDate = new Date();
           if (input.paymentMethod) updateData.paymentMethod = input.paymentMethod;
-          if (input.paymentNotes) updateData.paymentNotes = input.paymentNotes;
-          if (input.paymentDiscount) {
-            updateData.paymentDiscount = centsToPrisma(input.paymentDiscount);
-            const paid = Number(order.totalAmount) - input.paymentDiscount / 100;
-            updateData.paidAmount = new Prisma.Decimal(Math.max(0, paid));
-          } else {
-            updateData.paidAmount = order.totalAmount;
+
+          // L1: aplicar RewardAction como desconto, se fornecida (mesmo helper
+          // usado por registerPayment — paridade Laravel).
+          if (input.rewardActionId) {
+            const r = await applyRewardActionToOrder(tx, input.rewardActionId, order);
+            rewardDiscountCents = r.discountCents;
+            rewardNote = r.note;
+          }
+
+          const manualDiscountCents = input.paymentDiscount ?? 0;
+          const totalDiscountCents = manualDiscountCents + rewardDiscountCents;
+          if (totalDiscountCents > 0) {
+            updateData.paymentDiscount = centsToPrisma(totalDiscountCents);
+          }
+          const paidCents = Math.max(0, decimalToCents(order.totalAmount) - totalDiscountCents);
+          updateData.paidAmount = centsToPrisma(paidCents);
+          if (input.paymentNotes || rewardNote) {
+            updateData.paymentNotes = (input.paymentNotes ?? "") + rewardNote || null;
           }
         }
 
@@ -1521,54 +1534,14 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // C7: Aplicar desconto de recompensa, se fornecido.
-        // Carrega RewardAction, valida (APPROVED, nao expirado, cliente bate),
-        // calcula desconto adicional e marca como USED.
+        // C7: Aplicar desconto de recompensa, se fornecido (helper compartilhado
+        // com updateStatus PAID-path).
         let rewardDiscountCents = 0;
         let rewardNote = "";
         if (input.rewardActionId) {
-          const action = await tx.rewardAction.findUnique({
-            where: { id: input.rewardActionId },
-          });
-          if (!action) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa nao encontrada." });
-          }
-          if (action.customerId !== order.customerId) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Recompensa pertence a outro cliente.",
-            });
-          }
-          if (action.status !== "APPROVED") {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Recompensa nao esta disponivel.",
-            });
-          }
-          if (action.expiresAt && action.expiresAt < new Date()) {
-            await tx.rewardAction.update({
-              where: { id: action.id },
-              data: { status: "EXPIRED" },
-            });
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa expirada." });
-          }
-
-          // Calcular desconto. Aceita DISCOUNT (com percentage) ou CASHBACK (value).
-          const percent = Number(action.percentage);
-          const value = Number(action.value);
-          const discountFromPercent = percent > 0 ? Math.round((orderTotal * percent) / 100 * 100) : 0;
-          const discountFromValue = value > 0 ? Math.round(value * 100) : 0;
-          rewardDiscountCents = Math.max(discountFromPercent, discountFromValue);
-          rewardNote = ` | Desconto recompensa: ${percent > 0 ? `${percent}%` : `R$ ${value.toFixed(2)}`}`;
-
-          await tx.rewardAction.update({
-            where: { id: action.id },
-            data: {
-              status: "USED",
-              usedAt: new Date(),
-              usedInOsId: order.id,
-            },
-          });
+          const r = await applyRewardActionToOrder(tx, input.rewardActionId, order);
+          rewardDiscountCents = r.discountCents;
+          rewardNote = r.note;
         }
 
         const discount = (input.paymentDiscount ?? 0) + rewardDiscountCents;
@@ -4183,6 +4156,47 @@ async function revertItemsToSnapshot(
     data: { discount: centsToPrisma(previousDiscountCents) },
   });
   await recalculateOrderTotals(tx, order.id, order.tenantId);
+}
+
+/**
+ * Aplica uma RewardAction como desconto no pagamento da OS. Valida (cliente
+ * bate, APPROVED, nao expirada), marca como USED e retorna o desconto em
+ * centavos + uma nota descritiva. Compartilhada entre `registerPayment` e o
+ * PAID-path do `updateStatus`.
+ */
+
+async function applyRewardActionToOrder(
+  tx: any,
+  rewardActionId: string,
+  order: { id: string; customerId: string; totalAmount: { toString(): string } },
+): Promise<{ discountCents: number; note: string }> {
+  const action = await tx.rewardAction.findUnique({ where: { id: rewardActionId } });
+  if (!action) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa nao encontrada." });
+  }
+  if (action.customerId !== order.customerId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa pertence a outro cliente." });
+  }
+  if (action.status !== "APPROVED") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa nao esta disponivel." });
+  }
+  if (action.expiresAt && action.expiresAt < new Date()) {
+    await tx.rewardAction.update({ where: { id: action.id }, data: { status: "EXPIRED" } });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa expirada." });
+  }
+  const orderTotalReais = Number(order.totalAmount);
+  const percent = Number(action.percentage);
+  const value = Number(action.value);
+  const discountFromPercent = percent > 0 ? Math.round(((orderTotalReais * percent) / 100) * 100) : 0;
+  const discountFromValue = value > 0 ? Math.round(value * 100) : 0;
+  const discountCents = Math.max(discountFromPercent, discountFromValue);
+  const note = ` | Desconto recompensa: ${percent > 0 ? `${percent}%` : `R$ ${value.toFixed(2)}`}`;
+
+  await tx.rewardAction.update({
+    where: { id: action.id },
+    data: { status: "USED", usedAt: new Date(), usedInOsId: order.id },
+  });
+  return { discountCents, note };
 }
 
 /**
