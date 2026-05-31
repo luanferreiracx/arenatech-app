@@ -499,11 +499,19 @@ export type AdminRespondQuoteInput = z.infer<typeof adminRespondQuoteSchema>;
 export const attachNfseSchema = z.object({
   orderId: z.string().uuid(),
   nfseNumber: z.string().max(40).optional().nullable(),
-  fileBase64: z.string().min(1).max(8 * 1024 * 1024), // ~6MB de arquivo (base64 inflado)
+  // Limite 4MB binarios (paridade Laravel). Base64 infla ~4/3 -> ~5.6MB de string.
+  fileBase64: z.string().min(1).max(Math.ceil((4 * 1024 * 1024 * 4) / 3)),
   fileName: z.string().max(255),
-  contentType: z.string().regex(/^(application\/pdf|image\/(png|jpe?g|webp))$/),
+  // Paridade Laravel: PDF/JPG/JPEG/PNG (sem WEBP).
+  contentType: z.string().regex(/^(application\/pdf|image\/(png|jpe?g))$/),
 });
 export type AttachNfseInput = z.infer<typeof attachNfseSchema>;
+
+/** Remove o anexo da NFS-e e zera os campos relacionados (paridade Laravel desfaz_anexo). */
+export const detachNfseSchema = z.object({
+  orderId: z.string().uuid(),
+});
+export type DetachNfseInput = z.infer<typeof detachNfseSchema>;
 
 /** Salva assinatura SVG/PNG base64 capturada via signature-pad. */
 export const saveSignaturePadSchema = z.object({

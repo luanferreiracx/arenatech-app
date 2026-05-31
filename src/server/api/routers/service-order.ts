@@ -27,6 +27,7 @@ import {
   respondQuoteSchema,
   adminRespondQuoteSchema,
   attachNfseSchema,
+  detachNfseSchema,
   saveSignaturePadSchema,
   confirmPhysicalSignatureSchema,
   sendToLabSchema,
@@ -2270,8 +2271,8 @@ export const serviceOrderRouter = createTRPCRouter({
       } catch {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo base64 invalido" });
       }
-      if (buffer.length > 6 * 1024 * 1024) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo maior que 6 MB" });
+      if (buffer.length > 4 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo maior que 4 MB" });
       }
 
       // Upload MinIO via S3 SDK (mesma infra de logo/imagem de produto).
@@ -2310,9 +2311,11 @@ export const serviceOrderRouter = createTRPCRouter({
       }
 
       // Persiste no DB
+      let oldKey: string | null = null;
       await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        oldKey = order.nfseAttachmentPath ?? null;
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
@@ -2334,7 +2337,92 @@ export const serviceOrderRouter = createTRPCRouter({
         });
       });
 
+      // Apaga o anexo antigo no MinIO (best-effort) para evitar orfaos quando
+      // o operador re-anexa uma NFS-e.
+      if (oldKey && oldKey !== key) {
+        try {
+          const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+          const client = new S3Client({
+            region: "us-east-1",
+            endpoint,
+            forcePathStyle: true,
+            credentials: {
+              accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
+              secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
+            },
+          });
+          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: oldKey }));
+        } catch (err) {
+          logger.warn("Falha ao apagar NFS-e antiga no MinIO", {
+            orderId: input.orderId, oldKey, error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       return { success: true, key };
+    }),
+
+  // ── DETACH NFS-e ──
+  // Remove o anexo e zera nfseIssued/nfseNumber/nfseIssuedAt/nfseAttachmentPath.
+  // Apaga o arquivo do MinIO (best-effort).
+  detachNfse: tenantProcedure
+    .input(detachNfseSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para desfazer anexo de NFS-e" });
+      }
+
+      const oldKey = await ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
+        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        const old = order.nfseAttachmentPath ?? null;
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: {
+            nfseAttachmentPath: null,
+            nfseIssued: false,
+            nfseIssuedAt: null,
+            nfseNumber: null,
+          },
+        });
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: "Anexo da NFS-e removido",
+          },
+        });
+        return old;
+      });
+
+      if (oldKey) {
+        const bucket = process.env.S3_BUCKET || process.env.MINIO_BUCKET || "arenatech";
+        const endpoint =
+          process.env.S3_ENDPOINT || process.env.MINIO_ENDPOINT || "http://localhost:9000";
+        try {
+          const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+          const client = new S3Client({
+            region: "us-east-1",
+            endpoint,
+            forcePathStyle: true,
+            credentials: {
+              accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
+              secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
+            },
+          });
+          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: oldKey }));
+        } catch (err) {
+          logger.warn("Falha ao apagar NFS-e do MinIO no detach", {
+            orderId: input.orderId, oldKey, error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      return { success: true };
     }),
 
   // ── SIGNATURE PAD (assinatura SVG/PNG capturada na tela) ──
