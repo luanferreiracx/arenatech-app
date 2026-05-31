@@ -50,7 +50,6 @@ import {
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
-import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
@@ -885,8 +884,9 @@ export const serviceOrderRouter = createTRPCRouter({
           }
         }
 
-        // C8: Notificar conclusao via WhatsApp (best-effort, nao bloqueia).
-        // Paridade com Laravel `enviarNotificacaoConclusaoWhatsApp`.
+        // C8: Notificar conclusao via WhatsApp Cloud (best-effort, nao bloqueia).
+        // Paridade com Laravel `enviarNotificacaoConclusaoWhatsApp` — usa o
+        // template `os_concluida` quando fora da janela 24h.
         if (newStatus === "COMPLETED" && input.notifyWhatsapp) {
           const customer = await tx.customer.findUnique({
             where: { id: order.customerId },
@@ -897,7 +897,12 @@ export const serviceOrderRouter = createTRPCRouter({
             const name = customer?.name ?? "Cliente";
             const text = `Ola, ${name}!\n\nSua Ordem de Servico ${order.number} foi concluida e ja esta pronta para retirada.\n\nArena Tech`;
             try {
-              await sendTextMessage(phone, text);
+              await sendTextWithFallback({
+                phone,
+                freeText: text,
+                contexto: "os_conclusao",
+                params: [name, order.number],
+              });
             } catch {
               // best-effort
             }
@@ -1815,11 +1820,12 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, deliveryPhone };
       });
 
-      // WhatsApp HTTP fora da tx (best-effort).
+      // WhatsApp Cloud fora da tx (best-effort). Mensagem livre para entregador
+      // (interno, sem template) — Cloud free-text dentro da janela 24h.
       let whatsappSent = false;
       if (prep.deliveryPhone && input.message) {
         try {
-          const result = await sendTextMessage(prep.deliveryPhone, input.message);
+          const result = await sendCloudText(prep.deliveryPhone, input.message);
           whatsappSent = result.success;
         } catch {
           // best-effort
@@ -2926,10 +2932,10 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, deliveryPerson };
       });
 
-      // WhatsApp HTTP fora da tx.
+      // WhatsApp Cloud fora da tx (mensagem livre interna ao entregador).
       let whatsappSent = false;
       if (prep.deliveryPerson.phone) {
-        const result = await sendTextMessage(prep.deliveryPerson.phone, input.message);
+        const result = await sendCloudText(prep.deliveryPerson.phone, input.message);
         whatsappSent = result.success;
         if (!result.success) {
           logger.warn("Falha ao enviar WhatsApp para entregador", {
@@ -3019,10 +3025,10 @@ export const serviceOrderRouter = createTRPCRouter({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
       }
 
-      // WhatsApp tambem e best-effort, fora da tx.
+      // WhatsApp Cloud — legenda com o link Autentique (free-text, best-effort).
       if (result.signatureLink) {
         const caption = `Termo de Entrega - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
-        await sendTextMessage(prep.phone, caption).catch((err) => {
+        await sendCloudText(prep.phone, caption).catch((err) => {
           logger.warn("WhatsApp envio do termo de entrega falhou", {
             orderId: input.orderId,
             error: err instanceof Error ? err.message : String(err),
@@ -3198,7 +3204,7 @@ export const serviceOrderRouter = createTRPCRouter({
 
       if (result.signatureLink) {
         const caption = `Termo de Devolucao - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
-        await sendTextMessage(prep.phone, caption).catch((err) => {
+        await sendCloudText(prep.phone, caption).catch((err) => {
           logger.warn("WhatsApp envio do termo de devolucao falhou", {
             orderId: input.orderId,
             error: err instanceof Error ? err.message : String(err),
