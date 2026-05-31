@@ -215,7 +215,12 @@ export async function transfer(
       config,
       "POST",
       `/wallet/${tenantId}/transfer`,
-      { body, idempotencyKey: opts.idempotencyKey, timeoutMs: 60_000 },
+      // 120s: o transfer faz sync sincrono ANTES de assinar/broadcast.
+      // Quando alguma Esplora rate-limita, cada attempt timeouta em 20s
+      // (3 esploras = ate 60s so de sync). Mais o build/sign/broadcast.
+      // Esse timeout grande NAO eh problema porque a operacao eh
+      // idempotente (Idempotency-Key garante 1 tx so).
+      { body, idempotencyKey: opts.idempotencyKey, timeoutMs: 120_000 },
     );
     if (!ok) {
       logger.error("LWK transfer falhou", { tenantId, status, error: resp.error });
