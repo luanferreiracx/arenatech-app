@@ -49,6 +49,7 @@ import {
   sendReceiptSchema,
   notifyCompletionSchema,
   ALLOWED_TRANSITIONS,
+  STATUS_GROUPS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
@@ -190,6 +191,9 @@ export const serviceOrderRouter = createTRPCRouter({
 
         if (input.status) {
           where.status = input.status;
+        } else if (input.statusGroup) {
+          // M7: paridade Laravel — filtro agrupado expande para varios statuses.
+          where.status = { in: STATUS_GROUPS[input.statusGroup] };
         }
         if (input.technicianId) {
           where.technicianId = input.technicianId;

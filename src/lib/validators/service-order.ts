@@ -435,9 +435,29 @@ export const updateCostsSchema = z.object({
 });
 
 /** List service orders */
+/**
+ * Filtros agrupados de status (paridade Laravel). Mapeiam para varios statuses
+ * internos quando o operador escolhe a aba "em andamento" / "aguardando retirada"
+ * / "cancelada".
+ */
+export const serviceOrderStatusGroupEnum = z.enum([
+  "em_andamento",
+  "aguardando_retirada",
+  "cancelada",
+]);
+export type ServiceOrderStatusGroup = z.infer<typeof serviceOrderStatusGroupEnum>;
+
+export const STATUS_GROUPS: Record<ServiceOrderStatusGroup, ServiceOrderStatus[]> = {
+  em_andamento: ["IN_DIAGNOSIS", "IN_PROGRESS", "APPROVED", "WAITING_PARTS", "WAITING_APPROVAL"],
+  aguardando_retirada: ["PAID", "READY_FOR_PICKUP", "DELIVERED"],
+  cancelada: ["CANCELLED", "REFUNDED"],
+};
+
 export const listServiceOrdersSchema = z.object({
   search: z.string().optional(),
   status: serviceOrderStatusEnum.optional(),
+  // Filtro agrupado (paridade Laravel) — alternativo a `status` exato.
+  statusGroup: serviceOrderStatusGroupEnum.optional(),
   technicianId: z.string().uuid().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
