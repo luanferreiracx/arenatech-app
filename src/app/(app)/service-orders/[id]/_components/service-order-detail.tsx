@@ -1794,13 +1794,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <DialogHeader><DialogTitle>Enviar para Laboratorio Externo</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Marca a OS como enviada ao laboratorio externo. Opcionalmente associa um entregador
-              e envia mensagem via WhatsApp.
+              Marca a OS como enviada ao laboratorio externo, associando o entregador
+              responsavel e disparando uma mensagem via WhatsApp.
             </p>
             <div>
-              <Label>Entregador (opcional)</Label>
+              <Label>Entregador *</Label>
               <Select value={labDeliveryPersonId} onValueChange={setLabDeliveryPersonId}>
-                <SelectTrigger><SelectValue placeholder="Sem entregador" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Selecione o entregador" /></SelectTrigger>
                 <SelectContent>
                   {deliveryPersons.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -1808,27 +1808,25 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 </SelectContent>
               </Select>
             </div>
-            {labDeliveryPersonId && (
-              <div>
-                <Label>Mensagem WhatsApp (opcional)</Label>
-                <Textarea
-                  value={notifyDeliveryMessage}
-                  onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
-                  placeholder={`Ex.: Por favor, entregar a OS ${order.number} no laboratorio X.`}
-                  rows={3}
-                />
-              </div>
-            )}
+            <div>
+              <Label>Mensagem WhatsApp ao entregador *</Label>
+              <Textarea
+                value={notifyDeliveryMessage}
+                onChange={(e) => setNotifyDeliveryMessage(e.target.value)}
+                placeholder={`Ex.: Por favor, levar a OS ${order.number} ao laboratorio X.`}
+                rows={3}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSendLabDialog(false)}>Cancelar</Button>
             <Button
-              disabled={sendToLabMut.isPending}
+              disabled={sendToLabMut.isPending || !labDeliveryPersonId || !notifyDeliveryMessage.trim()}
               onClick={() =>
                 sendToLabMut.mutate({
                   orderId: id,
-                  deliveryPersonId: labDeliveryPersonId || null,
-                  message: labDeliveryPersonId && notifyDeliveryMessage ? notifyDeliveryMessage : null,
+                  deliveryPersonId: labDeliveryPersonId,
+                  message: notifyDeliveryMessage.trim(),
                 })
               }
             >

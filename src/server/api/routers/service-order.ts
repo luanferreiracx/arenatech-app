@@ -1805,26 +1805,21 @@ export const serviceOrderRouter = createTRPCRouter({
           data: {
             sentToLab: true,
             labReceived: false,
-            deliveryPersonId: input.deliveryPersonId ?? null,
+            deliveryPersonId: input.deliveryPersonId,
           },
         });
 
-        let deliveryPhone: string | null = null;
-        if (input.deliveryPersonId && input.message) {
-          const dp = await tx.deliveryPerson.findUnique({
-            where: { id: input.deliveryPersonId },
-            select: { phone: true },
-          });
-          deliveryPhone = dp?.phone ?? null;
-        }
+        const dp = await tx.deliveryPerson.findUnique({
+          where: { id: input.deliveryPersonId },
+          select: { phone: true },
+        });
 
-        return { order, deliveryPhone };
+        return { order, deliveryPhone: dp?.phone ?? null };
       });
 
-      // WhatsApp Cloud fora da tx (best-effort). Mensagem livre para entregador
-      // (interno, sem template) — Cloud free-text dentro da janela 24h.
+      // WhatsApp Cloud fora da tx (best-effort, free-text interno ao entregador).
       let whatsappSent = false;
-      if (prep.deliveryPhone && input.message) {
+      if (prep.deliveryPhone) {
         try {
           const result = await sendCloudText(prep.deliveryPhone, input.message);
           whatsappSent = result.success;
