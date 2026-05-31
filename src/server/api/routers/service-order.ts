@@ -1746,7 +1746,16 @@ export const serviceOrderRouter = createTRPCRouter({
 
         if (input.type === "entry") {
           data.physicalSignature = true;
-          data.signatureSignedAt = new Date();
+          // M5: NAO sobrescrever signatureSignedAt se a assinatura digital
+          // (Autentique) ja foi registrada antes — preserva trilha de auditoria
+          // do que aconteceu primeiro. Para confirmacao fisica usamos um campo
+          // proprio (entrySignatureAt) que isEntrySigned tambem reconhece.
+          if (!order.signatureSignedAt) {
+            data.signatureSignedAt = new Date();
+          }
+          if (!order.entrySignatureAt) {
+            data.entrySignatureAt = new Date();
+          }
           note = "Assinatura fisica de entrada confirmada";
         } else if (input.type === "delivery") {
           // Paridade Laravel `confirmarTermoEntregaFisico` (OrdemServicoController:1046):
