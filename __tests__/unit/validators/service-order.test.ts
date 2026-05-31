@@ -421,11 +421,28 @@ describe("confirmPhysicalSignatureSchema", () => {
 // ── Lab ──
 
 describe("sendToLabSchema", () => {
-  it("accepts lab send", () => {
+  it("accepts lab send with required deliveryPersonId + message", () => {
     const result = sendToLabSchema.parse({
       orderId: "550e8400-e29b-41d4-a716-446655440000",
+      deliveryPersonId: "550e8400-e29b-41d4-a716-446655440001",
+      message: "Levar a OS ao laboratorio X.",
     });
     expect(result.orderId).toBeDefined();
+    expect(result.deliveryPersonId).toBeDefined();
+    expect(result.message.length).toBeGreaterThan(0);
+  });
+
+  it("rejects when deliveryPersonId or message is missing", () => {
+    expect(() =>
+      sendToLabSchema.parse({ orderId: "550e8400-e29b-41d4-a716-446655440000" }),
+    ).toThrow();
+    expect(() =>
+      sendToLabSchema.parse({
+        orderId: "550e8400-e29b-41d4-a716-446655440000",
+        deliveryPersonId: "550e8400-e29b-41d4-a716-446655440001",
+        message: "",
+      }),
+    ).toThrow();
   });
 });
 
