@@ -173,27 +173,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, status: rawStatus });
   }
 
-  // Status de cancelamento/expiracao so atualiza QuickSale (Sale e ServiceOrder
-  // tem fluxos manuais separados; webhook aqui marca apenas a venda avulsa).
+  // Status de cancelamento/expiracao: marca QuickSale + tambem zera o
+  // depixStatus da OS vinculada (antes ficava "pending" para sempre na UI
+  // do operador, mesmo apos o PIX ter expirado/falhado).
   if (isExpired || isFailed) {
-    const updated = await withAdmin(async (tx) => {
-      return tx.quickSale.updateMany({
-        where: {
-          depixTransactionId: transactionId,
-          status: "AWAITING_PAYMENT",
-        },
-        data: {
-          status: isExpired ? "EXPIRED" : "CANCELLED",
-          depixStatus: isExpired ? "expired" : "failed",
-        },
-      });
+    const { quickSale, order } = await withAdmin(async (tx) => {
+      const [qs, os] = await Promise.all([
+        tx.quickSale.updateMany({
+          where: { depixTransactionId: transactionId, status: "AWAITING_PAYMENT" },
+          data: {
+            status: isExpired ? "EXPIRED" : "CANCELLED",
+            depixStatus: isExpired ? "expired" : "failed",
+          },
+        }),
+        tx.serviceOrder.updateMany({
+          where: { depixTransactionId: transactionId, depixStatus: "pending" },
+          data: {
+            depixStatus: isExpired ? "expired" : "failed",
+            depixTransactionId: null,
+          },
+        }),
+      ]);
+      return { quickSale: qs, order: os };
     });
-    logger.info("Depix-payment webhook: QuickSale marcada como nao-paga", {
+    logger.info("Depix-payment webhook: PIX nao-pago propagado", {
       transactionId,
       rawStatus,
-      affected: updated.count,
+      quickSaleAffected: quickSale.count,
+      orderAffected: order.count,
     });
-    return NextResponse.json({ received: true, finalized: true, count: updated.count });
+    return NextResponse.json({
+      received: true, finalized: true,
+      quickSaleCount: quickSale.count, orderCount: order.count,
+    });
   }
 
   // ─── IDEMPOTENCIA: insere evento na tabela de audit + early-exit se dup ─

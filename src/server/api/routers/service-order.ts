@@ -64,6 +64,7 @@ import {
 } from "@/server/services/os-stock.service";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
+import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -666,11 +667,22 @@ export const serviceOrderRouter = createTRPCRouter({
         if (updateData.nfseIssued === true && !order.nfseIssued) {
           updateData.nfseIssuedAt = new Date();
         }
+        // H5: toggle nfseIssued=false tambem zera nfseAttachmentPath/nfseNumber
+        // e agenda delete do arquivo no MinIO — antes orfanava o anexo.
+        let nfseKeyToDelete: string | null = null;
         if (updateData.nfseIssued === false && order.nfseIssued) {
           updateData.nfseIssuedAt = null;
+          updateData.nfseAttachmentPath = null;
+          updateData.nfseNumber = null;
+          nfseKeyToDelete = order.nfseAttachmentPath ?? null;
         }
 
         await tx.serviceOrder.update({ where: { id }, data: updateData });
+        if (nfseKeyToDelete) {
+          // Best-effort, fora da tx logica (mas dentro da withTenant cb — o
+          // delete e idempotente em caso de retry).
+          await deleteNfseAttachment(id, nfseKeyToDelete);
+        }
 
         // History
         await tx.serviceOrderHistory.create({
@@ -2399,23 +2411,7 @@ export const serviceOrderRouter = createTRPCRouter({
       // Apaga o anexo antigo no MinIO (best-effort) para evitar orfaos quando
       // o operador re-anexa uma NFS-e.
       if (oldKey && oldKey !== key) {
-        try {
-          const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
-          const client = new S3Client({
-            region: "us-east-1",
-            endpoint,
-            forcePathStyle: true,
-            credentials: {
-              accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
-              secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
-            },
-          });
-          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: oldKey }));
-        } catch (err) {
-          logger.warn("Falha ao apagar NFS-e antiga no MinIO", {
-            orderId: input.orderId, oldKey, error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        await deleteNfseAttachment(input.orderId, oldKey);
       }
 
       return { success: true, key };
@@ -2459,26 +2455,7 @@ export const serviceOrderRouter = createTRPCRouter({
       });
 
       if (oldKey) {
-        const bucket = process.env.S3_BUCKET || process.env.MINIO_BUCKET || "arenatech";
-        const endpoint =
-          process.env.S3_ENDPOINT || process.env.MINIO_ENDPOINT || "http://localhost:9000";
-        try {
-          const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
-          const client = new S3Client({
-            region: "us-east-1",
-            endpoint,
-            forcePathStyle: true,
-            credentials: {
-              accessKeyId: process.env.S3_ACCESS_KEY || "minioadmin",
-              secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
-            },
-          });
-          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: oldKey }));
-        } catch (err) {
-          logger.warn("Falha ao apagar NFS-e do MinIO no detach", {
-            orderId: input.orderId, oldKey, error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        await deleteNfseAttachment(input.orderId, oldKey);
       }
 
       return { success: true };
@@ -3742,6 +3719,16 @@ export const serviceOrderRouter = createTRPCRouter({
 
         if (!["COMPLETED"].includes(order.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "PIX so pode ser gerado para OS concluida" });
+        }
+
+        // H6: idempotencia — se ja existe um PIX pendente, reaproveita (evita
+        // criar 2 transacoes PixPay em duplo-click; segundo PIX ficaria orfao
+        // porque o primeiro depixTransactionId seria sobrescrito).
+        if (order.depixTransactionId && order.depixStatus === "pending") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Ja existe um PIX pendente para esta OS. Cancele o atual antes de gerar outro.",
+          });
         }
 
         const totalAmount = Number(order.totalAmount);
