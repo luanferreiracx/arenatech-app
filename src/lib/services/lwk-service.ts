@@ -53,8 +53,36 @@ export interface MasterAddressResult {
 function getConfig(): LwkConfig | null {
   const baseUrl = process.env.LWK_API_URL;
   const apiKey = process.env.LWK_API_KEY;
-  if (!baseUrl || !apiKey) return null;
-  return { baseUrl: baseUrl.replace(/\/$/, ""), apiKey };
+  if (baseUrl && apiKey) {
+    return { baseUrl: baseUrl.replace(/\/$/, ""), apiKey };
+  }
+  // Fail-closed: sem env em prod = throw. Mock so com flag explicita
+  // `LWK_MOCK=true` (uso CI/teste local sem servico Python).
+  if (process.env.LWK_MOCK === "true") {
+    return null;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "LWK_API_URL/LWK_API_KEY ausente em producao — recuse operar (fail-closed)",
+    );
+  }
+  return null;
+}
+
+/**
+ * Helper: chama `getConfig()` e converte throw em resultado de erro.
+ * Usar em todas as funcoes publicas pra propagar fail-closed em prod
+ * sem causar 500 cru.
+ */
+function safeGetConfig(): { config: LwkConfig | null; error?: string } {
+  try {
+    return { config: getConfig() };
+  } catch (error) {
+    return {
+      config: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 interface LwkFetchOpts {
@@ -101,9 +129,10 @@ async function lwkFetch(
  * Retorna o descriptor publico + endereco mestre.
  */
 export async function ensureWallet(tenantId: string): Promise<EnsureWalletResult> {
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) {
-    logger.warn("LWK: mock mode (LWK_API_URL/LWK_API_KEY ausente)", { tenantId });
+    logger.warn("LWK: mock mode (LWK_MOCK=true)", { tenantId });
     return {
       success: true,
       descriptor: `ct(mock-${tenantId})`,
@@ -134,7 +163,8 @@ export async function ensureWallet(tenantId: string): Promise<EnsureWalletResult
 
 /** Saldo DePix da carteira do tenant. */
 export async function getBalance(tenantId: string): Promise<BalanceResult> {
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) {
     return { success: true, depixBalance: 0, depixAssetId: DEPIX_ASSET_ID };
   }
@@ -205,7 +235,8 @@ export async function transfer(
   if (!recipients.length || recipients.length > 5) {
     return { success: false, error: "recipients: 1 a 5" };
   }
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) {
     logger.warn("LWK transfer: mock mode", { tenantId, recipients: recipients.length });
     return {
@@ -286,7 +317,8 @@ export async function generateAddress(
   user: string,
   index?: number,
 ): Promise<LwkAddressResult> {
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) {
     const mockAddr = `lq1mock${user.replace(/-/g, "").slice(0, 16)}${Date.now().toString(36).slice(-6)}`;
     return {
@@ -350,7 +382,8 @@ export async function listTransactions(
   tenantId: string,
   limit = 20,
 ): Promise<LwkListTxsResult> {
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) return { success: true, transactions: [] };
   try {
     const { ok, status, body } = await lwkFetch(
@@ -385,7 +418,8 @@ export async function listTransactions(
 
 /** Endereco mestre de recebimento (index 0) da carteira do tenant. */
 export async function getMasterAddress(tenantId: string): Promise<MasterAddressResult> {
-  const config = getConfig();
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
   if (!config) {
     return {
       success: true,

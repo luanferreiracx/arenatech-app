@@ -23,14 +23,17 @@ export const runtime = "nodejs";
  */
 export async function POST(req: NextRequest) {
   const secret = process.env.LWK_WEBHOOK_SECRET;
+  const allowUnsigned = process.env.ALLOW_UNSIGNED_LWK_WEBHOOKS === "true";
   const rawBody = await req.text();
 
+  // Fail-closed: sem secret = sempre 503, independente de NODE_ENV.
+  // So permite bypass com flag explicita (testes locais / CI).
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      logger.error("LWK webhook: LWK_WEBHOOK_SECRET ausente em prod");
+    if (!allowUnsigned) {
+      logger.error("LWK webhook: LWK_WEBHOOK_SECRET ausente — fail-closed");
       return NextResponse.json({ error: "service not configured" }, { status: 503 });
     }
-    logger.warn("LWK webhook: LWK_WEBHOOK_SECRET ausente — processando sem auth (dev)");
+    logger.warn("LWK webhook: processando sem HMAC (ALLOW_UNSIGNED_LWK_WEBHOOKS=true)");
   }
 
   let signatureValid = false;

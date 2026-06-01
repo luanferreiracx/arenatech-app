@@ -86,6 +86,38 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
+ * Tenant admin procedure — requer role OWNER ou MANAGER no tenant ativo.
+ * Use pra operacoes sensiveis (saques de carteira, alterar fee config,
+ * etc) que NAO devem ser acessiveis pro operator/cashier comum, mesmo que
+ * tenham sessao valida no tenant.
+ */
+const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "owner", "manager"]);
+export const tenantAdminProcedure = tenantProcedure.use(async ({ ctx, next }) => {
+  const active = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+  const role = active?.role ?? "";
+  if (!ADMIN_ROLES.has(role) && !ctx.session.user.isSuperAdmin) {
+    logger.warn("tenantAdminProcedure: non-admin role access attempt", {
+      userId: ctx.session.user.id,
+      tenantId: ctx.tenantId,
+      role,
+    });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Acao restrita a administradores do tenant",
+    });
+  }
+  // Repassa ctx refinado (session/tenantId/withTenant nao-null herdados de
+  // tenantProcedure) sem widening.
+  return next({
+    ctx: {
+      session: ctx.session,
+      tenantId: ctx.tenantId,
+      withTenant: ctx.withTenant,
+    },
+  });
+});
+
+/**
  * Central tenant slug — single source of truth.
  * Resources gated behind centralTenantProcedure are exclusive to this tenant
  * (e.g., iPhone hunter that monitors REVENDA WhatsApp groups).

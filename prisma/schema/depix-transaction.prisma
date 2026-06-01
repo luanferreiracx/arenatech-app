@@ -117,5 +117,9 @@ model TenantDepixFeeLedger {
 
   @@index([tenantId, status])
   @@index([transactionId])
+  /// Impede ledger duplicado por transacao+tipo (defesa contra webhook
+  /// reprocessado / race no settle). Combinado com state guard atomico no
+  /// service. Usado tambem pelo upsert no settleDepositConfirmed.
+  @@unique([transactionId, kind])
   @@map("tenant_depix_fee_ledger")
 }

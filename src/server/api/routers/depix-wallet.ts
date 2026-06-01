@@ -1,5 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { createTRPCRouter, tenantProcedure, CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  tenantProcedure,
+  tenantAdminProcedure,
+  CENTRAL_TENANT_SLUG,
+} from "@/server/api/trpc";
 import {
   updateDepixFeeConfigSchema,
   DEFAULT_DEPIX_FEE,
@@ -33,8 +38,11 @@ export const depixWalletRouter = createTRPCRouter({
 
   /** Atualiza a config de taxa do tenant (upsert).
    *  Tenant central nao pode mudar (config fixa em zero — ele recebe as
-   *  taxas dos demais, nao paga). */
-  updateFeeConfig: tenantProcedure
+   *  taxas dos demais, nao paga).
+   *
+   *  Seguranca: so OWNER/MANAGER pode alterar taxa — operador comum nao deve
+   *  poder zerar (perda de receita) nem inflar (DoS no saque). */
+  updateFeeConfig: tenantAdminProcedure
     .input(updateDepixFeeConfigSchema)
     .mutation(async ({ ctx, input }) => {
       const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);

@@ -53,6 +53,57 @@ async function getCentralTenantId(): Promise<string | null> {
   return t?.id ?? null;
 }
 
+/** Cap diario de saque por tenant (em centavos). Default R$ 25.000.
+ *  Defesa em profundidade contra drain via sessao comprometida. */
+const DAILY_WITHDRAW_CAP_CENTS = Number(
+  process.env.DEPIX_WITHDRAW_DAILY_CAP_CENTS ?? "2500000",
+);
+
+/** Sanitiza mensagem de erro pra exibir ao client: remove hostnames, IPs,
+ *  stack traces e qualquer string suspeita de detalhe interno. Mantem
+ *  mensagens curtas PT-BR (codigos LWK ja traduzidos). */
+function sanitizeUserError(rawError: string | null | undefined, fallback: string): string {
+  if (!rawError) return fallback;
+  const trimmed = rawError.trim();
+  // Suspeitas de detalhe interno: stack, ECONNREFUSED, ENOTFOUND, host:port,
+  // dump JSON com chave/aspas estranhas.
+  const suspect =
+    /\b(?:ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|getaddrinfo|fetch failed|TypeError|Error: )\b/i.test(
+      trimmed,
+    ) ||
+    /\b[a-z0-9.-]+:\d{2,5}\b/i.test(trimmed) || // host:port
+    /\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(trimmed) || // IPv4
+    trimmed.length > 200;
+  return suspect ? fallback : trimmed;
+}
+
+/** Soma o gross dos saques do tenant nas ultimas 24h (status nao-FAILED). */
+async function checkDailyWithdrawCap(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  nextGrossCents: number,
+): Promise<void> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const agg = await tx.tenantDepixTransaction.aggregate({
+    where: {
+      tenantId,
+      kind: "WITHDRAW",
+      createdAt: { gte: since },
+      // Exclui FAILED/CANCELLED — esses nao consumiram saldo.
+      status: { notIn: ["FAILED", "CANCELLED", "EXPIRED"] },
+    },
+    _sum: { grossAmountCents: true },
+  });
+  const usedCents = agg._sum.grossAmountCents ?? 0;
+  if (usedCents + nextGrossCents > DAILY_WITHDRAW_CAP_CENTS) {
+    const remainingBrl = Math.max(0, DAILY_WITHDRAW_CAP_CENTS - usedCents) / 100;
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Cap diario de saque atingido. Restante hoje: R$ ${remainingBrl.toFixed(2)} (limite R$ ${(DAILY_WITHDRAW_CAP_CENTS / 100).toFixed(2)}/24h)`,
+    });
+  }
+}
+
 export async function loadFeeConfig(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -209,26 +260,27 @@ export async function settleDepositConfirmed(args: {
   confirmations: number;
 }) {
   const grossActualCents = Math.round(args.depixAmount * 100);
-  // Localiza a transaction PENDING/PROCESSING pelo label exato.
+  // Localiza a transaction pelo label exato.
+  // NAO inclui PROCESSING_FEE no WHERE: tx em PROCESSING_FEE ja teve gross
+  // fixado e taxa em curso — reprocessar permitiria sobrescrita do gross
+  // por um 2o deposito on-chain no mesmo endereco (HIGH #5).
   const txRow = await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixTransaction.findFirst({
       where: {
         tenantId: args.tenantId,
         kind: "DEPOSIT",
         depositLabel: args.depositLabel,
-        status: { in: ["PENDING", "PROCESSING", "PROCESSING_FEE"] },
+        status: { in: ["PENDING", "PROCESSING"] },
       },
     }),
   );
   if (!txRow) {
-    logger.warn("settleDepositConfirmed: nao achou tx PENDING para o label", {
+    logger.warn("settleDepositConfirmed: nao achou tx PENDING/PROCESSING para o label", {
       depositLabel: args.depositLabel,
       depositTxId: args.depositTxId,
     });
     return { matched: false };
   }
-  // Idempotencia: se ja saiu de PROCESSING_FEE pra COMPLETED, nao refaz.
-  if (txRow.status === "COMPLETED") return { matched: true, alreadyCompleted: true };
 
   // Calcula taxa Arena Tech sobre o valor REAL recebido on-chain (pode
   // diferir do gross solicitado se o cliente pagou outro valor — usamos o
@@ -236,11 +288,15 @@ export async function settleDepositConfirmed(args: {
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
   const breakdown = calcDepositFee(grossActualCents, cfg);
 
-  // Marca PROCESSING_FEE antes de disparar a 2a tx (transparencia + cobertura
-  // contra duplicacao).
-  await withTenant(args.tenantId, async (tx) =>
-    tx.tenantDepixTransaction.update({
-      where: { id: txRow.id },
+  // Transicao atomica PENDING/PROCESSING -> PROCESSING_FEE.
+  // updateMany com guard de status evita race: se 2 webhooks chegarem
+  // concorrentes, so 1 passa. O outro recebe count=0 e desiste.
+  const transitioned = await withTenant(args.tenantId, async (tx) =>
+    tx.tenantDepixTransaction.updateMany({
+      where: {
+        id: txRow.id,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
       data: {
         status: "PROCESSING_FEE",
         depositTxId: args.depositTxId,
@@ -251,6 +307,13 @@ export async function settleDepositConfirmed(args: {
       },
     }),
   );
+  if (transitioned.count === 0) {
+    // Outro processo ja moveu pra PROCESSING_FEE/COMPLETED — idempotente.
+    logger.info("settleDepositConfirmed: race detectada, ja processado", {
+      txId: txRow.id,
+    });
+    return { matched: true, alreadyCompleted: true };
+  }
 
   // Fee zero (tenant central) -> nao dispara tx on-chain. Marca COMPLETED direto.
   if (breakdown.feeArenaTechCents <= 0) {
@@ -295,16 +358,31 @@ export async function settleDepositConfirmed(args: {
   }
 
   // ETAPA final: marca COMPLETED + ledger SETTLED.
+  // updateMany com guard de status: so transiciona PROCESSING_FEE -> COMPLETED
+  // (impede COMPLETED -> COMPLETED). Upsert no ledger (unique [transactionId,
+  // kind]) impede entry duplicada se 2 webhooks chegarem confirmados.
   await withTenant(args.tenantId, async (tx) => {
-    await tx.tenantDepixTransaction.update({
-      where: { id: txRow.id },
+    await tx.tenantDepixTransaction.updateMany({
+      where: { id: txRow.id, status: "PROCESSING_FEE" },
       data: { status: "COMPLETED", completedAt: new Date() },
     });
-    await tx.tenantDepixFeeLedger.create({
-      data: {
+    await tx.tenantDepixFeeLedger.upsert({
+      where: {
+        transactionId_kind: {
+          transactionId: txRow.id,
+          kind: "DEPOSIT",
+        },
+      },
+      create: {
         tenantId: args.tenantId,
         transactionId: txRow.id,
         kind: "DEPOSIT",
+        amountCents: breakdown.feeArenaTechCents,
+        status: "SETTLED",
+        settlementTxId: feeTx.txid!,
+        settledAt: new Date(),
+      },
+      update: {
         amountCents: breakdown.feeArenaTechCents,
         status: "SETTLED",
         settlementTxId: feeTx.txid!,
@@ -396,6 +474,9 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   const grossAmountCents = breakdown.grossCents;
 
   // Valida saldo DePix do tenant: precisa cobrir o gross calculado.
+  // Reserva contabil: saldo disponivel = saldo on-chain - saques pendentes.
+  // Sem isso, N saques concorrentes passam pelo gate, depois LWK rejeita o 2o
+  // por insufficient_depix mas o PixPay ja alocou payout orfao (HIGH #6).
   const balance = await lwk.getBalance(args.tenantId);
   if (!balance.success) {
     throw new TRPCError({
@@ -403,12 +484,33 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       message: "Nao foi possivel consultar saldo (LWK indisponivel)",
     });
   }
-  const requiredBrl = grossAmountCents / 100;
-  if ((balance.depixBalance ?? 0) < requiredBrl) {
+  const reservedCents = await withTenant(args.tenantId, async (tx) => {
+    const agg = await tx.tenantDepixTransaction.aggregate({
+      where: {
+        tenantId: args.tenantId,
+        kind: "WITHDRAW",
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      _sum: { grossAmountCents: true },
+    });
+    return agg._sum.grossAmountCents ?? 0;
+  });
+  const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
+  const availableCents = onchainCents - reservedCents;
+  if (availableCents < grossAmountCents) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `Saldo insuficiente. Necessario R$ ${requiredBrl.toFixed(2)} (saldo R$ ${(balance.depixBalance ?? 0).toFixed(2)})`,
+      message: `Saldo disponivel insuficiente. Necessario R$ ${(grossAmountCents / 100).toFixed(2)}; disponivel R$ ${(availableCents / 100).toFixed(2)} (saldo on-chain R$ ${(onchainCents / 100).toFixed(2)}, reservado em saques pendentes R$ ${(reservedCents / 100).toFixed(2)})`,
     });
+  }
+
+  // Cap diario (defesa em profundidade contra drain via sessao roubada).
+  // Tenant central (Arena Tech) eh isento — eh quem recebe os saques.
+  const centralId = await getCentralTenantId();
+  if (args.tenantId !== centralId) {
+    await withTenant(args.tenantId, async (tx) =>
+      checkDailyWithdrawCap(tx, args.tenantId, grossAmountCents),
+    );
   }
 
   // ETAPA 1: persiste PENDING + gera numero.
@@ -448,6 +550,8 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     taxId,
   );
   if (!pp.success || !pp.id || !pp.depositAddress) {
+    // Logamos o erro cru pra debug interna; client recebe mensagem generica.
+    logger.error("createWithdraw: PixPay falhou", { tenantId: args.tenantId, error: pp.error });
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
@@ -456,7 +560,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     );
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: pp.error ?? "PixPay falhou ao iniciar saque",
+      message: sanitizeUserError(pp.error, "Falha ao iniciar saque no provedor PIX"),
     });
   }
 
@@ -516,6 +620,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     idempotencyKey: created.id,
   });
   if (!sweep.success || !sweep.txid) {
+    logger.error("createWithdraw: LWK transfer falhou", {
+      tenantId: args.tenantId,
+      txId: created.id,
+      error: sweep.error,
+    });
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
@@ -524,7 +633,9 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     );
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: sweep.error ?? "Falha ao transmitir saque",
+      // Mensagens LWK ja vem traduzidas PT-BR (insufficient_lbtc etc).
+      // Sanitiza pra cortar caso vaze stack/host.
+      message: sanitizeUserError(sweep.error, "Falha ao transmitir saque on-chain"),
     });
   }
 

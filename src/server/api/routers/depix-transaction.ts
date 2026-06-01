@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure, CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  tenantProcedure,
+  tenantAdminProcedure,
+  CENTRAL_TENANT_SLUG,
+} from "@/server/api/trpc";
+import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
 import {
   createDepositSchema,
   createWithdrawSchema,
@@ -28,11 +34,23 @@ function serialize(t: Prisma.JsonObject | Record<string, unknown> | null) {
   return t;
 }
 
+// Rate limiters por path. Aplicados no inicio do handler de cada procedure
+// (preserva o ctx refinado dos middlewares anteriores, ao contrario do
+// `.use(rateLimitMiddleware)` que reseta o tipo).
+const rlCreateDeposit = enforceRateLimit({ limit: 10, windowMs: 60_000 });
+const rlCreateWithdraw = enforceRateLimit({ limit: 5, windowMs: 60 * 60 * 1000 });
+const rlCheckStatus = enforceRateLimit({ limit: 30, windowMs: 60_000 });
+const rlSearchRecipients = enforceRateLimit({ limit: 30, windowMs: 60_000 });
+const rlPreviewFee = enforceRateLimit({ limit: 60, windowMs: 60_000 });
+
+
 export const depixTransactionRouter = createTRPCRouter({
-  /** Cria deposito (gera QR PIX apontando pra carteira LWK do tenant). */
+  /** Cria deposito (gera QR PIX apontando pra carteira LWK do tenant).
+   *  Rate-limit: 10/min por usuario — evita flood de enderecos LWK e QR PixPay. */
   createDeposit: tenantProcedure
     .input(createDepositSchema)
     .mutation(async ({ ctx, input }) => {
+      await rlCreateDeposit(ctx, "depixTransaction.createDeposit");
       const tx = await createDeposit({
         tenantId: ctx.tenantId,
         userId: ctx.session.user.id,
@@ -44,10 +62,18 @@ export const depixTransactionRouter = createTRPCRouter({
 
   /** Cria saque: usuario informa valor LIQUIDO (quanto o destinatario recebe);
    *  sistema calcula o bruto a debitar. 1 tx LWK com 2 outputs (off-ramp
-   *  PixPay + taxa Arena Tech). */
-  createWithdraw: tenantProcedure
+   *  PixPay + taxa Arena Tech).
+   *
+   *  Seguranca:
+   *   - tenantAdminProcedure: so OWNER/MANAGER (saque move dinheiro on-chain
+   *     irreversivel; nao queremos operador comum drenando carteira via
+   *     sessao roubada/XSS)
+   *   - rate-limit: 5/hora por usuario
+   *   - cap diario por tenant: aplicado no service (DAILY_WITHDRAW_CAP_CENTS) */
+  createWithdraw: tenantAdminProcedure
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
+      await rlCreateWithdraw(ctx, "depixTransaction.createWithdraw");
       const tx = await createWithdraw({
         tenantId: ctx.tenantId,
         userId: ctx.session.user.id,
@@ -62,10 +88,12 @@ export const depixTransactionRouter = createTRPCRouter({
       return tx;
     }),
 
-  /** Polling: consulta status remoto (PixPay/LWK) e atualiza estado local. */
+  /** Polling: consulta status remoto (PixPay/LWK) e atualiza estado local.
+   *  Rate-limit alto pq UI faz polling automatico (5s). 30/min comporta isso. */
   checkStatus: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await rlCheckStatus(ctx, "depixTransaction.checkStatus");
       const tx = await checkTransactionStatus(ctx.tenantId, input.id);
       return tx;
     }),
@@ -160,21 +188,36 @@ export const depixTransactionRouter = createTRPCRouter({
 
   /** Autocomplete de saques recentes pro wizard.
    *  Distinct por (pix_key, pix_key_type), ordenado pela ultima
-   *  transacao desse destinatario. Limit 10. */
-  searchRecipients: tenantProcedure
+   *  transacao desse destinatario. Limit 10.
+   *
+   *  Seguranca:
+   *   - tenantAdminProcedure: vazaria CPF/CNPJ/chave PIX de N destinatarios
+   *     se exposto pra operator. So OWNER/MANAGER.
+   *   - rate-limit: 30/min evita enumeracao brute-force.
+   *   - query exige min(3) chars (ou vazia pros 10 mais recentes) — barra
+   *     enumeracao por letra-a-letra.
+   *   - CPF/CNPJ mascarado no retorno. */
+  searchRecipients: tenantAdminProcedure
     .input(
-      z.object({
-        query: z.string().min(0).max(100).optional(),
-      }).optional(),
+      z
+        .object({
+          query: z.string().max(100).optional(),
+        })
+        .optional(),
     )
     .query(async ({ ctx, input }) => {
+      await rlSearchRecipients(ctx, "depixTransaction.searchRecipients");
       const q = input?.query?.trim() ?? "";
+      // Query nao-vazia exige min 3 chars (anti-enumeracao).
+      if (q.length > 0 && q.length < 3) {
+        return [];
+      }
       const where: Prisma.TenantDepixTransactionWhereInput = {
         tenantId: ctx.tenantId,
         kind: "WITHDRAW",
         pixKey: { not: null },
       };
-      if (q.length > 0) {
+      if (q.length >= 3) {
         where.OR = [
           { pixKey: { contains: q, mode: "insensitive" } },
           { recipientName: { contains: q, mode: "insensitive" } },
@@ -210,6 +253,9 @@ export const depixTransactionRouter = createTRPCRouter({
         if (seen.has(key)) continue;
         seen.add(key);
         result.push({
+          // tenantAdminProcedure ja restringe acesso a OWNER/MANAGER (pessoas
+          // autorizadas a ver os destinatarios). UI usa esses valores pra
+          // auto-fill no form de saque — mascarar quebraria o fluxo.
           pixKey: r.pixKey,
           pixKeyType: r.pixKeyType,
           recipientName: r.recipientName,
@@ -271,10 +317,11 @@ export const depixTransactionRouter = createTRPCRouter({
     .input(
       z.object({
         kind: z.enum(["DEPOSIT", "WITHDRAW"]),
-        amountCents: z.number().int().min(1),
+        amountCents: z.number().int().min(1).max(100_000_000),
       }),
     )
     .query(async ({ ctx, input }) => {
+      await rlPreviewFee(ctx, "depixTransaction.previewFee");
       // Usa o loadFeeConfig do service (aplica guard de tenant central).
       const feeCfg = await ctx.withTenant(async (db) => loadFeeConfig(db, ctx.tenantId));
       return input.kind === "DEPOSIT"
