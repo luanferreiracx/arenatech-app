@@ -262,6 +262,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-05-31 — SIMULADOR: migracao das taxas reais (dados de prod estavam genericos)
+
+Apos a reforma estrutural, faltava migrar os DADOS reais. O seed criou `simulator_rate_configs` com defaults genericos (credito 0%, debito 0%, max 12, tiers 1.99...) — divergente das taxas reais da loja no Laravel.
+
+**Diagnostico (dados reais de prod):**
+- Laravel `configuracoes_parcelamento` (MySQL arena_dev): credito a vista **5%**, debito **3%**, max **18**, tiers 2x=6.68% ... 18x=19.99%.
+- Postgres `simulator_rate_configs` (arena-tech): tudo zerado, max 12, tiers genericos. **Divergente.**
+- PDV/financeiro (`PaymentMethod`): credito 5%, debito 3% — **OK**, nao mexido (sistema separado).
+- `prazo_credito_avista/debito/parcelado`: **codigo morto no Laravel** (0 usos fora do model) — nao migrados.
+
+**Acao:** backup do estado atual + UPDATE com os valores reais no `simulator_rate_configs`/`tiers` do arena-tech. Validado: config 5/3/18 + 35 tiers identicos ao Laravel. loja-teste intacta (usa default). Script versionado `scripts/migrate-simulator-rates.sh` (le MySQL -> escreve Postgres, idempotente via ON CONFLICT).
+
+---
+
 ### 2026-05-31 — SIMULADOR: /investigate — WhatsApp via Cloud API + limpeza + correcoes
 
 /investigate do modulo simulador. Gaps vs Laravel cobertos:
