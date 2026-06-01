@@ -14,7 +14,10 @@ import {
   listServiceObservationsSchema,
 } from "@/lib/validators/catalog";
 import { Prisma } from "@prisma/client";
-import { sendTextMessage, formatPhone } from "@/lib/services/whatsapp-service";
+import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { createSignedPayloadToken } from "@/lib/whatsapp/signed-payload-token";
+import type { ServiceQuotePdfData } from "@/lib/pdf/service-quote-pdf";
+import { logger } from "@/lib/logger";
 
 function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
   return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
@@ -375,12 +378,18 @@ export const catalogRouter = createTRPCRouter({
       });
     }),
 
-  /** Send quote via WhatsApp */
+  /**
+   * Envia o orcamento avulso de servico por WhatsApp (Cloud API) com PDF anexado.
+   * Stateless: monta a mensagem + PDF transiente (token assinado) e usa o
+   * fallback inteligente — texto+link na janela 24h, ou template
+   * `servico_orcamento_pdf` (HEADER DOCUMENT) fora dela. Paridade Laravel
+   * ServicoController::enviarOrcamentoWhatsApp.
+   */
   sendServiceWhatsApp: tenantProcedure
     .input(sendServiceWhatsAppSchema)
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — fetch em tx curta (todas leituras, sem IO externo)
-      const message = await ctx.withTenant(async (tx) => {
+      // ETAPA 1 — fetch em tx curta (leituras, sem IO externo)
+      const built = await ctx.withTenant(async (tx) => {
         const service = await tx.service.findUnique({ where: { id: input.serviceId } });
         if (!service || service.deletedAt) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
@@ -409,17 +418,24 @@ export const catalogRouter = createTRPCRouter({
         });
         const nomeLoja = settings?.tradeName ?? "Arena Tech";
 
+        const brl = (cents: number) =>
+          (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
         const priceCents = serviceToCents(service);
-        const priceFormatted = (priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const installmentValue = (priceCents / maxInstallments / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const pixPrice = ((priceCents * (100 - pixDiscount)) / 10000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const priceFormatted = brl(priceCents);
+        const installmentValue = brl(priceCents / maxInstallments);
+        const pixPriceCents = (priceCents * (100 - pixDiscount)) / 100;
+        const pixPrice = brl(pixPriceCents);
+        const serviceName = service.serviceType ?? service.name;
+        const deviceModel = service.deviceModel ?? "-";
+        const obsList = relevantObs.map((o) => o.observation);
 
+        // Texto (usado na janela 24h pelo fallback).
         const lines = [
           `Ola ${input.clientName}! Segue o orcamento da ${nomeLoja}:`,
           "",
           `\u{1F527} ORCAMENTO`,
-          `\u{1F4F1} Servico: ${service.serviceType ?? service.name}`,
-          `\u{1F4F2} Aparelho: ${service.deviceModel ?? "-"}`,
+          `\u{1F4F1} Servico: ${serviceName}`,
+          `\u{1F4F2} Aparelho: ${deviceModel}`,
           `\u{1F4B0} Valor: ${priceFormatted}`,
         ];
         if (maxInstallments > 1) {
@@ -428,23 +444,66 @@ export const catalogRouter = createTRPCRouter({
         if (pixDiscount > 0) {
           lines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
         }
-        if (relevantObs.length > 0) {
+        if (obsList.length > 0) {
           lines.push("", "\u{1F4DD} Observacoes:");
-          for (const obs of relevantObs) lines.push(`\u{2022} ${obs.observation}`);
+          for (const obs of obsList) lines.push(`\u{2022} ${obs}`);
         }
         lines.push("", "\u{2705} Valido por 48h", `${nomeLoja} - Assistencia Tecnica`);
-        return lines.join("\n");
+
+        const generatedAt = new Intl.DateTimeFormat("pt-BR", {
+          dateStyle: "short",
+          timeStyle: "short",
+          timeZone: "America/Sao_Paulo",
+        }).format(new Date());
+
+        const pdfData: ServiceQuotePdfData = {
+          storeName: nomeLoja,
+          customerName: input.clientName,
+          serviceName,
+          deviceModel,
+          priceFormatted,
+          installments: maxInstallments,
+          installmentValueFormatted: installmentValue,
+          pixDiscountPercent: pixDiscount,
+          pixPriceFormatted: pixPrice,
+          observations: obsList,
+          generatedAt,
+        };
+
+        return { message: lines.join("\n"), pdfData };
       });
 
-      // ETAPA 2 — WhatsApp HTTP fora da tx
-      const result = await sendTextMessage(formatPhone(input.clientPhone), message);
-      if (!result.success) {
+      // ETAPA 2 — token + WhatsApp Cloud (fora da tx).
+      const token = createSignedPayloadToken<ServiceQuotePdfData>(built.pdfData, 60 * 60 * 1000);
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.NEXTAUTH_URL ??
+        "https://app.arenatechpi.com.br";
+      const pdfUrl = `${appUrl}/api/whatsapp-media/service-quote/pdf/${token}`;
+
+      const sendResult = await sendPdfWithFallback({
+        phone: input.clientPhone,
+        pdfUrl,
+        fileName: "orcamento.pdf",
+        caption: built.message,
+        contexto: "servico_orcamento_pdf",
+        params: [input.clientName],
+      });
+
+      if (!sendResult.success) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: result.error ?? "Erro ao enviar WhatsApp",
+          message: `Falha ao enviar WhatsApp: ${sendResult.error ?? "erro desconhecido"}`,
         });
       }
-      return { success: true, messageId: result.messageId };
+
+      logger.info("Service quote WhatsApp sent", {
+        tenantId: ctx.tenantId,
+        serviceId: input.serviceId,
+        via: sendResult.via,
+      });
+
+      return { success: true, via: sendResult.via, messageId: sendResult.messageId };
     }),
 
   // ═══════════════════════════════════════

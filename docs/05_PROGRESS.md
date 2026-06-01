@@ -262,6 +262,17 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-06-01 — ORCAMENTO: /investigate (relatorio) + orcamento de servico via Cloud API
+
+/investigate do orcamento. Achados:
+- **Orcamento de OS** (`ServiceOrderQuote`): estrutura com paridade total (previous/new amounts, snapshots, Autentique), 9 acoes Laravel todas cobertas. Em trabalho ativo por OUTRA sessao (rodada H1-H7) — **nao tocado** (decisao do dono: so relatorio).
+- **Dados de OS quote:** 58/60 migrados (97%). 2 faltantes diagnosticados: OS202600249 (a OS nao migrou — orfa) e OS202600243 (orcamento REJEITADO nao migrado, baixo impacto). Nao migrados nesta rodada.
+- **G1 implementado — Orcamento avulso de servico (tela /services):** estava enviando via Evolution API + so texto. Migrado para Cloud API com PDF anexado, igual ao simulador: novo `service-quote-pdf.tsx` + builder + rota de midia transiente (`/api/whatsapp-media/service-quote/pdf/[token]`, token HMAC assinado). `catalog.sendServiceWhatsApp` usa `sendPdfWithFallback` (texto+link na janela 24h / template `servico_orcamento_pdf` HEADER DOCUMENT fora). Template adicionado ao catalogo. Removido o import Evolution. Mora em catalog.ts (sem conflito com service-order.ts da outra sessao).
+
+**Validacao:** typecheck OK | lint 0 erros | 736 unit OK | build OK | smoke do PDF (%PDF valido).
+
+---
+
 ### 2026-06-01 — AVALIACAO: /investigate — migracao de 231 dados + WhatsApp Cloud API
 
 /investigate do modulo Valuation (estrutura ja auditada antes: ordenacao, validade, RBAC). Foco em dados reais + envio, mesma profundidade do simulador.

@@ -148,6 +148,17 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     params: 2,
     body: "Olá, {{1}}! Temos a avaliação {{2}} pronta. Responda aqui para que eu envie os detalhes.",
   },
+
+  // ── Orcamento avulso de servico — PDF anexo (HEADER DOCUMENT) ──
+  // params: {{1}}=nome.
+  servico_orcamento_pdf: {
+    name: "servico_orcamento_pdf",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 1,
+    hasDocumentHeader: true,
+    body: "Olá, {{1}}! Segue em anexo o orçamento solicitado. Qualquer dúvida, é só responder por aqui!",
+  },
 };
 
 /**
@@ -173,6 +184,8 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   simulacao_pdf: "simulacao_pdf",
   // Avaliacao
   avaliacao_orcamento: "avaliacao_orcamento",
+  // Orcamento avulso de servico
+  servico_orcamento_pdf: "servico_orcamento_pdf",
 };
 
 /**
@@ -191,4 +204,5 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   pdv_termo_pdf_link: "o termo da sua compra",
   simulacao_pdf: "a simulação de parcelamento",
   avaliacao_orcamento: "a avaliação do seu aparelho",
+  servico_orcamento_pdf: "o orçamento do serviço",
 };
