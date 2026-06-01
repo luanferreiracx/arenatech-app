@@ -1909,12 +1909,37 @@ export const saleRouter = createTRPCRouter({
             status: { in: ["COMPLETED", "REFUNDED", "PARTIALLY_REFUNDED"] },
             deletedAt: null,
           },
-          include: { items: true },
+          include: {
+            items: { select: { description: true, quantity: true, total: true } },
+          },
         });
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
         }
-        return serializeSale(sale as unknown as Record<string, unknown>);
+        const tenant = await tx.tenant.findUnique({
+          where: { id: sale.tenantId },
+          select: { name: true },
+        });
+        // Whitelist explicito — endpoint PUBLICO. Antes `serializeSale(...spread)`
+        // vazava tenantId, sellerId, customerId, paymentDetails (com depixTransactionId),
+        // cancellationReason, signatureDocumentId, etc.
+        return {
+          number: sale.number,
+          status: sale.status,
+          saleDate: sale.saleDate,
+          subtotal: decimalToCents(sale.subtotal),
+          discountAmount: decimalToCents(sale.discountAmount),
+          totalAmount: decimalToCents(sale.totalAmount),
+          paidAmount: decimalToCents(sale.paidAmount),
+          changeAmount: decimalToCents(sale.changeAmount),
+          items: sale.items.map((i) => ({
+            description: i.description,
+            quantity: Number(i.quantity),
+            total: decimalToCents(i.total),
+          })),
+          customerName: sale.customerName ?? null,
+          tenantName: tenant?.name ?? "Arena Tech",
+        };
       });
     }),
 
