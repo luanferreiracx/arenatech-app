@@ -103,7 +103,12 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
   // - $osConcluida (status in concluida/aguardando_retirada/entregue) →
   //   bloqueia ALEM disso: defeito constatado, observacoes internas, prazo
   //   garantia
-  const isSigned: boolean = !!order.signatureSignedAt || !!order.physicalSignature;
+  // Inclui entrySignatureAt (signature-pad) — espelho do isEntrySigned do
+  // servidor. Sem isso, OS assinada no pad deixava o operador "editar" campos
+  // do equipamento aqui e o servidor descartava silenciosamente (lockedFields),
+  // com toast de sucesso enganoso.
+  const isSigned: boolean =
+    !!order.signatureSignedAt || !!order.physicalSignature || !!order.entrySignatureAt;
   const isCompleted: boolean = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
 
   const { register, handleSubmit, watch, setValue, control } = useForm({
