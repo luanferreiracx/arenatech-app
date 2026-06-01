@@ -309,6 +309,27 @@ export const stockEntrySchema = z.object({
 export type StockEntryInput = z.infer<typeof stockEntrySchema>;
 
 /**
+ * Entrada em lote: header compartilhado (fornecedor + motivo) + lista de itens.
+ * Processada numa unica transacao (se um item falhar, todos rollback).
+ */
+export const stockEntryBatchSchema = z.object({
+  supplierId: z.string().uuid().optional().nullable(),
+  reason: z.string().min(1, "Motivo obrigatorio").max(200),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        variationId: z.string().uuid().optional().nullable(),
+        quantity: z.number().int().min(1, "Quantidade minima 1"),
+        unitCost: z.number().int().min(0).optional(),
+      }),
+    )
+    .min(1, "Adicione ao menos um produto"),
+});
+
+export type StockEntryBatchInput = z.infer<typeof stockEntryBatchSchema>;
+
+/**
  * Motivos de baixa de estoque — paridade Laravel EstoqueMovimentacao::MOTIVOS_BAIXA.
  * Use o `code` no `reason` salvo no banco (prefixo) e o `label` na UI.
  */

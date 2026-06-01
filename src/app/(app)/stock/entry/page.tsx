@@ -3,19 +3,24 @@
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { VariationPicker } from "@/components/inputs/variation-picker";
+import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "@/lib/toast";
-import { stockEntrySchema, type StockEntryInput } from "@/lib/validators/stock";
+import {
+  stockEntryBatchSchema,
+  type StockEntryBatchInput,
+} from "@/lib/validators/stock";
 
 type ProductSearchResult = {
   id: string;
@@ -24,29 +29,48 @@ type ProductSearchResult = {
   hasVariations: boolean;
 };
 
+type SupplierSearchResult = {
+  id: string;
+  name: string;
+  tradeName?: string | null;
+  cpf?: string | null;
+  cnpj?: string | null;
+};
+
+const emptyItem = {
+  productId: "",
+  variationId: null as string | null,
+  quantity: 1,
+  unitCost: 0,
+};
+
 export default function StockEntryPage() {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [selectedProductHasVariations, setSelectedProductHasVariations] = useState(false);
-
-  const form = useForm<StockEntryInput>({
-    resolver: zodResolver(stockEntrySchema),
+  const form = useForm<StockEntryBatchInput>({
+    resolver: zodResolver(stockEntryBatchSchema),
     defaultValues: {
-      productId: "",
-      variationId: null,
-      quantity: 1,
-      unitCost: 0,
-      reason: "",
       supplierId: null,
+      reason: "",
+      items: [emptyItem],
     },
   });
 
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "items",
+  });
+
+  // Por linha: o produto selecionado tem variacoes? (usado pra mostrar o picker).
+  // Map<fieldId, hasVariations> — sobrevive a remocoes pq useFieldArray gera id estavel.
+  const [hasVariationsByField, setHasVariationsByField] = useState<Record<string, boolean>>({});
+
   const entryMutation = useMutation(
-    trpc.stock.stockEntry.mutationOptions({
-      onSuccess: () => {
-        toast.success("Entrada de estoque registrada");
+    trpc.stock.stockEntryBatch.mutationOptions({
+      onSuccess: (res) => {
+        toast.success(`${res.count} entrada(s) registrada(s).`);
         queryClient.invalidateQueries({ queryKey: trpc.stock.list.queryKey() });
         router.push("/stock");
       },
@@ -56,93 +80,185 @@ export default function StockEntryPage() {
 
   return (
     <div>
-      <PageHeader title="Entrada de Estoque" subtitle="Registre a entrada de produtos no estoque" />
+      <PageHeader
+        title="Entrada de Estoque"
+        subtitle="Adicione varios produtos de uma vez compartilhando fornecedor e motivo"
+      />
 
-      <form onSubmit={form.handleSubmit((data) => entryMutation.mutate(data))} className="space-y-6">
-        <FormSection title="Produto">
-          <div className="space-y-2">
-            <Label>Produto *</Label>
-            <EntitySelector<ProductSearchResult>
-              value={form.watch("productId")}
-              onChange={(v) => {
-                form.setValue("productId", v ?? "");
-                form.setValue("variationId", null);
-                setSelectedProductHasVariations(false);
-              }}
-              onSelect={(p) => {
-                setSelectedProductHasVariations(p.hasVariations);
-              }}
-              searchFn={async (search) => {
-                return queryClient.fetchQuery(
-                  trpc.stock.searchProducts.queryOptions({ search }),
-                ) as Promise<ProductSearchResult[]>;
-              }}
-              getOptionLabel={(p) => `${p.name}${p.sku ? ` (${p.sku})` : ""}`}
-              getOptionValue={(p) => p.id}
-              placeholder="Buscar produto..."
-            />
-            {form.formState.errors.productId && (
-              <p className="text-xs text-destructive">{form.formState.errors.productId.message}</p>
-            )}
-            {selectedProductHasVariations && (
-              <VariationPicker
-                productId={form.watch("productId") || null}
-                value={form.watch("variationId") ?? null}
-                onChange={(v) => form.setValue("variationId", v)}
-                showStock
-              />
-            )}
-          </div>
-        </FormSection>
-
-        <FormSection title="Detalhes da Entrada">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Quantidade *</Label>
-              <Input
-                type="number"
-                min={1}
-                {...form.register("quantity", { valueAsNumber: true })}
-              />
-              {form.formState.errors.quantity && (
-                <p className="text-xs text-destructive">{form.formState.errors.quantity.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>Custo Unitario</Label>
-              <MoneyInput
-                value={form.watch("unitCost") ?? 0}
-                onChange={(v) => form.setValue("unitCost", v)}
-              />
-            </div>
+      <form
+        onSubmit={form.handleSubmit((data) => entryMutation.mutate(data))}
+        className="space-y-6"
+      >
+        {/* Header: dados compartilhados pelo lote */}
+        <FormSection title="Dados da entrada">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Fornecedor</Label>
-              <EntitySelector
+              <EntitySelector<SupplierSearchResult>
                 value={form.watch("supplierId") ?? ""}
                 onChange={(v) => form.setValue("supplierId", v || null)}
                 searchFn={async (search) => {
                   return queryClient.fetchQuery(
                     trpc.stock.searchSuppliers.queryOptions({ search }),
-                  );
+                  ) as Promise<SupplierSearchResult[]>;
                 }}
-                getOptionLabel={(s) => `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`}
+                getOptionLabel={(s) =>
+                  `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`
+                }
                 getOptionValue={(s) => s.id}
                 placeholder="Buscar fornecedor..."
               />
             </div>
+            <div className="space-y-2">
+              <Label>Motivo *</Label>
+              <Input
+                {...form.register("reason")}
+                placeholder="Ex: Compra de fornecedor, devolucao..."
+              />
+              {form.formState.errors.reason && (
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.reason.message}
+                </p>
+              )}
+            </div>
           </div>
-          <div className="space-y-2 mt-4">
-            <Label>Motivo *</Label>
-            <Input {...form.register("reason")} placeholder="Ex: Compra de fornecedor, devolucao..." />
-            {form.formState.errors.reason && (
-              <p className="text-xs text-destructive">{form.formState.errors.reason.message}</p>
+        </FormSection>
+
+        {/* Itens do lote */}
+        <FormSection title="Produtos">
+          <div className="space-y-4">
+            {fields.map((field, idx) => {
+              const productId = form.watch(`items.${idx}.productId`) || null;
+              const showVariation = !!hasVariationsByField[field.id];
+              return (
+                <div
+                  key={field.id}
+                  className="border border-border rounded-md p-4 space-y-3 bg-card/50"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      Item {idx + 1}
+                    </span>
+                    {fields.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          remove(idx);
+                          setHasVariationsByField((prev) => {
+                            const next = { ...prev };
+                            delete next[field.id];
+                            return next;
+                          });
+                        }}
+                        aria-label={`Remover item ${idx + 1}`}
+                        className="text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Produto *</Label>
+                    <EntitySelector<ProductSearchResult>
+                      value={productId ?? undefined}
+                      onChange={(v) => {
+                        form.setValue(`items.${idx}.productId`, v ?? "");
+                        form.setValue(`items.${idx}.variationId`, null);
+                        if (!v) {
+                          setHasVariationsByField((prev) => ({
+                            ...prev,
+                            [field.id]: false,
+                          }));
+                        }
+                      }}
+                      onSelect={(p) => {
+                        setHasVariationsByField((prev) => ({
+                          ...prev,
+                          [field.id]: p.hasVariations,
+                        }));
+                      }}
+                      searchFn={async (search) => {
+                        return queryClient.fetchQuery(
+                          trpc.stock.searchProducts.queryOptions({ search }),
+                        ) as Promise<ProductSearchResult[]>;
+                      }}
+                      getOptionLabel={(p) =>
+                        `${p.name}${p.sku ? ` (${p.sku})` : ""}`
+                      }
+                      getOptionValue={(p) => p.id}
+                      placeholder="Buscar produto..."
+                    />
+                    {form.formState.errors.items?.[idx]?.productId && (
+                      <p className="text-xs text-destructive">
+                        {form.formState.errors.items[idx]?.productId?.message}
+                      </p>
+                    )}
+                    {showVariation && (
+                      <VariationPicker
+                        productId={productId}
+                        value={form.watch(`items.${idx}.variationId`) ?? null}
+                        onChange={(v) =>
+                          form.setValue(`items.${idx}.variationId`, v)
+                        }
+                        showStock
+                      />
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Quantidade *</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        {...form.register(`items.${idx}.quantity`, {
+                          valueAsNumber: true,
+                        })}
+                      />
+                      {form.formState.errors.items?.[idx]?.quantity && (
+                        <p className="text-xs text-destructive">
+                          {form.formState.errors.items[idx]?.quantity?.message}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Custo Unitario</Label>
+                      <MoneyInput
+                        value={form.watch(`items.${idx}.unitCost`) ?? 0}
+                        onChange={(v) =>
+                          form.setValue(`items.${idx}.unitCost`, v)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => append(emptyItem)}
+              className="w-full gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar produto
+            </Button>
+
+            {form.formState.errors.items?.root && (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.items.root.message}
+              </p>
             )}
           </div>
         </FormSection>
 
         <FormActions
           isLoading={entryMutation.isPending}
-          submitLabel="Registrar Entrada"
+          submitLabel="Registrar Entradas"
           onCancel={() => router.push("/stock")}
         />
       </form>

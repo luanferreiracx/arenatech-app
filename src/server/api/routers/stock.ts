@@ -16,6 +16,7 @@ import {
   updateCategorySchema,
   listCategoriesSchema,
   stockEntrySchema,
+  stockEntryBatchSchema,
   stockExitSchema,
   posicaoEstoqueSchema,
   movimentacoesReportSchema,
@@ -2058,6 +2059,102 @@ export const stockRouter = createTRPCRouter({
         });
 
         return { success: true };
+      });
+    }),
+
+  /**
+   * Entrada em LOTE: header (fornecedor + motivo) compartilhado + N itens
+   * processados numa unica transacao. Se um item falhar (produto nao encontrado,
+   * serializado, variacao invalida), tudo faz rollback — operador re-tenta o
+   * lote inteiro corrigido. Paridade comportamental com stockEntry singular.
+   */
+  stockEntryBatch: tenantProcedure
+    .input(stockEntryBatchSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
+      }
+      return ctx.withTenant(async (tx) => {
+        // Pre-carrega todos os produtos do lote (1 findMany em vez de N).
+        const productIds = [...new Set(input.items.map((it) => it.productId))];
+        const products = await tx.product.findMany({
+          where: { id: { in: productIds }, deletedAt: null },
+          select: { id: true, isSerialized: true, hasVariations: true, name: true },
+        });
+        const productMap = new Map(products.map((p) => [p.id, p]));
+
+        // Mesmo pre-load pras variacoes referenciadas (validacao de ownership).
+        const variationIds = input.items
+          .map((it) => it.variationId)
+          .filter((v): v is string => !!v);
+        const variations = variationIds.length
+          ? await tx.productVariation.findMany({
+              where: { id: { in: variationIds } },
+              select: { id: true, productId: true },
+            })
+          : [];
+        const variationMap = new Map(variations.map((v) => [v.id, v]));
+
+        // Valida tudo antes de mutar — falha cedo sem efeito colateral.
+        for (let i = 0; i < input.items.length; i++) {
+          const it = input.items[i]!;
+          const p = productMap.get(it.productId);
+          if (!p) {
+            throw new TRPCError({ code: "NOT_FOUND", message: `Item ${i + 1}: produto nao encontrado.` });
+          }
+          if (p.isSerialized) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Item ${i + 1} ("${p.name}"): produto serializado — registre pelo fluxo de Compra de Aparelhos.`,
+            });
+          }
+          if (p.hasVariations) {
+            if (!it.variationId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Item ${i + 1} ("${p.name}"): selecione uma variacao.`,
+              });
+            }
+            const v = variationMap.get(it.variationId);
+            if (!v || v.productId !== it.productId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Item ${i + 1} ("${p.name}"): variacao nao pertence ao produto.`,
+              });
+            }
+          }
+        }
+
+        // Aplica entradas + movimentos (atomico — qualquer erro rollback).
+        for (const it of input.items) {
+          if (it.variationId) {
+            await tx.productVariation.update({
+              where: { id: it.variationId },
+              data: { currentStock: { increment: it.quantity } },
+            });
+          } else {
+            await tx.product.update({
+              where: { id: it.productId },
+              data: { currentStock: { increment: it.quantity } },
+            });
+          }
+          await tx.stockMovement.create({
+            data: {
+              tenantId: ctx.tenantId,
+              productId: it.productId,
+              variationId: it.variationId || null,
+              type: "ENTRY",
+              quantity: it.quantity,
+              reason: input.reason,
+              referenceId: input.supplierId || null,
+              referenceType: input.supplierId ? "supplier" : null,
+              userId: ctx.session.user.id,
+            },
+          });
+        }
+
+        return { success: true, count: input.items.length };
       });
     }),
 
