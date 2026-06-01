@@ -58,8 +58,13 @@ function iconFor(status: ServiceOrderStatus): LucideIcon {
 export function StatusStepper({ status }: { status: ServiceOrderStatus }) {
   const isSpecial = SPECIAL_STATUSES.includes(status);
   const currentIndex = STATUS_FLOW.indexOf(status);
+  // WAITING_APPROVAL nao esta em STATUS_FLOW (e uma pausa lateral para revisao
+  // de orcamento). Sem este tratamento o stepper renderizaria 0% sem destacar
+  // step algum — visualmente quebrado. O painel "Aguardando Autorizacao" acima
+  // do stepper ja da o contexto completo; aqui mostramos so o badge centrado.
+  const isPausedForApproval = status === "WAITING_APPROVAL";
 
-  if (isSpecial) {
+  if (isSpecial || isPausedForApproval) {
     return (
       <div className="flex items-center justify-center gap-2 py-6">
         {createElement(iconFor(status), { className: "h-5 w-5" })}
