@@ -3802,9 +3802,13 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const result = await cancelPixPayment(order.depixTransactionId);
 
+        // H2: limpar depixTransactionId tambem — antes ficava setado e um
+        // webhook racing (cliente paga segundos antes do cancel chegar na
+        // PixPay) ainda casava via findFirst({depixTransactionId, status:!PAID})
+        // e marcava a OS como PAID apos o cancel.
         await tx.serviceOrder.update({
           where: { id: input.orderId },
-          data: { depixStatus: "cancelled" },
+          data: { depixTransactionId: null, depixStatus: "cancelled" },
         });
 
         return { success: result.success };
