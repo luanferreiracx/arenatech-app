@@ -63,6 +63,7 @@ import {
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
+import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 // ── Helpers ──
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -2682,127 +2683,10 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(technicianReportSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const where: Prisma.ServiceOrderWhereInput = {
-          tenantId: ctx.tenantId,
-        };
-
-        if (input.dateFrom || input.dateTo) {
-          where.createdAt = {};
-          if (input.dateFrom) where.createdAt.gte = startOfDayBrt(input.dateFrom);
-          if (input.dateTo) where.createdAt.lte = endOfDayBrt(input.dateTo);
-        }
-        if (input.technicianId) where.technicianId = input.technicianId;
-
-        const orders = await tx.serviceOrder.findMany({
-          where,
-          select: {
-            id: true,
-            technicianId: true,
-            status: true,
-            serviceAmount: true,
-            partsAmount: true,
-            totalAmount: true,
-            partsCost: true,
-            otherCost: true,
-            createdAt: true,
-            completedDate: true,
-          },
-        });
-
-        // Group by technician
-        const byTech = new Map<string, {
-          technicianId: string;
-          totalOs: number;
-          completed: number;
-          cancelled: number;
-          serviceValue: number;
-          partsValue: number;
-          totalValue: number;
-          partsCost: number;
-          otherCost: number;
-          totalDays: number;
-          completedCount: number;
-        }>();
-
-        for (const o of orders) {
-          const techId = o.technicianId ?? "__unassigned__";
-          let entry = byTech.get(techId);
-          if (!entry) {
-            entry = {
-              technicianId: techId,
-              totalOs: 0, completed: 0, cancelled: 0,
-              serviceValue: 0, partsValue: 0, totalValue: 0,
-              partsCost: 0, otherCost: 0,
-              totalDays: 0, completedCount: 0,
-            };
-            byTech.set(techId, entry);
-          }
-          entry.totalOs++;
-          if (o.status === "COMPLETED" || o.status === "DELIVERED") entry.completed++;
-          if (o.status === "CANCELLED") entry.cancelled++;
-          entry.serviceValue += Number(o.serviceAmount ?? 0);
-          entry.partsValue += Number(o.partsAmount ?? 0);
-          entry.totalValue += Number(o.totalAmount ?? 0);
-          entry.partsCost += Number(o.partsCost ?? 0);
-          entry.otherCost += Number(o.otherCost ?? 0);
-
-          if (o.completedDate && o.createdAt) {
-            const days = (o.completedDate.getTime() - o.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-            entry.totalDays += days;
-            entry.completedCount++;
-          }
-        }
-
-        // Get technician names
-        const techIds = [...byTech.keys()].filter((id) => id !== "__unassigned__");
-        const users = await withAdmin(async (adminTx) => {
-          return adminTx.user.findMany({
-            where: { id: { in: techIds } },
-            select: { id: true, name: true },
-          });
-        });
-        const nameMap = new Map(users.map((u) => [u.id, u.name]));
-
-        const items = [...byTech.values()]
-          .map((e) => {
-            const profit = e.totalValue - e.partsCost - e.otherCost;
-            const ticketMedio = e.completed > 0 ? e.totalValue / e.completed : 0;
-            const avgDays = e.completedCount > 0 ? Math.round(e.totalDays / e.completedCount) : null;
-            return {
-              technicianId: e.technicianId,
-              technicianName: nameMap.get(e.technicianId) ?? "Nao identificado",
-              totalOs: e.totalOs,
-              completed: e.completed,
-              cancelled: e.cancelled,
-              serviceValue: Math.round(e.serviceValue * 100),
-              partsValue: Math.round(e.partsValue * 100),
-              totalValue: Math.round(e.totalValue * 100),
-              partsCost: Math.round(e.partsCost * 100),
-              otherCost: Math.round(e.otherCost * 100),
-              profit: Math.round(profit * 100),
-              ticketMedio: Math.round(ticketMedio * 100),
-              avgDays,
-            };
-          })
-          .sort((a, b) => b.totalValue - a.totalValue);
-
-        const totals = items.reduce(
-          (acc, i) => {
-            acc.totalOs += i.totalOs;
-            acc.completed += i.completed;
-            acc.cancelled += i.cancelled;
-            acc.serviceValue += i.serviceValue;
-            acc.partsValue += i.partsValue;
-            acc.totalValue += i.totalValue;
-            acc.partsCost += i.partsCost;
-            acc.otherCost += i.otherCost;
-            acc.profit += i.profit;
-            return acc;
-          },
-          { totalOs: 0, completed: 0, cancelled: 0, serviceValue: 0, partsValue: 0, totalValue: 0, partsCost: 0, otherCost: 0, profit: 0 }
-        );
-        const ticketMedio = totals.completed > 0 ? Math.round(totals.totalValue / totals.completed) : 0;
-
+        const { items, totals } = await buildTechnicianReport(tx, ctx.tenantId, input);
+        const ticketMedio = totals.completed > 0
+          ? Math.round(totals.totalValue / totals.completed)
+          : 0;
         return { items, totals: { ...totals, ticketMedio } };
       });
     }),
