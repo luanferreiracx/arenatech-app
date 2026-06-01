@@ -605,13 +605,30 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const { id, ...data } = input;
 
+        // H4: trocar cliente de uma OS assinada exige privilegio (gerente/admin).
+        // Antes qualquer tenant member podia trocar customerId via tRPC direto.
+        if (data.customerId && data.customerId !== order.customerId) {
+          const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+          const canChangeCustomer =
+            ctx.session.user.isSuperAdmin === true ||
+            role === "owner" || role === "admin" || role === "manager";
+          if (!canChangeCustomer) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Sem permissao para trocar o cliente da OS.",
+            });
+          }
+        }
+
         // Paridade Laravel `update`:
         // - osAssinada → bloqueia equipamento/IMEI/problema relatado/entryChecklist/deviceInfo
+        //   + customerId (aparelho do cliente ja sob responsabilidade da loja).
         // - osConcluida → bloqueia ADICIONALMENTE diagnosedProblem/internalNotes/warrantyMonths
         const isSigned = isEntrySigned(order);
         const isCompleted = ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED", "REFUNDED"].includes(order.status);
         const lockedFields = new Set<string>();
         if (isSigned) {
+          lockedFields.add("customerId");
           lockedFields.add("deviceType");
           lockedFields.add("deviceBrand");
           lockedFields.add("deviceModel");
