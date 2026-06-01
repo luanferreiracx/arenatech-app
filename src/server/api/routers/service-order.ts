@@ -1551,8 +1551,14 @@ export const serviceOrderRouter = createTRPCRouter({
         // caso comum (sem recompensa) `collected` == input.paidAmount.
         const collectedCents = Math.max(0, input.paidAmount - rewardDiscountCents);
 
-        await tx.serviceOrder.update({
-          where: { id: input.id },
+        // F (CAS): compare-and-set no status para evitar que dois callers
+        // paralelos passem o check de COMPLETED e criem cash/comissao em dobro.
+        // Receivable ja era guardado por existingReceivable; caixa e comissao
+        // nao. updateMany so faz a transicao se o status atual ainda for
+        // COMPLETED; se outro processo ja marcou como PAID, count=0 → throw
+        // CONFLICT e a tx faz rollback (sem efeitos colaterais).
+        const cas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, status: "COMPLETED" },
           data: {
             status: "PAID",
             paymentMethod: input.paymentMethod,
@@ -1562,6 +1568,12 @@ export const serviceOrderRouter = createTRPCRouter({
             paymentDate: new Date(),
           },
         });
+        if (cas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "OS ja foi paga por outra operacao em andamento.",
+          });
+        }
 
         await tx.serviceOrderHistory.create({
           data: {
