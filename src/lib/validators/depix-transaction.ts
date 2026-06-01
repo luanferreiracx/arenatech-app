@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
+import { isValidTaxId as isValidTaxIdMod11 } from "@/lib/utils/tax-id";
 
 /** Status labels pra UI. */
 export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
@@ -31,21 +32,17 @@ export const createDepositSchema = z.object({
 });
 export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 
-/** Valida CPF/CNPJ — paridade Laravel. Aceita so digitos ou formatado. */
-function isValidTaxId(taxId: string): boolean {
-  const digits = taxId.replace(/\D/g, "");
-  return digits.length === 11 || digits.length === 14;
-}
-
 export const createWithdrawSchema = z.object({
   pixKeyType: z.enum(VALID_PIX_KEY_TYPES),
   pixKey: z.string().min(1).max(255),
   recipientName: z.string().max(200).optional().nullable(),
+  // Validacao mod-11 (DV de CPF/CNPJ) — rejeita 11111... e digitos errados.
+  // Mais rigorosa que so checar comprimento.
   recipientTaxId: z
     .string()
     .min(11)
     .max(18)
-    .refine(isValidTaxId, "CPF/CNPJ invalido"),
+    .refine(isValidTaxIdMod11, "CPF/CNPJ invalido"),
   /**
    * Valor LIQUIDO em centavos — o quanto o destinatario deve receber via PIX.
    * O sistema calcula automaticamente o bruto (gross) a debitar do saldo,

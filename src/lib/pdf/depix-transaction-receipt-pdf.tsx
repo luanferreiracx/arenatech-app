@@ -36,34 +36,153 @@ export interface DepixTxReceiptPdfData {
 }
 
 const GOLD = "#c9a84c";
+const GOLD_SOFT = "#f4e9c6";
 const TEXT = "#1a1a1a";
 const MUTED = "#666";
 const LABEL = "#888";
 const SOFT_BORDER = "#e5e7eb";
+const HERO_BG = "#fbf7ec"; // dourado bem suave
 const GREEN = "#16a34a";
+const NETWORK_BG = "#f3f4f6";
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 28, paddingBottom: 28, paddingHorizontal: 34, fontSize: 9.5, fontFamily: "Helvetica", lineHeight: 1.4, color: TEXT },
+  page: {
+    paddingTop: 28,
+    paddingBottom: 28,
+    paddingHorizontal: 34,
+    fontSize: 9.5,
+    fontFamily: "Helvetica",
+    lineHeight: 1.4,
+    color: TEXT,
+  },
+
+  // Header — logo + identidade da loja a esquerda, n. do doc a direita
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
   headerLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
   logo: { width: 42, height: 42, objectFit: "contain", marginRight: 8 },
   storeName: { fontSize: 13, fontFamily: "Helvetica-Bold", color: TEXT, letterSpacing: 0.2 },
   storeMeta: { fontSize: 7.5, color: MUTED, marginTop: 1 },
   headerRight: { alignItems: "flex-end", marginLeft: 8 },
-  docLabel: { fontSize: 7, color: LABEL, textTransform: "uppercase", letterSpacing: 1 },
-  docNumber: { fontSize: 14, fontFamily: "Helvetica-Bold", color: GOLD, letterSpacing: 0.3 },
-  docDate: { fontSize: 7.5, color: LABEL },
-  headerDivider: { borderTopWidth: 2, borderTopColor: GOLD, marginTop: 6, marginBottom: 10 },
-  title: { textAlign: "center", fontSize: 13, fontFamily: "Helvetica-Bold", marginVertical: 8, letterSpacing: 0.5 },
-  sectionTitle: { fontSize: 8, fontFamily: "Helvetica-Bold", color: LABEL, textTransform: "uppercase", letterSpacing: 1, marginTop: 10, marginBottom: 4 },
+  docLabel: {
+    fontSize: 7,
+    color: LABEL,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 1,
+  },
+  docNumber: {
+    fontSize: 14,
+    fontFamily: "Helvetica-Bold",
+    color: GOLD,
+    letterSpacing: 0.3,
+  },
+  docDate: { fontSize: 7.5, color: LABEL, marginTop: 1 },
+
+  // Faixa dourada de divisao — gradiente "fingido" com 2 retangulos
+  goldBarOuter: {
+    flexDirection: "row",
+    marginTop: 8,
+    marginBottom: 12,
+    height: 2,
+  },
+  goldBarMain: { flex: 5, backgroundColor: GOLD },
+  goldBarFade: { flex: 1, backgroundColor: GOLD_SOFT },
+
+  // Hero — destaque do valor liquido + chip de rede
+  hero: {
+    backgroundColor: HERO_BG,
+    borderRadius: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: GOLD,
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  heroLabel: {
+    fontSize: 7,
+    color: LABEL,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+  },
+  networkChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: NETWORK_BG,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+  },
+  networkDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: GOLD,
+    marginRight: 4,
+  },
+  networkText: {
+    fontSize: 7,
+    color: MUTED,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  heroValue: {
+    fontSize: 20,
+    fontFamily: "Helvetica-Bold",
+    color: TEXT,
+    letterSpacing: 0.2,
+  },
+  heroSubtitle: {
+    fontSize: 9,
+    color: MUTED,
+    marginTop: 3,
+  },
+
+  // Secoes
+  sectionTitle: {
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: LABEL,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginTop: 10,
+    marginBottom: 5,
+  },
   row: { flexDirection: "row", marginBottom: 3 },
   rowLabel: { width: 130, color: MUTED },
   rowValue: { flex: 1 },
-  totalRow: { flexDirection: "row", marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: SOFT_BORDER },
+  totalRow: {
+    flexDirection: "row",
+    marginTop: 5,
+    paddingTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: SOFT_BORDER,
+  },
   totalLabel: { width: 130, fontFamily: "Helvetica-Bold" },
   totalValue: { flex: 1, fontFamily: "Helvetica-Bold", color: GREEN },
   monoSmall: { fontFamily: "Helvetica", fontSize: 8, color: MUTED },
-  footer: { marginTop: 18, paddingTop: 8, borderTopWidth: 1, borderTopColor: SOFT_BORDER, textAlign: "center", fontSize: 7.5, color: MUTED },
+
+  // Footer com autenticidade
+  footer: {
+    marginTop: 22,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: SOFT_BORDER,
+    textAlign: "center",
+    fontSize: 7.5,
+    color: MUTED,
+  },
+  footerBrand: {
+    fontFamily: "Helvetica-Bold",
+    color: GOLD,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
 });
 
 function fmtBRL(cents: number | null | undefined): string {
@@ -76,10 +195,15 @@ function fmtDate(d: Date | null | undefined): string {
 }
 
 export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
-  const title = tx.kind === "DEPOSIT" ? "COMPROVANTE DE DEPOSITO DEPIX" : "COMPROVANTE DE SAQUE DEPIX";
+  const title =
+    tx.kind === "DEPOSIT" ? "COMPROVANTE DE DEPOSITO DEPIX" : "COMPROVANTE DE SAQUE DEPIX";
+  const heroLabel = tx.kind === "DEPOSIT" ? "Voce recebeu" : "Destinatario recebeu";
+  const heroValue = tx.netAmountCents ?? tx.grossAmountCents;
+
   return (
     <Document>
       <Page size="A5" style={styles.page}>
+        {/* Header — identidade */}
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             {store.logoDataUrl ? <Image style={styles.logo} src={store.logoDataUrl} /> : null}
@@ -90,18 +214,39 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.docLabel}>{tx.kind === "DEPOSIT" ? "Deposito" : "Saque"} DePix</Text>
+            <Text style={styles.docLabel}>{title}</Text>
             <Text style={styles.docNumber}>{tx.number}</Text>
             <Text style={styles.docDate}>{fmtDate(tx.completedAt ?? tx.createdAt)}</Text>
           </View>
         </View>
-        <View style={styles.headerDivider} />
 
-        <Text style={styles.title}>{title}</Text>
+        {/* Faixa dourada — gradiente fingido com fade */}
+        <View style={styles.goldBarOuter}>
+          <View style={styles.goldBarMain} />
+          <View style={styles.goldBarFade} />
+        </View>
 
+        {/* Hero — destaque tipografico do valor */}
+        <View style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <Text style={styles.heroLabel}>{heroLabel}</Text>
+            <View style={styles.networkChip}>
+              <View style={styles.networkDot} />
+              <Text style={styles.networkText}>Liquid Network · DePix</Text>
+            </View>
+          </View>
+          <Text style={styles.heroValue}>{fmtBRL(heroValue)}</Text>
+          {tx.kind === "WITHDRAW" && tx.recipientName ? (
+            <Text style={styles.heroSubtitle}>para {tx.recipientName}</Text>
+          ) : null}
+        </View>
+
+        {/* Valores detalhados */}
         <Text style={styles.sectionTitle}>Valores</Text>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>{tx.kind === "DEPOSIT" ? "Pago pelo cliente" : "Debitado do saldo"}</Text>
+          <Text style={styles.rowLabel}>
+            {tx.kind === "DEPOSIT" ? "Pago pelo cliente" : "Debitado do saldo"}
+          </Text>
           <Text style={styles.rowValue}>{fmtBRL(tx.grossAmountCents)}</Text>
         </View>
         <View style={styles.row}>
@@ -116,7 +261,9 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         )}
         {tx.netAmountCents != null && (
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>{tx.kind === "DEPOSIT" ? "Voce recebeu" : "Destinatario recebeu"}</Text>
+            <Text style={styles.totalLabel}>
+              {tx.kind === "DEPOSIT" ? "Voce recebeu" : "Destinatario recebeu"}
+            </Text>
             <Text style={styles.totalValue}>{fmtBRL(tx.netAmountCents)}</Text>
           </View>
         )}
@@ -149,7 +296,9 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         {(tx.depositTxId ?? tx.withdrawTxId) && (
           <View style={styles.row}>
             <Text style={styles.rowLabel}>TXID Liquid</Text>
-            <Text style={[styles.rowValue, styles.monoSmall]}>{tx.depositTxId ?? tx.withdrawTxId}</Text>
+            <Text style={[styles.rowValue, styles.monoSmall]}>
+              {tx.depositTxId ?? tx.withdrawTxId}
+            </Text>
           </View>
         )}
         {tx.pixpayDepixId && (
@@ -180,8 +329,9 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         )}
 
         <View style={styles.footer}>
-          <Text>Documento gerado em {fmtDate(new Date())}</Text>
-          <Text>Comprovante nao fiscal — DePix Wallet {tx.number}</Text>
+          <Text style={styles.footerBrand}>ARENA TECH · DEPIX WALLET</Text>
+          <Text>Comprovante nao fiscal · gerado em {fmtDate(new Date())}</Text>
+          <Text>Operacao registrada on-chain na Liquid Network</Text>
         </View>
       </Page>
     </Document>

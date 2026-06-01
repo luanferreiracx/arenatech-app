@@ -158,6 +158,69 @@ export const depixTransactionRouter = createTRPCRouter({
       return tx;
     }),
 
+  /** Autocomplete de saques recentes pro wizard.
+   *  Distinct por (pix_key, pix_key_type), ordenado pela ultima
+   *  transacao desse destinatario. Limit 10. */
+  searchRecipients: tenantProcedure
+    .input(
+      z.object({
+        query: z.string().min(0).max(100).optional(),
+      }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const q = input?.query?.trim() ?? "";
+      const where: Prisma.TenantDepixTransactionWhereInput = {
+        tenantId: ctx.tenantId,
+        kind: "WITHDRAW",
+        pixKey: { not: null },
+      };
+      if (q.length > 0) {
+        where.OR = [
+          { pixKey: { contains: q, mode: "insensitive" } },
+          { recipientName: { contains: q, mode: "insensitive" } },
+          { recipientTaxId: { contains: q.replace(/\D/g, "") } },
+        ];
+      }
+      const rows = await ctx.withTenant(async (db) =>
+        db.tenantDepixTransaction.findMany({
+          where,
+          select: {
+            pixKey: true,
+            pixKeyType: true,
+            recipientName: true,
+            recipientTaxId: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      );
+      // Dedup por (pixKeyType, pixKey) mantendo o mais recente.
+      const seen = new Set<string>();
+      const result: Array<{
+        pixKey: string;
+        pixKeyType: string;
+        recipientName: string | null;
+        recipientTaxId: string | null;
+        lastUsedAt: Date;
+      }> = [];
+      for (const r of rows) {
+        if (!r.pixKey || !r.pixKeyType) continue;
+        const key = `${r.pixKeyType}:${r.pixKey}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push({
+          pixKey: r.pixKey,
+          pixKeyType: r.pixKeyType,
+          recipientName: r.recipientName,
+          recipientTaxId: r.recipientTaxId,
+          lastUsedAt: r.createdAt,
+        });
+        if (result.length >= 10) break;
+      }
+      return result;
+    }),
+
   /** Breakdown de taxas + saldo + master address pra UI. */
   getOverview: tenantProcedure.query(async ({ ctx }) => {
     const [wallet, feeCfg, balance] = await Promise.all([

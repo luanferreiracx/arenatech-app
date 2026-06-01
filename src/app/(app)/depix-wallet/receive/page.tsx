@@ -4,19 +4,29 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight, QrCode } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { toast } from "@/lib/toast";
 import { PageHeader } from "@/components/domain/page-header";
-import { FormSection } from "@/components/domain/forms/form-section";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MoneyInput } from "@/components/inputs/money-input";
 import { Label } from "@/components/ui/label";
+import { MoneyInput } from "@/components/inputs/money-input";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
+import { WizardStepper } from "../_components/wizard-stepper";
+import { AmountQuickPicks } from "../_components/amount-quick-picks";
+import { FeeBreakdown } from "../_components/fee-breakdown";
+
+const STEPS = [
+  { id: 1, label: "Valor" },
+  { id: 2, label: "QR Code" },
+];
 
 function formatBRL(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
 export default function DepixReceivePage() {
@@ -25,9 +35,11 @@ export default function DepixReceivePage() {
   const router = useRouter();
   const [amount, setAmount] = useState(0);
 
-  // Preview da taxa Arena Tech (R$0,99 + 1,5%) — atualiza on-the-fly.
   const previewQuery = useQuery({
-    ...trpc.depixTransaction.previewFee.queryOptions({ kind: "DEPOSIT", amountCents: amount }),
+    ...trpc.depixTransaction.previewFee.queryOptions({
+      kind: "DEPOSIT",
+      amountCents: amount,
+    }),
     enabled: amount >= DEPIX_LIMITS.MIN_CENTS,
   });
 
@@ -42,63 +54,79 @@ export default function DepixReceivePage() {
     }),
   );
 
-  const canSubmit = amount >= DEPIX_LIMITS.MIN_CENTS && amount <= DEPIX_LIMITS.MAX_CENTS;
+  const canSubmit =
+    amount >= DEPIX_LIMITS.MIN_CENTS && amount <= DEPIX_LIMITS.MAX_CENTS;
 
   return (
-    <div>
+    <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title={
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="icon">
-              <Link href="/depix-wallet">
+              <Link href="/depix-wallet" aria-label="Voltar">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            Receber DePix
+            <span>Receber via PIX</span>
           </div>
         }
-        subtitle="Gere um QR PIX. O DePix cai direto na sua carteira ja com taxa descontada."
+        subtitle="Defina o valor e gere um QR PIX. O DePix cai direto na sua carteira."
       />
 
-      <div className="max-w-xl">
-        <FormSection title="Valor a receber" description="Min R$ 10,00 — Max R$ 5.000,00">
+      <WizardStepper steps={STEPS} current={1} />
+
+      <div className="max-w-xl mx-auto space-y-5">
+        <Card className="p-5 sm:p-6 space-y-5">
           <div>
-            <Label>Valor (bruto pago pelo cliente)</Label>
-            <MoneyInput value={amount} onChange={setAmount} placeholder="R$ 0,00" />
+            <Label className="text-sm font-medium">
+              Quanto voce quer receber?
+            </Label>
+            <p className="text-xs text-muted-foreground mt-1 mb-3">
+              Min R$ 10,00 · Max R$ 5.000,00 · O cliente paga este valor via PIX
+            </p>
+            <MoneyInput
+              value={amount}
+              onChange={setAmount}
+              placeholder="R$ 0,00"
+              className="!text-3xl !h-16 !font-mono tabular-nums"
+            />
           </div>
-        </FormSection>
 
-        {amount >= DEPIX_LIMITS.MIN_CENTS && previewQuery.data && (
-          <Card className="p-4 my-6 space-y-2 text-sm">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Breakdown estimado</p>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Cliente paga</span>
-              <span className="tabular-nums font-semibold">{formatBRL(previewQuery.data.grossCents)}</span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Taxa Arena Tech</span>
-              <span className="tabular-nums">− {formatBRL(previewQuery.data.feeArenaTechCents)}</span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Taxa PixPay (estimada)</span>
-              <span className="tabular-nums">− {formatBRL(previewQuery.data.feePixPayEstimatedCents)}</span>
-            </div>
-            <div className="flex justify-between border-t pt-2 mt-2 font-semibold">
-              <span>Voce recebe (estimado)</span>
-              <span className="tabular-nums">{formatBRL(previewQuery.data.netCents)}</span>
-            </div>
-          </Card>
-        )}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+              Atalhos
+            </p>
+            <AmountQuickPicks value={amount} onChange={setAmount} />
+          </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+          {amount >= DEPIX_LIMITS.MIN_CENTS && previewQuery.data && (
+            <FeeBreakdown
+              kind="DEPOSIT"
+              netCents={amount}
+              feeArenaCents={previewQuery.data.feeArenaTechCents}
+              feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+            />
+          )}
+        </Card>
+
+        <div className="flex justify-between gap-2">
           <Button asChild variant="outline">
             <Link href="/depix-wallet">Cancelar</Link>
           </Button>
           <Button
             onClick={() => createMutation.mutate({ grossAmountCents: amount })}
             disabled={!canSubmit || createMutation.isPending}
+            className="shadow-[0_0_20px_-4px_var(--primary)] hover:shadow-[0_0_28px_-4px_var(--primary)] transition-shadow"
           >
-            {createMutation.isPending ? "Gerando…" : "Gerar QR"}
+            {createMutation.isPending ? (
+              "Gerando…"
+            ) : (
+              <>
+                <QrCode className="mr-2 h-4 w-4" />
+                Gerar QR PIX
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </>
+            )}
           </Button>
         </div>
       </div>
