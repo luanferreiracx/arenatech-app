@@ -17,6 +17,7 @@ import {
 import { logger } from "@/lib/logger";
 import { logAudit } from "@/server/services/audit-log.service";
 import { compareValuations } from "@/lib/valuation-ordering";
+import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -330,61 +331,94 @@ export const valuationRouter = createTRPCRouter({
     return BATTERY_HEALTH_OPTIONS;
   }),
 
-  /** Format valuation table as WhatsApp text message */
-  formatWhatsAppMessage: tenantProcedure
+  /**
+   * Envia a tabela de avaliacao de um modelo por WhatsApp (Cloud API).
+   * Stateless: monta a mensagem-texto e usa o fallback inteligente — texto
+   * dentro da janela 24h, template `avaliacao_orcamento` fora dela.
+   * Paridade Laravel AvaliacaoController::enviarWhatsApp (modo tabela).
+   */
+  sendWhatsApp: tenantProcedure
     .input(sendValuationWhatsAppSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      const built = await ctx.withTenant(async (tx) => {
         const valuations = await tx.deviceValuation.findMany({
           where: { modelo: input.modelo, deletedAt: null },
         });
-        // Ordena numerico/semantico (armazenamento crescente, bateria melhor->pior)
         valuations.sort(compareValuations);
 
         if (valuations.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma avaliacao encontrada para este modelo" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Nenhuma avaliacao encontrada para este modelo",
+          });
         }
 
-        // Validade prioriza config do tenant; fallback validadeDias do primeiro entry
+        // Nome da loja + validade vem das settings de assistencia (nao hardcode).
         const settings = await tx.tenantAssistanceSettings.findUnique({
           where: { tenantId: ctx.tenantId },
-          select: { valuationValidityDays: true },
+          select: { valuationValidityDays: true, assistanceName: true },
         });
-        const validadeDias = settings?.valuationValidityDays ?? valuations[0]?.validadeDias ?? 7;
-        const nome = input.customerName ?? "Cliente";
+        let storeName = settings?.assistanceName ?? null;
+        if (!storeName) {
+          const t = await tx.tenant.findUnique({
+            where: { id: ctx.tenantId },
+            select: { name: true },
+          });
+          storeName = t?.name ?? "Arena Tech";
+        }
+        const validadeDias =
+          settings?.valuationValidityDays ?? valuations[0]?.validadeDias ?? 7;
+        const nome = input.customerName?.trim() || "Cliente";
 
-        // Group by armazenamento
+        // Agrupa por armazenamento (ja ordenado).
         const grouped = new Map<string, Array<{ saudeBateria: string; valor: Prisma.Decimal }>>();
         for (const v of valuations) {
-          const key = v.armazenamento;
-          if (!grouped.has(key)) grouped.set(key, []);
-          grouped.get(key)!.push({ saudeBateria: v.saudeBateria, valor: v.valor });
+          if (!grouped.has(v.armazenamento)) grouped.set(v.armazenamento, []);
+          grouped.get(v.armazenamento)!.push({ saudeBateria: v.saudeBateria, valor: v.valor });
         }
 
-        // Build message
-        let message = `*Avaliacao de Aparelho - Arena Tech*\n\n`;
+        let message = `*Avaliacao de Aparelho - ${storeName}*\n\n`;
         message += `Ola, ${nome}!\n\n`;
         message += `Segue a tabela de avaliacao para *${input.modelo}*:\n\n`;
-
         for (const [armazenamento, items] of grouped.entries()) {
           message += `*${armazenamento}:*\n`;
           for (const item of items) {
-            const valor = Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            const valor = Number(item.valor).toLocaleString("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+            });
             message += `  - Bateria ${item.saudeBateria}: *${valor}*\n`;
           }
           message += `\n`;
         }
-
         message += `Validade: ${validadeDias} dias\n`;
         message += `Valores sujeitos a analise do aparelho.\n\n`;
-        message += `*Arena Tech*`;
+        message += `*${storeName}*`;
 
-        // Generate WhatsApp URL
-        const cleanPhone = input.phone.replace(/\D/g, "");
-        const phone = cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`;
-        const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-
-        return { message, whatsappUrl };
+        return { message, nome };
       });
+
+      const sendResult = await sendTextWithFallback({
+        phone: input.phone,
+        freeText: built.message,
+        contexto: "avaliacao_orcamento",
+        // template avaliacao_orcamento: {{1}}=nome, {{2}}=descricao do aparelho
+        params: [built.nome, `do seu ${input.modelo}`],
+      });
+
+      if (!sendResult.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Falha ao enviar WhatsApp: ${sendResult.error ?? "erro desconhecido"}`,
+        });
+      }
+
+      logger.info("Valuation WhatsApp sent", {
+        tenantId: ctx.tenantId,
+        modelo: input.modelo,
+        via: sendResult.via,
+      });
+
+      return { success: true, via: sendResult.via, messageId: sendResult.messageId };
     }),
 });

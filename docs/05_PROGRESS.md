@@ -262,6 +262,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-06-01 — AVALIACAO: /investigate — migracao de 231 dados + WhatsApp Cloud API
+
+/investigate do modulo Valuation (estrutura ja auditada antes: ordenacao, validade, RBAC). Foco em dados reais + envio, mesma profundidade do simulador.
+
+**G1 (CRITICO) — 231 avaliacoes nao migradas:** Postgres prod estava VAZIO (0 registros) vs Laravel com **231 avaliacoes / 36 modelos** (iPhones, MacBook, Playstation...). Migradas com normalizacao: HTML entities (`&gt; 90%`->`> 90%`), `valor` string "R$ 1.500,00"->decimal, validade default 7. Backup antes; validado 231/36, zero valores invalidos. Script versionado `scripts/migrate-valuations.sh` (idempotente, le MySQL->Postgres).
+
+**G2 — WhatsApp via wa.me -> Cloud API:** `formatWhatsAppMessage` (retornava wa.me URL) virou `sendWhatsApp` que envia via `sendTextWithFallback` — texto na janela 24h, template `avaliacao_orcamento` (aprovado na Meta, adicionado ao catalogo) fora dela. Paridade Laravel `enviarComFallbackTemplateAsync`. **wa.me descartado — numero da loja so via Cloud API.**
+
+**G3 — Nome da loja hardcoded:** a mensagem usava "Arena Tech" fixo. Agora usa `assistanceName` das settings (fallback tenant.name) — multi-tenant correto.
+
+**Fora de escopo (decisao do dono):** `sugestoesCentral` (loja ve avaliacoes da matriz — feature SaaS multi-tenant).
+
+**Validacao:** typecheck OK | lint 0 erros | 736 unit OK | build OK. 231 avaliacoes em prod validadas.
+
+---
+
 ### 2026-05-31 — SIMULADOR: migracao das taxas reais (dados de prod estavam genericos)
 
 Apos a reforma estrutural, faltava migrar os DADOS reais. O seed criou `simulator_rate_configs` com defaults genericos (credito 0%, debito 0%, max 12, tiers 1.99...) — divergente das taxas reais da loja no Laravel.

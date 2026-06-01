@@ -138,6 +138,16 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     hasDocumentHeader: true,
     body: "Olá, {{1}}! Segue em anexo a simulação solicitada. Qualquer dúvida, é só responder por aqui!",
   },
+
+  // ── Avaliacao de aparelho — texto puro (sem PDF) ──
+  // params: {{1}}=nome, {{2}}="do seu iPhone X" (descricao do aparelho).
+  avaliacao_orcamento: {
+    name: "avaliacao_orcamento",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    body: "Olá, {{1}}! Temos a avaliação {{2}} pronta. Responda aqui para que eu envie os detalhes.",
+  },
 };
 
 /**
@@ -161,6 +171,8 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   os_rastreamento: "os_rastreamento_link",
   // Simulador
   simulacao_pdf: "simulacao_pdf",
+  // Avaliacao
+  avaliacao_orcamento: "avaliacao_orcamento",
 };
 
 /**
@@ -178,4 +190,5 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   pdv_recibo_pdf: "o recibo da sua compra",
   pdv_termo_pdf_link: "o termo da sua compra",
   simulacao_pdf: "a simulação de parcelamento",
+  avaliacao_orcamento: "a avaliação do seu aparelho",
 };

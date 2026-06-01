@@ -63,7 +63,7 @@ export function ValuationsList() {
   const adjustMutation = useMutation(trpc.valuation.bulkAdjust.mutationOptions());
   const adjustFixedMutation = useMutation(trpc.valuation.bulkAdjustFixed.mutationOptions());
   const duplicateMutation = useMutation(trpc.valuation.duplicateModel.mutationOptions());
-  const whatsAppMutation = useMutation(trpc.valuation.formatWhatsAppMessage.mutationOptions());
+  const whatsAppMutation = useMutation(trpc.valuation.sendWhatsApp.mutationOptions());
   const deleteModelMutation = useMutation(trpc.valuation.deleteModel.mutationOptions());
 
   const invalidate = () => {
@@ -188,11 +188,16 @@ export function ValuationsList() {
       toast.error("Preencha modelo e telefone");
       return;
     }
+    const cleaned = whatsAppPhone.replace(/\D/g, "");
+    if (cleaned.length < 10) {
+      toast.error("Informe um telefone valido com DDD");
+      return;
+    }
     whatsAppMutation.mutate(
-      { modelo: whatsAppModelo, phone: whatsAppPhone, customerName: whatsAppName || undefined },
+      { modelo: whatsAppModelo, phone: cleaned, customerName: whatsAppName || undefined },
       {
-        onSuccess: (data) => {
-          window.open(data.whatsappUrl, "_blank");
+        onSuccess: () => {
+          toast.success("Avaliacao enviada via WhatsApp!");
           setShowWhatsAppDialog(false);
           setWhatsAppPhone("");
           setWhatsAppName("");
@@ -543,7 +548,7 @@ export function ValuationsList() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Enviar Avaliacao via WhatsApp</DialogTitle>
-            <DialogDescription>Envie a tabela de precos de um modelo para o cliente via WhatsApp</DialogDescription>
+            <DialogDescription>A tabela de avaliacao do modelo sera enviada ao cliente pelo numero da loja via WhatsApp.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
