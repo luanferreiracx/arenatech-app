@@ -238,11 +238,27 @@ export const serviceOrderRouter = createTRPCRouter({
         if (input.sortBy === "totalAmount") orderBy = { totalAmount: input.sortOrder ?? "desc" };
         if (input.sortBy === "status") orderBy = { status: input.sortOrder ?? "asc" };
 
+        // H3: select EXPLICITO (so os campos que a tabela renderiza). Antes
+        // o include retornava o order inteiro via serializeOrder spread,
+        // incluindo blobs de assinatura (data URLs de ~700KB), internalNotes,
+        // depixTransactionId, publicLink — em pageSize 100 isso podia gerar
+        // 70MB+ de payload por listagem.
         const [orders, total] = await Promise.all([
           tx.serviceOrder.findMany({
             where,
-            include: {
-              items: true,
+            select: {
+              id: true,
+              number: true,
+              status: true,
+              customerId: true,
+              technicianId: true,
+              deviceType: true,
+              deviceModel: true,
+              imei: true,
+              totalAmount: true,
+              entryDate: true,
+              isWarranty: true,
+              budgetPending: true,
             },
             orderBy,
             skip,
@@ -251,7 +267,6 @@ export const serviceOrderRouter = createTRPCRouter({
           tx.serviceOrder.count({ where }),
         ]);
 
-        // Load customer names separately (customer is cross-table via customerId)
         const customerIds = [...new Set(orders.map((o) => o.customerId))];
         const customers = await tx.customer.findMany({
           where: { id: { in: customerIds } },
@@ -259,7 +274,6 @@ export const serviceOrderRouter = createTRPCRouter({
         });
         const customerMap = new Map(customers.map((c) => [c.id, c]));
 
-        // Load technician names via withAdmin (users are global)
         const techIds = [...new Set(orders.map((o) => o.technicianId).filter(Boolean))] as string[];
         let techMap = new Map<string, string>();
         if (techIds.length > 0) {
@@ -274,7 +288,16 @@ export const serviceOrderRouter = createTRPCRouter({
 
         return {
           items: orders.map((order) => ({
-            ...serializeOrder(order),
+            id: order.id,
+            number: order.number,
+            status: order.status,
+            deviceType: order.deviceType,
+            deviceModel: order.deviceModel,
+            imei: order.imei,
+            totalAmount: decimalToCents(order.totalAmount),
+            entryDate: order.entryDate,
+            isWarranty: order.isWarranty,
+            budgetPending: order.budgetPending,
             customerName: customerMap.get(order.customerId)?.name ?? "—",
             customerCpf: customerMap.get(order.customerId)?.cpf ?? null,
             customerPhone: customerMap.get(order.customerId)?.phone ?? null,
