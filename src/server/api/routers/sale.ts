@@ -1434,6 +1434,17 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Vendas de pagamento de OS (isOSPayment) nao tem items proprios — o
+        // estorno deve ser feito pela OS (que cascateia para a sale via P5b).
+        // Sem este guard o operador veria "Nenhum item disponivel" e ficaria
+        // confuso; o caminho correto e mais limpo eh forcar pelo serviceOrder.
+        if (sale.isOSPayment) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Use 'Estornar OS' na propria Ordem de Servico — o estorno reverte automaticamente esta venda vinculada.",
+          });
+        }
+
         // Determina escopo: refund parcial (subset de itens) ou total.
         // Filtra itens ja estornados (total=0) — idempotencia. Segundo
         // refund das mesmas linhas e no-op em vez de duplicar movimento.
