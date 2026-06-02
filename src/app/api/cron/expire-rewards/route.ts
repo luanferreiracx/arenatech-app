@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/server/db"
+import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date()
-    const result = await prisma.$transaction(async (tx) => {
+    // Cron global cross-tenant (toca reward_* de todos os tenants) -> withAdmin
+    // (role app_admin, BYPASSRLS). Com o runtime como app_login (sujeito a RLS),
+    // prisma direto veria 0 linhas.
+    const result = await withAdmin(async (tx) => {
       // Find APPROVED expired
       const expiredActions = await tx.rewardAction.findMany({
         where: {

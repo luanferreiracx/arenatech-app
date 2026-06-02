@@ -1,4 +1,4 @@
-import { prisma } from "@/server/db";
+import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import {
   recordWebhookEvent,
@@ -83,10 +83,15 @@ export async function handleDepixWithdrawWebhook(
 
   logger.info("Depix-withdraw webhook", { depixId, statusRaw, mappedStatus });
 
-  const result = await prisma.depixWithdraw.findFirst({
-    where: { depixId },
-    select: { id: true, status: true, tenantId: true },
-  });
+  // Webhook sem cookie de tenant: casa por depixId (global, unico). Cross-tenant
+  // legitimo -> withAdmin (BYPASSRLS). Com o runtime como app_login (sujeito a
+  // RLS), `prisma` direto em depix_withdrawals retornaria 0.
+  const result = await withAdmin((tx) =>
+    tx.depixWithdraw.findFirst({
+      where: { depixId },
+      select: { id: true, status: true, tenantId: true },
+    }),
+  );
 
   if (!result) {
     logger.warn("Depix-withdraw webhook: record not found", { depixId });
@@ -106,16 +111,18 @@ export async function handleDepixWithdrawWebhook(
     return { status: 200, body: { ok: true, matched: true, skipped: true } };
   }
 
-  await prisma.depixWithdraw.update({
-    where: { id: result.id },
-    data: {
-      status: mappedStatus,
-      blockchainTxId: payload.blockchain_tx_id ?? undefined,
-      receivedAmount: payload.received_amount ?? undefined,
-      fee: payload.fee ?? undefined,
-      apiResponse: payload as never,
-    },
-  });
+  await withAdmin((tx) =>
+    tx.depixWithdraw.update({
+      where: { id: result.id },
+      data: {
+        status: mappedStatus,
+        blockchainTxId: payload.blockchain_tx_id ?? undefined,
+        receivedAmount: payload.received_amount ?? undefined,
+        fee: payload.fee ?? undefined,
+        apiResponse: payload as never,
+      },
+    }),
+  );
 
   await markWebhookProcessed("depix_withdraw", eventKey, { ok: true });
   return { status: 200, body: { ok: true, matched: true, id: result.id } };

@@ -21,9 +21,14 @@ import { z } from "zod";
 const uuidSchema = z.string().uuid();
 
 function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL;
+  // RUNTIME conecta com APP_DATABASE_URL (role app_login: NAO-superuser, sujeito
+  // a RLS) quando disponivel. Isso garante isolamento no nivel do banco — nem um
+  // `prisma.<model>` direto vaza, porque a sessao roda como app_user por padrao.
+  // Fallback para DATABASE_URL (compatibilidade / ambientes ainda nao migrados;
+  // migrations sempre usam DATABASE_URL, que precisa do role privilegiado).
+  const connectionString = process.env.APP_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL environment variable is required");
+    throw new Error("APP_DATABASE_URL or DATABASE_URL environment variable is required");
   }
 
   const adapter = new PrismaPg({ connectionString });

@@ -34,11 +34,20 @@ Tabelas com `tenant_id` que estavam **sem RLS** (corrigidas):
 - **`user_tenants`** — junção global usuário↔tenant. RLS quebraria o login (lido via `withAdmin` antes de existir tenant ativo). Isolamento garantido pelos call sites (PK composta `userId_tenantId`).
 - **`tenant_number_sequences`** — acesso só via `nextTenantNumber()`, upsert atômico `ON CONFLICT (tenant_id, scope, year)` sempre com tenant literal. Sem leitura cross-tenant.
 
-## Furos estruturais — PENDENTE de decisão
+## Furos estruturais
 
-### 1. A app conecta como SUPERUSER do Postgres (`arenatech`)
-- Superuser **ignora RLS completamente**. Hoje só não vaza porque todo acesso passa por `withTenant`/`withAdmin` (que rebaixam o role com `SET LOCAL ROLE`). É uma rede de segurança **opcional**: qualquer `prisma.<model>` direto roda como superuser e vê todos os tenants.
-- **Recomendação:** trocar `DATABASE_URL` para um role **NOLOGIN-derivado não-superuser** (login role que faz `SET ROLE app_user` por padrão). Fecha o furo de vez. É mudança de infra (criar role + grants + testar em prod) — requer janela e cuidado.
+### 1. ✅ RESOLVIDO — App conectava como SUPERUSER do Postgres
+- **Antes:** a app logava como `arenatech` (superuser + owner das tabelas). Superuser **ignora RLS** — o isolamento dependia 100% da disciplina de usar `withTenant`/`withAdmin`. Qualquer `prisma.<model>` direto via todos os tenants. **Provado em lab:** como superuser, `SELECT count(*) FROM sale_items` sem tenant retornava 1901 (todas as linhas).
+- **Correção (decisão do dono: fechar):** criado o role de login `app_login` (migration `20260602140000_app_login_role_non_superuser`) — **NOSUPERUSER, NOBYPASSRLS**, membro de `app_user` (default via `ALTER ROLE app_login SET ROLE app_user`) e `app_admin`. O runtime (`src/server/db.ts`) passa a conectar via `APP_DATABASE_URL` (app_login); migrations continuam usando `DATABASE_URL` (privilegiado).
+- **Provado pós-correção:** como `app_login`, `SELECT count(*) FROM sale_items` sem tenant retorna **0**; `withTenant` retorna as linhas do tenant; `withAdmin` bypassa. 54 E2E + 751 unit verdes com o runtime nesse role.
+- **Usos de `prisma` direto corrigidos** (rodavam como superuser; sob app_login retornariam 0 → corrigidos para `withAdmin`, cross-tenant legítimo): `cron/mark-overdue`, `cron/expire-rewards`, `webhooks/depix-withdraw-handler`, `receipt/[token]/page.tsx` (recibo público por token único). Demais usos diretos tocam só tabelas globais (users/plans/tokens) — sem RLS, seguem ok.
+
+#### Rollout em produção (passos)
+1. Deploy aplica a migration → cria `app_login` (sem senha).
+2. Definir a senha no Postgres de prod (fora do git): `ALTER ROLE app_login WITH PASSWORD '<senha forte>';`
+3. Setar `APP_DATABASE_URL=postgresql://app_login:<senha>@<host>:5432/<db>` no ambiente do container da app e reiniciar.
+4. **Fallback seguro:** sem `APP_DATABASE_URL`, o runtime usa `DATABASE_URL` (comportamento antigo) — o deploy NÃO quebra; o furo só fecha após o passo 3.
+5. Validar: logar, navegar um módulo de tenant, conferir que admin/cron seguem funcionando.
 
 ### 2. ~27 policies "fracas" (consistência, NÃO vazamento)
 - Padrão antigo: `USING (tenant_id = current_setting('app.current_tenant_id')::uuid)` — sem `, true` e sem `WITH CHECK` explícito.

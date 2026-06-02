@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/server/db";
+import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 
@@ -34,33 +34,32 @@ export async function POST(request: NextRequest) {
   try {
     const now = new Date();
 
-    // Marca tudo de uma vez (sem tenant scope — cron global).
-    const result = await prisma.installment.updateMany({
-      where: {
-        status: "PENDING",
-        dueDate: { lt: now },
-        transaction: { deletedAt: null },
-      },
-      data: { status: "OVERDUE" },
-    });
+    // Cron global cross-tenant: roda via withAdmin (role app_admin, BYPASSRLS)
+    // para cobrir TODOS os tenants. Com o runtime logando como app_login
+    // (nao-superuser, sujeito a RLS), `prisma` direto so enxergaria 0 linhas.
+    const { result, txUpdated } = await withAdmin(async (tx) => {
+      const result = await tx.installment.updateMany({
+        where: {
+          status: "PENDING",
+          dueDate: { lt: now },
+          transaction: { deletedAt: null },
+        },
+        data: { status: "OVERDUE" },
+      });
 
-    // Recalcula status das FinancialTransactions afetadas.
-    // Como updateMany nao retorna ids, fazemos um SELECT antes de
-    // dar o update e iteramos transacoes unicas via raw query.
-    // Para evitar 2 passos, atualizamos status do parent diretamente
-    // quando a unica installment dele virou OVERDUE.
-    // Heuristica simples: marca transactions com qualquer installment
-    // OVERDUE e status atual PENDING como OVERDUE.
-    const txUpdated = await prisma.$executeRaw`
-      UPDATE financial_transactions ft
-      SET status = 'OVERDUE', updated_at = NOW()
-      WHERE ft.status = 'PENDING'
-        AND ft.deleted_at IS NULL
-        AND EXISTS (
-          SELECT 1 FROM installments i
-          WHERE i.transaction_id = ft.id AND i.status = 'OVERDUE'
-        )
-    `;
+      // Marca transactions com qualquer installment OVERDUE e status PENDING.
+      const txUpdated = await tx.$executeRaw`
+        UPDATE financial_transactions ft
+        SET status = 'OVERDUE', updated_at = NOW()
+        WHERE ft.status = 'PENDING'
+          AND ft.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM installments i
+            WHERE i.transaction_id = ft.id AND i.status = 'OVERDUE'
+          )
+      `;
+      return { result, txUpdated };
+    });
 
     logger.info("[cron-mark-overdue] processed", {
       installmentsMarked: result.count,

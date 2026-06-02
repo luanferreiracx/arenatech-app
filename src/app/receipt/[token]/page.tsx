@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { prisma } from "@/server/db";
+import { withAdmin } from "@/server/db";
 import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -17,27 +17,35 @@ function formatDate(date: Date): string {
 export default async function PublicReceiptPage(props: { params: Promise<{ token: string }> }) {
   const params = await props.params;
 
-  // Find sale by publicLink
-  const sale = await prisma.sale.findFirst({
-    where: { publicLink: params.token },
+  // Recibo PUBLICO acessado por publicLink (token unico global, sem sessao de
+  // tenant). O proprio token controla o acesso. Roda via withAdmin (BYPASSRLS)
+  // porque nao ha tenant ativo; com o runtime como app_login (sujeito a RLS),
+  // um findFirst por publicLink retornaria 0.
+  const data = await withAdmin(async (tx) => {
+    const sale = await tx.sale.findFirst({
+      where: { publicLink: params.token },
+    });
+    if (!sale) return null;
+
+    const items = await tx.saleItem.findMany({
+      where: { saleId: sale.id },
+    });
+
+    const customer = sale.customerId
+      ? await tx.customer.findUnique({
+          where: { id: sale.customerId },
+          select: { name: true, phone: true },
+        })
+      : null;
+
+    return { sale, items, customer };
   });
 
-  if (!sale) {
+  if (!data) {
     notFound();
   }
 
-  // Fetch items
-  const items = await prisma.saleItem.findMany({
-    where: { saleId: sale.id },
-  });
-
-  // Fetch customer if exists
-  const customer = sale.customerId
-    ? await prisma.customer.findUnique({
-        where: { id: sale.customerId },
-        select: { name: true, phone: true },
-      })
-    : null;
+  const { sale, items, customer } = data;
 
   const subtotal = items.reduce((sum, item) => sum + Number(item.unitPrice) * item.quantity, 0);
   const discount = Number(sale.discountAmount ?? 0);

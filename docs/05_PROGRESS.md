@@ -319,9 +319,9 @@ Investigacao sistematica de isolamento multi-tenant (3 agentes paralelos: RLS po
 
 **Falsos positivos (NAO precisam RLS):** `user_tenants` (juncao global — RLS quebraria login), `tenant_number_sequences` (upsert atomico escopado por PK).
 
-**Furo ESTRUTURAL pendente de decisao do dono (ver Decisoes pendentes):** a app conecta como SUPERUSER do Postgres (`arenatech`) — superuser IGNORA RLS. Hoje so nao vaza porque tudo passa por withTenant/withAdmin (SET LOCAL ROLE). Trocar a DATABASE_URL para role nao-superuser fecharia isso definitivamente, mas e mudanca de infra. 27 policies "fracas" (sem `,true`/WITH CHECK explicito) — confirmado que NAO vazam (Postgres usa USING como WITH CHECK implicito; sem `,true` da fail-loud, nao fail-open). Connection pooling: OK (SET LOCAL em transacao, sem PgBouncer).
+**Furo ESTRUTURAL RESOLVIDO (decisao do dono: fechar):** a app conectava como SUPERUSER do Postgres (`arenatech`) — superuser IGNORA RLS (provado: count sem tenant = 1901). Criado role de login `app_login` (NOSUPERUSER/NOBYPASSRLS, membro de app_user default + app_admin; migration `20260602140000`). Runtime conecta via `APP_DATABASE_URL` (db.ts); migrations seguem com DATABASE_URL. Pos-fix: count sem tenant = 0 (RLS ativa no nivel do banco). Usos de `prisma` direto que rodariam como app_user e quebrariam foram migrados pra withAdmin: cron mark-overdue, cron expire-rewards, webhook depix-withdraw-handler, receipt/[token] (recibo publico). Fallback seguro: sem APP_DATABASE_URL, usa DATABASE_URL (deploy nao quebra). Rollout de prod documentado no AUDIT. 27 policies "fracas" NAO vazam (USING vira WITH CHECK implicito; sem `,true` = fail-loud). Pooling OK.
 
-**Validacao:** typecheck OK | lint 0 erros | 751 unit OK | 3 migrations RLS aplicadas no dev (16 tabelas no total nesta sessao).
+**Validacao:** typecheck OK | lint 0 erros | 751 unit OK | **54 E2E verdes com runtime como app_login** (auth+customers+settings+pdv, incl. testes de RLS) | 4 migrations aplicadas no dev (16 tabelas RLS + role app_login). Isolamento provado em lab E via fluxo real do codigo (prisma direto sem tenant = 0).
 
 ---
 
