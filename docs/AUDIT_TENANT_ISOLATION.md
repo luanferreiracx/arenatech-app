@@ -42,12 +42,12 @@ Tabelas com `tenant_id` que estavam **sem RLS** (corrigidas):
 - **Provado pós-correção:** como `app_login`, `SELECT count(*) FROM sale_items` sem tenant retorna **0**; `withTenant` retorna as linhas do tenant; `withAdmin` bypassa. 54 E2E + 751 unit verdes com o runtime nesse role.
 - **Usos de `prisma` direto corrigidos** (rodavam como superuser; sob app_login retornariam 0 → corrigidos para `withAdmin`, cross-tenant legítimo): `cron/mark-overdue`, `cron/expire-rewards`, `webhooks/depix-withdraw-handler`, `receipt/[token]/page.tsx` (recibo público por token único). Demais usos diretos tocam só tabelas globais (users/plans/tokens) — sem RLS, seguem ok.
 
-#### Rollout em produção (passos)
-1. Deploy aplica a migration → cria `app_login` (sem senha).
-2. Definir a senha no Postgres de prod (fora do git): `ALTER ROLE app_login WITH PASSWORD '<senha forte>';`
-3. Setar `APP_DATABASE_URL=postgresql://app_login:<senha>@<host>:5432/<db>` no ambiente do container da app e reiniciar.
-4. **Fallback seguro:** sem `APP_DATABASE_URL`, o runtime usa `DATABASE_URL` (comportamento antigo) — o deploy NÃO quebra; o furo só fecha após o passo 3.
-5. Validar: logar, navegar um módulo de tenant, conferir que admin/cron seguem funcionando.
+#### Rollout em produção — ✅ CONCLUÍDO (2026-06-02)
+1. ✅ Deploy aplicou a migration → `app_login` criado (`rolsuper=f, rolbypassrls=f, rolcanlogin=t`).
+2. ✅ Senha definida no Postgres de prod via `ALTER ROLE app_login WITH PASSWORD` (senha forte de 48 chars hex, não versionada).
+3. ✅ `APP_DATABASE_URL=postgresql://app_login:***@postgres:5432/arenatech` adicionada ao `.env.production` (backup em `.env.production.bak.before-app-login`); container `app` recriado com `up -d --force-recreate --no-deps app`.
+4. ✅ **Provado em prod:** como `app_login` SEM tenant → `customers=0`, `sales=0` (não vaza); COM tenant → 1285 customers; como superuser (antigo) → 1285 sempre. App de pé, login=200, sem erros de DB/RLS/500 nos logs.
+- **Reverter (se necessário):** remover/comentar `APP_DATABASE_URL` do `.env.production` e recriar o container → runtime volta a `DATABASE_URL` (superuser).
 
 ### 2. ~27 policies "fracas" (consistência, NÃO vazamento)
 - Padrão antigo: `USING (tenant_id = current_setting('app.current_tenant_id')::uuid)` — sem `, true` e sem `WITH CHECK` explícito.
