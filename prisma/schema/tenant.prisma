@@ -41,6 +41,11 @@ model UserTenant {
   userId    String   @map("user_id") @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
   role      String   @default("operator")
+  // Flag de "atua como tecnico de reparo" — independente do role.
+  // Paridade Laravel `usuarios.eh_tecnico`. Permite que owner/admin/manager
+  // tambem apareca em listTechnicians (quando faz reparo), e exclui operator
+  // que nao trabalha em bancada.
+  isTechnician Boolean @default(false) @map("is_technician")
   createdAt DateTime @default(now()) @map("created_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

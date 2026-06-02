@@ -2692,19 +2692,14 @@ export const serviceOrderRouter = createTRPCRouter({
 
   // ── LIST TECHNICIANS ──
   listTechnicians: tenantProcedure.query(async ({ ctx }) => {
-    // Quem pode ser o tecnico responsavel pela OS.
-    //
-    // No Laravel, "ser tecnico" e o flag `eh_tecnico` no Usuario — INDEPENDENTE
-    // do papel de login (um admin/dono pode ter eh_tecnico=true). O Next.js nao
-    // tem esse flag separado: o papel do tenant e o unico sinal. Para nao excluir
-    // o caso comum (dono/admin que tambem faz os reparos) e ao mesmo tempo nao
-    // listar o balcao (operator/cashier) como tecnico, incluimos os papeis
-    // operacionais que realmente executam servico: technician, owner, admin,
-    // manager. Operadores e caixas (frente de loja) ficam de fora.
-    const TECH_ELIGIBLE_ROLES = ["technician", "owner", "admin", "manager"];
+    // Quem pode ser o tecnico responsavel pela OS — filtra por `isTechnician`
+    // (paridade Laravel `usuarios.eh_tecnico`). A flag e independente do
+    // papel de login: um owner/admin/manager pode atuar como tecnico, e um
+    // operator pode estar no balcao sem trabalhar em bancada. O dropdown
+    // de tecnicos da OS so deve listar quem efetivamente faz o reparo.
     const userTenants = await withAdmin(async (adminTx) => {
       return adminTx.userTenant.findMany({
-        where: { tenantId: ctx.tenantId, role: { in: TECH_ELIGIBLE_ROLES } },
+        where: { tenantId: ctx.tenantId, isTechnician: true },
         select: {
           user: { select: { id: true, name: true } },
           role: true,

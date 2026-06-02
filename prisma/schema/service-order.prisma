@@ -149,6 +149,9 @@ model ServiceOrder {
   // Depix (PIX)
   depixTransactionId  String?             @map("depix_transaction_id")
   depixStatus         String?             @map("depix_status")
+  // Timestamp do PIX/DePix confirmado (paridade Laravel `depix_pago_em`).
+  // Set pelo webhook DePix ao receber confirmacao.
+  depixPaidAt         DateTime?           @map("depix_paid_at")
 
   // Soft delete
   deletedAt           DateTime?           @map("deleted_at")
