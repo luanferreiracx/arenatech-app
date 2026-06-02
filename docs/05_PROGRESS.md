@@ -262,6 +262,19 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-06-01 — LANDING: redesign (skill frontend-design) + acentuacao + cert no ar
+
+Follow-up do dono: (1) acentuacao faltando na landing, (2) skill frontend-design nao usada.
+- **Redesign aplicando a skill:** direcao "terminal de pagamentos cripto" — tema escuro (slate-950), grid + glow teal, tipografia distintiva (Bricolage Grotesque display + Outfit body + JetBrains Mono nos numeros, escopadas no layout marketing — nao afetam a intranet). Hero com "ticket de venda" visual (R$100 -> DePix -> PIX R$97,51) em mono. Saiu do "AI slop" generico (branco + cards uniformes).
+- **Acentuacao corrigida** em todo o texto (balcão, língua, serviço, recebível, transação, dúvidas, miúda...).
+- **Infra concluida:** Let's Encrypt emitido pra pdvdepix.app (HTTP-01, proxy CF em DNS-only durante a emissao), bloco 443 + redirect HTTP->HTTPS via certbot --nginx. Validado via Cloudflare (proxy religado, Full strict): https://pdvdepix.app/ 200, landing renderiza, /login fica no proprio dominio, zero vazamento de arenatechpi.
+- **Doc:** `docs/ADD_DOMAIN.md` — runbook para adicionar dominio (pdvcripto.app e futuros).
+- Skill frontend-design vive em `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/frontend-design/skills/` (path do CLAUDE.md `/mnt/skills/` esta desatualizado).
+
+**Pendente:** logo oficial (hoje SVG recriado); www.pdvdepix.app (sem DNS); pdvcripto.app (sem registro — codigo pronto).
+
+---
+
 ### 2026-06-01 — MULTI-DOMINIO: landing pdvdepix.app + auth por host
 
 Novo dominio `pdvdepix.app` (e futuro `pdvcripto.app`) servindo a MESMA app/banco, com landing publica de marketing. Decisoes do dono: landing na raiz "/" por host; so a landing usa a marca pdvdepix (intranet segue Arena Tech); SSL via Let's Encrypt.
