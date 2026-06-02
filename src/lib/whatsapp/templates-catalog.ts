@@ -163,26 +163,26 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
   // ── Notificacao ao tecnico de nova OS atribuida ──
   // Tecnicos podem estar fora da janela 24h (folga, fora do horario).
   // Template garante entrega. params: {{1}}=nome do tecnico, {{2}}=numero OS.
-  // Paridade Laravel template `tecnico_nova_os`.
+  // APROVADO na WABA 3564717570348730 (verificado via Graph API).
   tecnico_nova_os: {
     name: "tecnico_nova_os",
     language: "pt_BR",
     category: "UTILITY",
     params: 2,
-    body: "Olá, {{1}}! Uma nova Ordem de Serviço {{2}} foi atribuída a você. Acesse o sistema para ver os detalhes.",
+    body: "Olá, {{1}}! Nova OS atribuída a você: {{2}}. Acesse o sistema para mais detalhes.",
   },
 
   // ── Solicitacao ao entregador (envio para lab, retirada de aparelho) ──
   // Entregador raramente fala com a loja todo dia → quase sempre fora da
   // janela 24h. Template fallback garante entrega.
   // params: {{1}}=nome do entregador, {{2}}=assunto/contexto da solicitacao.
-  // Paridade Laravel template `entregador_solicitacao`.
+  // APROVADO na WABA 3564717570348730 (verificado via Graph API).
   entregador_solicitacao: {
     name: "entregador_solicitacao",
     language: "pt_BR",
     category: "UTILITY",
     params: 2,
-    body: "Olá, {{1}}! Temos uma solicitação para você: {{2}}. Responda aqui para combinarmos os detalhes.",
+    body: "Olá, {{1}}! Temos uma solicitação de coleta/entrega referente a {{2}}. Verifique os detalhes no WhatsApp ou responda aqui.",
   },
 };
 
