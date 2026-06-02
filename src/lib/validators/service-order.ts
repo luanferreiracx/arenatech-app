@@ -2,6 +2,39 @@ import { z } from "zod";
 
 // ── Enums ──
 
+/**
+ * Forma de pagamento aceita pela OS — enum estrito.
+ *
+ * Estende `paymentMethodEnum` do cashier com 2 marcadores especificos da OS:
+ *
+ * - `cortesia` — OS finalizada sem cobranca (defeito de fabrica reconhecido,
+ *   atendimento ao cliente fiel, etc). Nao gera entrada de caixa nem
+ *   recebivel; comissao do tecnico nao e calculada.
+ * - `garantia` — OS em retorno de garantia (eh_garantia=true). Nao cobra,
+ *   nao gera comissao, mas registra o atendimento financeiramente como
+ *   "garantia honrada".
+ *
+ * Substitui o `z.string().min(1)` antigo, que aceitava qualquer string e
+ * causava classificacao errada de status do recebivel — "PIX" capitalizado
+ * caia em PENDING porque o teste `["dinheiro","pix","depix"].includes(...)`
+ * e case-sensitive.
+ */
+export const serviceOrderPaymentMethodEnum = z.enum([
+  "dinheiro",
+  "pix",
+  "depix",
+  "cartao_credito",
+  "cartao_debito",
+  "crediario",
+  "boleto",
+  "transferencia",
+  "cheque",
+  "outros",
+  "cortesia",
+  "garantia",
+]);
+export type ServiceOrderPaymentMethod = z.infer<typeof serviceOrderPaymentMethodEnum>;
+
 export const serviceOrderStatusEnum = z.enum([
   "OPEN",
   "IN_DIAGNOSIS",
@@ -354,7 +387,7 @@ export const updateStatusSchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
   // Payment fields (for PAID status)
-  paymentMethod: z.string().max(50).optional().nullable(),
+  paymentMethod: serviceOrderPaymentMethodEnum.optional().nullable(),
   paymentNotes: z.string().max(500).optional().nullable(),
   paymentDiscount: z.number().int().min(0).optional(), // centavos
   // Recompensa (RewardAction APPROVED) usada como desconto no PAID-path.
@@ -397,7 +430,7 @@ export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 /** Register payment */
 export const registerPaymentSchema = z.object({
   id: z.string().uuid(),
-  paymentMethod: z.string().min(1, "Forma de pagamento obrigatoria"),
+  paymentMethod: serviceOrderPaymentMethodEnum,
   paidAmount: z.number().int().min(0), // centavos
   paymentDiscount: z.number().int().min(0).optional(), // centavos
   paymentNotes: z.string().max(500).optional().nullable(),

@@ -11,6 +11,7 @@ export type CashMovementNature = z.infer<typeof cashMovementNatureEnum>;
 export const paymentMethodEnum = z.enum([
   "dinheiro",
   "pix",
+  "depix",
   "cartao_credito",
   "cartao_debito",
   "crediario",
@@ -19,10 +20,12 @@ export const paymentMethodEnum = z.enum([
   "cheque",
   "outros",
 ]);
+export type PaymentMethod = z.infer<typeof paymentMethodEnum>;
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   dinheiro: "Dinheiro",
   pix: "PIX",
+  depix: "DePix",
   cartao_credito: "Cartao de Credito",
   cartao_debito: "Cartao de Debito",
   crediario: "Crediario",

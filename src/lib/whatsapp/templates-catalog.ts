@@ -159,6 +159,31 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     hasDocumentHeader: true,
     body: "Olá, {{1}}! Segue em anexo o orçamento solicitado. Qualquer dúvida, é só responder por aqui!",
   },
+
+  // ── Notificacao ao tecnico de nova OS atribuida ──
+  // Tecnicos podem estar fora da janela 24h (folga, fora do horario).
+  // Template garante entrega. params: {{1}}=nome do tecnico, {{2}}=numero OS.
+  // Paridade Laravel template `tecnico_nova_os`.
+  tecnico_nova_os: {
+    name: "tecnico_nova_os",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    body: "Olá, {{1}}! Uma nova Ordem de Serviço {{2}} foi atribuída a você. Acesse o sistema para ver os detalhes.",
+  },
+
+  // ── Solicitacao ao entregador (envio para lab, retirada de aparelho) ──
+  // Entregador raramente fala com a loja todo dia → quase sempre fora da
+  // janela 24h. Template fallback garante entrega.
+  // params: {{1}}=nome do entregador, {{2}}=assunto/contexto da solicitacao.
+  // Paridade Laravel template `entregador_solicitacao`.
+  entregador_solicitacao: {
+    name: "entregador_solicitacao",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    body: "Olá, {{1}}! Temos uma solicitação para você: {{2}}. Responda aqui para combinarmos os detalhes.",
+  },
 };
 
 /**
@@ -186,6 +211,11 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   avaliacao_orcamento: "avaliacao_orcamento",
   // Orcamento avulso de servico
   servico_orcamento_pdf: "servico_orcamento_pdf",
+  // Notificacoes internas (tecnico/entregador) — fallback para template
+  // quando estiver fora da janela 24h. Body do template e texto livre
+  // generico; o caption/contexto e enviado pelo chamador.
+  tecnico_nova_os: "tecnico_nova_os",
+  entregador_solicitacao: "entregador_solicitacao",
 };
 
 /**
@@ -205,4 +235,6 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   simulacao_pdf: "a simulação de parcelamento",
   avaliacao_orcamento: "a avaliação do seu aparelho",
   servico_orcamento_pdf: "o orçamento do serviço",
+  tecnico_nova_os: "uma nova ordem de serviço atribuída a você",
+  entregador_solicitacao: "uma solicitação de coleta/entrega",
 };
