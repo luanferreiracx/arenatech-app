@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { autoCloseAbandonedSessions } from "@/server/services/cash-session.service"
-import { prisma } from "@/server/db"
+import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
@@ -24,7 +24,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await autoCloseAbandonedSessions(prisma as any)
+    // Cron global cross-tenant (fecha caixas abandonados de TODOS os tenants)
+    // -> withAdmin (role app_admin, BYPASSRLS). Com o runtime como app_login
+    // (sujeito a RLS), o client cru nao enxergaria sessao de nenhum tenant.
+    const result = await withAdmin((tx) => autoCloseAbandonedSessions(tx as any))
     logger.info(`[cron] Auto-closed ${result.closedCount} abandoned cash sessions`, { sessions: result.sessions })
     return NextResponse.json(result)
   } catch (error) {
