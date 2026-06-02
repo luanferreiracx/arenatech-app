@@ -132,16 +132,17 @@ export default function LandingPage() {
             </div>
 
             <h1 className="font-display text-5xl font-extrabold leading-[1.05] tracking-tight text-white md:text-6xl">
-              Venda em{" "}
-              <span style={{ color: TEAL }}>DePix</span>.
+              Receba via{" "}
+              <span style={{ color: TEAL }}>PIX</span>,
               <br />
-              Receba em{" "}
-              <span style={{ color: GREEN }}>PIX</span> na hora.
+              guarde em{" "}
+              <span style={{ color: GREEN }}>DePix</span>.
             </h1>
             <p className="mt-6 max-w-lg text-lg leading-relaxed text-slate-400">
               O PDV cripto que fala a língua do seu caixa. Sem maquininha, sem
-              endereço de blockchain, sem prazo de recebível — você vende, o
-              cliente paga em DePix e o dinheiro cai como PIX na sua conta.
+              endereço de blockchain, sem prazo de recebível — o cliente paga em
+              PIX, o valor entra como DePix na sua carteira e você saca de volta
+              em PIX quando quiser.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -162,43 +163,69 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Ticket visual: R$ -> DePix -> PIX */}
-          <div className="relative mx-auto w-full max-w-sm">
+          {/* Tickets: Deposito (PIX->DePix) e Saque (DePix->PIX), exemplo R$ 1.000 */}
+          <div className="relative mx-auto w-full max-w-sm space-y-4">
             <div
               className="absolute -inset-4 rounded-3xl opacity-20 blur-2xl"
               style={{ background: `linear-gradient(135deg, ${TEAL}, ${GREEN})` }}
             />
-            <div className="relative rounded-2xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl backdrop-blur">
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <span className="font-mono text-xs uppercase tracking-widest text-slate-500">venda #0427</span>
+
+            {/* Deposito: cliente paga PIX -> entra DePix */}
+            <div className="relative rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-2xl backdrop-blur">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <span className="font-mono text-xs uppercase tracking-widest text-teal-300">depósito</span>
                 <span className="flex items-center gap-1.5 font-mono text-xs text-green-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> paga
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> recebido
                 </span>
               </div>
-              <div className="py-6 text-center">
-                <div className="font-mono text-sm text-slate-500">total</div>
-                <div className="font-mono text-4xl font-bold text-white tabular-nums">R$ 100,00</div>
-              </div>
-              <div className="space-y-3 font-mono text-sm">
+              <div className="space-y-2.5 pt-4 font-mono text-sm">
                 <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-4 py-3">
-                  <span className="flex items-center gap-2 text-slate-400">
-                    <QrCode className="h-4 w-4 text-teal-300" /> cliente paga em DePix
+                  <span className="flex items-center gap-2 text-slate-300">
+                    <QrCode className="h-4 w-4 text-teal-300" /> cliente paga em PIX
                   </span>
-                  <span className="text-teal-300 tabular-nums">+100,00</span>
+                  <span className="text-slate-300 tabular-nums">R$ 1.000,00</span>
+                </div>
+                <div className="flex items-center justify-center text-slate-600">
+                  <ArrowDownRight className="h-4 w-4" />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-teal-400/20 bg-teal-400/5 px-4 py-3">
+                  <span className="flex items-center gap-2 text-slate-300">
+                    <Wallet className="h-4 w-4 text-teal-300" /> entra como DePix
+                  </span>
+                  <span className="font-bold text-teal-300 tabular-nums">R$ 984,01</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Saque: sai DePix -> vira PIX */}
+            <div className="relative rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-2xl backdrop-blur">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <span className="font-mono text-xs uppercase tracking-widest text-green-400">saque</span>
+                <span className="flex items-center gap-1.5 font-mono text-xs text-green-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> na conta
+                </span>
+              </div>
+              <div className="space-y-2.5 pt-4 font-mono text-sm">
+                <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-4 py-3">
+                  <span className="flex items-center gap-2 text-slate-300">
+                    <Wallet className="h-4 w-4 text-teal-300" /> sai da carteira DePix
+                  </span>
+                  <span className="text-slate-300 tabular-nums">R$ 1.000,00</span>
                 </div>
                 <div className="flex items-center justify-center text-slate-600">
                   <ArrowDownRight className="h-4 w-4" />
                 </div>
                 <div className="flex items-center justify-between rounded-lg border border-green-400/20 bg-green-400/5 px-4 py-3">
                   <span className="flex items-center gap-2 text-slate-300">
-                    <Banknote className="h-4 w-4 text-green-400" /> saque em PIX
+                    <Banknote className="h-4 w-4 text-green-400" /> cai como PIX
                   </span>
-                  <span className="font-bold text-green-400 tabular-nums">R$ 97,51</span>
+                  <span className="font-bold text-green-400 tabular-nums">R$ 982,01</span>
                 </div>
               </div>
-              <div className="mt-4 text-center font-mono text-[11px] text-slate-600">
-                taxa transparente · sem maquininha
-              </div>
+            </div>
+
+            <div className="relative text-center font-mono text-[11px] text-slate-600">
+              taxas transparentes · sem maquininha
             </div>
           </div>
         </section>
@@ -212,9 +239,10 @@ export default function LandingPage() {
                 O real digital na velocidade da internet.
               </h2>
               <p className="mt-5 leading-relaxed text-slate-400">
-                DePix é uma stablecoin lastreada em real, na rede Liquid. Para o
-                seu cliente, é tão simples quanto um PIX. Para você, é liquidez
-                imediata sem depender de banco, adquirente ou prazo de recebível.
+                DePix é uma stablecoin lastreada em real, na rede Liquid. O seu
+                cliente paga normalmente em PIX; o valor entra como DePix na sua
+                carteira. É liquidez imediata, sem depender de banco, adquirente
+                ou prazo de recebível — e você saca de volta em PIX quando quiser.
               </p>
               <div className="mt-7 space-y-4">
                 {[
@@ -264,16 +292,16 @@ export default function LandingPage() {
           </div>
           <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-4">
             <Step n="01" title="Registre a venda">
-              Lance o produto ou serviço no PDV e escolha DePix como pagamento.
+              Lance o produto ou serviço no PDV e gere a cobrança.
             </Step>
-            <Step n="02" title="Cliente paga">
-              Ele escaneia o QR e paga em DePix — fácil como um PIX comum.
+            <Step n="02" title="Cliente paga em PIX">
+              Ele escaneia o QR e paga normalmente em PIX — como já está acostumado.
             </Step>
-            <Step n="03" title="Cai na carteira">
-              O valor entra na carteira da sua loja em segundos, já em reais.
+            <Step n="03" title="Entra como DePix">
+              O valor cai na carteira DePix da sua loja em segundos (1 DePix = R$ 1,00).
             </Step>
             <Step n="04" title="Saque em PIX">
-              Informe sua chave PIX e o valor. Convertemos e pagamos no seu banco.
+              Informe sua chave PIX e o valor. O DePix sai da carteira e cai como PIX no seu banco.
             </Step>
           </div>
         </section>
@@ -320,22 +348,32 @@ export default function LandingPage() {
           <div className="mt-10 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
             <div className="grid grid-cols-1 divide-y divide-white/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
               <div className="p-7">
-                <div className="font-mono text-xs uppercase tracking-widest text-slate-500">entrada · recebimento</div>
+                <div className="font-mono text-xs uppercase tracking-widest text-slate-500">depósito · pix → depix</div>
                 <div className="mt-3 font-mono text-3xl font-bold text-white tabular-nums">
                   R$ 0,99 <span className="text-lg font-medium text-teal-300">+ 1,5%</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-400">por venda recebida em DePix</p>
+                <p className="mt-2 text-sm text-slate-400">
+                  por PIX recebido e convertido em DePix
+                </p>
+                <p className="mt-3 font-mono text-xs text-slate-500">
+                  R$ 1.000,00 → <span className="text-teal-300">R$ 984,01</span> na carteira
+                </p>
               </div>
               <div className="p-7">
                 <div className="font-mono text-xs uppercase tracking-widest text-slate-500">saque · depix → pix</div>
                 <div className="mt-3 font-mono text-3xl font-bold text-white tabular-nums">
                   R$ 0,99 <span className="text-lg font-medium text-green-400">+ 1,7%</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-400">por saque convertido para PIX</p>
+                <p className="mt-2 text-sm text-slate-400">
+                  por DePix sacado e convertido em PIX
+                </p>
+                <p className="mt-3 font-mono text-xs text-slate-500">
+                  R$ 1.000,00 → <span className="text-green-400">R$ 982,01</span> no PIX
+                </p>
               </div>
             </div>
             <div className="border-t border-white/10 bg-white/[0.02] p-5 text-center font-mono text-xs text-slate-500">
-              exemplo: numa venda de R$ 100,00 você recebe <span className="text-green-400">R$ 97,51</span> na carteira ·
+              o cliente sempre paga em PIX · você guarda em DePix e saca em PIX ·
               taxas podem variar conforme o plano
             </div>
           </div>
@@ -350,10 +388,11 @@ export default function LandingPage() {
             </h2>
           </div>
           <div className="mt-10 space-y-3">
-            <Faq q="Preciso entender de cripto para usar?" a="Não. O pdvdepix cuida de toda a parte de blockchain e carteira. Para você, é como receber um PIX: o cliente paga, o valor cai e você saca quando quiser." />
+            <Faq q="Preciso entender de cripto para usar?" a="Não. O pdvdepix cuida de toda a parte de blockchain e carteira. O cliente paga em PIX normalmente, o valor entra como DePix na sua carteira e você saca de volta em PIX quando quiser." />
+            <Faq q="O cliente precisa ter cripto ou carteira?" a="Não. Ele paga com o PIX do banco dele, como já faz. A conversão para DePix acontece do seu lado, automaticamente." />
             <Faq q="O dinheiro fica preso em cripto?" a="Não. DePix é lastreado em real (1 DePix = R$ 1,00) e você converte para PIX a qualquer momento, informando sua chave. Sem volatilidade." />
-            <Faq q="Em quanto tempo recebo?" a="A venda cai na sua carteira em segundos. O saque para PIX é processado e pago na sua conta bancária de forma rápida." />
-            <Faq q="Preciso de maquininha ou hardware?" a="Não. Funciona no celular, tablet ou computador que você já usa. O cliente paga escaneando um QR Code." />
+            <Faq q="Em quanto tempo recebo?" a="O PIX do cliente vira DePix na sua carteira em segundos. O saque (DePix → PIX) é processado e pago na sua conta bancária de forma rápida." />
+            <Faq q="Preciso de maquininha ou hardware?" a="Não. Funciona no celular, tablet ou computador que você já usa. O cliente paga escaneando um QR Code de PIX." />
             <Faq q="Quais taxas eu pago?" a="Uma taxa fixa pequena mais um percentual por operação (entrada e saque), sempre exibida antes de confirmar. Sem mensalidade de maquininha." />
             <Faq q="O pdvdepix é só pagamento?" a="Não — é um PDV completo: cadastro de produtos e serviços, controle de estoque, caixa, ordens de serviço e emissão fiscal, com o DePix integrado." />
           </div>
