@@ -14,8 +14,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/domain/empty-state";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
 import { createPlanSchema, type CreatePlanInput } from "@/lib/validators/admin";
+import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/modules";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -35,8 +37,16 @@ export function PlansList() {
 
   const form = useForm<CreatePlanInput>({
     resolver: zodResolver(createPlanSchema),
-    defaultValues: { name: "", slug: "", monthlyPrice: 0, maxUsers: 5, maxImeiQueries: 50 },
+    defaultValues: { name: "", slug: "", monthlyPrice: 0, maxUsers: 5, maxImeiQueries: 50, modules: ["wallet"] },
   });
+
+  const selectedModules = (form.watch("modules") ?? []) as ModuleKey[];
+  const toggleModule = (mod: ModuleKey, checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...selectedModules, mod]))
+      : selectedModules.filter((m) => m !== mod);
+    form.setValue("modules", next);
+  };
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.admin.listPlans.queryKey() });
   const close = () => { setShowForm(false); setEditingId(null); form.reset(); };
@@ -54,7 +64,7 @@ export function PlansList() {
     }
   };
 
-  const handleEdit = (plan: { id: string; name: string; slug: string; monthlyPrice: number; yearlyPrice: number | null; maxUsers: number; maxImeiQueries: number; description: string | null }) => {
+  const handleEdit = (plan: { id: string; name: string; slug: string; monthlyPrice: number; yearlyPrice: number | null; maxUsers: number; maxImeiQueries: number; description: string | null; modules: ModuleKey[] }) => {
     setEditingId(plan.id);
     form.reset({
       name: plan.name,
@@ -64,6 +74,7 @@ export function PlansList() {
       maxUsers: plan.maxUsers,
       maxImeiQueries: plan.maxImeiQueries,
       description: plan.description,
+      modules: plan.modules,
     });
     setShowForm(true);
   };
@@ -131,6 +142,23 @@ export function PlansList() {
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Max Usuarios</Label><Input type="number" {...form.register("maxUsers", { valueAsNumber: true })} min={1} /></div>
               <div><Label>Max Consultas IMEI</Label><Input type="number" {...form.register("maxImeiQueries", { valueAsNumber: true })} min={0} /></div>
+            </div>
+            <div>
+              <Label>Modulos liberados</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Define o que os tenants deste plano podem acessar. (arena-tech tem acesso total, independente do plano.)
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {MODULE_KEYS.map((mod) => (
+                  <label key={mod} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={selectedModules.includes(mod)}
+                      onCheckedChange={(c) => toggleModule(mod, c === true)}
+                    />
+                    {MODULE_LABELS[mod]}
+                  </label>
+                ))}
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>

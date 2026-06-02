@@ -288,6 +288,23 @@ Novo dominio `pdvdepix.app` (e futuro `pdvcripto.app`) servindo a MESMA app/banc
 
 ---
 
+### 2026-06-02 — GATING: liberacao de modulos por plano (so wallet por enquanto)
+
+Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gating **por plano** (`Plan.features.modules: string[]`); tenant `arena-tech` tem **acesso TOTAL** (bypass); modulo nao liberado **some do menu E bloqueia a rota**; resolucao **JWT + invalidar ao mudar plano**. Por enquanto **so `wallet`** liberado para tenants; demais conforme validamos.
+
+- **`src/lib/modules.ts` (NOVO):** fonte unica — `MODULE_KEYS` (10 modulos), mapa prefixo-de-rota -> modulo (`resolveModuleForPath`, rotas DePix checadas antes de `financial`), `allowedModulesForTenant` (arena-tech -> todos; sem plano/sem modules -> padrao `["wallet"]`), `isPathAllowed`, `MODULE_LABELS`.
+- **Sessao (`auth.ts` + `next-auth.d.ts`):** cada `availableTenants[]` carrega `modules: string[]`, resolvido no JWT. Helper `resolveModulesByTenant` com cache em processo (TTL 60s) re-resolve em requisicoes subsequentes -> mudar plano no admin reflete em ~60s **sem relogin** (invalidacao leve, sem Redis).
+- **Proxy (`proxy.ts`):** apos resolver tenant, bloqueia rota de modulo nao liberado -> redirect `/painel?error=modulo-indisponivel`. Super admin passa livre.
+- **Menu:** `isNavItemVisible` (regra unica) aplicada em app-sidebar, mobile-sidebar e command-palette; grupos vazios somem; quick-actions do palette gateados. NavItem ganhou campo `module?`.
+- **Painel:** QuickLinks + botoes do welcome gateados; toast de "modulo indisponivel"; super admin enxerga tudo.
+- **Admin:** form de plano (`plans-list.tsx`) com checkboxes de modulos; `createPlan`/`updatePlan` fundem `modules` em `features.modules` (`mergeModulesIntoFeatures`); `listPlans` expoe `modules`. Validators ganharam `modules` (enum dos MODULE_KEYS).
+
+**Efeito imediato:** planos existentes (features sem `modules`) -> tenants caem no padrao `wallet`-only automaticamente. arena-tech intacto.
+
+**Validacao:** typecheck OK | lint 0 erros (2 warnings pre-existentes/RHF) | 750 unit OK (14 novos em `modules.test.ts`) | build pendente no CI.
+
+---
+
 ### 2026-06-01 — ORCAMENTO: /investigate (relatorio) + orcamento de servico via Cloud API
 
 /investigate do orcamento. Achados:

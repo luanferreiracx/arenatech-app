@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { toast } from "@/lib/toast";
 import {
   Users,
   ClipboardList,
@@ -427,18 +429,22 @@ function AlertsSection() {
 
 // ── Quick Links ──
 
-function QuickLinks({ tenantSlug }: { tenantSlug?: string }) {
+function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allowedModules?: string[] }) {
+  const has = (mod: string) => (allowedModules ?? []).includes(mod);
   const links = [
-    { href: "/pdv?novo=1", label: "Nova Venda", icon: ShoppingCart, color: "text-primary" },
-    { href: "/pdv", label: "Historico Vendas", icon: History, color: "text-yellow-600" },
-    { href: "/service-orders/new", label: "Nova OS", icon: Plus, color: "text-amber-500" },
-    { href: "/service-orders", label: "Ordens de Servico", icon: ClipboardList, color: "text-blue-500" },
-    { href: "/stock", label: "Posicao Estoque", icon: Package, color: "text-green-500" },
-    { href: "/cashier", label: "Historico Caixas", icon: Clock, color: "text-pink-500" },
+    { href: "/pdv?novo=1", label: "Nova Venda", icon: ShoppingCart, color: "text-primary", mod: "pdv" },
+    { href: "/pdv", label: "Historico Vendas", icon: History, color: "text-yellow-600", mod: "pdv" },
+    { href: "/service-orders/new", label: "Nova OS", icon: Plus, color: "text-amber-500", mod: "service-orders" },
+    { href: "/service-orders", label: "Ordens de Servico", icon: ClipboardList, color: "text-blue-500", mod: "service-orders" },
+    { href: "/stock", label: "Posicao Estoque", icon: Package, color: "text-green-500", mod: "stock" },
+    { href: "/cashier", label: "Historico Caixas", icon: Clock, color: "text-pink-500", mod: "cashier" },
+    { href: "/depix-wallet", label: "Carteira DePix", icon: Wallet, color: "text-teal-500", mod: "wallet" },
     ...(tenantSlug === "arena-tech"
-      ? [{ href: "/iphone-hunter", label: "Buscar iPhones", icon: Smartphone, color: "text-purple-500" }]
+      ? [{ href: "/iphone-hunter", label: "Buscar iPhones", icon: Smartphone, color: "text-purple-500", mod: "stock" }]
       : []),
-  ];
+  ].filter((l) => has(l.mod) || (l.href === "/iphone-hunter" && tenantSlug === "arena-tech"));
+
+  if (links.length === 0) return null;
 
   return (
     <Card>
@@ -471,12 +477,24 @@ function QuickLinks({ tenantSlug }: { tenantSlug?: string }) {
 export function DashboardContent({
   userName,
   tenantSlug,
+  allowedModules,
 }: {
   userName: string;
   tenantSlug?: string;
+  allowedModules?: string[];
 }) {
   const trpc = useTRPC();
   const { data: stats, isLoading: statsLoading } = useQuery(trpc.dashboard.stats.queryOptions());
+  const has = (mod: string) => (allowedModules ?? []).includes(mod);
+
+  // Aviso quando o usuário foi redirecionado para cá por tentar acessar um
+  // módulo não liberado no plano (gating no proxy).
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("error") === "modulo-indisponivel") {
+      toast.error("Modulo nao disponivel no seu plano.");
+    }
+  }, [searchParams]);
 
   return (
     <div className="space-y-6">
@@ -484,21 +502,33 @@ export function DashboardContent({
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-4 md:p-6">
         <div>
           <h1 className="text-2xl font-semibold">Bem-vindo, {userName}!</h1>
-          <p className="text-muted-foreground">Gerencie sua assistencia tecnica de forma simples e eficiente.</p>
+          <p className="text-muted-foreground">Gerencie sua operacao de forma simples e eficiente.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/cashier">
-              <Wallet className="mr-2 h-4 w-4" />
-              Caixa
-            </Link>
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/pdv?novo=1">
-              <ShoppingCart className="mr-2 h-4 w-4" />
-              Nova Venda
-            </Link>
-          </Button>
+          {has("cashier") && (
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/cashier">
+                <Wallet className="mr-2 h-4 w-4" />
+                Caixa
+              </Link>
+            </Button>
+          )}
+          {has("pdv") && (
+            <Button size="sm" asChild>
+              <Link href="/pdv?novo=1">
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                Nova Venda
+              </Link>
+            </Button>
+          )}
+          {!has("pdv") && has("wallet") && (
+            <Button size="sm" asChild>
+              <Link href="/depix-wallet">
+                <Wallet className="mr-2 h-4 w-4" />
+                Carteira DePix
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -600,7 +630,7 @@ export function DashboardContent({
       <AlertsSection />
 
       {/* Quick Links */}
-      <QuickLinks tenantSlug={tenantSlug} />
+      <QuickLinks tenantSlug={tenantSlug} allowedModules={allowedModules} />
     </div>
   );
 }

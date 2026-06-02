@@ -6,6 +6,22 @@ import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
 import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
+import { modulesFromPlanFeatures } from "@/lib/modules";
+
+/**
+ * Funde a lista de módulos (gating) dentro do JSON `features` do plano,
+ * preservando quaisquer outras chaves já existentes. Quando `modules` é
+ * undefined, mantém `features` como veio (sem mexer no gating).
+ */
+function mergeModulesIntoFeatures(
+  features: Record<string, unknown> | null | undefined,
+  modules: readonly string[] | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  if (modules === undefined) {
+    return (features as Prisma.InputJsonValue) ?? Prisma.DbNull;
+  }
+  return { ...(features ?? {}), modules: [...modules] } as Prisma.InputJsonValue;
+}
 import {
   createPlanSchema,
   updatePlanSchema,
@@ -173,6 +189,8 @@ export const adminRouter = createTRPCRouter({
           ...p,
           monthlyPrice: decimalToCents(p.monthlyPrice),
           yearlyPrice: p.yearlyPrice ? decimalToCents(p.yearlyPrice) : null,
+          // Módulos liberados (resolvidos do features.modules, com fallback padrão).
+          modules: modulesFromPlanFeatures(p.features),
         }));
       });
     }),
@@ -190,7 +208,7 @@ export const adminRouter = createTRPCRouter({
             yearlyPrice: input.yearlyPrice ? centsToPrisma(input.yearlyPrice) : null,
             maxUsers: input.maxUsers,
             maxImeiQueries: input.maxImeiQueries,
-            features: (input.features as Prisma.InputJsonValue) ?? Prisma.DbNull,
+            features: mergeModulesIntoFeatures(input.features, input.modules),
           },
         });
         return { id: plan.id };
@@ -210,7 +228,7 @@ export const adminRouter = createTRPCRouter({
             yearlyPrice: input.yearlyPrice ? centsToPrisma(input.yearlyPrice) : null,
             maxUsers: input.maxUsers,
             maxImeiQueries: input.maxImeiQueries,
-            features: (input.features as Prisma.InputJsonValue) ?? Prisma.DbNull,
+            features: mergeModulesIntoFeatures(input.features, input.modules),
             status: input.status,
           },
         });

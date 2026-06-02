@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { CommandPaletteProvider } from "@/components/command-palette";
+import { MODULE_KEYS } from "@/lib/modules";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -16,6 +17,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const activeTenantId =
     cookieStore.get("x-active-tenant")?.value ?? session.activeTenantId;
   const activeTenant = session.availableTenants.find((t) => t.id === activeTenantId);
+
+  // Módulos liberados para o menu. Super admin (sem tenant ativo ou
+  // impersonando) enxerga tudo; demais usam a matriz do tenant ativo.
+  const allowedModules = session.user.isSuperAdmin
+    ? [...MODULE_KEYS]
+    : (activeTenant?.modules ?? []);
 
   return (
     <SidebarProvider
@@ -30,7 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         activeTenantId: session.activeTenantId,
       }}
     >
-      <CommandPaletteProvider tenantSlug={activeTenant?.slug}>
+      <CommandPaletteProvider tenantSlug={activeTenant?.slug} allowedModules={allowedModules}>
         <div className="flex min-h-screen">
           {/* Desktop sidebar */}
           <AppSidebar
@@ -38,6 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
             tenantSlug={activeTenant?.slug}
+            allowedModules={allowedModules}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
@@ -47,6 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
             tenantSlug={activeTenant?.slug}
+            allowedModules={allowedModules}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 

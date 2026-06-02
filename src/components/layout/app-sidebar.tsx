@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/branding/logo";
 import { useSidebar } from "./sidebar-context";
-import { appNavGroups } from "./nav-items";
+import { appNavGroups, isNavItemVisible } from "./nav-items";
 import {
   Tooltip,
   TooltipContent,
@@ -28,10 +28,11 @@ interface AppSidebarProps {
   multiTenant: boolean;
   tenantName?: string;
   tenantSlug?: string;
+  allowedModules?: string[];
   isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, isSuperAdmin }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, allowedModules, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -75,6 +76,10 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, isSu
         <nav className="flex-1 overflow-y-auto py-2 px-2">
           {appNavGroups.map((group, gi) => {
             const isFirst = gi === 0;
+            const visibleItems = group.items.filter((item) =>
+              isNavItemVisible(item, { tenantSlug, allowedModules }),
+            );
+            if (visibleItems.length === 0) return null;
             return (
               <div key={group.title ?? "root"} className={cn(!isFirst && "mt-3")}>
                 {group.title && !isCollapsed && (
@@ -86,8 +91,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, isSu
                   <div className="mx-2 my-1 border-t border-sidebar-border" />
                 )}
                 <div className="space-y-0.5">
-                  {group.items
-                    .filter((item) => !item.requiresTenantSlug || item.requiresTenantSlug === tenantSlug)
+                  {visibleItems
                     .map((item) => {
                     const isActive = item.href === "/"
                       ? pathname === "/"

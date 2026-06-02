@@ -16,7 +16,7 @@ import {
   UserPlus,
   ShoppingCart,
 } from "lucide-react";
-import { appNavGroups } from "@/components/layout/nav-items";
+import { appNavGroups, isNavItemVisible } from "@/components/layout/nav-items";
 
 interface CommandPaletteContextValue {
   open: boolean;
@@ -34,9 +34,11 @@ export function useCommandPalette() {
 export function CommandPaletteProvider({
   children,
   tenantSlug,
+  allowedModules,
 }: {
   children: React.ReactNode;
   tenantSlug?: string;
+  allowedModules?: string[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -54,7 +56,7 @@ export function CommandPaletteProvider({
   return (
     <CommandPaletteContext.Provider value={{ open, setOpen }}>
       {children}
-      <CommandPaletteDialog open={open} setOpen={setOpen} tenantSlug={tenantSlug} />
+      <CommandPaletteDialog open={open} setOpen={setOpen} tenantSlug={tenantSlug} allowedModules={allowedModules} />
     </CommandPaletteContext.Provider>
   );
 }
@@ -63,10 +65,12 @@ function CommandPaletteDialog({
   open,
   setOpen,
   tenantSlug,
+  allowedModules,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   tenantSlug?: string;
+  allowedModules?: string[];
 }) {
   const router = useRouter();
 
@@ -78,32 +82,39 @@ function CommandPaletteDialog({
     [setOpen]
   );
 
+  const has = (mod: string) => (allowedModules ?? []).includes(mod);
+  const quickActions = [
+    { mod: "service-orders", icon: ClipboardPlus, label: "Nova Ordem de Servico", href: "/service-orders/new" },
+    { mod: "customers", icon: UserPlus, label: "Novo Cliente", href: "/customers/new" },
+    { mod: "pdv", icon: ShoppingCart, label: "Nova Venda", href: "/pdv" },
+  ].filter((a) => has(a.mod));
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput placeholder="Buscar ou ir para..." />
       <CommandList>
         <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 
-        <CommandGroup heading="Acoes rapidas">
-          <CommandItem onSelect={() => runCommand(() => router.push("/service-orders/new"))}>
-            <ClipboardPlus className="mr-2 h-4 w-4" />
-            Nova Ordem de Servico
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/customers/new"))}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Novo Cliente
-          </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push("/pdv"))}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            Nova Venda
-          </CommandItem>
-        </CommandGroup>
-
-        <CommandSeparator />
+        {quickActions.length > 0 && (
+          <>
+            <CommandGroup heading="Acoes rapidas">
+              {quickActions.map((a) => {
+                const Icon = a.icon;
+                return (
+                  <CommandItem key={a.href} onSelect={() => runCommand(() => router.push(a.href))}>
+                    <Icon className="mr-2 h-4 w-4" />
+                    {a.label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+            <CommandSeparator />
+          </>
+        )}
 
         {appNavGroups.map((group, gi) => {
-          const visibleItems = group.items.filter(
-            (it) => !it.requiresTenantSlug || it.requiresTenantSlug === tenantSlug,
+          const visibleItems = group.items.filter((it) =>
+            isNavItemVisible(it, { tenantSlug, allowedModules }),
           );
           if (visibleItems.length === 0) return null;
           return (

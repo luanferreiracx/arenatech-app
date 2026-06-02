@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/branding/logo";
 import { useSidebar } from "./sidebar-context";
-import { appNavGroups } from "./nav-items";
+import { appNavGroups, isNavItemVisible } from "./nav-items";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -23,10 +23,11 @@ interface MobileSidebarProps {
   multiTenant: boolean;
   tenantName?: string;
   tenantSlug?: string;
+  allowedModules?: string[];
   isSuperAdmin?: boolean;
 }
 
-export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, isSuperAdmin }: MobileSidebarProps) {
+export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, allowedModules, isSuperAdmin }: MobileSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -51,6 +52,10 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, i
         <nav className="flex-1 overflow-y-auto py-2 px-2">
           {appNavGroups.map((group, gi) => {
             const isFirst = gi === 0;
+            const visibleItems = group.items.filter((item) =>
+              isNavItemVisible(item, { tenantSlug, allowedModules }),
+            );
+            if (visibleItems.length === 0) return null;
             return (
               <div key={group.title ?? "root"} className={cn(!isFirst && "mt-3")}>
                 {group.title && (
@@ -59,8 +64,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, i
                   </div>
                 )}
                 <div className="space-y-0.5">
-                  {group.items
-                    .filter((item) => !item.requiresTenantSlug || item.requiresTenantSlug === tenantSlug)
+                  {visibleItems
                     .map((item) => {
                     const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                     const Icon = item.icon;

@@ -14,6 +14,73 @@ import { cpfSchema } from "@/lib/validators/cpf";
 import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
+import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
+
+/**
+ * Resolve os módulos liberados por tenant (gating por plano), com cache em
+ * processo de curta duração. Permite que a mudança de plano no admin reflita em
+ * sessões existentes em ~MODULES_CACHE_TTL_MS, sem exigir relogin e sem bater no
+ * banco a cada request. (Decisão do dono: "JWT + invalidar ao mudar plano".)
+ */
+const MODULES_CACHE_TTL_MS = 60_000;
+const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
+
+async function resolveModulesByTenant(
+  tenants: Array<{ id: string; slug: string; plan: string | null }>,
+  opts?: { withPlan?: boolean },
+): Promise<Map<string, ModuleKey[]>> {
+  const result = new Map<string, ModuleKey[]>();
+  const now = Date.now();
+
+  // Quais tenants precisam de consulta (cache expirado/ausente)?
+  const stale = tenants.filter((t) => {
+    const cached = modulesCache.get(t.id);
+    if (cached && cached.expiresAt > now) {
+      result.set(t.id, cached.modules);
+      return false;
+    }
+    return true;
+  });
+
+  if (stale.length > 0) {
+    const data = await withAdmin(async (tx) => {
+      // Quando chamado em requisições subsequentes, não temos o plano no token:
+      // buscamos tenant.plan no banco. No login já temos, mas reconsultar é
+      // barato e mantém uma única fonte de verdade.
+      const dbTenants =
+        opts?.withPlan
+          ? await tx.tenant.findMany({
+              where: { id: { in: stale.map((t) => t.id) } },
+              select: { id: true, slug: true, plan: true },
+            })
+          : stale.map((t) => ({ id: t.id, slug: t.slug, plan: t.plan }));
+
+      const planIds = Array.from(
+        new Set(dbTenants.map((t) => t.plan).filter((p): p is string => Boolean(p))),
+      );
+      const plans = planIds.length
+        ? await tx.plan.findMany({
+            where: { id: { in: planIds } },
+            select: { id: true, features: true },
+          })
+        : [];
+      const featuresByPlanId = new Map(plans.map((p) => [p.id, p.features]));
+      return { dbTenants, featuresByPlanId };
+    });
+
+    for (const t of data.dbTenants) {
+      const modules = allowedModulesForTenant({
+        tenantSlug: t.slug,
+        hasPlan: Boolean(t.plan),
+        planFeatures: t.plan ? data.featuresByPlanId.get(t.plan) : null,
+      });
+      modulesCache.set(t.id, { modules, expiresAt: now + MODULES_CACHE_TTL_MS });
+      result.set(t.id, modules);
+    }
+  }
+
+  return result;
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   // Multi-dominio: usa o host da requisicao (pdvdepix.app, arenatechpi, etc)
@@ -92,19 +159,46 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
             where: { userId: user.id! },
-            include: { tenant: { select: { id: true, slug: true, name: true } } },
+            include: {
+              tenant: { select: { id: true, slug: true, name: true, plan: true } },
+            },
           });
         });
+
+        const modulesByTenantId = await resolveModulesByTenant(
+          userTenants.map((ut) => ({ slug: ut.tenant.slug, plan: ut.tenant.plan, id: ut.tenant.id })),
+        );
 
         token.availableTenants = userTenants.map((ut) => ({
           id: ut.tenant.id,
           slug: ut.tenant.slug,
           name: ut.tenant.name,
           role: ut.role,
+          modules: modulesByTenantId.get(ut.tenant.id) ?? [],
         }));
 
         token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
         token.impersonatedTenantId = null;
+      } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
+        // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
+        // do plano atual, com cache de curta duração (TTL). Garante que mudar o
+        // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
+        // bater no banco a cada request. (Decisão: "JWT + invalidar ao mudar plano".)
+        const current = token.availableTenants as Array<{
+          id: string;
+          slug: string;
+          name: string;
+          role: string;
+          modules: string[];
+        }>;
+        const fresh = await resolveModulesByTenant(
+          current.map((t) => ({ slug: t.slug, plan: null, id: t.id })),
+          { withPlan: true },
+        );
+        token.availableTenants = current.map((t) => ({
+          ...t,
+          modules: fresh.get(t.id) ?? t.modules,
+        }));
       }
 
       return token;
@@ -117,7 +211,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.activeTenantId = (token.activeTenantId as string) ?? null;
       session.impersonatedTenantId = (token.impersonatedTenantId as string) ?? null;
       session.availableTenants =
-        (token.availableTenants as Array<{ id: string; slug: string; name: string; role: string }>) ?? [];
+        (token.availableTenants as Array<{
+          id: string;
+          slug: string;
+          name: string;
+          role: string;
+          modules: string[];
+        }>) ?? [];
       return session;
     },
 

@@ -12,6 +12,7 @@
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
 import { isLandingHost } from "@/lib/brand-host";
+import { isPathAllowed } from "@/lib/modules";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
@@ -133,11 +134,21 @@ export const proxy = auth((req) => {
   }
 
   // Validate tenant access (cookie could be stale or forged)
-  const hasTenant = session.availableTenants.some((t) => t.id === activeTenantId);
-  if (!hasTenant && !session.user.isSuperAdmin) {
+  const activeTenant = session.availableTenants.find((t) => t.id === activeTenantId);
+  if (!activeTenant && !session.user.isSuperAdmin) {
     const res = NextResponse.redirect(selfUrl("/select-tenant"));
     res.cookies.delete("x-active-tenant");
     return res;
+  }
+
+  // 6b. Gating por plano: bloqueia rotas de módulos não liberados para o tenant.
+  //  - super admin: passa livre (visão total).
+  //  - arena-tech e demais: a lista `modules` já vem resolvida na sessão
+  //    (arena-tech tem todos). Rota sem módulo (painel, settings) passa.
+  if (activeTenant && !session.user.isSuperAdmin) {
+    if (!isPathAllowed(pathname, activeTenant.modules)) {
+      return NextResponse.redirect(selfUrl("/painel?error=modulo-indisponivel"));
+    }
   }
 
   // 7. Inject tenant header for tRPC context

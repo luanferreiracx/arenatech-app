@@ -1,10 +1,15 @@
 import { z } from "zod";
 import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
+import { MODULE_KEYS } from "@/lib/modules";
 
 // ── Enums ──
 
 export const planStatusEnum = z.enum(["ACTIVE", "INACTIVE"]);
 export type PlanStatus = z.infer<typeof planStatusEnum>;
+
+/** Módulos liberáveis por plano (gating). */
+export const moduleKeyEnum = z.enum([...MODULE_KEYS] as [string, ...string[]]);
+export const planModulesSchema = z.array(moduleKeyEnum).default([]);
 
 export const preRegistrationStatusEnum = z.enum(["PENDING", "APPROVED", "REJECTED"]);
 export type PreRegistrationStatus = z.infer<typeof preRegistrationStatusEnum>;
@@ -37,6 +42,8 @@ export const createPlanSchema = z.object({
   maxUsers: z.number().int().min(1).max(1000),
   maxImeiQueries: z.number().int().min(0).max(10000),
   features: z.record(z.string(), z.unknown()).optional().nullable(),
+  /** Módulos liberados para o plano (gating). Vazio = só os padrões (wallet). */
+  modules: z.array(moduleKeyEnum).optional(),
 });
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;
 
@@ -51,6 +58,8 @@ export const updatePlanSchema = z.object({
   maxUsers: z.number().int().min(1).max(1000),
   maxImeiQueries: z.number().int().min(0).max(10000),
   features: z.record(z.string(), z.unknown()).optional().nullable(),
+  /** Módulos liberados para o plano (gating). Vazio = só os padrões (wallet). */
+  modules: z.array(moduleKeyEnum).optional(),
   status: planStatusEnum,
 });
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>;
