@@ -139,6 +139,12 @@ export const appNavGroups: NavGroup[] = [
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
       { label: "Saques DePix", href: "/depix/withdrawals", icon: Banknote, module: "depix-ops" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
+      {
+        label: "L-BTC Refills",
+        href: "/admin/depix-lbtc",
+        icon: Banknote,
+        requiresTenantSlug: "arena-tech",
+      },
     ],
   },
   {

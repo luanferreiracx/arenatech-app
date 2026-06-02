@@ -2710,8 +2710,7 @@ export const saleRouter = createTRPCRouter({
         });
       }
 
-      // Validacao de limites diarios por CPF (paridade Laravel DepixLimiteService).
-      let isFirstDay = false;
+      // Validacao de limite por CPF (R$ 5.000/tx).
       if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
         const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
         const limit = await ctx.withTenant(async (tx) =>
@@ -2723,11 +2722,9 @@ export const saleRouter = createTRPCRouter({
             message: limit.reason ?? "Limite DePix excedido.",
           });
         }
-        isFirstDay = limit.isFirstDay;
       }
 
-      // ETAPA 2 — Depix HTTP fora da tx. Envia whitelist=true se primeiro
-      // dia + valor > R$ 500 (paridade Laravel chamarDeposit).
+      // ETAPA 2 — Depix HTTP fora da tx.
       const isPartial = input.amountCents != null && totalAmount < saleTotal - 0.01;
       const description = isPartial
         ? `Venda ${sale.number} (parcial)`
@@ -2737,7 +2734,6 @@ export const saleRouter = createTRPCRouter({
         description,
         sale.id,
         taxIdRaw || null,
-        { whitelist: isFirstDay && totalAmount > 500 },
       );
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });

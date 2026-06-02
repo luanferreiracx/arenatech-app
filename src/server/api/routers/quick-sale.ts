@@ -123,10 +123,8 @@ export const quickSaleRouter = createTRPCRouter({
       }
 
       // ETAPA 1 — cria registro + valida limite (tx curta).
-      const { qs, isFirstDay, number } = await ctx.withTenant(async (tx) => {
-        // Valida limite DePix (paridade Laravel DepixLimiteService): primeiro dia
-        // R$ 500/transacao + R$ 500/dia; apos 24h R$ 5k/transacao + R$ 6k/dia.
-        let firstDay = false;
+      const { qs, number } = await ctx.withTenant(async (tx) => {
+        // Valida limite DePix: R$ 5.000 por transacao por CPF/CNPJ.
         if (hasValidTaxId) {
           const limit = await validateDepixLimit(tx, ctx.tenantId, cpfDigits, totalReaisPre);
           if (!limit.allowed) {
@@ -135,7 +133,6 @@ export const quickSaleRouter = createTRPCRouter({
               message: limit.reason ?? "Limite DePix excedido.",
             });
           }
-          firstDay = limit.isFirstDay;
         }
 
         // Generate number: QS{year}{5-digit seq}
@@ -171,17 +168,15 @@ export const quickSaleRouter = createTRPCRouter({
             depixStatus: "pending",
           },
         });
-        return { qs: created, isFirstDay: firstDay, number: num };
+        return { qs: created, number: num };
       });
 
       // ETAPA 2 — gera PIX automaticamente (HTTP externo, fora da tx).
-      // Sem CPF/CNPJ valido + valor < R$ 500, gera mesmo assim (PIX e exigido).
       const pixResult = await createPixPayment(
         totalReaisPre,
         `Venda ${number}`,
         qs.id,
         cpfDigits || null,
-        { whitelist: isFirstDay && totalReaisPre > 500 },
       );
 
       if (!pixResult.success) {
@@ -345,8 +340,7 @@ export const quickSaleRouter = createTRPCRouter({
         });
       }
 
-      // Valida limite diario por documento.
-      let isFirstDay = false;
+      // Valida limite por documento (R$ 5.000/tx).
       if (hasValidTaxId) {
         const limit = await ctx.withTenant(async (tx) =>
           validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalReais),
@@ -357,7 +351,6 @@ export const quickSaleRouter = createTRPCRouter({
             message: limit.reason ?? "Limite DePix excedido.",
           });
         }
-        isFirstDay = limit.isFirstDay;
       }
 
       // ETAPA 2 — Cria PIX via PixPay (HTTP, fora de tx).
@@ -366,7 +359,6 @@ export const quickSaleRouter = createTRPCRouter({
         `Venda ${qs.number}`,
         qs.id,
         taxIdRaw || null,
-        { whitelist: isFirstDay && totalReais > 500 },
       );
       if (!result.success) {
         throw new TRPCError({

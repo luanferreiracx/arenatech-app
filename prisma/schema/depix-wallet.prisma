@@ -43,3 +43,26 @@ model TenantDepixFeeConfig {
 
   @@map("tenant_depix_fee_configs")
 }
+
+/// Historico de recargas de L-BTC (taxa de rede Liquid) feitas pela Arena Tech
+/// pros tenants. Tenant central abastece L-BTC pra todos os outros tenants
+/// automaticamente apos cada saque sucedido — sem L-BTC, saques travam.
+///
+/// source = "auto" (trigger pos-saque) ou "manual" (admin via /admin/depix-lbtc)
+/// status = "PENDING" | "COMPLETED" | "FAILED" | "SKIPPED" (saldo ja ok)
+model DepixLbtcRefill {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  amountSats    Int       @map("amount_sats")
+  status        String    @default("PENDING")
+  txid          String?
+  source        String    /// "auto" | "manual"
+  triggeredBy   String?   @map("triggered_by") @db.Uuid /// userId quando manual
+  errorMessage  String?   @map("error_message")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  completedAt   DateTime? @map("completed_at")
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@map("depix_lbtc_refills")
+}

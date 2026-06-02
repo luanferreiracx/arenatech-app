@@ -101,7 +101,7 @@ export async function createPixPayment(
   description: string,
   referenceId: string,
   taxNumber?: string | null,
-  options?: { whitelist?: boolean; depixAddress?: string },
+  options?: { depixAddress?: string },
 ): Promise<DepixCreateResult> {
   const config = getConfig();
 
@@ -133,11 +133,6 @@ export async function createPixPayment(
   if (depixAddress) {
     payload.depixAddress = depixAddress;
   }
-  // Primeiro dia + valor > R$ 500: PixPay exige whitelist=true (paridade Laravel).
-  if (options?.whitelist) {
-    payload.whitelist = true;
-  }
-
   logger.info("Depix: criando deposit", {
     url: config.depositUrl,
     amountInCents,

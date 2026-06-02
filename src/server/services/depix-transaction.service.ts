@@ -464,6 +464,21 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     if (existing) return existing;
   }
 
+  // Limite PIX por CPF/CNPJ do destinatario (R$ 5.000/tx).
+  // Validator Zod ja barra > R$ 5k, mas mantemos paridade com PDV/OS/QuickSale.
+  if (taxId && (taxId.length === 11 || taxId.length === 14)) {
+    const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
+    const limit = await withTenant(args.tenantId, async (tx) =>
+      validateDepixLimit(tx, args.tenantId, taxId, args.netAmountCents / 100),
+    );
+    if (!limit.allowed) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: limit.reason ?? "Limite DePix excedido.",
+      });
+    }
+  }
+
   // Calcula o BRUTO a partir do liquido (inverso): destinatario recebe
   // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
   // Tech + taxa PixPay estimada).
@@ -679,6 +694,45 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
 // Poll status (UI fallback)
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Side-effects pos-conclusao de saque: registra uso no DepixDailyLimit (auditoria
+ * por CPF) e dispara reposicao de L-BTC se ficou baixa. Best-effort — nao
+ * propaga erro pro caller (saque ja concluiu on-chain, side-effect nao deve
+ * derrubar a resposta).
+ */
+async function onWithdrawCompleted(tenantId: string, transactionId: string) {
+  try {
+    const row = await withTenant(tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findUnique({
+        where: { id: transactionId },
+        select: { recipientTaxId: true, netAmountCents: true },
+      }),
+    );
+    if (row?.recipientTaxId && row.netAmountCents) {
+      const { registerDepixUse } = await import("@/lib/services/depix-limit-service");
+      await withTenant(tenantId, async (tx) =>
+        registerDepixUse(tx, tenantId, row.recipientTaxId!, row.netAmountCents! / 100),
+      );
+    }
+  } catch (err) {
+    logger.warn("onWithdrawCompleted: registerDepixUse falhou", {
+      tenantId,
+      transactionId,
+      err: String(err),
+    });
+  }
+  // Reposicao de L-BTC (best-effort, fire-and-forget interno).
+  try {
+    const { ensureLbtcFor } = await import("./depix-lbtc-refill.service");
+    await ensureLbtcFor(tenantId, { source: "auto" });
+  } catch (err) {
+    logger.warn("onWithdrawCompleted: ensureLbtcFor falhou", {
+      tenantId,
+      err: String(err),
+    });
+  }
+}
+
 export async function checkTransactionStatus(tenantId: string, transactionId: string) {
   const txRow = await withTenant(tenantId, async (tx) =>
     tx.tenantDepixTransaction.findUnique({ where: { id: transactionId } }),
@@ -727,6 +781,10 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
               data: { status: newStatus!, completedAt: newStatus === "COMPLETED" ? new Date() : undefined },
             }),
           );
+          // Side-effects pos-conclusao do saque (best-effort, nao bloqueia).
+          if (newStatus === "COMPLETED") {
+            void onWithdrawCompleted(tenantId, txRow.id);
+          }
         }
       }
     }

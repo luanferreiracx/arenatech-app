@@ -580,9 +580,15 @@ export const serviceOrderRouter = createTRPCRouter({
             : "") +
           (input.reportedProblem ? `Defeito relatado: ${input.reportedProblem}\n` : "") +
           `\nAcesse o sistema pra mais detalhes.`;
-        // Cloud API (mesmo canal das demais notificacoes da OS) — o
-        // sendTextMessage/Evolution antigo nao chegava em producao.
-        sendCloudText(txResult.technicianPhone, text).catch((err) => {
+        // Cloud API com fallback de template `tecnico_nova_os` — tecnicos
+        // ficam fora da janela 24h (folga, fora do horario) e free-text puro
+        // nao entrega. Paridade Laravel `enviarComFallbackTemplateAsync`.
+        sendTextWithFallback({
+          phone: txResult.technicianPhone,
+          freeText: text,
+          contexto: "tecnico_nova_os",
+          params: [txResult.technicianName ?? "tecnico", txResult.number],
+        }).catch((err) => {
           logger.warn("Falha ao notificar tecnico via WhatsApp", {
             orderId: txResult.id,
             technicianName: txResult.technicianName,
@@ -1882,17 +1888,34 @@ export const serviceOrderRouter = createTRPCRouter({
 
         const dp = await tx.deliveryPerson.findUnique({
           where: { id: input.deliveryPersonId },
-          select: { phone: true },
+          select: { name: true, phone: true },
         });
 
-        return { order, deliveryPhone: dp?.phone ?? null };
+        const orderInfo = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { number: true },
+        });
+
+        return {
+          order,
+          deliveryName: dp?.name ?? "entregador",
+          deliveryPhone: dp?.phone ?? null,
+          orderNumber: orderInfo?.number ?? "",
+        };
       });
 
-      // WhatsApp Cloud fora da tx (best-effort, free-text interno ao entregador).
+      // WhatsApp Cloud com fallback de template `entregador_solicitacao` —
+      // entregador raramente fala com a loja todo dia, free-text puro nao
+      // entrega fora da janela 24h. Paridade Laravel `enviarComFallbackTemplate`.
       let whatsappSent = false;
       if (prep.deliveryPhone) {
         try {
-          const result = await sendCloudText(prep.deliveryPhone, input.message);
+          const result = await sendTextWithFallback({
+            phone: prep.deliveryPhone,
+            freeText: input.message,
+            contexto: "entregador_solicitacao",
+            params: [prep.deliveryName, `envio ao laboratorio da OS ${prep.orderNumber}`],
+          });
           whatsappSent = result.success;
         } catch {
           // best-effort
@@ -2949,10 +2972,17 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, deliveryPerson };
       });
 
-      // WhatsApp Cloud fora da tx (mensagem livre interna ao entregador).
+      // WhatsApp Cloud com fallback de template `entregador_solicitacao` —
+      // entregador fora da janela 24h e free-text puro nao entrega.
+      // Paridade Laravel `enviarComFallbackTemplate('entregador_solicitacao', ...)`.
       let whatsappSent = false;
       if (prep.deliveryPerson.phone) {
-        const result = await sendCloudText(prep.deliveryPerson.phone, input.message);
+        const result = await sendTextWithFallback({
+          phone: prep.deliveryPerson.phone,
+          freeText: input.message,
+          contexto: "entregador_solicitacao",
+          params: [prep.deliveryPerson.name, `OS ${prep.order.number}`],
+        });
         whatsappSent = result.success;
         if (!result.success) {
           logger.warn("Falha ao enviar WhatsApp para entregador", {
@@ -3437,7 +3467,10 @@ export const serviceOrderRouter = createTRPCRouter({
       const caption = `Orcamento - OS #${prep.order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
 
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-      const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+      // Rota dedicada do PDF de orcamento adicional (NAO o PDF da OS) — antes
+      // anexava o PDF principal da OS, sem comparacao previous/new e sem
+      // motivo. Paridade Laravel `gerarPdfOrcamento`.
+      const pdfUrl = `${appUrl}/api/whatsapp-media/os-quote/pdf/${pdfToken}`;
       // Contexto `os_orcamento_pdf` (sem `_link`) — o template aprovado nao
       // tem botao URL, o link de aprovacao vai no caption. O contexto
       // `os_orcamento_pdf_link` nao existe no catalogo e fazia o envio
@@ -3782,7 +3815,6 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        let isFirstDay = false;
         if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
           const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
           const limit = await validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalAmount);
@@ -3792,10 +3824,9 @@ export const serviceOrderRouter = createTRPCRouter({
               message: limit.reason ?? "Limite DePix excedido.",
             });
           }
-          isFirstDay = limit.isFirstDay;
         }
 
-        return { order, totalAmount, taxIdRaw, isFirstDay };
+        return { order, totalAmount, taxIdRaw };
       });
 
       // HTTP PixPay/Depix FORA da tx.
@@ -3804,7 +3835,6 @@ export const serviceOrderRouter = createTRPCRouter({
         `OS ${prep.order.number}`,
         prep.order.id,
         prep.taxIdRaw || null,
-        { whitelist: prep.isFirstDay && prep.totalAmount > 500 },
       );
 
       if (!result.success) {

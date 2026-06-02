@@ -40,8 +40,9 @@ export interface BalanceResult {
   error?: string;
 }
 
-/** Asset ID do L-BTC (Liquid Bitcoin) — usado pra pagar fee de rede. */
-const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d";
+/** Asset ID do L-BTC (Liquid Bitcoin) — usado pra pagar fee de rede.
+ *  Exposto para uso por servicos que transferem L-BTC (ex.: refill por tenant central). */
+export const LBTC_ASSET_ID = "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d";
 
 export interface MasterAddressResult {
   success: boolean;
@@ -271,7 +272,10 @@ export async function transfer(
       const code = String(resp.error ?? "");
       let msg: string;
       if (code === "insufficient_lbtc") {
-        msg = "Saldo L-BTC insuficiente pra pagar a taxa de rede. Abasteca a carteira com L-BTC pra continuar operando.";
+        // Mensagem generica — L-BTC eh gerenciado pela Arena Tech central,
+        // operador do tenant nao precisa saber do detalhe tecnico.
+        // Logamos detalhe internamente.
+        msg = "Saque temporariamente indisponivel. Tente novamente em alguns minutos.";
       } else if (code === "insufficient_depix") {
         msg = "Saldo DePix insuficiente.";
       } else if (code === "amount_too_small") {

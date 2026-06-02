@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 
 interface BalanceHeroProps {
   depixBalance: number;
-  lbtcSat: number;
   masterAddress: string | null;
   network: string | null;
   success: boolean;
@@ -28,7 +27,6 @@ function formatBRL(value: number): string {
  */
 export function BalanceHero({
   depixBalance,
-  lbtcSat,
   masterAddress,
   network,
   success,
@@ -70,7 +68,7 @@ export function BalanceHero({
             )}
             <p className="text-[11px] text-muted-foreground mt-2 inline-flex items-center gap-2">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-              Rede {network ?? "Liquid"} · L-BTC {lbtcSat} sat
+              Rede {network ?? "Liquid"}
             </p>
           </div>
 
