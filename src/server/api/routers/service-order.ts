@@ -1178,10 +1178,29 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // Restaura o status anterior ao CANCELLED a partir do history.
+        // Antes caia hardcoded em IN_DIAGNOSIS, fazendo OS que estava
+        // em WAITING_PARTS/IN_PROGRESS/COMPLETED voltar para diagnostico —
+        // operador tinha que avancar manualmente. Buscamos o ultimo history
+        // newStatus=CANCELLED e usamos seu previousStatus. Fallback IN_DIAGNOSIS
+        // se nao houver previousStatus ou se for terminal (PAID/DELIVERED/
+        // CANCELLED/REFUNDED nao fazem sentido como destino de descancelamento).
+        const lastCancelHistory = await tx.serviceOrderHistory.findFirst({
+          where: { orderId: input.id, newStatus: "CANCELLED" },
+          orderBy: { createdAt: "desc" },
+          select: { previousStatus: true },
+        });
+        const terminalStatuses = new Set(["PAID", "DELIVERED", "CANCELLED", "REFUNDED"]);
+        const restoreCandidate = lastCancelHistory?.previousStatus;
+        const restoredStatus =
+          restoreCandidate && !terminalStatuses.has(restoreCandidate)
+            ? (restoreCandidate as ServiceOrderStatus)
+            : "IN_DIAGNOSIS";
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
-            status: "IN_DIAGNOSIS",
+            status: restoredStatus,
             cancellationReason: null,
           },
         });
@@ -1192,7 +1211,7 @@ export const serviceOrderRouter = createTRPCRouter({
             orderId: input.id,
             userId: ctx.session.user.id,
             previousStatus: "CANCELLED",
-            newStatus: "IN_DIAGNOSIS",
+            newStatus: restoredStatus,
             notes:
               `[DESCANCELAMENTO] ${input.reason}` +
               (reReserved > 0 ? ` (${reReserved} item(ns) de estoque re-reservado(s))` : "") +
@@ -1200,7 +1219,7 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        return { success: true };
+        return { success: true, restoredStatus };
       });
     }),
 
@@ -3424,14 +3443,17 @@ export const serviceOrderRouter = createTRPCRouter({
 
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
       const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
+      // Contexto `os_orcamento_pdf` (sem `_link`) — o template aprovado nao
+      // tem botao URL, o link de aprovacao vai no caption. O contexto
+      // `os_orcamento_pdf_link` nao existe no catalogo e fazia o envio
+      // falhar silencioso fora da janela 24h (retornava antes do fallback).
       const wa = await sendPdfWithFallback({
         phone: prep.phone,
         pdfUrl,
         fileName: `OS_${prep.order.number}_orcamento.pdf`,
         caption,
-        contexto: "os_orcamento_pdf_link",
-        params: [prep.customer.name, prep.order.number, totalFormatted],
-        urlButtonParam: prep.quote.approvalLink ?? undefined,
+        contexto: "os_orcamento_pdf",
+        params: [prep.customer.name, prep.order.number],
       });
       if (!wa.success) {
         logger.warn("Falha ao enviar orcamento por WhatsApp", {

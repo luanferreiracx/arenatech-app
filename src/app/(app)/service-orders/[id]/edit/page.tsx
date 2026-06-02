@@ -341,13 +341,15 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
             <Input
               id="nfse-file"
               type="file"
-              accept="application/pdf,image/png,image/jpeg,image/webp"
+              accept="application/pdf,image/png,image/jpeg"
               disabled={attachNfsePending}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                if (file.size > 6 * 1024 * 1024) {
-                  toast.error("Arquivo maior que 6 MB");
+                // Limite 4 MB — alinhado com o validator no servidor
+                // (`attachNfseSchema`) e com o Laravel `mimes:pdf,jpg,jpeg,png|max:4096`.
+                if (file.size > 4 * 1024 * 1024) {
+                  toast.error("Arquivo maior que 4 MB");
                   return;
                 }
                 const reader = new FileReader();
