@@ -262,6 +262,19 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-06-01 — MULTI-DOMINIO: landing pdvdepix.app + auth por host
+
+Novo dominio `pdvdepix.app` (e futuro `pdvcripto.app`) servindo a MESMA app/banco, com landing publica de marketing. Decisoes do dono: landing na raiz "/" por host; so a landing usa a marca pdvdepix (intranet segue Arena Tech); SSL via Let's Encrypt.
+
+- **Landing** (`src/app/(marketing)/landing/page.tsx`): estatica, pegada fintech do pixpay/sobre.html mas conteudo PROPRIO (hero, metricas, o-que-e-DePix, 4 passos, vantagens, taxas 0,99+1,5%/1,7%, FAQ, CTA). Layout proprio (sem shell de app). Logo `PdvDepixLogo` (SVG recriado teal->verde — trocar pelo asset oficial em public/ depois).
+- **Roteamento por host** (`brand-host.ts` + `proxy.ts`): em pdvdepix.app, raiz "/" sem sessao faz rewrite -> /landing (mantem URL). Logado, segue pro dashboard. Outros hosts inalterados. `/landing` e rota publica.
+- **Auth multi-dominio (fix central):** `trustHost: true` no NextAuth. Sem isso, login em pdvdepix.app redirecionava pra app.arenatechpi.com.br (NEXTAUTH_URL fixo). Agora callbacks/redirects usam o host da requisicao. Cookie host-only (cada dominio sua sessao). Login flow ja era relativo (window.location "/").
+- **Infra (VPS):** Nginx server block HTTP-only pra pdvdepix.app criado + habilitado (proxy_pass :3001, Host $host, real IP Cloudflare). Falta: emitir Let's Encrypt (HTTP-01 — requer DNS-only temporario no Cloudflare, hoje proxiado) + bloco 443. Deploy do app pendente.
+
+**Validacao:** typecheck OK | build OK | landing renderiza + rewrite por host verificado local (screenshot). Pendente deploy + cert.
+
+---
+
 ### 2026-06-01 — ORCAMENTO: /investigate (relatorio) + orcamento de servico via Cloud API
 
 /investigate do orcamento. Achados:

@@ -11,12 +11,15 @@
  */
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
+import { isLandingHost } from "@/lib/brand-host";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
 function isPublicRoute(pathname: string): boolean {
   return (
     PUBLIC_ROUTES.has(pathname) ||
+    // Landing publica (marketing) — servida na raiz por host em pdvdepix.app.
+    pathname === "/landing" ||
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/api/cron/") ||
@@ -45,6 +48,12 @@ function isNoTenantRoute(pathname: string): boolean {
 export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
+
+  // 0. Landing por host: em pdvdepix.app, a raiz "/" sem sessao mostra a
+  //    landing publica (rewrite, mantendo a URL). Logado, segue pro dashboard.
+  if (pathname === "/" && !session && isLandingHost(req.headers.get("host"))) {
+    return NextResponse.rewrite(new URL("/landing", req.url));
+  }
 
   // 1. Public routes
   if (isPublicRoute(pathname)) {

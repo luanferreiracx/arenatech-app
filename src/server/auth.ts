@@ -16,6 +16,11 @@ import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils
 import { logger } from "@/lib/logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Multi-dominio: usa o host da requisicao (pdvdepix.app, arenatechpi, etc)
+  // para montar callbacks/redirects, em vez do NEXTAUTH_URL fixo. Sem isso,
+  // logins em pdvdepix.app redirecionariam para app.arenatechpi.com.br.
+  trustHost: true,
+
   // Sessao JWT expira em 7 dias. Tokens roubados/vazados nao duram para sempre.
   // Atividade renova (updateAge: 1 dia) para nao deslogar usuarios ativos.
   session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
