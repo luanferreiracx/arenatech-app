@@ -588,6 +588,7 @@ export const serviceOrderRouter = createTRPCRouter({
           freeText: text,
           contexto: "tecnico_nova_os",
           params: [txResult.technicianName ?? "tecnico", txResult.number],
+          log: { tenantId: ctx.tenantId, originType: "service_order", originId: txResult.id },
         }).catch((err) => {
           logger.warn("Falha ao notificar tecnico via WhatsApp", {
             orderId: txResult.id,
@@ -980,6 +981,7 @@ export const serviceOrderRouter = createTRPCRouter({
                 freeText: text,
                 contexto: "os_conclusao",
                 params: [name, order.number],
+                log: { tenantId: ctx.tenantId, originType: "service_order", originId: order.id },
               });
             } catch {
               // best-effort
@@ -1915,6 +1917,7 @@ export const serviceOrderRouter = createTRPCRouter({
             freeText: input.message,
             contexto: "entregador_solicitacao",
             params: [prep.deliveryName, `envio ao laboratorio da OS ${prep.orderNumber}`],
+            log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
           });
           whatsappSent = result.success;
         } catch {
@@ -2648,6 +2651,7 @@ export const serviceOrderRouter = createTRPCRouter({
           contexto: autentiqueToken ? "os_termo_pdf_link" : "os_termo_pdf",
           params: [customer.name, order.number],
           urlButtonParam: autentiqueToken ?? undefined,
+          log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
         });
         if (!wa.success) {
           logger.warn("Falha ao enviar link de assinatura via WhatsApp", {
@@ -2930,6 +2934,7 @@ export const serviceOrderRouter = createTRPCRouter({
         freeText,
         contexto: "os_rastreamento",
         params: [customerName, order.number],
+        log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
         urlButtonParam: order.publicLink ?? undefined,
       });
       if (!result.success) {
@@ -2982,6 +2987,7 @@ export const serviceOrderRouter = createTRPCRouter({
           freeText: input.message,
           contexto: "entregador_solicitacao",
           params: [prep.deliveryPerson.name, `OS ${prep.order.number}`],
+          log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
         });
         whatsappSent = result.success;
         if (!result.success) {
@@ -3482,6 +3488,7 @@ export const serviceOrderRouter = createTRPCRouter({
         caption,
         contexto: "os_orcamento_pdf",
         params: [prep.customer.name, prep.order.number],
+        log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
       });
       if (!wa.success) {
         logger.warn("Falha ao enviar orcamento por WhatsApp", {
@@ -3671,6 +3678,7 @@ export const serviceOrderRouter = createTRPCRouter({
         caption,
         contexto: "os_recibo_pdf",
         params: [customerName, order.number],
+        log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
       });
       const sent = wa.success;
       if (!sent) {
@@ -3734,6 +3742,7 @@ export const serviceOrderRouter = createTRPCRouter({
         freeText: text,
         contexto: "os_conclusao",
         params: [prep.customerName, prep.order.number],
+        log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
       });
       if (!wa.success) {
         logger.warn("Falha ao reenviar notificacao de conclusao", {

@@ -23,8 +23,61 @@ import {
 } from "@/lib/whatsapp/templates-catalog";
 import { isWithin24hWindow } from "@/lib/whatsapp/conversation-window";
 import { logger } from "@/lib/logger";
+import { withTenant } from "@/server/db";
 
 export type WhatsAppContext = keyof typeof TEMPLATE_CONTEXTS;
+
+/**
+ * Contexto de auditoria do envio. Quando passado, o resultado e gravado em
+ * `whatsapp_messages_sent` (rastreabilidade de mensagens). A tabela tem RLS por
+ * tenant, por isso o `tenantId` e obrigatorio para logar. `originType`/`originId`
+ * ligam o envio a entidade que o originou (ex: "sale"/saleId, "service_order"/osId).
+ */
+export interface WhatsAppLogContext {
+  tenantId: string;
+  originType?: string;
+  originId?: string;
+}
+
+/**
+ * Persiste o registro do envio em whatsapp_messages_sent. Resiliente: nunca
+ * lanca — uma falha de log JAMAIS deve impedir/derrubar o envio em si.
+ */
+async function logWhatsappSent(
+  log: WhatsAppLogContext,
+  phone: string,
+  result: SendResult,
+  fallback: { templateName?: string; content?: string },
+): Promise<void> {
+  try {
+    const type = result.via === "template" ? "template" : result.via === "media" ? "media" : "text";
+    const status = result.success ? "enviado" : "falha";
+    await withTenant(log.tenantId, (tx) =>
+      tx.whatsappMessageSent.create({
+        data: {
+          tenantId: log.tenantId,
+          phone: formatBrPhone(phone),
+          type,
+          templateName: result.templateUsed ?? fallback.templateName ?? null,
+          content: fallback.content ?? null,
+          wamid: result.messageId ?? null,
+          status,
+          errorMessage: result.error ?? null,
+          originType: log.originType ?? null,
+          originId: log.originId ?? null,
+        },
+      }),
+    );
+  } catch (err) {
+    // Nao propaga: o envio ja aconteceu; so registramos a falha de auditoria.
+    logger.warn("Falha ao registrar envio WhatsApp em whatsapp_messages_sent", {
+      err: err instanceof Error ? err.message : String(err),
+      phone: formatBrPhone(phone),
+      originType: log.originType,
+      originId: log.originId,
+    });
+  }
+}
 
 export interface MediaHeader {
   type: "document" | "image" | "video";
@@ -216,17 +269,26 @@ export async function sendTextWithFallback(opts: {
   contexto: WhatsAppContext;
   params: string[];
   urlButtonParam?: string;
+  /** Quando presente, grava o envio em whatsapp_messages_sent (auditoria). */
+  log?: WhatsAppLogContext;
 }): Promise<SendResult> {
   const normalized = formatBrPhone(opts.phone);
   const inWindow = await isWithin24hWindow(normalized);
 
+  let result: SendResult;
   if (inWindow) {
     const r = await sendCloudText(opts.phone, opts.freeText);
-    return r.success
+    result = r.success
       ? { success: true, via: "text", messageId: r.messageId }
       : { success: false, via: "text", error: r.error };
+  } else {
+    result = await sendTemplateByContext(opts.phone, opts.contexto, opts.params, undefined, opts.urlButtonParam);
   }
-  return sendTemplateByContext(opts.phone, opts.contexto, opts.params, undefined, opts.urlButtonParam);
+
+  if (opts.log) {
+    await logWhatsappSent(opts.log, opts.phone, result, { content: opts.freeText });
+  }
+  return result;
 }
 
 /**
@@ -242,10 +304,13 @@ export async function sendPdfWithFallback(opts: {
   params: string[];
   /** Sufixo passado como param do botao URL (ex: token Autentique). */
   urlButtonParam?: string;
+  /** Quando presente, grava o envio em whatsapp_messages_sent (auditoria). */
+  log?: WhatsAppLogContext;
 }): Promise<SendResult> {
   const normalized = formatBrPhone(opts.phone);
   const inWindow = await isWithin24hWindow(normalized);
 
+  let result: SendResult;
   // Dentro da janela 24h: envio direto via texto livre + link (Meta nao
   // suporta upload binario aqui; o cliente recebe o link no caption).
   // Em prod com janela aberta, Laravel usa sendMedia — mantemos paridade
@@ -253,17 +318,25 @@ export async function sendPdfWithFallback(opts: {
   if (inWindow) {
     const captionWithLink = opts.caption + (opts.pdfUrl ? `\n\n📎 ${opts.pdfUrl}` : "");
     const r = await sendCloudText(opts.phone, captionWithLink);
-    return r.success
+    result = r.success
       ? { success: true, via: "text", messageId: r.messageId }
       : { success: false, via: "text", error: r.error };
+  } else {
+    // Fora da janela: template com HEADER DOCUMENT (PDF anexado).
+    result = await sendTemplateByContext(
+      opts.phone,
+      opts.contexto,
+      opts.params,
+      { type: "document", link: opts.pdfUrl, filename: opts.fileName },
+      opts.urlButtonParam,
+    );
   }
 
-  // Fora da janela: template com HEADER DOCUMENT (PDF anexado).
-  return sendTemplateByContext(
-    opts.phone,
-    opts.contexto,
-    opts.params,
-    { type: "document", link: opts.pdfUrl, filename: opts.fileName },
-    opts.urlButtonParam,
-  );
+  if (opts.log) {
+    await logWhatsappSent(opts.log, opts.phone, result, {
+      content: opts.caption,
+      templateName: TEMPLATE_CONTEXTS[opts.contexto],
+    });
+  }
+  return result;
 }

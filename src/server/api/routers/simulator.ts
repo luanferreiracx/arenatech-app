@@ -222,6 +222,7 @@ export const simulatorRouter = createTRPCRouter({
         caption: `Ola, ${customerName}! Segue a simulacao de parcelamento solicitada.`,
         contexto: "simulacao_pdf",
         params: [customerName],
+        log: { tenantId: ctx.tenantId, originType: "simulacao" },
       });
 
       if (!sendResult.success) {

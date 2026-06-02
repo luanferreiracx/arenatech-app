@@ -1526,6 +1526,7 @@ export const stockRouter = createTRPCRouter({
             contexto: "pdv_termo_pdf_link",
             params: [sellerName, purchaseNumber],
             urlButtonParam: autentiqueToken ?? undefined,
+            log: { tenantId: ctx.tenantId, originType: "device_purchase", originId: input.id },
           });
           if (!wa.success) {
             logger.warn("Falha ao enviar termo de compra via WhatsApp", {

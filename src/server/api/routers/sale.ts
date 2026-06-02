@@ -2441,6 +2441,7 @@ export const saleRouter = createTRPCRouter({
         caption,
         contexto: "pdv_recibo_pdf",
         params: [customerName, sale.number],
+        log: { tenantId: ctx.tenantId, originType: "sale", originId: input.saleId },
       });
 
       // ETAPA 3 — persiste sucesso
@@ -2579,6 +2580,7 @@ export const saleRouter = createTRPCRouter({
           contexto: "pdv_termo_pdf_link",
           params: [customerName, sale.number],
           urlButtonParam: autentiqueToken ?? undefined,
+          log: { tenantId: ctx.tenantId, originType: "sale", originId: input.saleId },
         });
         if (!wa.success) {
           logger.warn("Falha ao enviar termo de venda via WhatsApp", {

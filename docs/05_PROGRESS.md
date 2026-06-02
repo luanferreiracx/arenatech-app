@@ -305,6 +305,18 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-02 — WHATSAPP: registro de envios (whatsapp_messages_sent)
+
+Diagnostico: a tabela `whatsapp_messages_sent` so tinha dados migrados do Laravel (ate 23/05); o codigo Next NUNCA gravava log de envio (confirmado no git — unico commit que tocou a tabela foi o que a criou). Envios via Cloud API funcionavam mas sem rastreabilidade no banco (so logs efemeros do container).
+
+- **`send-with-fallback.ts`:** `sendPdfWithFallback` e `sendTextWithFallback` ganharam param opcional `log?: { tenantId, originType?, originId? }`. Quando presente, gravam em `whatsapp_messages_sent` via `withTenant` (helper `logWhatsappSent`, resiliente — nunca lanca, nao derruba o envio). Grava type/templateName/wamid/status/errorMessage/origin.
+- **Callers plugados (todos):** sale (recibo + termo → origin `sale`), service-order (9 envios → `service_order`), stock (termo compra → `device_purchase`), simulator (`simulacao`), valuation (`avaliacao`), catalog (`servico_orcamento`). Corrige tambem o `origin_id` que vinha vazio.
+- A tabela tem RLS (desde 23/05); por isso o log PRECISA do tenantId. Validado: INSERT via withTenant grava; INSERT sem tenant e bloqueado pela RLS.
+
+**Validacao:** typecheck OK | lint 0 erros | 751 unit OK | teste real de INSERT sob RLS (grava com tenant, bloqueia sem).
+
+---
+
 ### 2026-06-02 — AUDITORIA DE ISOLAMENTO DE TENANTS (/investigate)
 
 Investigacao sistematica de isolamento multi-tenant (3 agentes paralelos: RLS por tabela, withAdmin/prisma nas procedures, robustez da camada RLS). Achados e correcoes aplicadas — ver `docs/AUDIT_TENANT_ISOLATION.md`.

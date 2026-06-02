@@ -404,6 +404,7 @@ export const valuationRouter = createTRPCRouter({
         contexto: "avaliacao_orcamento",
         // template avaliacao_orcamento: {{1}}=nome, {{2}}=descricao do aparelho
         params: [built.nome, `do seu ${input.modelo}`],
+        log: { tenantId: ctx.tenantId, originType: "avaliacao" },
       });
 
       if (!sendResult.success) {

@@ -488,6 +488,7 @@ export const catalogRouter = createTRPCRouter({
         caption: built.message,
         contexto: "servico_orcamento_pdf",
         params: [input.clientName],
+        log: { tenantId: ctx.tenantId, originType: "servico_orcamento" },
       });
 
       if (!sendResult.success) {
