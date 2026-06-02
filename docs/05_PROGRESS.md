@@ -305,6 +305,22 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-02 — FIX CRITICO: webhook de deposito DePix rejeitado (503) + status "approved"
+
+Depositos PIX demoravam "um absurdo" pra confirmar. Causa raiz dupla:
+1. **503 em prod:** o webhook `/api/webhooks/depix-payment` exige auth (HMAC ou IP allowlist); em prod NENHUM dos dois estava configurado, entao o handler retornava 503 "Webhook auth nao configurado" ANTES de processar. Confirmado no nginx (POST do n8n PixPay IP 89.116.225.159 → 503, varias retentativas) e no print do n8n do responsavel. A PixPay re-tentava e desistia → deposito preso.
+2. **status "approved" nao reconhecido:** mesmo com auth ok, PixPay envia `webhookType=deposit` + `status=approved`, que NAO estava em PAID_STATUSES → caia em "ignored". Adicionado `approved`/`aprovado`.
+
+**Correcoes:**
+- `DEPIX_WEBHOOK_IPS=89.116.225.159` no `.env.production` (decisao do dono: IP allowlist; IP fixo do n8n PixPay; nginx repassa XFF correto). Container recriado. Validado em prod: IP autorizado → 200, IP estranho → 401.
+- `approved`/`aprovado` em PAID_STATUSES (depix-payment route). Backup env: `.env.production.bak.before-depix-ips`.
+
+(Deposito de wallet on-chain e outro fluxo — monitor LWK. Este webhook e pagamento PIX de venda/OS/quick-sale por qrId↔depixTransactionId.)
+
+**Validacao:** typecheck OK | lint 0 erros | auth testada em prod (200/401).
+
+---
+
 ### 2026-06-02 — WHATSAPP: registro de envios (whatsapp_messages_sent)
 
 Diagnostico: a tabela `whatsapp_messages_sent` so tinha dados migrados do Laravel (ate 23/05); o codigo Next NUNCA gravava log de envio (confirmado no git — unico commit que tocou a tabela foi o que a criou). Envios via Cloud API funcionavam mas sem rastreabilidade no banco (so logs efemeros do container).

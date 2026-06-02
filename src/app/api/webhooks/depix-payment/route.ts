@@ -161,6 +161,11 @@ export async function POST(req: NextRequest) {
     "paid",
     "depix_sent",
     "success",
+    // PixPay/DePix envia "approved" no webhook de deposito (webhookType=deposit)
+    // quando o PIX do cliente e aprovado. Sem isso, o pagamento caia em
+    // "ignored" e a venda/OS nunca confirmava (deposito preso).
+    "approved",
+    "aprovado",
   ]);
   const EXPIRED_STATUSES = new Set(["expired", "expirado"]);
   const FAILED_STATUSES = new Set(["failed", "cancelled", "canceled", "refunded"]);
