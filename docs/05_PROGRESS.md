@@ -305,6 +305,26 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-02 — AUDITORIA DE ISOLAMENTO DE TENANTS (/investigate)
+
+Investigacao sistematica de isolamento multi-tenant (3 agentes paralelos: RLS por tabela, withAdmin/prisma nas procedures, robustez da camada RLS). Achados e correcoes aplicadas — ver `docs/AUDIT_TENANT_ISOLATION.md`.
+
+**CRITICO corrigido — account takeover cross-tenant:** `settings.resetUserPassword` era `tenantProcedure` SEM gate de role e SEM checar vinculo: aceitava `userId` arbitrario e resetava a senha (para "123456") de QUALQUER usuario do sistema via withAdmin. Um membro da loja A podia invadir a conta do dono da loja B. Fix: valida vinculo `user_tenants[tenant ativo]` + exige role admin.
+
+**Vazamento de PII corrigido:** `providerCommission.listAvailableUsers` listava TODOS os usuarios (id/nome/CPF) de todos os tenants. Fix: filtra por `tenants.some(tenantId)`.
+
+**Write cross-tenant endurecido:** `serviceOrder.setTechnician` nao checava vinculo do tecnico ao tenant (fix: valida user_tenants). Webhook `pagbank` casava quick_sale por `number` (unico so por tenant) — recusa se ambiguo (gateway PagBank hoje inativo; ativo e DePix).
+
+**RLS aplicada em mais 8 tabelas** (migration `20260602130000_rls_reward_chatbot_checklist`): reward_balances/movements/actions/campaigns, chatbot_conversations/messages/follow_ups, checklists. Routers montados em root.ts confiavam na RLS ausente.
+
+**Falsos positivos (NAO precisam RLS):** `user_tenants` (juncao global — RLS quebraria login), `tenant_number_sequences` (upsert atomico escopado por PK).
+
+**Furo ESTRUTURAL pendente de decisao do dono (ver Decisoes pendentes):** a app conecta como SUPERUSER do Postgres (`arenatech`) — superuser IGNORA RLS. Hoje so nao vaza porque tudo passa por withTenant/withAdmin (SET LOCAL ROLE). Trocar a DATABASE_URL para role nao-superuser fecharia isso definitivamente, mas e mudanca de infra. 27 policies "fracas" (sem `,true`/WITH CHECK explicito) — confirmado que NAO vazam (Postgres usa USING como WITH CHECK implicito; sem `,true` da fail-loud, nao fail-open). Connection pooling: OK (SET LOCAL em transacao, sem PgBouncer).
+
+**Validacao:** typecheck OK | lint 0 erros | 751 unit OK | 3 migrations RLS aplicadas no dev (16 tabelas no total nesta sessao).
+
+---
+
 ### 2026-06-02 — GATING (rodada 3): DePix ops separadas + FIX RLS (vazamento cross-tenant)
 
 Feedback do dono: "Vendas Avulsas DePix" e "Saques DePix" ainda apareciam (estavam em `module: wallet`); e — grave — **saques do tenant central vazavam na lista de outros tenants**.

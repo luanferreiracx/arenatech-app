@@ -71,11 +71,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, duplicate: true })
     }
 
-    // Find QuickSale by reference
+    // Find QuickSale by reference.
+    // SEGURANCA (isolamento cross-tenant): `number` so e unico POR tenant
+    // (@@unique([tenantId, number])). O payload do PagBank nao traz o tenant,
+    // entao um match por `number` pode colidir entre tenants e marcar a venda
+    // ERRADA como paga. Recusamos se houver ambiguidade (>1 match). Ideal:
+    // embutir o tenant no reference_id da cobranca quando o PagBank for ativado
+    // (hoje nenhum fluxo cria cobranca PagBank — gateway ativo e DePix).
     await withAdmin(async (tx) => {
-      const quickSale = await tx.quickSale.findFirst({
+      const matches = await tx.quickSale.findMany({
         where: { number: referenceId },
+        take: 2,
       })
+
+      if (matches.length > 1) {
+        logger.error("PagBank webhook: referenceId ambiguo entre tenants — recusado", {
+          referenceId,
+          matchCount: matches.length,
+        })
+        return
+      }
+
+      const quickSale = matches[0]
 
       if (!quickSale) {
         logger.warn("PagBank webhook: QuickSale not found", { referenceId })

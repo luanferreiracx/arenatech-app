@@ -552,7 +552,36 @@ export const settingsRouter = createTRPCRouter({
 
   resetUserPassword: tenantProcedure
     .input(z.object({ userId: z.string().uuid() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // SEGURANCA (isolamento cross-tenant): so pode resetar a senha de um
+      // usuario que pertence AO TENANT ATIVO. Sem esta verificacao, qualquer
+      // membro de um tenant poderia resetar a senha de qualquer usuario do
+      // sistema (incl. de outro tenant) = account takeover. Alem disso, exige
+      // role administrativo (owner/manager/admin) no tenant.
+      const actorRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      if (!["owner", "manager", "admin"].includes((actorRole ?? "").toLowerCase())) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem redefinir senhas.",
+        });
+      }
+
+      // O vinculo so existe (e a leitura so retorna linha) se o usuario alvo
+      // pertence ao tenant ativo — a RLS de user_tenants nao se aplica (tabela
+      // global), por isso filtramos explicitamente pela PK composta.
+      const link = await ctx.withTenant(async (tx) =>
+        tx.userTenant.findUnique({
+          where: { userId_tenantId: { userId: input.userId, tenantId: ctx.tenantId } },
+          select: { userId: true },
+        }),
+      );
+      if (!link) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Usuario nao pertence a este tenant.",
+        });
+      }
+
       await withAdmin(async (tx) => {
         await tx.user.update({
           where: { id: input.userId },

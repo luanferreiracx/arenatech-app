@@ -786,9 +786,13 @@ export const providerCommissionRouter = createTRPCRouter({
           await tx.provider.findMany({ select: { userId: true } })
         ).map((p) => p.userId);
 
+        // SEGURANCA (isolamento cross-tenant): so usuarios VINCULADOS ao tenant
+        // ativo. Antes listava TODOS os usuarios do sistema (incl. CPF) de
+        // outros tenants. Filtramos por user_tenants do tenant atual.
         const users = await withAdmin(async (adminTx) => {
           return adminTx.user.findMany({
             where: {
+              tenants: { some: { tenantId: ctx.tenantId } },
               id: { notIn: existingProviderUserIds.length > 0 ? existingProviderUserIds : ["__none__"] },
             },
             select: { id: true, name: true, cpf: true },

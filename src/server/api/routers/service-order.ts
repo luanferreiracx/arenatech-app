@@ -3543,6 +3543,15 @@ export const serviceOrderRouter = createTRPCRouter({
           previousName = prev?.name ?? "Nenhum";
         }
 
+        // SEGURANCA (isolamento cross-tenant): o tecnico precisa pertencer ao
+        // tenant ativo. `tx` roda escopado (withTenant); a PK composta de
+        // user_tenants filtra por tenantId, entao so casa se houver vinculo.
+        const techLink = await tx.userTenant.findUnique({
+          where: { userId_tenantId: { userId: input.technicianId, tenantId: ctx.tenantId } },
+          select: { userId: true },
+        });
+        if (!techLink) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
+
         // Get new technician name
         const newTech = await withAdmin(async (adminTx) =>
           adminTx.user.findUnique({ where: { id: input.technicianId }, select: { name: true } }),
