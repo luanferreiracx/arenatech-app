@@ -139,12 +139,6 @@ export const appNavGroups: NavGroup[] = [
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
       { label: "Saques DePix", href: "/depix/withdrawals", icon: Banknote, module: "depix-ops" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
-      {
-        label: "L-BTC Refills",
-        href: "/admin/depix-lbtc",
-        icon: Banknote,
-        requiresTenantSlug: "arena-tech",
-      },
     ],
   },
   {
@@ -209,5 +203,6 @@ export const adminNavItems: NavItem[] = [
   { label: "Addons", href: "/admin/addons", icon: Puzzle },
   { label: "Estornos", href: "/admin/refunds", icon: Undo2 },
   { label: "WhatsApp Logs", href: "/admin/whatsapp-logs", icon: MessageSquare },
+  { label: "L-BTC Refills", href: "/admin/depix-lbtc", icon: Banknote },
   { label: "Relatorios", href: "/admin/reports", icon: FileText },
 ];

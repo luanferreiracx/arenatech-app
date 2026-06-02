@@ -1,5 +1,6 @@
 /**
- * Router de gestao de L-BTC — restrito ao tenant central (Arena Tech).
+ * Router de gestao de L-BTC — restrito a SUPER-ADMIN (Arena Tech central).
+ * Acessivel via /admin/depix-lbtc no grupo (admin) gateado por isSuperAdmin.
  *
  * Endpoints:
  *   - list: snapshot dos tenants (saldo L-BTC + ultima recarga)
@@ -8,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { createTRPCRouter, centralTenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, adminProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import {
   ensureLbtcFor,
@@ -19,7 +20,7 @@ import {
 
 export const depixLbtcAdminRouter = createTRPCRouter({
   /** Snapshot: saldo L-BTC + ultima recarga de cada tenant. */
-  list: centralTenantProcedure.query(async () => {
+  list: adminProcedure.query(async () => {
     const data = await listLbtcStatus();
     return {
       lowThresholdSats: LBTC_LOW_SATS,
@@ -29,7 +30,7 @@ export const depixLbtcAdminRouter = createTRPCRouter({
   }),
 
   /** Forca refill num tenant. */
-  refillManual: centralTenantProcedure
+  refillManual: adminProcedure
     .input(
       z.object({
         tenantId: z.string().uuid(),
@@ -47,7 +48,7 @@ export const depixLbtcAdminRouter = createTRPCRouter({
     }),
 
   /** Historico de refills (mais recentes primeiro). */
-  history: centralTenantProcedure
+  history: adminProcedure
     .input(
       z
         .object({
