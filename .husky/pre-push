@@ -1,39 +1,25 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-# Pre-push hook v2: bloqueia push se validação falhar
-# Justificativa: ADR-0035 (E2E obrigatório) + ADR-0036 (business vs smoke tags)
+# Pre-push hook v3: validacao rapida (~5s).
+# E2E completo bloqueia push no GitHub Actions (autoritativo).
+# Pre-push local serve so pra pegar erro obvio antes de gastar tempo no CI.
+#
+# Para rodar e2e local antes do push manualmente:
+#   pnpm test:e2e
 
-echo "🔍 Rodando validação completa antes do push..."
+echo "🔍 Validacao rapida (typecheck + unit)..."
 
-# 1. Typecheck (rápido, falha cedo)
-echo "→ Typecheck..."
+# 1. Typecheck
 pnpm typecheck || {
   echo "❌ Typecheck falhou. Push bloqueado."
   exit 1
 }
 
 # 2. Unit tests (Vitest)
-echo "→ Unit tests..."
 pnpm test || {
   echo "❌ Unit tests falharam. Push bloqueado."
   exit 1
 }
 
-# 3. E2E lint (ADR 0036 — valida tags @business/@smoke)
-echo "→ E2E quality lint..."
-pnpm test:e2e:lint || {
-  echo "❌ E2E lint falhou. Testes sem tag @business ou @smoke."
-  echo "💡 Renomeie: test('@business nome...') ou test('@smoke nome...')"
-  exit 1
-}
-
-# 4. E2E (Playwright)
-echo "→ E2E tests (Playwright)..."
-pnpm test:e2e --reporter=list || {
-  echo "❌ E2E tests falharam. Push bloqueado."
-  echo "💡 Dica: verifique se dev server está rodando em outra aba."
-  exit 1
-}
-
-echo "✅ Tudo verde. Push liberado."
+echo "✅ Validacao rapida OK. E2E vai rodar no CI."
