@@ -3,6 +3,7 @@
 /* eslint-disable jsx-a11y/alt-text */
 import React from "react";
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import { CHECKLIST_ITEMS, type ChecklistData } from "@/lib/validators/service-order";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Tipos de entrada (subset do schema, evita acoplar Prisma)
@@ -89,16 +90,11 @@ const fmtDateTime = (d: Date | null) => {
 };
 const fmtCheck = (v: boolean | null | undefined): string => v === true ? "Sim" : v === false ? "Nao" : "Nao Testado";
 
-const checklistLabels: Record<string, string> = {
-  aparelho_liga: "Aparelho Liga", aparelho_vibra: "Aparelho Vibra",
-  botoes_ok: "Botoes OK", bluetooth_ok: "Bluetooth OK",
-  wifi_ok: "Wi-Fi OK", vidro_traseiro_ok: "Vidro Traseiro OK",
-  audio_ok: "Audio OK", microfone_ok: "Microfone OK",
-  cameras_flash_ok: "Cameras/Flash OK", touch_faceid_ok: "Touch/FaceID OK",
-  aparelho_carrega: "Aparelho Carrega", tela_frontal_ok: "Tela Frontal OK",
-  carregamento_cabo: "Carregamento Cabo", carregamento_inducao: "Carregamento Inducao",
-  ima_magsafe: "Ima MagSafe",
-};
+// As keys do checklist sao camelCase (paridade com o validator/wizard que grava no
+// banco). CHECKLIST_ITEMS e a fonte unica da verdade; manter um map snake_case
+// hardcoded aqui faria todos os 15 itens lerem `undefined` -> "Nao Testado",
+// independente do que o usuario preencheu.
+const checklistOrdered = CHECKLIST_ITEMS;
 
 const infoLabels: Record<string, string> = {
   cliente_aparelho_molhou: "Cliente informou que aparelho molhou",
@@ -110,13 +106,12 @@ const infoLabels: Record<string, string> = {
 };
 
 export function ServiceOrderPdfDocument({ order, customer, store, technicianName, termsOfService, warrantyPolicy }: ServiceOrderPdfData) {
-  const entryChecklist = order.entryChecklist ?? {};
+  const entryChecklist = (order.entryChecklist ?? {}) as ChecklistData;
   const deviceInfo = order.deviceInfo ?? {};
   const activeInfos = Object.entries(infoLabels).filter(([k]) => deviceInfo[k]).map(([, l]) => l);
-  const checklistKeys = Object.keys(checklistLabels);
-  const checklistRows: string[][] = [];
-  for (let i = 0; i < checklistKeys.length; i += 5) {
-    checklistRows.push(checklistKeys.slice(i, i + 5));
+  const checklistRows: typeof checklistOrdered[] = [];
+  for (let i = 0; i < checklistOrdered.length; i += 5) {
+    checklistRows.push(checklistOrdered.slice(i, i + 5));
   }
 
   return (
@@ -221,10 +216,10 @@ export function ServiceOrderPdfDocument({ order, customer, store, technicianName
           <Text style={styles.sectionTitle}>CHECKLIST DE ENTRADA</Text>
           {checklistRows.map((row, ri) => (
             <View key={ri} style={styles.checklistRow}>
-              {row.map((key) => (
-                <Text key={key} style={styles.checklistCell}>
-                  <Text style={{ fontFamily: "Helvetica-Bold" }}>{checklistLabels[key]}: </Text>
-                  {fmtCheck(entryChecklist[key])}
+              {row.map((item) => (
+                <Text key={item.key} style={styles.checklistCell}>
+                  <Text style={{ fontFamily: "Helvetica-Bold" }}>{item.label}: </Text>
+                  {fmtCheck(entryChecklist[item.key])}
                 </Text>
               ))}
             </View>
