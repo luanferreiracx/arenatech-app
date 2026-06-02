@@ -305,6 +305,17 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-02 — GATING (rodada 2): settings travado + taxas so super admin
+
+Dois ajustes de seguranca apos feedback do dono ("absurdo o tenant alterar as proprias taxas" + "travar ate as configuracoes, so wallet").
+
+- **`settings` agora e modulo gateado** (saiu do always-on). Adicionado a `MODULE_KEYS` + prefixo `/settings` em `ROUTE_MODULE_PREFIXES` + itens de menu marcados `module: "settings"`. Tenant wallet-only nao acessa configuracoes (menu some + rota bloqueada). Link "Perfil" (/settings) no dropdown do avatar (app/mobile sidebar) so aparece se `settings` liberado.
+- **Taxas SO super admin (defesa real no backend):** nova procedure `superAdminTenantProcedure` (trpc.ts) — exige `isSuperAdmin` mas mantem `tenantId`+`withTenant`. Aplicada em: `depixWallet.updateFeeConfig` (margem de intermediacao = **receita Arena Tech**, antes `tenantAdminProcedure` — qualquer owner/manager podia zerar!), `simulator.updateConfig`, `settings.upsertPaymentRates`, `settings.upsertInstallmentRules` (antes `tenantProcedure` + check de role). Removidos os checks de role redundantes. So a Arena Tech (super admin), impersonando o tenant, configura taxas.
+
+**Validacao:** typecheck OK | lint 0 erros | 751 unit OK (test de modules atualizado: settings gateado).
+
+---
+
 ### 2026-06-01 — ORCAMENTO: /investigate (relatorio) + orcamento de servico via Cloud API
 
 /investigate do orcamento. Achados:

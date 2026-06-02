@@ -3,6 +3,7 @@ import {
   createTRPCRouter,
   tenantProcedure,
   tenantAdminProcedure,
+  superAdminTenantProcedure,
   CENTRAL_TENANT_SLUG,
 } from "@/server/api/trpc";
 import {
@@ -42,7 +43,9 @@ export const depixWalletRouter = createTRPCRouter({
    *
    *  Seguranca: so OWNER/MANAGER pode alterar taxa — operador comum nao deve
    *  poder zerar (perda de receita) nem inflar (DoS no saque). */
-  updateFeeConfig: tenantAdminProcedure
+  // Taxa de intermediação = receita da Arena Tech. SÓ super admin altera
+  // (o admin do próprio tenant não pode zerar a margem que paga pra gente).
+  updateFeeConfig: superAdminTenantProcedure
     .input(updateDepixFeeConfigSchema)
     .mutation(async ({ ctx, input }) => {
       const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);

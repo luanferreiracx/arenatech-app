@@ -27,6 +27,7 @@ export const MODULE_KEYS = [
   "financial", // Financeiro (exceto DePix wallet/saques, que são `wallet`)
   "fiscal", // Fiscal / NF-e / relatórios fiscais
   "commissions", // Comissões
+  "settings", // Configurações do tenant (gerais, formas de pagamento, etc.)
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
@@ -45,6 +46,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   financial: "Financeiro",
   fiscal: "Fiscal / NF-e",
   commissions: "Comissões",
+  settings: "Configurações",
 };
 
 export function isModuleKey(value: string): value is ModuleKey {
@@ -107,11 +109,15 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
 
   // commissions
   ["/commissions", "commissions"],
+
+  // settings (configurações do tenant). Gateado: por enquanto NÃO liberado.
+  ["/settings", "settings"],
 ];
 
 /**
  * Resolve o módulo de uma rota. Retorna `null` para rotas sem gating de módulo
- * (painel, settings, troca de tenant, admin, públicas) — essas passam livres.
+ * (painel, troca de tenant, admin, públicas) — essas passam livres.
+ * Settings agora É gateado (módulo `settings`) — fica fora do plano por enquanto.
  */
 export function resolveModuleForPath(pathname: string): ModuleKey | null {
   for (const [prefix, key] of ROUTE_MODULE_PREFIXES) {

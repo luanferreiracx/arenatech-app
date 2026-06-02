@@ -118,6 +118,34 @@ export const tenantAdminProcedure = tenantProcedure.use(async ({ ctx, next }) =>
 });
 
 /**
+ * Super-admin-only tenant procedure — exige `isSuperAdmin` MAS continua operando
+ * sobre o tenant ativo (mantém `tenantId` + `withTenant`). Use para configurações
+ * sensíveis de um tenant que o PRÓPRIO tenant NÃO pode alterar — ex.: taxas do
+ * simulador, taxas de parcelamento e a margem DePix de intermediação (que é a
+ * receita da Arena Tech). O admin do tenant nem vê nem edita; só a Arena Tech
+ * (super admin), impersonando o tenant, configura.
+ */
+export const superAdminTenantProcedure = tenantProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.isSuperAdmin) {
+    logger.warn("superAdminTenantProcedure: non-super-admin access attempt", {
+      userId: ctx.session.user.id,
+      tenantId: ctx.tenantId,
+    });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Apenas a Arena Tech pode alterar taxas.",
+    });
+  }
+  return next({
+    ctx: {
+      session: ctx.session,
+      tenantId: ctx.tenantId,
+      withTenant: ctx.withTenant,
+    },
+  });
+});
+
+/**
  * Central tenant slug — single source of truth.
  * Resources gated behind centralTenantProcedure are exclusive to this tenant
  * (e.g., iPhone hunter that monitors REVENDA WhatsApp groups).

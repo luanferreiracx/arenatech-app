@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
 import {
   simulateSchema,
   updateSimulatorConfigSchema,
@@ -267,21 +267,12 @@ export const simulatorRouter = createTRPCRouter({
 
   /**
    * Atualiza a config de taxas do simulador. Substitui todos os tiers.
-   * Apenas owner/manager (config sensivel de precificacao).
+   * SÓ super admin (Arena Tech) — taxas são precificação controlada pela
+   * plataforma; o tenant não altera as próprias taxas.
    */
-  updateConfig: tenantProcedure
+  updateConfig: superAdminTenantProcedure
     .input(updateSimulatorConfigSchema)
     .mutation(async ({ ctx, input }) => {
-      const role = ctx.session.availableTenants.find(
-        (t) => t.id === ctx.tenantId,
-      )?.role;
-      if (role !== "owner" && role !== "manager") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Apenas dono ou gerente pode alterar as taxas do simulador.",
-        });
-      }
-
       return ctx.withTenant(async (tx) => {
         const config = await getOrCreateSimulatorConfig(tx, ctx.tenantId);
 

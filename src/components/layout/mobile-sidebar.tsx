@@ -140,13 +140,17 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, a
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  Perfil
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {(allowedModules ?? []).includes("settings") && (
+                <>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      Perfil
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={() => signOut({ callbackUrl: "/login" })}

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure, protectedProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import { logAudit, pickChanges } from "@/server/services/audit-log.service";
 import {
@@ -257,13 +257,11 @@ export const settingsRouter = createTRPCRouter({
       });
     }),
 
-  upsertInstallmentRules: tenantProcedure
+  // Taxas/regras de parcelamento = precificação controlada pela Arena Tech.
+  // SÓ super admin altera; o tenant não mexe nas próprias taxas.
+  upsertInstallmentRules: superAdminTenantProcedure
     .input(upsertInstallmentRulesSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar regras de parcelamento" });
-      }
       return ctx.withTenant(async (tx) => {
         // Delete existing rules first
         await tx.installmentRule.deleteMany({
@@ -313,13 +311,11 @@ export const settingsRouter = createTRPCRouter({
    * Aceita policy (LOJA_ABSORVE/CLIENTE_PAGA) e appliesTo (APARELHO/NAO_APARELHO/AMBOS)
    * por parcela — paridade Laravel formas_pagamento_taxas.
    */
-  upsertPaymentRates: tenantProcedure
+  // Taxas por forma de pagamento = precificação controlada pela Arena Tech.
+  // SÓ super admin altera; o tenant não mexe nas próprias taxas.
+  upsertPaymentRates: superAdminTenantProcedure
     .input(upsertPaymentRatesSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar taxas" });
-      }
       return ctx.withTenant(async (tx) => {
         await tx.paymentMethodRate.deleteMany({
           where: { paymentMethodId: input.paymentMethodId },

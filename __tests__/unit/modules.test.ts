@@ -36,10 +36,15 @@ describe("resolveModuleForPath", () => {
     expect(resolveModuleForPath("/commissions")).toBe("commissions");
   });
 
-  it("retorna null para rotas sem gating (painel, settings)", () => {
+  it("retorna null para rotas sem gating (painel, troca de tenant)", () => {
     expect(resolveModuleForPath("/painel")).toBeNull();
-    expect(resolveModuleForPath("/settings")).toBeNull();
     expect(resolveModuleForPath("/select-tenant")).toBeNull();
+  });
+
+  it("settings agora É gateado (modulo settings, fora do plano por enquanto)", () => {
+    expect(resolveModuleForPath("/settings")).toBe("settings");
+    expect(resolveModuleForPath("/settings/payment-methods")).toBe("settings");
+    expect(resolveModuleForPath("/settings/installments")).toBe("settings");
   });
 
   it("não casa prefixo parcial de outra rota (/stockfoo)", () => {
@@ -92,12 +97,13 @@ describe("allowedModulesForTenant", () => {
 describe("isPathAllowed", () => {
   it("libera rota sem gating sempre", () => {
     expect(isPathAllowed("/painel", [])).toBe(true);
-    expect(isPathAllowed("/settings", [])).toBe(true);
+    expect(isPathAllowed("/select-tenant", [])).toBe(true);
   });
 
-  it("bloqueia rota de módulo não liberado", () => {
+  it("bloqueia rota de módulo não liberado (inclusive settings)", () => {
     expect(isPathAllowed("/pdv", ["wallet"])).toBe(false);
     expect(isPathAllowed("/service-orders", ["wallet"])).toBe(false);
+    expect(isPathAllowed("/settings", ["wallet"])).toBe(false);
   });
 
   it("libera rota de módulo liberado", () => {
