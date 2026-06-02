@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 const segmentLabels: Record<string, string> = {
   // Top-level modules (English route slugs)
+  painel: "Painel",
   customers: "Clientes",
   "service-orders": "Ordens de Serviço",
   pdv: "PDV",
@@ -74,7 +75,7 @@ export function AppBreadcrumb({ className }: { className?: string }) {
       <ol className="flex items-center gap-1">
         <li>
           <Link
-            href="/"
+            href="/painel"
             className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
           >
             <Home className="w-3.5 h-3.5" />

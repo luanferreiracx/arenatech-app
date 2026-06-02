@@ -45,7 +45,7 @@ export async function loginAction(formData: FormData) {
     redirect("/admin");
   }
   if (session.activeTenantId) {
-    redirect("/");
+    redirect("/painel");
   }
   if (session.availableTenants.length === 0) {
     redirect("/no-access");

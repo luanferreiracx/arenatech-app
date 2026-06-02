@@ -56,7 +56,7 @@ export const appNavGroups: NavGroup[] = [
   {
     title: null,
     items: [
-      { label: "Dashboard", href: "/", icon: LayoutDashboard },
+      { label: "Painel", href: "/painel", icon: LayoutDashboard },
     ],
   },
   {

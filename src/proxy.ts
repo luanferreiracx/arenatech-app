@@ -49,10 +49,15 @@ export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  // 0. Landing por host: em pdvdepix.app, a raiz "/" sem sessao mostra a
-  //    landing publica (rewrite, mantendo a URL). Logado, segue pro dashboard.
-  if (pathname === "/" && !session && isLandingHost(req.headers.get("host"))) {
-    return NextResponse.rewrite(new URL("/landing", req.url));
+  // 0. Raiz "/" por host:
+  //  - host de landing (pdvdepix.app): SEMPRE mostra a landing publica
+  //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
+  //  - host de app (app.arenatechpi): "/" -> /painel (o dashboard saiu da raiz).
+  if (pathname === "/") {
+    if (isLandingHost(req.headers.get("host"))) {
+      return NextResponse.rewrite(new URL("/landing", req.url));
+    }
+    return NextResponse.redirect(new URL("/painel", req.url));
   }
 
   // 1. Public routes
@@ -65,7 +70,7 @@ export const proxy = auth((req) => {
         return NextResponse.redirect(new URL("/admin", req.url));
       }
       if (activeTenantId) {
-        return NextResponse.redirect(new URL("/", req.url));
+        return NextResponse.redirect(new URL("/painel", req.url));
       }
       if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
         return NextResponse.redirect(new URL("/no-access", req.url));
@@ -93,7 +98,7 @@ export const proxy = auth((req) => {
   // 4. Admin routes
   if (pathname.startsWith("/admin")) {
     if (!session.user.isSuperAdmin) {
-      return NextResponse.redirect(new URL("/", req.url));
+      return NextResponse.redirect(new URL("/painel", req.url));
     }
     return NextResponse.next();
   }

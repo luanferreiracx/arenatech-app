@@ -33,8 +33,9 @@ export default function LoginPage() {
       return;
     }
 
-    // Full navigation so middleware can handle auth-aware redirect
-    window.location.href = "/";
+    // Full navigation so middleware can handle auth-aware redirect.
+    // Vai para /painel (a raiz "/" e a landing publica nos hosts de marketing).
+    window.location.href = "/painel";
   }
 
   return (

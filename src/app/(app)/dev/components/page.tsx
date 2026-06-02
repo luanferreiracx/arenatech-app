@@ -11,7 +11,7 @@ export default async function DevComponentsPage() {
     process.env.NODE_ENV === "production" &&
     !session.user.isSuperAdmin
   ) {
-    redirect("/");
+    redirect("/painel");
   }
 
   return <ComponentsCatalog />;
