@@ -208,13 +208,105 @@ jobs:
           NEXTAUTH_URL: http://localhost:3000
 
   # ============================================================
+  # E2E tests (Playwright) — ADR-0035 v2: E2E migrado de pre-push para CI
+  # ============================================================
+  e2e:
+    name: E2E (Playwright)
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arenatech
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: arenatech_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Restore deps cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            node_modules/.prisma
+            node_modules/@prisma/client
+          key: deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'prisma/schema/**/*.prisma') }}
+
+      - name: Install deps (fallback se cache miss)
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Apply Prisma migrations
+        run: pnpm prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_test
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        env:
+          CI: 'true'
+          DATABASE_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_test
+          REDIS_URL: redis://localhost:6379
+          NEXTAUTH_SECRET: test-secret-do-not-use-in-prod
+          NEXTAUTH_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # ============================================================
   # Build Docker image + push para GHCR
-  # Roda em paralelo com lint/typecheck/test (so depende de setup
-  # implicitamente via cache hit). Para main, exige todos verdes.
+  # Depende de lint + typecheck + test + e2e (todos verdes).
   # ============================================================
   build-image:
     name: Build & push Docker image
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 12

@@ -87,3 +87,24 @@ Threshold agregado de 100% trocado por **threshold POR-ARQUIVO com whitelist exp
 - Linter sugere remoção quando arquivo whitelisted atinge 100% @business
 
 Sem `--no-verify` esperado a partir de agora.
+
+## Revisão 3 em 2026-06-01
+
+Distinção `@business` / `@smoke` abandonada como mecânica de enforcement.
+
+**Motivo:** a infraestrutura criada para sustentar essa distinção (tags obrigatórias + linter custom de 245 linhas em `__tests__/e2e/lint-e2e.ts` + whitelist config + 2 revisões anteriores tentando equilibrar) deixou de justificar o valor entregue. ADR-0035 v2 move E2E inteiro para CI, e o gate de qualidade passa a ser "E2E passou no CI" — independente de categoria.
+
+A complexidade adicionada (`pnpm test:e2e:lint`, manutenção de `lint-e2e.config.json`, auditoria periódica da whitelist, refatoração obrigatória dos 25 testes ainda `@smoke`) custa mais do que evita. Code review humana cobre o caso ("este teste E2E exerce regra de negócio real?") sem precisar de linter dedicado.
+
+**Como fica:**
+- Tags `@business` / `@smoke` deixam de ter significado funcional/obrigatório
+- Linter `__tests__/e2e/lint-e2e.ts` aposentado (arquivo permanece como histórico, não é mais chamado)
+- Script `pnpm test:e2e:lint` removido do pre-push hook (não removido do `package.json` — opcional limpar depois)
+- `lint-e2e.config.json` torna-se obsoleto (pode deletar)
+- Tests existentes mantêm tags por inércia — nenhum precisa renomear
+- Skill `.claude/skills/arenatech-module-refactor` (que refatorava @smoke→@business) torna-se obsoleta — manter como histórico ou aposentar conforme critério do dono
+
+**Critério de qualidade que substitui:**
+- Code review valida que cada teste E2E exerce regra de negócio real (mesmo critério antes mecanizado pelo linter)
+- Cobertura mensurada por features de produto cobertas, não por contagem agregada de `@business`
+- Definition of Done de uma feature: pelo menos 1 E2E passando no CI
