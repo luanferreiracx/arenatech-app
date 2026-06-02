@@ -49,6 +49,19 @@ export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
+  // Monta uma URL de redirect no HOST REAL da requisicao. `req.url` dentro do
+  // wrapper auth() nao reflete o Host header (usa o host interno/NEXTAUTH_URL),
+  // o que vazava redirects de pdvdepix.app -> app.arenatechpi. Aqui priorizamos
+  // o header Host (que o Nginx encaminha) + o protocolo encaminhado.
+  const selfUrl = (path: string): URL => {
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    if (!host) return new URL(path, req.url);
+    const proto =
+      req.headers.get("x-forwarded-proto") ??
+      (req.nextUrl.protocol.replace(":", "") || "https");
+    return new URL(path, `${proto}://${host}`);
+  };
+
   // 0. Raiz "/" por host:
   //  - host de landing (pdvdepix.app): SEMPRE mostra a landing publica
   //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
@@ -57,7 +70,7 @@ export const proxy = auth((req) => {
     if (isLandingHost(req.headers.get("host"))) {
       return NextResponse.rewrite(new URL("/landing", req.url));
     }
-    return NextResponse.redirect(new URL("/painel", req.url));
+    return NextResponse.redirect(selfUrl("/painel"));
   }
 
   // 1. Public routes
@@ -67,22 +80,22 @@ export const proxy = auth((req) => {
       const activeTenantId = cookieTenant ?? session.activeTenantId;
 
       if (session.user.isSuperAdmin && !activeTenantId) {
-        return NextResponse.redirect(new URL("/admin", req.url));
+        return NextResponse.redirect(selfUrl("/admin"));
       }
       if (activeTenantId) {
-        return NextResponse.redirect(new URL("/painel", req.url));
+        return NextResponse.redirect(selfUrl("/painel"));
       }
       if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
-        return NextResponse.redirect(new URL("/no-access", req.url));
+        return NextResponse.redirect(selfUrl("/no-access"));
       }
-      return NextResponse.redirect(new URL("/select-tenant", req.url));
+      return NextResponse.redirect(selfUrl("/select-tenant"));
     }
     return NextResponse.next();
   }
 
   // 2. Not authenticated
   if (!session) {
-    const loginUrl = new URL("/login", req.url);
+    const loginUrl = selfUrl("/login");
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
@@ -90,7 +103,7 @@ export const proxy = auth((req) => {
   // 3. No tenants, not super admin
   if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
     if (pathname !== "/no-access") {
-      return NextResponse.redirect(new URL("/no-access", req.url));
+      return NextResponse.redirect(selfUrl("/no-access"));
     }
     return NextResponse.next();
   }
@@ -98,7 +111,7 @@ export const proxy = auth((req) => {
   // 4. Admin routes
   if (pathname.startsWith("/admin")) {
     if (!session.user.isSuperAdmin) {
-      return NextResponse.redirect(new URL("/painel", req.url));
+      return NextResponse.redirect(selfUrl("/painel"));
     }
     return NextResponse.next();
   }
@@ -114,15 +127,15 @@ export const proxy = auth((req) => {
 
   if (!activeTenantId) {
     if (session.user.isSuperAdmin) {
-      return NextResponse.redirect(new URL("/admin", req.url));
+      return NextResponse.redirect(selfUrl("/admin"));
     }
-    return NextResponse.redirect(new URL("/select-tenant", req.url));
+    return NextResponse.redirect(selfUrl("/select-tenant"));
   }
 
   // Validate tenant access (cookie could be stale or forged)
   const hasTenant = session.availableTenants.some((t) => t.id === activeTenantId);
   if (!hasTenant && !session.user.isSuperAdmin) {
-    const res = NextResponse.redirect(new URL("/select-tenant", req.url));
+    const res = NextResponse.redirect(selfUrl("/select-tenant"));
     res.cookies.delete("x-active-tenant");
     return res;
   }

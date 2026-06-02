@@ -125,5 +125,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Route protection handled by proxy.ts — always allow here
       return true;
     },
+
+    /**
+     * Multi-dominio: NextAuth monta `baseUrl` a partir do NEXTAUTH_URL fixo
+     * (= app.arenatechpi). Sem este callback, um login em pdvdepix.app
+     * redirecionava para o arenatechpi. Aqui forcamos URLs do MESMO host da
+     * requisicao: relativas passam direto; absolutas so passam se forem do
+     * proprio host (caso contrario caem para a raiz relativa).
+     */
+    redirect({ url, baseUrl }) {
+      // Caminho relativo ("/painel", "/login?...") — mantem no host atual.
+      if (url.startsWith("/")) return url;
+      try {
+        const target = new URL(url);
+        const base = new URL(baseUrl);
+        // Mesmo host do baseUrl que o NextAuth resolveu — ok.
+        if (target.host === base.host) return url;
+        // Host diferente (ex: vazando p/ arenatechpi): descarta o host,
+        // preserva apenas o path+query no host atual.
+        return `${target.pathname}${target.search}` || "/";
+      } catch {
+        return "/";
+      }
+    },
   },
 });
