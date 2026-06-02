@@ -10,10 +10,10 @@ import {
 } from "@/lib/modules";
 
 describe("resolveModuleForPath", () => {
-  it("mapeia rotas DePix para wallet (antes de financial)", () => {
+  it("mapeia só a carteira para wallet; vendas avulsas e saques para depix-ops", () => {
     expect(resolveModuleForPath("/depix-wallet")).toBe("wallet");
-    expect(resolveModuleForPath("/depix/withdrawals")).toBe("wallet");
-    expect(resolveModuleForPath("/quick-sales")).toBe("wallet");
+    expect(resolveModuleForPath("/depix/withdrawals")).toBe("depix-ops");
+    expect(resolveModuleForPath("/quick-sales")).toBe("depix-ops");
   });
 
   it("mapeia /financial para financial (sem roubar as rotas DePix)", () => {

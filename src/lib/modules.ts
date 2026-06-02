@@ -17,14 +17,15 @@
  */
 
 export const MODULE_KEYS = [
-  "wallet", // DePix: carteira, vendas avulsas, saques
+  "wallet", // DePix: APENAS a carteira (/depix-wallet)
+  "depix-ops", // Operações DePix avulsas: vendas avulsas (/quick-sales) + saques (/financial/depix/withdrawals)
   "service-orders", // Assistência: OS, serviços, operação, comunicação
   "customers", // Clientes e interesses
   "tools", // Simulador, avaliação, consultas, checklist
   "pdv", // Vendas / PDV
   "stock", // Estoque e catálogo de aparelhos
   "cashier", // Caixa e conferências
-  "financial", // Financeiro (exceto DePix wallet/saques, que são `wallet`)
+  "financial", // Financeiro (exceto DePix wallet/saques)
   "fiscal", // Fiscal / NF-e / relatórios fiscais
   "commissions", // Comissões
   "settings", // Configurações do tenant (gerais, formas de pagamento, etc.)
@@ -37,6 +38,7 @@ const MODULE_KEY_SET = new Set<string>(MODULE_KEYS);
 /** Rótulos legíveis para a UI de configuração de plano. */
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   wallet: "Carteira DePix",
+  "depix-ops": "Operações DePix (Vendas Avulsas, Saques)",
   "service-orders": "Assistência (Ordens de Serviço)",
   customers: "Clientes",
   tools: "Ferramentas (Simulador, Avaliação, Consultas)",
@@ -68,11 +70,12 @@ export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet"];
  * `resolveModuleForPath` casa pelo primeiro prefixo que bate.
  */
 const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
-  // wallet (DePix) — checado antes de `financial` para "roubar" as rotas DePix
+  // DePix — checado antes de `financial` para "roubar" as rotas DePix.
+  // Só a carteira em si é `wallet`; vendas avulsas e saques são `depix-ops`.
   ["/depix-wallet", "wallet"],
-  ["/depix/withdrawals", "wallet"],
-  ["/depix", "wallet"],
-  ["/quick-sales", "wallet"],
+  ["/depix/withdrawals", "depix-ops"],
+  ["/depix", "depix-ops"],
+  ["/quick-sales", "depix-ops"],
 
   // service-orders / assistência
   ["/service-orders", "service-orders"],

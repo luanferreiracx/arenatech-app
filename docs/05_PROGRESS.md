@@ -305,6 +305,21 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-02 — GATING (rodada 3): DePix ops separadas + FIX RLS (vazamento cross-tenant)
+
+Feedback do dono: "Vendas Avulsas DePix" e "Saques DePix" ainda apareciam (estavam em `module: wallet`); e — grave — **saques do tenant central vazavam na lista de outros tenants**.
+
+- **Separacao de modulo:** novo modulo `depix-ops` (vendas avulsas `/quick-sales` + saques `/depix/withdrawals`). `wallet` agora e SO a carteira (`/depix-wallet`). Tenant wallet-only ve so "DePix Wallet". Atualizado mapa de rotas + nav items + label.
+- **FIX SEGURANCA (RLS faltando — vazamento cross-tenant):** varredura revelou varias tabelas com `tenant_id` criadas **SEM Row Level Security** — `withTenant()` nao isolava, entao dados de TODOS os tenants (inclusive arena-tech central) vazavam em qualquer tenant. Duas migrations:
+  - `20260602120000_rls_depix_withdrawals_quick_sales`: `depix_withdrawals`, `quick_sales`.
+  - `20260602123000_rls_sales_nfe_payment_rates`: `payment_method_rates`, `sale_audits`, `sale_documents`, `sale_upgrades`, `nfe_imports`, `nfe_import_items`.
+  Padrao canonico (tenant_isolation + admin_bypass + grants). Aplicadas no dev OK; prod aplica via `migrate deploy` no deploy do CI.
+- **Pendente de analise (NAO corrigidas — ver Lacunas):** `user_tenants` (juncao global), `tenant_number_sequences` (lock de numeracao), `checklists`/`reward_*`/`chatbot_*` (fora de escopo/inativos). `depix_webhook_events` nao tem tenant_id (global).
+
+**Validacao:** typecheck OK | lint 0 erros | modules tests (15) | 751 unit OK | 2 migrations aplicadas no dev.
+
+---
+
 ### 2026-06-02 — GATING (rodada 2): settings travado + taxas so super admin
 
 Dois ajustes de seguranca apos feedback do dono ("absurdo o tenant alterar as proprias taxas" + "travar ate as configuracoes, so wallet").
