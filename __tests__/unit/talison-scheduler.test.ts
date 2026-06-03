@@ -19,9 +19,12 @@ const fakeRedis = {
 
 vi.mock("@/lib/redis", () => ({ getRedis: () => fakeRedis }));
 
-const processConversation = vi.fn(async () => ({ status: "replied" as const }));
+const processConversation = vi.fn(async (_tenantId: string, _conversationId: string) => ({
+  status: "replied" as const,
+}));
 vi.mock("@/lib/talison/runner", () => ({
-  processConversation: (...args: unknown[]) => processConversation(...args),
+  processConversation: (tenantId: string, conversationId: string) =>
+    processConversation(tenantId, conversationId),
 }));
 
 import { scheduleTalisonRun } from "@/lib/talison/scheduler";
