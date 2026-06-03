@@ -21,7 +21,11 @@ export function getRedis(): Redis | null {
   try {
     client = new Redis(url, {
       maxRetriesPerRequest: 3,
-      enableOfflineQueue: false,
+      // enableOfflineQueue=true: comandos enfileiram durante reconexão em vez
+      // de lançar "Stream isn't writeable". Os callers deste client compartilhado
+      // (debounce do Talison) toleram a latência e não são hot-path como o
+      // rate-limit — preferimos enfileirar a derrubar o atendimento.
+      enableOfflineQueue: true,
       lazyConnect: false,
     });
     client.on("error", (err) => {

@@ -38,12 +38,22 @@ async function runIfCurrent(
   conversationId: string,
   nonce: string,
 ): Promise<void> {
+  // Redis é otimização (dedup de rajada), NÃO dependência crítica. Se falhar
+  // (conexão caiu, enableOfflineQueue=false), degrada: processa sem dedup em
+  // vez de derrubar o atendimento. Nunca deixa o cliente sem resposta.
   const redis = getRedis();
   if (redis) {
-    const current = await redis.get(generationKey(conversationId));
-    if (current !== nonce) {
-      logger.debug("Talison: disparo obsoleto, descartando", { conversationId });
-      return;
+    try {
+      const current = await redis.get(generationKey(conversationId));
+      if (current !== nonce) {
+        logger.debug("Talison: disparo obsoleto, descartando", { conversationId });
+        return;
+      }
+    } catch (error) {
+      logger.warn("Talison: Redis indisponível na leitura da generation — processando sem dedup", {
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   try {
@@ -70,8 +80,18 @@ export async function scheduleTalisonRun(
   const nonce = nextNonce();
   const redis = getRedis();
 
+  // Falha de Redis aqui não pode derrubar o agendamento — sem a generation,
+  // o disparo processa sem dedup (pior caso: responde 2x numa rajada rápida,
+  // melhor que não responder).
   if (redis) {
-    await redis.set(generationKey(conversationId), nonce, "EX", GENERATION_TTL_SECONDS);
+    try {
+      await redis.set(generationKey(conversationId), nonce, "EX", GENERATION_TTL_SECONDS);
+    } catch (error) {
+      logger.warn("Talison: Redis indisponível ao gravar generation — seguindo sem dedup", {
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // unref() pra o timer não segurar o event loop no shutdown.

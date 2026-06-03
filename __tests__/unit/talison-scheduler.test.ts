@@ -58,4 +58,16 @@ describe("scheduleTalisonRun (debounce por generation)", () => {
     // veem uma generation mais nova e desistem.
     expect(processConversation).toHaveBeenCalledOnce();
   });
+
+  it("Redis falhando NÃO derruba o atendimento — processa sem dedup", async () => {
+    // Reproduz o bug de prod: "Stream isn't writeable". set/get lançam.
+    fakeRedis.set.mockRejectedValueOnce(new Error("Stream isn't writeable"));
+    fakeRedis.get.mockRejectedValueOnce(new Error("Stream isn't writeable"));
+
+    await scheduleTalisonRun("tenant-1", "conv-1");
+    await vi.runAllTimersAsync();
+
+    // Sem dedup possível, mas o cliente é atendido mesmo assim.
+    expect(processConversation).toHaveBeenCalledOnce();
+  });
 });
