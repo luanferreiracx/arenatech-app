@@ -305,6 +305,18 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-03 — Isolamento por branch: branch por tarefa, merge deploya (ADR 0046)
+
+Decisao do dono: parar de commitar direto na main (varias sessoes colidiam). Agora cada tarefa tem branch; main so recebe via PR; merge aciona o deploy.
+
+- **CI por evento:** push de branch → lint+typecheck+unit+**E2E @smoke** (~25, rapido). PR pra main → **E2E completo** (~132). Merge na main → build+migrate+deploy (serializado, ADR 0045). Trigger ampliado p/ `push: ["**"]` + `pull_request: [main]`.
+- **E2E adaptativo** roda contra `next build && next start` (producao local, sem Turbopack → sem flakiness); escopo smoke/full decidido por evento (step `scope`). Nao builda imagem Docker em branch/PR (so na main). Validado local: build OK + next start UP + 25 @smoke verdes em 47s.
+- **CLAUDE.md atualizado:** fluxo branch→PR→merge-quando-verde; sessao mergeia sozinha (`gh pr merge --squash --delete-branch`); hotfix via branch+PR (mergeia no smoke). Sem branch protection (plano GitHub) → convencao + design do CI.
+
+**Validacao:** actionlint OK | build local OK | @smoke 25/25 local. Esta propria mudanca entra via PR (1a aplicacao do fluxo).
+
+---
+
 ### 2026-06-03 — CI/CD: deploy serializado + E2E paralelo (ADR 0045)
 
 Dois problemas: (1) deploys concorrentes colidiam na VPS; (2) E2E nao rodava em lugar nenhum (pre-push ja simplificado p/ typecheck+unit no commit 20dab70; CI nunca teve E2E). Tempo do CI e dominado pelo build Docker (~3min), nao E2E.

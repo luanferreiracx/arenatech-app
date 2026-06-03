@@ -2,13 +2,14 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: ["**"] # main (deploy) + branches de trabalho (smoke E2E rapido)
   pull_request:
-    branches: [main]
+    branches: [main] # PR p/ main: suite E2E completa antes do merge
 
-# Cancela runs antigos no mesmo branch quando um novo push chega
+# Cancela runs antigos no mesmo branch quando um novo push chega.
+# Inclui event_name no group pra um push e o PR do mesmo ref nao se cancelarem.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
@@ -263,18 +264,20 @@ jobs:
           provenance: false
 
   # ============================================================
-  # E2E: roda contra a IMAGEM Docker recem-buildada (mesma de prod) —
-  # sem Turbopack/dev => sem flakiness. Roda EM PARALELO ao deploy e NAO o
-  # bloqueia (deploy nao tem `needs: e2e`). Se quebrar, este job fica vermelho
-  # (voce e avisado) mas o deploy ja seguiu. Recupera cobertura de E2E sem
-  # custo no caminho critico do deploy.
+  # E2E — escopo adaptativo (rapido na iteracao, completo no merge):
+  #   - push em BRANCH (nao-main): so @smoke (~25 testes, rapido) contra
+  #     `next start` local. Loop de dev rapido.
+  #   - PULL REQUEST p/ main: suite COMPLETA contra `next start` local.
+  #     "branch verde" antes do merge.
+  #   - push na MAIN: suite COMPLETA contra a IMAGEM Docker (paridade prod),
+  #     em paralelo ao deploy (NAO bloqueia — deploy nao tem needs: e2e).
+  # App sempre roda em build de producao (sem Turbopack dev => sem flakiness).
   # ============================================================
   e2e:
-    name: E2E (nao bloqueia deploy)
-    needs: build-image
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    name: E2E
+    needs: [lint, typecheck, test]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     env:
       DB_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_e2e
       REDIS_URL: redis://localhost:6379
@@ -282,9 +285,8 @@ jobs:
       NEXTAUTH_URL: http://localhost:3000
       SUPERADMIN_CPF: "12345678909"
       SUPERADMIN_PASSWORD: "Ar3naTech2026Super"
-      # E2E de cron (cashier auto-close) chama endpoint que exige CRON_SECRET.
-      # Default do teste e "dev_cron_secret_not_for_production".
       CRON_SECRET: dev_cron_secret_not_for_production
+      WHATSAPP_MOCK: "1"
     services:
       postgres:
         image: postgres:16
@@ -302,6 +304,18 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Definir escopo do E2E (smoke vs full)
+        id: scope
+        run: |
+          # PR p/ main ou push na main => suite completa. Push de branch => smoke.
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "grep=" >> "$GITHUB_OUTPUT"
+            echo "label=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "grep=--grep @smoke" >> "$GITHUB_OUTPUT"
+            echo "label=smoke" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -334,53 +348,45 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # ── App: build de producao local (sem buildar imagem Docker) ──
+      - name: Build app (next build)
+        run: pnpm build
+        env:
+          DATABASE_URL: ${{ env.DB_URL }}
+          NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
 
-      - name: Subir app (imagem buildada, mesma de prod)
+      - name: Subir app (next start)
         run: |
-          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):sha-${{ github.sha }}"
-          echo "Usando imagem: $IMAGE"
-          docker pull -q "$IMAGE"
-          # --network host: o container alcanca postgres/redis em localhost:5432/6379
-          docker run -d --name arenatech-e2e --network host \
-            -e DATABASE_URL="${{ env.DB_URL }}" \
-            -e REDIS_URL="${{ env.REDIS_URL }}" \
-            -e NEXTAUTH_SECRET="${{ env.NEXTAUTH_SECRET }}" \
-            -e NEXTAUTH_URL="${{ env.NEXTAUTH_URL }}" \
-            -e CRON_SECRET="${{ env.CRON_SECRET }}" \
-            -e WHATSAPP_MOCK=1 \
-            -e NODE_ENV=production \
-            -e PORT=3000 \
-            "$IMAGE"
-
-      - name: Aguardar app responder
-        run: |
+          pnpm start >/tmp/app.log 2>&1 &
           for _ in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)
             if [ "$code" = "200" ]; then echo "app UP"; exit 0; fi
             sleep 2
           done
-          echo "::error::app nao subiu a tempo"; docker logs arenatech-e2e | tail -50; exit 1
+          echo "::error::app nao subiu a tempo"; tail -50 /tmp/app.log; exit 1
+        env:
+          DATABASE_URL: ${{ env.DB_URL }}
+          REDIS_URL: ${{ env.REDIS_URL }}
+          NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
+          NEXTAUTH_URL: ${{ env.NEXTAUTH_URL }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          WHATSAPP_MOCK: "1"
+          PORT: "3000"
 
-      - name: Rodar E2E (Playwright)
-        run: pnpm exec playwright test
+      - name: Rodar E2E (${{ steps.scope.outputs.label }})
+        run: pnpm exec playwright test ${{ steps.scope.outputs.grep }}
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:3000
 
       - name: Logs do app (se falhar)
         if: failure()
-        run: docker logs arenatech-e2e 2>&1 | tail -100
+        run: tail -100 /tmp/app.log || true
 
       - name: Upload report (se falhar)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ steps.scope.outputs.label }}
           path: playwright-report/
           retention-days: 7
 
