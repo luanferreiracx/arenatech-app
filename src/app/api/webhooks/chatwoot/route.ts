@@ -71,7 +71,10 @@ export async function POST(req: NextRequest) {
     switch (event) {
       case "message_created": {
         const message = body.content as string | undefined
-        const messageType = String(body.message_type ?? "")
+        // message_type vem como STRING ("incoming"/"outgoing") no webhook genérico,
+        // mas como INTEIRO (0=incoming, 1=outgoing) no Agent Bot. Normaliza ambos.
+        const rawMessageType = body.message_type
+        const messageType = String(rawMessageType ?? "")
         const sender = body.sender as Record<string, unknown> | undefined
         const conversation = body.conversation as Record<string, unknown> | undefined
 
@@ -107,7 +110,8 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const isIncoming = messageType === "incoming"
+        // incoming = "incoming" (webhook genérico) OU 0 (Agent Bot).
+        const isIncoming = messageType === "incoming" || rawMessageType === 0 || messageType === "0"
         const senderType = String(sender?.type ?? "")
         // Sender.type Chatwoot:
         //   - "contact" = cliente (mensagem incoming)
@@ -235,7 +239,15 @@ export async function POST(req: NextRequest) {
 
         // Fora da tx e sem await bloqueante: agenda o agente e responde 200 já.
         if (persisted?.triggerBot) {
+          logger.info("Chatwoot webhook: agendando Talison", { conversationId: persisted.conversationId })
           void scheduleTalisonRun(tenantId, persisted.conversationId)
+        } else {
+          // Por que NÃO agendou — evita "morrer em silêncio" no diagnóstico.
+          logger.info("Chatwoot webhook: Talison não acionado", {
+            isIncoming,
+            isHumanAgent,
+            messageType,
+          })
         }
         break
       }
