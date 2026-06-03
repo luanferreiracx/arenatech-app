@@ -14,6 +14,7 @@ import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract
 import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/service-order";
 import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
+import { buscarProduto } from "@/lib/talison/tools/stock";
 import { qualificarLead } from "@/lib/talison/tools/handoff";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
@@ -162,6 +163,66 @@ describe("consultar_avaliacao", () => {
       expect(result.data.valor).toBe("R$ 3.500,00");
       expect(result.display).toContain("7 dias");
     }
+  });
+});
+
+describe("buscar_produto", () => {
+  it("lista produtos com preço PIX e disponibilidade", async () => {
+    const tx = {
+      product: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            name: "Apple iPhone 15 Pro Max 256GB",
+            brand: "Apple",
+            salePrice: { toString: () => "3700.00" },
+            promotionalPrice: null,
+            currentStock: 1,
+            isDevice: true,
+          },
+        ]),
+      },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarProduto.execute({ termo: "iPhone 15" }, makeCtx(tx));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("R$ 3.700,00");
+      expect(result.display).toContain("em estoque");
+      expect(result.data.algum_em_estoque).toBe(true);
+    }
+  });
+
+  it("trata preço zerado como 'sob consulta' (não inventa R$ 0,00)", async () => {
+    const tx = {
+      product: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            name: "MacBook Air M5",
+            brand: "Apple",
+            salePrice: { toString: () => "0.00" },
+            promotionalPrice: null,
+            currentStock: 0,
+            isDevice: true,
+          },
+        ]),
+      },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarProduto.execute({ termo: "MacBook" }, makeCtx(tx));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("sob consulta");
+      expect(result.display).toContain("sob encomenda");
+    }
+  });
+
+  it("retorna ok:false quando não há produto (não inventa estoque)", async () => {
+    const tx = {
+      product: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarProduto.execute({ termo: "xyz inexistente" }, makeCtx(tx));
+    expect(result.ok).toBe(false);
   });
 });
 
