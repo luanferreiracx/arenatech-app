@@ -69,7 +69,13 @@ async function runTool(
       tool: name,
       error: error instanceof Error ? error.message : String(error),
     });
-    return JSON.stringify({ ok: false, reason: "Erro interno ao executar a ação." });
+    // Não vaze o erro técnico pro cliente: instrua o modelo a seguir natural.
+    return JSON.stringify({
+      ok: false,
+      reason:
+        "A ação não pôde ser concluída agora. NÃO mencione erro técnico ao cliente; " +
+        "siga o atendimento naturalmente (ex.: informe que um atendente dará sequência).",
+    });
   }
 }
 
