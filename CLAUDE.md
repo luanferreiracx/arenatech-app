@@ -68,12 +68,31 @@ Se precisar adicionar uma lib nova, justifique no commit por que ela é necessá
 
 ## Workflow de Git
 
-### Onde commita
+### Fluxo de branch (ISOLAMENTO POR TAREFA — padrão desde 2026-06-03)
 
-- **Em `main`:** ajustes pequenos óbvios (typo, refactor pequeno, bump de dep), bugfix urgente de 1 commit
-- **Em branch `feat/*`:** módulo inteiro, schema novo grande, refactor que toca em vários arquivos
-- **Em branch `fix/*`:** correções não triviais
-- **Em branch `chore/*`:** manutenção/refactor
+> Várias sessões trabalham em paralelo. Para não colidirem (mesmo arquivo, deploys
+> concorrentes, WIP indo pra prod), **cada tarefa tem sua própria branch**. A `main`
+> é "o que está em produção" — só recebe código testado, via merge.
+
+1. **No início de cada tarefa, crie uma branch** a partir da `main` atualizada:
+   - `feat/<escopo>` — funcionalidade nova
+   - `fix/<escopo>` — correção
+   - `chore/<escopo>` — manutenção/refactor/infra
+   - `db/<escopo>` — migration/schema
+2. **Trabalhe e commite na branch** (quantos commits precisar).
+3. **Push da branch** → o CI roda **E2E @smoke + lint/typecheck/unit** (rápido, ~2-3min). Itere à vontade.
+4. **Abra um PR pra `main`** (`gh pr create`). O CI do PR roda a **suíte E2E completa**.
+5. **Quando o CI do PR ficar verde, a própria sessão dá merge** (`gh pr merge --squash --delete-branch`). Não precisa esperar aprovação do dono.
+6. **Merge na `main` → deploy automático** (build imagem + migrate + deploy na VPS).
+
+- **NÃO commitar direto na `main`** (salvo hotfix — ver abaixo).
+- Antes de criar a branch / abrir PR, faça `git fetch origin main` e parta dela.
+
+### Hotfix urgente (produção quebrada)
+
+Para urgência real (prod fora do ar, bug crítico em produção): branch `fix/hotfix-*`,
+PR, e merge assim que o **smoke** passar (não espera a suíte completa). Documente no PR
+que é hotfix. Mesmo hotfix passa por branch+PR — só o critério de "verde" é mais frouxo.
 
 ### Convenção de commits (Conventional Commits)
 
@@ -95,18 +114,19 @@ db(schema): adicionar índice composto em service_orders
 chore: bumpar prisma para 6.2
 ```
 
-### Push
+### Push e validação (CI por evento — ADR 0045/0046)
 
-- Push direto na main é **permitido** (autorizado pelo dono)
-- **PORÉM** o GitHub Actions valida (lint, typecheck, test, e2e, build, prisma) antes de aceitar
-- Se algum check falhar, push é rejeitado — corrija local e tente de novo
-- **NUNCA** use `git push --force` ou `--force-with-lease` (denylist)
+- **Push em branch:** CI roda lint + typecheck + unit + **E2E @smoke** (~25 testes, rápido). Não builda imagem nem deploya.
+- **PR pra `main`:** CI roda a **suíte E2E completa** (~132). É o portão antes do merge.
+- **Merge na `main`:** build da imagem Docker + migrate + **deploy serializado** na VPS (fila — dois merges não colidem).
+- O pre-push local (husky) faz só typecheck + unit (validação rápida). O E2E é autoritativo no CI.
+- **NUNCA** use `git push --force` ou `--force-with-lease` (denylist).
 
-### Pull Requests
+### Pull Requests (obrigatório pra entrar na main)
 
-- Não obrigatório (push direto permitido)
-- Se a mudança for grande/arriscada, **abra um PR** mesmo assim para histórico legível
-- Use `gh pr create` para automação
+- Toda mudança entra na `main` **via PR** (`gh pr create`). É como o deploy é acionado.
+- A sessão **mergeia sozinha** quando o CI do PR está verde (`gh pr merge --squash --delete-branch`) — sem precisar de aprovação do dono, salvo se o dono pedir review explícito.
+- Migrations: garanta que aplicam **num banco limpo do zero** (o E2E do CI roda `migrate deploy` limpo — ver ADR 0045).
 
 ---
 
@@ -119,9 +139,9 @@ chore: bumpar prisma para 6.2
 - Rodar Prisma (validate, generate, migrate dev/deploy/status)
 - Subir/parar containers do projeto (`docker compose ...`)
 - Executar testes
-- Fazer commits e push (no main, se CI passar)
-- Criar/mergear branches
-- Abrir PRs
+- Criar branch de tarefa, commitar e fazer push **na branch**
+- Abrir PR pra main e **mergear quando o CI do PR estiver verde** (`gh pr merge --squash --delete-branch`)
+- (NÃO commitar direto na main, salvo hotfix — ver "Fluxo de branch")
 - Buscar na web, ler docs
 - Ler arquivos do projeto Laravel antigo em `/Users/luanferreira/Herd/intranetpdv` (somente leitura)
 
