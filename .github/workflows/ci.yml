@@ -3,8 +3,19 @@ name: CI/CD
 on:
   push:
     branches: ["**"] # main (deploy) + branches de trabalho (smoke E2E rapido)
+    # Mudancas SO de documentacao nao tem codigo a testar/buildar/deployar —
+    # pulam o CI inteiro (PR de doc fica verde na hora, sem esperar E2E ~7min).
+    # Se o PR misturar doc + codigo, o codigo dispara o CI normalmente.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
   pull_request:
     branches: [main] # PR p/ main: suite E2E completa antes do merge
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
 
 # Cancela runs antigos no mesmo branch quando um novo push chega.
 # Inclui event_name no group pra um push e o PR do mesmo ref nao se cancelarem.
