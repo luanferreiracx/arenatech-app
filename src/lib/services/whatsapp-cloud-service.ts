@@ -32,6 +32,13 @@ function getConfig() {
     process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
   const apiVersion = process.env.WHATSAPP_CLOUD_API_VERSION ?? "v22.0";
   if (!token || !phoneNumberId) {
+    // WHATSAPP_MOCK=1 forca o modo mock mesmo com NODE_ENV=production. Necessario
+    // p/ E2E no CI (a imagem roda como production, mas nao ha credenciais Meta —
+    // queremos mockar a integracao externa, nao quebrar o fluxo). NUNCA setar em
+    // prod real (mensagens seriam descartadas silenciosamente).
+    if (process.env.WHATSAPP_MOCK === "1") {
+      return null;
+    }
     if (process.env.NODE_ENV === "production") {
       // Em prod, mock-mode silencioso e perigoso: mensagens "enviadas" sao
       // descartadas sem qualquer indicacao no UI. Falha cedo e ruidoso.

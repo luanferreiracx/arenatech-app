@@ -282,6 +282,9 @@ jobs:
       NEXTAUTH_URL: http://localhost:3000
       SUPERADMIN_CPF: "12345678909"
       SUPERADMIN_PASSWORD: "Ar3naTech2026Super"
+      # E2E de cron (cashier auto-close) chama endpoint que exige CRON_SECRET.
+      # Default do teste e "dev_cron_secret_not_for_production".
+      CRON_SECRET: dev_cron_secret_not_for_production
     services:
       postgres:
         image: postgres:16
@@ -349,6 +352,8 @@ jobs:
             -e REDIS_URL="${{ env.REDIS_URL }}" \
             -e NEXTAUTH_SECRET="${{ env.NEXTAUTH_SECRET }}" \
             -e NEXTAUTH_URL="${{ env.NEXTAUTH_URL }}" \
+            -e CRON_SECRET="${{ env.CRON_SECRET }}" \
+            -e WHATSAPP_MOCK=1 \
             -e NODE_ENV=production \
             -e PORT=3000 \
             "$IMAGE"
