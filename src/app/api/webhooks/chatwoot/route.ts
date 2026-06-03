@@ -3,6 +3,7 @@ import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
+import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 
 /**
  * POST /api/webhooks/chatwoot
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
 
         if (!contactPhone) break
 
-        await withAdmin(async (tx) => {
+        const persisted = await withAdmin(async (tx) => {
           // Lookup customer por telefone (cliente cadastrado)
           // Telefone pode ter prefixos diversos; busca pelos ultimos 8/9 digitos
           const last9 = contactPhone.slice(-9)
@@ -189,7 +190,21 @@ export async function POST(req: NextRequest) {
               },
             })
           }
+
+          // Aciona o Talison apenas em mensagem do cliente, sem handoff humano
+          // e em conversa não-resolvida. O scheduler faz o debounce.
+          const triggerBot =
+            isIncoming &&
+            !isHumanAgent &&
+            conv.status !== "HUMAN_TAKEOVER" &&
+            conv.status !== "RESOLVED"
+          return { conversationId: conv.id, triggerBot }
         })
+
+        // Fora da tx e sem await bloqueante: agenda o agente e responde 200 já.
+        if (persisted?.triggerBot) {
+          void scheduleTalisonRun(tenantId, persisted.conversationId)
+        }
         break
       }
 
