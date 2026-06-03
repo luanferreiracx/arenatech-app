@@ -305,6 +305,18 @@ Implementado gating de modulos por plano. Decisoes confirmadas com o dono: gatin
 
 ---
 
+### 2026-06-03 — CI/CD: deploy serializado + E2E paralelo (ADR 0045)
+
+Dois problemas: (1) deploys concorrentes colidiam na VPS; (2) E2E nao rodava em lugar nenhum (pre-push ja simplificado p/ typecheck+unit no commit 20dab70; CI nunca teve E2E). Tempo do CI e dominado pelo build Docker (~3min), nao E2E.
+
+- **Deploy serializado:** `concurrency: { group: deploy-vps-production, cancel-in-progress: false }` no JOB deploy. Group fixo => fila unica; 2o deploy ESPERA o 1o (nao cancela, nao perde commit). Build segue paralelo. Resolve a corrida git reset --hard + migrate deploy concorrentes.
+- **E2E no CI, paralelo, NAO bloqueia deploy:** novo job `e2e` (needs build-image, NAO e needs do deploy). Roda contra a IMAGEM Docker buildada (mesma de prod, sem Turbopack => sem flakiness): postgres+redis services, migrate+seed, sobe container, Playwright. Job vermelho avisa, mas deploy ja seguiu. Report como artifact em falha.
+- Limite conhecido: recreate MANUAL na VPS durante deploy do CI ainda pode colidir (flock nao adotado). Procedimento: checar `gh run list` antes de recreate manual.
+
+**Validacao:** actionlint OK (so warning pre-existente linha 44) | deploy NAO depende de e2e (confirmado no grafo de needs).
+
+---
+
 ### 2026-06-02 — FIX CRITICO: webhook de deposito DePix rejeitado (503) + status "approved"
 
 Depositos PIX demoravam "um absurdo" pra confirmar. Causa raiz dupla:

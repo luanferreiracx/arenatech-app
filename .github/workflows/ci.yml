@@ -263,6 +263,123 @@ jobs:
           provenance: false
 
   # ============================================================
+  # E2E: roda contra a IMAGEM Docker recem-buildada (mesma de prod) —
+  # sem Turbopack/dev => sem flakiness. Roda EM PARALELO ao deploy e NAO o
+  # bloqueia (deploy nao tem `needs: e2e`). Se quebrar, este job fica vermelho
+  # (voce e avisado) mas o deploy ja seguiu. Recupera cobertura de E2E sem
+  # custo no caminho critico do deploy.
+  # ============================================================
+  e2e:
+    name: E2E (nao bloqueia deploy)
+    needs: build-image
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DB_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_e2e
+      REDIS_URL: redis://localhost:6379
+      NEXTAUTH_SECRET: e2e-secret-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      SUPERADMIN_CPF: "12345678909"
+      SUPERADMIN_PASSWORD: "Ar3naTech2026Super"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arenatech
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: arenatech_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Restore deps cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            node_modules/.prisma
+            node_modules/@prisma/client
+          key: deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'prisma/schema/**/*.prisma') }}
+
+      - name: Install deps (fallback se cache miss)
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate + seed (banco de teste E2E)
+        run: |
+          pnpm prisma migrate deploy
+          pnpm tsx prisma/seed.ts
+        env:
+          DATABASE_URL: ${{ env.DB_URL }}
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir app (imagem buildada, mesma de prod)
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):sha-${{ github.sha }}"
+          echo "Usando imagem: $IMAGE"
+          docker pull -q "$IMAGE"
+          # --network host: o container alcanca postgres/redis em localhost:5432/6379
+          docker run -d --name arenatech-e2e --network host \
+            -e DATABASE_URL="${{ env.DB_URL }}" \
+            -e REDIS_URL="${{ env.REDIS_URL }}" \
+            -e NEXTAUTH_SECRET="${{ env.NEXTAUTH_SECRET }}" \
+            -e NEXTAUTH_URL="${{ env.NEXTAUTH_URL }}" \
+            -e NODE_ENV=production \
+            -e PORT=3000 \
+            "$IMAGE"
+
+      - name: Aguardar app responder
+        run: |
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)
+            if [ "$code" = "200" ]; then echo "app UP"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::app nao subiu a tempo"; docker logs arenatech-e2e | tail -50; exit 1
+
+      - name: Rodar E2E (Playwright)
+        run: pnpm exec playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+      - name: Logs do app (se falhar)
+        if: failure()
+        run: docker logs arenatech-e2e 2>&1 | tail -100
+
+      - name: Upload report (se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # ============================================================
   # Deploy: VPS so faz `docker pull` + restart + migrate
   # ============================================================
   deploy:
@@ -270,7 +387,15 @@ jobs:
     needs: build-image
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    # SERIALIZA deploys: dois pushes proximos NAO disputam a VPS ao mesmo tempo.
+    # Group fixo (nao por ref/sha) => todo deploy entra na MESMA fila.
+    # cancel-in-progress=false => o 2o deploy ESPERA o 1o terminar (nao cancela,
+    # nao perde commit) — evita git reset --hard + migrate deploy concorrentes.
+    # O build (job anterior) continua rodando em paralelo; so o deploy enfileira.
+    concurrency:
+      group: deploy-vps-production
+      cancel-in-progress: false
 
     steps:
       - name: Deploy via SSH
