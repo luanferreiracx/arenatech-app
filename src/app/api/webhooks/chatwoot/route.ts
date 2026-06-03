@@ -24,7 +24,14 @@ export async function POST(req: NextRequest) {
     logger.info("Chatwoot webhook received", { event })
 
     // Verify webhook token (timing-safe compare contra rotina e contra "Bearer X").
-    const token = req.headers.get("x-chatwoot-signature") ?? req.headers.get("authorization") ?? ""
+    // Chatwoot Agent Bot não permite header customizado, então também aceitamos
+    // o token via query string (?token=...) — é a forma prática de autenticar
+    // com o bot. Headers continuam suportados (proxy/nginx que injete auth).
+    const token =
+      req.headers.get("x-chatwoot-signature") ??
+      req.headers.get("authorization") ??
+      req.nextUrl.searchParams.get("token") ??
+      ""
     const expectedToken = process.env.CHATWOOT_WEBHOOK_TOKEN
     if (!expectedToken) {
       if (process.env.NODE_ENV === "production") {
