@@ -8,7 +8,7 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-05-29
+**Ultima atualizacao:** 2026-06-03
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `main`
@@ -261,6 +261,16 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 ---
 
 ## Historico de execucao
+
+### 2026-06-03 — TALISON IA: agente de atendimento reescrito do zero (DeepSeek + tools)
+
+Dono insatisfeito com o agente do Laravel (`ChatbotController`, 6.5k linhas, Haiku alucinando valores). Decisao: migrar a infra (ja estava no Next), mas **reescrever o cerebro do zero** com **DeepSeek** (conversa+tools) e **Claude so para visao** (imagem→texto). Escopo v1: atendimento + vendas (sem venda/PIX automatico). Branch `feat/talison-agent`.
+- **Princípio anti-alucinacao arquitetural:** modelo nunca produz dado de negocio (preco/status/prazo); so vem de tool; tool nao achou → transfere. Substitui as centenas de regras defensivas do Laravel.
+- **8 tools** (Zod→JSONSchema, RLS): status_os, garantia, orcamento, listar_servicos, buscar_cliente, avaliacao (leitura); qualificar_lead, transferir_humano (escrita). Reusam logica/schema existentes.
+- **Loop** `runTalison` com teto 5 iter + fail-safe (cliente nunca fica sem resposta). **Debounce** por generation (Redis + setTimeout no processo VPS): rajada de balaozinhos → 1 resposta. Webhook Chatwoot agenda nao-bloqueante.
+- **Validado contra a API DeepSeek real:** function-calling solido (chama tool e COPIA o dado, zero alucinacao); caminho de venda orcamento→qualificar_lead→transferir com resposta limpa.
+- 17 testes unit verdes, typecheck limpo. Provider abstraido (trocar modelo = trocar impl). Decisoes: ADR 0047. Plano: `docs/TALISON_AGENT_PLAN.md`.
+- **Falta:** instalar feature em prod (env `DEEPSEEK_API_KEY` — rotacionar, vazou em chat), migration `mediaUrl` ja existe no schema, abrir PR + merge. Fora da v1: venda+PIX, follow-up por IA.
 
 ### 2026-06-01 — LANDING: redesign (skill frontend-design) + acentuacao + cert no ar
 
