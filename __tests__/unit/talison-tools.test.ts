@@ -14,7 +14,7 @@ import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract
 import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/service-order";
 import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
-import { buscarProduto } from "@/lib/talison/tools/stock";
+import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { qualificarLead } from "@/lib/talison/tools/handoff";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
@@ -166,63 +166,68 @@ describe("consultar_avaliacao", () => {
   });
 });
 
-describe("buscar_produto", () => {
-  it("lista produtos com preço PIX e disponibilidade", async () => {
+describe("buscar_aparelho", () => {
+  it("lista aparelhos com condição traduzida, preço PIX e observação", async () => {
     const tx = {
-      product: {
+      availableDevice: {
         findMany: vi.fn().mockResolvedValue([
           {
-            name: "Apple iPhone 15 Pro Max 256GB",
-            brand: "Apple",
-            salePrice: { toString: () => "3700.00" },
-            promotionalPrice: null,
-            currentStock: 1,
-            isDevice: true,
+            model: "iPhone 15 128gb",
+            condition: "NEW",
+            price: { toString: () => "4299.99" },
+            note: null,
+          },
+          {
+            model: "iPhone 15 Plus 128gb",
+            condition: "SEMI_NEW",
+            price: { toString: () => "3299.00" },
+            note: "Bateria 83%, bem conservado",
           },
         ]),
       },
     } as unknown as Partial<TalisonTx>;
 
-    const result = await buscarProduto.execute({ termo: "iPhone 15" }, makeCtx(tx));
+    const result = await buscarAparelho.execute({ modelo: "iPhone 15" }, makeCtx(tx));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.display).toContain("R$ 3.700,00");
-      expect(result.display).toContain("em estoque");
-      expect(result.data.algum_em_estoque).toBe(true);
+      expect(result.display).toContain("R$ 4.299,99");
+      expect(result.display).toContain("(novo)");
+      expect(result.display).toContain("(seminovo)");
+      expect(result.display).toContain("Bateria 83%");
     }
   });
 
-  it("trata preço zerado como 'sob consulta' (não inventa R$ 0,00)", async () => {
+  it("retorna ok:false quando não há o aparelho (não inventa)", async () => {
     const tx = {
-      product: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            name: "MacBook Air M5",
-            brand: "Apple",
-            salePrice: { toString: () => "0.00" },
-            promotionalPrice: null,
-            currentStock: 0,
-            isDevice: true,
-          },
-        ]),
-      },
+      availableDevice: { findMany: vi.fn().mockResolvedValue([]) },
     } as unknown as Partial<TalisonTx>;
 
-    const result = await buscarProduto.execute({ termo: "MacBook" }, makeCtx(tx));
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.display).toContain("sob consulta");
-      expect(result.display).toContain("sob encomenda");
-    }
-  });
-
-  it("retorna ok:false quando não há produto (não inventa estoque)", async () => {
-    const tx = {
-      product: { findMany: vi.fn().mockResolvedValue([]) },
-    } as unknown as Partial<TalisonTx>;
-
-    const result = await buscarProduto.execute({ termo: "xyz inexistente" }, makeCtx(tx));
+    const result = await buscarAparelho.execute({ modelo: "Galaxy S99" }, makeCtx(tx));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("buscar_acessorio", () => {
+  it("lista acessórios com preço PIX e disponibilidade", async () => {
+    const tx = {
+      product: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            name: "Capa Galaxy S20 FE",
+            salePrice: { toString: () => "49.90" },
+            promotionalPrice: null,
+            currentStock: 4,
+          },
+        ]),
+      },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAcessorio.execute({ termo: "capa s20" }, makeCtx(tx));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("R$ 49,90");
+      expect(result.display).toContain("em estoque");
+    }
   });
 });
 

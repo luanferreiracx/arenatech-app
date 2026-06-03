@@ -1,10 +1,12 @@
 /**
- * Tool de estoque — busca aparelhos e acessórios em Product. Somente leitura.
+ * Tools de estoque do Talison — somente leitura.
  *
- * Uma só tabela Product cobre os dois casos: aparelho (isDevice=true) e
- * acessório (isDevice=false). Preço/estoque vêm do banco, formatados. Preço
- * zerado = "sob consulta" (não inventa valor). PIX com 5% de desconto, padrão
- * herdado do Laravel (config chatbot.vendas.pix_desconto).
+ * Por decisão de negócio, aparelhos e acessórios vivem em tabelas separadas:
+ *  - buscar_aparelho → available_devices (catálogo curado de aparelhos à venda)
+ *  - buscar_acessorio → products (capas, películas, fones, cabos)
+ *
+ * Preço sempre do banco, formatado. PIX -5% (padrão herdado do Laravel).
+ * Nunca inventa preço nem disponibilidade.
  */
 
 import { z } from "zod";
@@ -13,90 +15,141 @@ import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
 const MAX_RESULTS = 8;
 const PIX_DISCOUNT = 0.05;
 
-const buscarProdutoSchema = z.object({
-  termo: z
+/** Tradução do enum DeviceCondition pra linguagem de cliente. */
+const CONDITION_LABEL: Record<string, string> = {
+  NEW: "novo",
+  SEMI_NEW: "seminovo",
+  USED: "usado",
+  DISPLAY: "vitrine",
+  REFURBISHED: "recondicionado",
+  DEFECTIVE: "com defeito",
+};
+
+const buscarAparelhoSchema = z.object({
+  modelo: z
     .string()
-    .describe("O que o cliente procura — modelo de aparelho ('iPhone 15') ou acessório ('capa S20', 'película', 'fone')."),
-  tipo: z
-    .enum(["aparelho", "acessorio", "qualquer"])
+    .describe("Modelo procurado — ex: 'iPhone 15', 'iPhone 15 Pro Max', 'MacBook Air', 'PlayStation 5'."),
+  condicao: z
+    .enum(["novo", "seminovo", "usado", "qualquer"])
     .optional()
-    .describe("aparelho = celular/tablet/notebook; acessorio = capa/película/fone/cabo. Omita se não souber."),
+    .describe("Filtra por condição, se o cliente especificar. Omita para qualquer."),
 });
 
-export const buscarProduto: TalisonTool<typeof buscarProdutoSchema> = {
-  name: "buscar_produto",
+export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
+  name: "buscar_aparelho",
   description:
-    "Busca produtos em estoque — tanto aparelhos (iPhone, iPad, MacBook...) quanto " +
-    "acessórios (capa, película, fone, cabo). Use SEMPRE que o cliente perguntar 'tem X?' " +
-    "ou 'quanto custa o X?'. Copie nomes e preços do retorno; nunca invente preço nem " +
-    "diga que tem algo que não veio na lista. Se vazio, ofereça transferir pra um atendente.",
-  schema: buscarProdutoSchema,
+    "Busca aparelhos disponíveis para venda (iPhone, iPad, MacBook, Apple Watch, AirPods, console). " +
+    "Use SEMPRE que o cliente perguntar 'tem iPhone X?' ou 'quanto custa o aparelho Y?'. " +
+    "Copie modelos e preços do retorno; nunca invente preço nem diga que tem aparelho que não veio na lista.",
+  schema: buscarAparelhoSchema,
+  async execute(args, ctx) {
+    return ctx.withTenant(async (tx) => {
+      const model = args.modelo.trim();
+      const conditionFilter =
+        args.condicao === "novo"
+          ? { condition: "NEW" as const }
+          : args.condicao === "seminovo"
+            ? { condition: "SEMI_NEW" as const }
+            : args.condicao === "usado"
+              ? { condition: "USED" as const }
+              : {};
+
+      const devices = await tx.availableDevice.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          active: true,
+          deletedAt: null,
+          ...conditionFilter,
+          model: { contains: model, mode: "insensitive" },
+        },
+        orderBy: [{ price: "asc" }],
+        take: MAX_RESULTS,
+        select: { model: true, condition: true, price: true, note: true },
+      });
+
+      if (devices.length === 0) {
+        return {
+          ok: false as const,
+          reason: `Não encontrei "${model}" entre os aparelhos disponíveis. Diga que vai confirmar a disponibilidade com um atendente (ou ofereça um modelo parecido, se o cliente quiser).`,
+        };
+      }
+
+      const lines = devices.map((device) => {
+        const price = Number(device.price);
+        const priceLabel =
+          price > 0 ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - PIX_DISCOUNT))})` : "preço sob consulta";
+        const condition = CONDITION_LABEL[device.condition] ?? device.condition;
+        const note = device.note ? ` — ${device.note}` : "";
+        return `${device.model} (${condition}): ${priceLabel}${note}`;
+      });
+
+      return {
+        ok: true as const,
+        data: {
+          total: devices.length,
+          aparelhos: devices.map((device) => ({
+            modelo: device.model,
+            condicao: CONDITION_LABEL[device.condition] ?? device.condition,
+            preco: Number(device.price) > 0 ? formatBRL(Number(device.price)) : "sob consulta",
+          })),
+        },
+        display: lines.join("\n"),
+      };
+    });
+  },
+};
+
+const buscarAcessorioSchema = z.object({
+  termo: z
+    .string()
+    .describe("Acessório procurado — ex: 'capa S20', 'película iPhone 14', 'fone bluetooth', 'cabo usb-c'."),
+});
+
+export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
+  name: "buscar_acessorio",
+  description:
+    "Busca acessórios em estoque (capa, película, fone, cabo, carregador, etc). Use quando o cliente " +
+    "perguntar por um acessório. Copie nomes e preços do retorno; nunca invente. Se vazio, ofereça transferir.",
+  schema: buscarAcessorioSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
       const term = args.termo.trim();
-      const deviceFilter =
-        args.tipo === "aparelho"
-          ? { isDevice: true }
-          : args.tipo === "acessorio"
-            ? { isDevice: false }
-            : {};
-
       const products = await tx.product.findMany({
         where: {
           tenantId: ctx.tenantId,
           active: true,
           deletedAt: null,
-          ...deviceFilter,
+          isDevice: false,
           OR: [
             { name: { contains: term, mode: "insensitive" } },
             { brand: { contains: term, mode: "insensitive" } },
           ],
         },
-        // Disponíveis (com estoque) primeiro; depois por nome.
         orderBy: [{ currentStock: "desc" }, { name: "asc" }],
         take: MAX_RESULTS,
-        select: {
-          name: true,
-          brand: true,
-          salePrice: true,
-          promotionalPrice: true,
-          currentStock: true,
-          isDevice: true,
-        },
+        select: { name: true, salePrice: true, promotionalPrice: true, currentStock: true },
       });
 
       if (products.length === 0) {
         return {
           ok: false as const,
-          reason: `Não encontrei "${term}" no estoque. Diga ao cliente que vai confirmar a disponibilidade com um atendente.`,
+          reason: `Não encontrei "${term}" entre os acessórios. Diga que vai confirmar com um atendente.`,
         };
       }
 
       const lines = products.map((product) => {
-        // Preço efetivo: promocional quando houver; zero = sob consulta.
-        const priceValue = Number(product.promotionalPrice ?? product.salePrice);
+        const price = Number(product.promotionalPrice ?? product.salePrice);
         const priceLabel =
-          priceValue > 0
-            ? `${formatBRL(priceValue)} (PIX ${formatBRL(priceValue * (1 - PIX_DISCOUNT))})`
-            : "preço sob consulta";
+          price > 0 ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - PIX_DISCOUNT))})` : "preço sob consulta";
         const availability = product.currentStock > 0 ? "em estoque" : "sob encomenda";
         return `${product.name}: ${priceLabel} — ${availability}`;
       });
-
-      const anyInStock = products.some((product) => product.currentStock > 0);
 
       return {
         ok: true as const,
         data: {
           total: products.length,
-          algum_em_estoque: anyInStock,
-          itens: products.map((product) => ({
-            nome: product.name,
-            preco: Number(product.promotionalPrice ?? product.salePrice) > 0
-              ? formatBRL(Number(product.promotionalPrice ?? product.salePrice))
-              : "sob consulta",
-            em_estoque: product.currentStock > 0,
-          })),
+          algum_em_estoque: products.some((p) => p.currentStock > 0),
         },
         display: lines.join("\n"),
       };

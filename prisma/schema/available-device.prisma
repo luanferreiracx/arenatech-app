@@ -1,0 +1,29 @@
+/// Catálogo de aparelhos disponíveis para venda (espelho do aparelhos_catalogo
+/// do Laravel). Tabela DEDICADA, separada de products/catalog_devices — o modelo
+/// de negócio exige um catálogo curado de aparelhos à venda (modelo, condição,
+/// preço), distinto do estoque genérico de produtos. O Talison consulta esta
+/// tabela para "tem iPhone 15?".
+
+model AvailableDevice {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  /// Nome exato do aparelho — "iPhone 15 Pro Max 256GB", "PlayStation 5 Slim".
+  model         String
+  /// Categoria livre (slug): iphone, ipad, macbook, apple_watch, airpods, console.
+  category      String
+  condition     DeviceCondition @default(NEW)
+  price         Decimal         @db.Decimal(10, 2)
+  /// Observação opcional pro cliente — "bateria 95%, 90 dias de garantia".
+  note          String?
+  /// Disponível para venda (some da listagem quando false).
+  active        Boolean         @default(true)
+  priceUpdatedAt DateTime?      @map("price_updated_at")
+  deletedAt     DateTime?       @map("deleted_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@index([tenantId, category])
+  @@index([tenantId, model])
+  @@map("available_devices")
+}
