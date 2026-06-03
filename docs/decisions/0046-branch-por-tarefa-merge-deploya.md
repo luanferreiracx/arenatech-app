@@ -31,11 +31,17 @@ pelo GitHub). A disciplina é por convenção (CLAUDE.md) + pelo design do CI.
    Sem aprovação manual do dono (salvo pedido explícito).
 5. Merge na `main` → build imagem + migrate + **deploy** (serializado, ADR 0045).
 
-### E2E adaptativo (custo x confiança)
+### E2E adaptativo (custo x confiança) — REVISADO 2026-06-03
 O E2E roda contra `next build && next start` (produção local, sem Turbopack →
-sem flakiness), com escopo por evento:
-- **push de branch:** `@smoke` (~25 testes, ~1min) — loop de dev rápido.
-- **PR / main:** suíte completa (~132) — portão antes do merge.
+sem flakiness), com escopo por evento. **Objetivo: ninguém espera o full.**
+- **push de branch E PR pra main:** `@smoke` (~25 testes, ~1min) — iteração e
+  merge rápidos.
+- **merge na main (push):** suíte completa (~132) **em paralelo ao deploy** — o
+  deploy não tem `needs: e2e`, então o full não bloqueia; só avisa (job vermelho
+  → hotfix).
+
+(Versão inicial deste ADR rodava full no PR, fazendo esperar ~7min por merge —
+inclusive em PR de doc. Corrigido: full saiu do PR e foi pro pós-merge na main.)
 
 Não buildamos imagem Docker em branch/PR (evita ~3min + poluir o registry); a
 imagem só é buildada na main, no deploy.
@@ -51,6 +57,23 @@ imagem só é buildada na main, no deploy.
   espera a suíte completa).
 - **Limite:** sem branch protection, nada *impede* tecnicamente um commit direto na
   main — é convenção. Se o plano do GitHub mudar, adicionar required status checks.
+
+## Docs-only pulam o CI (paths-ignore)
+
+Mudanças que tocam **só** `**.md` / `docs/**` / `.vscode/**` não disparam o CI
+(via `paths-ignore` nos triggers). Não há código a testar/buildar/deployar — o PR
+de doc fica verde na hora, sem esperar a suíte E2E (~7min). PR que mistura doc +
+código dispara o CI normalmente.
+
+## Tempos reais (medidos 2026-06-03)
+
+- **Deploy de código na main:** ~2min40 total (setup 31s + lint/typecheck/test em
+  paralelo ~67s + build Docker **41s com cache GHA** + deploy ~30s). Saudável.
+- **PR de código:** + E2E full ~7min (portão antes do merge — vale uma vez).
+- **Push de branch:** lint/typecheck/test + E2E @smoke ~2-3min.
+
+O "deploy demorava 10min" reportado era um **PR de documentação rodando E2E full
+desnecessariamente** — corrigido pelo paths-ignore, não era o deploy em si.
 
 ## Relacionado
 ADR 0045 (deploy serializado + E2E paralelo) — este ADR move o gatilho do deploy
