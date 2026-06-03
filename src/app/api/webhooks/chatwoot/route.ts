@@ -68,7 +68,19 @@ export async function POST(req: NextRequest) {
         const sender = body.sender as Record<string, unknown> | undefined
         const conversation = body.conversation as Record<string, unknown> | undefined
 
-        if (!message || !conversation) break
+        // Attachments do Chatwoot: a primeira mídia traz data_url + file_type.
+        // Imagem é desviada ao Claude (visão) no runner; aqui só persistimos.
+        const attachments = Array.isArray(body.attachments)
+          ? (body.attachments as Array<Record<string, unknown>>)
+          : []
+        const firstAttachment = attachments[0]
+        const mediaUrl = firstAttachment?.data_url ? String(firstAttachment.data_url) : null
+        const mediaType = firstAttachment
+          ? String(firstAttachment.file_type ?? firstAttachment.type ?? "file")
+          : null
+
+        // Aceita mensagem com texto OU com mídia (imagem sem caption é válida).
+        if (!conversation || (!message && !mediaUrl)) break
 
         // Idempotencia: o Chatwoot pode reentregar message_created. Sem guard,
         // um replay criava ChatbotMessage duplicada. Dedup pela id da mensagem.
@@ -149,15 +161,28 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          // Create message
+          // Create message. Imagem → contentType "image" + mediaUrl (Claude
+          // descreve no runner). content guarda a caption ou um placeholder.
+          const isImage = mediaType === "image" && !!mediaUrl
+          const contentType = isImage
+            ? "image"
+            : mediaType
+              ? mediaType
+              : String(body.content_type ?? "text")
+          const persistedContent = message?.trim()
+            ? message
+            : mediaType
+              ? `[mídia: ${mediaType}]`
+              : ""
           await tx.chatbotMessage.create({
             data: {
               tenantId,
               conversationId: conv.id,
               direction: isIncoming ? "incoming" : "outgoing",
               senderType: isIncoming ? "customer" : (senderType === "user" ? "agent" : "bot"),
-              content: message,
-              contentType: String(body.content_type ?? "text"),
+              content: persistedContent,
+              contentType,
+              mediaUrl,
               externalId: String(body.id ?? ""),
             },
           })

@@ -10,24 +10,56 @@ import { withAdmin, withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { runTalison } from "@/lib/talison/agent";
 import { createDeepSeekProvider } from "@/lib/talison/providers/deepseek";
+import { createClaudeVisionProvider } from "@/lib/talison/providers/claude-vision";
 import { sendBotMessage } from "@/lib/talison/chatwoot-client";
 import type { LlmMessage } from "@/lib/talison/types";
 import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract";
 
 const HISTORY_LIMIT = 20;
 
-/** Mapeia uma ChatbotMessage do DB para o papel/role do modelo. */
-function toLlmMessage(message: {
+type StoredMessage = {
   direction: string;
   senderType: string;
   content: string;
-}): LlmMessage | null {
-  if (!message.content?.trim()) return null;
-  if (message.senderType === "customer") return { role: "user", content: message.content };
-  if (message.senderType === "bot") return { role: "assistant", content: message.content };
+  contentType: string;
+  mediaUrl: string | null;
+};
+
+/**
+ * Enriquece mensagens de imagem: DeepSeek não enxerga, então o Claude
+ * descreve a foto e a descrição entra no texto. Visão só roda quando há
+ * imagem com URL — custo pontual. Falha de visão não derruba o atendimento:
+ * cai num placeholder e a conversa segue.
+ */
+async function describeImages(messages: StoredMessage[]): Promise<string[]> {
+  const vision = createClaudeVisionProvider();
+  return Promise.all(
+    messages.map(async (message) => {
+      if (message.contentType !== "image" || !message.mediaUrl) return message.content;
+      try {
+        const description = await vision.describe({ imageUrl: message.mediaUrl });
+        const caption = message.content?.trim();
+        return caption
+          ? `${caption}\n[imagem enviada: ${description}]`
+          : `[imagem enviada: ${description}]`;
+      } catch (error) {
+        logger.warn("Talison: visão falhou, seguindo sem descrição", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return message.content?.trim() || "[cliente enviou uma imagem]";
+      }
+    }),
+  );
+}
+
+/** Mapeia uma ChatbotMessage (com texto já resolvido) para o papel do modelo. */
+function toLlmMessage(message: StoredMessage, resolvedContent: string): LlmMessage | null {
+  if (!resolvedContent.trim()) return null;
+  if (message.senderType === "customer") return { role: "user", content: resolvedContent };
+  if (message.senderType === "bot") return { role: "assistant", content: resolvedContent };
   // Mensagens de agente humano entram como contexto (o bot não fala por ele).
   if (message.senderType === "agent") {
-    return { role: "assistant", content: `[atendente] ${message.content}` };
+    return { role: "assistant", content: `[atendente] ${resolvedContent}` };
   }
   return null;
 }
@@ -57,7 +89,7 @@ export async function processConversation(
       where: { tenantId, conversationId },
       orderBy: { createdAt: "desc" },
       take: HISTORY_LIMIT,
-      select: { direction: true, senderType: true, content: true },
+      select: { direction: true, senderType: true, content: true, contentType: true, mediaUrl: true },
     });
     return { conversation, config, messages: messages.reverse() };
   });
@@ -89,7 +121,11 @@ export async function processConversation(
     return { status: "skipped", reason: "última mensagem não é do cliente" };
   }
 
-  const history = messages.map(toLlmMessage).filter((m): m is LlmMessage => m !== null);
+  // Descreve imagens via Claude e monta o histórico textual pro DeepSeek.
+  const resolvedContents = await describeImages(messages);
+  const history = messages
+    .map((message, index) => toLlmMessage(message, resolvedContents[index] ?? message.content))
+    .filter((m): m is LlmMessage => m !== null);
 
   const toolContext: TalisonToolContext = {
     tenantId,
