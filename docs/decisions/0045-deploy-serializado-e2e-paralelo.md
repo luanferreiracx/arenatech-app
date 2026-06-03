@@ -62,3 +62,20 @@ Job `e2e` que:
   **Procedimento:** não fazer recreate manual com deploy do CI em andamento;
   checar `gh run list` antes. Se manutenção manual virar rotina, revisitar com
   flock (cinto-e-suspensório).
+
+## Bônus: o E2E no CI pegou um bug latente no 1º run
+
+O job `e2e` roda `migrate deploy` num **banco limpo** — o que ninguém fazia. Isso
+revelou que o banco **não era reconstruível do zero**: a migration
+`20260516214000_cash_session_refactor` só tinha `CREATE TYPE/TABLE` de objetos que
+já existiam (da `20260508195634`), sem `DROP` — falhava com
+`type "CashMovementType" already exists`. Em prod "funcionava" porque as tabelas
+antigas foram dropadas manualmente em 16/05 (sem dados de caixa ainda).
+
+Corrigido com `DROP ... IF EXISTS CASCADE` no início da migration. **Seguro:**
+`migrate deploy` não re-roda migrations já aplicadas, então o DROP só executa em
+banco limpo (CI / novo ambiente / disaster recovery) — nunca em prod. Confirmado:
+dev/prod seguem "schema up to date" sem drift.
+
+**Regra reforçada:** toda migration deve ser idempotente o suficiente para aplicar
+num banco limpo do zero. O job E2E agora é a rede que garante isso continuamente.

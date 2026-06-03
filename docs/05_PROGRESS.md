@@ -313,7 +313,9 @@ Dois problemas: (1) deploys concorrentes colidiam na VPS; (2) E2E nao rodava em 
 - **E2E no CI, paralelo, NAO bloqueia deploy:** novo job `e2e` (needs build-image, NAO e needs do deploy). Roda contra a IMAGEM Docker buildada (mesma de prod, sem Turbopack => sem flakiness): postgres+redis services, migrate+seed, sobe container, Playwright. Job vermelho avisa, mas deploy ja seguiu. Report como artifact em falha.
 - Limite conhecido: recreate MANUAL na VPS durante deploy do CI ainda pode colidir (flock nao adotado). Procedimento: checar `gh run list` antes de recreate manual.
 
-**Validacao:** actionlint OK (so warning pre-existente linha 44) | deploy NAO depende de e2e (confirmado no grafo de needs).
+**Validacao:** actionlint OK (so warning pre-existente linha 44) | deploy NAO depende de e2e (confirmado no grafo de needs). No 1o run: E2E e Deploy iniciaram juntos, deploy=success sem esperar E2E.
+
+**ACHADO do E2E — banco nao era reconstruivel do zero (corrigido):** o job E2E (rodando migrate deploy num banco limpo) revelou que a migration `20260516214000_cash_session_refactor` so tinha CREATEs, sem dropar as estruturas antigas que substitui (cash_registers, cash_movements, type CashMovementType da 20260508195634) → falhava com "type CashMovementType already exists" em banco limpo. Em prod "funcionava" so porque as tabelas antigas foram dropadas manualmente em 16/05 (sem dados). Corrigido: DROP IF EXISTS CASCADE das estruturas antigas no inicio da migration. SEGURO em prod: migrate deploy NAO re-roda migrations aplicadas, entao o DROP so executa em banco limpo (CI/novo ambiente/disaster recovery). Validado: migrate deploy do ZERO passa 100% + seed cria usuarios E2E + dev/prod "schema up to date" (sem drift, sem re-execucao).
 
 ---
 

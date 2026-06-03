@@ -1,3 +1,20 @@
+-- REPARO (2026-06-03): esta migration refatora CashRegister->CashSession e
+-- recria cash_movements/CashMovementType (valores novos), mas originalmente so
+-- tinha CREATEs — sem dropar as estruturas antigas (cash_registers,
+-- cash_movements e o type CashMovementType, criados na 20260508195634). Por isso
+-- FALHAVA em banco limpo ("type already exists") e o banco nao era reconstruivel
+-- do zero. Em prod/dev isso "funcionou" porque as tabelas antigas foram dropadas
+-- manualmente em 16/05 (sem dados de caixa ainda). Agora dropamos explicitamente
+-- as estruturas antigas no inicio. SEGURO: migrate deploy NAO re-roda migrations
+-- ja aplicadas, entao este DROP so executa em banco LIMPO (CI / novo ambiente /
+-- disaster recovery) — nunca em prod, onde os dados de caixa estao preservados.
+
+-- Dropa estruturas antigas de caixa que esta migration substitui (so existem em
+-- banco limpo vindo da 20260508195634; em prod ja nao existem).
+DROP TABLE IF EXISTS "cash_movements" CASCADE;
+DROP TABLE IF EXISTS "cash_registers" CASCADE;
+DROP TYPE IF EXISTS "CashMovementType" CASCADE;
+
 -- CreateEnum
 CREATE TYPE "CashSessionCloseType" AS ENUM ('MANUAL', 'AUTOMATIC');
 
