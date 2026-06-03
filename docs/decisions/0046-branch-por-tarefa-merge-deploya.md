@@ -31,11 +31,17 @@ pelo GitHub). A disciplina é por convenção (CLAUDE.md) + pelo design do CI.
    Sem aprovação manual do dono (salvo pedido explícito).
 5. Merge na `main` → build imagem + migrate + **deploy** (serializado, ADR 0045).
 
-### E2E adaptativo (custo x confiança)
+### E2E adaptativo (custo x confiança) — REVISADO 2026-06-03
 O E2E roda contra `next build && next start` (produção local, sem Turbopack →
-sem flakiness), com escopo por evento:
-- **push de branch:** `@smoke` (~25 testes, ~1min) — loop de dev rápido.
-- **PR / main:** suíte completa (~132) — portão antes do merge.
+sem flakiness), com escopo por evento. **Objetivo: ninguém espera o full.**
+- **push de branch E PR pra main:** `@smoke` (~25 testes, ~1min) — iteração e
+  merge rápidos.
+- **merge na main (push):** suíte completa (~132) **em paralelo ao deploy** — o
+  deploy não tem `needs: e2e`, então o full não bloqueia; só avisa (job vermelho
+  → hotfix).
+
+(Versão inicial deste ADR rodava full no PR, fazendo esperar ~7min por merge —
+inclusive em PR de doc. Corrigido: full saiu do PR e foi pro pós-merge na main.)
 
 Não buildamos imagem Docker em branch/PR (evita ~3min + poluir o registry); a
 imagem só é buildada na main, no deploy.

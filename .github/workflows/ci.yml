@@ -11,7 +11,7 @@ on:
       - "docs/**"
       - ".vscode/**"
   pull_request:
-    branches: [main] # PR p/ main: suite E2E completa antes do merge
+    branches: [main] # PR p/ main: roda so @smoke (full roda pos-merge na main)
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -275,14 +275,13 @@ jobs:
           provenance: false
 
   # ============================================================
-  # E2E — escopo adaptativo (rapido na iteracao, completo no merge):
-  #   - push em BRANCH (nao-main): so @smoke (~25 testes, rapido) contra
-  #     `next start` local. Loop de dev rapido.
-  #   - PULL REQUEST p/ main: suite COMPLETA contra `next start` local.
-  #     "branch verde" antes do merge.
-  #   - push na MAIN: suite COMPLETA contra a IMAGEM Docker (paridade prod),
-  #     em paralelo ao deploy (NAO bloqueia — deploy nao tem needs: e2e).
-  # App sempre roda em build de producao (sem Turbopack dev => sem flakiness).
+  # E2E — escopo adaptativo. OBJETIVO: ninguem espera o full.
+  #   - push de BRANCH e PULL REQUEST p/ main: so @smoke (~25 testes, ~1min).
+  #     Iteracao e merge rapidos.
+  #   - push na MAIN (pos-merge): suite COMPLETA (~132), EM PARALELO ao deploy
+  #     (deploy NAO tem needs: e2e => nao bloqueia; o full so AVISA se quebrar).
+  # App roda via `next build && next start` (producao, sem Turbopack => sem
+  # flakiness). Imagem Docker so e buildada no job de deploy (main).
   # ============================================================
   e2e:
     name: E2E
@@ -319,8 +318,11 @@ jobs:
       - name: Definir escopo do E2E (smoke vs full)
         id: scope
         run: |
-          # PR p/ main ou push na main => suite completa. Push de branch => smoke.
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          # Objetivo: voce NUNCA espera o E2E full.
+          #  - push de branch E PR p/ main => so @smoke (~1min): iteracao rapida.
+          #  - push na MAIN (pos-merge) => suite completa, em paralelo ao deploy
+          #    (deploy nao tem needs: e2e => nao bloqueia; full so AVISA).
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
             echo "grep=" >> "$GITHUB_OUTPUT"
             echo "label=full" >> "$GITHUB_OUTPUT"
           else

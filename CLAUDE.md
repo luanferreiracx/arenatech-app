@@ -88,8 +88,8 @@ Se precisar adicionar uma lib nova, justifique no commit por que ela é necessá
    - `chore/<escopo>` — manutenção/refactor/infra
    - `db/<escopo>` — migration/schema
 2. **Trabalhe e commite na branch** (quantos commits precisar).
-3. **Push da branch** → o CI roda **E2E @smoke + lint/typecheck/unit** (rápido, ~2-3min). Itere à vontade.
-4. **Abra um PR pra `main`** (`gh pr create`). O CI do PR roda a **suíte E2E completa**.
+3. **Push da branch** → o CI roda **lint/typecheck/unit + E2E @smoke** (~1-2min). Itere à vontade.
+4. **Abra um PR pra `main`** (`gh pr create`). O CI do PR roda **só @smoke** (rápido) — você não espera a suíte completa. A suíte completa roda na main, pós-merge.
 5. **Quando o CI do PR ficar verde, a própria sessão dá merge** (`gh pr merge --squash --delete-branch`). Não precisa esperar aprovação do dono.
 6. **Merge na `main` → deploy automático** (build imagem + migrate + deploy na VPS).
 
@@ -124,8 +124,9 @@ chore: bumpar prisma para 6.2
 
 ### Push e validação (CI por evento — ADR 0045/0046)
 
-- **Push em branch:** CI roda lint + typecheck + unit + **E2E @smoke** (~25 testes, rápido). Não builda imagem nem deploya.
-- **PR pra `main`:** CI roda a **suíte E2E completa** (~132). É o portão antes do merge.
+- **Push em branch e PR pra `main`:** CI roda lint + typecheck + unit + **E2E @smoke** (~25 testes, ~1-2min). Não builda imagem nem deploya. Você mergeia rápido.
+- **Merge na `main`:** CI roda a **suíte E2E completa** (~132) **em paralelo ao deploy** — não bloqueia, só avisa se quebrar (job vermelho → hotfix). Ninguém espera o full.
+- **Doc-only** (`*.md`/`docs/`): pula o CI inteiro (paths-ignore) — verde na hora.
 - **Merge na `main`:** build da imagem Docker + migrate + **deploy serializado** na VPS (fila — dois merges não colidem).
 - O pre-push local (husky) faz só typecheck + unit (validação rápida). O E2E é autoritativo no CI.
 - **NUNCA** use `git push --force` ou `--force-with-lease` (denylist).
