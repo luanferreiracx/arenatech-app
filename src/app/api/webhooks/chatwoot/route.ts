@@ -3,6 +3,7 @@ import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
+import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 
 /**
  * POST /api/webhooks/chatwoot
@@ -67,7 +68,19 @@ export async function POST(req: NextRequest) {
         const sender = body.sender as Record<string, unknown> | undefined
         const conversation = body.conversation as Record<string, unknown> | undefined
 
-        if (!message || !conversation) break
+        // Attachments do Chatwoot: a primeira mídia traz data_url + file_type.
+        // Imagem é desviada ao Claude (visão) no runner; aqui só persistimos.
+        const attachments = Array.isArray(body.attachments)
+          ? (body.attachments as Array<Record<string, unknown>>)
+          : []
+        const firstAttachment = attachments[0]
+        const mediaUrl = firstAttachment?.data_url ? String(firstAttachment.data_url) : null
+        const mediaType = firstAttachment
+          ? String(firstAttachment.file_type ?? firstAttachment.type ?? "file")
+          : null
+
+        // Aceita mensagem com texto OU com mídia (imagem sem caption é válida).
+        if (!conversation || (!message && !mediaUrl)) break
 
         // Idempotencia: o Chatwoot pode reentregar message_created. Sem guard,
         // um replay criava ChatbotMessage duplicada. Dedup pela id da mensagem.
@@ -108,7 +121,7 @@ export async function POST(req: NextRequest) {
 
         if (!contactPhone) break
 
-        await withAdmin(async (tx) => {
+        const persisted = await withAdmin(async (tx) => {
           // Lookup customer por telefone (cliente cadastrado)
           // Telefone pode ter prefixos diversos; busca pelos ultimos 8/9 digitos
           const last9 = contactPhone.slice(-9)
@@ -148,15 +161,28 @@ export async function POST(req: NextRequest) {
             })
           }
 
-          // Create message
+          // Create message. Imagem → contentType "image" + mediaUrl (Claude
+          // descreve no runner). content guarda a caption ou um placeholder.
+          const isImage = mediaType === "image" && !!mediaUrl
+          const contentType = isImage
+            ? "image"
+            : mediaType
+              ? mediaType
+              : String(body.content_type ?? "text")
+          const persistedContent = message?.trim()
+            ? message
+            : mediaType
+              ? `[mídia: ${mediaType}]`
+              : ""
           await tx.chatbotMessage.create({
             data: {
               tenantId,
               conversationId: conv.id,
               direction: isIncoming ? "incoming" : "outgoing",
               senderType: isIncoming ? "customer" : (senderType === "user" ? "agent" : "bot"),
-              content: message,
-              contentType: String(body.content_type ?? "text"),
+              content: persistedContent,
+              contentType,
+              mediaUrl,
               externalId: String(body.id ?? ""),
             },
           })
@@ -189,7 +215,21 @@ export async function POST(req: NextRequest) {
               },
             })
           }
+
+          // Aciona o Talison apenas em mensagem do cliente, sem handoff humano
+          // e em conversa não-resolvida. O scheduler faz o debounce.
+          const triggerBot =
+            isIncoming &&
+            !isHumanAgent &&
+            conv.status !== "HUMAN_TAKEOVER" &&
+            conv.status !== "RESOLVED"
+          return { conversationId: conv.id, triggerBot }
         })
+
+        // Fora da tx e sem await bloqueante: agenda o agente e responde 200 já.
+        if (persisted?.triggerBot) {
+          void scheduleTalisonRun(tenantId, persisted.conversationId)
+        }
         break
       }
 
