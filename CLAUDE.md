@@ -74,6 +74,14 @@ Se precisar adicionar uma lib nova, justifique no commit por que ela é necessá
 > concorrentes, WIP indo pra prod), **cada tarefa tem sua própria branch**. A `main`
 > é "o que está em produção" — só recebe código testado, via merge.
 
+> **Branch por TAREFA, não por janela/sessão.** A branch nasce no início da tarefa e
+> morre no merge. NÃO crie uma branch fixa/permanente por janela (ex.: `sessao-1`) —
+> isso acumula trabalho não relacionado, gera PRs gigantes e conflitos feios. Uma
+> mesma janela passa por várias branches ao longo do dia. Nomeie a branch pela
+> **tarefa** (`feat/gating-modulos`, `fix/webhook-depix`), nunca pela sessão. Duas
+> janelas em paralelo criam branches diferentes naturalmente (são tarefas
+> diferentes) — o isolamento acontece sozinho.
+
 1. **No início de cada tarefa, crie uma branch** a partir da `main` atualizada:
    - `feat/<escopo>` — funcionalidade nova
    - `fix/<escopo>` — correção
