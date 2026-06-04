@@ -8,12 +8,16 @@ describe("whatsapp-ai-agent access control", () => {
     expect(phoneFromJid("5586995423021@s.whatsapp.net")).toBe("5586995423021");
   });
 
-  it("permite apenas o telefone configurado por sufixo", () => {
+  it("permite telefone único ou CSV por sufixo", () => {
     expect(isAllowedPhone("5586995423021@s.whatsapp.net", "86995423021")).toEqual({
       allowed: true,
       phone: "5586995423021",
     });
-    expect(isAllowedPhone("5586999999999@s.whatsapp.net", "86995423021")).toEqual({
+    expect(isAllowedPhone("558695423021@s.whatsapp.net", "86995423021,8695423021")).toEqual({
+      allowed: true,
+      phone: "558695423021",
+    });
+    expect(isAllowedPhone("5586999999999@s.whatsapp.net", "86995423021,8695423021")).toEqual({
       allowed: false,
       reason: "unauthorized sender",
     });
