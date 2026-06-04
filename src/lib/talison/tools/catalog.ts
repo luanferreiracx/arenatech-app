@@ -1,12 +1,19 @@
 /**
  * Tools de catálogo de serviços — estimar orçamento e listar serviços.
  * Somente leitura. Preço SEMPRE vem do banco (base_price), formatado.
+ *
+ * Regra de preço de SERVIÇO (resgatada do Laravel / confirmada pelo dono):
+ * o base_price é o preço CHEIO (cartão). No PIX/à vista há 5% de desconto,
+ * OU até 6x sem juros no cartão. A tool informa isso; não recalcula a parcela
+ * (parcelamento detalhado é a tool simular_parcelamento).
  */
 
 import { z } from "zod";
 import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
 
 const MAX_RESULTS = 8;
+const SERVICE_PIX_DISCOUNT = 0.05;
+const SERVICE_MAX_INTEREST_FREE = 6;
 
 const estimarSchema = z.object({
   servico: z
@@ -52,19 +59,24 @@ export const estimarOrcamento: TalisonTool<typeof estimarSchema> = {
       const lines = services.map((service) => {
         const model = service.deviceModel ? ` (${service.deviceModel})` : "";
         const time = service.estimatedTime ? ` — ${service.estimatedTime}` : "";
-        return `${service.name}${model}: ${formatBRL(service.basePrice.toString())}${time}`;
+        const full = Number(service.basePrice);
+        const pix = formatBRL(full * (1 - SERVICE_PIX_DISCOUNT));
+        return `${service.name}${model}: ${formatBRL(full)} (PIX/à vista ${pix})${time}`;
       });
+      const footer = `\n_No PIX/à vista: 5% de desconto. No cartão: até ${SERVICE_MAX_INTEREST_FREE}x sem juros._`;
 
       return {
         ok: true as const,
         data: {
+          condicoes_pagamento: `PIX/à vista -5%; até ${SERVICE_MAX_INTEREST_FREE}x sem juros no cartão`,
           servicos: services.map((service) => ({
             nome: service.name,
             modelo: service.deviceModel,
-            preco: formatBRL(service.basePrice.toString()),
+            preco_cartao: formatBRL(service.basePrice.toString()),
+            preco_pix: formatBRL(Number(service.basePrice) * (1 - SERVICE_PIX_DISCOUNT)),
           })),
         },
-        display: lines.join("\n"),
+        display: lines.join("\n") + footer,
       };
     });
   },

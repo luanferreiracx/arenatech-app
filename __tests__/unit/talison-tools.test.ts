@@ -15,6 +15,7 @@ import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/servic
 import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
+import { simularParcelamento } from "@/lib/talison/tools/installment";
 import { qualificarLead } from "@/lib/talison/tools/handoff";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
@@ -194,6 +195,11 @@ describe("buscar_aparelho", () => {
       expect(result.display).toContain("(novo)");
       expect(result.display).toContain("(seminovo)");
       expect(result.display).toContain("Bateria 83%");
+      // Preço é PIX/à vista — NÃO pode recalcular desconto sobre ele.
+      expect(result.display).toContain("PIX/à vista");
+      expect(result.display).toContain("cartão de crédito o valor é maior");
+      // 4299.99 * 0.95 = 4084.99 NÃO pode aparecer (não desconta de novo).
+      expect(result.display).not.toContain("4.084");
     }
   });
 
@@ -228,6 +234,44 @@ describe("buscar_acessorio", () => {
       expect(result.display).toContain("R$ 49,90");
       expect(result.display).toContain("em estoque");
     }
+  });
+});
+
+describe("simular_parcelamento", () => {
+  it("calcula parcelas via gross-up usando os tiers do simulador", async () => {
+    const tx = {
+      simulatorRateConfig: {
+        findUnique: vi.fn().mockResolvedValue({
+          creditAvistaFeePercent: 0,
+          debitFeePercent: 0,
+          maxInstallments: 12,
+          tiers: [
+            { installments: 6, feePercent: 2.99 },
+            { installments: 12, feePercent: 5.99 },
+          ],
+        }),
+      },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await simularParcelamento.execute({ valor: 1000 }, makeCtx(tx));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // gross-up 6x @2.99%: 1000*100/97.01 = 1030.82 → parcela 171.80
+      expect(result.display).toContain("6x");
+      expect(result.display).toContain("12x");
+      // não oferta tiers com taxa 0 nem inventa parcelas
+      expect(result.data.parcelas).toHaveLength(2);
+    }
+  });
+
+  it("usa defaults quando o tenant não tem config (não quebra)", async () => {
+    const tx = {
+      simulatorRateConfig: { findUnique: vi.fn().mockResolvedValue(null) },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await simularParcelamento.execute({ valor: 500 }, makeCtx(tx));
+    // defaults têm tiers > 0 → deve simular (ok:true)
+    expect(result.ok).toBe(true);
   });
 });
 

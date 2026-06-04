@@ -1,11 +1,17 @@
 /**
  * Tools de estoque do Talison — somente leitura.
  *
- * Por decisão de negócio, aparelhos e acessórios vivem em tabelas separadas:
- *  - buscar_aparelho → available_devices (catálogo curado de aparelhos à venda)
- *  - buscar_acessorio → products (capas, películas, fones, cabos)
+ * Por decisão de negócio, aparelhos e acessórios vivem em tabelas separadas e
+ * com REGRAS DE PREÇO DIFERENTES (resgatadas fielmente do Talison Laravel —
+ * ChatbotController:4820). Assimetria crítica:
  *
- * Preço sempre do banco, formatado. PIX -5% (padrão herdado do Laravel).
+ *  - buscar_aparelho → available_devices: o preço da tabela JÁ É o preço PIX/à
+ *    vista (promocional). NÃO se aplica desconto. No débito/cartão o valor é
+ *    MAIOR (acréscimo da operadora). A tool informa isso, sem recalcular.
+ *
+ *  - buscar_acessorio → products: o preço da tabela é o preço CHEIO (crédito).
+ *    PIX tem 5% de desconto (preço × 0,95), padrão config chatbot.vendas.pix_desconto.
+ *
  * Nunca inventa preço nem disponibilidade.
  */
 
@@ -13,7 +19,7 @@ import { z } from "zod";
 import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
 
 const MAX_RESULTS = 8;
-const PIX_DISCOUNT = 0.05;
+const ACESSORIO_PIX_DISCOUNT = 0.05;
 
 /** Tradução do enum DeviceCondition pra linguagem de cliente. */
 const CONDITION_LABEL: Record<string, string> = {
@@ -40,7 +46,10 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
   description:
     "Busca aparelhos disponíveis para venda (iPhone, iPad, MacBook, Apple Watch, AirPods, console). " +
     "Use SEMPRE que o cliente perguntar 'tem iPhone X?' ou 'quanto custa o aparelho Y?'. " +
-    "Copie modelos e preços do retorno; nunca invente preço nem diga que tem aparelho que não veio na lista.",
+    "IMPORTANTE: o preço retornado JÁ É o valor PROMOCIONAL no PIX/à vista — informe-o como tal. " +
+    "No débito e no cartão de crédito o valor é MAIOR (acréscimo da operadora) — diga isso se o cliente " +
+    "perguntar de cartão, mas NUNCA invente o valor do cartão; ofereça simular com um atendente. " +
+    "Copie modelos e preços exatamente; nunca invente preço nem diga que tem aparelho fora da lista.",
   schema: buscarAparelhoSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
@@ -76,24 +85,28 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
 
       const lines = devices.map((device) => {
         const price = Number(device.price);
-        const priceLabel =
-          price > 0 ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - PIX_DISCOUNT))})` : "preço sob consulta";
+        // Preço da tabela JÁ É o PIX/à vista — não recalcula. Cartão é maior.
+        const priceLabel = price > 0 ? `${formatBRL(price)} no PIX/à vista` : "preço sob consulta";
         const condition = CONDITION_LABEL[device.condition] ?? device.condition;
         const note = device.note ? ` — ${device.note}` : "";
         return `${device.model} (${condition}): ${priceLabel}${note}`;
       });
+      // Nota fiel ao Laravel, pro modelo não confundir PIX com cartão.
+      const footer =
+        "\n_Valores no PIX/à vista. No débito e cartão de crédito o valor é maior (acréscimo da operadora)._";
 
       return {
         ok: true as const,
         data: {
           total: devices.length,
+          observacao_pagamento: "preços são PIX/à vista; cartão tem acréscimo",
           aparelhos: devices.map((device) => ({
             modelo: device.model,
             condicao: CONDITION_LABEL[device.condition] ?? device.condition,
-            preco: Number(device.price) > 0 ? formatBRL(Number(device.price)) : "sob consulta",
+            preco_pix: Number(device.price) > 0 ? formatBRL(Number(device.price)) : "sob consulta",
           })),
         },
-        display: lines.join("\n"),
+        display: lines.join("\n") + footer,
       };
     });
   },
@@ -138,9 +151,12 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
       }
 
       const lines = products.map((product) => {
+        // Acessório: preço da tabela é o CHEIO (crédito); PIX tem 5% de desconto.
         const price = Number(product.promotionalPrice ?? product.salePrice);
         const priceLabel =
-          price > 0 ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - PIX_DISCOUNT))})` : "preço sob consulta";
+          price > 0
+            ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - ACESSORIO_PIX_DISCOUNT))})`
+            : "preço sob consulta";
         const availability = product.currentStock > 0 ? "em estoque" : "sob encomenda";
         return `${product.name}: ${priceLabel} — ${availability}`;
       });
