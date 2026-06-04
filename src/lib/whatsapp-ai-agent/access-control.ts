@@ -28,14 +28,25 @@ export function phoneFromJid(remoteJid: string): string {
   return digitsOnly(remoteJid.split("@")[0] ?? remoteJid);
 }
 
+export function allowedPhoneDigitsList(allowedPhone: string | null): string[] {
+  if (!allowedPhone) return [];
+  return allowedPhone
+    .split(",")
+    .map((phone) => digitsOnly(phone))
+    .filter(Boolean);
+}
+
 export function isAllowedPhone(remoteJid: string, allowedPhone: string | null): WhatsappAiAccessDecision {
-  if (!allowedPhone) return { allowed: false, reason: "missing allowed phone" };
+  const allowedDigitsList = allowedPhoneDigitsList(allowedPhone);
+  if (allowedDigitsList.length === 0) {
+    return { allowed: false, reason: "missing allowed phone" };
+  }
 
   const phone = phoneFromJid(remoteJid);
-  const allowedDigits = digitsOnly(allowedPhone);
-  if (!phone || !allowedDigits) return { allowed: false, reason: "invalid phone" };
+  if (!phone) return { allowed: false, reason: "invalid phone" };
 
-  if (!phone.endsWith(allowedDigits)) {
+  const allowed = allowedDigitsList.some((allowedDigits) => phone.endsWith(allowedDigits));
+  if (!allowed) {
     return { allowed: false, reason: "unauthorized sender" };
   }
 
