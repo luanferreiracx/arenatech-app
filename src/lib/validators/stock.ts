@@ -5,10 +5,17 @@ import { z } from "zod";
 // Schemas auxiliares — fotos/variacoes/atributos sao criados junto com o
 // produto numa unica transacao (paridade Laravel ProdutoController::store).
 
+const imageProviderSchema = z.enum(["cloudinary", "minio", "external"]).optional().nullable();
+const imageMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const imageMetadataSchema = z.record(z.string(), imageMetadataValueSchema).optional().nullable();
+
 export const productPhotoInputSchema = z.object({
   url: z.string().url(),
   thumbUrl: z.string().url().optional().nullable(),
   mediumUrl: z.string().url().optional().nullable(),
+  provider: imageProviderSchema,
+  providerPublicId: z.string().max(500).optional().nullable(),
+  metadata: imageMetadataSchema,
   order: z.number().int().min(0).optional(),
   isPrimary: z.boolean().optional(),
 });
@@ -22,6 +29,8 @@ export const productVariationInputSchema = z.object({
   promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
   minStock: z.number().int().min(0).optional(),
   imageUrl: z.string().url().optional().nullable(),
+  imageProvider: imageProviderSchema,
+  imageProviderPublicId: z.string().max(500).optional().nullable(),
   active: z.boolean().optional(),
   /** IDs de ProductAttributeValue (ex: [valor "Azul", valor "128GB"]) */
   attributeValueIds: z.array(z.string().uuid()).min(1),
@@ -566,6 +575,9 @@ export const createPhotoSchema = z.object({
   url: z.string().url(),
   thumbUrl: z.string().url().optional().nullable(),
   mediumUrl: z.string().url().optional().nullable(),
+  provider: imageProviderSchema,
+  providerPublicId: z.string().max(500).optional().nullable(),
+  metadata: imageMetadataSchema,
   order: z.number().int().min(0).optional(),
   isPrimary: z.boolean().optional(),
 });

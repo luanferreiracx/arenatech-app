@@ -1,6 +1,6 @@
 # ADR 0017 — Imagens de Produto: MinIO + Sharp
 
-**Status:** aceito
+**Status:** supersedida parcialmente pela ADR 0047 para imagens de produto/catálogo; mantida como fallback MinIO e histórico da decisão original
 **Data:** 2026-05-16
 **Contexto:** Estoque-A (Catálogo de Produtos)
 

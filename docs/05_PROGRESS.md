@@ -8,13 +8,20 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-03
+**Ultima atualizacao:** 2026-06-04
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `main`
+**Branch atual:** `feat/cloudinary-product-images`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
+
+## Histórico de execução
+
+### 2026-06-04 — Cloudinary para imagens de produto/catálogo
+- Implementado: decisão arquitetural para manter Cloudinary como provider principal de imagens públicas de produto/catálogo, preservando MinIO para assets internos.
+- Decisões: não fazer migração física Cloudinary → MinIO; novos uploads usam Cloudinary por padrão e URLs legadas seguem válidas.
+- Próximo: validar upload real com credenciais Cloudinary em ambiente configurado e executar backfill de metadados com dry-run antes do apply.
 
 ## Fases
 

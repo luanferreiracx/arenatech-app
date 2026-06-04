@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
     const mimeType = file.type
 
     if (variationId) {
-      // Upload variation image (single image)
-      const imageUrl = await uploadVariationImage(tenantId, productId, variationId, buffer, mimeType)
-      return NextResponse.json({ imageUrl })
+      // Upload da imagem unica da variacao.
+      const result = await uploadVariationImage(tenantId, productId, variationId, buffer, mimeType)
+      return NextResponse.json(result)
     }
 
     // Upload product photo (3 versions)

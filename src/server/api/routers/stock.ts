@@ -71,6 +71,7 @@ import {
   changeItemStatus,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
+import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -363,8 +364,8 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
-        // Photos — URLs ja uploaded via presigned MinIO. Paridade Laravel
-        // ProdutoController::store linhas 199-221.
+        // Photos — URLs ja enviadas pelo provider configurado (Cloudinary por padrao,
+        // MinIO como fallback/rollback). Paridade Laravel ProdutoController::store.
         if (input.photos && input.photos.length > 0) {
           await tx.productPhoto.createMany({
             data: input.photos.map((p, idx) => ({
@@ -373,10 +374,20 @@ export const stockRouter = createTRPCRouter({
               url: p.url,
               thumbUrl: p.thumbUrl ?? null,
               mediumUrl: p.mediumUrl ?? null,
+              provider: p.provider ?? null,
+              providerPublicId: p.providerPublicId ?? null,
+              metadata: p.metadata ?? Prisma.JsonNull,
               order: p.order ?? idx,
               isPrimary: p.isPrimary ?? idx === 0,
             })),
           });
+          const primaryPhoto = input.photos.find((p) => p.isPrimary) ?? input.photos[0];
+          if (primaryPhoto) {
+            await tx.product.update({
+              where: { id: product.id },
+              data: { imageUrl: primaryPhoto.thumbUrl || primaryPhoto.url },
+            });
+          }
         }
 
         // ProductAttributeConfig — quais atributos este produto usa
@@ -407,6 +418,8 @@ export const stockRouter = createTRPCRouter({
                   : null,
                 minStock: v.minStock ?? 0,
                 imageUrl: v.imageUrl ?? null,
+                imageProvider: v.imageProvider ?? null,
+                imageProviderPublicId: v.imageProviderPublicId ?? null,
                 active: v.active ?? true,
               },
             });
@@ -516,6 +529,7 @@ export const stockRouter = createTRPCRouter({
         // Se nao for fornecido, preserva (uso normal eh re-enviar a lista
         // completa toda vez que abrir o form).
         if (input.photos !== undefined) {
+          const oldPhotos = await tx.productPhoto.findMany({ where: { productId: input.id } });
           await tx.productPhoto.deleteMany({ where: { productId: input.id } });
           if (input.photos.length > 0) {
             await tx.productPhoto.createMany({
@@ -525,9 +539,28 @@ export const stockRouter = createTRPCRouter({
                 url: p.url,
                 thumbUrl: p.thumbUrl ?? null,
                 mediumUrl: p.mediumUrl ?? null,
+                provider: p.provider ?? null,
+                providerPublicId: p.providerPublicId ?? null,
+                metadata: p.metadata ?? Prisma.JsonNull,
                 order: p.order ?? idx,
                 isPrimary: p.isPrimary ?? idx === 0,
               })),
+            });
+            const primaryPhoto = input.photos.find((p) => p.isPrimary) ?? input.photos[0];
+            if (primaryPhoto) {
+              await tx.product.update({
+                where: { id: input.id },
+                data: { imageUrl: primaryPhoto.thumbUrl || primaryPhoto.url },
+              });
+            }
+          } else {
+            await tx.product.update({ where: { id: input.id }, data: { imageUrl: null } });
+          }
+          for (const photo of oldPhotos) {
+            void deleteProductImage({
+              url: photo.url,
+              provider: photo.provider,
+              providerPublicId: photo.providerPublicId,
             });
           }
         }
@@ -580,6 +613,8 @@ export const stockRouter = createTRPCRouter({
                   : null,
                 minStock: v.minStock ?? 0,
                 imageUrl: v.imageUrl ?? null,
+                imageProvider: v.imageProvider ?? null,
+                imageProviderPublicId: v.imageProviderPublicId ?? null,
                 active: v.active ?? true,
               },
             });
@@ -3565,14 +3600,13 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /**
-   * Define a imagem de uma variacao (URL ja uploaded via presigned MinIO).
-   * Paridade Laravel ProdutoController::uploadImagemVariacao.
-   */
+  /** Define a imagem de uma variacao (Cloudinary por padrao, MinIO como fallback). */
   setVariationImage: tenantProcedure
     .input(z.object({
       id: z.string().uuid(),
       imageUrl: z.string().url(),
+      imageProvider: z.enum(["cloudinary", "minio", "external"]).optional().nullable(),
+      imageProviderPublicId: z.string().max(500).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
@@ -3582,7 +3616,11 @@ export const stockRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         return tx.productVariation.update({
           where: { id: input.id },
-          data: { imageUrl: input.imageUrl },
+          data: {
+            imageUrl: input.imageUrl,
+            imageProvider: input.imageProvider ?? null,
+            imageProviderPublicId: input.imageProviderPublicId ?? null,
+          },
         });
       });
     }),
@@ -3596,10 +3634,19 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        return tx.productVariation.update({
+        const variation = await tx.productVariation.findUnique({ where: { id: input.id } });
+        const updated = await tx.productVariation.update({
           where: { id: input.id },
-          data: { imageUrl: null },
+          data: { imageUrl: null, imageProvider: null, imageProviderPublicId: null },
         });
+        if (variation?.imageUrl) {
+          void deleteProductImage({
+            url: variation.imageUrl,
+            provider: variation.imageProvider,
+            providerPublicId: variation.imageProviderPublicId,
+          });
+        }
+        return updated;
       });
     }),
 
@@ -3639,6 +3686,9 @@ export const stockRouter = createTRPCRouter({
             url: input.url,
             thumbUrl: input.thumbUrl,
             mediumUrl: input.mediumUrl,
+            provider: input.provider ?? null,
+            providerPublicId: input.providerPublicId ?? null,
+            metadata: input.metadata ?? Prisma.JsonNull,
             order: input.order ?? count,
             isPrimary: input.isPrimary ?? count === 0, // first photo is primary by default
           },
@@ -3685,6 +3735,12 @@ export const stockRouter = createTRPCRouter({
             await tx.product.update({ where: { id: input.productId }, data: { imageUrl: null } });
           }
         }
+
+        void deleteProductImage({
+          url: photo.url,
+          provider: photo.provider,
+          providerPublicId: photo.providerPublicId,
+        });
 
         return { success: true };
       });

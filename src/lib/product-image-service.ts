@@ -1,9 +1,37 @@
+import { v2 as cloudinary, type UploadApiResponse } from "cloudinary"
 import { logger } from "@/lib/logger"
+
+export type ProductImageProvider = "cloudinary" | "minio" | "external"
+
+export interface ProductImageMetadata {
+  width?: number
+  height?: number
+  bytes?: number
+  format?: string
+  version?: number
+  secureUrl?: string
+}
 
 export interface ProductPhotoUrls {
   url: string
   thumbUrl: string
   mediumUrl: string
+  provider?: ProductImageProvider
+  providerPublicId?: string | null
+  metadata?: ProductImageMetadata
+}
+
+export interface VariationImageUploadResult {
+  imageUrl: string
+  imageProvider?: ProductImageProvider
+  imageProviderPublicId?: string | null
+  metadata?: ProductImageMetadata
+}
+
+export interface DeleteProductImageInput {
+  url?: string | null
+  provider?: string | null
+  providerPublicId?: string | null
 }
 
 interface ImageVersion {
@@ -24,9 +52,8 @@ const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp"]
 const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
 
 /**
- * Process and upload product image to MinIO via Sharp.
- * Generates 3 versions: thumb (200x200), medium (600x600), original (max 2000x2000).
- * All converted to WebP.
+ * Processa e envia imagem de produto usando o provider configurado.
+ * Cloudinary e o padrao para imagens publicas de produto; MinIO fica como rollback.
  */
 export async function uploadProductImage(
   tenantId: string,
@@ -37,10 +64,246 @@ export async function uploadProductImage(
 ): Promise<ProductPhotoUrls> {
   validateImage(fileBuffer, mimeType)
 
+  if (getProductImagesProvider() === "cloudinary") {
+    return uploadProductImageToCloudinary(tenantId, productId, photoId, fileBuffer)
+  }
+
+  return uploadProductImageToMinio(tenantId, productId, photoId, fileBuffer)
+}
+
+/** Upload de imagem de variacao usando o provider configurado. */
+export async function uploadVariationImage(
+  tenantId: string,
+  productId: string,
+  variationId: string,
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<VariationImageUploadResult> {
+  validateImage(fileBuffer, mimeType)
+
+  if (getProductImagesProvider() === "cloudinary") {
+    return uploadVariationImageToCloudinary(tenantId, productId, variationId, fileBuffer)
+  }
+
+  const imageUrl = await uploadVariationImageToMinio(tenantId, productId, variationId, fileBuffer)
+  return { imageUrl, imageProvider: "minio", imageProviderPublicId: null }
+}
+
+/** Remove imagem do provider remoto em modo best-effort. */
+export async function deleteProductImage(input: string | DeleteProductImageInput): Promise<void> {
+  const payload: DeleteProductImageInput = typeof input === "string" ? { url: input } : input
+  const provider = payload.provider ?? inferImageProvider(payload.url)
+
+  if (provider === "cloudinary") {
+    const publicId = payload.providerPublicId ?? extractCloudinaryPublicId(payload.url)
+    if (!publicId) return
+    try {
+      configureCloudinary()
+      await cloudinary.uploader.destroy(publicId, { resource_type: "image" })
+      logger.info("Product image deleted from Cloudinary", { publicId })
+    } catch (error) {
+      logger.warn("Failed to delete image from Cloudinary", { publicId, error })
+    }
+    return
+  }
+
+  if (provider === "minio") {
+    const key = getKeyFromUrl(payload.url ?? "")
+    if (!key) return
+    try {
+      await deleteFromMinio(key)
+      logger.info("Product image deleted from MinIO", { key })
+    } catch (error) {
+      logger.warn("Failed to delete image from MinIO", { key, error })
+    }
+  }
+}
+
+export function inferImageProvider(url?: string | null): ProductImageProvider | null {
+  if (!url) return null
+  if (url.includes("res.cloudinary.com") || url.includes("cloudinary.com")) return "cloudinary"
+  const bucket = getMinioBucket()
+  const endpoint = getMinioEndpoint()
+  if (url.includes(`/${bucket}/`) || url.startsWith(endpoint)) return "minio"
+  return "external"
+}
+
+export function extractCloudinaryPublicId(url?: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    if (!parsed.hostname.includes("cloudinary.com")) return null
+    const uploadMarker = "/upload/"
+    const uploadIndex = parsed.pathname.indexOf(uploadMarker)
+    if (uploadIndex === -1) return null
+    let assetPath = parsed.pathname.slice(uploadIndex + uploadMarker.length)
+    assetPath = assetPath.replace(/^v\d+\//, "")
+    assetPath = assetPath.replace(/\.[a-zA-Z0-9]+$/, "")
+    return decodeURIComponent(assetPath)
+  } catch {
+    return null
+  }
+}
+
+function getProductImagesProvider(): "cloudinary" | "minio" {
+  return process.env.PRODUCT_IMAGES_PROVIDER === "minio" ? "minio" : "cloudinary"
+}
+
+async function uploadProductImageToCloudinary(
+  tenantId: string,
+  productId: string,
+  photoId: string,
+  fileBuffer: Buffer
+): Promise<ProductPhotoUrls> {
+  configureCloudinary()
+  const folder = getCloudinaryFolder(`tenants/${tenantId}/products/${productId}`)
+  const result = await uploadBufferToCloudinary(fileBuffer, folder, photoId)
+  const baseOptions = { secure: true, resource_type: "image" as const }
+
+  logger.info("Product image uploaded to Cloudinary", {
+    tenantId,
+    productId,
+    photoId,
+    publicId: result.public_id,
+  })
+
+  return {
+    url: cloudinary.url(result.public_id, {
+      ...baseOptions,
+      version: result.version,
+      fetch_format: "auto",
+      quality: "auto",
+      width: 2000,
+      height: 2000,
+      crop: "limit",
+    }),
+    thumbUrl: cloudinary.url(result.public_id, {
+      ...baseOptions,
+      version: result.version,
+      fetch_format: "auto",
+      quality: "auto:good",
+      width: 200,
+      height: 200,
+      crop: "fill",
+      gravity: "auto",
+    }),
+    mediumUrl: cloudinary.url(result.public_id, {
+      ...baseOptions,
+      version: result.version,
+      fetch_format: "auto",
+      quality: "auto:good",
+      width: 600,
+      height: 600,
+      crop: "limit",
+    }),
+    provider: "cloudinary",
+    providerPublicId: result.public_id,
+    metadata: toCloudinaryMetadata(result),
+  }
+}
+
+async function uploadVariationImageToCloudinary(
+  tenantId: string,
+  productId: string,
+  variationId: string,
+  fileBuffer: Buffer
+): Promise<VariationImageUploadResult> {
+  configureCloudinary()
+  const folder = getCloudinaryFolder(`tenants/${tenantId}/products/${productId}/variations`)
+  const result = await uploadBufferToCloudinary(fileBuffer, folder, variationId)
+
+  logger.info("Variation image uploaded to Cloudinary", {
+    tenantId,
+    productId,
+    variationId,
+    publicId: result.public_id,
+  })
+
+  return {
+    imageUrl: cloudinary.url(result.public_id, {
+      secure: true,
+      resource_type: "image",
+      version: result.version,
+      fetch_format: "auto",
+      quality: "auto:good",
+      width: 600,
+      height: 600,
+      crop: "limit",
+    }),
+    imageProvider: "cloudinary",
+    imageProviderPublicId: result.public_id,
+    metadata: toCloudinaryMetadata(result),
+  }
+}
+
+async function uploadBufferToCloudinary(
+  fileBuffer: Buffer,
+  folder: string,
+  publicId: string
+): Promise<UploadApiResponse> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        resource_type: "image",
+        overwrite: true,
+        use_filename: false,
+        unique_filename: false,
+      },
+      (error, result) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        if (!result) {
+          reject(new Error("Cloudinary nao retornou resultado do upload."))
+          return
+        }
+        resolve(result)
+      }
+    )
+    stream.end(fileBuffer)
+  })
+}
+
+function configureCloudinary(): void {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+  const apiKey = process.env.CLOUDINARY_API_KEY
+  const apiSecret = process.env.CLOUDINARY_API_SECRET
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error("CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET ausentes.")
+  }
+
+  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true })
+}
+
+function getCloudinaryFolder(path: string): string {
+  const root = process.env.CLOUDINARY_PRODUCT_FOLDER || "arenatech"
+  return `${root}/${path}`.replace(/\/+/g, "/")
+}
+
+function toCloudinaryMetadata(result: UploadApiResponse): ProductImageMetadata {
+  return {
+    width: result.width,
+    height: result.height,
+    bytes: result.bytes,
+    format: result.format,
+    version: result.version,
+    secureUrl: result.secure_url,
+  }
+}
+
+async function uploadProductImageToMinio(
+  tenantId: string,
+  productId: string,
+  photoId: string,
+  fileBuffer: Buffer
+): Promise<ProductPhotoUrls> {
   const basePath = `tenants/${tenantId}/products/${productId}`
   const urls: Record<string, string> = {}
 
-  // Dynamic import sharp (it's a native module, avoid bundling issues)
   const sharp = (await import("sharp")).default
 
   for (const version of VERSIONS) {
@@ -54,27 +317,23 @@ export async function uploadProductImage(
     urls[version.suffix] = getMinioUrl(key)
   }
 
-  logger.info("Product image uploaded", { tenantId, productId, photoId })
+  logger.info("Product image uploaded to MinIO", { tenantId, productId, photoId })
 
   return {
     url: urls["original"]!,
     thumbUrl: urls["thumb"]!,
     mediumUrl: urls["medium"]!,
+    provider: "minio",
+    providerPublicId: null,
   }
 }
 
-/**
- * Upload variation image to MinIO.
- */
-export async function uploadVariationImage(
+async function uploadVariationImageToMinio(
   tenantId: string,
   productId: string,
   variationId: string,
-  fileBuffer: Buffer,
-  mimeType: string
+  fileBuffer: Buffer
 ): Promise<string> {
-  validateImage(fileBuffer, mimeType)
-
   const sharp = (await import("sharp")).default
 
   const processed = await sharp(fileBuffer)
@@ -85,35 +344,17 @@ export async function uploadVariationImage(
   const key = `tenants/${tenantId}/products/${productId}/variations/${variationId}.webp`
   await uploadToMinio(key, processed, "image/webp")
 
-  logger.info("Variation image uploaded", { tenantId, productId, variationId })
+  logger.info("Variation image uploaded to MinIO", { tenantId, productId, variationId })
   return getMinioUrl(key)
-}
-
-/**
- * Delete image from MinIO by URL.
- */
-export async function deleteProductImage(url: string): Promise<void> {
-  const key = getKeyFromUrl(url)
-  if (!key) return
-
-  try {
-    await deleteFromMinio(key)
-    logger.info("Product image deleted", { key })
-  } catch (error) {
-    logger.warn("Failed to delete image from MinIO", { key, error })
-  }
 }
 
 function validateImage(buffer: Buffer, mimeType: string): void {
   if (!ALLOWED_MIMES.includes(mimeType)) {
-    throw new Error(`Formato não suportado. Use JPG, PNG ou WebP.`)
+    throw new Error(`Formato nao suportado. Use JPG, PNG ou WebP.`)
   }
   if (buffer.length > MAX_SIZE_BYTES) {
     throw new Error(`Imagem excede o limite de 10MB.`)
   }
-  // Validacao por magic bytes — defesa contra upload de arquivo com
-  // mimeType forjado pelo cliente (ex.: shell PHP renomeado com
-  // Content-Type image/jpeg).
   if (!hasValidImageMagic(buffer)) {
     throw new Error("Arquivo nao e uma imagem valida (JPG/PNG/WebP).")
   }
@@ -122,14 +363,11 @@ function validateImage(buffer: Buffer, mimeType: string): void {
 /** Verifica magic bytes JPG/PNG/WebP. */
 function hasValidImageMagic(buffer: Buffer): boolean {
   if (buffer.length < 12) return false
-  // JPEG: FF D8 FF
   if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return true
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (
     buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
     buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
   ) return true
-  // WebP: "RIFF" .... "WEBP" (bytes 0-3 = RIFF, bytes 8-11 = WEBP)
   if (
     buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
     buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
@@ -161,24 +399,19 @@ function getKeyFromUrl(url: string): string | null {
 async function uploadToMinio(key: string, buffer: Buffer, contentType: string): Promise<void> {
   const endpoint = getMinioEndpoint()
   const bucket = getMinioBucket()
-  // Em prod, S3_ACCESS_KEY/S3_SECRET_KEY sao obrigatorios. Em dev, o
-  // compose.yaml ja exporta credenciais — fallback so dispara se infra
-  // local estiver mal configurada.
   if (process.env.NODE_ENV === "production" && (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY)) {
     throw new Error("S3_ACCESS_KEY/S3_SECRET_KEY ausentes em prod.")
   }
   const accessKey = process.env.S3_ACCESS_KEY || "minioadmin"
   const secretKey = process.env.S3_SECRET_KEY || "minioadmin"
 
-  // Use aws-sdk v3 style or simple PUT
-  // For simplicity, use @aws-sdk/client-s3 if available, else mock
   try {
     const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3")
 
     const client = new S3Client({
-      region: "us-east-1",
+      region: process.env.S3_REGION || "us-east-1",
       endpoint,
-      forcePathStyle: true,
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
       credentials: {
         accessKeyId: accessKey,
         secretAccessKey: secretKey,
@@ -194,7 +427,6 @@ async function uploadToMinio(key: string, buffer: Buffer, contentType: string): 
       })
     )
   } catch (error) {
-    // If AWS SDK not installed or MinIO not available, log and continue (dev mode)
     if (process.env.NODE_ENV === "development") {
       logger.warn("MinIO upload skipped (dev mode or SDK unavailable)", { key })
       return
@@ -206,9 +438,6 @@ async function uploadToMinio(key: string, buffer: Buffer, contentType: string): 
 async function deleteFromMinio(key: string): Promise<void> {
   const endpoint = getMinioEndpoint()
   const bucket = getMinioBucket()
-  // Em prod, S3_ACCESS_KEY/S3_SECRET_KEY sao obrigatorios. Em dev, o
-  // compose.yaml ja exporta credenciais — fallback so dispara se infra
-  // local estiver mal configurada.
   if (process.env.NODE_ENV === "production" && (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY)) {
     throw new Error("S3_ACCESS_KEY/S3_SECRET_KEY ausentes em prod.")
   }
@@ -219,9 +448,9 @@ async function deleteFromMinio(key: string): Promise<void> {
     const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3")
 
     const client = new S3Client({
-      region: "us-east-1",
+      region: process.env.S3_REGION || "us-east-1",
       endpoint,
-      forcePathStyle: true,
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
       credentials: {
         accessKeyId: accessKey,
         secretAccessKey: secretKey,
