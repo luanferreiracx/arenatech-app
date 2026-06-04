@@ -60,6 +60,8 @@ export default async function ProductDetailPage({
   const promotionalPrice = product.promotionalPrice ? Number(product.promotionalPrice) : null
   const currentPrice = promotionalPrice ?? salePrice
   const inStock = product.isSerialized ? true : product.currentStock > 0
+  const primaryPhoto = product.photos[0]
+  const primaryImageUrl = primaryPhoto?.mediumUrl ?? primaryPhoto?.url
 
   return (
     <div className="min-h-screen bg-background">
@@ -75,9 +77,9 @@ export default async function ProductDetailPage({
           {/* Images */}
           <div className="space-y-4">
             <div className="aspect-square bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-              {product.photos.length > 0 ? (
+              {primaryImageUrl ? (
                 <img
-                  src={product.photos[0]!.url}
+                  src={primaryImageUrl}
                   alt={product.name}
                   className="w-full h-full object-cover"
                 />
@@ -89,7 +91,7 @@ export default async function ProductDetailPage({
               <div className="grid grid-cols-4 gap-2">
                 {product.photos.slice(1, 5).map((photo) => (
                   <div key={photo.id} className="aspect-square bg-muted rounded overflow-hidden">
-                    <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                    <img src={photo.thumbUrl ?? photo.url} alt="" className="w-full h-full object-cover" />
                   </div>
                 ))}
               </div>

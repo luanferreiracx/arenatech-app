@@ -62,7 +62,11 @@ export async function GET(req: NextRequest) {
           promotionalPrice: true,
           currentStock: true,
           category: { select: { name: true } },
-          photos: { where: { isPrimary: true }, take: 1, select: { url: true } },
+          photos: {
+            where: { isPrimary: true },
+            take: 1,
+            select: { url: true, thumbUrl: true, mediumUrl: true },
+          },
         },
         orderBy,
         take: 48,
@@ -74,7 +78,7 @@ export async function GET(req: NextRequest) {
         sku: p.sku,
         salePrice: Math.round(Number(p.salePrice ?? 0) * 100),
         promotionalPrice: p.promotionalPrice ? Math.round(Number(p.promotionalPrice) * 100) : null,
-        imageUrl: p.photos[0]?.url ?? null,
+        imageUrl: p.photos[0]?.thumbUrl ?? p.photos[0]?.mediumUrl ?? p.photos[0]?.url ?? null,
         categoryName: p.category?.name ?? null,
         inStock: p.currentStock > 0,
       }))

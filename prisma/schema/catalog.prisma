@@ -64,6 +64,8 @@ model CatalogDevice {
   price            Decimal?  @db.Decimal(10, 2)
   promotionalPrice Decimal?  @map("promotional_price") @db.Decimal(10, 2)
   imageUrl         String?   @map("image_url")
+  imageProvider    String?   @map("image_provider")
+  imageProviderPublicId String? @map("image_provider_public_id")
   available        Boolean   @default(true)
   featured         Boolean   @default(false)
   order            Int       @default(0)
