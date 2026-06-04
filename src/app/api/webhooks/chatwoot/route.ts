@@ -197,6 +197,30 @@ export async function POST(req: NextRequest) {
             : mediaType
               ? `[mídia: ${mediaType}]`
               : ""
+
+          // ECO DO BOT: quando o Talison posta a resposta via API, o Chatwoot
+          // reentrega essa outgoing no webhook como sender=user. Nós JÁ salvamos
+          // essa resposta (como senderType=bot) no runner — então o eco é
+          // redundante. Sem isto, ele virava uma 2ª mensagem "[atendente]"
+          // idêntica no histórico, e o modelo repetia o texto na resposta
+          // seguinte. Dedup por conteúdo idêntico a uma msg bot recente.
+          if (!isIncoming && persistedContent) {
+            const recentBotEcho = await tx.chatbotMessage.findFirst({
+              where: {
+                tenantId,
+                conversationId: conv.id,
+                senderType: "bot",
+                content: persistedContent,
+                createdAt: { gt: new Date(Date.now() - 5 * 60 * 1000) },
+              },
+              select: { id: true },
+            })
+            if (recentBotEcho) {
+              logger.info("Chatwoot webhook: eco da resposta do bot ignorado", { conversationId: conv.id })
+              return { conversationId: conv.id, triggerBot: false }
+            }
+          }
+
           await tx.chatbotMessage.create({
             data: {
               tenantId,
