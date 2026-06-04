@@ -5,6 +5,9 @@ on:
     # Sao Paulo BRT = UTC-3. Horarios em UTC.
     # 03:00 BRT (06:00 UTC): mark-overdue + close-abandoned-cash-sessions + expire-rewards
     - cron: "0 6 * * *"
+    # De hora em hora: resolve-stale-conversations (precisa de granularidade
+    # pra o corte de 12h ser preciso, nao so 1x/dia).
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       job:
@@ -16,6 +19,7 @@ on:
           - mark-overdue
           - close-abandoned-cash-sessions
           - expire-rewards
+          - resolve-stale-conversations
 
 jobs:
   mark-overdue:
@@ -51,6 +55,20 @@ jobs:
       - name: Invoca cron expire-rewards
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/expire-rewards" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 60 \
+            | tee /tmp/response.json
+
+  resolve-stale-conversations:
+    # Roda de hora em hora (schedule horario) ou manualmente. Resolve conversas
+    # do Talison paradas ha 12h+ (paridade Laravel).
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 * * * *') || inputs.job == 'resolve-stale-conversations' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron resolve-stale-conversations
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/resolve-stale-conversations" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 60 \
