@@ -216,24 +216,24 @@ export async function POST(req: NextRequest) {
               data: { cancelled: true },
             })
           } else {
-            // Update conversation timestamp normal
+            // Cliente voltou numa conversa RESOLVIDA = novo atendimento → reabre
+            // pro bot. (HUMAN_TAKEOVER não reabre: humano assumiu de propósito.)
+            const reopen = isIncoming && conv.status === "RESOLVED"
             await tx.chatbotConversation.update({
               where: { id: conv.id },
               data: {
                 lastMessageAt: new Date(),
                 contactName: contactName || conv.contactName,
                 externalId: externalConvId || conv.externalId,
+                ...(reopen ? { status: "OPEN", resolvedAt: null } : {}),
               },
             })
           }
 
-          // Aciona o Talison apenas em mensagem do cliente, sem handoff humano
-          // e em conversa não-resolvida. O scheduler faz o debounce.
-          const triggerBot =
-            isIncoming &&
-            !isHumanAgent &&
-            conv.status !== "HUMAN_TAKEOVER" &&
-            conv.status !== "RESOLVED"
+          // Aciona o Talison em mensagem do cliente, exceto quando um humano
+          // assumiu (HUMAN_TAKEOVER). RESOLVED não bloqueia: cliente voltando
+          // reabre a conversa (acima) e o bot atende o novo contato.
+          const triggerBot = isIncoming && !isHumanAgent && conv.status !== "HUMAN_TAKEOVER"
           return { conversationId: conv.id, triggerBot }
         })
 
