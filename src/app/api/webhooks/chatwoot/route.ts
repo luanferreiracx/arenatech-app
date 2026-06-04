@@ -113,11 +113,14 @@ export async function POST(req: NextRequest) {
         // incoming = "incoming" (webhook genérico) OU 0 (Agent Bot).
         const isIncoming = messageType === "incoming" || rawMessageType === 0 || messageType === "0"
         const senderType = String(sender?.type ?? "")
-        // Sender.type Chatwoot:
-        //   - "contact" = cliente (mensagem incoming)
-        //   - "user" = agente humano (mensagem outgoing manual)
-        //   - "agent_bot" = bot Chatwoot
-        const isHumanAgent = !isIncoming && senderType === "user"
+        // Sender.type Chatwoot: "contact"=cliente, "user"=atendente, "agent_bot"=bot.
+
+        // REGRA DO BOT (decisão do dono): seguimos o STATUS da conversa no
+        // Chatwoot, não uma máquina de estados própria. "open" = atendente no
+        // caso (bot cala); "pending"/"resolved" = bot responde. Quem põe em
+        // "open": atendente assume OU o bot encaminha pra um time (auto-assign).
+        const chatwootStatus = String(conversation?.status ?? "").toLowerCase()
+        const botShouldReply = chatwootStatus === "pending" || chatwootStatus === "resolved"
 
         const meta = (conversation as Record<string, unknown>)?.meta as Record<string, unknown> | undefined
         const metaSender = meta?.sender as Record<string, unknown> | undefined
@@ -147,6 +150,15 @@ export async function POST(req: NextRequest) {
             select: { id: true, name: true },
           })
 
+          // Status mapeado do Chatwoot (fonte da verdade).
+          // open→OPEN (atendente), pending→BOT_ACTIVE, resolved→RESOLVED.
+          const mappedStatus =
+            chatwootStatus === "open"
+              ? "OPEN"
+              : chatwootStatus === "resolved"
+                ? "RESOLVED"
+                : "BOT_ACTIVE" // pending (ou ausente) → bot atende
+
           // Find or create conversation
           let conv = await tx.chatbotConversation.findFirst({
             where: { tenantId, contactPhone },
@@ -160,7 +172,7 @@ export async function POST(req: NextRequest) {
                 contactPhone,
                 contactName: customer?.name ?? contactName ?? null,
                 customerId: customer?.id ?? null,
-                status: "OPEN",
+                status: mappedStatus,
                 lastMessageAt: new Date(),
               },
             })
@@ -198,42 +210,22 @@ export async function POST(req: NextRequest) {
             },
           })
 
-          // Detectar bot→humano: se um agente humano respondeu, marcar HUMAN_TAKEOVER
-          // e cancelar follow-ups pendentes (paridade Laravel ChatbotController::detectarHandoff).
-          if (isHumanAgent && conv.status !== "HUMAN_TAKEOVER" && conv.status !== "RESOLVED") {
-            await tx.chatbotConversation.update({
-              where: { id: conv.id },
-              data: {
-                status: "HUMAN_TAKEOVER",
-                assignedAgentId: senderUserId ? null : undefined, // Chatwoot user id (nao FK ao User local)
-                lastMessageAt: new Date(),
-                contactName: contactName || conv.contactName,
-                externalId: externalConvId || conv.externalId,
-              },
-            })
-            await tx.chatbotFollowUp.updateMany({
-              where: { conversationId: conv.id, cancelled: false, executedAt: null },
-              data: { cancelled: true },
-            })
-          } else {
-            // Update conversation timestamp normal
-            await tx.chatbotConversation.update({
-              where: { id: conv.id },
-              data: {
-                lastMessageAt: new Date(),
-                contactName: contactName || conv.contactName,
-                externalId: externalConvId || conv.externalId,
-              },
-            })
-          }
+          // Espelha o status do Chatwoot no nosso registro (fonte da verdade
+          // é o Chatwoot).
+          await tx.chatbotConversation.update({
+            where: { id: conv.id },
+            data: {
+              status: mappedStatus,
+              resolvedAt: mappedStatus === "RESOLVED" ? new Date() : null,
+              lastMessageAt: new Date(),
+              contactName: contactName || conv.contactName,
+              externalId: externalConvId || conv.externalId,
+            },
+          })
 
-          // Aciona o Talison apenas em mensagem do cliente, sem handoff humano
-          // e em conversa não-resolvida. O scheduler faz o debounce.
-          const triggerBot =
-            isIncoming &&
-            !isHumanAgent &&
-            conv.status !== "HUMAN_TAKEOVER" &&
-            conv.status !== "RESOLVED"
+          // Aciona o Talison em mensagem do cliente quando o Chatwoot diz que o
+          // bot deve responder (pending/resolved). O scheduler faz o debounce.
+          const triggerBot = isIncoming && botShouldReply
           return { conversationId: conv.id, triggerBot }
         })
 
@@ -245,7 +237,7 @@ export async function POST(req: NextRequest) {
           // Por que NÃO agendou — evita "morrer em silêncio" no diagnóstico.
           logger.info("Chatwoot webhook: Talison não acionado", {
             isIncoming,
-            isHumanAgent,
+            chatwootStatus,
             messageType,
           })
         }

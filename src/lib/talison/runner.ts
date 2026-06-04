@@ -100,9 +100,11 @@ export async function processConversation(
   // Bot desativado por tenant.
   if (config && !config.enabled) return { status: "skipped", reason: "bot desativado" };
 
-  // Não responde se humano assumiu ou conversa resolvida.
-  if (conversation.status === "HUMAN_TAKEOVER" || conversation.status === "RESOLVED") {
-    return { status: "skipped", reason: `status ${conversation.status}` };
+  // Regra (segue o status do Chatwoot, espelhado no webhook): o bot só NÃO
+  // responde quando a conversa está OPEN (atendente no caso). pending
+  // (BOT_ACTIVE) e resolved (RESOLVED) o bot atende — cliente voltando reabre.
+  if (conversation.status === "OPEN") {
+    return { status: "skipped", reason: "conversa OPEN (atendente no caso)" };
   }
 
   // Whitelist (modo teste): se populada, só responde os números listados.

@@ -16,7 +16,7 @@ vi.mock("@/server/db", () => {
   const conversation = {
     id: "conv-1",
     tenantId: "tenant-1",
-    status: "OPEN",
+    status: "BOT_ACTIVE",
     contactPhone: "5586999998888",
     contactName: "João",
     customerId: null,
