@@ -18,6 +18,9 @@ export default tseslint.config(
         tsconfigRootDir: __dirname,
       },
     },
+    plugins: {
+      "@typescript-eslint": tseslint.plugin,
+    },
     rules: {
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/require-await": "off",
@@ -28,6 +31,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: [".next/**", "node_modules/**", "__tests__/e2e/**"],
+    ignores: [".next/**", "node_modules/**", "src/generated/**", "__tests__/e2e/**"],
   },
 );

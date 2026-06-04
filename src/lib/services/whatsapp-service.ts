@@ -25,6 +25,10 @@ interface EvolutionConfig {
   instanceName: string;
 }
 
+export interface WhatsAppSendOptions {
+  instanceName?: string;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Config
 // ────────────────────────────────────────────────────────────────────────────
@@ -73,20 +77,22 @@ export function formatPhone(phone: string): string {
 export async function sendTextMessage(
   phone: string,
   text: string,
+  options: WhatsAppSendOptions = {},
 ): Promise<WhatsAppSendResult> {
   const config = getConfig();
   const formattedPhone = formatPhone(phone);
+  const instanceName = options.instanceName ?? config?.instanceName;
 
-  if (!config) {
+  if (!config || !instanceName) {
     logger.info("WhatsApp: mock mode (no credentials)", { phone: formattedPhone });
     return { success: true, messageId: `mock-wa-${Date.now()}` };
   }
 
-  logger.info("WhatsApp: sending text", { phone: formattedPhone });
+  logger.info("WhatsApp: sending text", { phone: formattedPhone, instanceName });
 
   try {
     const response = await fetch(
-      `${config.url}/message/sendText/${config.instanceName}`,
+      `${config.url}/message/sendText/${instanceName}`,
       {
         method: "POST",
         headers: {
@@ -134,20 +140,22 @@ export async function sendMediaMessage(
   phone: string,
   mediaUrl: string,
   caption?: string,
+  options: WhatsAppSendOptions = {},
 ): Promise<WhatsAppSendResult> {
   const config = getConfig();
   const formattedPhone = formatPhone(phone);
+  const instanceName = options.instanceName ?? config?.instanceName;
 
-  if (!config) {
+  if (!config || !instanceName) {
     logger.info("WhatsApp: mock media send", { phone: formattedPhone, mediaUrl });
     return { success: true, messageId: `mock-wa-media-${Date.now()}` };
   }
 
-  logger.info("WhatsApp: sending media", { phone: formattedPhone, mediaUrl });
+  logger.info("WhatsApp: sending media", { phone: formattedPhone, mediaUrl, instanceName });
 
   try {
     const response = await fetch(
-      `${config.url}/message/sendMedia/${config.instanceName}`,
+      `${config.url}/message/sendMedia/${instanceName}`,
       {
         method: "POST",
         headers: {
@@ -193,10 +201,11 @@ export async function sendTemplateMessage(
   phone: string,
   templateBody: string,
   params: Record<string, string>,
+  options: WhatsAppSendOptions = {},
 ): Promise<WhatsAppSendResult> {
   let text = templateBody;
   for (const [key, value] of Object.entries(params)) {
     text = text.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
   }
-  return sendTextMessage(phone, text);
+  return sendTextMessage(phone, text, options);
 }

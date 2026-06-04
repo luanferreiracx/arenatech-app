@@ -2187,6 +2187,35 @@ _(vazio)_
 
 ---
 
+### 2026-06-04 — Agente IA pessoal via WhatsApp/Evolution
+
+- **Implementado:**
+  - Agente IA separado do Talison/Chatwoot, com rota dedicada `/api/webhooks/evolution-ai` para mensagens privadas da Evolution API.
+  - Módulos próprios em `src/lib/whatsapp-ai-agent/` para parser do payload Evolution, allowlist/acesso, provider Claude/PowerProfile e serviço de processamento.
+  - Bloqueio por instância (`WHATSAPP_AI_EVOLUTION_INSTANCE=arena-cripto`) e por número autorizado (`WHATSAPP_AI_ALLOWED_PHONE=86995423021`).
+  - Cliente Evolution (`whatsapp-service.ts`) passou a aceitar override de instância sem quebrar chamadas existentes.
+  - Schema Prisma `whatsapp-ai-agent.prisma` + migration `20260604120000_whatsapp_ai_agent` com `WhatsappAiConversation` e `WhatsappAiMessage`, RLS e policies padrão.
+  - Env examples atualizados sem secrets: `WHATSAPP_AI_*`, `ANTHROPIC_BASE_URL` e `ANTHROPIC_MODEL`.
+  - Testes unitários do parser/allowlist e fluxo principal do agente.
+- **Decisões:**
+  - O agente não usa Talison, Chatwoot, tools comerciais nem status de atendimento; é uma interface pessoal e isolada para conversar pelo WhatsApp.
+  - Primeira versão é apenas conversacional: não executa comandos, deploys, alterações em arquivos ou operações administrativas via WhatsApp.
+  - Claude/PowerProfile usa `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` e `ANTHROPIC_MODEL` somente por env; nenhuma chave real foi commitada.
+  - Reinstalação do Claude CLI no servidor fica como operação de host separada do runtime Docker do app.
+- **Validação:**
+  - `pnpm prisma generate` ✓
+  - `pnpm typecheck` ✓ após limpar cache antigo `.next`.
+  - `pnpm vitest run __tests__/unit/whatsapp-ai-agent.test.ts __tests__/unit/whatsapp-ai-agent-flow.test.ts` ✓ (8/8).
+  - `pnpm vitest run __tests__/unit` ✓ (768/768).
+  - `pnpm lint` rodou com 0 erros e 167 warnings pré-existentes.
+  - `pnpm test` completo falhou apenas nos testes de integração RLS/auth por estado do banco local/seed; unitários passaram.
+- **Próximo:**
+  - Configurar envs reais em produção (`WHATSAPP_AI_*`, Evolution e Anthropic/PowerProfile) sem versionar secrets.
+  - Apontar webhook da instância Evolution `arena-cripto` para `/api/webhooks/evolution-ai`.
+  - Executar operação separada no servidor para remover/reinstalar Claude CLI e validar `claude doctor`.
+
+---
+
 ## Métricas
 
 | Métrica | Valor |
