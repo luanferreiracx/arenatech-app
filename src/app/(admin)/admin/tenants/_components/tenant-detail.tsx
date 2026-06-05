@@ -1,28 +1,51 @@
 "use client";
 
+import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
+import { Copy, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
 import { updateTenantSchema, type UpdateTenantInput } from "@/lib/validators/admin";
 
+type ResetTarget = {
+  userId: string;
+  name: string;
+};
+
+type ResetResult = ResetTarget & {
+  tempPassword: string;
+};
+
 export function TenantDetail({ tenantId }: { tenantId: string }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
+  const [resetResult, setResetResult] = useState<ResetResult | null>(null);
 
   const tenantQuery = useQuery(trpc.admin.getTenant.queryOptions({ id: tenantId }));
   const plansQuery = useQuery(trpc.admin.listPlans.queryOptions({ status: "ACTIVE" }));
   const updateMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
+  const resetPasswordMutation = useMutation(trpc.admin.resetTenantUserPassword.mutationOptions());
 
   const tenant = tenantQuery.data;
   const walletOnlyPlans = plansQuery.data?.filter(
@@ -50,6 +73,35 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       },
       onError: (err) => toast.error(err.message),
     });
+  };
+
+  const confirmPasswordReset = () => {
+    if (!resetTarget) return;
+    resetPasswordMutation.mutate(
+      { tenantId, userId: resetTarget.userId },
+      {
+        onSuccess: (result) => {
+          setResetTarget(null);
+          setResetResult({
+            userId: result.user.id,
+            name: result.user.name,
+            tempPassword: result.tempPassword,
+          });
+          toast.success("Senha temporaria gerada");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const copyTemporaryPassword = async () => {
+    if (!resetResult) return;
+    try {
+      await navigator.clipboard.writeText(resetResult.tempPassword);
+      toast.success("Senha copiada");
+    } catch {
+      toast.error("Nao foi possivel copiar automaticamente");
+    }
   };
 
   return (
@@ -107,15 +159,66 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           ) : (
             <div className="space-y-2">
               {tenant.users.map((ut) => (
-                <div key={ut.userId} className="flex justify-between text-sm border-b pb-2 last:border-0">
-                  <span>{ut.user.name}</span>
-                  <span className="text-muted-foreground">{ut.user.cpf} | {ut.role}</span>
+                <div
+                  key={ut.userId}
+                  className="flex flex-col gap-3 border-b pb-3 text-sm last:border-0 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">{ut.user.name}</p>
+                    <p className="text-muted-foreground">{ut.user.cpf} | {ut.role}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setResetTarget({ userId: ut.userId, name: ut.user.name })}
+                    disabled={resetPasswordMutation.isPending}
+                  >
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    Resetar senha
+                  </Button>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !resetPasswordMutation.isPending) setResetTarget(null);
+        }}
+        title="Resetar senha"
+        description={`Gerar uma nova senha temporaria para ${resetTarget?.name ?? "este usuario"}? A senha atual deixara de funcionar.`}
+        confirmLabel="Gerar senha"
+        onConfirm={confirmPasswordReset}
+        isLoading={resetPasswordMutation.isPending}
+      />
+
+      <Dialog open={resetResult !== null} onOpenChange={(open) => { if (!open) setResetResult(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Senha temporaria</DialogTitle>
+            <DialogDescription>
+              Informe esta senha para {resetResult?.name ?? "o usuario"} e solicite a troca no primeiro acesso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Senha</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input value={resetResult?.tempPassword ?? ""} readOnly className="font-mono" />
+              <Button type="button" variant="outline" onClick={copyTemporaryPassword} className="sm:w-auto">
+                <Copy className="mr-2 h-4 w-4" />
+                Copiar
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setResetResult(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

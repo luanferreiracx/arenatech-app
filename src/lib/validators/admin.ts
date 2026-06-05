@@ -143,3 +143,9 @@ export const updateTenantSchema = z.object({
   plan: z.string().min(1).max(100).optional().nullable(),
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
+
+export const resetTenantUserPasswordSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+export type ResetTenantUserPasswordInput = z.infer<typeof resetTenantUserPasswordSchema>;
