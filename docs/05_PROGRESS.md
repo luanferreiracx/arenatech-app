@@ -23,6 +23,13 @@
 - Decisões: não fazer migração física Cloudinary → MinIO; novos uploads usam Cloudinary por padrão e URLs legadas seguem válidas.
 - Próximo: validar upload real com credenciais Cloudinary em ambiente configurado e executar backfill de metadados com dry-run antes do apply.
 
+### 2026-06-04 — Dual-agent WhatsApp IA
+- Implementado: evolução do agente WhatsApp IA para arquitetura dual-agent por número de origem: assistente Claude para o número BR e canal Claude Code para o número +44.
+- Implementado: roteamento por perfil telefônico, comandos `/status`, `/pause`, `/resume`, `/reset`, `/config`, `/model` e `/run`, modelo `WhatsappAiExecution` e worker host-side `scripts/whatsapp-ai-code-worker.ts` para processar execuções Claude Code no checkout `/home/deployer/arenatech-app`.
+- Decisões: número BR não executa código; número +44 cria execuções Claude Code que devem seguir `CLAUDE.md` e o fluxo branch → PR → CI → merge → deploy automático. Execuções longas ficam fora do request do webhook, via fila no banco e worker no host.
+- Validação: `pnpm prisma generate`, `pnpm prisma validate`, `pnpm typecheck` e `pnpm vitest run __tests__/unit/whatsapp-ai-agent.test.ts __tests__/unit/whatsapp-ai-agent-flow.test.ts` verdes (10/10).
+- Próximo: abrir PR, mergear/deployar, configurar `WHATSAPP_AI_ASSISTANT_PHONES`, `WHATSAPP_AI_CODE_PHONES` e ativar o worker no servidor.
+
 ## Fases
 
 ### ✓ Fase 0 — Bootstrap & infra local

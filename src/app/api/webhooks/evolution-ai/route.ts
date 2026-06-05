@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
     const result = await processWhatsappAiMessage({
       tenantId: config.tenantId!,
       phone: access.phone,
+      agentKind: access.agentKind,
       message: inbound,
     });
     await markWebhookProcessed("evolution_ai", eventId, { ok: true });

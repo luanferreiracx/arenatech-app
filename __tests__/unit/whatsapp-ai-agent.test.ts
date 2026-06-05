@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { digitsOnly, isAllowedPhone, phoneFromJid, validateWhatsappAiInboundAccess } from "@/lib/whatsapp-ai-agent/access-control";
+import { digitsOnly, isAllowedPhone, phoneFromJid, resolveAgentKindForPhone, validateWhatsappAiInboundAccess } from "@/lib/whatsapp-ai-agent/access-control";
 import { parseEvolutionAiInbound } from "@/lib/whatsapp-ai-agent/evolution-payload";
 
 describe("whatsapp-ai-agent access control", () => {
@@ -12,12 +12,37 @@ describe("whatsapp-ai-agent access control", () => {
     expect(isAllowedPhone("5586995423021@s.whatsapp.net", "86995423021")).toEqual({
       allowed: true,
       phone: "5586995423021",
+      agentKind: "assistant",
     });
     expect(isAllowedPhone("558695423021@s.whatsapp.net", "86995423021,8695423021")).toEqual({
       allowed: true,
       phone: "558695423021",
+      agentKind: "assistant",
     });
     expect(isAllowedPhone("5586999999999@s.whatsapp.net", "86995423021,8695423021")).toEqual({
+      allowed: false,
+      reason: "unauthorized sender",
+    });
+  });
+
+  it("roteia número BR para assistente e +44 para Claude Code", () => {
+    const config = {
+      assistantPhones: "86995423021,8695423021",
+      codePhones: "447782278602",
+      legacyAllowedPhone: null,
+    };
+
+    expect(resolveAgentKindForPhone("558695423021@s.whatsapp.net", config)).toEqual({
+      allowed: true,
+      phone: "558695423021",
+      agentKind: "assistant",
+    });
+    expect(resolveAgentKindForPhone("447782278602@s.whatsapp.net", config)).toEqual({
+      allowed: true,
+      phone: "447782278602",
+      agentKind: "claude_code",
+    });
+    expect(resolveAgentKindForPhone("5511999999999@s.whatsapp.net", config)).toEqual({
       allowed: false,
       reason: "unauthorized sender",
     });
@@ -28,7 +53,9 @@ describe("whatsapp-ai-agent access control", () => {
       enabled: true,
       webhookToken: "secret",
       instanceName: "arena-cripto",
-      allowedPhone: "86995423021",
+      assistantPhones: "86995423021",
+      codePhones: null,
+      legacyAllowedPhone: "86995423021",
       tenantId: "tenant-1",
     };
 
