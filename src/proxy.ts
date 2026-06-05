@@ -13,6 +13,7 @@ import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
 import { isLandingHost } from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
@@ -85,18 +86,26 @@ export const proxy = auth((req) => {
         return NextResponse.redirect(selfUrl("/change-password"));
       }
       const cookieTenant = req.cookies.get("x-active-tenant")?.value;
-      const activeTenantId = cookieTenant ?? session.activeTenantId;
+      const activeTenant = resolveActiveTenant(session, cookieTenant);
 
-      if (session.user.isSuperAdmin && !activeTenantId) {
-        return NextResponse.redirect(selfUrl("/admin"));
+      if (activeTenant) {
+        const res = NextResponse.redirect(selfUrl("/painel"));
+        if (cookieTenant && cookieTenant !== activeTenant.id) {
+          res.cookies.delete("x-active-tenant");
+        }
+        return res;
       }
-      if (activeTenantId) {
-        return NextResponse.redirect(selfUrl("/painel"));
+      if (session.user.isSuperAdmin) {
+        const res = NextResponse.redirect(selfUrl("/admin"));
+        if (cookieTenant) res.cookies.delete("x-active-tenant");
+        return res;
       }
       if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
         return NextResponse.redirect(selfUrl("/no-access"));
       }
-      return NextResponse.redirect(selfUrl("/select-tenant"));
+      const res = NextResponse.redirect(selfUrl("/select-tenant"));
+      if (cookieTenant) res.cookies.delete("x-active-tenant");
+      return res;
     }
     return NextResponse.next();
   }
@@ -136,18 +145,22 @@ export const proxy = auth((req) => {
 
   // 7. Resolve active tenant
   const cookieTenant = req.cookies.get("x-active-tenant")?.value;
-  const activeTenantId = cookieTenant ?? session.activeTenantId;
+  const activeTenant = resolveActiveTenant(session, cookieTenant);
 
-  if (!activeTenantId) {
-    if (session.user.isSuperAdmin) {
-      return NextResponse.redirect(selfUrl("/admin"));
-    }
-    return NextResponse.redirect(selfUrl("/select-tenant"));
+  if (!activeTenant) {
+    const res = session.user.isSuperAdmin
+      ? NextResponse.redirect(selfUrl("/admin"))
+      : NextResponse.redirect(selfUrl("/select-tenant"));
+    if (cookieTenant) res.cookies.delete("x-active-tenant");
+    return res;
   }
 
-  // Validate tenant access (cookie could be stale or forged)
-  const activeTenant = session.availableTenants.find((t) => t.id === activeTenantId);
-  if (!activeTenant && !session.user.isSuperAdmin) {
+  if (cookieTenant && cookieTenant !== activeTenant.id) {
+    if (session.user.isSuperAdmin) {
+      const res = NextResponse.redirect(selfUrl("/admin"));
+      res.cookies.delete("x-active-tenant");
+      return res;
+    }
     const res = NextResponse.redirect(selfUrl("/select-tenant"));
     res.cookies.delete("x-active-tenant");
     return res;
@@ -165,7 +178,7 @@ export const proxy = auth((req) => {
 
   // 8. Inject tenant header for tRPC context
   const headers = new Headers(req.headers);
-  headers.set("x-tenant-id", activeTenantId);
+  headers.set("x-tenant-id", activeTenant.id);
   return NextResponse.next({ request: { headers } });
 });
 

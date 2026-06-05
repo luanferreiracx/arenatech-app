@@ -6,7 +6,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { CommandPaletteProvider } from "@/components/command-palette";
-import { MODULE_KEYS } from "@/lib/modules";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -14,15 +14,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const cookieStore = await cookies();
   const defaultCollapsed = cookieStore.get("arena_sidebar_collapsed")?.value === "true";
-  const activeTenantId =
-    cookieStore.get("x-active-tenant")?.value ?? session.activeTenantId;
-  const activeTenant = session.availableTenants.find((t) => t.id === activeTenantId);
+  const activeTenant = resolveActiveTenant(
+    session,
+    cookieStore.get("x-active-tenant")?.value,
+  );
 
-  // Módulos liberados para o menu. Super admin (sem tenant ativo ou
-  // impersonando) enxerga tudo; demais usam a matriz do tenant ativo.
-  const allowedModules = session.user.isSuperAdmin
-    ? [...MODULE_KEYS]
-    : (activeTenant?.modules ?? []);
+  const allowedModules = activeTenant?.modules ?? [];
 
   return (
     <SidebarProvider
