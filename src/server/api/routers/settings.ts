@@ -23,26 +23,11 @@ import {
   updateFiscalSettingsSchema,
 } from "@/lib/validators/subscription";
 
-function assertCanManageTenantUsers(ctx: {
-  tenantId: string;
-  session: {
-    user: { isSuperAdmin?: boolean };
-    availableTenants: Array<{ id: string; role?: string | null }>;
-  };
-}): void {
-  if (ctx.session.user.isSuperAdmin) return;
-
-  const actorRole = ctx.session.availableTenants
-    .find((tenant) => tenant.id === ctx.tenantId)
-    ?.role
-    ?.toLowerCase();
-
-  if (!["owner", "admin", "manager"].includes(actorRole ?? "")) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Apenas administradores podem gerenciar usuarios.",
-    });
-  }
+function throwTenantUserManagementMovedToSuperadmin(): never {
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "Cadastro e administracao de usuarios de tenant devem ser feitos pelo Superadmin.",
+  });
 }
 
 export const settingsRouter = createTRPCRouter({
@@ -478,149 +463,26 @@ export const settingsRouter = createTRPCRouter({
 
   createUser: tenantProcedure
     .input(createUserSchema)
-    .mutation(async ({ ctx, input }) => {
-      assertCanManageTenantUsers(ctx);
-
-      // Use withAdmin because we need to create/find a global user
-      const result = await withAdmin(async (tx) => {
-        // Check if user with this CPF already exists
-        let user = await tx.user.findUnique({ where: { cpf: input.cpf } });
-
-        if (!user) {
-          // Create user with default password 123456
-          user = await tx.user.create({
-            data: {
-              cpf: input.cpf,
-              name: input.name,
-              email: null,
-              passwordHash: hashSync("123456", 10),
-              mustChangePassword: true,
-            },
-          });
-        }
-
-        // Check if user already belongs to this tenant
-        const existing = await tx.userTenant.findUnique({
-          where: {
-            userId_tenantId: { userId: user.id, tenantId: ctx.tenantId },
-          },
-        });
-
-        if (existing) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Usuario ja pertence a esta loja",
-          });
-        }
-
-        // Add user to tenant
-        await tx.userTenant.create({
-          data: {
-            userId: user.id,
-            tenantId: ctx.tenantId,
-            role: input.role,
-          },
-        });
-
-        return { userId: user.id, name: user.name };
-      });
-
-      return result;
+    .mutation(() => {
+      throwTenantUserManagementMovedToSuperadmin();
     }),
 
   updateUser: tenantProcedure
     .input(updateUserSchema)
-    .mutation(async ({ ctx, input }) => {
-      assertCanManageTenantUsers(ctx);
-
-      return ctx.withTenant(async (tx) => {
-        // Update the role in the user_tenant relation
-        await tx.userTenant.update({
-          where: {
-            userId_tenantId: { userId: input.userId, tenantId: ctx.tenantId },
-          },
-          data: { role: input.role },
-        });
-
-        // Update name if provided (global update)
-        if (input.name) {
-          await withAdmin(async (adminTx) => {
-            await adminTx.user.update({
-              where: { id: input.userId },
-              data: { name: input.name },
-            });
-          });
-        }
-
-        return { success: true };
-      });
+    .mutation(() => {
+      throwTenantUserManagementMovedToSuperadmin();
     }),
 
   removeUser: tenantProcedure
     .input(z.object({ userId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      assertCanManageTenantUsers(ctx);
-
-      // Prevent removing yourself
-      if (input.userId === ctx.session.user.id) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Voce nao pode remover a si mesmo",
-        });
-      }
-
-      return ctx.withTenant(async (tx) => {
-        await tx.userTenant.delete({
-          where: {
-            userId_tenantId: { userId: input.userId, tenantId: ctx.tenantId },
-          },
-        });
-        return { success: true };
-      });
+    .mutation(() => {
+      throwTenantUserManagementMovedToSuperadmin();
     }),
 
   resetUserPassword: tenantProcedure
     .input(z.object({ userId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      // SEGURANCA (isolamento cross-tenant): so pode resetar a senha de um
-      // usuario que pertence AO TENANT ATIVO. Sem esta verificacao, qualquer
-      // membro de um tenant poderia resetar a senha de qualquer usuario do
-      // sistema (incl. de outro tenant) = account takeover. Alem disso, exige
-      // role administrativo (owner/manager/admin) no tenant.
-      const actorRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!["owner", "manager", "admin"].includes((actorRole ?? "").toLowerCase())) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Apenas administradores podem redefinir senhas.",
-        });
-      }
-
-      // O vinculo so existe (e a leitura so retorna linha) se o usuario alvo
-      // pertence ao tenant ativo — a RLS de user_tenants nao se aplica (tabela
-      // global), por isso filtramos explicitamente pela PK composta.
-      const link = await ctx.withTenant(async (tx) =>
-        tx.userTenant.findUnique({
-          where: { userId_tenantId: { userId: input.userId, tenantId: ctx.tenantId } },
-          select: { userId: true },
-        }),
-      );
-      if (!link) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Usuario nao pertence a este tenant.",
-        });
-      }
-
-      await withAdmin(async (tx) => {
-        await tx.user.update({
-          where: { id: input.userId },
-          data: {
-            passwordHash: hashSync("123456", 10),
-            mustChangePassword: true,
-          },
-        });
-      });
-      return { success: true };
+    .mutation(() => {
+      throwTenantUserManagementMovedToSuperadmin();
     }),
 
   // ═══════════════════════════════════════

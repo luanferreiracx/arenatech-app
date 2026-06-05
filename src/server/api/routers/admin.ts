@@ -32,6 +32,9 @@ import {
   listPreRegistrationsSchema,
   listTenantsSchema,
   resetTenantUserPasswordSchema,
+  createTenantUserSchema,
+  updateTenantUserSchema,
+  removeTenantUserSchema,
   updateTenantSchema,
 } from "@/lib/validators/admin";
 import {
@@ -92,6 +95,11 @@ function normalizeRequiredDigits(value: string): string {
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeOptionalEmail(value: string | null | undefined): string | null {
+  const email = value?.trim().toLowerCase();
+  return email ? email : null;
 }
 
 function getObjectProperty(value: unknown, key: string): unknown {
@@ -199,6 +207,43 @@ function assertExistingUserCanBeLinked(
   }
 }
 
+function assertExistingTenantUserCanBeLinked(
+  user: { email: string | null; isSuperAdmin: boolean },
+  expectedEmail: string | null,
+): void {
+  if (user.isSuperAdmin) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "CPF pertence a um usuario interno da Arena Tech",
+    });
+  }
+  if (user.email && expectedEmail && normalizeEmail(user.email) !== expectedEmail) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "CPF ja existe com outro email",
+    });
+  }
+}
+
+async function assertTenantHasAnotherAdmin(
+  tx: Prisma.TransactionClient,
+  input: { tenantId: string; userId: string },
+): Promise<void> {
+  const otherAdmins = await tx.userTenant.count({
+    where: {
+      tenantId: input.tenantId,
+      userId: { not: input.userId },
+      role: "admin",
+    },
+  });
+  if (otherAdmins === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "O tenant precisa manter pelo menos um usuario administrador",
+    });
+  }
+}
+
 async function seedTenantSettings(
   tx: Prisma.TransactionClient,
   input: {
@@ -302,7 +347,20 @@ export const adminRouter = createTRPCRouter({
           where: { id: input.id },
           include: {
             users: {
-              include: { user: { select: { id: true, name: true, cpf: true } } },
+              orderBy: { user: { name: "asc" } },
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    cpf: true,
+                    email: true,
+                    phone: true,
+                    isSuperAdmin: true,
+                    mustChangePassword: true,
+                  },
+                },
+              },
             },
           },
         });
@@ -405,6 +463,221 @@ export const adminRouter = createTRPCRouter({
             name: membership.tenant.name,
           },
         };
+      });
+    }),
+
+  createTenantUser: adminProcedure
+    .input(createTenantUserSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const tenant = await tx.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { id: true, name: true },
+        });
+        if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant nao encontrado" });
+
+        const cpf = normalizeRequiredDigits(input.cpf);
+        const phone = normalizeDigits(input.phone);
+        const email = normalizeOptionalEmail(input.email);
+        const tempPassword = generateTempPassword();
+
+        const existingUser = await tx.user.findUnique({
+          where: { cpf },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            isSuperAdmin: true,
+          },
+        });
+        if (existingUser) {
+          assertExistingTenantUserCanBeLinked(existingUser, email);
+          const existingMembership = await tx.userTenant.findUnique({
+            where: {
+              userId_tenantId: {
+                userId: existingUser.id,
+                tenantId: tenant.id,
+              },
+            },
+            select: { userId: true },
+          });
+          if (existingMembership) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Usuario ja pertence a este tenant",
+            });
+          }
+        }
+
+        const user = existingUser
+          ? await tx.user.update({
+              where: { id: existingUser.id },
+              data: {
+                name: input.name,
+                email: existingUser.email ?? email,
+                phone,
+              },
+              select: { id: true, name: true },
+            })
+          : await tx.user.create({
+              data: {
+                name: input.name,
+                cpf,
+                email,
+                phone,
+                passwordHash: hashPassword(tempPassword),
+                mustChangePassword: true,
+              },
+              select: { id: true, name: true },
+            });
+
+        await tx.userTenant.create({
+          data: {
+            userId: user.id,
+            tenantId: tenant.id,
+            role: input.role,
+            isTechnician: input.role === "technician",
+          },
+        });
+
+        logger.info("Tenant user created by superadmin", {
+          tenantId: tenant.id,
+          userId: user.id,
+          role: input.role,
+          byAdmin: ctx.session.user.id,
+          reusedExistingUser: Boolean(existingUser),
+        });
+
+        return {
+          user: {
+            id: user.id,
+            name: user.name,
+          },
+          tenant,
+          tempPassword: existingUser ? null : tempPassword,
+        };
+      });
+    }),
+
+  updateTenantUser: adminProcedure
+    .input(updateTenantUserSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const membership = await tx.userTenant.findUnique({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+          select: {
+            role: true,
+            user: {
+              select: {
+                id: true,
+                isSuperAdmin: true,
+              },
+            },
+          },
+        });
+        if (!membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Usuario nao encontrado neste tenant" });
+        }
+        if (membership.user.isSuperAdmin) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e permitido administrar superadmin interno como usuario de tenant",
+          });
+        }
+        if (membership.role === "admin" && input.role !== "admin") {
+          await assertTenantHasAnotherAdmin(tx, input);
+        }
+
+        const email = normalizeOptionalEmail(input.email);
+        const phone = normalizeDigits(input.phone);
+
+        await tx.user.update({
+          where: { id: input.userId },
+          data: {
+            name: input.name,
+            email,
+            phone,
+          },
+        });
+        await tx.userTenant.update({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+          data: {
+            role: input.role,
+            isTechnician: input.role === "technician",
+          },
+        });
+
+        logger.info("Tenant user updated by superadmin", {
+          tenantId: input.tenantId,
+          userId: input.userId,
+          role: input.role,
+          byAdmin: ctx.session.user.id,
+        });
+
+        return { success: true };
+      });
+    }),
+
+  removeTenantUser: adminProcedure
+    .input(removeTenantUserSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const membership = await tx.userTenant.findUnique({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+          select: {
+            role: true,
+            user: {
+              select: {
+                id: true,
+                isSuperAdmin: true,
+              },
+            },
+          },
+        });
+        if (!membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Usuario nao encontrado neste tenant" });
+        }
+        if (membership.user.isSuperAdmin) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e permitido remover superadmin interno como usuario de tenant",
+          });
+        }
+        if (membership.role === "admin") {
+          await assertTenantHasAnotherAdmin(tx, input);
+        }
+
+        await tx.userTenant.delete({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+        });
+
+        logger.info("Tenant user removed by superadmin", {
+          tenantId: input.tenantId,
+          userId: input.userId,
+          byAdmin: ctx.session.user.id,
+        });
+
+        return { success: true };
       });
     }),
 

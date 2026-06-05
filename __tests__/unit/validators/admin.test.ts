@@ -8,6 +8,9 @@ import {
   listPreRegistrationsSchema,
   listTenantsSchema,
   resetTenantUserPasswordSchema,
+  createTenantUserSchema,
+  updateTenantUserSchema,
+  removeTenantUserSchema,
   updateTenantSchema,
   planStatusEnum,
   PLAN_STATUS_LABELS,
@@ -162,6 +165,49 @@ describe("resetTenantUserPasswordSchema", () => {
   it("rejeita ids invalidos", () => {
     expect(resetTenantUserPasswordSchema.safeParse({ tenantId: "tenant", userId: UUID }).success).toBe(false);
     expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: "user" }).success).toBe(false);
+  });
+});
+
+describe("tenant user schemas", () => {
+  const validCreate = {
+    tenantId: UUID,
+    name: "Maria Silva",
+    cpf: "11144477735",
+    email: "maria@test.com",
+    phone: "86999999999",
+    role: "operator",
+  };
+
+  it("aceita criar usuario de tenant", () => {
+    expect(createTenantUserSchema.safeParse(validCreate).success).toBe(true);
+  });
+
+  it("rejeita CPF invalido ao criar usuario de tenant", () => {
+    expect(createTenantUserSchema.safeParse({ ...validCreate, cpf: "12345678901" }).success).toBe(false);
+  });
+
+  it("aceita atualizar usuario de tenant", () => {
+    expect(updateTenantUserSchema.safeParse({
+      tenantId: UUID,
+      userId: UUID,
+      name: "Maria Silva",
+      email: null,
+      phone: null,
+      role: "admin",
+    }).success).toBe(true);
+  });
+
+  it("rejeita role invalida ao atualizar usuario de tenant", () => {
+    expect(updateTenantUserSchema.safeParse({
+      tenantId: UUID,
+      userId: UUID,
+      name: "Maria Silva",
+      role: "owner",
+    }).success).toBe(false);
+  });
+
+  it("aceita remover usuario de tenant", () => {
+    expect(removeTenantUserSchema.safeParse({ tenantId: UUID, userId: UUID }).success).toBe(true);
   });
 });
 
