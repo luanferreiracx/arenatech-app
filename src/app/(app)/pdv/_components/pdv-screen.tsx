@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,19 +16,11 @@ import {
   AlertTriangle,
   RefreshCw,
   ArrowRightLeft,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { PaymentDialog } from "./payment-dialog";
@@ -56,6 +48,8 @@ type DraftSale = {
   discountValue: number;
   totalAmount: number;
   customerId: string | null;
+  customerName?: string | null;
+  customerTaxId?: string | null;
   upgrades?: DraftUpgrade[];
   // Pagamento de OS: checkout puro. Itens vem da OS (read-only), nao do carrinho.
   isOSPayment?: boolean;
@@ -105,16 +99,14 @@ type SearchProduct = {
 
 export function PdvScreen() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   // Quando vem com ?saleId=xxx (ex.: pagamento de OS), pular createDraft e
   // carregar diretamente essa Sale.
-  const initialSaleId =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("saleId")
-      : null;
+  const saleIdFromUrl = searchParams.get("saleId");
 
-  const [draftId, setDraftId] = useState<string | null>(initialSaleId);
+  const [draftId, setDraftId] = useState<string | null>(saleIdFromUrl);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
@@ -151,6 +143,7 @@ export function PdvScreen() {
   );
 
   const initDraft = useCallback(() => {
+    if (saleIdFromUrl) return;
     if (initInFlightRef.current) return; // ja ha um abandon+create em andamento
     initInFlightRef.current = true;
     setDraftError(null);
@@ -174,16 +167,24 @@ export function PdvScreen() {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [saleIdFromUrl]);
+
+  useEffect(() => {
+    if (!saleIdFromUrl) return;
+    queueMicrotask(() => {
+      setDraftError(null);
+      setDraftId(saleIdFromUrl);
+    });
+  }, [saleIdFromUrl]);
 
   useEffect(() => {
     // Se ja recebemos saleId via query (pagamento de OS), pula createDraft.
-    if (initialSaleId) return;
+    if (saleIdFromUrl) return;
     // Wrap in queueMicrotask to avoid synchronous setState warning
     queueMicrotask(() => {
       initDraft();
     });
-  }, [initDraft, initialSaleId]);
+  }, [initDraft, saleIdFromUrl]);
 
   // -- Get Draft --
   const draftQuery = useQuery(
@@ -199,6 +200,20 @@ export function PdvScreen() {
   // editar/remover itens, sem upgrade. So desconto + forma de pagamento.
   const isOSPayment = draft?.isOSPayment === true;
   const osItems: OsPaymentItem[] = draft?.osItems ?? [];
+  const subtotal = draft?.subtotal ?? 0;
+  const discountAmount = draft?.discountAmount ?? 0;
+  const totalAmount = draft?.totalAmount ?? 0;
+  const refundDueAmount = (draft as { refundDueAmount?: number } | undefined)?.refundDueAmount ?? 0;
+  const canOpenPayment = isOSPayment ? totalAmount > 0 : items.length > 0;
+
+  useEffect(() => {
+    if (!draft) return;
+    queueMicrotask(() => {
+      setCustomerId(draft.customerId ?? undefined);
+      setCustomerName(draft.customerName ?? null);
+      setCustomerTaxId(draft.customerTaxId ?? null);
+    });
+  }, [draft]);
 
   // -- Search Products --
   const searchQuery = useQuery(
@@ -224,6 +239,9 @@ export function PdvScreen() {
   );
   const setCustomerMutation = useMutation(
     trpc.sale.setCustomer.mutationOptions(),
+  );
+  const cancelOSModeMutation = useMutation(
+    trpc.sale.cancelOSMode.mutationOptions(),
   );
 
   const invalidateDraft = useCallback(() => {
@@ -456,6 +474,20 @@ export function PdvScreen() {
 
   const performNewSale = () => {
     setConfirmNewSale(false);
+    if (isOSPayment && draftId) {
+      cancelOSModeMutation.mutate(
+        { saleId: draftId },
+        {
+          onSuccess: () => {
+            toast.success("Recebimento da OS cancelado");
+            router.back();
+          },
+          onError: (err) => toast.error(err.message),
+        },
+      );
+      return;
+    }
+
     setDraftId(null);
     setCustomerId(undefined);
     setCustomerName(null);
@@ -470,7 +502,7 @@ export function PdvScreen() {
   };
 
   const handleNewSale = () => {
-    if (items.length > 0) {
+    if (isOSPayment || items.length > 0) {
       setConfirmNewSale(true);
       return;
     }
@@ -497,7 +529,7 @@ export function PdvScreen() {
       if (e.key === "F8") {
         if (isInput && target !== searchRef.current) return;
         e.preventDefault();
-        if (items.length > 0) setShowPaymentDialog(true);
+        if (canOpenPayment) setShowPaymentDialog(true);
       }
       if (e.key === "Escape" && showResults) {
         setShowResults(false);
@@ -506,8 +538,7 @@ export function PdvScreen() {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, showResults]);
+  }, [canOpenPayment, showResults]);
 
   // Close search results on click outside
   useEffect(() => {
@@ -523,11 +554,6 @@ export function PdvScreen() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const subtotal = draft?.subtotal ?? 0;
-  const discountAmount = draft?.discountAmount ?? 0;
-  const totalAmount = draft?.totalAmount ?? 0;
-  const refundDueAmount = (draft as { refundDueAmount?: number } | undefined)?.refundDueAmount ?? 0;
-
   // -- Error state: draft creation failed --
   if (draftError && !draftId) {
     return (
@@ -542,6 +568,72 @@ export function PdvScreen() {
             <Button onClick={initDraft} className="gap-2">
               <RefreshCw className="h-4 w-4" />
               Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (draftId && draftQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center space-y-4">
+            <Loader2 className="mx-auto h-12 w-12 text-primary animate-spin" />
+            <h2 className="text-lg font-semibold">
+              {saleIdFromUrl ? "Carregando recebimento da OS" : "Carregando venda"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Aguarde enquanto buscamos os dados do rascunho.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (draftId && draftQuery.isError) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center space-y-4">
+            <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
+            <h2 className="text-lg font-semibold">
+              Não foi possível carregar a venda
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {draftQuery.error.message || "Verifique se o recebimento ainda está em aberto."}
+            </p>
+            <div className="flex justify-center gap-2">
+              <Button variant="outline" onClick={() => router.back()}>
+                Voltar
+              </Button>
+              <Button onClick={() => draftQuery.refetch()} className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Tentar novamente
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (draftId && !draft) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center space-y-4">
+            <AlertTriangle className="mx-auto h-12 w-12 text-destructive opacity-60" />
+            <h2 className="text-lg font-semibold">
+              Venda não encontrada
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Não recebemos dados para este rascunho. Tente recarregar ou volte para a OS.
+            </p>
+            <Button variant="outline" onClick={() => router.back()}>
+              Voltar
             </Button>
           </CardContent>
         </Card>
@@ -857,20 +949,25 @@ export function PdvScreen() {
                 <div className="min-w-0">
                   <p className="font-medium text-sm truncate">{customerName}</p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRemoveCustomer}
-                  className="text-xs shrink-0"
-                >
-                  Trocar
-                </Button>
+                {isOSPayment ? (
+                  <span className="text-xs shrink-0 text-muted-foreground">Da OS</span>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveCustomer}
+                    className="text-xs shrink-0"
+                  >
+                    Trocar
+                  </Button>
+                )}
               </div>
             ) : (
               <Button
                 variant="outline"
                 className="w-full justify-start gap-2"
                 onClick={() => setShowCustomerDialog(true)}
+                disabled={isOSPayment}
               >
                 <User className="h-4 w-4" />
                 Selecionar Cliente
@@ -948,7 +1045,7 @@ export function PdvScreen() {
 
           {(() => {
             const hasDeviceItem = items.some((it) => it.isDevice);
-            const blockedNoCustomer = hasDeviceItem && !customerId;
+            const blockedNoCustomer = !isOSPayment && hasDeviceItem && !customerId;
             // Pagamento de OS: habilita finalizar com base no total da OS
             // (carrinho vazio e esperado — itens vem da OS, read-only).
             const canFinalize = isOSPayment
@@ -1005,7 +1102,7 @@ export function PdvScreen() {
             onClick={handleNewSale}
           >
             <RotateCcw className="h-4 w-4" />
-            Reiniciar Venda
+            {isOSPayment ? "Cancelar Recebimento" : "Reiniciar Venda"}
           </Button>
 
           <Button
@@ -1092,9 +1189,13 @@ export function PdvScreen() {
       <ConfirmDialog
         open={confirmNewSale}
         onOpenChange={setConfirmNewSale}
-        title="Iniciar nova venda?"
-        description="Todos os itens do carrinho atual serao descartados."
-        confirmLabel="Iniciar nova venda"
+        title={isOSPayment ? "Cancelar recebimento da OS?" : "Iniciar nova venda?"}
+        description={
+          isOSPayment
+            ? "O rascunho de recebimento desta OS será descartado e você voltará para a tela anterior."
+            : "Todos os itens do carrinho atual serao descartados."
+        }
+        confirmLabel={isOSPayment ? "Cancelar recebimento" : "Iniciar nova venda"}
         variant="destructive"
         onConfirm={performNewSale}
       />
