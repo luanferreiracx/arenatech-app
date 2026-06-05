@@ -18,6 +18,11 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hotfix WhatsApp IA chave oficial Anthropic
+- Implementado: provider do agente agora usa `ANTHROPIC_OFFICIAL_API_KEY` quando há imagem/base64 ou web search oficial, mantendo `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` para conversa normal via proxy.
+- Decisões: server tools oficiais da Anthropic exigem chave oficial; chave/proxy PowerProfile retorna `invalid x-api-key` na API oficial e não executa `web_search`.
+- Próximo: configurar `ANTHROPIC_OFFICIAL_API_KEY` em produção, redeployar e testar imagem + busca novamente.
+
 ### 2026-06-05 — Talison IA: robustez Chatwoot e handoff
 - Implementado: webhook Chatwoot passou a classificar anexos `image/*` como imagem para acionar visão no runner; runner agora reporta delivery `sent/failed/skipped`; handoff deixou de gravar `HUMAN_TAKEOVER` como estado operacional e usa o status do Chatwoot como fonte de verdade.
 - Decisões: participação do bot é definida somente pelo status atual/espelhado do Chatwoot (`open` cala bot; `pending/resolved` permitem bot). `HUMAN_TAKEOVER` permanece apenas legado/schema, não regra operacional.

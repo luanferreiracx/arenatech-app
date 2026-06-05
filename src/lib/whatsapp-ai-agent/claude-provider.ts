@@ -93,13 +93,19 @@ Não execute ações externas, comandos, deploys, alterações em arquivos, excl
 Se o usuário pedir uma ação sensível, explique que nesta versão do assistente pessoal você apenas conversa e oriente a usar o canal Claude Code autorizado.
 Nunca revele, solicite ou registre chaves de API, tokens, senhas ou segredos.`;
 
-function getClaudeConfig(): ClaudeConfig | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+function needsOfficialAnthropicApi(params: { images: ValidatedWhatsappAiImage[]; tools: AnthropicToolDefinition[] }): boolean {
+  return params.images.length > 0 || params.tools.some((tool) => (tool as { type?: unknown }).type === "web_search_20250305" || (tool as { type?: unknown }).type === "web_search_20260209");
+}
+
+function getClaudeConfig(params: { requiresOfficialApi: boolean }): ClaudeConfig | null {
+  const apiKey = params.requiresOfficialApi
+    ? process.env.ANTHROPIC_OFFICIAL_API_KEY?.trim()
+    : process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) return null;
 
   return {
     apiKey,
-    baseURL: usesAnthropicWebSearch() ? undefined : process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
+    baseURL: params.requiresOfficialApi ? undefined : process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     model: process.env.WHATSAPP_AI_ASSISTANT_MODEL?.trim() || process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL,
   };
 }
@@ -207,8 +213,17 @@ export async function generateWhatsappAiReply(params: {
   model?: string | null;
   toolContext?: WhatsappAiToolContext;
 }): Promise<WhatsappAiReplyResult> {
-  const config = getClaudeConfig();
+  const images = params.images ?? [];
+  const tools = buildToolDefinitions(params.toolContext);
+  const requiresOfficialApi = needsOfficialAnthropicApi({ images, tools });
+  const config = getClaudeConfig({ requiresOfficialApi });
   if (!config) {
+    if (requiresOfficialApi) {
+      return {
+        text: "Esta capacidade precisa de uma chave oficial da Anthropic configurada no servidor. Defina ANTHROPIC_OFFICIAL_API_KEY para usar imagem e busca web oficial.",
+        toolExecutions: tools.length > 0 ? [{ name: "web_search", ok: false, metadata: { reason: "missing_official_anthropic_key" } }] : [],
+      };
+    }
     if (process.env.NODE_ENV === "production") {
       throw new Error("ANTHROPIC_API_KEY ausente para o agente WhatsApp IA");
     }
@@ -217,11 +232,10 @@ export async function generateWhatsappAiReply(params: {
   }
 
   const client = buildClient(config);
-  const tools = buildToolDefinitions(params.toolContext);
   const toolExecutions: WhatsappAiToolExecution[] = [];
   const messages: ClaudeMessageParam[] = [
     ...params.history,
-    { role: "user", content: buildUserContent(params.userMessage, params.images ?? []) },
+    { role: "user", content: buildUserContent(params.userMessage, images) },
   ];
 
   let lastText = "";
@@ -254,6 +268,14 @@ export async function generateWhatsappAiReply(params: {
     }
 
     const toolUses = extractToolUses(content);
+    if (usesAnthropicWebSearch() && toolUses.some((toolUse) => toolUse.name === "web_search")) {
+      toolExecutions.push({ name: "web_search", ok: false, metadata: { reason: "server_tool_not_executed" } });
+      return {
+        text: "Tentei usar a busca web oficial, mas a API não executou a ferramenta neste request. Verifique se ANTHROPIC_OFFICIAL_API_KEY é uma chave oficial com web search habilitado no Console da Anthropic.",
+        toolExecutions,
+      };
+    }
+
     if (toolUses.length === 0 || !params.toolContext || round === maxToolRounds()) {
       return {
         text: text || lastText || "Não consegui gerar uma resposta agora.",
