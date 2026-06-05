@@ -1,3 +1,11 @@
+export type WhatsappAiInboundAttachment = {
+  kind: "image";
+  url: string;
+  mimeType: string | null;
+  caption: string | null;
+  fileLength: number | null;
+};
+
 export type WhatsappAiInboundMessage = {
   event: string;
   instanceName: string | null;
@@ -7,7 +15,16 @@ export type WhatsappAiInboundMessage = {
   isGroup: boolean;
   pushName: string | null;
   text: string;
+  attachments: WhatsappAiInboundAttachment[];
   timestamp: Date;
+};
+
+type EvolutionImageMessage = {
+  caption?: unknown;
+  url?: unknown;
+  mimetype?: unknown;
+  mimeType?: unknown;
+  fileLength?: unknown;
 };
 
 export type EvolutionWebhookPayload = {
@@ -25,7 +42,7 @@ export type EvolutionWebhookPayload = {
     message?: {
       conversation?: unknown;
       extendedTextMessage?: { text?: unknown };
-      imageMessage?: { caption?: unknown; url?: unknown };
+      imageMessage?: EvolutionImageMessage;
       videoMessage?: { caption?: unknown };
       documentMessage?: { caption?: unknown };
     };
@@ -36,6 +53,15 @@ export type EvolutionWebhookPayload = {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 }
 
 function dateFromEvolutionTimestamp(value: unknown): Date {
@@ -55,6 +81,19 @@ export function extractEvolutionInstance(payload: EvolutionWebhookPayload): stri
   );
 }
 
+function extractImageAttachment(imageMessage: EvolutionImageMessage | undefined): WhatsappAiInboundAttachment | null {
+  const url = stringOrNull(imageMessage?.url);
+  if (!url) return null;
+
+  return {
+    kind: "image",
+    url,
+    mimeType: stringOrNull(imageMessage?.mimetype) ?? stringOrNull(imageMessage?.mimeType),
+    caption: stringOrNull(imageMessage?.caption),
+    fileLength: numberOrNull(imageMessage?.fileLength),
+  };
+}
+
 export function parseEvolutionAiInbound(payload: EvolutionWebhookPayload): WhatsappAiInboundMessage | null {
   const event = String(payload.event ?? "");
   if (event !== "messages.upsert" && event !== "MESSAGES_UPSERT") return null;
@@ -72,6 +111,7 @@ export function parseEvolutionAiInbound(payload: EvolutionWebhookPayload): Whats
     stringOrNull(message?.videoMessage?.caption) ??
     stringOrNull(message?.documentMessage?.caption) ??
     "";
+  const imageAttachment = extractImageAttachment(message?.imageMessage);
 
   return {
     event,
@@ -82,6 +122,7 @@ export function parseEvolutionAiInbound(payload: EvolutionWebhookPayload): Whats
     isGroup: remoteJid.endsWith("@g.us"),
     pushName: stringOrNull(payload.data?.pushName),
     text: text.trim(),
+    attachments: imageAttachment ? [imageAttachment] : [],
     timestamp: dateFromEvolutionTimestamp(payload.data?.messageTimestamp),
   };
 }

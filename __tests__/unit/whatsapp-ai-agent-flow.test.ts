@@ -22,7 +22,7 @@ const { tx, generateWhatsappAiReply, sendTextMessage } = vi.hoisted(() => {
 
   return {
     tx,
-    generateWhatsappAiReply: vi.fn().mockResolvedValue("Olá, Luan."),
+    generateWhatsappAiReply: vi.fn().mockResolvedValue({ text: "Olá, Luan.", toolExecutions: [] }),
     sendTextMessage: vi.fn().mockResolvedValue({ success: true, messageId: "sent-1" }),
   };
 });
@@ -65,6 +65,7 @@ describe("processWhatsappAiMessage", () => {
       isGroup: false,
       pushName: "Luan",
       text: "oi",
+      attachments: [],
       timestamp: new Date("2026-06-04T12:00:00.000Z"),
     };
 
@@ -78,7 +79,17 @@ describe("processWhatsappAiMessage", () => {
     expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ role: "user", content: "oi", evolutionMessageId: "msg-1" }),
     }));
-    expect(generateWhatsappAiReply).toHaveBeenCalledWith({ history: [], userMessage: "oi", model: null });
+    expect(generateWhatsappAiReply).toHaveBeenCalledWith({
+      history: [],
+      userMessage: "oi",
+      images: [],
+      model: null,
+      toolContext: {
+        tenantId: "00000000-0000-0000-0000-000000000001",
+        conversationId: "conv-1",
+        phone: "5586995423021",
+      },
+    });
     expect(sendTextMessage).toHaveBeenCalledWith("5586995423021", "Olá, Luan.", {
       instanceName: "arena-cripto",
     });
@@ -108,6 +119,7 @@ describe("processWhatsappAiMessage", () => {
         isGroup: false,
         pushName: "Luan UK",
         text: "/run rode git status",
+        attachments: [],
         timestamp: new Date("2026-06-04T12:00:00.000Z"),
       },
     });
@@ -142,6 +154,7 @@ describe("processWhatsappAiMessage", () => {
         isGroup: false,
         pushName: "Luan",
         text: "oi",
+        attachments: [],
         timestamp: new Date("2026-06-04T12:00:00.000Z"),
       },
     });
@@ -149,5 +162,65 @@ describe("processWhatsappAiMessage", () => {
     expect(result).toEqual({ status: "skipped", reason: "duplicate message" });
     expect(generateWhatsappAiReply).not.toHaveBeenCalled();
     expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it("responde mensagem só com imagem e persiste metadata de anexo", async () => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "true";
+    const result = await processWhatsappAiMessage({
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      phone: "5586995423021",
+      message: {
+        event: "messages.upsert",
+        instanceName: "arena-cripto",
+        messageId: "msg-img-1",
+        remoteJid: "5586995423021@s.whatsapp.net",
+        fromMe: false,
+        isGroup: false,
+        pushName: "Luan",
+        text: "",
+        attachments: [{ kind: "image", url: "https://cdn.exemplo.com/foto.jpg", mimeType: "image/jpeg", caption: null, fileLength: 1024 }],
+        timestamp: new Date("2026-06-04T12:00:00.000Z"),
+      },
+    });
+
+    expect(result).toEqual({ status: "replied", providerMessageId: "sent-1" });
+    expect(generateWhatsappAiReply).toHaveBeenCalledWith(expect.objectContaining({
+      userMessage: "",
+      images: [{ url: "https://cdn.exemplo.com/foto.jpg", mediaType: "image/jpeg", sizeBytes: 1024, sourceHost: "cdn.exemplo.com" }],
+    }));
+    expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        role: "user",
+        metadata: expect.objectContaining({
+          attachments: [expect.objectContaining({ kind: "image", mimeType: "image/jpeg", hasUrl: true })],
+        }),
+      }),
+    }));
+  });
+
+  it("responde mensagem amigável quando imagem falha validação", async () => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "true";
+    const result = await processWhatsappAiMessage({
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      phone: "5586995423021",
+      message: {
+        event: "messages.upsert",
+        instanceName: "arena-cripto",
+        messageId: "msg-img-invalid",
+        remoteJid: "5586995423021@s.whatsapp.net",
+        fromMe: false,
+        isGroup: false,
+        pushName: "Luan",
+        text: "",
+        attachments: [{ kind: "image", url: "https://localhost/foto.jpg", mimeType: "image/jpeg", caption: null, fileLength: 1024 }],
+        timestamp: new Date("2026-06-04T12:00:00.000Z"),
+      },
+    });
+
+    expect(result).toEqual({ status: "replied", providerMessageId: "sent-1" });
+    expect(generateWhatsappAiReply).not.toHaveBeenCalled();
+    expect(sendTextMessage).toHaveBeenCalledWith("5586995423021", expect.stringContaining("não consegui processá-la"), {
+      instanceName: "arena-cripto",
+    });
   });
 });
