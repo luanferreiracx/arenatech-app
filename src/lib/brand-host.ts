@@ -9,15 +9,18 @@
 const PDVDEPIX_HOSTS = new Set([
   "pdvdepix.app",
   "www.pdvdepix.app",
+  "depixpdv.app",
+  "www.depixpdv.app",
   // futuro: pdvcripto.app quando o registro for concluido
   "pdvcripto.app",
   "www.pdvcripto.app",
 ]);
 
-/** Normaliza o header host (remove porta). */
+/** Normaliza o header host (pega o primeiro proxy host e remove porta). */
 export function normalizeHost(host: string | null | undefined): string {
   if (!host) return "";
-  return host.split(":")[0]!.trim().toLowerCase();
+  const firstHost = host.split(",")[0] ?? "";
+  return firstHost.split(":")[0]!.trim().toLowerCase();
 }
 
 /** O host atual deve mostrar a landing publica de marketing? */

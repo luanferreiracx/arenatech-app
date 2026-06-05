@@ -18,6 +18,13 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Login whitelabel pdvdepix
+- Implementado: layout de autenticação agora detecta hosts da landing pdvdepix via `Host`/`x-forwarded-host` e aplica visual escuro com grid, glow teal/verde, logo pdvdepix e tokens CSS próprios no `/login`.
+- Implementado: `depixpdv.app` e `www.depixpdv.app` foram aceitos como aliases de compatibilidade, mantendo `pdvdepix.app`/`www.pdvdepix.app` como domínio principal.
+- Decisões: o login Arena Tech permanece inalterado para hosts internos; a detecção de host foi reforçada para lidar com porta e listas de proxy.
+- Validação: teste unitário de brand host verde, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), `pnpm build` verde e screenshots Playwright desktop/mobile do host pdvdepix sem overflow.
+- Próximo: abrir PR, aguardar CI e deployar.
+
 ### 2026-06-05 — Hotfix troca obrigatoria de senha temporaria
 - Implementado: usuarios criados com senha inicial ou resetados por admin/superadmin passam a gravar `must_change_password=true`.
 - Implementado: login/JWT carrega a flag, o proxy bloqueia acesso ao sistema e libera apenas `/change-password` + mutation `auth.changePassword` ate a senha ser substituida.
