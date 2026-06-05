@@ -120,6 +120,7 @@ export const saleRouter = createTRPCRouter({
           sellerId: ctx.session.user.id,
           status: "DRAFT",
           deletedAt: null,
+          isOSPayment: false,
         },
         include: { items: true },
         orderBy: { createdAt: "desc" },
@@ -146,7 +147,7 @@ export const saleRouter = createTRPCRouter({
     });
   }),
 
-  /** Abandon (delete) all existing DRAFT sales for the current seller */
+  /** Abandon (delete) all existing common DRAFT sales for the current seller */
   abandonDraft: tenantProcedure.mutation(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       await tx.saleItem.deleteMany({
@@ -156,6 +157,7 @@ export const saleRouter = createTRPCRouter({
             sellerId: ctx.session.user.id,
             status: "DRAFT",
             deletedAt: null,
+            isOSPayment: false,
           },
         },
       });
@@ -165,6 +167,7 @@ export const saleRouter = createTRPCRouter({
           sellerId: ctx.session.user.id,
           status: "DRAFT",
           deletedAt: null,
+          isOSPayment: false,
         },
       });
       return { ok: true };
@@ -214,11 +217,27 @@ export const saleRouter = createTRPCRouter({
           }));
         }
 
+        let customerSummary: { customerName: string | null; customerTaxId: string | null } = {
+          customerName: sale.customerName ?? null,
+          customerTaxId: null,
+        };
+        if (sale.customerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: sale.customerId },
+            select: { name: true, cpf: true, cnpj: true },
+          });
+          customerSummary = {
+            customerName: customer?.name ?? sale.customerName ?? null,
+            customerTaxId: customer?.cpf ?? customer?.cnpj ?? null,
+          };
+        }
+
         return {
           ...serializeSale({
             ...sale,
             items: itemsWithDevice,
           } as unknown as Record<string, unknown>),
+          ...customerSummary,
           osItems,
         };
       });

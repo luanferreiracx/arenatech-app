@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { PdvScreen } from "./_components/pdv-screen";
 
 export const metadata = {
@@ -5,5 +6,9 @@ export const metadata = {
 };
 
 export default function PdvPage() {
-  return <PdvScreen />;
+  return (
+    <Suspense fallback={null}>
+      <PdvScreen />
+    </Suspense>
+  );
 }
