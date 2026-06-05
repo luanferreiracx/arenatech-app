@@ -97,11 +97,9 @@ export const transferirParaHumano: TalisonTool<typeof transferirSchema> = {
   schema: transferirSchema,
   async execute(args, ctx) {
     await ctx.withTenant(async (tx) => {
-      await tx.chatbotConversation.update({
-        where: { id: ctx.conversation.id },
-        data: { status: "HUMAN_TAKEOVER" },
-      });
-      // Cancela follow-ups pendentes — humano assumiu.
+      // Cancela follow-ups pendentes — humano assumiu. A decisão de o bot
+      // participar ou calar é feita pelo status atual do Chatwoot: ao abrir a
+      // conversa abaixo, o webhook espelha `open` para `OPEN`.
       await tx.chatbotFollowUp.updateMany({
         where: { conversationId: ctx.conversation.id, cancelled: false, executedAt: null },
         data: { cancelled: true },

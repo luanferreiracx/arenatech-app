@@ -85,9 +85,10 @@ export async function POST(req: NextRequest) {
           : []
         const firstAttachment = attachments[0]
         const mediaUrl = firstAttachment?.data_url ? String(firstAttachment.data_url) : null
-        const mediaType = firstAttachment
+        const rawMediaType = firstAttachment
           ? String(firstAttachment.file_type ?? firstAttachment.type ?? "file")
           : null
+        const normalizedMediaType = rawMediaType?.toLowerCase() ?? null
 
         // Aceita mensagem com texto OU com mídia (imagem sem caption é válida).
         if (!conversation || (!message && !mediaUrl)) break
@@ -185,17 +186,20 @@ export async function POST(req: NextRequest) {
           }
 
           // Create message. Imagem → contentType "image" + mediaUrl (Claude
-          // descreve no runner). content guarda a caption ou um placeholder.
-          const isImage = mediaType === "image" && !!mediaUrl
+          // descreve no runner). Chatwoot pode enviar file_type como "image"
+          // ou como MIME (ex.: "image/jpeg"); ambos devem acionar visão.
+          const isImage = !!mediaUrl && !!normalizedMediaType && (
+            normalizedMediaType === "image" || normalizedMediaType.startsWith("image/")
+          )
           const contentType = isImage
             ? "image"
-            : mediaType
-              ? mediaType
+            : rawMediaType
+              ? rawMediaType
               : String(body.content_type ?? "text")
           const persistedContent = message?.trim()
             ? message
-            : mediaType
-              ? `[mídia: ${mediaType}]`
+            : rawMediaType
+              ? `[mídia: ${rawMediaType}]`
               : ""
 
           // ECO DO BOT: quando o Talison posta a resposta via API, o Chatwoot
