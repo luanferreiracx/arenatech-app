@@ -18,6 +18,11 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hotfix WhatsApp IA chave oficial Anthropic
+- Implementado: provider do agente agora usa `ANTHROPIC_OFFICIAL_API_KEY` quando há imagem/base64 ou web search oficial, mantendo `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` para conversa normal via proxy.
+- Decisões: server tools oficiais da Anthropic exigem chave oficial; chave/proxy PowerProfile retorna `invalid x-api-key` na API oficial e não executa `web_search`.
+- Próximo: configurar `ANTHROPIC_OFFICIAL_API_KEY` em produção, redeployar e testar imagem + busca novamente.
+
 ### 2026-06-05 — Hotfix WhatsApp IA imagem/base64 e busca oficial
 - Implementado: imagens recebidas pela Evolution agora são baixadas com validação segura e enviadas ao Claude como `base64`, evitando falha de acesso à URL temporária `mmg.whatsapp.net`.
 - Implementado: modo `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic` força o client Anthropic oficial sem `ANTHROPIC_BASE_URL`, porque server tools não funcionam via proxy PowerProfile/Claude-compatible.
