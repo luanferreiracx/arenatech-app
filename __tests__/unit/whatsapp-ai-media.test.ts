@@ -2,14 +2,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { validateWhatsappAiImage, validateWhatsappAiImages } from "@/lib/whatsapp-ai-agent/media";
 
 const originalEnv = process.env;
+const imageBytes = new Uint8Array([1, 2, 3]);
+
+function mockImageFetch(contentType = "image/jpeg", bytes = imageBytes): void {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    headers: new Headers({
+      "content-type": contentType,
+      "content-length": String(bytes.byteLength),
+    }),
+    arrayBuffer: async () => bytes.buffer,
+  }));
+}
 
 describe("whatsapp-ai media", () => {
   beforeEach(() => {
     process.env = { ...originalEnv, NODE_ENV: "production", WHATSAPP_AI_ENABLE_IMAGES: "true" };
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("aceita HTTPS público com MIME permitido informado pelo webhook", async () => {
+    mockImageFetch();
+
     const image = await validateWhatsappAiImage({
       kind: "image",
       url: "https://cdn.exemplo.com/foto.jpg",
@@ -23,6 +38,7 @@ describe("whatsapp-ai media", () => {
       mediaType: "image/jpeg",
       sizeBytes: 1024,
       sourceHost: "cdn.exemplo.com",
+      base64Data: Buffer.from(imageBytes).toString("base64"),
     });
   });
 

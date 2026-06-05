@@ -34,7 +34,7 @@ export function createAnthropicWebSearchToolDefinition(): AnthropicWebSearchTool
   const blockedDomains = allowedDomains ? undefined : parseCsv(process.env.WHATSAPP_AI_WEB_SEARCH_BLOCKED_DOMAINS);
 
   return {
-    type: version === "web_search_20250305" ? "web_search_20250305" : "web_search_20260209",
+    type: version === "web_search_20260209" ? "web_search_20260209" : "web_search_20250305",
     name: "web_search",
     max_uses: parseMaxUses(),
     ...(allowedDomains ? { allowed_domains: allowedDomains } : {}),
