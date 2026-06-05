@@ -46,6 +46,10 @@ function isNoTenantRoute(pathname: string): boolean {
   );
 }
 
+function isPasswordChangeRoute(pathname: string): boolean {
+  return pathname === "/change-password" || pathname.startsWith("/api/trpc/auth.changePassword");
+}
+
 export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
@@ -77,6 +81,9 @@ export const proxy = auth((req) => {
   // 1. Public routes
   if (isPublicRoute(pathname)) {
     if (session && pathname === "/login") {
+      if (session.user.mustChangePassword) {
+        return NextResponse.redirect(selfUrl("/change-password"));
+      }
       const cookieTenant = req.cookies.get("x-active-tenant")?.value;
       const activeTenantId = cookieTenant ?? session.activeTenantId;
 
@@ -101,7 +108,12 @@ export const proxy = auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 3. No tenants, not super admin
+  // 3. Temporary password barrier
+  if (session.user.mustChangePassword && !isPasswordChangeRoute(pathname) && pathname !== "/logout") {
+    return NextResponse.redirect(selfUrl("/change-password"));
+  }
+
+  // 4. No tenants, not super admin
   if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
     if (pathname !== "/no-access") {
       return NextResponse.redirect(selfUrl("/no-access"));
@@ -109,7 +121,7 @@ export const proxy = auth((req) => {
     return NextResponse.next();
   }
 
-  // 4. Admin routes
+  // 5. Admin routes
   if (pathname.startsWith("/admin")) {
     if (!session.user.isSuperAdmin) {
       return NextResponse.redirect(selfUrl("/painel"));
@@ -117,12 +129,12 @@ export const proxy = auth((req) => {
     return NextResponse.next();
   }
 
-  // 5. No-tenant routes
+  // 6. No-tenant routes
   if (isNoTenantRoute(pathname)) {
     return NextResponse.next();
   }
 
-  // 6. Resolve active tenant
+  // 7. Resolve active tenant
   const cookieTenant = req.cookies.get("x-active-tenant")?.value;
   const activeTenantId = cookieTenant ?? session.activeTenantId;
 
@@ -141,7 +153,7 @@ export const proxy = auth((req) => {
     return res;
   }
 
-  // 6b. Gating por plano: bloqueia rotas de módulos não liberados para o tenant.
+  // 7b. Gating por plano: bloqueia rotas de módulos não liberados para o tenant.
   //  - super admin: passa livre (visão total).
   //  - arena-tech e demais: a lista `modules` já vem resolvida na sessão
   //    (arena-tech tem todos). Rota sem módulo (painel, settings) passa.
@@ -151,7 +163,7 @@ export const proxy = auth((req) => {
     }
   }
 
-  // 7. Inject tenant header for tRPC context
+  // 8. Inject tenant header for tRPC context
   const headers = new Headers(req.headers);
   headers.set("x-tenant-id", activeTenantId);
   return NextResponse.next({ request: { headers } });

@@ -18,6 +18,14 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hotfix troca obrigatoria de senha temporaria
+- Implementado: usuarios criados com senha inicial ou resetados por admin/superadmin passam a gravar `must_change_password=true`.
+- Implementado: login/JWT carrega a flag, o proxy bloqueia acesso ao sistema e libera apenas `/change-password` + mutation `auth.changePassword` ate a senha ser substituida.
+- Implementado: pagina `/change-password` autenticada troca a senha temporaria, limpa a flag e encerra a sessao para novo login com token limpo.
+- Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
+- Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
+- Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
 - Implementado: procedure `admin.resetTenantUserPassword` valida `tenantId/userId`, exige vinculo no tenant e bloqueia reset de usuario marcado como `isSuperAdmin`.
