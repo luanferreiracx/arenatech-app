@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
-import { prisma } from "@/server/db";
+import { prisma, withAdmin } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
 import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
@@ -78,6 +78,163 @@ function generateTempPassword(): string {
   // mas a entropia toda vem do sufixo aleatorio gerado por CSPRNG.
   const suffix = randomBytes(12).toString("base64url");
   return `Arena@${suffix}`;
+}
+
+function normalizeDigits(value: string | null | undefined): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  return digits.length > 0 ? digits : null;
+}
+
+function normalizeRequiredDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getObjectProperty(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null || !(key in value)) {
+    return undefined;
+  }
+  return (value as Record<string, unknown>)[key];
+}
+
+function isPrismaUniqueError(error: unknown): boolean {
+  return getObjectProperty(error, "code") === "P2002";
+}
+
+function getUniqueErrorTargets(error: unknown): string[] {
+  const meta = getObjectProperty(error, "meta");
+  const target = getObjectProperty(meta, "target");
+  if (!Array.isArray(target)) return [];
+  return target.filter((value): value is string => typeof value === "string");
+}
+
+function uniqueErrorMessage(error: unknown): string {
+  const targets = getUniqueErrorTargets(error);
+  if (targets.includes("cnpj")) return "CNPJ ja cadastrado em outro tenant";
+  if (targets.includes("cpf")) return "CPF ja cadastrado por outra operacao";
+  if (targets.includes("slug")) return "Slug do tenant ja existe; tente criar novamente";
+  if (targets.includes("user_id") || targets.includes("tenant_id") || targets.includes("userId") || targets.includes("tenantId")) {
+    return "Responsavel ja esta vinculado a este tenant";
+  }
+  return "Registro duplicado durante o cadastro";
+}
+
+async function mapOnboardingConflicts<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    if (isPrismaUniqueError(error)) {
+      throw new TRPCError({ code: "CONFLICT", message: uniqueErrorMessage(error) });
+    }
+    throw error;
+  }
+}
+
+function isWalletOnlyModules(modules: readonly string[]): boolean {
+  return modules.length === 1 && modules[0] === "wallet";
+}
+
+async function resolveWalletOnlyActivePlanId(
+  tx: Prisma.TransactionClient,
+  planId: string | null | undefined,
+): Promise<string | null> {
+  if (!planId) return null;
+
+  const plan = await tx.plan.findUnique({
+    where: { id: planId },
+    select: { id: true, name: true, status: true, features: true },
+  });
+  if (!plan) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado nao existe" });
+  }
+  if (plan.status !== "ACTIVE") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado esta inativo" });
+  }
+
+  const modules = modulesFromPlanFeatures(plan.features);
+  if (!isWalletOnlyModules(modules)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Onboarding inicial permite apenas planos com Carteira DePix",
+    });
+  }
+
+  return plan.id;
+}
+
+async function assertTenantCnpjAvailable(
+  tx: Prisma.TransactionClient,
+  cnpj: string | null,
+): Promise<void> {
+  if (!cnpj) return;
+  const existing = await tx.tenant.findUnique({
+    where: { cnpj },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new TRPCError({ code: "CONFLICT", message: "CNPJ ja cadastrado em outro tenant" });
+  }
+}
+
+function assertExistingUserCanBeLinked(
+  user: { email: string | null; isSuperAdmin: boolean },
+  expectedEmail: string,
+): void {
+  if (user.isSuperAdmin) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "CPF pertence a um usuario interno da Arena Tech",
+    });
+  }
+  if (user.email && normalizeEmail(user.email) !== normalizeEmail(expectedEmail)) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "CPF ja existe com outro email",
+    });
+  }
+}
+
+async function seedTenantSettings(
+  tx: Prisma.TransactionClient,
+  input: {
+    tenantId: string;
+    tradeName: string;
+    legalName?: string | null;
+    cnpj?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    zipCode?: string | null;
+    street?: string | null;
+    streetNumber?: string | null;
+    complement?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+    state?: string | null;
+  },
+): Promise<void> {
+  await tx.tenantSettings.upsert({
+    where: { tenantId: input.tenantId },
+    create: {
+      tenantId: input.tenantId,
+      tradeName: input.tradeName,
+      legalName: input.legalName ?? input.tradeName,
+      cnpj: input.cnpj ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      zipCode: input.zipCode ?? null,
+      street: input.street ?? null,
+      streetNumber: input.streetNumber ?? null,
+      complement: input.complement ?? null,
+      neighborhood: input.neighborhood ?? null,
+      city: input.city ?? null,
+      state: input.state ?? null,
+    },
+    update: {},
+  });
 }
 
 export const adminRouter = createTRPCRouter({
@@ -157,12 +314,21 @@ export const adminRouter = createTRPCRouter({
     .input(updateTenantSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withAdmin(async (tx) => {
+        const currentTenant = await tx.tenant.findUnique({
+          where: { id: input.id },
+          select: { plan: true },
+        });
+        if (!currentTenant) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const planId = input.plan === currentTenant.plan
+          ? currentTenant.plan
+          : await resolveWalletOnlyActivePlanId(tx, input.plan);
         await tx.tenant.update({
           where: { id: input.id },
           data: {
             name: input.name,
             status: input.status,
-            plan: input.plan,
+            plan: planId,
           },
         });
         return { success: true };
@@ -293,34 +459,58 @@ export const adminRouter = createTRPCRouter({
   approvePreRegistration: adminProcedure
     .input(approvePreRegistrationSchema)
     .mutation(async ({ ctx, input }) => {
-      const approved = await ctx.withAdmin(async (tx) => {
+      const approved = await mapOnboardingConflicts(() => ctx.withAdmin(async (tx) => {
         const pr = await tx.preRegistration.findUnique({ where: { id: input.id } });
         if (!pr) throw new TRPCError({ code: "NOT_FOUND" });
         if (pr.status !== "PENDING") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Pre-cadastro ja processado" });
         }
 
+        const planId = await resolveWalletOnlyActivePlanId(tx, input.planId ?? pr.planId);
+        const cnpj = normalizeDigits(pr.cnpj);
+        await assertTenantCnpjAvailable(tx, cnpj);
+
         const slug = generateSlug(pr.tradeName);
         const tempPassword = generateTempPassword();
+        const ownerCpf = normalizeRequiredDigits(pr.ownerCpf);
+        const ownerPhone = normalizeDigits(pr.ownerPhone);
 
         // Create tenant
         const tenant = await tx.tenant.create({
           data: {
             name: pr.tradeName,
             slug: `${slug}-${Date.now().toString(36)}`,
-            plan: input.planId ?? null,
+            cnpj,
+            plan: planId,
             status: "ACTIVE",
           },
         });
 
-        // Create user
-        const user = await tx.user.create({
-          data: {
-            name: pr.ownerName,
-            cpf: pr.ownerCpf.replace(/\D/g, ""),
-            passwordHash: hashPassword(tempPassword),
-          },
+        const existingUser = await tx.user.findUnique({
+          where: { cpf: ownerCpf },
         });
+        if (existingUser) {
+          assertExistingUserCanBeLinked(existingUser, pr.ownerEmail);
+        }
+
+        const user = existingUser
+          ? await tx.user.update({
+              where: { id: existingUser.id },
+              data: {
+                name: existingUser.name || pr.ownerName,
+                email: existingUser.email ?? pr.ownerEmail,
+                phone: existingUser.phone ?? ownerPhone,
+              },
+            })
+          : await tx.user.create({
+              data: {
+                name: pr.ownerName,
+                cpf: ownerCpf,
+                email: pr.ownerEmail,
+                phone: ownerPhone,
+                passwordHash: hashPassword(tempPassword),
+              },
+            });
 
         // Link user to tenant
         await tx.userTenant.create({
@@ -332,7 +522,15 @@ export const adminRouter = createTRPCRouter({
         });
 
         // Seed FIXED financial categories (ADR 0034) + fee config DePix
-        await tenantFinancialInit(tx as any, tenant.id);
+        await tenantFinancialInit(tx, tenant.id);
+        await seedTenantSettings(tx, {
+          tenantId: tenant.id,
+          tradeName: pr.tradeName,
+          legalName: pr.legalName,
+          cnpj,
+          email: pr.ownerEmail,
+          phone: ownerPhone,
+        });
 
         // Update pre-registration
         await tx.preRegistration.update({
@@ -350,8 +548,8 @@ export const adminRouter = createTRPCRouter({
           userId: user.id,
         });
 
-        return { tenantId: tenant.id, userId: user.id, tempPassword };
-      });
+        return { tenantId: tenant.id, userId: user.id, tempPassword: existingUser ? null : tempPassword };
+      }));
 
       // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK).
       await provisionDepixWallet(approved.tenantId).catch((err) =>
@@ -395,7 +593,13 @@ export const adminRouter = createTRPCRouter({
   createTenant: adminProcedure
     .input(createTenantSchema)
     .mutation(async ({ ctx, input }) => {
-      const created = await ctx.withAdmin(async (tx) => {
+      const created = await mapOnboardingConflicts(() => ctx.withAdmin(async (tx) => {
+        const planId = await resolveWalletOnlyActivePlanId(tx, input.planId);
+        const cnpj = normalizeDigits(input.cnpj);
+        const ownerCpf = normalizeRequiredDigits(input.ownerCpf);
+        const ownerPhone = normalizeDigits(input.phone);
+        await assertTenantCnpjAvailable(tx, cnpj);
+
         const slug = generateSlug(input.name);
         const tempPassword = generateTempPassword();
 
@@ -403,25 +607,37 @@ export const adminRouter = createTRPCRouter({
           data: {
             name: input.name,
             slug: `${slug}-${Date.now().toString(36)}`,
-            cnpj: input.cnpj ?? null,
-            plan: input.planId ?? null,
-            status: input.trialDays && input.trialDays > 0 ? "PENDING" : "ACTIVE",
+            cnpj,
+            plan: planId,
+            status: "ACTIVE",
           },
         });
 
         const existingUser = await tx.user.findUnique({
-          where: { cpf: input.ownerCpf.replace(/\D/g, "") },
+          where: { cpf: ownerCpf },
         });
+        if (existingUser) {
+          assertExistingUserCanBeLinked(existingUser, input.email);
+        }
 
         let userId: string;
         if (existingUser) {
+          await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              name: existingUser.name || input.ownerName,
+              email: existingUser.email ?? input.email,
+              phone: existingUser.phone ?? ownerPhone,
+            },
+          });
           userId = existingUser.id;
         } else {
           const user = await tx.user.create({
             data: {
               name: input.ownerName,
-              cpf: input.ownerCpf.replace(/\D/g, ""),
+              cpf: ownerCpf,
               email: input.email,
+              phone: ownerPhone,
               passwordHash: hashPassword(tempPassword),
             },
           });
@@ -437,7 +653,21 @@ export const adminRouter = createTRPCRouter({
         });
 
         // Seed financeiro + fee config DePix (idempotente, local).
-        await tenantFinancialInit(tx as any, tenant.id);
+        await tenantFinancialInit(tx, tenant.id);
+        await seedTenantSettings(tx, {
+          tenantId: tenant.id,
+          tradeName: input.name,
+          cnpj,
+          email: input.email,
+          phone: ownerPhone,
+          zipCode: normalizeDigits(input.cep),
+          street: input.address ?? null,
+          streetNumber: input.addressNumber ?? null,
+          complement: input.addressComplement ?? null,
+          neighborhood: input.neighborhood ?? null,
+          city: input.city ?? null,
+          state: input.state?.toUpperCase() ?? null,
+        });
 
         logger.info("Tenant created manually", {
           tenantId: tenant.id,
@@ -446,7 +676,7 @@ export const adminRouter = createTRPCRouter({
         });
 
         return { tenantId: tenant.id, userId, tempPassword: existingUser ? null : tempPassword };
-      });
+      }));
 
       // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK). Falha
       // nao reverte o tenant — carteira recuperavel via depixWallet.provision.
@@ -907,16 +1137,18 @@ export const adminRouter = createTRPCRouter({
     .use(rateLimitMiddleware({ limit: 5, windowMs: 60 * 60 * 1000 }))
     .input(submitPreRegistrationSchema)
     .mutation(async ({ input }) => {
+      const planId = await withAdmin((tx) => resolveWalletOnlyActivePlanId(tx, input.planId));
+      const cnpj = normalizeDigits(input.cnpj);
       const pr = await prisma.preRegistration.create({
         data: {
           tradeName: input.tradeName,
           legalName: input.legalName ?? null,
-          cnpj: input.cnpj ?? null,
+          cnpj,
           ownerName: input.ownerName,
-          ownerCpf: input.ownerCpf.replace(/\D/g, ""),
+          ownerCpf: normalizeRequiredDigits(input.ownerCpf),
           ownerEmail: input.ownerEmail,
-          ownerPhone: input.ownerPhone,
-          planId: input.planId ?? null,
+          ownerPhone: normalizeDigits(input.ownerPhone) ?? input.ownerPhone,
+          planId,
           notes: input.notes ?? null,
         },
       });

@@ -18,6 +18,18 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hardening superadmin onboarding wallet-only
+- Implementado: criação manual e aprovação de pré-cadastro agora validam CPF/CNPJ, normalizam documentos/telefone, aceitam apenas plano ativo wallet-only ou sem plano, seedam `tenant_settings` básico e provisionam a carteira DePix fora da transação.
+- Implementado: sessão/autenticação agora mantém apenas tenants `ACTIVE` em `availableTenants`, removendo acesso de tenants `PENDING`, `SUSPENDED` ou `CANCELLED` no próximo refresh/JWT callback.
+- Implementado: duplicidades concorrentes de CNPJ/CPF/slug/vínculo agora são mapeadas para erros tRPC claros no onboarding, evitando erro bruto do Prisma para o superadmin.
+- Implementado: edição de tenant preserva plano legado/fora do onboarding se ele não for alterado, mas novas atribuições continuam restritas a plano ativo wallet-only.
+- Implementado: criação manual deixou de marcar tenants com trial como `PENDING`; como trial não é persistido no schema atual, novos tenants nascem `ACTIVE` para não bloquear o primeiro acesso.
+- Implementado: `tenantAdminProcedure` passou a aceitar role `admin`, alinhando as permissões de saque/autocomplete DePix com o papel criado no onboarding.
+- Implementado: reaproveitamento de CPF existente agora bloqueia usuários superadmin internos e CPF com e-mail divergente, evitando vínculo acidental de conta errada ao tenant.
+- Decisões: onboarding inicial de tenants externos fica restrito a `wallet`; plano vazio ou sem módulos válidos cai no padrão wallet-only; UI de tenant no superadmin não oferece plano em texto livre, e o backend só permite preservar legado inalterado ou trocar para plano ativo wallet-only.
+- Validação: validators/módulos focados verdes (50/50), `pnpm typecheck` completo verde, `pnpm build` verde, `pnpm lint` completo sem erros (warnings preexistentes). `pnpm test` completo falhou apenas nas integrações RLS/auth por ambiente/seed de banco.
+- Próximo: cadastrar o primeiro tenant pelo superadmin usando "Sem plano - somente Carteira DePix" e validar provisionamento LWK em ambiente configurado.
+
 ### 2026-06-05 — Hotfix WhatsApp IA chave oficial Anthropic
 - Implementado: provider do agente agora usa `ANTHROPIC_OFFICIAL_API_KEY` quando há imagem/base64 ou web search oficial, mantendo `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` para conversa normal via proxy.
 - Decisões: server tools oficiais da Anthropic exigem chave oficial; chave/proxy PowerProfile retorna `invalid x-api-key` na API oficial e não executa `web_search`.

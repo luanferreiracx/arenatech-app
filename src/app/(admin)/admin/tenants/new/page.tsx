@@ -17,13 +17,11 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/domain/page-header";
 import { FormActions } from "@/components/domain/forms/form-actions";
-import { FormSection } from "@/components/domain/forms/form-section";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function NewTenantPage() {
@@ -32,6 +30,9 @@ export default function NewTenantPage() {
 
   const plansQuery = useQuery(trpc.admin.listPlans.queryOptions({ status: "ACTIVE" }));
   const createMutation = useMutation(trpc.admin.createTenant.mutationOptions());
+  const walletOnlyPlans = plansQuery.data?.filter(
+    (plan) => plan.modules.length === 1 && plan.modules[0] === "wallet",
+  ) ?? [];
 
   const form = useForm<CreateTenantInput>({
     resolver: zodResolver(createTenantSchema),
@@ -42,7 +43,7 @@ export default function NewTenantPage() {
       cnpj: "",
       ownerName: "",
       ownerCpf: "",
-      trialDays: 7,
+      trialDays: 0,
     },
   });
 
@@ -181,24 +182,20 @@ export default function NewTenantPage() {
                 <FormField control={form.control} name="planId" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Plano</FormLabel>
-                    <Select value={field.value ?? ""} onValueChange={(v) => field.onChange(v || null)}>
+                    <Select
+                      value={field.value ?? "__wallet_only__"}
+                      onValueChange={(v) => field.onChange(v === "__wallet_only__" ? null : v)}
+                    >
                       <FormControl><SelectTrigger><SelectValue placeholder="Selecione um plano" /></SelectTrigger></FormControl>
                       <SelectContent>
-                        {plansQuery.data?.map((plan) => (
+                        <SelectItem value="__wallet_only__">Sem plano - somente Carteira DePix</SelectItem>
+                        {walletOnlyPlans.map((plan) => (
                           <SelectItem key={plan.id} value={plan.id}>
                             {plan.name} - R$ {(plan.monthlyPrice / 100).toFixed(2)}/mes
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="trialDays" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Dias de Trial</FormLabel>
-                    <FormControl><Input type="number" {...field} value={field.value ?? 7} onChange={(e) => field.onChange(Number(e.target.value))} min={0} /></FormControl>
-                    <FormDescription>0 = Sem trial (ativo imediatamente)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )} />

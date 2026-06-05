@@ -2,7 +2,7 @@
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,14 +21,23 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const router = useRouter();
 
   const tenantQuery = useQuery(trpc.admin.getTenant.queryOptions({ id: tenantId }));
+  const plansQuery = useQuery(trpc.admin.listPlans.queryOptions({ status: "ACTIVE" }));
   const updateMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
 
   const tenant = tenantQuery.data;
+  const walletOnlyPlans = plansQuery.data?.filter(
+    (plan) => plan.modules.length === 1 && plan.modules[0] === "wallet",
+  ) ?? [];
+  const hasCurrentPlanInOptions = tenant?.plan
+    ? walletOnlyPlans.some((plan) => plan.id === tenant.plan)
+    : true;
 
   const form = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
     values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], plan: tenant.plan } : undefined,
   });
+  const tenantStatus = useWatch({ control: form.control, name: "status" });
+  const tenantPlan = useWatch({ control: form.control, name: "plan" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
   if (!tenant) return <p className="text-muted-foreground">Tenant nao encontrado</p>;
@@ -51,7 +60,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             <div><Label>Nome</Label><Input {...form.register("name")} /></div>
             <div>
               <Label>Status</Label>
-              <Select value={form.watch("status")} onValueChange={(v) => form.setValue("status", v as UpdateTenantInput["status"])}>
+              <Select value={tenantStatus} onValueChange={(v) => form.setValue("status", v as UpdateTenantInput["status"])}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ACTIVE">Ativo</SelectItem>
@@ -61,7 +70,26 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Plano</Label><Input {...form.register("plan")} /></div>
+            <div>
+              <Label>Plano</Label>
+              <Select
+                value={tenantPlan ?? "__wallet_only__"}
+                onValueChange={(v) => form.setValue("plan", v === "__wallet_only__" ? null : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__wallet_only__">Sem plano - somente Carteira DePix</SelectItem>
+                  {tenant?.plan && !hasCurrentPlanInOptions && (
+                    <SelectItem value={tenant.plan}>Plano atual - fora do onboarding wallet-only</SelectItem>
+                  )}
+                  {walletOnlyPlans.map((plan) => (
+                    <SelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </FormSection>
         <div className="flex gap-2">
