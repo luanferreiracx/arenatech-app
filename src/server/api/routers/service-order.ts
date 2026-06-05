@@ -54,7 +54,8 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
-import { createPixPayment, cancelPixPayment } from "@/lib/services/depix-service";
+import { cancelPixPayment } from "@/lib/services/depix-service";
+import { createDeposit } from "@/server/services/depix-transaction.service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import {
@@ -3838,24 +3839,24 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, totalAmount, taxIdRaw };
       });
 
-      // HTTP PixPay/Depix FORA da tx.
-      const result = await createPixPayment(
-        prep.totalAmount,
-        `OS ${prep.order.number}`,
-        prep.order.id,
-        prep.taxIdRaw || null,
-      );
-
-      if (!result.success) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
-      }
+      // Deposito wallet DePix FORA da tx.
+      const result = await createDeposit({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        grossAmountCents: Math.round(prep.totalAmount * 100),
+        sourceType: "SERVICE_ORDER",
+        sourceId: prep.order.id,
+        sourceDescription: `OS ${prep.order.number}`,
+        payerTaxId: prep.taxIdRaw || null,
+      });
 
       // tx2: persistir DePix transaction info.
       await ctx.withTenant(async (tx) => {
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
-            depixTransactionId: result.transactionId ?? null,
+            depixTransactionId: result.pixpayDepixId ?? null,
             depixStatus: "pending",
           },
         });
@@ -3873,10 +3874,11 @@ export const serviceOrderRouter = createTRPCRouter({
       });
 
       return {
-        transactionId: result.transactionId,
+        transactionId: result.pixpayDepixId,
+        walletTransactionId: result.id,
         qrCode: result.qrCode,
         qrCodeBase64: result.qrCodeBase64,
-        pixKey: result.pixKey,
+        pixKey: result.depositAddress,
       };
     }),
 

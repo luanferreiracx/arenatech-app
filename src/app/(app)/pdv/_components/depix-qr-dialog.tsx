@@ -24,7 +24,7 @@ interface DepixQrDialogProps {
   customerTaxId?: string | null;
   onClose: () => void;
   /** Chamado quando o pagamento e confirmado pela API (status=paid). */
-  onPaid: (transactionId: string) => void;
+  onPaid: (ids: { walletTransactionId: string; transactionId: string | null }) => void;
 }
 
 function formatCurrency(cents: number): string {
@@ -49,6 +49,7 @@ export function DepixQrDialog({
   onPaid,
 }: DepixQrDialogProps) {
   const trpc = useTRPC();
+  const [walletTransactionId, setWalletTransactionId] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
@@ -91,7 +92,8 @@ export function DepixQrDialog({
             onClose();
             return;
           }
-          setTransactionId(res.transactionId);
+          setWalletTransactionId(res.walletTransactionId ?? null);
+          setTransactionId(res.transactionId ?? res.walletTransactionId ?? null);
           setQrCode(res.qrCode ?? null);
           setQrImageUrl(res.qrCodeBase64 ?? null);
         },
@@ -129,7 +131,7 @@ export function DepixQrDialog({
       paidFiredRef.current = true;
       setStatus("paid");
       toast.success("Pagamento confirmado!");
-      paidTimer = setTimeout(() => onPaid(transactionId), 1500);
+      paidTimer = setTimeout(() => onPaid({ walletTransactionId: walletTransactionId ?? transactionId, transactionId }), 1500);
     };
 
     // 1) SSE: principal canal de confirmacao
@@ -145,7 +147,7 @@ export function DepixQrDialog({
     // 2) Polling fallback (30s)
     const interval = setInterval(() => {
       checkStatusMutation.mutate(
-        { saleId, transactionId },
+        { saleId, transactionId, walletTransactionId },
         {
           onSuccess: (res) => {
             if (res.status === "paid") {
@@ -166,7 +168,7 @@ export function DepixQrDialog({
       if (paidTimer) clearTimeout(paidTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactionId, status]);
+  }, [walletTransactionId, transactionId, status]);
 
   const copy = () => {
     if (!qrCode) return;

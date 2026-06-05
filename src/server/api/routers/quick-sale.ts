@@ -10,9 +10,9 @@ import {
   checkQuickSalePixStatusSchema,
 } from "@/lib/validators/quick-sale";
 import {
-  createPixPayment,
-  getPixStatus,
-} from "@/lib/services/depix-service";
+  createDeposit,
+  checkTransactionStatus,
+} from "@/server/services/depix-transaction.service";
 import { validateDepixLimit } from "@/lib/services/depix-limit-service";
 import { logger } from "@/lib/logger";
 
@@ -171,42 +171,37 @@ export const quickSaleRouter = createTRPCRouter({
         return { qs: created, number: num };
       });
 
-      // ETAPA 2 — gera PIX automaticamente (HTTP externo, fora da tx).
-      const pixResult = await createPixPayment(
-        totalReaisPre,
-        `Venda ${number}`,
-        qs.id,
-        cpfDigits || null,
-      );
+      // ETAPA 2 — gera deposito via Wallet DePix (HTTP externo, fora da tx).
+      const walletTx = await createDeposit({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        grossAmountCents: totalCentsPre,
+        sourceType: "QUICK_SALE",
+        sourceId: qs.id,
+        sourceDescription: `Venda ${number}`,
+        payerTaxId: cpfDigits || null,
+      });
 
-      if (!pixResult.success) {
-        // PIX falhou — mantemos a venda criada mas sinalizamos no logger.
-        // Operador pode tentar de novo via botao "Gerar PIX" na detail page.
-        logger.warn("QuickSale criada mas PIX falhou", {
-          quickSaleId: qs.id,
-          number,
-          error: pixResult.error,
-        });
-        return serializeQuickSale(qs as unknown as Record<string, unknown>);
-      }
-
-      // ETAPA 3 — persiste transactionId + QR. Webhook usa pra achar a venda.
+      // ETAPA 3 — persiste vinculo canonico + espelho legado do PixPay/QR.
       const updated = await ctx.withTenant(async (tx) =>
         tx.quickSale.update({
           where: { id: qs.id },
           data: {
-            depixTransactionId: pixResult.transactionId ?? null,
+            walletTransactionId: walletTx.id,
+            depixTransactionId: walletTx.pixpayDepixId ?? null,
             depixStatus: "pending",
-            depixQrCode: pixResult.qrCode ?? null,
-            depixQrCodeBase64: pixResult.qrCodeBase64 ?? null,
+            depixQrCode: walletTx.qrCode ?? null,
+            depixQrCodeBase64: walletTx.qrCodeBase64 ?? null,
           },
         }),
       );
 
-      logger.info("QuickSale criada + PIX gerado", {
+      logger.info("QuickSale criada + deposito wallet DePix gerado", {
         quickSaleId: qs.id,
         number,
-        transactionId: pixResult.transactionId,
+        walletTransactionId: walletTx.id,
+        transactionId: walletTx.pixpayDepixId,
         amount: totalReaisPre,
       });
 
@@ -353,27 +348,25 @@ export const quickSaleRouter = createTRPCRouter({
         }
       }
 
-      // ETAPA 2 — Cria PIX via PixPay (HTTP, fora de tx).
-      const result = await createPixPayment(
-        totalReais,
-        `Venda ${qs.number}`,
-        qs.id,
-        taxIdRaw || null,
-      );
-      if (!result.success) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: result.error ?? "Erro ao gerar PIX",
-        });
-      }
+      // ETAPA 2 — cria deposito via wallet DePix (HTTP, fora de tx).
+      const result = await createDeposit({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        grossAmountCents: Math.round(totalReais * 100),
+        sourceType: "QUICK_SALE",
+        sourceId: qs.id,
+        sourceDescription: `Venda ${qs.number}`,
+        payerTaxId: taxIdRaw || null,
+      });
 
-      // ETAPA 3 — Persiste transactionId + QR no banco. Sem isso, o webhook
-      // nunca acha a venda quando o pagamento confirmar.
+      // ETAPA 3 — Persiste vinculo canonico + espelho legado do PixPay/QR.
       await ctx.withTenant(async (tx) =>
         tx.quickSale.update({
           where: { id: qs.id },
           data: {
-            depixTransactionId: result.transactionId ?? null,
+            walletTransactionId: result.id,
+            depixTransactionId: result.pixpayDepixId ?? null,
             depixStatus: "pending",
             depixQrCode: result.qrCode ?? null,
             depixQrCodeBase64: result.qrCodeBase64 ?? null,
@@ -383,18 +376,20 @@ export const quickSaleRouter = createTRPCRouter({
         }),
       );
 
-      logger.info("QuickSale PIX gerado", {
+      logger.info("QuickSale deposito wallet DePix gerado", {
         quickSaleId: qs.id,
         number: qs.number,
-        transactionId: result.transactionId,
+        walletTransactionId: result.id,
+        transactionId: result.pixpayDepixId,
         amount: totalReais,
       });
 
       return {
-        transactionId: result.transactionId,
+        walletTransactionId: result.id,
+        transactionId: result.pixpayDepixId,
         qrCode: result.qrCode,
         qrCodeBase64: result.qrCodeBase64,
-        pixKey: result.pixKey,
+        pixKey: result.depositAddress,
       };
     }),
 
@@ -412,6 +407,59 @@ export const quickSaleRouter = createTRPCRouter({
       if (!qs || qs.deletedAt) {
         throw new TRPCError({ code: "NOT_FOUND" });
       }
+      const walletTransactionId = input.walletTransactionId ?? qs.walletTransactionId;
+      if (walletTransactionId) {
+        const walletTx = await checkTransactionStatus(ctx.tenantId, walletTransactionId);
+        if (!walletTx) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transacao wallet nao encontrada" });
+        }
+        if (walletTx.sourceType !== "QUICK_SALE" || walletTx.sourceId !== qs.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Transacao wallet nao pertence a esta venda.",
+          });
+        }
+
+        let status: "pending" | "paid" | "expired" | "failed" = "pending";
+        if (walletTx.status === "COMPLETED" || walletTx.status === "COMPLETED_FEE_PENDING") {
+          status = "paid";
+        } else if (walletTx.status === "EXPIRED") {
+          status = "expired";
+        } else if (walletTx.status === "FAILED" || walletTx.status === "CANCELLED") {
+          status = "failed";
+        }
+
+        if (qs.status === "AWAITING_PAYMENT") {
+          if (status === "paid") {
+            await ctx.withTenant(async (tx) =>
+              tx.quickSale.update({
+                where: { id: qs.id },
+                data: { status: "PAID", paidAt: new Date(), depixStatus: "paid" },
+              }),
+            );
+          } else if (status === "expired") {
+            await ctx.withTenant(async (tx) =>
+              tx.quickSale.update({
+                where: { id: qs.id },
+                data: { status: "EXPIRED", depixStatus: "expired" },
+              }),
+            );
+          } else if (status === "failed") {
+            await ctx.withTenant(async (tx) =>
+              tx.quickSale.update({
+                where: { id: qs.id },
+                data: { status: "CANCELLED", depixStatus: "failed" },
+              }),
+            );
+          }
+        }
+
+        return {
+          status,
+          isFinal: status !== "pending",
+        };
+      }
+
       if (qs.depixTransactionId && qs.depixTransactionId !== input.transactionId) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -419,45 +467,10 @@ export const quickSaleRouter = createTRPCRouter({
         });
       }
 
-      const result = await getPixStatus(input.transactionId);
-      if (!result.success) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: result.error ?? "Erro ao consultar PIX",
-        });
-      }
-
-      // Sincroniza status da venda com o status do PIX (paridade Laravel
-      // VendaAvulsaService::sincronizarStatusPix).
-      if (qs.status === "AWAITING_PAYMENT") {
-        if (result.status === "paid") {
-          await ctx.withTenant(async (tx) =>
-            tx.quickSale.update({
-              where: { id: qs.id },
-              data: { status: "PAID", paidAt: new Date(), depixStatus: "paid" },
-            }),
-          );
-        } else if (result.status === "expired") {
-          await ctx.withTenant(async (tx) =>
-            tx.quickSale.update({
-              where: { id: qs.id },
-              data: { status: "EXPIRED", depixStatus: "expired" },
-            }),
-          );
-        } else if (result.status === "failed" || result.status === "refunded") {
-          await ctx.withTenant(async (tx) =>
-            tx.quickSale.update({
-              where: { id: qs.id },
-              data: { status: "CANCELLED", depixStatus: result.status },
-            }),
-          );
-        }
-      }
-
-      return {
-        status: result.status ?? "pending",
-        isFinal: result.isFinal ?? false,
-      };
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Venda sem transacao wallet DePix vinculada.",
+      });
     }),
 
   /** Stats */

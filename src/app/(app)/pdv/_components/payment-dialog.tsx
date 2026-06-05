@@ -44,7 +44,9 @@ interface PaymentEntry {
   /** Quando method=depix e operador marcou "ja recebi manualmente", nao
    * gera QR Code — finaliza venda direto. Sem depixTransactionId. */
   depixManual?: boolean;
-  /** transactionId da PixPay quando o leg DePix foi confirmado via QR. */
+  /** walletTransactionId canonico quando o leg DePix foi confirmado via QR. */
+  walletTransactionId?: string;
+  /** transactionId da PixPay espelhado para compatibilidade temporaria. */
   depixTransactionId?: string;
 }
 
@@ -265,6 +267,7 @@ export function PaymentDialog({
           totalPaidByCustomer: p.totalPaidByCustomer,
           // Vincula o transactionId DePix no leg — gravado em paymentDetails
           // para rastreabilidade (o webhook PixPay localiza a venda por ele).
+          ...(p.walletTransactionId ? { walletTransactionId: p.walletTransactionId } : {}),
           ...(p.depixTransactionId ? { depixTransactionId: p.depixTransactionId } : {}),
         })),
         observations: observations || null,
@@ -607,13 +610,17 @@ export function PaymentDialog({
           setShowDepixQr(false);
           setPendingDepix(null);
         }}
-        onPaid={(transactionId) => {
-          // DePix confirmado: adiciona o leg ao carrinho com o transactionId.
+        onPaid={({ walletTransactionId, transactionId }) => {
+          // DePix confirmado: adiciona o leg ao carrinho com o vinculo wallet.
           // NAO finaliza — a conclusao e manual (operador clica Confirmar).
           if (pendingDepix) {
             setPayments((prev) => [
               ...prev,
-              { ...pendingDepix, depixTransactionId: transactionId },
+              {
+                ...pendingDepix,
+                walletTransactionId,
+                ...(transactionId ? { depixTransactionId: transactionId } : {}),
+              },
             ]);
           }
           setPendingDepix(null);

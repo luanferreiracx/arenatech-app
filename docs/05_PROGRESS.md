@@ -18,6 +18,11 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — DePix exclusivo na Wallet
+- Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales/PDV/OS gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
+- Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.
+- Próximo: monitorar produção pelos logs `Deposito DePix wallet usando endereco LWK dedicado` e adicionar regressões específicas do módulo.
+
 ### 2026-06-05 — Agente pessoal WhatsApp com imagem e web search Anthropic
 - Implementado: agente pessoal via WhatsApp/Evolution passou a aceitar imagens inbound, validar mídia com bloqueio de hosts internos/MIME/tamanho e enviar blocos multimodais ao Claude.
 - Implementado: pesquisa web oficial Anthropic ativada via server tool `web_search_20260209` quando `WHATSAPP_AI_ENABLE_WEB_SEARCH=true` e `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic`; fallback provider permanece disponível apenas no modo `provider`.

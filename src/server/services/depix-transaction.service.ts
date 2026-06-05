@@ -14,7 +14,7 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, type DepixTransactionSourceType } from "@prisma/client";
 import { withTenant, withAdmin } from "@/server/db";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
@@ -172,6 +172,10 @@ export interface CreateDepositArgs {
   userId: string;
   userName?: string | null;
   grossAmountCents: number;
+  sourceType?: DepixTransactionSourceType;
+  sourceId?: string | null;
+  sourceDescription?: string | null;
+  payerTaxId?: string | null;
 }
 
 export async function createDeposit(args: CreateDepositArgs) {
@@ -185,6 +189,9 @@ export async function createDeposit(args: CreateDepositArgs) {
         kind: "DEPOSIT",
         status: "PENDING",
         grossAmountCents: args.grossAmountCents,
+        sourceType: args.sourceType ?? "WALLET",
+        sourceId: args.sourceId ?? null,
+        sourceDescription: args.sourceDescription ?? null,
         userId: args.userId,
         userName: args.userName ?? null,
         // 30 min de validade do PIX (padrao PixPay).
@@ -209,13 +216,21 @@ export async function createDeposit(args: CreateDepositArgs) {
     });
   }
 
+  logger.info("Deposito DePix wallet usando endereco LWK dedicado", {
+    tenantId: args.tenantId,
+    transactionId: created.id,
+    sourceType: args.sourceType ?? "WALLET",
+    sourceId: args.sourceId ?? null,
+    depixAddress: addr.address,
+  });
+
   // ETAPA 3: gera PIX no PixPay apontando pro endereco LWK do tenant.
   const pix = await createPixPayment(
     args.grossAmountCents / 100,
-    `Deposito DePix ${created.number}`,
+    args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
-    null,
-    { depixAddress: addr.address },
+    args.payerTaxId?.replace(/\D/g, "") || null,
+    { depixAddress: addr.address, requireDepixAddress: true },
   );
   if (!pix.success || !pix.transactionId) {
     await withTenant(args.tenantId, async (tx) =>
@@ -317,12 +332,13 @@ export async function settleDepositConfirmed(args: {
 
   // Fee zero (tenant central) -> nao dispara tx on-chain. Marca COMPLETED direto.
   if (breakdown.feeArenaTechCents <= 0) {
-    await withTenant(args.tenantId, async (tx) =>
-      tx.tenantDepixTransaction.update({
+    await withTenant(args.tenantId, async (tx) => {
+      await tx.tenantDepixTransaction.update({
         where: { id: txRow.id },
         data: { status: "COMPLETED", completedAt: new Date() },
-      }),
-    );
+      });
+    });
+    await applyDepositBusinessEffects(args.tenantId, txRow.id);
     logger.info("Deposito DePix concluido (sem taxa — tenant central)", {
       txId: txRow.id,
       grossCents: grossActualCents,
@@ -397,7 +413,118 @@ export async function settleDepositConfirmed(args: {
     feeArenaTechCents: breakdown.feeArenaTechCents,
     feeSettlementTxId: feeTx.txid,
   });
+  await applyDepositBusinessEffects(args.tenantId, txRow.id);
   return { matched: true, completed: true };
+}
+
+export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {
+  const row = await withTenant(tenantId, async (tx) =>
+    tx.tenantDepixTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        tenantId: true,
+        sourceType: true,
+        sourceId: true,
+        grossAmountCents: true,
+        status: true,
+      },
+    }),
+  );
+  if (!row || row.status !== "COMPLETED") return { applied: false };
+
+  if (row.sourceType === "QUICK_SALE" && row.sourceId) {
+    await withTenant(tenantId, async (tx) => {
+      const quickSale = await tx.quickSale.findFirst({
+        where: {
+          id: row.sourceId!,
+          walletTransactionId: row.id,
+          status: "AWAITING_PAYMENT",
+        },
+        select: { id: true, number: true },
+      });
+      if (!quickSale) return;
+
+      await tx.quickSale.update({
+        where: { id: quickSale.id },
+        data: { status: "PAID", paidAt: new Date(), depixStatus: "paid" },
+      });
+      const notifyPayload = JSON.stringify({
+        kind: "quick_sale",
+        id: quickSale.id,
+        transactionId: row.id,
+        walletTransactionId: row.id,
+      });
+      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${notifyPayload})`;
+    });
+    return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
+  }
+
+  if (row.sourceType === "SERVICE_ORDER" && row.sourceId) {
+    await withTenant(tenantId, async (tx) => {
+      const order = await tx.serviceOrder.findFirst({
+        where: { id: row.sourceId!, depixStatus: "pending" },
+        select: {
+          id: true,
+          tenantId: true,
+          status: true,
+          number: true,
+          totalAmount: true,
+          createdById: true,
+        },
+      });
+      if (!order) return;
+
+      await tx.serviceOrder.update({
+        where: { id: order.id },
+        data: {
+          status: "PAID",
+          paidAmount: order.totalAmount,
+          paymentMethod: "pix_depix",
+          paymentDate: new Date(),
+          depixStatus: "confirmed",
+        },
+      });
+      await tx.serviceOrderHistory.create({
+        data: {
+          tenantId: order.tenantId,
+          orderId: order.id,
+          userId: order.createdById,
+          previousStatus: order.status,
+          newStatus: "PAID",
+          notes: `Pagamento Pix DePix confirmado pela wallet (${row.id})`,
+        },
+      });
+      const notifyPayload = JSON.stringify({
+        kind: "order",
+        id: order.id,
+        transactionId: row.id,
+        walletTransactionId: row.id,
+      });
+      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${notifyPayload})`;
+    });
+    return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
+  }
+
+  if (row.sourceType === "SALE" && row.sourceId) {
+    await withTenant(tenantId, async (tx) => {
+      const sale = await tx.sale.findUnique({
+        where: { id: row.sourceId! },
+        select: { id: true, number: true },
+      });
+      if (!sale) return;
+      const notifyPayload = JSON.stringify({
+        kind: "sale",
+        id: sale.id,
+        transactionId: row.id,
+        walletTransactionId: row.id,
+      });
+      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${notifyPayload})`;
+    });
+    return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
+  }
+
+  return { applied: false, sourceType: row.sourceType, sourceId: row.sourceId };
 }
 
 async function markFeeMissing(tenantId: string, txId: string, reason: string) {
@@ -445,6 +572,9 @@ export interface CreateWithdrawArgs {
   /** Quanto o DESTINATARIO recebe (em centavos). Sistema calcula o bruto. */
   netAmountCents: number;
   idempotencyKey?: string;
+  sourceType?: DepixTransactionSourceType;
+  sourceId?: string | null;
+  sourceDescription?: string | null;
 }
 
 export async function createWithdraw(args: CreateWithdrawArgs) {
@@ -544,6 +674,9 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         // O netAmountCents do registro eh o que o destinatario recebe — eh
         // o input do usuario, valor pretendido. PixPay confirma exato.
         netAmountCents: args.netAmountCents,
+        sourceType: args.sourceType ?? "WALLET",
+        sourceId: args.sourceId ?? null,
+        sourceDescription: args.sourceDescription ?? null,
         pixKeyType: args.pixKeyType,
         pixKey,
         recipientName: args.recipientName ?? null,
@@ -700,7 +833,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
  * propaga erro pro caller (saque ja concluiu on-chain, side-effect nao deve
  * derrubar a resposta).
  */
-async function onWithdrawCompleted(tenantId: string, transactionId: string) {
+export async function onWithdrawCompleted(tenantId: string, transactionId: string) {
   try {
     const row = await withTenant(tenantId, async (tx) =>
       tx.tenantDepixTransaction.findUnique({

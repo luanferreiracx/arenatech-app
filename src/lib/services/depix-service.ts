@@ -101,9 +101,21 @@ export async function createPixPayment(
   description: string,
   referenceId: string,
   taxNumber?: string | null,
-  options?: { depixAddress?: string },
+  options?: { depixAddress?: string; requireDepixAddress?: boolean },
 ): Promise<DepixCreateResult> {
   const config = getConfig();
+
+  if (options?.requireDepixAddress && !options.depixAddress) {
+    logger.error("Depix: deposito wallet sem depixAddress — recusando fallback legado", {
+      amount: amountReais,
+      description,
+      referenceId,
+    });
+    return {
+      success: false,
+      error: "Deposito wallet sem endereco LWK; fallback legado bloqueado",
+    };
+  }
 
   if (!config) {
     logger.warn("Depix: mock mode (DEPIX_API_KEY ausente)", {
