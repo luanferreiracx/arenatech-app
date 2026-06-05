@@ -18,6 +18,12 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Talison IA: robustez Chatwoot e handoff
+- Implementado: webhook Chatwoot passou a classificar anexos `image/*` como imagem para acionar visão no runner; runner agora reporta delivery `sent/failed/skipped`; handoff deixou de gravar `HUMAN_TAKEOVER` como estado operacional e usa o status do Chatwoot como fonte de verdade.
+- Decisões: participação do bot é definida somente pelo status atual/espelhado do Chatwoot (`open` cala bot; `pending/resolved` permitem bot). `HUMAN_TAKEOVER` permanece apenas legado/schema, não regra operacional.
+- Validação: testes focados Talison/Chatwoot verdes (41/41), unitários completos verdes (804/804) e `pnpm typecheck` verde após `prisma generate` com `DATABASE_URL` temporária. `pnpm test` completo falhou apenas nos testes de integração RLS por ambiente/seed de banco.
+- Próximo: abrir PR da branch do worktree e validar CI.
+
 ### 2026-06-05 — DePix exclusivo na Wallet
 - Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales/PDV/OS gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
 - Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.
