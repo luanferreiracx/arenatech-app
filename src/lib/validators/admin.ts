@@ -140,6 +140,6 @@ export const updateTenantSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]),
-  plan: z.string().max(100).optional().nullable(),
+  plan: z.string().min(1).max(100).optional().nullable(),
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;

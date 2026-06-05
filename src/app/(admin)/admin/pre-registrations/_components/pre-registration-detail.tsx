@@ -36,7 +36,11 @@ export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
       { id: preRegId },
       {
         onSuccess: (result) => {
-          toast.success(`Aprovado! Senha temporaria: ${result.tempPassword}`);
+          toast.success(
+            result.tempPassword
+              ? `Aprovado! Senha temporaria: ${result.tempPassword}`
+              : "Aprovado! Responsavel ja existia no sistema.",
+          );
           queryClient.invalidateQueries({ queryKey: trpc.admin.getPreRegistration.queryKey({ id: preRegId }) });
         },
         onError: (err) => toast.error(err.message),

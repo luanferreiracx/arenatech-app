@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   createPlanSchema,
   updatePlanSchema,
-  listPlansSchema,
   submitPreRegistrationSchema,
   approvePreRegistrationSchema,
   rejectPreRegistrationSchema,
@@ -10,7 +9,6 @@ import {
   listTenantsSchema,
   updateTenantSchema,
   planStatusEnum,
-  preRegistrationStatusEnum,
   PLAN_STATUS_LABELS,
   PRE_REGISTRATION_STATUS_LABELS,
 } from "@/lib/validators/admin";
@@ -139,6 +137,19 @@ describe("listTenantsSchema", () => {
 describe("updateTenantSchema", () => {
   it("aceita update valido", () => {
     expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja Updated", status: "SUSPENDED" }).success).toBe(true);
+  });
+
+  it("aceita plano como UUID ou sem plano", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: UUID }).success).toBe(true);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: null }).success).toBe(true);
+  });
+
+  it("aceita plano legado para preservacao na edicao", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "basico" }).success).toBe(true);
+  });
+
+  it("rejeita plano vazio", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "" }).success).toBe(false);
   });
 });
 

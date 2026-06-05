@@ -86,12 +86,12 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
- * Tenant admin procedure — requer role OWNER ou MANAGER no tenant ativo.
+ * Tenant admin procedure — requer role administrativo no tenant ativo.
  * Use pra operacoes sensiveis (saques de carteira, alterar fee config,
  * etc) que NAO devem ser acessiveis pro operator/cashier comum, mesmo que
  * tenham sessao valida no tenant.
  */
-const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "owner", "manager"]);
+const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
 export const tenantAdminProcedure = tenantProcedure.use(async ({ ctx, next }) => {
   const active = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
   const role = active?.role ?? "";
