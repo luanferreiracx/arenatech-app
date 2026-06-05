@@ -18,6 +18,14 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Separacao testes unitarios e integracao local
+- Implementado: `pnpm test` agora roda apenas Vitest unitario, alinhado ao CI e ao pre-push rapido, sem depender de Postgres/seed local.
+- Implementado: novo fluxo `pnpm test:integration` prepara o Postgres local com migrations + seed antes de executar `__tests__/integration` RLS/auth.
+- Implementado: pre-checagem de Postgres local retorna mensagem clara quando `127.0.0.1:5432` nao esta disponivel, substituindo o erro opaco do Prisma schema engine.
+- Decisoes: integracoes RLS/auth continuam explicitas e dependentes da infra local; o pre-push valida apenas typecheck + unit e deixa integracoes/E2E para CI.
+- Validacao: `pnpm typecheck`, `pnpm test -- --reporter=dot` e `sh .husky/pre-push` verdes; `pnpm test:integration` agora falha corretamente com instrucoes porque o Postgres local esta desligado.
+- Proximo: subir Postgres local quando quiser validar RLS/auth fora do CI: `docker compose up -d postgres && pnpm test:integration`.
+
 ### 2026-06-05 — Login whitelabel pdvdepix
 - Implementado: layout de autenticação agora detecta hosts da landing pdvdepix via `Host`/`x-forwarded-host` e aplica visual escuro com grid, glow teal/verde, logo pdvdepix e tokens CSS próprios no `/login`.
 - Implementado: `depixpdv.app` e `www.depixpdv.app` foram aceitos como aliases de compatibilidade, mantendo `pdvdepix.app`/`www.pdvdepix.app` como domínio principal.
