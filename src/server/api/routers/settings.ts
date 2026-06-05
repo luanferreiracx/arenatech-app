@@ -494,6 +494,7 @@ export const settingsRouter = createTRPCRouter({
               name: input.name,
               email: null,
               passwordHash: hashSync("123456", 10),
+              mustChangePassword: true,
             },
           });
         }
@@ -613,7 +614,10 @@ export const settingsRouter = createTRPCRouter({
       await withAdmin(async (tx) => {
         await tx.user.update({
           where: { id: input.userId },
-          data: { passwordHash: hashSync("123456", 10) },
+          data: {
+            passwordHash: hashSync("123456", 10),
+            mustChangePassword: true,
+          },
         });
       });
       return { success: true };
@@ -890,7 +894,10 @@ export const settingsRouter = createTRPCRouter({
       await withAdmin(async (tx) => {
         await tx.user.update({
           where: { id: userId },
-          data: { passwordHash: hashSync(input.newPassword, 10) },
+          data: {
+            passwordHash: hashSync(input.newPassword, 10),
+            mustChangePassword: false,
+          },
         });
       });
 

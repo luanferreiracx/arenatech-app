@@ -381,7 +381,10 @@ export const adminRouter = createTRPCRouter({
         const tempPassword = generateTempPassword();
         await tx.user.update({
           where: { id: input.userId },
-          data: { passwordHash: hashPassword(tempPassword) },
+          data: {
+            passwordHash: hashPassword(tempPassword),
+            mustChangePassword: true,
+          },
         });
 
         logger.info("Tenant user password reset by superadmin", {
@@ -579,6 +582,7 @@ export const adminRouter = createTRPCRouter({
                 email: pr.ownerEmail,
                 phone: ownerPhone,
                 passwordHash: hashPassword(tempPassword),
+                mustChangePassword: true,
               },
             });
 
@@ -709,6 +713,7 @@ export const adminRouter = createTRPCRouter({
               email: input.email,
               phone: ownerPhone,
               passwordHash: hashPassword(tempPassword),
+              mustChangePassword: true,
             },
           });
           userId = user.id;

@@ -154,7 +154,7 @@ export const authRouter = createTRPCRouter({
       await prisma.$transaction([
         prisma.user.update({
           where: { id: resetToken.userId },
-          data: { passwordHash },
+          data: { passwordHash, mustChangePassword: false },
         }),
         prisma.passwordResetToken.update({
           where: { id: resetToken.id },
@@ -195,7 +195,7 @@ export const authRouter = createTRPCRouter({
       const passwordHash = hashPassword(input.newPassword);
       await prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash },
+        data: { passwordHash, mustChangePassword: false },
       });
 
       logger.info("changePassword: password updated", { userId: user.id });
