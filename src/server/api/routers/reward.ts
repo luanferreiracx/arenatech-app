@@ -541,7 +541,7 @@ export const rewardRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const balance = await tx.rewardBalance.findFirst({
-          where: { customerId: input.customerId },
+          where: { tenantId: ctx.tenantId, customerId: input.customerId },
           include: {
             movements: { orderBy: { createdAt: "desc" }, take: 20 },
           },
@@ -609,7 +609,7 @@ export const rewardRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const balance = await tx.rewardBalance.findFirst({
-          where: { customerId: input.customerId },
+          where: { tenantId: ctx.tenantId, customerId: input.customerId },
         })
         if (!balance) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem saldo de cashback" })
@@ -656,7 +656,7 @@ export const rewardRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const balance = await tx.rewardBalance.findFirst({
-          where: { customerId: input.customerId },
+          where: { tenantId: ctx.tenantId, customerId: input.customerId },
         })
         if (!balance) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem saldo de cashback" })
@@ -731,7 +731,7 @@ async function creditCashback(
   amount: number,
   actionId: string,
 ) {
-  let balance = await tx.rewardBalance.findFirst({ where: { customerId } })
+  let balance = await tx.rewardBalance.findFirst({ where: { tenantId, customerId } })
 
   if (!balance) {
     balance = await tx.rewardBalance.create({
@@ -776,7 +776,7 @@ async function debitCashback(
   amount: number,
   actionId: string,
 ) {
-  const balance = await tx.rewardBalance.findFirst({ where: { customerId } })
+  const balance = await tx.rewardBalance.findFirst({ where: { tenantId, customerId } })
   if (!balance) return
 
   await tx.rewardBalance.update({
