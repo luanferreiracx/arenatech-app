@@ -81,7 +81,7 @@ model RewardAction {
 model RewardBalance {
   id                      String   @id @default(uuid()) @db.Uuid
   tenantId                String   @map("tenant_id") @db.Uuid
-  customerId              String   @unique @map("customer_id") @db.Uuid
+  customerId              String   @map("customer_id") @db.Uuid
   totalBalance            Decimal  @default(0) @map("total_balance") @db.Decimal(10, 2)
   lockedBalance           Decimal  @default(0) @map("locked_balance") @db.Decimal(10, 2)
   availableBalance        Decimal  @default(0) @map("available_balance") @db.Decimal(10, 2)
@@ -97,6 +97,7 @@ model RewardBalance {
 
   movements               RewardMovement[]
 
+  @@unique([tenantId, customerId])
   @@index([tenantId])
   @@map("reward_balances")
 }

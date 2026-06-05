@@ -55,21 +55,25 @@ export async function POST(request: NextRequest) {
 
       // Para recompensas CASHBACK ja creditadas, decrementar disponivel e
       // mover para totalExpiredHistorical. Soft-fail por cliente.
-      const cashbacksByCustomer = new Map<string, { tenantId: string; amount: number }>()
+      const cashbacksByCustomer = new Map<
+        string,
+        { tenantId: string; customerId: string; amount: number }
+      >()
       for (const a of expiredActions) {
         if (a.rewardType !== "CASHBACK") continue
         const amount = Number(a.value)
         if (amount <= 0) continue
-        const key = a.customerId
+        const key = `${a.tenantId}:${a.customerId}`
         const cur = cashbacksByCustomer.get(key)
         cashbacksByCustomer.set(key, {
           tenantId: a.tenantId,
+          customerId: a.customerId,
           amount: (cur?.amount ?? 0) + amount,
         })
       }
 
-      for (const [customerId, { tenantId, amount }] of cashbacksByCustomer) {
-        const balance = await tx.rewardBalance.findFirst({ where: { customerId } })
+      for (const { tenantId, customerId, amount } of cashbacksByCustomer.values()) {
+        const balance = await tx.rewardBalance.findFirst({ where: { tenantId, customerId } })
         if (!balance) continue
         const availableNow = Number(balance.availableBalance)
         const toExpire = Math.min(amount, availableNow)

@@ -23,6 +23,28 @@ import {
   updateFiscalSettingsSchema,
 } from "@/lib/validators/subscription";
 
+function assertCanManageTenantUsers(ctx: {
+  tenantId: string;
+  session: {
+    user: { isSuperAdmin?: boolean };
+    availableTenants: Array<{ id: string; role?: string | null }>;
+  };
+}): void {
+  if (ctx.session.user.isSuperAdmin) return;
+
+  const actorRole = ctx.session.availableTenants
+    .find((tenant) => tenant.id === ctx.tenantId)
+    ?.role
+    ?.toLowerCase();
+
+  if (!["owner", "admin", "manager"].includes(actorRole ?? "")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Apenas administradores podem gerenciar usuarios.",
+    });
+  }
+}
+
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // GENERAL SETTINGS
@@ -457,6 +479,8 @@ export const settingsRouter = createTRPCRouter({
   createUser: tenantProcedure
     .input(createUserSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageTenantUsers(ctx);
+
       // Use withAdmin because we need to create/find a global user
       const result = await withAdmin(async (tx) => {
         // Check if user with this CPF already exists
@@ -506,6 +530,8 @@ export const settingsRouter = createTRPCRouter({
   updateUser: tenantProcedure
     .input(updateUserSchema)
     .mutation(async ({ ctx, input }) => {
+      assertCanManageTenantUsers(ctx);
+
       return ctx.withTenant(async (tx) => {
         // Update the role in the user_tenant relation
         await tx.userTenant.update({
@@ -532,6 +558,8 @@ export const settingsRouter = createTRPCRouter({
   removeUser: tenantProcedure
     .input(z.object({ userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanManageTenantUsers(ctx);
+
       // Prevent removing yourself
       if (input.userId === ctx.session.user.id) {
         throw new TRPCError({
