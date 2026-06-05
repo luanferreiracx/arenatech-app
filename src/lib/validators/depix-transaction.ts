@@ -20,6 +20,9 @@ export const DEPIX_TX_KIND_LABELS: Record<string, string> = {
 };
 
 const VALID_PIX_KEY_TYPES = ["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"] as const;
+const VALID_SOURCE_TYPES = ["WALLET", "QUICK_SALE", "SALE", "SERVICE_ORDER"] as const;
+
+export const depixTransactionSourceTypeSchema = z.enum(VALID_SOURCE_TYPES);
 
 /** Cria deposito: tenant escolhe quanto quer receber via PIX.
  *  Min R$ 10 (abaixo, as taxas devoram), Max R$ 5.000 (limite PixPay). */
@@ -29,6 +32,9 @@ export const createDepositSchema = z.object({
     .int()
     .min(DEPIX_LIMITS.MIN_CENTS, "Valor minimo R$ 10,00")
     .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
+  sourceType: depixTransactionSourceTypeSchema.optional(),
+  sourceId: z.string().uuid().optional().nullable(),
+  sourceDescription: z.string().max(200).optional().nullable(),
 });
 export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 

@@ -1,5 +1,6 @@
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { onWithdrawCompleted } from "@/server/services/depix-transaction.service";
 import {
   recordWebhookEvent,
   markWebhookProcessed,
@@ -32,6 +33,31 @@ function mapPixpayStatus(
     case "sent":
     case "paid":
       return "SENT";
+    case "failed":
+    case "error":
+    case "rejected":
+      return "FAILED";
+    case "cancelled":
+    case "canceled":
+      return "CANCELLED";
+    default:
+      return null;
+  }
+}
+
+function mapWalletStatus(
+  status: string,
+): "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED" | null {
+  switch (status) {
+    case "unsent":
+    case "processing":
+    case "pending":
+    case "sending":
+      return "PROCESSING";
+    case "completed":
+    case "sent":
+    case "paid":
+      return "COMPLETED";
     case "failed":
     case "error":
     case "rejected":
@@ -82,6 +108,47 @@ export async function handleDepixWithdrawWebhook(
   }
 
   logger.info("Depix-withdraw webhook", { depixId, statusRaw, mappedStatus });
+
+  const walletStatus = mapWalletStatus(statusRaw);
+  if (walletStatus) {
+    const walletResult = await withAdmin((tx) =>
+      tx.tenantDepixTransaction.findFirst({
+        where: { pixpayDepixId: depixId, kind: "WITHDRAW" },
+        select: { id: true, status: true, tenantId: true },
+      }),
+    );
+
+    if (walletResult) {
+      if (["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(walletResult.status)) {
+        logger.info("Depix-withdraw webhook: wallet tx ja terminal, skipping", {
+          id: walletResult.id,
+          currentStatus: walletResult.status,
+          incomingStatus: walletStatus,
+        });
+        await markWebhookProcessed("depix_withdraw", eventKey, { ok: true });
+        return { status: 200, body: { ok: true, matched: true, wallet: true, skipped: true } };
+      }
+
+      await withAdmin((tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: walletResult.id },
+          data: {
+            status: walletStatus,
+            completedAt: ["COMPLETED", "FAILED", "CANCELLED"].includes(walletStatus) ? new Date() : undefined,
+            apiResponse: payload as never,
+            errorMessage: walletStatus === "FAILED" ? `PixPay saque falhou: ${statusRaw}` : undefined,
+          },
+        }),
+      );
+
+      if (walletStatus === "COMPLETED") {
+        void onWithdrawCompleted(walletResult.tenantId, walletResult.id);
+      }
+
+      await markWebhookProcessed("depix_withdraw", eventKey, { ok: true });
+      return { status: 200, body: { ok: true, matched: true, wallet: true, id: walletResult.id } };
+    }
+  }
 
   // Webhook sem cookie de tenant: casa por depixId (global, unico). Cross-tenant
   // legitimo -> withAdmin (BYPASSRLS). Com o runtime como app_login (sujeito a

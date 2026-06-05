@@ -30,8 +30,8 @@ import { createDocumentWithLink, getDocumentStatus, extractShortlinkToken } from
 import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { isValidLuhn } from "@/lib/validators/imei";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
-import { createPixPayment, cancelPixPayment, getPixStatus } from "@/lib/services/depix-service";
 import { logger } from "@/lib/logger";
+import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 
@@ -2745,20 +2745,21 @@ export const saleRouter = createTRPCRouter({
         }
       }
 
-      // ETAPA 2 — Depix HTTP fora da tx.
+      // ETAPA 2 — deposito wallet DePix fora da tx.
       const isPartial = input.amountCents != null && totalAmount < saleTotal - 0.01;
       const description = isPartial
         ? `Venda ${sale.number} (parcial)`
         : `Venda ${sale.number}`;
-      const result = await createPixPayment(
-        totalAmount,
-        description,
-        sale.id,
-        taxIdRaw || null,
-      );
-      if (!result.success) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao gerar PIX" });
-      }
+      const result = await createDeposit({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        grossAmountCents: Math.round(totalAmount * 100),
+        sourceType: "SALE",
+        sourceId: sale.id,
+        sourceDescription: description,
+        payerTaxId: taxIdRaw || null,
+      });
 
       // ETAPA 3 — Persiste transactionId pendente em paymentDetails ja agora
       // (antes do finalize). Sem isso, se o cliente paga antes do operador
@@ -2768,7 +2769,7 @@ export const saleRouter = createTRPCRouter({
       // Append em paymentDetails JSON array — pode coexistir com pagamentos
       // ja adicionados em split (ex: dinheiro + DePix). finalize sobrescreve
       // paymentDetails depois com a versao definitiva.
-      if (result.transactionId) {
+      if (result.pixpayDepixId) {
         await ctx.withTenant(async (tx) => {
           const current = (await tx.sale.findUnique({
             where: { id: sale.id },
@@ -2779,12 +2780,13 @@ export const saleRouter = createTRPCRouter({
             : [];
           // Evita duplicar se o operador re-gerou o PIX antes do anterior expirar.
           const existing = arr.findIndex(
-            (p) => p?.depixTransactionId === result.transactionId,
+            (p) => p?.walletTransactionId === result.id || p?.depixTransactionId === result.pixpayDepixId,
           );
           const entry = {
             method: "depix",
             amount: Math.round(totalAmount * 100),
-            depixTransactionId: result.transactionId,
+            walletTransactionId: result.id,
+            depixTransactionId: result.pixpayDepixId,
             depixStatus: "pending",
             installments: 1,
           };
@@ -2798,10 +2800,11 @@ export const saleRouter = createTRPCRouter({
       }
 
       return {
-        transactionId: result.transactionId,
+        transactionId: result.pixpayDepixId,
+        walletTransactionId: result.id,
         qrCode: result.qrCode,
         qrCodeBase64: result.qrCodeBase64,
-        pixKey: result.pixKey,
+        pixKey: result.depositAddress,
       };
     }),
 
@@ -2812,10 +2815,8 @@ export const saleRouter = createTRPCRouter({
       transactionId: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const result = await cancelPixPayment(input.transactionId);
-      if (!result.success) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao cancelar PIX" });
-      }
+      // Wallet-only: cancelamento local da transacao PENDING. PixPay nao e mais
+      // chamado diretamente por routers de negocio.
       // Remove a entry pendente do paymentDetails do rascunho — senao um QR
       // abandonado deixa lixo no draft (e um webhook tardio acharia a venda).
       // So mexe em DRAFT; venda finalizada tem paymentDetails definitivo.
@@ -2826,7 +2827,7 @@ export const saleRouter = createTRPCRouter({
         });
         if (!sale || sale.status !== "DRAFT" || !Array.isArray(sale.paymentDetails)) return;
         const arr = (sale.paymentDetails as Array<Record<string, unknown>>).filter(
-          (p) => p?.depixTransactionId !== input.transactionId,
+          (p) => p?.depixTransactionId !== input.transactionId && p?.walletTransactionId !== input.transactionId,
         );
         await tx.sale.update({
           where: { id: input.saleId },
@@ -2845,6 +2846,19 @@ export const saleRouter = createTRPCRouter({
   checkPixStatus: tenantProcedure
     .input(checkSalePixStatusSchema)
     .mutation(async ({ ctx, input }) => {
+      const walletTransactionId = input.walletTransactionId ?? (input.transactionId.match(/^[0-9a-fA-F-]{36}$/) ? input.transactionId : null);
+      if (walletTransactionId) {
+        const walletTx = await checkTransactionStatus(ctx.tenantId, walletTransactionId);
+        if (!walletTx || walletTx.sourceType !== "SALE" || walletTx.sourceId !== input.saleId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Transacao nao pertence a esta venda." });
+        }
+        let status: "pending" | "paid" | "expired" | "failed" = "pending";
+        if (walletTx.status === "COMPLETED" || walletTx.status === "COMPLETED_FEE_PENDING") status = "paid";
+        else if (walletTx.status === "EXPIRED") status = "expired";
+        else if (walletTx.status === "FAILED" || walletTx.status === "CANCELLED") status = "failed";
+        return { status, isFinal: status !== "pending" };
+      }
+
       // Valida ownership: o transactionId deve estar vinculado a uma sale do
       // tenant atual (gravado em paymentDetails durante finalize, OU em sale
       // ainda em DRAFT que esta no fluxo do DepixQrDialog). Impede que
@@ -2863,17 +2877,10 @@ export const saleRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Transacao nao pertence a esta venda." });
       }
 
-      const result = await getPixStatus(input.transactionId);
-      if (!result.success) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: result.error ?? "Erro ao consultar PIX",
-        });
-      }
-      return {
-        status: result.status ?? "pending",
-        isFinal: result.isFinal ?? false,
-      };
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Venda sem transacao wallet DePix vinculada.",
+      });
     }),
 
   // ═══════════════════════════════════════

@@ -25,7 +25,9 @@ model QuickSale {
   createdById        String          @map("created_by_id") @db.Uuid
   paidAt             DateTime?       @map("paid_at")
 
-  // DePix/PixPay integration — populated when generatePix is called.
+  // DePix/PixPay integration — walletTransactionId e o vinculo canonico novo.
+  // Campos depix* ficam como espelho temporario para compatibilidade/historico.
+  walletTransactionId String?         @map("wallet_transaction_id") @db.Uuid
   depixTransactionId String?         @map("depix_transaction_id")
   depixStatus        String?         @map("depix_status") // pending | paid | failed | expired
   depixQrCode        String?         @map("depix_qr_code") // copia-e-cola
@@ -40,5 +42,6 @@ model QuickSale {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([depixTransactionId])
+  @@index([walletTransactionId])
   @@map("quick_sales")
 }

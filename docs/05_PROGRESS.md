@@ -18,6 +18,11 @@
 
 ## Histórico de execução
 
+### 2026-06-04 — DePix exclusivo na Wallet
+- Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
+- Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.
+- Próximo: migrar PDV/Sale e OS para `walletTransactionId`, fortalecer webhooks wallet-first para todos os efeitos de negócio e adicionar regressões específicas do módulo.
+
 ### 2026-06-04 — Cloudinary para imagens de produto/catálogo
 - Implementado: decisão arquitetural para manter Cloudinary como provider principal de imagens públicas de produto/catálogo, preservando MinIO para assets internos.
 - Decisões: não fazer migração física Cloudinary → MinIO; novos uploads usam Cloudinary por padrão e URLs legadas seguem válidas.

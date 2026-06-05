@@ -11,6 +11,13 @@ enum DepixTransactionKind {
   WITHDRAW
 }
 
+enum DepixTransactionSourceType {
+  WALLET
+  QUICK_SALE
+  SALE
+  SERVICE_ORDER
+}
+
 enum DepixTransactionStatus {
   PENDING                   // criado, aguardando proximo passo
   PROCESSING                // PIX pago / saque enviado, aguardando confirmacao
@@ -29,6 +36,12 @@ model TenantDepixTransaction {
   number                String                  @unique
   kind                  DepixTransactionKind
   status                DepixTransactionStatus  @default(PENDING)
+
+  /// Origem de negocio da transacao. WALLET = operacao direta na wallet;
+  /// demais valores vinculam o deposito/saque a um documento operacional.
+  sourceType            DepixTransactionSourceType @default(WALLET) @map("source_type")
+  sourceId              String?                 @map("source_id") @db.Uuid
+  sourceDescription     String?                 @map("source_description")
 
   /// Valor BRUTO solicitado (centavos). Para deposito, eh o valor do PIX
   /// que o cliente paga. Para saque, eh o valor que o tenant quer mover.
@@ -86,6 +99,7 @@ model TenantDepixTransaction {
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, kind, status, createdAt])
+  @@index([tenantId, sourceType, sourceId])
   @@index([tenantId, depositLabel])
   @@index([tenantId, depositTxId])
   @@index([tenantId, withdrawTxId])
