@@ -59,10 +59,30 @@ describe("whatsapp-ai-agent access control", () => {
       tenantId: "tenant-1",
     };
 
-    expect(validateWhatsappAiInboundAccess({ config, instanceName: "outra", remoteJid: "5586995423021@s.whatsapp.net", fromMe: false, isGroup: false, hasText: true })).toEqual({ allowed: false, reason: "unexpected instance" });
-    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@s.whatsapp.net", fromMe: true, isGroup: false, hasText: true })).toEqual({ allowed: false, reason: "from me" });
-    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@g.us", fromMe: false, isGroup: true, hasText: true })).toEqual({ allowed: false, reason: "group message" });
-    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@s.whatsapp.net", fromMe: false, isGroup: false, hasText: false })).toEqual({ allowed: false, reason: "empty text" });
+    expect(validateWhatsappAiInboundAccess({ config, instanceName: "outra", remoteJid: "5586995423021@s.whatsapp.net", fromMe: false, isGroup: false, hasContent: true })).toEqual({ allowed: false, reason: "unexpected instance" });
+    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@s.whatsapp.net", fromMe: true, isGroup: false, hasContent: true })).toEqual({ allowed: false, reason: "from me" });
+    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@g.us", fromMe: false, isGroup: true, hasContent: true })).toEqual({ allowed: false, reason: "group message" });
+    expect(validateWhatsappAiInboundAccess({ config, instanceName: "arena-cripto", remoteJid: "5586995423021@s.whatsapp.net", fromMe: false, isGroup: false, hasContent: false })).toEqual({ allowed: false, reason: "empty content" });
+  });
+  it("permite mensagem com imagem mesmo sem texto", () => {
+    const config = {
+      enabled: true,
+      webhookToken: "secret",
+      instanceName: "arena-cripto",
+      assistantPhones: "86995423021",
+      codePhones: null,
+      legacyAllowedPhone: "86995423021",
+      tenantId: "tenant-1",
+    };
+
+    expect(validateWhatsappAiInboundAccess({
+      config,
+      instanceName: "arena-cripto",
+      remoteJid: "5586995423021@s.whatsapp.net",
+      fromMe: false,
+      isGroup: false,
+      hasContent: true,
+    })).toEqual({ allowed: true, phone: "5586995423021", agentKind: "assistant" });
   });
 });
 
@@ -101,14 +121,31 @@ describe("parseEvolutionAiInbound", () => {
       },
     })?.text).toBe("texto estendido");
 
-    expect(parseEvolutionAiInbound({
+    const parsedImage = parseEvolutionAiInbound({
       event: "messages.upsert",
       data: {
         instance: "arena-cripto",
         key: { id: "msg-3", remoteJid: "5586995423021@s.whatsapp.net" },
-        message: { imageMessage: { caption: "legenda" } },
+        message: { imageMessage: { caption: "legenda", url: "https://cdn.exemplo.com/foto.jpg", mimetype: "image/jpeg", fileLength: "123" } },
       },
-    })?.text).toBe("legenda");
+    });
+
+    expect(parsedImage?.text).toBe("legenda");
+    expect(parsedImage?.attachments).toEqual([{ kind: "image", url: "https://cdn.exemplo.com/foto.jpg", mimeType: "image/jpeg", caption: "legenda", fileLength: 123 }]);
+  });
+
+  it("aceita imagem sem legenda como conteúdo inbound", () => {
+    const parsed = parseEvolutionAiInbound({
+      event: "messages.upsert",
+      data: {
+        instance: "arena-cripto",
+        key: { id: "msg-img", remoteJid: "5586995423021@s.whatsapp.net" },
+        message: { imageMessage: { url: "https://cdn.exemplo.com/foto.png", mimetype: "image/png" } },
+      },
+    });
+
+    expect(parsed?.text).toBe("");
+    expect(parsed?.attachments).toHaveLength(1);
   });
 
   it("retorna null para evento sem id ou evento não inbound", () => {

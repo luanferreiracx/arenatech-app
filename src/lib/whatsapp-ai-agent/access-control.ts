@@ -83,7 +83,7 @@ export function validateWhatsappAiInboundAccess(params: {
   remoteJid: string;
   fromMe: boolean;
   isGroup: boolean;
-  hasText: boolean;
+  hasContent: boolean;
 }): WhatsappAiAccessDecision {
   if (!params.config.enabled) return { allowed: false, reason: "disabled" };
   if (!params.config.tenantId) return { allowed: false, reason: "missing tenant id" };
@@ -93,7 +93,7 @@ export function validateWhatsappAiInboundAccess(params: {
   }
   if (params.fromMe) return { allowed: false, reason: "from me" };
   if (params.isGroup) return { allowed: false, reason: "group message" };
-  if (!params.hasText) return { allowed: false, reason: "empty text" };
+  if (!params.hasContent) return { allowed: false, reason: "empty content" };
 
   return resolveAgentKindForPhone(params.remoteJid, params.config);
 }

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     remoteJid: inbound.remoteJid,
     fromMe: inbound.fromMe,
     isGroup: inbound.isGroup,
-    hasText: inbound.text.length > 0,
+    hasContent: inbound.text.length > 0 || inbound.attachments.length > 0,
   });
   if (!access.allowed) {
     logger.info("WhatsApp IA webhook: evento ignorado", {
