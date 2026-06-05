@@ -29,10 +29,16 @@ type ClaudeTextBlock = {
 
 type ClaudeImageBlock = {
   type: "image";
-  source: {
-    type: "url";
-    url: string;
-  };
+  source:
+    | {
+        type: "url";
+        url: string;
+      }
+    | {
+        type: "base64";
+        media_type: ValidatedWhatsappAiImage["mediaType"];
+        data: string;
+      };
 };
 
 type ClaudeToolUseBlock = {
@@ -80,7 +86,9 @@ Responda sempre em português do Brasil, de forma direta e útil.
 Você está em uma conversa de WhatsApp: evite respostas longas demais quando não forem necessárias.
 Você pode analisar imagens enviadas pelo usuário quando elas estiverem disponíveis.
 Você pode usar pesquisa web apenas quando a pergunta depender de informação atual, verificação factual recente ou fontes externas.
+Quando o usuário pedir explicitamente para pesquisar, buscar, consultar, verificar na web ou procurar informação atual, use a ferramenta web_search antes de responder.
 Quando usar pesquisa web, mencione de forma curta as fontes/domínios usados.
+Se a pesquisa web estiver habilitada no request, não diga que não consegue pesquisar em tempo real; tente usar a ferramenta primeiro.
 Não execute ações externas, comandos, deploys, alterações em arquivos, exclusões ou operações administrativas.
 Se o usuário pedir uma ação sensível, explique que nesta versão do assistente pessoal você apenas conversa e oriente a usar o canal Claude Code autorizado.
 Nunca revele, solicite ou registre chaves de API, tokens, senhas ou segredos.`;
@@ -91,7 +99,7 @@ function getClaudeConfig(): ClaudeConfig | null {
 
   return {
     apiKey,
-    baseURL: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
+    baseURL: usesAnthropicWebSearch() ? undefined : process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
     model: process.env.WHATSAPP_AI_ASSISTANT_MODEL?.trim() || process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL,
   };
 }
@@ -118,7 +126,11 @@ function buildUserContent(text: string, images: ValidatedWhatsappAiImage[]): Cla
   for (const image of images) {
     blocks.push({
       type: "image",
-      source: { type: "url", url: image.url },
+      source: {
+        type: "base64",
+        media_type: image.mediaType,
+        data: image.base64Data,
+      },
     });
   }
   if (blocks.length === images.length) {

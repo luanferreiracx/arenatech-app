@@ -6,11 +6,12 @@ export type ValidatedWhatsappAiImage = {
   mediaType: "image/jpeg" | "image/png" | "image/webp";
   sizeBytes: number | null;
   sourceHost: string;
+  base64Data: string;
 };
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MEDIA_VALIDATION_TIMEOUT_MS = 5_000;
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 20_000;
 
 function maxImageBytes(): number {
   const parsed = Number(process.env.WHATSAPP_AI_MAX_IMAGE_BYTES);
@@ -94,23 +95,30 @@ function assertAllowedSize(sizeBytes: number | null): void {
   }
 }
 
-async function readRemoteImageMetadata(url: URL): Promise<{ mimeType: string | null; sizeBytes: number | null }> {
+async function downloadImage(url: URL): Promise<{ base64Data: string; mimeType: string | null; sizeBytes: number }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MEDIA_VALIDATION_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), MEDIA_DOWNLOAD_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
-      method: "HEAD",
+      method: "GET",
       redirect: "error",
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error("Não foi possível validar a imagem recebida");
+      throw new Error("Não foi possível baixar a imagem recebida");
     }
+
     const contentLength = response.headers.get("content-length");
     const parsedLength = contentLength ? Number(contentLength) : Number.NaN;
+    if (Number.isFinite(parsedLength)) assertAllowedSize(parsedLength);
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    assertAllowedSize(bytes.byteLength);
+
     return {
+      base64Data: Buffer.from(bytes).toString("base64"),
       mimeType: normalizeMimeType(response.headers.get("content-type")),
-      sizeBytes: Number.isFinite(parsedLength) ? parsedLength : null,
+      sizeBytes: bytes.byteLength,
     };
   } finally {
     clearTimeout(timeout);
@@ -123,29 +131,18 @@ export async function validateWhatsappAiImage(attachment: WhatsappAiInboundAttac
   const webhookSizeBytes = attachment.fileLength;
 
   assertAllowedSize(webhookSizeBytes);
+  if (webhookMimeType) assertAllowedMimeType(webhookMimeType);
 
-  if (webhookMimeType && webhookSizeBytes !== null) {
-    assertAllowedMimeType(webhookMimeType);
-    return {
-      url: parsedUrl.toString(),
-      mediaType: webhookMimeType,
-      sizeBytes: webhookSizeBytes,
-      sourceHost: parsedUrl.hostname,
-    };
-  }
-
-  const remoteMetadata = await readRemoteImageMetadata(parsedUrl);
-  const mimeType = webhookMimeType ?? remoteMetadata.mimeType;
-  const sizeBytes = webhookSizeBytes ?? remoteMetadata.sizeBytes;
-
+  const downloaded = await downloadImage(parsedUrl);
+  const mimeType = webhookMimeType ?? downloaded.mimeType;
   assertAllowedMimeType(mimeType);
-  assertAllowedSize(sizeBytes);
 
   return {
     url: parsedUrl.toString(),
     mediaType: mimeType,
-    sizeBytes,
+    sizeBytes: webhookSizeBytes ?? downloaded.sizeBytes,
     sourceHost: parsedUrl.hostname,
+    base64Data: downloaded.base64Data,
   };
 }
 
