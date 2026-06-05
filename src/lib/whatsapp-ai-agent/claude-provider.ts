@@ -30,7 +30,7 @@ function getClaudeConfig(): ClaudeConfig | null {
   return {
     apiKey,
     baseURL: process.env.ANTHROPIC_BASE_URL?.trim() || undefined,
-    model: process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL,
+    model: process.env.WHATSAPP_AI_ASSISTANT_MODEL?.trim() || process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL,
   };
 }
 
@@ -45,6 +45,7 @@ function buildClient(config: ClaudeConfig): Anthropic {
 export async function generateWhatsappAiReply(params: {
   history: WhatsappAiHistoryMessage[];
   userMessage: string;
+  model?: string | null;
 }): Promise<string> {
   const config = getClaudeConfig();
   if (!config) {
@@ -57,7 +58,7 @@ export async function generateWhatsappAiReply(params: {
 
   const client = buildClient(config);
   const message = await client.messages.create({
-    model: config.model,
+    model: params.model?.trim() || config.model,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
     messages: [
