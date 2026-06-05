@@ -4,6 +4,7 @@ import { sendTextMessage } from "@/lib/services/whatsapp-service";
 import type { WhatsappAiAgentKind } from "@/lib/whatsapp-ai-agent/access-control";
 import type { WhatsappAiInboundMessage } from "@/lib/whatsapp-ai-agent/evolution-payload";
 import { generateWhatsappAiReply, type WhatsappAiHistoryMessage } from "@/lib/whatsapp-ai-agent/claude-provider";
+import { validateWhatsappAiImages } from "@/lib/whatsapp-ai-agent/media";
 import { parseWhatsappAiCommand } from "@/lib/whatsapp-ai-agent/command-parser";
 import { dispatchClaudeCodeExecution } from "@/lib/whatsapp-ai-agent/code-agent";
 
@@ -134,6 +135,12 @@ export async function processWhatsappAiMessage(params: {
           remoteJid: params.message.remoteJid,
           pushName: params.message.pushName,
           event: params.message.event,
+          attachments: params.message.attachments.map((attachment) => ({
+            kind: attachment.kind,
+            mimeType: attachment.mimeType,
+            hasUrl: Boolean(attachment.url),
+            fileLength: attachment.fileLength,
+          })),
         },
       },
     });
@@ -288,10 +295,38 @@ export async function processWhatsappAiMessage(params: {
   }
 
   const historyWithoutCurrent = toClaudeHistory(state.history).slice(0, -1);
+  let images;
+  try {
+    images = await validateWhatsappAiImages(params.message.attachments);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn("WhatsApp IA: imagem recebida não passou na validação", {
+      conversationId: state.conversation.id,
+      phone: params.phone,
+      instanceName,
+      error: message,
+    });
+    const providerMessageId = await sendAndPersist({
+      tenantId: params.tenantId,
+      conversationId: state.conversation.id,
+      phone: params.phone,
+      instanceName,
+      content: "Recebi a imagem, mas não consegui processá-la com segurança. Envie novamente em JPG, PNG ou WebP.",
+      metadata: { agentKind, imageValidationFailed: true },
+    });
+    return { status: "replied", providerMessageId };
+  }
+
   const reply = await generateWhatsappAiReply({
     history: historyWithoutCurrent,
     userMessage: params.message.text,
+    images,
     model: state.conversation.model,
+    toolContext: {
+      tenantId: params.tenantId,
+      conversationId: state.conversation.id,
+      phone: params.phone,
+    },
   });
 
   const providerMessageId = await sendAndPersist({
@@ -299,8 +334,13 @@ export async function processWhatsappAiMessage(params: {
     conversationId: state.conversation.id,
     phone: params.phone,
     instanceName,
-    content: reply,
-    metadata: { agentKind },
+    content: reply.text,
+    metadata: {
+      agentKind,
+      imageAnalyzed: images.length > 0,
+      toolsUsed: reply.toolExecutions.map((execution) => execution.name),
+      toolExecutions: reply.toolExecutions,
+    },
   });
 
   logger.info("WhatsApp IA: mensagem respondida", {

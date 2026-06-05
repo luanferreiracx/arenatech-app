@@ -8,7 +8,7 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-04
+**Ultima atualizacao:** 2026-06-05
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `feat/cloudinary-product-images`
@@ -18,10 +18,17 @@
 
 ## Histórico de execução
 
-### 2026-06-04 — DePix exclusivo na Wallet
-- Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
+### 2026-06-05 — DePix exclusivo na Wallet
+- Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales/PDV/OS gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
 - Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.
-- Próximo: migrar PDV/Sale e OS para `walletTransactionId`, fortalecer webhooks wallet-first para todos os efeitos de negócio e adicionar regressões específicas do módulo.
+- Próximo: monitorar produção pelos logs `Deposito DePix wallet usando endereco LWK dedicado` e adicionar regressões específicas do módulo.
+
+### 2026-06-05 — Agente pessoal WhatsApp com imagem e web search Anthropic
+- Implementado: agente pessoal via WhatsApp/Evolution passou a aceitar imagens inbound, validar mídia com bloqueio de hosts internos/MIME/tamanho e enviar blocos multimodais ao Claude.
+- Implementado: pesquisa web oficial Anthropic ativada via server tool `web_search_20260209` quando `WHATSAPP_AI_ENABLE_WEB_SEARCH=true` e `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic`; fallback provider permanece disponível apenas no modo `provider`.
+- Decisões: não liberar fetch arbitrário de URLs no MVP; server tool Anthropic executa a busca internamente e o app apenas registra uso em metadata.
+- Validação: testes focados `pnpm vitest run __tests__/unit/whatsapp-ai-agent.test.ts __tests__/unit/whatsapp-ai-agent-flow.test.ts __tests__/unit/whatsapp-ai-media.test.ts __tests__/unit/whatsapp-ai-web-search.test.ts` verdes (24/24); Prisma validate verde com `DATABASE_URL` temporária; checagem TypeScript focada sem erros nos arquivos do agente.
+- Próximo: abrir PR, mergear/deployar e configurar produção com `WHATSAPP_AI_ENABLE_IMAGES=true`, `WHATSAPP_AI_ENABLE_WEB_SEARCH=true`, `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic` e `WHATSAPP_AI_WEB_SEARCH_ANTHROPIC_VERSION=web_search_20260209`.
 
 ### 2026-06-04 — Cloudinary para imagens de produto/catálogo
 - Implementado: decisão arquitetural para manter Cloudinary como provider principal de imagens públicas de produto/catálogo, preservando MinIO para assets internos.
