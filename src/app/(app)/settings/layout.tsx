@@ -13,7 +13,6 @@ const tabs = [
   { label: "Recebimento", href: "/settings/receiving" },
   { label: "DePix", href: "/settings/depix" },
   { label: "Integracoes", href: "/settings/integrations" },
-  { label: "Usuarios", href: "/settings/users" },
   { label: "Equipe", href: "/settings/team" },
   { label: "Entregadores", href: "/settings/delivery-persons" },
   { label: "Assinatura", href: "/settings/subscription" },
