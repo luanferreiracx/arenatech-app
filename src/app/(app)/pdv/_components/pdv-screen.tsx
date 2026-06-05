@@ -1181,6 +1181,10 @@ export function PdvScreen() {
           customerId={customerId ?? null}
           customerTaxId={customerTaxId}
           onSuccess={(saleId: string) => {
+            if (isOSPayment && draft.serviceOrderId) {
+              router.push(`/service-orders/${draft.serviceOrderId}`);
+              return;
+            }
             router.push(`/pdv/${saleId}`);
           }}
         />
