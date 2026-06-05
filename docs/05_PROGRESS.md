@@ -18,6 +18,13 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hotfix WhatsApp IA imagem/base64 e busca oficial
+- Implementado: imagens recebidas pela Evolution agora são baixadas com validação segura e enviadas ao Claude como `base64`, evitando falha de acesso à URL temporária `mmg.whatsapp.net`.
+- Implementado: modo `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic` força o client Anthropic oficial sem `ANTHROPIC_BASE_URL`, porque server tools não funcionam via proxy PowerProfile/Claude-compatible.
+- Decisões: versão padrão da busca oficial ajustada para `web_search_20250305` por ser a tool básica estável sem dependência de dynamic filtering/code execution.
+- Validação: testes focados do agente WhatsApp verdes (24/24) e checagem TypeScript focada sem erros.
+- Próximo: PR hotfix, merge/deploy e atualizar produção para `WHATSAPP_AI_WEB_SEARCH_ANTHROPIC_VERSION=web_search_20250305`.
+
 ### 2026-06-05 — DePix exclusivo na Wallet
 - Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales/PDV/OS gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
 - Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.

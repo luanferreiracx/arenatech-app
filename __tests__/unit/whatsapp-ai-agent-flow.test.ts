@@ -44,6 +44,8 @@ import { processWhatsappAiMessage } from "@/lib/whatsapp-ai-agent/agent";
 
 describe("processWhatsappAiMessage", () => {
   beforeEach(() => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "false";
+    vi.unstubAllGlobals();
     tx.whatsappAiConversation.upsert.mockClear();
     tx.whatsappAiConversation.update.mockClear();
     tx.whatsappAiExecution.create.mockClear();
@@ -166,6 +168,12 @@ describe("processWhatsappAiMessage", () => {
 
   it("responde mensagem só com imagem e persiste metadata de anexo", async () => {
     process.env.WHATSAPP_AI_ENABLE_IMAGES = "true";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "image/jpeg", "content-length": "3" }),
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }));
+
     const result = await processWhatsappAiMessage({
       tenantId: "00000000-0000-0000-0000-000000000001",
       phone: "5586995423021",
@@ -186,7 +194,13 @@ describe("processWhatsappAiMessage", () => {
     expect(result).toEqual({ status: "replied", providerMessageId: "sent-1" });
     expect(generateWhatsappAiReply).toHaveBeenCalledWith(expect.objectContaining({
       userMessage: "",
-      images: [{ url: "https://cdn.exemplo.com/foto.jpg", mediaType: "image/jpeg", sizeBytes: 1024, sourceHost: "cdn.exemplo.com" }],
+      images: [expect.objectContaining({
+        url: "https://cdn.exemplo.com/foto.jpg",
+        mediaType: "image/jpeg",
+        sizeBytes: 1024,
+        sourceHost: "cdn.exemplo.com",
+        base64Data: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64"),
+      })],
     }));
     expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
