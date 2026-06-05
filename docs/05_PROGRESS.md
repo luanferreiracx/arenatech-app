@@ -18,6 +18,12 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Hotfix isolamento de tenant ativo por cookie
+- Corrigido: cookie `x-active-tenant` antigo/forjado nao pode mais definir tenant ativo se o tenant nao pertence a sessao atual.
+- Corrigido: superadmin nao recebe mais passe livre em rotas de tenant via cookie arbitrario; acesso tenant-scoped exige vinculo explicito na sessao.
+- Corrigido: login/logout limpam `x-active-tenant`, evitando herdar tenant de sessao anterior.
+- Corrigido: layout e painel usam os modulos do tenant ativo resolvido, nao todos os modulos apenas por `isSuperAdmin`.
+
 ### 2026-06-05 — Superadmin administra usuarios de tenants
 - Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
 - Implementado: novos usuarios criados pelo Superadmin recebem senha temporaria forte, `must_change_password=true` e exigem troca no primeiro acesso.

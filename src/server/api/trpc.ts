@@ -4,6 +4,7 @@ import { z, ZodError } from "zod";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { hasTenantAccess } from "@/lib/auth/active-tenant";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -65,13 +66,11 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   }
 
   // Validate that the authenticated user actually has access to this tenant
-  const hasTenant = ctx.session.availableTenants.some(
-    (t) => t.id === ctx.tenantId,
-  );
-  if (!hasTenant && !ctx.session.user.isSuperAdmin) {
+  if (!hasTenantAccess(ctx.session, ctx.tenantId)) {
     logger.warn("tenantProcedure: unauthorized tenant access attempt", {
       userId: ctx.session.user.id,
       tenantId: ctx.tenantId,
+      isSuperAdmin: ctx.session.user.isSuperAdmin,
     });
     throw new TRPCError({ code: "FORBIDDEN", message: "No access to this tenant" });
   }
