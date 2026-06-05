@@ -31,6 +31,7 @@ import {
   rejectPreRegistrationSchema,
   listPreRegistrationsSchema,
   listTenantsSchema,
+  resetTenantUserPasswordSchema,
   updateTenantSchema,
 } from "@/lib/validators/admin";
 import {
@@ -332,6 +333,75 @@ export const adminRouter = createTRPCRouter({
           },
         });
         return { success: true };
+      });
+    }),
+
+  resetTenantUserPassword: adminProcedure
+    .input(resetTenantUserPasswordSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const membership = await tx.userTenant.findUnique({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+          select: {
+            role: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                isSuperAdmin: true,
+              },
+            },
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        if (!membership) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Usuario nao encontrado neste tenant",
+          });
+        }
+        if (membership.user.isSuperAdmin) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e permitido resetar senha de superadmin interno",
+          });
+        }
+
+        const tempPassword = generateTempPassword();
+        await tx.user.update({
+          where: { id: input.userId },
+          data: { passwordHash: hashPassword(tempPassword) },
+        });
+
+        logger.info("Tenant user password reset by superadmin", {
+          tenantId: membership.tenant.id,
+          userId: membership.user.id,
+          role: membership.role,
+          byAdmin: ctx.session.user.id,
+        });
+
+        return {
+          tempPassword,
+          user: {
+            id: membership.user.id,
+            name: membership.user.name,
+          },
+          tenant: {
+            id: membership.tenant.id,
+            name: membership.tenant.name,
+          },
+        };
       });
     }),
 

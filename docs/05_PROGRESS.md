@@ -18,6 +18,13 @@
 
 ## Histórico de execução
 
+### 2026-06-05 — Superadmin reset de senha de usuario do tenant
+- Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
+- Implementado: procedure `admin.resetTenantUserPassword` valida `tenantId/userId`, exige vinculo no tenant e bloqueia reset de usuario marcado como `isSuperAdmin`.
+- Decisoes: senha antiga segue irrecuperavel por design; reset gera novo hash bcrypt e nao registra a senha em logs.
+- Validacao: `pnpm vitest run __tests__/unit/validators/admin.test.ts` verde (31/31), `pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verde. `pnpm test` local segue falhando apenas nas integracoes RLS/auth por ambiente/seed de banco.
+- Proximo: merge/deploy e usar o botao "Resetar senha" no superadmin quando a senha inicial for perdida.
+
 ### 2026-06-05 — Hardening superadmin onboarding wallet-only
 - Implementado: criação manual e aprovação de pré-cadastro agora validam CPF/CNPJ, normalizam documentos/telefone, aceitam apenas plano ativo wallet-only ou sem plano, seedam `tenant_settings` básico e provisionam a carteira DePix fora da transação.
 - Implementado: sessão/autenticação agora mantém apenas tenants `ACTIVE` em `availableTenants`, removendo acesso de tenants `PENDING`, `SUSPENDED` ou `CANCELLED` no próximo refresh/JWT callback.

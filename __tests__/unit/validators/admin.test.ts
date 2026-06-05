@@ -7,6 +7,7 @@ import {
   rejectPreRegistrationSchema,
   listPreRegistrationsSchema,
   listTenantsSchema,
+  resetTenantUserPasswordSchema,
   updateTenantSchema,
   planStatusEnum,
   PLAN_STATUS_LABELS,
@@ -150,6 +151,17 @@ describe("updateTenantSchema", () => {
 
   it("rejeita plano vazio", () => {
     expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "" }).success).toBe(false);
+  });
+});
+
+describe("resetTenantUserPasswordSchema", () => {
+  it("aceita tenant e usuario validos", () => {
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: UUID }).success).toBe(true);
+  });
+
+  it("rejeita ids invalidos", () => {
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: "tenant", userId: UUID }).success).toBe(false);
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: "user" }).success).toBe(false);
   });
 });
 
