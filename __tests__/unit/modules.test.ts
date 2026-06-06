@@ -65,6 +65,11 @@ describe("modulesFromPlanFeatures", () => {
     expect(modulesFromPlanFeatures(null)).toEqual(DEFAULT_RELEASED_MODULES);
     expect(modulesFromPlanFeatures({})).toEqual(DEFAULT_RELEASED_MODULES);
   });
+
+  it("cai no padrão quando modules vem vazio ou sem valores validos", () => {
+    expect(modulesFromPlanFeatures({ modules: [] })).toEqual(DEFAULT_RELEASED_MODULES);
+    expect(modulesFromPlanFeatures({ modules: ["inexistente", 42] })).toEqual(DEFAULT_RELEASED_MODULES);
+  });
 });
 
 describe("allowedModulesForTenant", () => {

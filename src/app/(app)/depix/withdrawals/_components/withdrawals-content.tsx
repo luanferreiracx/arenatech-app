@@ -174,7 +174,7 @@ export function WithdrawalsContent() {
             action={
               !filters.status ? (
                 <Button asChild>
-                  <Link href="/depix/withdrawals/new"><Plus className="w-4 h-4 mr-2" />Novo Saque</Link>
+                  <Link href="/depix-wallet/withdraw"><Plus className="w-4 h-4 mr-2" />Novo Saque na Wallet</Link>
                 </Button>
               ) : undefined
             }

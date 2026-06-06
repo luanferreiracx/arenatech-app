@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client"
+import type { Prisma } from "@prisma/client"
 import {
   DEFAULT_SIMULATOR_MAX_INSTALLMENTS,
   DEFAULT_SIMULATOR_CREDIT_AVISTA_FEE,
@@ -37,7 +37,7 @@ const DEFAULT_PAYMENT_METHODS: Array<{
  * Called during tenant creation (ADR 0034).
  */
 export async function tenantFinancialInit(
-  tx: PrismaClient,
+  tx: Prisma.TransactionClient,
   tenantId: string
 ): Promise<void> {
   for (const cat of FIXED_CATEGORIES) {
@@ -122,7 +122,7 @@ export async function tenantFinancialInit(
 }
 
 async function isCentralTenantId(
-  tx: PrismaClient,
+  tx: Prisma.TransactionClient,
   tenantId: string,
 ): Promise<boolean> {
   // Importacao tardia pra evitar dependencia circular (trpc.ts importa

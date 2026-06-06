@@ -9,19 +9,24 @@
  *  - escrita idempotente (lead não duplica).
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract";
 import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/service-order";
 import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
-import { qualificarLead } from "@/lib/talison/tools/handoff";
+import { qualificarLead, transferirParaHumano } from "@/lib/talison/tools/handoff";
+import { toggleStatus } from "@/lib/talison/chatwoot-client";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
   sendBotMessage: vi.fn().mockResolvedValue(true),
   toggleStatus: vi.fn().mockResolvedValue(true),
 }));
+
+beforeEach(() => {
+  vi.mocked(toggleStatus).mockClear();
+});
 
 const baseConversation = {
   id: "conv-1",
@@ -311,5 +316,47 @@ describe("qualificar_lead", () => {
     expect(update).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
     if (result.ok) expect(result.data.atualizado).toBe(true);
+  });
+});
+
+describe("transferir_para_humano", () => {
+  it("cancela follow-ups e abre a conversa no Chatwoot quando há externalId", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+    const tx = {
+      chatbotFollowUp: { updateMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await transferirParaHumano.execute(
+      { motivo: "cliente pediu atendente" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { conversationId: "conv-1", cancelled: false, executedAt: null },
+      data: { cancelled: true },
+    });
+    expect(vi.mocked(toggleStatus)).toHaveBeenCalledWith("42", "open");
+  });
+
+  it("não depende de status local HUMAN_TAKEOVER quando não há externalId", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const conversation = { ...baseConversation, externalId: null };
+    const tx = {
+      chatbotConversation: { update: vi.fn() },
+      chatbotFollowUp: { updateMany },
+    } as unknown as Partial<TalisonTx>;
+    const ctx: TalisonToolContext = {
+      tenantId: "tenant-1",
+      conversation,
+      withTenant: (fn) => fn(tx as TalisonTx),
+    };
+
+    const result = await transferirParaHumano.execute({ motivo: "fora do escopo" }, ctx);
+
+    expect(result.ok).toBe(true);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(tx.chatbotConversation?.update).not.toHaveBeenCalled();
+    expect(vi.mocked(toggleStatus)).not.toHaveBeenCalledWith(expect.any(String), "open");
   });
 });

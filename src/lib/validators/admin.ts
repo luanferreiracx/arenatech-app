@@ -140,6 +140,45 @@ export const updateTenantSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]),
-  plan: z.string().max(100).optional().nullable(),
+  plan: z.string().min(1).max(100).optional().nullable(),
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
+
+export const resetTenantUserPasswordSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+export type ResetTenantUserPasswordInput = z.infer<typeof resetTenantUserPasswordSchema>;
+
+export const tenantUserRoleEnum = z.enum(["admin", "operator", "technician", "cashier"]);
+export type TenantUserRole = z.infer<typeof tenantUserRoleEnum>;
+
+export const createTenantUserSchema = z.object({
+  tenantId: z.string().uuid(),
+  name: z.string().min(1, "Nome obrigatorio").max(255),
+  cpf: z
+    .string()
+    .min(11, "CPF obrigatorio")
+    .max(14)
+    .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
+  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  role: tenantUserRoleEnum,
+});
+export type CreateTenantUserInput = z.infer<typeof createTenantUserSchema>;
+
+export const updateTenantUserSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+  name: z.string().min(1, "Nome obrigatorio").max(255),
+  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  role: tenantUserRoleEnum,
+});
+export type UpdateTenantUserInput = z.infer<typeof updateTenantUserSchema>;
+
+export const removeTenantUserSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+export type RemoveTenantUserInput = z.infer<typeof removeTenantUserSchema>;

@@ -24,9 +24,31 @@ import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
  */
 const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
+const ACTIVE_TENANT_STATUS = "ACTIVE";
+const USER_SECURITY_CACHE_TTL_MS = 15_000;
+const userSecurityCache = new Map<string, { mustChangePassword: boolean; expiresAt: number }>();
+
+async function resolveMustChangePassword(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = userSecurityCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.mustChangePassword;
+
+  const user = await withAdmin((tx) =>
+    tx.user.findUnique({
+      where: { id: userId },
+      select: { mustChangePassword: true },
+    }),
+  );
+  const mustChangePassword = user?.mustChangePassword === true;
+  userSecurityCache.set(userId, {
+    mustChangePassword,
+    expiresAt: now + USER_SECURITY_CACHE_TTL_MS,
+  });
+  return mustChangePassword;
+}
 
 async function resolveModulesByTenant(
-  tenants: Array<{ id: string; slug: string; plan: string | null }>,
+  tenants: Array<{ id: string; slug: string; plan: string | null; status?: string }>,
   opts?: { withPlan?: boolean },
 ): Promise<Map<string, ModuleKey[]>> {
   const result = new Map<string, ModuleKey[]>();
@@ -34,6 +56,7 @@ async function resolveModulesByTenant(
 
   // Quais tenants precisam de consulta (cache expirado/ausente)?
   const stale = tenants.filter((t) => {
+    if (opts?.withPlan) return true;
     const cached = modulesCache.get(t.id);
     if (cached && cached.expiresAt > now) {
       result.set(t.id, cached.modules);
@@ -51,12 +74,15 @@ async function resolveModulesByTenant(
         opts?.withPlan
           ? await tx.tenant.findMany({
               where: { id: { in: stale.map((t) => t.id) } },
-              select: { id: true, slug: true, plan: true },
+              select: { id: true, slug: true, plan: true, status: true },
             })
           : stale.map((t) => ({ id: t.id, slug: t.slug, plan: t.plan }));
 
+      const activeTenants = dbTenants.filter(
+        (t) => !("status" in t) || t.status === ACTIVE_TENANT_STATUS,
+      );
       const planIds = Array.from(
-        new Set(dbTenants.map((t) => t.plan).filter((p): p is string => Boolean(p))),
+        new Set(activeTenants.map((t) => t.plan).filter((p): p is string => Boolean(p))),
       );
       const plans = planIds.length
         ? await tx.plan.findMany({
@@ -65,7 +91,7 @@ async function resolveModulesByTenant(
           })
         : [];
       const featuresByPlanId = new Map(plans.map((p) => [p.id, p.features]));
-      return { dbTenants, featuresByPlanId };
+      return { dbTenants: activeTenants, featuresByPlanId };
     });
 
     for (const t of data.dbTenants) {
@@ -143,6 +169,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           cpf: user.cpf,
           isSuperAdmin: user.isSuperAdmin,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -155,18 +182,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id!;
         token.cpf = (user as { cpf: string }).cpf;
         token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
+        token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
 
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
-            where: { userId: user.id! },
+            where: {
+              userId: user.id!,
+              tenant: { status: ACTIVE_TENANT_STATUS },
+            },
             include: {
-              tenant: { select: { id: true, slug: true, name: true, plan: true } },
+              tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
             },
           });
         });
 
         const modulesByTenantId = await resolveModulesByTenant(
-          userTenants.map((ut) => ({ slug: ut.tenant.slug, plan: ut.tenant.plan, id: ut.tenant.id })),
+          userTenants.map((ut) => ({
+            slug: ut.tenant.slug,
+            plan: ut.tenant.plan,
+            id: ut.tenant.id,
+            status: ut.tenant.status,
+          })),
         );
 
         token.availableTenants = userTenants.map((ut) => ({
@@ -180,6 +216,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
         token.impersonatedTenantId = null;
       } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
+        if (typeof token.id === "string") {
+          token.mustChangePassword = await resolveMustChangePassword(token.id);
+        }
+
         // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
         // do plano atual, com cache de curta duração (TTL). Garante que mudar o
         // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
@@ -195,10 +235,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           current.map((t) => ({ slug: t.slug, plan: null, id: t.id })),
           { withPlan: true },
         );
-        token.availableTenants = current.map((t) => ({
-          ...t,
-          modules: fresh.get(t.id) ?? t.modules,
-        }));
+        token.availableTenants = current
+          .filter((t) => fresh.has(t.id))
+          .map((t) => ({
+            ...t,
+            modules: fresh.get(t.id) ?? t.modules,
+          }));
+
+        if (
+          typeof token.activeTenantId === "string" &&
+          !fresh.has(token.activeTenantId)
+        ) {
+          token.activeTenantId = null;
+        }
+      } else if (typeof token.id === "string") {
+        token.mustChangePassword = await resolveMustChangePassword(token.id);
       }
 
       return token;
@@ -208,6 +259,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.user.id = token.id as string;
       session.user.cpf = token.cpf as string;
       session.user.isSuperAdmin = token.isSuperAdmin as boolean;
+      session.user.mustChangePassword = token.mustChangePassword === true;
       session.activeTenantId = (token.activeTenantId as string) ?? null;
       session.impersonatedTenantId = (token.impersonatedTenantId as string) ?? null;
       session.availableTenants =

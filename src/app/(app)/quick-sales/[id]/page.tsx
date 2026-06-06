@@ -105,7 +105,7 @@ export default function QuickSaleDetailPage() {
               <>
                 <Button onClick={() => setShowPixDialog(true)}>
                   <QrCode className="mr-2 h-4 w-4" />
-                  {s.depixTransactionId ? "Ver QR PIX" : "Gerar PIX DePix"}
+                  {s.walletTransactionId || s.depixTransactionId ? "Ver QR PIX" : "Gerar PIX DePix"}
                 </Button>
                 <Button
                   variant="outline"
@@ -257,6 +257,7 @@ export default function QuickSaleDetailPage() {
           quickSaleId={id}
           totalCents={s.totalAmount as number}
           buyerTaxId={s.cpfCnpj as string | null}
+          existingWalletTransactionId={s.walletTransactionId as string | null}
           existingTransactionId={s.depixTransactionId as string | null}
           existingQrCode={s.depixQrCode as string | null}
           existingQrCodeBase64={s.depixQrCodeBase64 as string | null}

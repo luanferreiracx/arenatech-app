@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
 
 // ── Subscription status ──
 
@@ -163,12 +164,28 @@ export type UpdateFiscalSettingsInput = z.infer<typeof updateFiscalSettingsSchem
 export const createTenantSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(200),
   email: z.string().email("Email invalido").max(200),
-  phone: z.string().min(10, "Telefone obrigatorio").max(20),
-  cnpj: z.string().max(18).optional().nullable(),
+  phone: z
+    .string()
+    .min(10, "Telefone obrigatorio")
+    .max(20)
+    .refine((v) => v.replace(/\D/g, "").length >= 10, "Telefone invalido"),
+  cnpj: z
+    .string()
+    .max(18)
+    .optional()
+    .nullable()
+    .refine(
+      (v) => v == null || v === "" || isValidCnpj(v),
+      { message: "CNPJ invalido (digito verificador nao confere)" },
+    ),
   ownerName: z.string().min(1, "Nome do responsavel obrigatorio").max(200),
-  ownerCpf: z.string().min(11, "CPF obrigatorio").max(14),
+  ownerCpf: z
+    .string()
+    .min(11, "CPF obrigatorio")
+    .max(14)
+    .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
   planId: z.string().uuid().optional().nullable(),
-  trialDays: z.number().int().min(0).max(99999).optional(),
+  trialDays: z.number().int().min(0).max(365).optional(),
   // Address
   cep: z.string().max(9).optional().nullable(),
   address: z.string().max(200).optional().nullable(),

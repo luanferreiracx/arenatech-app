@@ -10,6 +10,7 @@ import {
   DEPIX_STATUS_LABELS,
 } from "@/lib/validators/depix-withdraw";
 import { logger } from "@/lib/logger";
+import { createWithdraw as createWalletWithdraw } from "@/server/services/depix-transaction.service";
 
 // ── Helpers ──
 
@@ -119,113 +120,53 @@ export const depixWithdrawRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
-      // Clean pix key
-      let pixKey = input.pixKey.trim();
-      if (input.pixKeyType === "CPF" || input.pixKeyType === "CNPJ" || input.pixKeyType === "PHONE") {
-        pixKey = pixKey.replace(/\D/g, "");
-      }
-
-      // Clean tax id
-      const taxId = input.recipientTaxId.replace(/\D/g, "");
-      if (taxId.length !== 11 && taxId.length !== 14) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "CPF deve ter 11 digitos e CNPJ 14 digitos" });
-      }
-
-      // ETAPA 1: cria registro local em PENDING, gera numero — tx curta.
-      const w = await ctx.withTenant(async (tx) => {
-        const today = new Date();
-        const prefix = `SQ${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
-        const lastWithdraw = await tx.depixWithdraw.findFirst({
-          where: { number: { startsWith: prefix } },
-          orderBy: { number: "desc" },
-        });
-        let seq = 1;
-        if (lastWithdraw) {
-          const lastSeq = parseInt(lastWithdraw.number.slice(-5), 10);
-          seq = lastSeq + 1;
-        }
-        const number = `${prefix}${String(seq).padStart(5, "0")}`;
-
-        return tx.depixWithdraw.create({
-          data: {
-            tenantId: ctx.tenantId,
-            number,
-            pixKeyType: input.pixKeyType,
-            pixKey,
-            recipientName: input.recipientName ?? null,
-            recipientTaxId: taxId,
-            notes: input.notes ?? null,
-            requestedAmount: new Prisma.Decimal(input.requestedAmount),
-            status: "PENDING",
-            userId: ctx.session.user.id,
-            userName: ctx.session.user.name ?? null,
-          },
-        });
+      const walletTx = await createWalletWithdraw({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        pixKeyType: input.pixKeyType,
+        pixKey: input.pixKey,
+        recipientName: input.recipientName ?? null,
+        recipientTaxId: input.recipientTaxId,
+        netAmountCents: Math.round(input.requestedAmount * 100),
+        sourceType: "WALLET",
+        sourceDescription: input.notes ?? "Saque criado pela rota legada /depix/withdrawals",
       });
 
-      // ETAPA 2: chamada externa PixPay (fora da tx, longa)
-      const { createDepixWithdraw } = await import("@/lib/services/depix-service");
-      const result = await createDepixWithdraw(
-        pixKey,
-        input.pixKeyType,
-        input.requestedAmount,
-        taxId,
-      );
-
-      // ETAPA 3: persiste resposta da API
-      const updated = await ctx.withTenant(async (tx) => {
-        if (!result.success) {
-          return tx.depixWithdraw.update({
-            where: { id: w.id },
-            data: {
-              status: "FAILED",
-              notes: [w.notes, `Falha API: ${result.error ?? "erro desconhecido"}`]
-                .filter(Boolean)
-                .join("\n"),
-            },
-          });
-        }
-        return tx.depixWithdraw.update({
-          where: { id: w.id },
-          data: {
-            depixId: result.id ?? null,
-            depositAddress: result.depositAddress ?? null,
-            depositAddressQr: result.depositAddressQr ?? null,
-            depositAmount:
-              result.depositAmountInCents != null
-                ? new Prisma.Decimal(result.depositAmountInCents).div(100)
-                : null,
-            receivedAmount:
-              result.receivedAmount != null
-                ? new Prisma.Decimal(result.receivedAmount)
-                : null,
-            fee: result.fee != null ? new Prisma.Decimal(result.fee) : null,
-            expiration: result.expiration ? new Date(result.expiration) : null,
-            // PixPay envia "unsent" inicial, vai para "sent" depois.
-            status: result.status === "sent" || result.status === "completed"
-              ? "SENT"
-              : "PROCESSING",
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            apiResponse: result.raw as any,
-          },
-        });
-      });
-
-      logger.info("DepixWithdraw processado", {
-        id: updated.id,
-        number: updated.number,
+      logger.info("DepixWithdraw legado redirecionado para wallet", {
+        walletTransactionId: walletTx.id,
+        number: walletTx.number,
         amount: input.requestedAmount,
-        apiSuccess: result.success,
       });
 
-      if (!result.success) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: result.error ?? "Erro ao solicitar saque",
-        });
-      }
-
-      return serializeWithdraw(updated);
+      return {
+        id: walletTx.id,
+        number: walletTx.number,
+        pixKeyType: walletTx.pixKeyType,
+        pixKey: walletTx.pixKey,
+        recipientName: walletTx.recipientName,
+        recipientTaxId: walletTx.recipientTaxId,
+        notes: walletTx.sourceDescription,
+        requestedAmount: (walletTx.netAmountCents ?? walletTx.grossAmountCents) / 100,
+        receivedAmount: walletTx.netAmountCents != null ? walletTx.netAmountCents / 100 : null,
+        fee:
+          walletTx.feePixPayCents != null
+            ? walletTx.feePixPayCents / 100
+            : null,
+        depositAmount: walletTx.grossAmountCents / 100,
+        status: walletTx.status === "COMPLETED" ? "SENT" : walletTx.status === "FAILED" ? "FAILED" : "PROCESSING",
+        statusLabel: walletTx.status === "COMPLETED" ? "Enviado" : "Processando",
+        depixId: walletTx.pixpayDepixId,
+        depositAddress: walletTx.pixpayDepositAddress,
+        depositAddressQr: null,
+        blockchainTxId: walletTx.withdrawTxId,
+        expiration: null,
+        userId: walletTx.userId,
+        userName: walletTx.userName,
+        createdAt: walletTx.createdAt,
+        updatedAt: walletTx.updatedAt,
+        walletTransactionId: walletTx.id,
+      };
     }),
 
   update: tenantProcedure

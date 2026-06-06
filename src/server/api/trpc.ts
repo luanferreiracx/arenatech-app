@@ -4,6 +4,7 @@ import { z, ZodError } from "zod";
 import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { hasTenantAccess } from "@/lib/auth/active-tenant";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -65,13 +66,11 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
   }
 
   // Validate that the authenticated user actually has access to this tenant
-  const hasTenant = ctx.session.availableTenants.some(
-    (t) => t.id === ctx.tenantId,
-  );
-  if (!hasTenant && !ctx.session.user.isSuperAdmin) {
+  if (!hasTenantAccess(ctx.session, ctx.tenantId)) {
     logger.warn("tenantProcedure: unauthorized tenant access attempt", {
       userId: ctx.session.user.id,
       tenantId: ctx.tenantId,
+      isSuperAdmin: ctx.session.user.isSuperAdmin,
     });
     throw new TRPCError({ code: "FORBIDDEN", message: "No access to this tenant" });
   }
@@ -86,12 +85,12 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
- * Tenant admin procedure — requer role OWNER ou MANAGER no tenant ativo.
+ * Tenant admin procedure — requer role administrativo no tenant ativo.
  * Use pra operacoes sensiveis (saques de carteira, alterar fee config,
  * etc) que NAO devem ser acessiveis pro operator/cashier comum, mesmo que
  * tenham sessao valida no tenant.
  */
-const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "owner", "manager"]);
+const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
 export const tenantAdminProcedure = tenantProcedure.use(async ({ ctx, next }) => {
   const active = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
   const role = active?.role ?? "";

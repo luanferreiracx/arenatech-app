@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     remoteJid: inbound.remoteJid,
     fromMe: inbound.fromMe,
     isGroup: inbound.isGroup,
-    hasText: inbound.text.length > 0,
+    hasContent: inbound.text.length > 0 || inbound.attachments.length > 0,
   });
   if (!access.allowed) {
     logger.info("WhatsApp IA webhook: evento ignorado", {
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
     const result = await processWhatsappAiMessage({
       tenantId: config.tenantId!,
       phone: access.phone,
+      agentKind: access.agentKind,
       message: inbound,
     });
     await markWebhookProcessed("evolution_ai", eventId, { ok: true });

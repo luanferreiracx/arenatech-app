@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { settleDepositConfirmed } from "@/server/services/depix-transaction.service";
 import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import {
   handleDepixWithdrawWebhook,
@@ -176,6 +177,46 @@ export async function POST(req: NextRequest) {
   // Status nao final (pending, processing, etc) — apenas acknowledge.
   if (!isPaid && !isExpired && !isFailed) {
     return NextResponse.json({ received: true, ignored: true, status: rawStatus });
+  }
+
+  // Wallet-first: novas transacoes DePix sao canonicas em TenantDepixTransaction.
+  const walletTx = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: { pixpayDepixId: transactionId, kind: "DEPOSIT" },
+      select: {
+        id: true,
+        tenantId: true,
+        depositLabel: true,
+        grossAmountCents: true,
+        status: true,
+      },
+    }),
+  );
+  if (walletTx) {
+    if (isPaid && walletTx.depositLabel) {
+      const settled = await settleDepositConfirmed({
+        tenantId: walletTx.tenantId,
+        depositLabel: walletTx.depositLabel,
+        depositTxId: transactionId,
+        depixAmount: (payload.valueInCents ?? walletTx.grossAmountCents) / 100,
+        confirmations: 1,
+      });
+      return NextResponse.json({ received: true, wallet: true, ...settled });
+    }
+    if (isExpired || isFailed) {
+      await withAdmin(async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: walletTx.id },
+          data: {
+            status: isExpired ? "EXPIRED" : "FAILED",
+            completedAt: new Date(),
+            errorMessage: isExpired ? "PIX expirou" : `PIX falhou: ${rawStatus}`,
+            apiResponse: payload as never,
+          },
+        }),
+      );
+      return NextResponse.json({ received: true, wallet: true, finalized: true });
+    }
   }
 
   // Status de cancelamento/expiracao: marca QuickSale + tambem zera o

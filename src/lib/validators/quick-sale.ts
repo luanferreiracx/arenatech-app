@@ -76,6 +76,7 @@ export type GenerateQuickSalePixInput = z.infer<typeof generateQuickSalePixSchem
 export const checkQuickSalePixStatusSchema = z.object({
   id: z.string().uuid(),
   transactionId: z.string().min(1),
+  walletTransactionId: z.string().uuid().optional().nullable(),
 });
 
 export type CheckQuickSalePixStatusInput = z.infer<typeof checkQuickSalePixStatusSchema>;

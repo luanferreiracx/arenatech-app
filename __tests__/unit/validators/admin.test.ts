@@ -2,15 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   createPlanSchema,
   updatePlanSchema,
-  listPlansSchema,
   submitPreRegistrationSchema,
   approvePreRegistrationSchema,
   rejectPreRegistrationSchema,
   listPreRegistrationsSchema,
   listTenantsSchema,
+  resetTenantUserPasswordSchema,
+  createTenantUserSchema,
+  updateTenantUserSchema,
+  removeTenantUserSchema,
   updateTenantSchema,
   planStatusEnum,
-  preRegistrationStatusEnum,
   PLAN_STATUS_LABELS,
   PRE_REGISTRATION_STATUS_LABELS,
 } from "@/lib/validators/admin";
@@ -139,6 +141,73 @@ describe("listTenantsSchema", () => {
 describe("updateTenantSchema", () => {
   it("aceita update valido", () => {
     expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja Updated", status: "SUSPENDED" }).success).toBe(true);
+  });
+
+  it("aceita plano como UUID ou sem plano", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: UUID }).success).toBe(true);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: null }).success).toBe(true);
+  });
+
+  it("aceita plano legado para preservacao na edicao", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "basico" }).success).toBe(true);
+  });
+
+  it("rejeita plano vazio", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "" }).success).toBe(false);
+  });
+});
+
+describe("resetTenantUserPasswordSchema", () => {
+  it("aceita tenant e usuario validos", () => {
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: UUID }).success).toBe(true);
+  });
+
+  it("rejeita ids invalidos", () => {
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: "tenant", userId: UUID }).success).toBe(false);
+    expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: "user" }).success).toBe(false);
+  });
+});
+
+describe("tenant user schemas", () => {
+  const validCreate = {
+    tenantId: UUID,
+    name: "Maria Silva",
+    cpf: "11144477735",
+    email: "maria@test.com",
+    phone: "86999999999",
+    role: "operator",
+  };
+
+  it("aceita criar usuario de tenant", () => {
+    expect(createTenantUserSchema.safeParse(validCreate).success).toBe(true);
+  });
+
+  it("rejeita CPF invalido ao criar usuario de tenant", () => {
+    expect(createTenantUserSchema.safeParse({ ...validCreate, cpf: "12345678901" }).success).toBe(false);
+  });
+
+  it("aceita atualizar usuario de tenant", () => {
+    expect(updateTenantUserSchema.safeParse({
+      tenantId: UUID,
+      userId: UUID,
+      name: "Maria Silva",
+      email: null,
+      phone: null,
+      role: "admin",
+    }).success).toBe(true);
+  });
+
+  it("rejeita role invalida ao atualizar usuario de tenant", () => {
+    expect(updateTenantUserSchema.safeParse({
+      tenantId: UUID,
+      userId: UUID,
+      name: "Maria Silva",
+      role: "owner",
+    }).success).toBe(false);
+  });
+
+  it("aceita remover usuario de tenant", () => {
+    expect(removeTenantUserSchema.safeParse({ tenantId: UUID, userId: UUID }).success).toBe(true);
   });
 });
 

@@ -48,11 +48,11 @@ export default function NewQuickSalePage() {
     trpc.quickSale.create.mutationOptions({
       onSuccess: (data) => {
         const d = data as Record<string, unknown>;
-        if (d.depixTransactionId) {
+        if (d.walletTransactionId || d.depixTransactionId) {
           toast.success("Venda criada e PIX gerado!");
         } else {
           toast.warning(
-            "Venda criada, mas houve erro ao gerar PIX. Clique em 'Gerar PIX' na proxima tela.",
+            "Venda criada, mas houve erro ao gerar deposito na wallet. Clique em 'Gerar PIX' na proxima tela.",
           );
         }
         // showPix=1 -> detail abre o dialog automaticamente

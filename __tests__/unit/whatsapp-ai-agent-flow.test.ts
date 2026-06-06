@@ -4,8 +4,12 @@ import type { WhatsappAiInboundMessage } from "@/lib/whatsapp-ai-agent/evolution
 const { tx, generateWhatsappAiReply, sendTextMessage } = vi.hoisted(() => {
   const tx = {
     whatsappAiConversation: {
-      upsert: vi.fn().mockResolvedValue({ id: "conv-1" }),
+      upsert: vi.fn().mockResolvedValue({ id: "conv-1", paused: false, model: null, agentKind: "assistant" }),
       update: vi.fn().mockResolvedValue({}),
+    },
+    whatsappAiExecution: {
+      create: vi.fn().mockResolvedValue({ id: "exec-1" }),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     whatsappAiMessage: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -18,7 +22,7 @@ const { tx, generateWhatsappAiReply, sendTextMessage } = vi.hoisted(() => {
 
   return {
     tx,
-    generateWhatsappAiReply: vi.fn().mockResolvedValue("Olá, Luan."),
+    generateWhatsappAiReply: vi.fn().mockResolvedValue({ text: "Olá, Luan.", toolExecutions: [] }),
     sendTextMessage: vi.fn().mockResolvedValue({ success: true, messageId: "sent-1" }),
   };
 });
@@ -40,8 +44,12 @@ import { processWhatsappAiMessage } from "@/lib/whatsapp-ai-agent/agent";
 
 describe("processWhatsappAiMessage", () => {
   beforeEach(() => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "false";
+    vi.unstubAllGlobals();
     tx.whatsappAiConversation.upsert.mockClear();
     tx.whatsappAiConversation.update.mockClear();
+    tx.whatsappAiExecution.create.mockClear();
+    tx.whatsappAiExecution.findFirst.mockClear();
     tx.whatsappAiMessage.findFirst.mockClear();
     tx.whatsappAiMessage.create.mockClear();
     tx.whatsappAiMessage.findMany.mockClear();
@@ -59,6 +67,7 @@ describe("processWhatsappAiMessage", () => {
       isGroup: false,
       pushName: "Luan",
       text: "oi",
+      attachments: [],
       timestamp: new Date("2026-06-04T12:00:00.000Z"),
     };
 
@@ -72,13 +81,64 @@ describe("processWhatsappAiMessage", () => {
     expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ role: "user", content: "oi", evolutionMessageId: "msg-1" }),
     }));
-    expect(generateWhatsappAiReply).toHaveBeenCalledWith({ history: [], userMessage: "oi" });
+    expect(generateWhatsappAiReply).toHaveBeenCalledWith({
+      history: [],
+      userMessage: "oi",
+      images: [],
+      model: null,
+      toolContext: {
+        tenantId: "00000000-0000-0000-0000-000000000001",
+        conversationId: "conv-1",
+        phone: "5586995423021",
+      },
+    });
     expect(sendTextMessage).toHaveBeenCalledWith("5586995423021", "Olá, Luan.", {
       instanceName: "arena-cripto",
     });
     expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ role: "assistant", content: "Olá, Luan.", providerMessageId: "sent-1" }),
     }));
+  });
+
+  it("cria execução quando a mensagem vem do agente Claude Code", async () => {
+    tx.whatsappAiConversation.upsert.mockResolvedValueOnce({
+      id: "conv-1",
+      paused: false,
+      model: "claude-opus-4-8",
+      agentKind: "claude_code",
+    });
+
+    const result = await processWhatsappAiMessage({
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      phone: "447782278602",
+      agentKind: "claude_code",
+      message: {
+        event: "messages.upsert",
+        instanceName: "arena-cripto",
+        messageId: "msg-code-1",
+        remoteJid: "447782278602@s.whatsapp.net",
+        fromMe: false,
+        isGroup: false,
+        pushName: "Luan UK",
+        text: "/run rode git status",
+        attachments: [],
+        timestamp: new Date("2026-06-04T12:00:00.000Z"),
+      },
+    });
+
+    expect(result).toEqual({ status: "queued", executionId: "exec-1", providerMessageId: "sent-1" });
+    expect(tx.whatsappAiExecution.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        tenantId: "00000000-0000-0000-0000-000000000001",
+        conversationId: "conv-1",
+        status: "queued",
+        prompt: expect.stringContaining("rode git status"),
+        workdir: "/home/deployer/arenatech-app",
+      }),
+    }));
+    expect(sendTextMessage).toHaveBeenCalledWith("447782278602", expect.stringContaining("Vou executar no Claude Code"), {
+      instanceName: "arena-cripto",
+    });
   });
 
   it("não responde novamente quando a mensagem já existe", async () => {
@@ -96,6 +156,7 @@ describe("processWhatsappAiMessage", () => {
         isGroup: false,
         pushName: "Luan",
         text: "oi",
+        attachments: [],
         timestamp: new Date("2026-06-04T12:00:00.000Z"),
       },
     });
@@ -103,5 +164,77 @@ describe("processWhatsappAiMessage", () => {
     expect(result).toEqual({ status: "skipped", reason: "duplicate message" });
     expect(generateWhatsappAiReply).not.toHaveBeenCalled();
     expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it("responde mensagem só com imagem e persiste metadata de anexo", async () => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "true";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "image/jpeg", "content-length": "3" }),
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }));
+
+    const result = await processWhatsappAiMessage({
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      phone: "5586995423021",
+      message: {
+        event: "messages.upsert",
+        instanceName: "arena-cripto",
+        messageId: "msg-img-1",
+        remoteJid: "5586995423021@s.whatsapp.net",
+        fromMe: false,
+        isGroup: false,
+        pushName: "Luan",
+        text: "",
+        attachments: [{ kind: "image", url: "https://cdn.exemplo.com/foto.jpg", mimeType: "image/jpeg", caption: null, fileLength: 1024 }],
+        timestamp: new Date("2026-06-04T12:00:00.000Z"),
+      },
+    });
+
+    expect(result).toEqual({ status: "replied", providerMessageId: "sent-1" });
+    expect(generateWhatsappAiReply).toHaveBeenCalledWith(expect.objectContaining({
+      userMessage: "",
+      images: [expect.objectContaining({
+        url: "https://cdn.exemplo.com/foto.jpg",
+        mediaType: "image/jpeg",
+        sizeBytes: 1024,
+        sourceHost: "cdn.exemplo.com",
+        base64Data: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64"),
+      })],
+    }));
+    expect(tx.whatsappAiMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        role: "user",
+        metadata: expect.objectContaining({
+          attachments: [expect.objectContaining({ kind: "image", mimeType: "image/jpeg", hasUrl: true })],
+        }),
+      }),
+    }));
+  });
+
+  it("responde mensagem amigável quando imagem falha validação", async () => {
+    process.env.WHATSAPP_AI_ENABLE_IMAGES = "true";
+    const result = await processWhatsappAiMessage({
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      phone: "5586995423021",
+      message: {
+        event: "messages.upsert",
+        instanceName: "arena-cripto",
+        messageId: "msg-img-invalid",
+        remoteJid: "5586995423021@s.whatsapp.net",
+        fromMe: false,
+        isGroup: false,
+        pushName: "Luan",
+        text: "",
+        attachments: [{ kind: "image", url: "https://localhost/foto.jpg", mimeType: "image/jpeg", caption: null, fileLength: 1024 }],
+        timestamp: new Date("2026-06-04T12:00:00.000Z"),
+      },
+    });
+
+    expect(result).toEqual({ status: "replied", providerMessageId: "sent-1" });
+    expect(generateWhatsappAiReply).not.toHaveBeenCalled();
+    expect(sendTextMessage).toHaveBeenCalledWith("5586995423021", expect.stringContaining("não consegui processá-la"), {
+      instanceName: "arena-cripto",
+    });
   });
 });

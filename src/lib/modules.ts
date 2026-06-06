@@ -143,7 +143,8 @@ export function modulesFromPlanFeatures(features: unknown): ModuleKey[] {
       const parsed = raw.filter(
         (m): m is ModuleKey => typeof m === "string" && isModuleKey(m),
       );
-      return Array.from(new Set(parsed));
+      const modules = Array.from(new Set(parsed));
+      return modules.length > 0 ? modules : [...DEFAULT_RELEASED_MODULES];
     }
   }
   return [...DEFAULT_RELEASED_MODULES];

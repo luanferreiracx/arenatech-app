@@ -56,6 +56,9 @@ export const depixTransactionRouter = createTRPCRouter({
         userId: ctx.session.user.id,
         userName: ctx.session.user.name ?? null,
         grossAmountCents: input.grossAmountCents,
+        sourceType: input.sourceType ?? "WALLET",
+        sourceId: input.sourceId ?? null,
+        sourceDescription: input.sourceDescription ?? null,
       });
       return tx;
     }),

@@ -49,6 +49,8 @@ export const paymentDetailSchema = z.object({
    * digita o valor que aparece na maquininha. Default = amount.
    */
   totalPaidByCustomer: z.number().int().min(0).optional(),
+  /** ID canonico da transacao wallet quando method = "depix". */
+  walletTransactionId: z.string().uuid().optional().nullable(),
   /**
    * ID da transacao PixPay/DePix (quando method = "depix"). Persistido em
    * paymentDetails JSON para o webhook localizar a venda quando o pagamento
@@ -260,6 +262,7 @@ export type RemoveSaleUpgradeInput = z.infer<typeof removeSaleUpgradeSchema>;
 export const checkSalePixStatusSchema = z.object({
   saleId: z.string().uuid(),
   transactionId: z.string().min(1),
+  walletTransactionId: z.string().uuid().optional().nullable(),
 });
 export type CheckSalePixStatusInput = z.infer<typeof checkSalePixStatusSchema>;
 

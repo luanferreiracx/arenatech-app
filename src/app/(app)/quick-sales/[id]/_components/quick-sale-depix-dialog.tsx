@@ -22,6 +22,8 @@ interface Props {
   totalCents: number;
   /** CPF/CNPJ ja salvo na venda (se houver). */
   buyerTaxId?: string | null;
+  /** Transacao wallet canonica. */
+  existingWalletTransactionId?: string | null;
   /** Se a venda ja tem transactionId+QR persistidos, abre direto na tela do QR. */
   existingTransactionId?: string | null;
   existingQrCode?: string | null;
@@ -48,6 +50,7 @@ export function QuickSaleDepixDialog({
   quickSaleId,
   totalCents,
   buyerTaxId,
+  existingWalletTransactionId,
   existingTransactionId,
   existingQrCode,
   existingQrCodeBase64,
@@ -55,6 +58,7 @@ export function QuickSaleDepixDialog({
   onPaid,
 }: Props) {
   const trpc = useTRPC();
+  const [walletTransactionId, setWalletTransactionId] = useState<string | null>(existingWalletTransactionId ?? null);
   const [transactionId, setTransactionId] = useState<string | null>(existingTransactionId ?? null);
   const [qrCode, setQrCode] = useState<string | null>(existingQrCode ?? null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(existingQrCodeBase64 ?? null);
@@ -83,7 +87,8 @@ export function QuickSaleDepixDialog({
             onClose();
             return;
           }
-          setTransactionId(res.transactionId);
+          setWalletTransactionId(res.walletTransactionId ?? null);
+          setTransactionId(res.transactionId ?? null);
           setQrCode(res.qrCode ?? null);
           setQrImageUrl(res.qrCodeBase64 ?? null);
         },
@@ -107,7 +112,7 @@ export function QuickSaleDepixDialog({
 
   // SSE em tempo real (webhook -> pg_notify -> SSE) + polling fallback 30s.
   useEffect(() => {
-    if (!transactionId || status === "paid" || status === "failed") return;
+    if (!walletTransactionId && !transactionId) return;
 
     const es = new EventSource(`/api/sse/quick-sale/${quickSaleId}`);
     es.addEventListener("paid", () => {
@@ -122,7 +127,7 @@ export function QuickSaleDepixDialog({
 
     const interval = setInterval(() => {
       checkStatusMutation.mutate(
-        { id: quickSaleId, transactionId },
+        { id: quickSaleId, transactionId: transactionId ?? walletTransactionId!, walletTransactionId },
         {
           onSuccess: (res) => {
             if (res.status === "paid") {
@@ -144,7 +149,7 @@ export function QuickSaleDepixDialog({
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactionId, status]);
+  }, [walletTransactionId, transactionId, status]);
 
   const copy = () => {
     if (!qrCode) return;

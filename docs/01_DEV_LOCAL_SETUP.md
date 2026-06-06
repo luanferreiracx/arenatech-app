@@ -237,7 +237,7 @@ cat > README.md << 'EOF'
 
 Sistema de gestão de assistência técnica (multi-tenant).
 
-Stack: Next.js 15 · tRPC v11 · Prisma 6 · NextAuth v5 · Postgres 16 (RLS) · Redis 7 · MinIO
+Stack: Next.js 16 · tRPC v11 · Prisma 7 · NextAuth v5 · Postgres 16 (RLS) · Redis 7 · MinIO
 
 Documentação completa em `/docs`.
 

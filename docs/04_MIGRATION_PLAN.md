@@ -308,7 +308,7 @@ src/
     shared.ts
 ```
 
-## 1.6 Instalar Prisma 6 (multi-file schema)
+## 1.6 Instalar Prisma 7 (multi-file schema)
 
 ```bash
 pnpm add -D prisma

@@ -8,10 +8,10 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-04
+**Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/cloudinary-product-images`
+**Branch atual:** `feat/superadmin-tenant-users`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
@@ -25,10 +25,112 @@
 - Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
 - Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
 
+### 2026-06-06 — Talison IA com contexto real da Arena Tech
+- Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
+- Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.
+- Decisões: não portar o fluxo rígido do Laravel; manter LLM flexível e usar o contexto apenas como conhecimento factual. Preço, parcela, status, prazo específico, garantia específica e valor de troca continuam obrigatoriamente via tool.
+- Validação: testes focados Talison verdes (38/38), `pnpm typecheck` verde após `prisma generate`, ESLint focado em Talison sem erros. `pnpm lint` completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: observar conversas reais no Chatwoot e ajustar o perfil se alguma política comercial precisar refinamento.
+
+### 2026-06-05 — Skills globais reinstaladas e CLAUDE.md reconciliado
+- Implementado: skills do pacote `~/Downloads/claude-kit` instaladas em `~/.claude/skills/` e regras de precedência registradas em `CLAUDE.md`.
+- Implementado: `CLAUDE.md` reconciliado com as skills `software-engineering`, `typescript`, `react`, `database`, `docker-infra`, `reviewing-code` e `writing`, preservando overrides específicos do projeto.
+- Implementado: skills customizadas antigas do projeto removidas de `.claude/skills/` a pedido do dono, e `CLAUDE.md` atualizado para não referenciá-las como ativas.
+- Decisões: Conventional Commits permanece override explícito sobre a recomendação genérica da skill `writing`; Next.js 16 e Prisma 7 passam a ser refletidos nas instruções permanentes.
+- Próximo: usar as skills globais como autoridade especializada por domínio nas próximas janelas/worktrees.
+
+### 2026-06-05 — Superadmin administra usuarios de tenants
+- Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
+- Implementado: novos usuarios criados pelo Superadmin recebem senha temporaria forte, `must_change_password=true` e exigem troca no primeiro acesso.
+- Implementado: mutations antigas de cadastro/edicao/remocao/reset em `settings` foram bloqueadas com erro explicito; a intranet central manteve apenas consulta dos usuarios vinculados.
+- Implementado: menus da intranet deixaram de oferecer cadastro local de usuarios, e as rotas antigas `/settings/users/new` e `/settings/users/[id]/edit` redirecionam para a consulta.
+- Decisoes: `settings.listUsers` permanece ativo para leituras operacionais; administracao de vinculo e credenciais fica exclusiva do Superadmin.
+- Validacao: `pnpm typecheck`, validators admin focados, `pnpm test -- --reporter=dot`, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verdes.
+- Proximo: abrir PR, rodar CI e fazer deploy.
+
+### 2026-06-05 — Separacao testes unitarios e integracao local
+- Implementado: `pnpm test` agora roda apenas Vitest unitario, alinhado ao CI e ao pre-push rapido, sem depender de Postgres/seed local.
+- Implementado: novo fluxo `pnpm test:integration` prepara o Postgres local com migrations + seed antes de executar `__tests__/integration` RLS/auth.
+- Implementado: pre-checagem de Postgres local retorna mensagem clara quando `127.0.0.1:5432` nao esta disponivel, substituindo o erro opaco do Prisma schema engine.
+- Decisoes: integracoes RLS/auth continuam explicitas e dependentes da infra local; o pre-push valida apenas typecheck + unit e deixa integracoes/E2E para CI.
+- Validacao: `pnpm typecheck`, `pnpm test -- --reporter=dot` e `sh .husky/pre-push` verdes; `pnpm test:integration` agora falha corretamente com instrucoes porque o Postgres local esta desligado.
+- Proximo: subir Postgres local quando quiser validar RLS/auth fora do CI: `docker compose up -d postgres && pnpm test:integration`.
+
+### 2026-06-05 — Login whitelabel pdvdepix
+- Implementado: layout de autenticação agora detecta hosts da landing pdvdepix via `Host`/`x-forwarded-host` e aplica visual escuro com grid, glow teal/verde, logo pdvdepix e tokens CSS próprios no `/login`.
+- Implementado: `depixpdv.app` e `www.depixpdv.app` foram aceitos como aliases de compatibilidade, mantendo `pdvdepix.app`/`www.pdvdepix.app` como domínio principal.
+- Decisões: o login Arena Tech permanece inalterado para hosts internos; a detecção de host foi reforçada para lidar com porta e listas de proxy.
+- Validação: teste unitário de brand host verde, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), `pnpm build` verde e screenshots Playwright desktop/mobile do host pdvdepix sem overflow.
+- Próximo: abrir PR, aguardar CI e deployar.
+
+### 2026-06-05 — Hotfix troca obrigatoria de senha temporaria
+- Implementado: usuarios criados com senha inicial ou resetados por admin/superadmin passam a gravar `must_change_password=true`.
+- Implementado: login/JWT carrega a flag, o proxy bloqueia acesso ao sistema e libera apenas `/change-password` + mutation `auth.changePassword` ate a senha ser substituida.
+- Implementado: pagina `/change-password` autenticada troca a senha temporaria, limpa a flag e encerra a sessao para novo login com token limpo.
+- Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
+- Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
+- Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
+### 2026-06-05 — Superadmin reset de senha de usuario do tenant
+- Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
+- Implementado: procedure `admin.resetTenantUserPassword` valida `tenantId/userId`, exige vinculo no tenant e bloqueia reset de usuario marcado como `isSuperAdmin`.
+- Decisoes: senha antiga segue irrecuperavel por design; reset gera novo hash bcrypt e nao registra a senha em logs.
+- Validacao: `pnpm vitest run __tests__/unit/validators/admin.test.ts` verde (31/31), `pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verde. `pnpm test` local segue falhando apenas nas integracoes RLS/auth por ambiente/seed de banco.
+- Proximo: merge/deploy e usar o botao "Resetar senha" no superadmin quando a senha inicial for perdida.
+
+### 2026-06-05 — Hardening superadmin onboarding wallet-only
+- Implementado: criação manual e aprovação de pré-cadastro agora validam CPF/CNPJ, normalizam documentos/telefone, aceitam apenas plano ativo wallet-only ou sem plano, seedam `tenant_settings` básico e provisionam a carteira DePix fora da transação.
+- Implementado: sessão/autenticação agora mantém apenas tenants `ACTIVE` em `availableTenants`, removendo acesso de tenants `PENDING`, `SUSPENDED` ou `CANCELLED` no próximo refresh/JWT callback.
+- Implementado: duplicidades concorrentes de CNPJ/CPF/slug/vínculo agora são mapeadas para erros tRPC claros no onboarding, evitando erro bruto do Prisma para o superadmin.
+- Implementado: edição de tenant preserva plano legado/fora do onboarding se ele não for alterado, mas novas atribuições continuam restritas a plano ativo wallet-only.
+- Implementado: criação manual deixou de marcar tenants com trial como `PENDING`; como trial não é persistido no schema atual, novos tenants nascem `ACTIVE` para não bloquear o primeiro acesso.
+- Implementado: `tenantAdminProcedure` passou a aceitar role `admin`, alinhando as permissões de saque/autocomplete DePix com o papel criado no onboarding.
+- Implementado: reaproveitamento de CPF existente agora bloqueia usuários superadmin internos e CPF com e-mail divergente, evitando vínculo acidental de conta errada ao tenant.
+- Decisões: onboarding inicial de tenants externos fica restrito a `wallet`; plano vazio ou sem módulos válidos cai no padrão wallet-only; UI de tenant no superadmin não oferece plano em texto livre, e o backend só permite preservar legado inalterado ou trocar para plano ativo wallet-only.
+- Validação: validators/módulos focados verdes (50/50), `pnpm typecheck` completo verde, `pnpm build` verde, `pnpm lint` completo sem erros (warnings preexistentes). `pnpm test` completo falhou apenas nas integrações RLS/auth por ambiente/seed de banco.
+- Próximo: cadastrar o primeiro tenant pelo superadmin usando "Sem plano - somente Carteira DePix" e validar provisionamento LWK em ambiente configurado.
+
+### 2026-06-05 — Hotfix WhatsApp IA chave oficial Anthropic
+- Implementado: provider do agente agora usa `ANTHROPIC_OFFICIAL_API_KEY` quando há imagem/base64 ou web search oficial, mantendo `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` para conversa normal via proxy.
+- Decisões: server tools oficiais da Anthropic exigem chave oficial; chave/proxy PowerProfile retorna `invalid x-api-key` na API oficial e não executa `web_search`.
+- Próximo: configurar `ANTHROPIC_OFFICIAL_API_KEY` em produção, redeployar e testar imagem + busca novamente.
+
+### 2026-06-05 — Talison IA: robustez Chatwoot e handoff
+- Implementado: webhook Chatwoot passou a classificar anexos `image/*` como imagem para acionar visão no runner; runner agora reporta delivery `sent/failed/skipped`; handoff deixou de gravar `HUMAN_TAKEOVER` como estado operacional e usa o status do Chatwoot como fonte de verdade.
+- Decisões: participação do bot é definida somente pelo status atual/espelhado do Chatwoot (`open` cala bot; `pending/resolved` permitem bot). `HUMAN_TAKEOVER` permanece apenas legado/schema, não regra operacional.
+- Validação: testes focados Talison/Chatwoot verdes (41/41), unitários completos verdes (804/804) e `pnpm typecheck` verde após `prisma generate` com `DATABASE_URL` temporária. `pnpm test` completo falhou apenas nos testes de integração RLS por ambiente/seed de banco.
+- Próximo: abrir PR da branch do worktree e validar CI.
+
+### 2026-06-05 — Hotfix WhatsApp IA imagem/base64 e busca oficial
+- Implementado: imagens recebidas pela Evolution agora são baixadas com validação segura e enviadas ao Claude como `base64`, evitando falha de acesso à URL temporária `mmg.whatsapp.net`.
+- Implementado: modo `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic` força o client Anthropic oficial sem `ANTHROPIC_BASE_URL`, porque server tools não funcionam via proxy PowerProfile/Claude-compatible.
+- Decisões: versão padrão da busca oficial ajustada para `web_search_20250305` por ser a tool básica estável sem dependência de dynamic filtering/code execution.
+- Validação: testes focados do agente WhatsApp verdes (24/24) e checagem TypeScript focada sem erros.
+- Próximo: PR hotfix, merge/deploy e atualizar produção para `WHATSAPP_AI_WEB_SEARCH_ANTHROPIC_VERSION=web_search_20250305`.
+
+### 2026-06-05 — DePix exclusivo na Wallet
+- Implementado: início da consolidação wallet-first com vínculo canônico `TenantDepixTransaction.sourceType/sourceId`, `QuickSale.walletTransactionId`, Quick Sales/PDV/OS gerando depósito via wallet e saque legado redirecionado para `depixTransaction.createWithdraw` sem criar novos `DepixWithdraw`.
+- Decisões: `TenantDepixTransaction` passa a ser a unidade canônica para novos depósitos/saques DePix; `DepixWithdraw` e campos `depixTransactionId` antigos ficam apenas como compatibilidade/histórico durante transição.
+- Próximo: monitorar produção pelos logs `Deposito DePix wallet usando endereco LWK dedicado` e adicionar regressões específicas do módulo.
+
+### 2026-06-05 — Agente pessoal WhatsApp com imagem e web search Anthropic
+- Implementado: agente pessoal via WhatsApp/Evolution passou a aceitar imagens inbound, validar mídia com bloqueio de hosts internos/MIME/tamanho e enviar blocos multimodais ao Claude.
+- Implementado: pesquisa web oficial Anthropic ativada via server tool `web_search_20260209` quando `WHATSAPP_AI_ENABLE_WEB_SEARCH=true` e `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic`; fallback provider permanece disponível apenas no modo `provider`.
+- Decisões: não liberar fetch arbitrário de URLs no MVP; server tool Anthropic executa a busca internamente e o app apenas registra uso em metadata.
+- Validação: testes focados `pnpm vitest run __tests__/unit/whatsapp-ai-agent.test.ts __tests__/unit/whatsapp-ai-agent-flow.test.ts __tests__/unit/whatsapp-ai-media.test.ts __tests__/unit/whatsapp-ai-web-search.test.ts` verdes (24/24); Prisma validate verde com `DATABASE_URL` temporária; checagem TypeScript focada sem erros nos arquivos do agente.
+- Próximo: abrir PR, mergear/deployar e configurar produção com `WHATSAPP_AI_ENABLE_IMAGES=true`, `WHATSAPP_AI_ENABLE_WEB_SEARCH=true`, `WHATSAPP_AI_WEB_SEARCH_MODE=anthropic` e `WHATSAPP_AI_WEB_SEARCH_ANTHROPIC_VERSION=web_search_20260209`.
+
 ### 2026-06-04 — Cloudinary para imagens de produto/catálogo
 - Implementado: decisão arquitetural para manter Cloudinary como provider principal de imagens públicas de produto/catálogo, preservando MinIO para assets internos.
 - Decisões: não fazer migração física Cloudinary → MinIO; novos uploads usam Cloudinary por padrão e URLs legadas seguem válidas.
 - Próximo: validar upload real com credenciais Cloudinary em ambiente configurado e executar backfill de metadados com dry-run antes do apply.
+
+### 2026-06-04 — Dual-agent WhatsApp IA
+- Implementado: evolução do agente WhatsApp IA para arquitetura dual-agent por número de origem: assistente Claude para o número BR e canal Claude Code para o número +44.
+- Implementado: roteamento por perfil telefônico, comandos `/status`, `/pause`, `/resume`, `/reset`, `/config`, `/model` e `/run`, modelo `WhatsappAiExecution` e worker host-side `scripts/whatsapp-ai-code-worker.ts` para processar execuções Claude Code no checkout `/home/deployer/arenatech-app`.
+- Decisões: número BR não executa código; número +44 cria execuções Claude Code que devem seguir `CLAUDE.md` e o fluxo branch → PR → CI → merge → deploy automático. Execuções longas ficam fora do request do webhook, via fila no banco e worker no host.
+- Validação: `pnpm prisma generate`, `pnpm prisma validate`, `pnpm typecheck` e `pnpm vitest run __tests__/unit/whatsapp-ai-agent.test.ts __tests__/unit/whatsapp-ai-agent-flow.test.ts` verdes (10/10).
+- Próximo: abrir PR, mergear/deployar, configurar `WHATSAPP_AI_ASSISTANT_PHONES`, `WHATSAPP_AI_CODE_PHONES` e ativar o worker no servidor.
 
 ## Fases
 
