@@ -20,7 +20,34 @@ Você é o desenvolvedor sênior responsável pela migração do sistema Arena T
 
 ---
 
-## Skills Anthropic disponíveis
+### Skills globais instaladas
+
+As skills do kit foram instaladas em `~/.claude/skills/` para reutilização entre projetos:
+
+- **`~/.claude/skills/software-engineering/SKILL.md`** — princípios fundamentais: simplicidade, observabilidade, testes, legibilidade
+- **`~/.claude/skills/typescript/SKILL.md`** — padrões TypeScript/JavaScript
+- **`~/.claude/skills/react/SKILL.md`** — React, Next.js, Tailwind e shadcn/ui
+- **`~/.claude/skills/database/SKILL.md`** — PostgreSQL, RLS, índices, Redis e migrations
+- **`~/.claude/skills/docker-infra/SKILL.md`** — Docker Compose e infraestrutura
+- **`~/.claude/skills/reviewing-code/SKILL.md`** — revisões de código
+- **`~/.claude/skills/writing/SKILL.md`** — documentação, PRs e commits
+- **`~/.claude/skills/python-fastapi/SKILL.md`** — Python/FastAPI, se aplicável
+- **`~/.claude/skills/java-spring/SKILL.md`** — Java/Spring, se aplicável
+- **`~/.claude/skills/ml-data-science/SKILL.md`** — ML/Data Science, se aplicável
+
+### Precedência entre este arquivo e as skills
+
+Este `CLAUDE.md` define regras específicas do projeto. As skills globais definem padrões especializados por área.
+
+Regra de precedência:
+
+1. Regras explícitas deste `CLAUDE.md` que sejam específicas do Arena Tech
+2. Skill especializada do tema em questão (`react`, `typescript`, `database`, `docker-infra`, `reviewing-code`, `writing`, etc.)
+3. Princípios gerais da skill `software-engineering`
+
+Se este arquivo estiver silencioso sobre detalhes de implementação, siga a skill relevante. Se houver conflito entre uma regra genérica e uma skill específica do tema, a skill específica vence, salvo override explícito deste documento.
+
+### Skills Anthropic disponíveis
 
 Antes de **qualquer** trabalho que envolva criação de arquivo ou código pesado, leia o SKILL.md relevante:
 
@@ -35,9 +62,7 @@ Skills do usuário em `/mnt/skills/user/` também devem ser consideradas — sem
 
 ### Skills customizadas do projeto
 
-- **`.claude/skills/arenatech-module-refactor/SKILL.md`** — refatoração de testes @smoke em @business reais (ADR 0036)
-
-Usar quando o dono pedir "refatorar E2E do módulo X".
+Nenhuma skill customizada do projeto está ativa no momento. Não recrie `.claude/skills/*` sem pedido explícito do dono.
 
 **Regra de ouro:** se você não tem certeza se uma skill é relevante, leia o SKILL.md. É mais barato ler do que assumir errado.
 
@@ -46,9 +71,9 @@ Usar quando o dono pedir "refatorar E2E do módulo X".
 ## Stack obrigatória (não desvie sem justificar)
 
 - **Runtime:** Node.js 22 (LTS)
-- **Framework:** Next.js 15 (App Router, output standalone)
+- **Framework:** Next.js 16 (App Router, output standalone)
 - **API:** tRPC v11 (não REST, não GraphQL)
-- **ORM:** Prisma 6 (multi-file schema)
+- **ORM:** Prisma 7 (multi-file schema)
 - **Auth:** NextAuth v5 (provider Credentials por CPF+senha, sessão JWT)
 - **DB:** PostgreSQL 16 com RLS por `tenant_id`
 - **Cache:** Redis 7
@@ -121,6 +146,8 @@ db(schema): adicionar índice composto em service_orders
 chore: bumpar prisma para 6.2
 ```
 
+A skill global `writing` vale para clareza, concisão, voz ativa, documentação e PRs. O formato de commit deste projeto é uma exceção explícita: use Conventional Commits, não o formato genérico simplificado da skill.
+
 ### Push e validação (CI por evento — ADR 0045/0046)
 
 - **Push em branch e PR pra `main`:** CI roda lint + typecheck + unit + **E2E @smoke** (~25 testes, ~1-2min). Não builda imagem nem deploya. Você mergeia rápido.
@@ -135,6 +162,8 @@ chore: bumpar prisma para 6.2
 - Toda mudança entra na `main` **via PR** (`gh pr create`). É como o deploy é acionado.
 - A sessão **mergeia sozinha** quando o CI do PR está verde (`gh pr merge --squash --delete-branch`) — sem precisar de aprovação do dono, salvo se o dono pedir review explícito.
 - Migrations: garanta que aplicam **num banco limpo do zero** (o E2E do CI roda `migrate deploy` limpo — ver ADR 0045).
+- Antes de abrir PR e antes de mergear autonomamente, faça auto-revisão guiada pela skill `reviewing-code`: type-safety, clareza, segurança, acessibilidade em UI alterada e testes de comportamento.
+- Descrição de PR deve ser curta, clara e em voz ativa, com: resumo do que mudou, por que mudou e como validar.
 
 ---
 
@@ -172,6 +201,19 @@ chore: bumpar prisma para 6.2
 ---
 
 ## Padrões de código
+
+### Princípios transversais
+
+Além das regras deste arquivo, aplique como padrão os princípios da skill global `software-engineering`:
+
+- simplicidade primeiro (KISS, YAGNI, sem abstrações prematuras)
+- type-safety ponta a ponta quando aplicável
+- código próximo de onde é usado; só extraia quando houver reuso real ou separação clara de responsabilidade
+- legibilidade acima de cleverness
+- testes de comportamento
+- observabilidade adequada em fluxos críticos (logs estruturados, métricas ou tracing quando fizer sentido)
+
+Em caso de silêncio deste documento sobre estilo/organização, siga a skill relevante.
 
 ### Estrutura de diretórios
 
@@ -219,14 +261,37 @@ __tests__/
 
 - `strict: true`, sem `any`, sem `as` desnecessário
 - Use `unknown` em vez de `any` quando o tipo for desconhecido
-- Tipos compartilhados em `src/types/`
+- Prefira named exports; evite default exports salvo exigência do framework
+- Evite arquivos `index.ts` criados apenas para reexportar
+- Prefira tipos (`type`) a interfaces quando não houver motivo específico para interface
+- Tipos compartilhados em `src/types/` apenas quando realmente compartilhados
 - Nunca exponha tipos do Prisma diretamente — wrappee em DTOs no router tRPC
+- Prefira `async/await` a chains com `.then()`
+- Prefira early return a blocos `if/else` aninhados
+- Variáveis intencionalmente não usadas devem começar com `_`
+- Evite magic strings e magic numbers; extraia constantes nomeadas quando fizer sentido
+- Nomes de arquivos em `kebab-case`
+- Não abrevie nomes sem necessidade; prefira nomes descritivos
+- Prefira objetos/mapas a `switch` quando isso simplificar a leitura
 
 ### React
 
-- **Server Components por padrão**, Client Components só quando necessário (`"use client"`)
-- Sempre usar `"use server"` em server actions
-- Não `useEffect` para fetch — use tRPC hooks ou Server Components
+Para qualquer mudança em páginas, componentes, formulários, tabelas, dialogs, estados de carregamento e data fetching de frontend, trate a skill global `react` como referência principal de implementação.
+
+- **Server Components por padrão**, Client Components só quando necessário (`"use client"` para estado, eventos, efeitos ou APIs do browser)
+- Mantenha a fronteira client baixa; prefira o padrão "donut" quando Client Component precisa envolver Server children
+- Sempre usar `"use server"` em server actions; valide input e autorização dentro da action
+- Não `useEffect` para fetch — use tRPC hooks, TanStack Query ou Server Components
+- Next.js 16: não conte com cache implícito de `fetch`; configure cache/revalidate/tags explicitamente quando necessário
+- Para client-side server state, prefira TanStack Query com Suspense (`useSuspenseQuery`) quando o fluxo comportar
+- Evite `isLoading`/spinners ad hoc quando `<Suspense>` resolver melhor
+- Componentes devem ser puros; não declare constantes/funções dentro do corpo do componente sem necessidade real
+- Em formulários com Server Actions, prefira `useActionState` para estado da action
+- Prefira `useTransition`/`startTransition` a `useEffect` para trabalho assíncrono de UI quando aplicável
+- Em shadcn/ui, prefira customização por tokens/CSS e variantes; evite editar componentes base sem motivo forte
+- Em tabelas/listas, evite um Dialog por linha; prefira um Dialog global controlado
+- Não sobrescreva `role`/ARIA do Radix sem necessidade comprovada
+- UI deve seguir shadcn/ui, Tailwind v4 e os padrões visuais existentes
 
 ### tRPC
 
@@ -237,6 +302,8 @@ __tests__/
 - `adminProcedure` apenas para super admin (bypass RLS)
 
 ### Prisma
+
+Para schema, RLS, índices, SQL, Redis, backfills e migrações operacionais, trate a skill global `database` como referência principal. Conveniência do Prisma não sobrepõe segurança operacional do banco.
 
 - **Multi-file schema** — um arquivo por agregado de domínio
 - Nomes de tabela em snake_case via `@@map`
@@ -252,6 +319,13 @@ __tests__/
 - Nome em snake_case e descritivo
 - Nunca editar migration depois de aplicada em main
 - Migration que altera RLS = arquivo SQL puro (não gerado pelo Prisma)
+- Prisma é a ferramenta padrão, mas regras de segurança operacional do banco têm precedência sobre conveniência do ORM
+- Mudanças de RLS, índices online, backfills e migrações sensíveis podem exigir SQL manual complementar
+- Em fluxos multi-tenant, o contexto do tenant no Postgres deve ser definido com `SET LOCAL`, nunca `SET` de sessão
+- Toda coluna usada em policy de RLS deve ser indexada
+- Policies de `UPDATE`/`DELETE` devem ser acompanhadas da policy de `SELECT` correspondente
+- Ao alterar schema em produção, siga padrão de zero-downtime: adicionar nullable, backfill em lotes, validar, depois endurecer constraint
+- Em produção, criação de índice deve considerar `CREATE INDEX CONCURRENTLY`
 
 ### Testes
 
@@ -259,6 +333,8 @@ __tests__/
 - **E2E:** Playwright nas rotas críticas (login, criar OS, PDV, fechar caixa, gerar NF-e)
 - Cobertura mínima: 60% por módulo
 - Testes que tocam RLS = obrigatório (Fase 2 estabelece padrão)
+- Bug fix deve incluir teste de regressão quando viável
+- Testes devem validar comportamento, não implementação
 
 ### Performance
 
@@ -266,6 +342,20 @@ __tests__/
 - Índices em colunas filtradas e ordenadas
 - N+1 = use `include` com cuidado, ou DataLoader pattern
 - Imagens via Next/Image ou MinIO com presigned URLs
+- Use `EXPLAIN (ANALYZE, BUFFERS)` quando houver dúvida de performance em query relevante
+- Cache Redis deve sempre ter TTL; prefira jitter para evitar stampede
+- Invalidação de cache deve acontecer após commit, não após statement isolado
+
+### Docker / Infra
+
+Para Dockerfiles, Compose e runtime containerizado, siga a skill global `docker-infra` como padrão.
+
+- Manter `output: "standalone"` no Next.js
+- Containers devem rodar sem root quando viável
+- Usar healthchecks explícitos
+- Não expor portas de banco/cache no host em produção
+- Secrets não ficam hardcoded em compose
+- Preferir imagens pinadas e configuração de produção mínima/safe
 
 ### Segurança
 
@@ -330,9 +420,9 @@ Use para:
 
 ## Referências externas (consulte quando necessário)
 
-- Next.js 15: https://nextjs.org/docs
+- Next.js 16: https://nextjs.org/docs
 - tRPC v11: https://trpc.io/docs
-- Prisma 6: https://www.prisma.io/docs
+- Prisma 7: https://www.prisma.io/docs
 - NextAuth v5: https://authjs.dev
 - shadcn/ui: https://ui.shadcn.com
 - Tailwind v4: https://tailwindcss.com/docs

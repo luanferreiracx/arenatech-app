@@ -1,10 +1,10 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 # Pre-push hook v3: validacao rapida (~5s).
-# E2E completo bloqueia push no GitHub Actions (autoritativo).
-# Pre-push local serve so pra pegar erro obvio antes de gastar tempo no CI.
+# Integracoes e E2E completos bloqueiam no GitHub Actions (autoritativo).
+# Pre-push local serve so pra pegar erro obvio antes de gastar tempo no CI,
+# sem depender de Postgres/seed local.
 #
+# Para rodar integracoes RLS/auth localmente:
+#   pnpm test:integration
 # Para rodar e2e local antes do push manualmente:
 #   pnpm test:e2e
 
@@ -16,10 +16,10 @@ pnpm typecheck || {
   exit 1
 }
 
-# 2. Unit tests (Vitest)
-pnpm test || {
+# 2. Unit tests (Vitest, sem __tests__/integration)
+pnpm test:unit || {
   echo "❌ Unit tests falharam. Push bloqueado."
   exit 1
 }
 
-echo "✅ Validacao rapida OK. E2E vai rodar no CI."
+echo "✅ Validacao rapida OK. Integracoes/E2E vao rodar no CI."

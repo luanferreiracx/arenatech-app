@@ -13,6 +13,7 @@ import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
 import { isLandingHost } from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
@@ -46,6 +47,10 @@ function isNoTenantRoute(pathname: string): boolean {
   );
 }
 
+function isPasswordChangeRoute(pathname: string): boolean {
+  return pathname === "/change-password" || pathname.startsWith("/api/trpc/auth.changePassword");
+}
+
 export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
@@ -77,19 +82,30 @@ export const proxy = auth((req) => {
   // 1. Public routes
   if (isPublicRoute(pathname)) {
     if (session && pathname === "/login") {
-      const cookieTenant = req.cookies.get("x-active-tenant")?.value;
-      const activeTenantId = cookieTenant ?? session.activeTenantId;
-
-      if (session.user.isSuperAdmin && !activeTenantId) {
-        return NextResponse.redirect(selfUrl("/admin"));
+      if (session.user.mustChangePassword) {
+        return NextResponse.redirect(selfUrl("/change-password"));
       }
-      if (activeTenantId) {
-        return NextResponse.redirect(selfUrl("/painel"));
+      const cookieTenant = req.cookies.get("x-active-tenant")?.value;
+      const activeTenant = resolveActiveTenant(session, cookieTenant);
+
+      if (activeTenant) {
+        const res = NextResponse.redirect(selfUrl("/painel"));
+        if (cookieTenant && cookieTenant !== activeTenant.id) {
+          res.cookies.delete("x-active-tenant");
+        }
+        return res;
+      }
+      if (session.user.isSuperAdmin) {
+        const res = NextResponse.redirect(selfUrl("/admin"));
+        if (cookieTenant) res.cookies.delete("x-active-tenant");
+        return res;
       }
       if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
         return NextResponse.redirect(selfUrl("/no-access"));
       }
-      return NextResponse.redirect(selfUrl("/select-tenant"));
+      const res = NextResponse.redirect(selfUrl("/select-tenant"));
+      if (cookieTenant) res.cookies.delete("x-active-tenant");
+      return res;
     }
     return NextResponse.next();
   }
@@ -101,7 +117,12 @@ export const proxy = auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 3. No tenants, not super admin
+  // 3. Temporary password barrier
+  if (session.user.mustChangePassword && !isPasswordChangeRoute(pathname) && pathname !== "/logout") {
+    return NextResponse.redirect(selfUrl("/change-password"));
+  }
+
+  // 4. No tenants, not super admin
   if (session.availableTenants.length === 0 && !session.user.isSuperAdmin) {
     if (pathname !== "/no-access") {
       return NextResponse.redirect(selfUrl("/no-access"));
@@ -109,7 +130,7 @@ export const proxy = auth((req) => {
     return NextResponse.next();
   }
 
-  // 4. Admin routes
+  // 5. Admin routes
   if (pathname.startsWith("/admin")) {
     if (!session.user.isSuperAdmin) {
       return NextResponse.redirect(selfUrl("/painel"));
@@ -117,31 +138,35 @@ export const proxy = auth((req) => {
     return NextResponse.next();
   }
 
-  // 5. No-tenant routes
+  // 6. No-tenant routes
   if (isNoTenantRoute(pathname)) {
     return NextResponse.next();
   }
 
-  // 6. Resolve active tenant
+  // 7. Resolve active tenant
   const cookieTenant = req.cookies.get("x-active-tenant")?.value;
-  const activeTenantId = cookieTenant ?? session.activeTenantId;
+  const activeTenant = resolveActiveTenant(session, cookieTenant);
 
-  if (!activeTenantId) {
-    if (session.user.isSuperAdmin) {
-      return NextResponse.redirect(selfUrl("/admin"));
-    }
-    return NextResponse.redirect(selfUrl("/select-tenant"));
+  if (!activeTenant) {
+    const res = session.user.isSuperAdmin
+      ? NextResponse.redirect(selfUrl("/admin"))
+      : NextResponse.redirect(selfUrl("/select-tenant"));
+    if (cookieTenant) res.cookies.delete("x-active-tenant");
+    return res;
   }
 
-  // Validate tenant access (cookie could be stale or forged)
-  const activeTenant = session.availableTenants.find((t) => t.id === activeTenantId);
-  if (!activeTenant && !session.user.isSuperAdmin) {
+  if (cookieTenant && cookieTenant !== activeTenant.id) {
+    if (session.user.isSuperAdmin) {
+      const res = NextResponse.redirect(selfUrl("/admin"));
+      res.cookies.delete("x-active-tenant");
+      return res;
+    }
     const res = NextResponse.redirect(selfUrl("/select-tenant"));
     res.cookies.delete("x-active-tenant");
     return res;
   }
 
-  // 6b. Gating por plano: bloqueia rotas de módulos não liberados para o tenant.
+  // 7b. Gating por plano: bloqueia rotas de módulos não liberados para o tenant.
   //  - super admin: passa livre (visão total).
   //  - arena-tech e demais: a lista `modules` já vem resolvida na sessão
   //    (arena-tech tem todos). Rota sem módulo (painel, settings) passa.
@@ -151,9 +176,9 @@ export const proxy = auth((req) => {
     }
   }
 
-  // 7. Inject tenant header for tRPC context
+  // 8. Inject tenant header for tRPC context
   const headers = new Headers(req.headers);
-  headers.set("x-tenant-id", activeTenantId);
+  headers.set("x-tenant-id", activeTenant.id);
   return NextResponse.next({ request: { headers } });
 });
 

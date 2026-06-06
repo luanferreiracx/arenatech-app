@@ -36,10 +36,10 @@ afterAll(async () => {
 function validateTenantAccess(
   tenantId: string,
   availableTenants: Array<{ id: string }>,
-  isSuperAdmin: boolean,
+  _isSuperAdmin: boolean,
 ): { allowed: boolean } {
   const hasTenant = availableTenants.some((t) => t.id === tenantId);
-  if (!hasTenant && !isSuperAdmin) {
+  if (!hasTenant) {
     return { allowed: false };
   }
   return { allowed: true };
@@ -73,13 +73,13 @@ describe("tenantProcedure access validation (defense in depth)", () => {
     expect(result.allowed).toBe(false);
   });
 
-  it("super admin can access ANY tenant (even without being linked)", () => {
+  it("rejects super admin tenant cookie when tenant was not explicitly linked", () => {
     const result = validateTenantAccess(
       tenantB.id,
-      [], // super admin has no tenants
-      true, // but is super admin
+      [],
+      true,
     );
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
   });
 
   it("user with valid access to the requested tenant passes", () => {

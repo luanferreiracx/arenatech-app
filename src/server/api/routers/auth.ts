@@ -9,6 +9,7 @@ import { randomUUID } from "crypto";
 import { logger } from "@/lib/logger";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { escapeHtml } from "@/lib/utils/html";
+import { hasTenantAccess } from "@/lib/auth/active-tenant";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -24,10 +25,7 @@ export const authRouter = createTRPCRouter({
   validateTenantAccess: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid() }))
     .mutation(({ ctx, input }) => {
-      const hasTenant = ctx.session.availableTenants.some(
-        (t) => t.id === input.tenantId,
-      );
-      if (!hasTenant) {
+      if (!hasTenantAccess(ctx.session, input.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Access denied to this tenant",
@@ -154,7 +152,7 @@ export const authRouter = createTRPCRouter({
       await prisma.$transaction([
         prisma.user.update({
           where: { id: resetToken.userId },
-          data: { passwordHash },
+          data: { passwordHash, mustChangePassword: false },
         }),
         prisma.passwordResetToken.update({
           where: { id: resetToken.id },
@@ -195,7 +193,7 @@ export const authRouter = createTRPCRouter({
       const passwordHash = hashPassword(input.newPassword);
       await prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash },
+        data: { passwordHash, mustChangePassword: false },
       });
 
       logger.info("changePassword: password updated", { userId: user.id });

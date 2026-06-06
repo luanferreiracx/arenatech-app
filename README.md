@@ -67,8 +67,10 @@ Abrir [http://localhost:3000](http://localhost:3000).
 | `pnpm start` | Rodar build de producao |
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | TypeScript check |
-| `pnpm test` | Testes unitarios (Vitest) |
-| `pnpm test:watch` | Testes em modo watch |
+| `pnpm test` | Testes unitarios (Vitest, sem integrações) |
+| `pnpm test:unit` | Alias explicito dos testes unitarios |
+| `pnpm test:integration` | Checa Postgres local, roda migrations + seed e executa integrações RLS/auth |
+| `pnpm test:watch` | Testes unitarios em modo watch |
 | `pnpm test:e2e` | Testes end-to-end (Playwright) |
 | `pnpm db:generate` | Gerar Prisma client |
 | `pnpm db:migrate` | Criar/aplicar migration dev |
@@ -163,4 +165,5 @@ RLS (Row Level Security) no PostgreSQL com `tenant_id UUID` em todas as tabelas 
 1. Branch: `feat/*`, `fix/*`, `chore/*`
 2. Commits: Conventional Commits (`feat(modulo): descricao`)
 3. CI deve passar: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`
-4. Push direto na `main` permitido (com CI verde)
+4. Para validar RLS/auth localmente, suba o Postgres com `docker compose up -d postgres` e rode: `pnpm test:integration`
+5. Push direto na `main` permitido (com CI verde)

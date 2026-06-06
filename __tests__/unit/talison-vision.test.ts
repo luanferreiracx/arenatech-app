@@ -31,6 +31,8 @@ vi.mock("@/server/db", () => {
       update: vi.fn().mockResolvedValue({}),
     },
     chatbotConfig: { findUnique: vi.fn().mockResolvedValue(null) },
+    tenantSettings: { findUnique: vi.fn().mockResolvedValue(null) },
+    tenantAssistanceSettings: { findUnique: vi.fn().mockResolvedValue(null) },
     chatbotMessage: {
       findMany: vi.fn().mockResolvedValue([...storedMessages].reverse()),
       create: vi.fn().mockResolvedValue({}),
