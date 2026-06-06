@@ -39,6 +39,27 @@
 - Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
 - Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
 
+### 2026-06-06 — DePix legado desabilitado para novas operações
+- Implementado: downgrade/reembolso DePix de venda deixou de criar `DepixWithdraw` legado e agora dispara saque via `TenantDepixTransaction`/Wallet LWK (`createWithdraw`) com idempotência por venda.
+- Implementado: OS ganhou `walletTransactionId` canônico (`wallet_transaction_id`) e geração/cancelamento de PIX passa a limpar/persistir esse vínculo junto do `depixTransactionId` externo PixPay.
+- Implementado: navegação removeu `Histórico Saques DePix`; `/depix/withdrawals` ficou como arquivo legado somente leitura/compatibilidade, com CTAs apontando para `/depix-wallet/withdraw`; módulo `depix-ops` agora representa apenas vendas avulsas wallet-backed.
+- Decisões: `DepixWithdraw`, webhooks legados e `depix-service.ts` permanecem como compatibilidade/histórico/adapters PixPay; critério é não criar novas operações canônicas no legado.
+- Validação: `DATABASE_URL=... pnpm prisma generate`, `DATABASE_URL=... pnpm prisma validate`, `pnpm typecheck`, teste focado de módulos e unitários completos OK (`830 passed`).
+- Próximo: abrir PR/CI e validar manualmente venda avulsa, saque Wallet, downgrade com reembolso DePix e PIX de OS em ambiente com LWK real.
+
+### 2026-06-06 — Hotfix DePix: LWK revela mnemônico sem 404
+- Implementado: produção atualizada manualmente no serviço `arenatech-lwk-wallet` para incluir `POST /wallet/{tenant_id}/mnemonic/reveal`; arquivo antigo da VPS salvo em `/opt/lwk-wallet/app.py.bak.20260606_154241` e volume `lwk-wallet_lwk_wallet_data` preservado.
+- Implementado: cliente LWK agora traduz 404 do reveal para mensagem explícita de serviço LWK desatualizado/URL incorreta; router tRPC mapeia esse caso como `BAD_GATEWAY` em vez de erro genérico.
+- Validação: LWK em produção saudável e endpoint deixou de retornar 404 (sem auth retorna 401); `pnpm typecheck` OK; unitários OK (`830 passed`).
+- Próximo: commitar/abrir PR para versionar a melhoria de diagnóstico no app e evitar regressão de mensagem.
+
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
 - Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.

@@ -130,7 +130,7 @@ export const depixWithdrawRouter = createTRPCRouter({
         recipientTaxId: input.recipientTaxId,
         netAmountCents: Math.round(input.requestedAmount * 100),
         sourceType: "WALLET",
-        sourceDescription: input.notes ?? "Saque criado pela rota legada /depix/withdrawals",
+        sourceDescription: input.notes ?? "Saque criado por compatibilidade legada; fluxo canonico: DePix Wallet",
       });
 
       logger.info("DepixWithdraw legado redirecionado para wallet", {

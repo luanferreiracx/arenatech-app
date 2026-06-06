@@ -270,15 +270,15 @@ export function WithdrawDetail({ id }: WithdrawDetailProps) {
             </Button>
           )}
           <Button variant="outline" className="w-full justify-center" asChild>
-            <Link href={`/depix/withdrawals/new?pixKeyType=${w.pixKeyType}&pixKey=${encodeURIComponent(w.pixKey)}&recipientName=${encodeURIComponent(w.recipientName ?? "")}`}>
+            <Link href="/depix-wallet/withdraw">
               <RefreshCw className="w-4 h-4 mr-2" />
-              Repetir Saque
+              Sacar pela Wallet
             </Link>
           </Button>
           <Button variant="outline" className="w-full justify-center" asChild>
-            <Link href="/depix/withdrawals/new">
+            <Link href="/depix-wallet/withdraw">
               <Plus className="w-4 h-4 mr-2" />
-              Novo Saque
+              Novo saque Wallet
             </Link>
           </Button>
           <Button variant="secondary" className="w-full justify-center" asChild>
