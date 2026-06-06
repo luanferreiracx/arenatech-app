@@ -22,7 +22,7 @@ Execute na ordem. Cada documento depende dos anteriores estarem prontos.
 │  SEU MACBOOK PRO M5                                         │
 │                                                             │
 │  ~/dev/arenatech-app/                                       │
-│  ├─ código-fonte (Next.js 15, tRPC, Prisma)                 │
+│  ├─ código-fonte (Next.js 16, tRPC, Prisma 7)              │
 │  ├─ Claude Code CLI rodando aqui                            │
 │  ├─ Docker Compose: Postgres 16 + Redis 7 + MinIO           │
 │  └─ Sessão tmux 'arena' com 5 janelas pré-configuradas      │

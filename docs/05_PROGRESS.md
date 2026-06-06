@@ -11,7 +11,7 @@
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/cloudinary-product-images`
+**Branch atual:** `feat/superadmin-tenant-users`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
@@ -26,6 +26,53 @@
 - Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
 - Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
 - Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-06 — Talison IA com contexto real da Arena Tech
+- Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
+- Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.
+- Decisões: não portar o fluxo rígido do Laravel; manter LLM flexível e usar o contexto apenas como conhecimento factual. Preço, parcela, status, prazo específico, garantia específica e valor de troca continuam obrigatoriamente via tool.
+- Validação: testes focados Talison verdes (38/38), `pnpm typecheck` verde após `prisma generate`, ESLint focado em Talison sem erros. `pnpm lint` completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: observar conversas reais no Chatwoot e ajustar o perfil se alguma política comercial precisar refinamento.
+
+### 2026-06-05 — Skills globais reinstaladas e CLAUDE.md reconciliado
+- Implementado: skills do pacote `~/Downloads/claude-kit` instaladas em `~/.claude/skills/` e regras de precedência registradas em `CLAUDE.md`.
+- Implementado: `CLAUDE.md` reconciliado com as skills `software-engineering`, `typescript`, `react`, `database`, `docker-infra`, `reviewing-code` e `writing`, preservando overrides específicos do projeto.
+- Implementado: skills customizadas antigas do projeto removidas de `.claude/skills/` a pedido do dono, e `CLAUDE.md` atualizado para não referenciá-las como ativas.
+- Decisões: Conventional Commits permanece override explícito sobre a recomendação genérica da skill `writing`; Next.js 16 e Prisma 7 passam a ser refletidos nas instruções permanentes.
+- Próximo: usar as skills globais como autoridade especializada por domínio nas próximas janelas/worktrees.
+
+### 2026-06-05 — Superadmin administra usuarios de tenants
+- Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
+- Implementado: novos usuarios criados pelo Superadmin recebem senha temporaria forte, `must_change_password=true` e exigem troca no primeiro acesso.
+- Implementado: mutations antigas de cadastro/edicao/remocao/reset em `settings` foram bloqueadas com erro explicito; a intranet central manteve apenas consulta dos usuarios vinculados.
+- Implementado: menus da intranet deixaram de oferecer cadastro local de usuarios, e as rotas antigas `/settings/users/new` e `/settings/users/[id]/edit` redirecionam para a consulta.
+- Decisoes: `settings.listUsers` permanece ativo para leituras operacionais; administracao de vinculo e credenciais fica exclusiva do Superadmin.
+- Validacao: `pnpm typecheck`, validators admin focados, `pnpm test -- --reporter=dot`, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verdes.
+- Proximo: abrir PR, rodar CI e fazer deploy.
+
+### 2026-06-05 — Separacao testes unitarios e integracao local
+- Implementado: `pnpm test` agora roda apenas Vitest unitario, alinhado ao CI e ao pre-push rapido, sem depender de Postgres/seed local.
+- Implementado: novo fluxo `pnpm test:integration` prepara o Postgres local com migrations + seed antes de executar `__tests__/integration` RLS/auth.
+- Implementado: pre-checagem de Postgres local retorna mensagem clara quando `127.0.0.1:5432` nao esta disponivel, substituindo o erro opaco do Prisma schema engine.
+- Decisoes: integracoes RLS/auth continuam explicitas e dependentes da infra local; o pre-push valida apenas typecheck + unit e deixa integracoes/E2E para CI.
+- Validacao: `pnpm typecheck`, `pnpm test -- --reporter=dot` e `sh .husky/pre-push` verdes; `pnpm test:integration` agora falha corretamente com instrucoes porque o Postgres local esta desligado.
+- Proximo: subir Postgres local quando quiser validar RLS/auth fora do CI: `docker compose up -d postgres && pnpm test:integration`.
+
+### 2026-06-05 — Login whitelabel pdvdepix
+- Implementado: layout de autenticação agora detecta hosts da landing pdvdepix via `Host`/`x-forwarded-host` e aplica visual escuro com grid, glow teal/verde, logo pdvdepix e tokens CSS próprios no `/login`.
+- Implementado: `depixpdv.app` e `www.depixpdv.app` foram aceitos como aliases de compatibilidade, mantendo `pdvdepix.app`/`www.pdvdepix.app` como domínio principal.
+- Decisões: o login Arena Tech permanece inalterado para hosts internos; a detecção de host foi reforçada para lidar com porta e listas de proxy.
+- Validação: teste unitário de brand host verde, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), `pnpm build` verde e screenshots Playwright desktop/mobile do host pdvdepix sem overflow.
+- Próximo: abrir PR, aguardar CI e deployar.
+
+### 2026-06-05 — Hotfix troca obrigatoria de senha temporaria
+- Implementado: usuarios criados com senha inicial ou resetados por admin/superadmin passam a gravar `must_change_password=true`.
+- Implementado: login/JWT carrega a flag, o proxy bloqueia acesso ao sistema e libera apenas `/change-password` + mutation `auth.changePassword` ate a senha ser substituida.
+- Implementado: pagina `/change-password` autenticada troca a senha temporaria, limpa a flag e encerra a sessao para novo login com token limpo.
+- Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
+- Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
+- Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
 
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.

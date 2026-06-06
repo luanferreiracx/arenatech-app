@@ -7,9 +7,6 @@ import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import { UserPlus } from "lucide-react";
 import { format } from "date-fns";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -41,15 +38,7 @@ export default function TeamPage() {
     <div>
       <PageHeader
         title="Equipe"
-        subtitle="Contas de acesso ao sistema e papeis dos colaboradores"
-        actions={
-          <Button asChild>
-            <Link href="/settings/users/new">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Nova conta de acesso
-            </Link>
-          </Button>
-        }
+        subtitle="Consulta das contas de acesso. Cadastro e permissoes sao administrados pelo Superadmin."
       />
 
       {isLoading && <LoadingState />}

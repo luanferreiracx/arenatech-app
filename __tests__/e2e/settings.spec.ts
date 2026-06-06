@@ -154,11 +154,10 @@ test.describe("Settings — Usuários", () => {
     await expect(page.locator("table th, table [role='columnheader']").first()).toBeVisible();
   });
 
-  test("@business S-13 form novo usuário tem campo CPF", async ({ page }) => {
-    await gotoAndWait(page, "/settings/users/new");
-    // User creation form should have CPF input
-    const cpfField = page.locator("input[name='cpf'], input[placeholder*='CPF'], input[placeholder*='000']");
-    await expect(cpfField.first()).toBeVisible({ timeout: 10000 });
+  test("@business S-13 usuários informa gestão pelo Superadmin", async ({ page }) => {
+    await gotoAndWait(page, "/settings/users");
+    await expect(page.locator("main")).toContainText(/Superadmin/i, { timeout: 10000 });
+    await expect(page.locator("main")).not.toContainText(/Novo Usuario|Novo usuário|Cadastrar Usuario|Cadastrar usuário/i);
   });
 });
 
