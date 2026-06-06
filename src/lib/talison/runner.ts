@@ -12,6 +12,7 @@ import { runTalison } from "@/lib/talison/agent";
 import { createDeepSeekProvider } from "@/lib/talison/providers/deepseek";
 import { createClaudeVisionProvider } from "@/lib/talison/providers/claude-vision";
 import { sendBotMessage } from "@/lib/talison/chatwoot-client";
+import { buildTalisonBusinessContext } from "@/lib/talison/business-context";
 import type { LlmMessage } from "@/lib/talison/types";
 import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract";
 
@@ -86,17 +87,27 @@ export async function processConversation(
     if (!conversation) return null;
 
     const config = await tx.chatbotConfig.findUnique({ where: { tenantId } });
-    const messages = await tx.chatbotMessage.findMany({
-      where: { tenantId, conversationId },
-      orderBy: { createdAt: "desc" },
-      take: HISTORY_LIMIT,
-      select: { direction: true, senderType: true, content: true, contentType: true, mediaUrl: true },
-    });
-    return { conversation, config, messages: messages.reverse() };
+    const [tenantSettings, tenantAssistanceSettings, messages] = await Promise.all([
+      tx.tenantSettings.findUnique({ where: { tenantId } }),
+      tx.tenantAssistanceSettings.findUnique({ where: { tenantId } }),
+      tx.chatbotMessage.findMany({
+        where: { tenantId, conversationId },
+        orderBy: { createdAt: "desc" },
+        take: HISTORY_LIMIT,
+        select: { direction: true, senderType: true, content: true, contentType: true, mediaUrl: true },
+      }),
+    ]);
+    return {
+      conversation,
+      config,
+      tenantSettings,
+      tenantAssistanceSettings,
+      messages: messages.reverse(),
+    };
   });
 
   if (!state) return { status: "skipped", reason: "conversa não encontrada" };
-  const { conversation, config, messages } = state;
+  const { conversation, config, messages, tenantSettings, tenantAssistanceSettings } = state;
 
   // Bot desativado por tenant.
   if (config && !config.enabled) return { status: "skipped", reason: "bot desativado" };
@@ -142,11 +153,18 @@ export async function processConversation(
     withTenant: <T>(fn: (tx: TalisonTx) => Promise<T>) => withTenant(tenantId, fn),
   };
 
+  const businessContext = buildTalisonBusinessContext({
+    chatbotConfig: config,
+    tenantSettings,
+    tenantAssistanceSettings,
+  });
+
   const result = await runTalison({
     provider: createDeepSeekProvider(),
     toolContext,
     promptContext: {
       contactName: conversation.contactName,
+      businessContext,
       businessHoursNote: config?.outOfHoursMessage ?? null,
     },
     history,
