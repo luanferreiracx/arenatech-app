@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -17,6 +17,15 @@
 ---
 
 ## Histórico de execução
+
+### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
+- Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
+- Implementado: backend passou a validar DePix não manual contra a wallet canonical antes de concluir a venda, persistindo `walletTransactionId` e `depixTransactionId` em `paymentDetails`.
+- Implementado: venda avulsa DePix não pode ser marcada como paga sem liquidação real da wallet; estorno de item serializado confere estado/contagem antes de restaurar estoque.
+- Implementado: relatórios `inventoryReport`, `lowStockAlerts`, `stats`, `reportPosicao` e `reportEstoqueMin` deixaram de retornar estoque fake zero e agora usam `StockItem`, variações ou `Product.currentStock` conforme o tipo do produto.
+- Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
+- Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
+- Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
 
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
@@ -63,6 +72,7 @@
 - Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
 - Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
 - Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
 
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
