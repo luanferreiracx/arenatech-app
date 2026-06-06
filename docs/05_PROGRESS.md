@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque (listagem, detalhe e gerenciamento na edição). Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -17,6 +17,15 @@
 ---
 
 ## Histórico de execução
+
+### 2026-06-06 — Fotos de produtos no estoque com Cloudinary
+- Implementado: listagem de estoque passou a exibir thumbnail por produto, usando foto principal (`thumbUrl/mediumUrl/url`) com fallback para `Product.imageUrl` legado.
+- Implementado: detalhe do produto agora mostra galeria read-only, imagem principal, miniaturas e CTA para gerenciar fotos.
+- Implementado: edição de produto ganhou gerenciador de fotos com upload multipart para `/api/products/upload`, persistência via `stock.createPhoto`, remoção, definição de foto principal e limite de 3 fotos.
+- Implementado: formulário de criação informa que fotos ficam disponíveis após salvar, porque o upload exige `productId`; defaults da edição foram completados para não perder campos já existentes.
+- Implementado: script `backfill-image-providers.ts` passou a usar o Prisma 7 via adapter/RLS (`src/server/db`) em vez de instanciar `PrismaClient` sem adapter.
+- Validação: `pnpm typecheck` verde; testes unitários focados de estoque verdes (145/145); `pnpm lint` completo sem erros, apenas warnings preexistentes; Playwright `stock-a` e dry-run do backfill não rodaram no ambiente atual por ausência de `APP_DATABASE_URL`/`DATABASE_URL`.
+- Próximo: configurar env de banco/Cloudinary na worktree ou CI, rodar backfill dry-run real e validar upload real em edição de produto.
 
 ### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
 - Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.

@@ -25,6 +25,7 @@ import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { VariationsEditor } from "./variations-editor";
+import { ProductPhotoManager } from "./product-photo-manager";
 
 interface ProductFormProps {
   defaultValues?: CreateProductInput & { id?: string };
@@ -203,6 +204,16 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
               )}
             />
           </div>
+        </FormSection>
+
+        <FormSection title="Fotos do Produto">
+          {isEdit && defaultValues?.id ? (
+            <ProductPhotoManager productId={defaultValues.id} />
+          ) : (
+            <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+              Salve o produto para adicionar fotos. O upload usa Cloudinary e fica disponivel na edicao.
+            </div>
+          )}
         </FormSection>
 
         <FormSection title="Classificacao Fiscal">

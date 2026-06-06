@@ -2,7 +2,7 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { Pencil, ArrowLeft } from "lucide-react";
+import { Pencil, ArrowLeft, Package } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
@@ -73,6 +73,8 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   }
 
   const isLow = product.minStock > 0 && product.currentStock <= product.minStock;
+  const primaryPhoto = product.photos.find((photo) => photo.isPrimary) ?? product.photos[0];
+  const primaryImageUrl = primaryPhoto?.mediumUrl ?? primaryPhoto?.url ?? product.imageUrl;
 
   return (
     <div>
@@ -152,6 +154,56 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Fotos do Produto</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-[240px_1fr]">
+            <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg border bg-muted">
+              {primaryImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={primaryImageUrl}
+                  alt={product.name}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Package className="h-16 w-16 text-muted-foreground/40" />
+              )}
+            </div>
+            <div className="space-y-3">
+              {product.photos.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                  {product.photos.map((photo) => (
+                    <div key={photo.id} className="relative aspect-square overflow-hidden rounded-md border bg-muted">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.thumbUrl ?? photo.mediumUrl ?? photo.url}
+                        alt="Miniatura do produto"
+                        className="h-full w-full object-cover"
+                      />
+                      {photo.isPrimary && (
+                        <span className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                          Principal
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma foto cadastrada. Use a edicao do produto para enviar fotos ao Cloudinary.
+                </p>
+              )}
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/stock/${id}/edit`}>Gerenciar fotos</Link>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {product.description && (
         <Card className="mb-6">
