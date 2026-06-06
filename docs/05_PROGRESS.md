@@ -8,7 +8,7 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-05
+**Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `feat/superadmin-tenant-users`
@@ -17,6 +17,13 @@
 ---
 
 ## Histórico de execução
+
+### 2026-06-06 — Talison IA com contexto real da Arena Tech
+- Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
+- Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.
+- Decisões: não portar o fluxo rígido do Laravel; manter LLM flexível e usar o contexto apenas como conhecimento factual. Preço, parcela, status, prazo específico, garantia específica e valor de troca continuam obrigatoriamente via tool.
+- Validação: testes focados Talison verdes (38/38), `pnpm typecheck` verde após `prisma generate`, ESLint focado em Talison sem erros. `pnpm lint` completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: observar conversas reais no Chatwoot e ajustar o perfil se alguma política comercial precisar refinamento.
 
 ### 2026-06-05 — Skills globais reinstaladas e CLAUDE.md reconciliado
 - Implementado: skills do pacote `~/Downloads/claude-kit` instaladas em `~/.claude/skills/` e regras de precedência registradas em `CLAUDE.md`.

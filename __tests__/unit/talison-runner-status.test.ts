@@ -24,6 +24,18 @@ const state = vi.hoisted(() => ({
     externalId: "42" as string | null,
   },
   config: null as { enabled?: boolean; whitelistPhones?: string[]; outOfHoursMessage?: string | null } | null,
+  tenantSettings: null as {
+    tradeName?: string | null;
+    phone?: string | null;
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    businessHours?: string | null;
+  } | null,
+  tenantAssistanceSettings: null as {
+    pixDiscount?: { toString(): string } | null;
+    installmentsNoInterest?: number | null;
+  } | null,
   messages: [
     {
       direction: "incoming",
@@ -39,6 +51,12 @@ const state = vi.hoisted(() => ({
       update: vi.fn().mockResolvedValue({}),
     },
     chatbotConfig: {
+      findUnique: vi.fn(),
+    },
+    tenantSettings: {
+      findUnique: vi.fn(),
+    },
+    tenantAssistanceSettings: {
       findUnique: vi.fn(),
     },
     chatbotMessage: {
@@ -83,11 +101,17 @@ function resetState() {
   state.conversation.status = "BOT_ACTIVE";
   state.conversation.externalId = "42";
   state.config = null;
+  state.tenantSettings = null;
+  state.tenantAssistanceSettings = null;
   state.messages = [
     { direction: "incoming", senderType: "customer", content: "oi", contentType: "text", mediaUrl: null },
   ];
   state.tx.chatbotConversation.findFirst.mockResolvedValue(state.conversation);
   state.tx.chatbotConfig.findUnique.mockImplementation(() => Promise.resolve(state.config));
+  state.tx.tenantSettings.findUnique.mockImplementation(() => Promise.resolve(state.tenantSettings));
+  state.tx.tenantAssistanceSettings.findUnique.mockImplementation(() =>
+    Promise.resolve(state.tenantAssistanceSettings),
+  );
   state.tx.chatbotMessage.findMany.mockImplementation(() => Promise.resolve([...state.messages].reverse()));
   state.tx.chatbotConversation.update.mockClear();
   state.tx.chatbotMessage.create.mockClear();
@@ -162,6 +186,43 @@ describe("processConversation — status e entrega", () => {
 
     expect(result).toEqual({ status: "skipped", reason: "última mensagem não é do cliente" });
     expect(state.runTalison).not.toHaveBeenCalled();
+  });
+
+  it("injeta contexto de negócio configurado no prompt do Talison", async () => {
+    state.tenantSettings = {
+      tradeName: "Arena Tech Matriz",
+      phone: "(86) 1111-2222",
+      street: "Av. Teste",
+      city: "Teresina",
+      state: "PI",
+      businessHours: "Seg-Sex 10h-18h",
+    };
+    state.tenantAssistanceSettings = {
+      pixDiscount: { toString: () => "6.00" },
+      installmentsNoInterest: 8,
+    };
+
+    await processConversation("tenant-1", "conv-1");
+
+    expect(state.runTalison).toHaveBeenCalledOnce();
+    expect(state.runTalison).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promptContext: expect.objectContaining({
+          contactName: "João",
+          businessContext: expect.objectContaining({
+            storeName: "Arena Tech Matriz",
+            businessHours: "Seg-Sex 10h-18h",
+            delivery: expect.stringContaining("Teresina/PI"),
+            limitations: expect.arrayContaining([expect.stringContaining("não prometa disponibilidade")]),
+            payments: expect.arrayContaining([
+              expect.stringContaining("PIX, dinheiro, débito e crédito"),
+              expect.stringContaining("6% de desconto"),
+              expect.stringContaining("até 8x sem juros"),
+            ]),
+          }),
+        }),
+      }),
+    );
   });
 
   it("marca delivery failed quando o Chatwoot não recebe a resposta", async () => {
