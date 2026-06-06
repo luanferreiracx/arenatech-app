@@ -32,6 +32,13 @@
 - Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
 - Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
 
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
 - Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.
