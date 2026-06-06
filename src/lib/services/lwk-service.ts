@@ -191,6 +191,13 @@ export async function revealMnemonic(tenantId: string): Promise<LwkMnemonicResul
     );
     if (!ok) {
       logger.error("LWK revealMnemonic falhou", { tenantId, status, error: body.error });
+      if (status === 404) {
+        return {
+          success: false,
+          error:
+            "Servico LWK desatualizado ou URL incorreta: endpoint de frase de recuperacao nao encontrado.",
+        };
+      }
       return { success: false, error: String(body.error ?? `HTTP ${status}`) };
     }
     return {

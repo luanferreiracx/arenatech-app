@@ -126,7 +126,9 @@ export const depixWalletRouter = createTRPCRouter({
       const res = await lwk.revealMnemonic(ctx.tenantId);
       if (!res.success || !res.mnemonic) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
+          code: res.error?.includes("endpoint de frase de recuperacao nao encontrado")
+            ? "BAD_GATEWAY"
+            : "INTERNAL_SERVER_ERROR",
           message: res.error ?? "Falha ao revelar frase de recuperacao.",
         });
       }

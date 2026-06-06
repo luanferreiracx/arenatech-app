@@ -17,8 +17,8 @@
  */
 
 export const MODULE_KEYS = [
-  "wallet", // DePix: APENAS a carteira (/depix-wallet)
-  "depix-ops", // Operações DePix avulsas: vendas avulsas (/quick-sales) + saques (/financial/depix/withdrawals)
+  "wallet", // DePix Wallet/LWK: carteira, saldos e saques (/depix-wallet)
+  "depix-ops", // Operações DePix wallet-backed: vendas avulsas (/quick-sales)
   "service-orders", // Assistência: OS, serviços, operação, comunicação
   "customers", // Clientes e interesses
   "tools", // Simulador, avaliação, consultas, checklist
@@ -37,8 +37,8 @@ const MODULE_KEY_SET = new Set<string>(MODULE_KEYS);
 
 /** Rótulos legíveis para a UI de configuração de plano. */
 export const MODULE_LABELS: Record<ModuleKey, string> = {
-  wallet: "Carteira DePix",
-  "depix-ops": "Operações DePix (Vendas Avulsas, Saques)",
+  wallet: "Carteira DePix Wallet",
+  "depix-ops": "Vendas Avulsas DePix Wallet",
   "service-orders": "Assistência (Ordens de Serviço)",
   customers: "Clientes",
   tools: "Ferramentas (Simulador, Avaliação, Consultas)",
@@ -71,10 +71,10 @@ export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet"];
  */
 const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   // DePix — checado antes de `financial` para "roubar" as rotas DePix.
-  // Só a carteira em si é `wallet`; vendas avulsas e saques são `depix-ops`.
+  // Saques novos existem apenas na Wallet; `/depix/withdrawals` fica como arquivo legado.
   ["/depix-wallet", "wallet"],
-  ["/depix/withdrawals", "depix-ops"],
-  ["/depix", "depix-ops"],
+  ["/depix/withdrawals", "wallet"],
+  ["/depix", "wallet"],
   ["/quick-sales", "depix-ops"],
 
   // service-orders / assistência
