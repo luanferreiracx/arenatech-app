@@ -18,6 +18,13 @@
 
 ## Histórico de execução
 
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
 ### 2026-06-04 — Cloudinary para imagens de produto/catálogo
 - Implementado: decisão arquitetural para manter Cloudinary como provider principal de imagens públicas de produto/catálogo, preservando MinIO para assets internos.
 - Decisões: não fazer migração física Cloudinary → MinIO; novos uploads usam Cloudinary por padrão e URLs legadas seguem válidas.

@@ -594,6 +594,7 @@ def index():
             "GET  /wallet/{tenant_id}/balance",
             "GET  /wallet/{tenant_id}/master-address",
             "GET  /wallet/{tenant_id}/info",
+            "POST /wallet/{tenant_id}/mnemonic/reveal",
             "POST /wallet/{tenant_id}/address/new   body: {user, index?}",
             "POST /wallet/{tenant_id}/transfer      body: {recipients:[{to,amount}], fee_rate?, asset_id?}  header: Idempotency-Key",
             "GET  /wallet/{tenant_id}/transactions  ?limit=20",
@@ -683,6 +684,27 @@ def wallet_info(tenant_id):
         "depix_asset_id": DEPIX_ASSET_ID,
         "warning":        "mnemonic/descriptor nunca sao expostos via API",
     })
+
+
+@app.route("/wallet/<tenant_id>/mnemonic/reveal", methods=["POST"])
+def wallet_mnemonic_reveal(tenant_id):
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    try:
+        with wallet_lock(tenant_id):
+            _, _, _, mnemonic_str = load_or_create_wallet(tenant_id)
+        return jsonify({
+            "tenant_id":   tenant_id,
+            "mnemonic":    mnemonic_str,
+            "word_count":  len(mnemonic_str.split()),
+            "network":     NETWORK_NAME,
+        })
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"mnemonic_reveal[{tenant_id}]: {e}")
 
 
 @app.route("/wallet/<tenant_id>/balance", methods=["GET"])

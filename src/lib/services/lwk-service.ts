@@ -51,6 +51,14 @@ export interface MasterAddressResult {
   error?: string;
 }
 
+export interface LwkMnemonicResult {
+  success: boolean;
+  mnemonic?: string;
+  wordCount?: number;
+  network?: string;
+  error?: string;
+}
+
 function getConfig(): LwkConfig | null {
   const baseUrl = process.env.LWK_API_URL;
   const apiKey = process.env.LWK_API_KEY;
@@ -155,6 +163,44 @@ export async function ensureWallet(tenantId: string): Promise<EnsureWalletResult
     };
   } catch (error) {
     logger.error("LWK ensureWallet erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+/** Revela a frase de recuperacao da carteira do tenant. Chamar apenas sob acao explicita. */
+export async function revealMnemonic(tenantId: string): Promise<LwkMnemonicResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) {
+    return {
+      success: true,
+      mnemonic:
+        "mock seed phrase only for tests do not use outside development wallet backup sideswap import fake words liquid depix tenant recovery reveal sample secret",
+      wordCount: 24,
+      network: "mainnet",
+    };
+  }
+  try {
+    const { ok, status, body } = await lwkFetch(
+      config,
+      "POST",
+      `/wallet/${tenantId}/mnemonic/reveal`,
+    );
+    if (!ok) {
+      logger.error("LWK revealMnemonic falhou", { tenantId, status, error: body.error });
+      return { success: false, error: String(body.error ?? `HTTP ${status}`) };
+    }
+    return {
+      success: true,
+      mnemonic: body.mnemonic as string | undefined,
+      wordCount: Number(body.word_count ?? 0),
+      network: body.network as string | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK revealMnemonic erro", {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     });
