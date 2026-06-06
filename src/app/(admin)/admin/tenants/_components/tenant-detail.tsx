@@ -6,10 +6,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Copy, KeyRound } from "lucide-react";
+import { Copy, KeyRound, Loader2, Pencil, Plus, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,31 +21,95 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { LoadingState } from "@/components/domain/loading-state";
+import { CpfInput } from "@/components/inputs/cpf-input";
+import { PhoneInput } from "@/components/inputs/phone-input";
 import { toast } from "@/lib/toast";
-import { updateTenantSchema, type UpdateTenantInput } from "@/lib/validators/admin";
+import {
+  createTenantUserSchema,
+  updateTenantSchema,
+  updateTenantUserSchema,
+  type CreateTenantUserInput,
+  type UpdateTenantInput,
+  type UpdateTenantUserInput,
+} from "@/lib/validators/admin";
 
-type ResetTarget = {
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Administrador",
+  operator: "Operador",
+  technician: "Tecnico",
+  cashier: "Caixa",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+  operator: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  technician: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
+  cashier: "bg-green-500/10 text-green-500 border-green-500/20",
+};
+
+type TenantUser = {
+  userId: string;
+  tenantId: string;
+  role: string;
+  user: {
+    id: string;
+    name: string;
+    cpf: string;
+    email: string | null;
+    phone: string | null;
+    mustChangePassword: boolean;
+  };
+};
+
+type UserTarget = {
   userId: string;
   name: string;
 };
 
-type ResetResult = ResetTarget & {
+type PasswordResult = UserTarget & {
   tempPassword: string;
 };
+
+function formatCpf(cpf: string): string {
+  if (cpf.length !== 11) return cpf;
+  return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
+}
 
 export function TenantDetail({ tenantId }: { tenantId: string }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
-  const [resetResult, setResetResult] = useState<ResetResult | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [editUser, setEditUser] = useState<TenantUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<UserTarget | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<UserTarget | null>(null);
+  const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
 
   const tenantQuery = useQuery(trpc.admin.getTenant.queryOptions({ id: tenantId }));
   const plansQuery = useQuery(trpc.admin.listPlans.queryOptions({ status: "ACTIVE" }));
-  const updateMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
+  const updateTenantMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
+  const createUserMutation = useMutation(trpc.admin.createTenantUser.mutationOptions());
+  const updateUserMutation = useMutation(trpc.admin.updateTenantUser.mutationOptions());
+  const removeUserMutation = useMutation(trpc.admin.removeTenantUser.mutationOptions());
   const resetPasswordMutation = useMutation(trpc.admin.resetTenantUserPassword.mutationOptions());
 
   const tenant = tenantQuery.data;
@@ -55,24 +120,113 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     ? walletOnlyPlans.some((plan) => plan.id === tenant.plan)
     : true;
 
-  const form = useForm<UpdateTenantInput>({
+  const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
     values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], plan: tenant.plan } : undefined,
   });
-  const tenantStatus = useWatch({ control: form.control, name: "status" });
-  const tenantPlan = useWatch({ control: form.control, name: "plan" });
+  const createUserForm = useForm<CreateTenantUserInput>({
+    resolver: zodResolver(createTenantUserSchema),
+    defaultValues: {
+      tenantId,
+      name: "",
+      cpf: "",
+      email: "",
+      phone: "",
+      role: "operator",
+    },
+  });
+  const editUserForm = useForm<UpdateTenantUserInput>({
+    resolver: zodResolver(updateTenantUserSchema),
+    defaultValues: {
+      tenantId,
+      userId: "",
+      name: "",
+      email: "",
+      phone: "",
+      role: "operator",
+    },
+  });
+  const tenantStatus = useWatch({ control: tenantForm.control, name: "status" });
+  const tenantPlan = useWatch({ control: tenantForm.control, name: "plan" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
   if (!tenant) return <p className="text-muted-foreground">Tenant nao encontrado</p>;
 
-  const onSubmit = (data: UpdateTenantInput) => {
-    updateMutation.mutate(data, {
+  const invalidateTenant = () =>
+    queryClient.invalidateQueries({ queryKey: trpc.admin.getTenant.queryKey({ id: tenantId }) });
+
+  const onTenantSubmit = (data: UpdateTenantInput) => {
+    updateTenantMutation.mutate(data, {
       onSuccess: () => {
         toast.success("Tenant atualizado");
-        queryClient.invalidateQueries({ queryKey: trpc.admin.getTenant.queryKey({ id: tenantId }) });
+        invalidateTenant();
       },
       onError: (err) => toast.error(err.message),
     });
+  };
+
+  const onCreateUser = (data: CreateTenantUserInput) => {
+    createUserMutation.mutate(data, {
+      onSuccess: (result) => {
+        toast.success(result.tempPassword ? "Usuario criado" : "Usuario existente vinculado ao tenant");
+        invalidateTenant();
+        setShowCreateDialog(false);
+        createUserForm.reset({
+          tenantId,
+          name: "",
+          cpf: "",
+          email: "",
+          phone: "",
+          role: "operator",
+        });
+        if (result.tempPassword) {
+          setPasswordResult({
+            userId: result.user.id,
+            name: result.user.name,
+            tempPassword: result.tempPassword,
+          });
+        }
+      },
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const openEditUser = (user: TenantUser) => {
+    setEditUser(user);
+    editUserForm.reset({
+      tenantId,
+      userId: user.userId,
+      name: user.user.name,
+      email: user.user.email ?? "",
+      phone: user.user.phone ?? "",
+      role: user.role as UpdateTenantUserInput["role"],
+    });
+  };
+
+  const onUpdateUser = (data: UpdateTenantUserInput) => {
+    updateUserMutation.mutate(data, {
+      onSuccess: () => {
+        toast.success("Usuario atualizado");
+        invalidateTenant();
+        setEditUser(null);
+      },
+      onError: (err) => toast.error(err.message),
+    });
+  };
+
+  const confirmRemoveUser = () => {
+    if (!removeTarget) return;
+    removeUserMutation.mutate(
+      { tenantId, userId: removeTarget.userId },
+      {
+        onSuccess: () => {
+          toast.success("Usuario removido do tenant");
+          invalidateTenant();
+          setRemoveTarget(null);
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
   };
 
   const confirmPasswordReset = () => {
@@ -82,7 +236,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       {
         onSuccess: (result) => {
           setResetTarget(null);
-          setResetResult({
+          setPasswordResult({
             userId: result.user.id,
             name: result.user.name,
             tempPassword: result.tempPassword,
@@ -95,9 +249,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   };
 
   const copyTemporaryPassword = async () => {
-    if (!resetResult) return;
+    if (!passwordResult) return;
     try {
-      await navigator.clipboard.writeText(resetResult.tempPassword);
+      await navigator.clipboard.writeText(passwordResult.tempPassword);
       toast.success("Senha copiada");
     } catch {
       toast.error("Nao foi possivel copiar automaticamente");
@@ -105,14 +259,14 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+    <div className="space-y-6 max-w-5xl">
+      <form onSubmit={tenantForm.handleSubmit(onTenantSubmit)} className="space-y-4">
         <FormSection title="Dados do Tenant">
           <div className="space-y-4">
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
+            <div><Label>Nome</Label><Input {...tenantForm.register("name")} /></div>
             <div>
               <Label>Status</Label>
-              <Select value={tenantStatus} onValueChange={(v) => form.setValue("status", v as UpdateTenantInput["status"])}>
+              <Select value={tenantStatus} onValueChange={(v) => tenantForm.setValue("status", v as UpdateTenantInput["status"])}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ACTIVE">Ativo</SelectItem>
@@ -126,7 +280,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
               <Label>Plano</Label>
               <Select
                 value={tenantPlan ?? "__wallet_only__"}
-                onValueChange={(v) => form.setValue("plan", v === "__wallet_only__" ? null : v)}
+                onValueChange={(v) => tenantForm.setValue("plan", v === "__wallet_only__" ? null : v)}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -145,44 +299,242 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           </div>
         </FormSection>
         <div className="flex gap-2">
-          <Button type="submit" disabled={updateMutation.isPending}>Salvar</Button>
+          <Button type="submit" disabled={updateTenantMutation.isPending}>Salvar</Button>
           <Button type="button" variant="outline" onClick={() => router.push("/admin/tenants")}>Voltar</Button>
         </div>
       </form>
 
-      {/* Users */}
       <Card>
-        <CardHeader><CardTitle>Usuarios</CardTitle></CardHeader>
-        <CardContent>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>Usuarios do tenant</CardTitle>
+          <Button type="button" onClick={() => setShowCreateDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Novo usuario
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
           {tenant.users.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum usuario</p>
+            <p className="px-6 pb-6 text-sm text-muted-foreground">Nenhum usuario vinculado.</p>
           ) : (
-            <div className="space-y-2">
-              {tenant.users.map((ut) => (
-                <div
-                  key={ut.userId}
-                  className="flex flex-col gap-3 border-b pb-3 text-sm last:border-0 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium">{ut.user.name}</p>
-                    <p className="text-muted-foreground">{ut.user.cpf} | {ut.role}</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setResetTarget({ userId: ut.userId, name: ut.user.name })}
-                    disabled={resetPasswordMutation.isPending}
-                  >
-                    <KeyRound className="mr-2 h-4 w-4" />
-                    Resetar senha
-                  </Button>
-                </div>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>CPF</TableHead>
+                  <TableHead>Acesso</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tenant.users.map((tenantUser) => (
+                  <TableRow key={tenantUser.userId}>
+                    <TableCell>
+                      <p className="font-medium">{tenantUser.user.name}</p>
+                      {tenantUser.user.email && (
+                        <p className="text-xs text-muted-foreground">{tenantUser.user.email}</p>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{formatCpf(tenantUser.user.cpf)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={ROLE_COLORS[tenantUser.role] ?? ""}>
+                        {ROLE_LABELS[tenantUser.role] ?? tenantUser.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {tenantUser.user.mustChangePassword ? (
+                        <Badge variant="outline">Troca obrigatoria</Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Ativo</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => openEditUser(tenantUser)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setResetTarget({ userId: tenantUser.userId, name: tenantUser.user.name })}
+                          disabled={resetPasswordMutation.isPending}
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setRemoveTarget({ userId: tenantUser.userId, name: tenantUser.user.name })}
+                        >
+                          <UserMinus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo usuario do tenant</DialogTitle>
+            <DialogDescription>
+              O usuario sera vinculado a este tenant. Se for uma conta nova, uma senha temporaria sera gerada.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...createUserForm}>
+            <form onSubmit={createUserForm.handleSubmit(onCreateUser)} className="space-y-4">
+              <FormField
+                control={createUserForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome completo</FormLabel>
+                    <FormControl><Input {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createUserForm.control}
+                name="cpf"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CPF</FormLabel>
+                    <FormControl><CpfInput value={field.value} onValueChange={field.onChange} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createUserForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl><Input {...field} value={field.value ?? ""} type="email" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createUserForm.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>WhatsApp</FormLabel>
+                    <FormControl><PhoneInput value={field.value ?? ""} onValueChange={field.onChange} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createUserForm.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de acesso</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>Cancelar</Button>
+                <Button type="submit" disabled={createUserMutation.isPending}>
+                  {createUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Cadastrar
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editUser !== null} onOpenChange={(open) => { if (!open) setEditUser(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar usuario do tenant</DialogTitle>
+            <DialogDescription>{editUser ? formatCpf(editUser.user.cpf) : ""}</DialogDescription>
+          </DialogHeader>
+          <Form {...editUserForm}>
+            <form onSubmit={editUserForm.handleSubmit(onUpdateUser)} className="space-y-4">
+              <FormField
+                control={editUserForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome completo</FormLabel>
+                    <FormControl><Input {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editUserForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl><Input {...field} value={field.value ?? ""} type="email" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editUserForm.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>WhatsApp</FormLabel>
+                    <FormControl><PhoneInput value={field.value ?? ""} onValueChange={field.onChange} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editUserForm.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de acesso</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditUser(null)}>Cancelar</Button>
+                <Button type="submit" disabled={updateUserMutation.isPending}>
+                  {updateUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={resetTarget !== null}
@@ -196,18 +548,31 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         isLoading={resetPasswordMutation.isPending}
       />
 
-      <Dialog open={resetResult !== null} onOpenChange={(open) => { if (!open) setResetResult(null); }}>
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !removeUserMutation.isPending) setRemoveTarget(null);
+        }}
+        title="Remover usuario"
+        description={`${removeTarget?.name ?? "Este usuario"} perdera acesso a este tenant. A conta global nao sera excluida.`}
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={confirmRemoveUser}
+        isLoading={removeUserMutation.isPending}
+      />
+
+      <Dialog open={passwordResult !== null} onOpenChange={(open) => { if (!open) setPasswordResult(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Senha temporaria</DialogTitle>
             <DialogDescription>
-              Informe esta senha para {resetResult?.name ?? "o usuario"} e solicite a troca no primeiro acesso.
+              Informe esta senha para {passwordResult?.name ?? "o usuario"}. A troca sera exigida no primeiro acesso.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Senha</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Input value={resetResult?.tempPassword ?? ""} readOnly className="font-mono" />
+              <Input value={passwordResult?.tempPassword ?? ""} readOnly className="font-mono" />
               <Button type="button" variant="outline" onClick={copyTemporaryPassword} className="sm:w-auto">
                 <Copy className="mr-2 h-4 w-4" />
                 Copiar
@@ -215,7 +580,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" onClick={() => setResetResult(null)}>Fechar</Button>
+            <Button type="button" onClick={() => setPasswordResult(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

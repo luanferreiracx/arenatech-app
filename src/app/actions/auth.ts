@@ -37,6 +37,10 @@ export async function loginAction(formData: FormData) {
   // Successful login — reset rate limit for this IP
   await resetRateLimit(`login:${ip}`);
 
+  const { cookies } = await import("next/headers");
+  const cookieStore = await cookies();
+  cookieStore.delete("x-active-tenant");
+
   // Determine where to redirect based on session
   const session = await auth();
   if (!session) return { error: "Credenciais inválidas" };
@@ -54,6 +58,9 @@ export async function loginAction(formData: FormData) {
 }
 
 export async function logoutAction() {
+  const { cookies } = await import("next/headers");
+  const cookieStore = await cookies();
+  cookieStore.delete("x-active-tenant");
   await signOut({ redirect: false });
   redirect("/login");
 }

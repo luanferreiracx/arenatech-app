@@ -25,6 +25,27 @@ import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
 const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
 const ACTIVE_TENANT_STATUS = "ACTIVE";
+const USER_SECURITY_CACHE_TTL_MS = 15_000;
+const userSecurityCache = new Map<string, { mustChangePassword: boolean; expiresAt: number }>();
+
+async function resolveMustChangePassword(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = userSecurityCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.mustChangePassword;
+
+  const user = await withAdmin((tx) =>
+    tx.user.findUnique({
+      where: { id: userId },
+      select: { mustChangePassword: true },
+    }),
+  );
+  const mustChangePassword = user?.mustChangePassword === true;
+  userSecurityCache.set(userId, {
+    mustChangePassword,
+    expiresAt: now + USER_SECURITY_CACHE_TTL_MS,
+  });
+  return mustChangePassword;
+}
 
 async function resolveModulesByTenant(
   tenants: Array<{ id: string; slug: string; plan: string | null; status?: string }>,
@@ -148,6 +169,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           cpf: user.cpf,
           isSuperAdmin: user.isSuperAdmin,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -160,6 +182,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id!;
         token.cpf = (user as { cpf: string }).cpf;
         token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
+        token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
 
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
@@ -193,6 +216,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
         token.impersonatedTenantId = null;
       } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
+        if (typeof token.id === "string") {
+          token.mustChangePassword = await resolveMustChangePassword(token.id);
+        }
+
         // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
         // do plano atual, com cache de curta duração (TTL). Garante que mudar o
         // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
@@ -221,6 +248,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         ) {
           token.activeTenantId = null;
         }
+      } else if (typeof token.id === "string") {
+        token.mustChangePassword = await resolveMustChangePassword(token.id);
       }
 
       return token;
@@ -230,6 +259,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.user.id = token.id as string;
       session.user.cpf = token.cpf as string;
       session.user.isSuperAdmin = token.isSuperAdmin as boolean;
+      session.user.mustChangePassword = token.mustChangePassword === true;
       session.activeTenantId = (token.activeTenantId as string) ?? null;
       session.impersonatedTenantId = (token.impersonatedTenantId as string) ?? null;
       session.availableTenants =
