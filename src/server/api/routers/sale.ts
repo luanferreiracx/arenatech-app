@@ -61,6 +61,14 @@ function isCashMethod(method: string): boolean {
   return norm === "dinheiro" || norm === "cash" || norm === "money" || norm === "especie";
 }
 
+function isCompletedDepixStatus(status: string): boolean {
+  return status === "COMPLETED" || status === "COMPLETED_FEE_PENDING";
+}
+
+function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
+  return payment.depixManual === true;
+}
+
 function generatePublicLink(): string {
   return generatePublicToken(12);
 }
@@ -677,6 +685,35 @@ export const saleRouter = createTRPCRouter({
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
+        // DePix via QR so pode finalizar depois de liquidado na wallet. O
+        // frontend auto-finaliza quando recebe SSE/polling, mas o servidor
+        // revalida para impedir tampering ou corrida com status ainda pendente.
+        for (const payment of payments) {
+          if (payment.method !== "depix" || isManualDepixPayment(payment)) continue;
+          if (!payment.walletTransactionId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
+            });
+          }
+          const walletTx = await checkTransactionStatus(ctx.tenantId, payment.walletTransactionId);
+          if (!walletTx) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
+          }
+          if (walletTx.sourceType !== "SALE" || walletTx.sourceId !== sale.id) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Transacao DePix nao pertence a esta venda.",
+            });
+          }
+          if (!isCompletedDepixStatus(walletTx.status)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "DePix ainda nao liquidado. Aguarde a confirmacao do pagamento.",
+            });
+          }
+        }
+
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
         // Determina tipo da venda: se TODOS os itens sao aparelhos -> APARELHO;
         // se NENHUM -> NAO_APARELHO; misto -> AMBOS.
@@ -781,10 +818,8 @@ export const saleRouter = createTRPCRouter({
         const hasPendingDepix = payments.some(
           (p) =>
             p.method === "depix" &&
-            p.depixTransactionId &&
-            // Detect: se UI marcou como pago manualmente, ja considera ok
-            // (operador assumiu responsabilidade).
-            !(p as { depixManual?: boolean }).depixManual,
+            !isManualDepixPayment(p) &&
+            !p.walletTransactionId,
         );
         // Troco = quanto o cliente pagou alem do que devia (apos upgrade).
         const rawChangeCents = refundDueCents > 0
@@ -1086,12 +1121,15 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Build paymentDetails JSON. Preserva depixTransactionId para o
-        // webhook PixPay conseguir localizar e marcar a venda como paga.
+        // Build paymentDetails JSON. Preserva ids DePix para conciliacao
+        // wallet-first e compatibilidade com webhook PixPay legado.
         const paymentDetails = payments.map((p) => ({
           method: p.method,
           amount: p.amount,
           installments: p.installments ?? 1,
+          ...(p.walletTransactionId
+            ? { walletTransactionId: p.walletTransactionId }
+            : {}),
           ...(p.depixTransactionId
             ? { depixTransactionId: p.depixTransactionId }
             : {}),
@@ -1486,8 +1524,13 @@ export const saleRouter = createTRPCRouter({
             .map((i) => i.stockItemId)
             .filter((id): id is string => !!id);
           if (stockItemIds.length > 0) {
-            await tx.stockItem.updateMany({
-              where: { id: { in: stockItemIds } },
+            const result = await tx.stockItem.updateMany({
+              where: {
+                id: { in: stockItemIds },
+                status: "SOLD",
+                saleId: sale.id,
+                deletedAt: null,
+              },
               data: {
                 // Defeito: aparelho volta como DEFECTIVE (nao vende mais).
                 // Caso contrario: AVAILABLE.
@@ -1496,6 +1539,12 @@ export const saleRouter = createTRPCRouter({
                 soldAt: null,
               },
             });
+            if (result.count !== stockItemIds.length) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Um ou mais aparelhos nao estao mais vinculados a esta venda. Atualize e tente novamente.",
+              });
+            }
           }
         }
 

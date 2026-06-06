@@ -35,10 +35,13 @@ function formatCurrency(cents: number): string {
 }
 
 /**
- * Modal que gera + exibe QR Code Depix para a venda. Faz polling do status
- * a cada 4s ate o pagamento ser confirmado (ou usuario fechar).
+ * Modal que gera + exibe QR Code Depix para a venda. Recebe confirmacao em
+ * tempo real via SSE e usa polling de 30s como fallback ate o pagamento ser
+ * confirmado (ou usuario fechar).
  *
  * Paridade Laravel: `PdvController::gerarPixDepix` + tela `pdv/depix-qr.blade.php`.
+ * `onPaid` significa apenas pagamento confirmado; o parent decide como concluir
+ * a venda (PDV auto-finaliza via `sale.finalize`).
  */
 export function DepixQrDialog({
   open,

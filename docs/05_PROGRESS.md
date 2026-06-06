@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -16,7 +16,28 @@
 
 ---
 
-## Histórico de execução
+### 2026-06-06 — OS finalizacao e termos
+- Implementado: detalhe da OS agora mostra painel consolidado de pendencias para avancar/finalizar, cobrindo assinatura de entrada, orcamento pendente, laboratorio externo sem retorno e termo de entrega pendente.
+- Implementado: fluxo de cancelamento agora oferece envio de termo de devolucao, verificacao/confirmacao fisica e separa o override administrativo antes de liberar o cancelamento sem termo.
+- Implementado: termo de entrega permanece mais visivel apos pagamento/retirada e continua auditavel apos entrega; referencias ativas obsoletas da skill `arenatech-module-audit` foram removidas de `CLAUDE.md` e `AGENTS.md`.
+- Validacao: `pnpm vitest run __tests__/unit/validators/service-order.test.ts` verde (49/49), `DATABASE_URL=... pnpm prisma generate` + `DATABASE_URL=... pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes). E2E focado `pnpm playwright test __tests__/e2e/service-orders.spec.ts -g "T-12" --workers=1` nao iniciou por falta de `APP_DATABASE_URL`/`DATABASE_URL` no webserver do Playwright.
+- Proximo: rodar E2E focado de OS em ambiente com app/banco disponiveis e adicionar testes de integracao finos dos gates do router se o ambiente de integracao estiver estavel.
+
+### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
+- Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
+- Implementado: backend passou a validar DePix não manual contra a wallet canonical antes de concluir a venda, persistindo `walletTransactionId` e `depixTransactionId` em `paymentDetails`.
+- Implementado: venda avulsa DePix não pode ser marcada como paga sem liquidação real da wallet; estorno de item serializado confere estado/contagem antes de restaurar estoque.
+- Implementado: relatórios `inventoryReport`, `lowStockAlerts`, `stats`, `reportPosicao` e `reportEstoqueMin` deixaram de retornar estoque fake zero e agora usam `StockItem`, variações ou `Product.currentStock` conforme o tipo do produto.
+- Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
+- Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
+- Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
 
 ### 2026-06-06 — DePix legado desabilitado para novas operações
 - Implementado: downgrade/reembolso DePix de venda deixou de criar `DepixWithdraw` legado e agora dispara saque via `TenantDepixTransaction`/Wallet LWK (`createWithdraw`) com idempotência por venda.
@@ -84,6 +105,7 @@
 - Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
 - Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
 - Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
 
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
