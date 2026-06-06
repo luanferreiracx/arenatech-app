@@ -493,6 +493,49 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const checklist = (order.entryChecklist ?? {}) as ChecklistData;
   const deviceInfo = (order.deviceInfo ?? {}) as DeviceInfoData;
   const pendingQuote = order.quotes?.find((q: { status: string }) => q.status === "pending");
+  const deliveryTermSigned = !!order.deliveryTermSigned || !!order.deliveryTermPhysical;
+  const returnTermSigned = !!order.returnTermSigned || !!order.returnTermPhysical;
+  const labReturnPending = !!order.sentToLab && !order.labReceived;
+  const canShowDeliveryTerm =
+    !isCancelled &&
+    !isRefunded &&
+    (["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) || !!order.deliveryTermSent || deliveryTermSigned);
+  const canSendDeliveryTerm = ["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && !deliveryTermSigned;
+  const canConfirmDeliveryTerm = ["PAID", "READY_FOR_PICKUP"].includes(status) && !deliveryTermSigned;
+  const statusBlockers = [
+    !isSigned && nextOptions.length > 0 && !isCancelled && !isRefunded
+      ? {
+          key: "signature",
+          title: "Assinatura de entrada pendente",
+          description:
+            "Confirme a assinatura do cliente (digital ou fisica) antes de avancar a OS.",
+        }
+      : null,
+    order.budgetPending
+      ? {
+          key: "budget",
+          title: "Orcamento aguardando autorizacao",
+          description:
+            "Envie a revisao ao cliente, autorize como gerente ou cancele a alteracao antes de mudar o status.",
+        }
+      : null,
+    labReturnPending
+      ? {
+          key: "lab",
+          title: "Aparelho no laboratorio externo",
+          description:
+            "Confirme o retorno do aparelho do laboratorio antes de concluir a OS.",
+        }
+      : null,
+    ["PAID", "READY_FOR_PICKUP"].includes(status) && !deliveryTermSigned
+      ? {
+          key: "delivery-term",
+          title: "Termo de entrega pendente",
+          description:
+            "Envie o termo para assinatura ou confirme a entrega fisica antes de marcar como entregue.",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; title: string; description: string }>;
 
   // Costs / Profit
   const profit = order.totalAmount - order.partsCost - order.otherCost;
@@ -598,7 +641,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Signature Status — so antes do pagamento. Some apos assinatura confirmada. */}
+      {/* Signature Status — antes do pagamento; continua visivel enquanto pendente. */}
       {!isCancelled && !isRefunded && !isSigned && !["PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
         <div className={`rounded-lg border-2 p-4 mb-6 ${isSigned ? "border-success bg-success/10" : "border-warning bg-warning/10"}`}>
           <h3 className={`font-semibold flex items-center gap-2 ${isSigned ? "text-success" : "text-warning"}`}>
@@ -687,12 +730,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Delivery Term — durante PAID/READY_FOR_PICKUP. Some apos DELIVERED. */}
-      {!isCancelled && !isRefunded && !isDelivered && ["PAID", "READY_FOR_PICKUP"].includes(status) && (
-        <div className={`rounded-lg border-2 p-4 mb-6 ${order.deliveryTermSigned ? "border-success bg-success/10" : "border-emerald-500 bg-emerald-500/10"}`}>
-          <h3 className={`font-semibold flex items-center gap-2 ${order.deliveryTermSigned ? "text-success" : "text-emerald-400"}`}>
+      {/* Delivery Term — visivel apos pagamento/retirada e mantido apos entrega para auditoria. */}
+      {canShowDeliveryTerm && (
+        <div className={`rounded-lg border-2 p-4 mb-6 ${deliveryTermSigned ? "border-success bg-success/10" : "border-emerald-500 bg-emerald-500/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${deliveryTermSigned ? "text-success" : "text-emerald-400"}`}>
             <Truck className="h-5 w-5" />
-            Termo de Entrega {order.deliveryTermSigned ? "- Assinado" : ""}
+            Termo de Entrega {deliveryTermSigned ? "- Assinado" : ""}
           </h3>
           {order.deliveryTermLink && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -700,7 +743,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </p>
           )}
           <div className="flex flex-wrap gap-2 mt-3">
-            {!order.deliveryTermSigned && !order.deliveryTermAutentiqueId && (
+            {canSendDeliveryTerm && !order.deliveryTermAutentiqueId && (
               <Button
                 size="sm"
                 variant="outline"
@@ -709,7 +752,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Entrega
               </Button>
             )}
-            {order.deliveryTermAutentiqueId && !order.deliveryTermSigned && (
+            {order.deliveryTermAutentiqueId && !deliveryTermSigned && (
               <>
                 <Button
                   size="sm"
@@ -728,7 +771,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 )}
               </>
             )}
-            {!order.deliveryTermSigned && (
+            {canConfirmDeliveryTerm && (
               <Button
                 size="sm"
                 variant="outline"
@@ -738,17 +781,24 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Check className="mr-1 h-3 w-3" />Confirmar Entrega Fisica
               </Button>
             )}
+            {deliveryTermSigned && order.deliveryTermLink && (
+              <Button size="sm" variant="outline" asChild>
+                <a href={order.deliveryTermLink as string} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1 h-3 w-3" />Ver Termo Assinado
+                </a>
+              </Button>
+            )}
           </div>
         </div>
       )}
 
       {/* Return Term — so se cancelamento em curso (termo enviado ou OS ja cancelada).
           No fluxo normal nao aparece. Paridade com Laravel (mostrado apos `enviarTermoDevolucao`). */}
-      {!isRefunded && !isDelivered && (order.returnTermSent || isCancelled) && (
-        <div className={`rounded-lg border-2 p-4 mb-6 ${order.returnTermSigned ? "border-destructive bg-destructive/10" : "border-orange-500 bg-orange-500/10"}`}>
-          <h3 className={`font-semibold flex items-center gap-2 ${order.returnTermSigned ? "text-destructive" : "text-orange-400"}`}>
+      {!isRefunded && !isDelivered && (order.returnTermSent || isCancelled || returnTermSigned) && (
+        <div className={`rounded-lg border-2 p-4 mb-6 ${returnTermSigned ? "border-destructive bg-destructive/10" : "border-orange-500 bg-orange-500/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${returnTermSigned ? "text-destructive" : "text-orange-400"}`}>
             <RotateCcw className="h-5 w-5" />
-            Termo de Devolucao {order.returnTermSigned ? "- Assinado (OS Cancelada)" : ""}
+            Termo de Devolucao {returnTermSigned ? "- Assinado (OS Cancelada)" : ""}
           </h3>
           {order.returnTermLink && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -756,7 +806,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </p>
           )}
           <div className="flex flex-wrap gap-2 mt-3">
-            {!order.returnTermSigned && !order.returnTermAutentiqueId && (
+            {!returnTermSigned && !order.returnTermAutentiqueId && (
               <Button
                 size="sm"
                 variant="outline"
@@ -765,7 +815,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Devolucao
               </Button>
             )}
-            {order.returnTermAutentiqueId && !order.returnTermSigned && (
+            {order.returnTermAutentiqueId && !returnTermSigned && (
               <>
                 <Button
                   size="sm"
@@ -784,7 +834,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 )}
               </>
             )}
-            {!order.returnTermSigned && !isCancelled && (
+            {!returnTermSigned && !isCancelled && (
               <Button
                 size="sm"
                 variant="destructive"
@@ -803,7 +853,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         const diff = pendingQuote.newTotal - pendingQuote.previousTotal;
         const sent = pendingQuote.sentToCustomer;
         return (
-          <div className="rounded-lg border-2 border-purple-500 bg-purple-500/10 p-4 mb-6">
+          <div id="orcamento-pendente" className="rounded-lg border-2 border-purple-500 bg-purple-500/10 p-4 mb-6">
             <h3 className="font-semibold text-purple-400 flex items-center gap-2 mb-1">
               <DollarSign className="h-5 w-5" />Alteracao de Orcamento — Aguardando Autorizacao
             </h3>
@@ -1201,16 +1251,67 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Status</h3>
             <StatusStepper status={status} />
 
-            {/* Bloqueio: nao avancar status enquanto OS nao foi assinada */}
-            {!isSigned && !isCancelled && !isRefunded && nextOptions.length > 0 && (
+            {/* Pendencias que bloqueiam avanço/finalização. Espelha os guards do router. */}
+            {statusBlockers.length > 0 && (
               <div className="mt-4 pt-4 border-t border-border">
-                <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
-                  <strong className="text-warning">Assinatura de entrada pendente.</strong>
-                  <p className="text-muted-foreground mt-1">
-                    Confirme a assinatura do cliente (Autentique ou fisica) antes de avancar
-                    o status da OS. O aparelho fica sob responsabilidade da loja apenas
-                    apos a assinatura.
-                  </p>
+                <div className="rounded border border-warning bg-warning/10 p-3 text-sm space-y-3">
+                  <div>
+                    <strong className="text-warning">Pendencias para avancar a OS</strong>
+                    <p className="text-muted-foreground mt-1">
+                      Resolva os itens abaixo antes de mudar o status. Esses bloqueios evitam finalizar ou entregar uma OS sem os documentos/etapas obrigatorias.
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    {statusBlockers.map((blocker) => (
+                      <div key={blocker.key} className="rounded bg-background/60 border border-border/60 p-2">
+                        <p className="font-medium text-foreground">{blocker.title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{blocker.description}</p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {blocker.key === "signature" && (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => setSignatureDialog(true)} disabled={sendForSignatureMut.isPending}>
+                                <Send className="mr-1 h-3 w-3" />Enviar assinatura
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => confirmSigMut.mutate({ orderId: id, type: "entry" })} disabled={confirmSigMut.isPending}>
+                                <Check className="mr-1 h-3 w-3" />Confirmar fisica
+                              </Button>
+                            </>
+                          )}
+                          {blocker.key === "budget" && pendingQuote && (
+                            <Button size="sm" variant="outline" asChild>
+                              <a href="#orcamento-pendente">
+                                <DollarSign className="mr-1 h-3 w-3" />Ver autorizacao
+                              </a>
+                            </Button>
+                          )}
+                          {blocker.key === "lab" && (
+                            <Button size="sm" variant="outline" onClick={() => receiveFromLabMut.mutate({ orderId: id })} disabled={receiveFromLabMut.isPending}>
+                              <Check className="mr-1 h-3 w-3" />Confirmar retorno do laboratorio
+                            </Button>
+                          )}
+                          {blocker.key === "delivery-term" && (
+                            <>
+                              {!order.deliveryTermAutentiqueId && (
+                                <Button size="sm" variant="outline" onClick={() => { setDeliveryTermPhone(order.customer?.phone ?? ""); setDeliveryTermDialog(true); }} disabled={sendDeliveryTermMut.isPending}>
+                                  <Send className="mr-1 h-3 w-3" />Enviar termo
+                                </Button>
+                              )}
+                              {order.deliveryTermAutentiqueId && (
+                                <Button size="sm" variant="outline" onClick={() => checkDeliveryTermStatusMut.mutate({ orderId: id })} disabled={checkDeliveryTermStatusMut.isPending}>
+                                  <RefreshCw className="mr-1 h-3 w-3" />Verificar assinatura
+                                </Button>
+                              )}
+                              {canConfirmDeliveryTerm && (
+                                <Button size="sm" variant="outline" onClick={() => confirmPhysicalDeliveryTermMut.mutate({ orderId: id })} disabled={confirmPhysicalDeliveryTermMut.isPending}>
+                                  <Check className="mr-1 h-3 w-3" />Confirmar entrega fisica
+                                </Button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1699,22 +1800,66 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar OS</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {!order.returnTermSigned && !order.returnTermPhysical && (
-              <div className="rounded border border-warning bg-warning/10 p-3 text-sm">
-                <strong className="text-warning">Termo de devolucao pendente.</strong>
-                <p className="text-muted-foreground mt-1">
-                  Toda OS exige termo de devolucao assinado antes do cancelamento — o aparelho
-                  esta sob responsabilidade da loja. Envie o termo ou confirme a devolucao
-                  fisica. Administradores podem forcar o cancelamento marcando a opcao abaixo.
-                </p>
-                <label className="flex items-center gap-2 mt-2">
-                  <input
-                    type="checkbox"
-                    checked={cancelForce}
-                    onChange={(e) => setCancelForce(e.target.checked)}
-                  />
-                  <span className="text-sm">Forcar cancelamento sem termo (apenas admin)</span>
-                </label>
+            {!returnTermSigned && (
+              <div className="rounded border border-warning bg-warning/10 p-3 text-sm space-y-3">
+                <div>
+                  <strong className="text-warning">Termo de devolucao pendente.</strong>
+                  <p className="text-muted-foreground mt-1">
+                    Toda OS exige termo de devolucao assinado antes do cancelamento — o aparelho
+                    esta sob responsabilidade da loja. Envie o termo para assinatura digital ou
+                    confirme a devolucao fisica antes de cancelar.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {!order.returnTermAutentiqueId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setReturnTermPhone(order.customer?.phone ?? "");
+                        setReturnTermReason(cancelReason || "Equipamento devolvido ao cliente");
+                        setReturnTermDialog(true);
+                      }}
+                      disabled={sendReturnTermMut.isPending}
+                    >
+                      <Send className="mr-1 h-3 w-3" />Enviar termo de devolucao
+                    </Button>
+                  )}
+                  {order.returnTermAutentiqueId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => checkReturnTermStatusMut.mutate({ orderId: id })}
+                      disabled={checkReturnTermStatusMut.isPending}
+                    >
+                      <RefreshCw className="mr-1 h-3 w-3" />Verificar assinatura
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => confirmPhysicalReturnTermMut.mutate({ orderId: id, reason: cancelReason || "Equipamento devolvido ao cliente" })}
+                    disabled={confirmPhysicalReturnTermMut.isPending}
+                  >
+                    <Check className="mr-1 h-3 w-3" />Confirmar devolucao fisica
+                  </Button>
+                </div>
+                <div className="border-t border-warning/30 pt-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Override administrativo: use apenas quando houver justificativa para cancelar sem termo assinado.
+                  </p>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={cancelForce}
+                      onChange={(e) => setCancelForce(e.target.checked)}
+                    />
+                    <span className="text-sm">Forcar cancelamento sem termo (admin/gerente)</span>
+                  </label>
+                </div>
               </div>
             )}
             <div>
@@ -1726,7 +1871,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
             <Button
               variant="destructive"
-              disabled={!cancelReason || cancelMut.isPending}
+              disabled={!cancelReason || (!returnTermSigned && !cancelForce) || cancelMut.isPending}
               onClick={() => {
                 cancelMut.mutate({ id, reason: cancelReason, force: cancelForce });
                 setCancelDialog(false);

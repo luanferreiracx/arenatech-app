@@ -8,7 +8,7 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-05
+**Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `feat/cloudinary-product-images`
@@ -16,7 +16,12 @@
 
 ---
 
-## Histórico de execução
+### 2026-06-06 — OS finalizacao e termos
+- Implementado: detalhe da OS agora mostra painel consolidado de pendencias para avancar/finalizar, cobrindo assinatura de entrada, orcamento pendente, laboratorio externo sem retorno e termo de entrega pendente.
+- Implementado: fluxo de cancelamento agora oferece envio de termo de devolucao, verificacao/confirmacao fisica e separa o override administrativo antes de liberar o cancelamento sem termo.
+- Implementado: termo de entrega permanece mais visivel apos pagamento/retirada e continua auditavel apos entrega; referencias ativas obsoletas da skill `arenatech-module-audit` foram removidas de `CLAUDE.md` e `AGENTS.md`.
+- Validacao: `pnpm vitest run __tests__/unit/validators/service-order.test.ts` verde (49/49), `DATABASE_URL=... pnpm prisma generate` + `DATABASE_URL=... pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes). E2E focado `pnpm playwright test __tests__/e2e/service-orders.spec.ts -g "T-12" --workers=1` nao iniciou por falta de `APP_DATABASE_URL`/`DATABASE_URL` no webserver do Playwright.
+- Proximo: rodar E2E focado de OS em ambiente com app/banco disponiveis e adicionar testes de integracao finos dos gates do router se o ambiente de integracao estiver estavel.
 
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.
