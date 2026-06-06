@@ -18,11 +18,12 @@
 
 ## Histórico de execução
 
-### 2026-06-05 — Hotfix isolamento de tenant ativo por cookie
-- Corrigido: cookie `x-active-tenant` antigo/forjado nao pode mais definir tenant ativo se o tenant nao pertence a sessao atual.
-- Corrigido: superadmin nao recebe mais passe livre em rotas de tenant via cookie arbitrario; acesso tenant-scoped exige vinculo explicito na sessao.
-- Corrigido: login/logout limpam `x-active-tenant`, evitando herdar tenant de sessao anterior.
-- Corrigido: layout e painel usam os modulos do tenant ativo resolvido, nao todos os modulos apenas por `isSuperAdmin`.
+### 2026-06-05 — Skills globais reinstaladas e CLAUDE.md reconciliado
+- Implementado: skills do pacote `~/Downloads/claude-kit` instaladas em `~/.claude/skills/` e regras de precedência registradas em `CLAUDE.md`.
+- Implementado: `CLAUDE.md` reconciliado com as skills `software-engineering`, `typescript`, `react`, `database`, `docker-infra`, `reviewing-code` e `writing`, preservando overrides específicos do projeto.
+- Implementado: skills customizadas antigas do projeto removidas de `.claude/skills/` a pedido do dono, e `CLAUDE.md` atualizado para não referenciá-las como ativas.
+- Decisões: Conventional Commits permanece override explícito sobre a recomendação genérica da skill `writing`; Next.js 16 e Prisma 7 passam a ser refletidos nas instruções permanentes.
+- Próximo: usar as skills globais como autoridade especializada por domínio nas próximas janelas/worktrees.
 
 ### 2026-06-05 — Superadmin administra usuarios de tenants
 - Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
