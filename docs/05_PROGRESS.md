@@ -16,7 +16,12 @@
 
 ---
 
-## Histórico de execução
+### 2026-06-06 — OS finalizacao e termos
+- Implementado: detalhe da OS agora mostra painel consolidado de pendencias para avancar/finalizar, cobrindo assinatura de entrada, orcamento pendente, laboratorio externo sem retorno e termo de entrega pendente.
+- Implementado: fluxo de cancelamento agora oferece envio de termo de devolucao, verificacao/confirmacao fisica e separa o override administrativo antes de liberar o cancelamento sem termo.
+- Implementado: termo de entrega permanece mais visivel apos pagamento/retirada e continua auditavel apos entrega; referencias ativas obsoletas da skill `arenatech-module-audit` foram removidas de `CLAUDE.md` e `AGENTS.md`.
+- Validacao: `pnpm vitest run __tests__/unit/validators/service-order.test.ts` verde (49/49), `DATABASE_URL=... pnpm prisma generate` + `DATABASE_URL=... pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes). E2E focado `pnpm playwright test __tests__/e2e/service-orders.spec.ts -g "T-12" --workers=1` nao iniciou por falta de `APP_DATABASE_URL`/`DATABASE_URL` no webserver do Playwright.
+- Proximo: rodar E2E focado de OS em ambiente com app/banco disponiveis e adicionar testes de integracao finos dos gates do router se o ambiente de integracao estiver estavel.
 
 ### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
 - Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
