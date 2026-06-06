@@ -74,6 +74,53 @@ import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 
+type StockSourceProduct = {
+  id: string;
+  currentStock: number;
+  hasVariations: boolean;
+  isSerialized: boolean;
+};
+
+async function resolveCurrentStockByProduct(
+  tx: Prisma.TransactionClient,
+  products: StockSourceProduct[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (products.length === 0) return result;
+
+  const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id);
+  const variationIds = products
+    .filter((p) => !p.isSerialized && p.hasVariations)
+    .map((p) => p.id);
+
+  const [serializedCounts, variationSums] = await Promise.all([
+    serializedIds.length > 0
+      ? tx.stockItem.groupBy({
+          by: ["productId"],
+          where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    variationIds.length > 0
+      ? tx.productVariation.groupBy({
+          by: ["productId"],
+          where: { productId: { in: variationIds }, deletedAt: null, active: true },
+          _sum: { currentStock: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const serializedMap = new Map(serializedCounts.map((row) => [row.productId, row._count._all]));
+  const variationMap = new Map(variationSums.map((row) => [row.productId, row._sum.currentStock ?? 0]));
+
+  for (const product of products) {
+    if (product.isSerialized) result.set(product.id, serializedMap.get(product.id) ?? 0);
+    else if (product.hasVariations) result.set(product.id, variationMap.get(product.id) ?? 0);
+    else result.set(product.id, product.currentStock);
+  }
+  return result;
+}
+
 /**
  * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
  * Chamado quando termo de responsabilidade eh assinado (fisica ou Autentique).
@@ -1653,20 +1700,32 @@ export const stockRouter = createTRPCRouter({
           costPrice: true,
           salePrice: true,
           unit: true,
+          currentStock: true,
+          isSerialized: true,
+          hasVariations: true,
         },
       });
 
-      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-      const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+      const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+      const productsWithStock = products.map((p) => ({
+        ...p,
+        currentStock: stockByProduct.get(p.id) ?? 0,
+      }));
 
       const totalProducts = productsWithStock.length;
-      const totalItems = 0;
-      const totalCostValue = 0;
-      const totalSaleValue = 0;
+      const totalItems = productsWithStock.reduce((sum, p) => sum + p.currentStock, 0);
+      const totalCostValue = productsWithStock.reduce(
+        (sum, p) => sum + p.currentStock * Number(p.costPrice),
+        0,
+      );
+      const totalSaleValue = productsWithStock.reduce(
+        (sum, p) => sum + p.currentStock * Number(p.salePrice),
+        0,
+      );
       const lowStockCount = productsWithStock.filter(
-        (p) => p.minStock > 0,
+        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
       ).length;
-      const outOfStockCount = productsWithStock.length;
+      const outOfStockCount = productsWithStock.filter((p) => p.currentStock <= 0).length;
 
       return {
         products: productsWithStock,
@@ -1697,30 +1756,53 @@ export const stockRouter = createTRPCRouter({
           name: true,
           sku: true,
           minStock: true,
+          currentStock: true,
+          isSerialized: true,
+          hasVariations: true,
         },
       });
 
-      // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-      return products.map((p) => ({ ...p, currentStock: 0 }));
+      const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+      return products
+        .map((p) => ({ ...p, currentStock: stockByProduct.get(p.id) ?? 0 }))
+        .filter((p) => p.currentStock <= p.minStock);
     });
   }),
 
   /** Stats for dashboard cards */
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const [totalProducts, lowStock] = await Promise.all([
-        tx.product.count({ where: { deletedAt: null, active: true } }),
-        tx.product.count({
-          where: { deletedAt: null, active: true, minStock: { gt: 0 } },
-        }),
-      ]);
+      const products = await tx.product.findMany({
+        where: { deletedAt: null, active: true },
+        select: {
+          id: true,
+          currentStock: true,
+          hasVariations: true,
+          isSerialized: true,
+          minStock: true,
+          salePrice: true,
+        },
+      });
+      const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+      const productsWithStock = products.map((p) => ({
+        ...p,
+        currentStock: stockByProduct.get(p.id) ?? 0,
+      }));
+      const totalProducts = productsWithStock.length;
+      const totalItems = productsWithStock.reduce((sum, p) => sum + p.currentStock, 0);
+      const totalSaleValue = productsWithStock.reduce(
+        (sum, p) => sum + p.currentStock * Number(p.salePrice),
+        0,
+      );
+      const lowStockCount = productsWithStock.filter(
+        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
+      ).length;
 
-      // TODO: Estoque-B will handle stock tracking via StockItem — stub values as 0
       return {
         totalProducts,
-        totalItems: 0,
-        totalSaleValue: 0,
-        lowStockCount: lowStock,
+        totalItems,
+        totalSaleValue: Math.round(totalSaleValue * 100),
+        lowStockCount,
       };
     });
   }),
@@ -2475,11 +2557,17 @@ export const stockRouter = createTRPCRouter({
             salePrice: true,
             unit: true,
             category: { select: { name: true } },
+            currentStock: true,
+            isSerialized: true,
+            hasVariations: true,
           },
         });
 
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-        const productsWithStock = products.map((p) => ({ ...p, currentStock: 0 }));
+        const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+        const productsWithStock = products.map((p) => ({
+          ...p,
+          currentStock: stockByProduct.get(p.id) ?? 0,
+        }));
 
         const filtered = input.onlyWithStock
           ? productsWithStock.filter((p) => p.currentStock > 0)
@@ -2661,16 +2749,22 @@ export const stockRouter = createTRPCRouter({
             sku: true,
             minStock: true,
             category: { select: { name: true } },
+            currentStock: true,
+            isSerialized: true,
+            hasVariations: true,
           },
         });
 
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub currentStock as 0
-        const withStatus = products.map((p) => ({
-          ...p,
-          currentStock: 0,
-          diff: 0 - p.minStock,
-          status: 0 < p.minStock ? ("below" as const) : ("ok" as const),
-        }));
+        const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+        const withStatus = products.map((p) => {
+          const currentStock = stockByProduct.get(p.id) ?? 0;
+          return {
+            ...p,
+            currentStock,
+            diff: currentStock - p.minStock,
+            status: currentStock < p.minStock ? ("below" as const) : ("ok" as const),
+          };
+        });
 
         const filtered =
           input.onlyBelowMin !== false

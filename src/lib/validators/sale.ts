@@ -49,6 +49,8 @@ export const paymentDetailSchema = z.object({
    * digita o valor que aparece na maquininha. Default = amount.
    */
   totalPaidByCustomer: z.number().int().min(0).optional(),
+  /** Operador assumiu recebimento manual do DePix; nao ha QR/wallet a validar. */
+  depixManual: z.boolean().optional(),
   /** ID canonico da transacao wallet quando method = "depix". */
   walletTransactionId: z.string().uuid().optional().nullable(),
   /**
