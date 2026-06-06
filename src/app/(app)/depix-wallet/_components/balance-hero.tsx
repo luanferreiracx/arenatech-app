@@ -13,6 +13,7 @@ interface BalanceHeroProps {
   network: string | null;
   success: boolean;
   error: string | null;
+  canWithdraw: boolean;
   className?: string;
 }
 
@@ -31,6 +32,7 @@ export function BalanceHero({
   network,
   success,
   error,
+  canWithdraw,
   className,
 }: BalanceHeroProps) {
   return (
@@ -72,19 +74,28 @@ export function BalanceHero({
             </p>
           </div>
 
-          <div className="flex gap-2 shrink-0">
-            <Button asChild size="lg" className="shadow-sm">
-              <Link href="/depix-wallet/receive">
-                <ArrowDownLeft className="mr-2 h-4 w-4" />
-                Receber
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link href="/depix-wallet/withdraw">
-                <ArrowUpRight className="mr-2 h-4 w-4" />
-                Sacar
-              </Link>
-            </Button>
+          <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
+            <div className="flex gap-2">
+              <Button asChild size="lg" className="shadow-sm">
+                <Link href="/depix-wallet/receive">
+                  <ArrowDownLeft className="mr-2 h-4 w-4" />
+                  Receber
+                </Link>
+              </Button>
+              {canWithdraw && (
+                <Button asChild size="lg" variant="outline">
+                  <Link href="/depix-wallet/withdraw">
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                    Sacar
+                  </Link>
+                </Button>
+              )}
+            </div>
+            {!canWithdraw && (
+              <p className="max-w-[240px] text-xs text-muted-foreground text-left sm:text-right">
+                Saque disponivel apenas para perfil admin do tenant.
+              </p>
+            )}
           </div>
         </div>
 
