@@ -5,8 +5,9 @@
  * com REGRAS DE PREÇO DIFERENTES (resgatadas fielmente do Talison Laravel —
  * ChatbotController:4820). Assimetria crítica:
  *
- *  - buscar_aparelho → available_devices: o preço da tabela JÁ É o preço PIX/à
- *    vista (promocional). NÃO se aplica desconto. No débito/cartão o valor é
+ *  - buscar_aparelho → catalog_devices: usa o catálogo curado administrado em
+ *    /aparelhos-catalogo. O preço efetivo (promotionalPrice ?? price) JÁ É o
+ *    preço PIX/à vista. NÃO se aplica desconto. No débito/cartão o valor é
  *    MAIOR (acréscimo da operadora). A tool informa isso, sem recalcular.
  *
  *  - buscar_acessorio → products: o preço da tabela é o preço CHEIO (crédito).
@@ -29,6 +30,9 @@ const CONDITION_LABEL: Record<string, string> = {
   DISPLAY: "vitrine",
   REFURBISHED: "recondicionado",
   DEFECTIVE: "com defeito",
+  novo: "novo",
+  seminovo: "seminovo",
+  usado: "usado",
 };
 
 const buscarAparelhoSchema = z.object({
@@ -56,24 +60,24 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
       const model = args.modelo.trim();
       const conditionFilter =
         args.condicao === "novo"
-          ? { condition: "NEW" as const }
+          ? { condition: { equals: "novo", mode: "insensitive" as const } }
           : args.condicao === "seminovo"
-            ? { condition: "SEMI_NEW" as const }
+            ? { condition: { equals: "seminovo", mode: "insensitive" as const } }
             : args.condicao === "usado"
-              ? { condition: "USED" as const }
+              ? { condition: { equals: "usado", mode: "insensitive" as const } }
               : {};
 
-      const devices = await tx.availableDevice.findMany({
+      const devices = await tx.catalogDevice.findMany({
         where: {
           tenantId: ctx.tenantId,
-          active: true,
+          available: true,
           deletedAt: null,
           ...conditionFilter,
-          model: { contains: model, mode: "insensitive" },
+          name: { contains: model, mode: "insensitive" },
         },
         orderBy: [{ price: "asc" }],
         take: MAX_RESULTS,
-        select: { model: true, condition: true, price: true, note: true },
+        select: { name: true, condition: true, price: true, promotionalPrice: true, description: true },
       });
 
       if (devices.length === 0) {
@@ -84,12 +88,23 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
       }
 
       const lines = devices.map((device) => {
-        const price = Number(device.price);
+        const effectivePrice = device.promotionalPrice ?? device.price;
+        const price = effectivePrice == null ? 0 : Number(effectivePrice);
         // Preço da tabela JÁ É o PIX/à vista — não recalcula. Cartão é maior.
         const priceLabel = price > 0 ? `${formatBRL(price)} no PIX/à vista` : "preço sob consulta";
-        const condition = CONDITION_LABEL[device.condition] ?? device.condition;
-        const note = device.note ? ` — ${device.note}` : "";
-        return `${device.model} (${condition}): ${priceLabel}${note}`;
+        const condition = CONDITION_LABEL[device.condition ?? ""] ?? device.condition ?? "";
+        const note = device.description ? ` — ${device.description}` : "";
+        return `${device.name} (${condition}): ${priceLabel}${note}`;
+      });
+
+      const aparelhos = devices.map((device) => {
+        const effectivePrice = device.promotionalPrice ?? device.price;
+        const price = effectivePrice == null ? 0 : Number(effectivePrice);
+        return {
+          modelo: device.name,
+          condicao: CONDITION_LABEL[device.condition ?? ""] ?? device.condition ?? "",
+          preco_pix: price > 0 ? formatBRL(price) : "sob consulta",
+        };
       });
       // Nota fiel ao Laravel, pro modelo não confundir PIX com cartão.
       const footer =
@@ -100,11 +115,7 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
         data: {
           total: devices.length,
           observacao_pagamento: "preços são PIX/à vista; cartão tem acréscimo",
-          aparelhos: devices.map((device) => ({
-            modelo: device.model,
-            condicao: CONDITION_LABEL[device.condition] ?? device.condition,
-            preco_pix: Number(device.price) > 0 ? formatBRL(Number(device.price)) : "sob consulta",
-          })),
+          aparelhos,
         },
         display: lines.join("\n") + footer,
       };

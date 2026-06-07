@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque e o catálogo público `/catalog` foi reconstruído para exibir apenas produtos com foto, estoque e preço Pix/parcelamento. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
 **Ultima atualizacao:** 2026-06-07
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -110,6 +110,14 @@
 - Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
 - Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
 - Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-07 — Talison usa catálogo único de aparelhos
+- Implementado: `buscar_aparelho` do Talison deixou de consultar a tabela dedicada `available_devices` e passou a usar `catalog_devices`, a mesma fonte administrada em `/aparelhos-catalogo`.
+- Implementado: migration nova faz backfill dos dados remanescentes de `available_devices` para `catalog_devices`/categorias e remove a tabela fantasma ao final.
+- Implementado: modelo Prisma `AvailableDevice`, seed JSON e script `seed-available-devices.ts` removidos.
+- Decisões: preço efetivo de aparelho no Talison é `promotionalPrice ?? price`, mantendo a regra de que o valor exibido já é PIX/à vista e não recebe novo desconto.
+- Validação: `DATABASE_URL=... pnpm db:generate`, teste focado Talison, `pnpm typecheck`, `pnpm test:unit` e busca por referências fora das migrations verdes.
+- Próximo: aplicar migration em staging/prod e confirmar que aparelhos excluídos em `/aparelhos-catalogo` não são mais ofertados pelo bot.
 
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.

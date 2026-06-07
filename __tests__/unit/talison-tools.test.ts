@@ -173,32 +173,45 @@ describe("consultar_avaliacao", () => {
 });
 
 describe("buscar_aparelho", () => {
-  it("lista aparelhos com condição traduzida, preço PIX e observação", async () => {
-    const tx = {
-      availableDevice: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            model: "iPhone 15 128gb",
-            condition: "NEW",
-            price: { toString: () => "4299.99" },
-            note: null,
-          },
-          {
-            model: "iPhone 15 Plus 128gb",
-            condition: "SEMI_NEW",
-            price: { toString: () => "3299.00" },
-            note: "Bateria 83%, bem conservado",
-          },
-        ]),
+  it("lista aparelhos do catálogo com condição, preço PIX e observação", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        name: "iPhone 15 128gb",
+        condition: "Novo",
+        price: { toString: () => "4599.99" },
+        promotionalPrice: { toString: () => "4299.99" },
+        description: null,
       },
+      {
+        name: "iPhone 15 Plus 128gb",
+        condition: "Seminovo",
+        price: { toString: () => "3299.00" },
+        promotionalPrice: null,
+        description: "Bateria 83%, bem conservado",
+      },
+    ]);
+    const tx = {
+      catalogDevice: { findMany },
     } as unknown as Partial<TalisonTx>;
 
     const result = await buscarAparelho.execute({ modelo: "iPhone 15" }, makeCtx(tx));
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          available: true,
+          deletedAt: null,
+          name: { contains: "iPhone 15", mode: "insensitive" },
+        }),
+      }),
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.display).toContain("R$ 4.299,99");
-      expect(result.display).toContain("(novo)");
-      expect(result.display).toContain("(seminovo)");
+      expect(result.display).toContain("R$ 3.299,00");
+      expect(result.display).toContain("(Novo)");
+      expect(result.display).toContain("(Seminovo)");
       expect(result.display).toContain("Bateria 83%");
       // Preço é PIX/à vista — NÃO pode recalcular desconto sobre ele.
       expect(result.display).toContain("PIX/à vista");
@@ -208,9 +221,30 @@ describe("buscar_aparelho", () => {
     }
   });
 
+  it("filtra a condição do catálogo sem diferenciar maiúsculas", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const tx = {
+      catalogDevice: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAparelho.execute(
+      { modelo: "iPhone 15", condicao: "seminovo" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          condition: { equals: "seminovo", mode: "insensitive" },
+        }),
+      }),
+    );
+  });
+
   it("retorna ok:false quando não há o aparelho (não inventa)", async () => {
     const tx = {
-      availableDevice: { findMany: vi.fn().mockResolvedValue([]) },
+      catalogDevice: { findMany: vi.fn().mockResolvedValue([]) },
     } as unknown as Partial<TalisonTx>;
 
     const result = await buscarAparelho.execute({ modelo: "Galaxy S99" }, makeCtx(tx));
