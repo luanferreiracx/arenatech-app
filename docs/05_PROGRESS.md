@@ -24,8 +24,8 @@
 - Implementado: edição de produto ganhou gerenciador de fotos com upload multipart para `/api/products/upload`, persistência via `stock.createPhoto`, remoção, definição de foto principal e limite de 3 fotos.
 - Implementado: formulário de criação informa que fotos ficam disponíveis após salvar, porque o upload exige `productId`; defaults da edição foram completados para não perder campos já existentes.
 - Implementado: script `backfill-image-providers.ts` passou a usar o Prisma 7 via adapter/RLS (`src/server/db`) em vez de instanciar `PrismaClient` sem adapter.
-- Validação: `pnpm typecheck` verde; testes unitários focados de estoque verdes (145/145); `pnpm lint` completo sem erros, apenas warnings preexistentes; Playwright `stock-a` e dry-run do backfill não rodaram no ambiente atual por ausência de `APP_DATABASE_URL`/`DATABASE_URL`.
-- Próximo: configurar env de banco/Cloudinary na worktree ou CI, rodar backfill dry-run real e validar upload real em edição de produto.
+- Validação: `pnpm typecheck` verde; testes unitários focados de estoque verdes (145/145); pre-push verde (typecheck + 830 unitários); `pnpm lint` completo sem erros, apenas warnings preexistentes; backfill dry-run verde com banco local (0 registros pendentes na base seed); Playwright `stock-a` verde (19/19).
+- Próximo: validar upload real em ambiente com credenciais Cloudinary e reexecutar CI do PR quando o billing do GitHub Actions for regularizado.
 
 ### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
 - Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
