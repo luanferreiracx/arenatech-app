@@ -31,14 +31,14 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
           <Logo size="lg" className="opacity-95" />
         </header>
 
-        <section className="mx-auto max-w-3xl pb-8 pt-4 text-center sm:pb-10 sm:pt-6">
+        <section className="mx-auto max-w-2xl pb-7 pt-3 text-center sm:pb-9 sm:pt-5">
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-primary/75">
             Catálogo Arena Tech
           </p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:text-3xl lg:text-4xl">
             Escolha com calma. Chame a loja quando encontrar o produto ideal.
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-zinc-400 sm:text-base">
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-400 sm:text-base">
             Produtos disponíveis, com foto e preço claro. Use a busca ou navegue por categorias para encontrar acessórios, periféricos e itens selecionados.
           </p>
         </section>
