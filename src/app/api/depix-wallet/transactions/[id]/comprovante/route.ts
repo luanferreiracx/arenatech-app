@@ -9,6 +9,16 @@ import { DEPIX_TX_STATUS_LABELS } from "@/lib/validators/depix-transaction";
 
 export const runtime = "nodejs";
 
+function isSafeReceiptUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * GET /api/depix-wallet/transactions/[id]/comprovante
  *
@@ -39,6 +49,10 @@ export async function GET(
       );
     }
 
+    if (tx.kind === "WITHDRAW" && tx.status === "COMPLETED" && isSafeReceiptUrl(tx.pixpayReceiptUrl)) {
+      return NextResponse.redirect(tx.pixpayReceiptUrl, 302);
+    }
+
     const header = await loadTenantHeader(tenantId);
 
     const buffer = await renderPdfToBuffer(
@@ -59,6 +73,8 @@ export async function GET(
           depositTxId: tx.depositTxId,
           depositAddress: tx.depositAddress,
           pixpayDepixId: tx.pixpayDepixId,
+          payerTaxId: tx.payerTaxId,
+          payerPhone: tx.payerPhone,
           createdAt: tx.createdAt,
           completedAt: tx.completedAt,
           userName: tx.userName,

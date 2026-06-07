@@ -30,6 +30,7 @@ import {
   getPixStatus,
   getDepixWithdrawStatus,
 } from "@/lib/services/depix-service";
+import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
@@ -176,9 +177,13 @@ export interface CreateDepositArgs {
   sourceId?: string | null;
   sourceDescription?: string | null;
   payerTaxId?: string | null;
+  payerPhone?: string | null;
 }
 
 export async function createDeposit(args: CreateDepositArgs) {
+  const payerTaxId = args.payerTaxId?.replace(/\D/g, "") || null;
+  const payerPhone = args.payerPhone?.replace(/\D/g, "") || null;
+
   // ETAPA 1: cria registro PENDING + gera numero.
   const created = await withTenant(args.tenantId, async (tx) => {
     const number = await nextTransactionNumber(tx, "DEPOSIT");
@@ -192,6 +197,8 @@ export async function createDeposit(args: CreateDepositArgs) {
         sourceType: args.sourceType ?? "WALLET",
         sourceId: args.sourceId ?? null,
         sourceDescription: args.sourceDescription ?? null,
+        payerTaxId,
+        payerPhone,
         userId: args.userId,
         userName: args.userName ?? null,
         // 30 min de validade do PIX (padrao PixPay).
@@ -229,7 +236,7 @@ export async function createDeposit(args: CreateDepositArgs) {
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
-    args.payerTaxId?.replace(/\D/g, "") || null,
+    payerTaxId,
     { depixAddress: addr.address, requireDepixAddress: true },
   );
   if (!pix.success || !pix.transactionId) {
@@ -691,6 +698,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   // ETAPA 2: chama PixPay createDepixWithdraw passando o valor LIQUIDO
   // (o que o destinatario recebe). PixPay retorna depositAmount (quanto
   // de DePix precisamos enviar pra esse valor chegar).
+  // O client restaurado nao precisa de externalRef adicional.
   const pp = await createDepixWithdraw(
     pixKey,
     args.pixKeyType,
@@ -903,15 +911,22 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
       const ws = await getDepixWithdrawStatus(txRow.pixpayDepixId);
       if (ws.success && ws.status) {
         const raw = ws.status.toLowerCase();
+        const receiptUrl = extractDepixWithdrawReceiptUrl(ws.raw);
         let newStatus: typeof txRow.status | null = null;
-        if (["sent", "send", "sending", "paid", "completed"].includes(raw)) newStatus = "COMPLETED";
+        if (["sent", "send", "paid", "completed"].includes(raw)) newStatus = "COMPLETED";
         else if (["failed", "error", "rejected"].includes(raw)) newStatus = "FAILED";
-        else if (["cancelled", "canceled", "expired"].includes(raw)) newStatus = "CANCELLED";
-        if (newStatus && newStatus !== txRow.status) {
+        else if (["expired"].includes(raw)) newStatus = "EXPIRED";
+        else if (["cancelled", "canceled"].includes(raw)) newStatus = "CANCELLED";
+        if ((newStatus && newStatus !== txRow.status) || receiptUrl) {
           await withTenant(tenantId, async (tx) =>
             tx.tenantDepixTransaction.update({
               where: { id: txRow.id },
-              data: { status: newStatus!, completedAt: newStatus === "COMPLETED" ? new Date() : undefined },
+              data: {
+                status: newStatus ?? txRow.status,
+                completedAt: newStatus === "COMPLETED" ? new Date() : undefined,
+                pixpayReceiptUrl: receiptUrl ?? undefined,
+                apiResponse: ws.raw ? (ws.raw as never) : undefined,
+              },
             }),
           );
           // Side-effects pos-conclusao do saque (best-effort, nao bloqueia).

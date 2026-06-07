@@ -1,6 +1,7 @@
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { onWithdrawCompleted } from "@/server/services/depix-transaction.service";
+import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 import {
   recordWebhookEvent,
   markWebhookProcessed,
@@ -92,6 +93,7 @@ export async function handleDepixWithdrawWebhook(
   if (!mappedStatus) {
     return { status: 200, body: { ok: true, skipped: `unmapped status ${statusRaw}` } };
   }
+  const receiptUrl = extractDepixWithdrawReceiptUrl(payload);
 
   const eventKey = `${depixId}:${statusRaw}`;
   const isNewEvent = await recordWebhookEvent({
@@ -103,11 +105,19 @@ export async function handleDepixWithdrawWebhook(
     payload,
   });
   if (!isNewEvent) {
-    logger.info("Depix-withdraw webhook: evento duplicado", { eventKey });
+    if (receiptUrl) {
+      await withAdmin((tx) =>
+        tx.tenantDepixTransaction.updateMany({
+          where: { pixpayDepixId: depixId, kind: "WITHDRAW", pixpayReceiptUrl: null },
+          data: { pixpayReceiptUrl: receiptUrl, apiResponse: payload as never },
+        }),
+      );
+    }
+    logger.info("Depix-withdraw webhook: evento duplicado", { eventKey, hasReceiptUrl: !!receiptUrl });
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
-  logger.info("Depix-withdraw webhook", { depixId, statusRaw, mappedStatus });
+  logger.info("Depix-withdraw webhook", { depixId, statusRaw, mappedStatus, hasReceiptUrl: !!receiptUrl });
 
   const walletStatus = mapWalletStatus(statusRaw);
   if (walletStatus) {
@@ -120,10 +130,19 @@ export async function handleDepixWithdrawWebhook(
 
     if (walletResult) {
       if (["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(walletResult.status)) {
+        if (receiptUrl) {
+          await withAdmin((tx) =>
+            tx.tenantDepixTransaction.update({
+              where: { id: walletResult.id },
+              data: { pixpayReceiptUrl: receiptUrl, apiResponse: payload as never },
+            }),
+          );
+        }
         logger.info("Depix-withdraw webhook: wallet tx ja terminal, skipping", {
           id: walletResult.id,
           currentStatus: walletResult.status,
           incomingStatus: walletStatus,
+          hasReceiptUrl: !!receiptUrl,
         });
         await markWebhookProcessed("depix_withdraw", eventKey, { ok: true });
         return { status: 200, body: { ok: true, matched: true, wallet: true, skipped: true } };
@@ -135,6 +154,7 @@ export async function handleDepixWithdrawWebhook(
           data: {
             status: walletStatus,
             completedAt: ["COMPLETED", "FAILED", "CANCELLED"].includes(walletStatus) ? new Date() : undefined,
+            pixpayReceiptUrl: receiptUrl ?? undefined,
             apiResponse: payload as never,
             errorMessage: walletStatus === "FAILED" ? `PixPay saque falhou: ${statusRaw}` : undefined,
           },

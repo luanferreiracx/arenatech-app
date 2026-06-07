@@ -8,13 +8,22 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque (listagem, detalhe e gerenciamento na edição). Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
-**Ultima atualizacao:** 2026-06-06
+**Ultima atualizacao:** 2026-06-07
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/superadmin-tenant-users`
+**Branch atual:** `fix/remove-depix-legacy-ui`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
+
+### 2026-06-07 — DePix Wallet: recebimento avulso e saque PixPay
+- Implementado: `/depix-wallet/receive` passou a coletar telefone e CPF/CNPJ do pagador; CPF/CNPJ fica opcional até R$ 499,99 e obrigatório a partir de R$ 500,00, mantendo limite operacional máximo de R$ 5.000,00.
+- Implementado: transações Wallet persistem `payer_tax_id` e `payer_phone` nullable em `tenant_depix_transactions`, e o CPF/CNPJ continua sendo enviado ao fluxo PixPay de recebimento como `endUserTaxNumber` quando informado.
+- Implementado: menu `Vendas Avulsas Wallet` foi removido da navegação; a rota Quick Sales permanece preservada por compatibilidade/histórico.
+- Revertido: saques da Wallet voltaram a usar PixPay (`DEPIX_API_KEY`, `DEPIX_SAQUE_SENHA`, `DEPIX_SAQUE_URL`, `DEPIX_SAQUE_STATUS_URL`) em `createDepixWithdraw` e `getDepixWithdrawStatus`.
+- Decisões: manter campos legados `pixpayDepixId`/`pixpayDepositAddress` como armazenamento compatível do provedor de off-ramp em saques novos; renome neutro fica para refactor futuro.
+- Validação: testes focados DePix verdes (11/11) após a reversão e `pnpm typecheck` verde.
+- Próximo: validar manualmente um saque real com PixPay configurado e confirmar que o fluxo LWK segue após retorno do endereço de depósito PixPay.
 
 ### 2026-06-06 — DePix Wallet: mnemônico e saque visíveis só para admin
 - Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.

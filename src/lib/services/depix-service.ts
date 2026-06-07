@@ -242,7 +242,7 @@ export async function cancelPixPayment(
 
 export interface DepixWithdrawResult {
   success: boolean;
-  /** ID retornado pela PixPay */
+  /** ID retornado pelo provedor de off-ramp. */
   id?: string;
   /** Endereco Liquid de deposito */
   depositAddress?: string;
@@ -433,6 +433,68 @@ export async function createDepixWithdraw(
 }
 
 /**
+ * Consulta status de um saque pela API PixPay.
+ * Paridade Laravel DepixService::consultarStatusSaque — GET com query
+ * string `id` + `senha` (NAO POST com Bearer). Os saques estavam presos
+ * em PROCESSING porque a chamada POST so retornava 404/401 e o status
+ * nunca atualizava.
+ */
+export async function getDepixWithdrawStatus(
+  depixId: string,
+): Promise<{ success: boolean; status?: string; raw?: Record<string, unknown>; error?: string }> {
+  const senha = process.env.DEPIX_SAQUE_SENHA;
+  if (!senha) return { success: true, status: "pending" };
+  if (depixId.startsWith("mock-saque-")) return { success: true, status: "pending" };
+
+  // Mesma logica do Laravel: trocar `/withdraw` por `/withdraw-status` na
+  // saqueUrl base. Permite override por env se a API mudar.
+  const baseUrl =
+    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
+    "https://api.pixpay.space/v1/withdraw";
+  const statusUrl =
+    process.env.DEPIX_SAQUE_STATUS_URL?.replace(/\/$/, "") ??
+    baseUrl.replace(/\/withdraw$/, "/withdraw-status");
+
+  try {
+    const qs = new URLSearchParams({ id: depixId, senha });
+    const response = await fetch(`${statusUrl}?${qs.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) {
+      logger.warn("Depix saque: erro ao consultar status", {
+        depixId,
+        httpStatus: response.status,
+      });
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+    const body = (await response.json()) as
+      | Record<string, unknown>
+      | Array<Record<string, unknown>>;
+    // PixPay as vezes retorna `response`, as vezes `[{response}]`, as vezes
+    // objeto raiz. Paridade Laravel linha 934.
+    let data: Record<string, unknown>;
+    if (Array.isArray(body) && body.length > 0) {
+      const first = body[0] as Record<string, unknown>;
+      data = (first.response as Record<string, unknown>) ?? first;
+    } else {
+      data = ((body as Record<string, unknown>).response as Record<string, unknown>) ?? (body as Record<string, unknown>);
+    }
+    return {
+      success: true,
+      status: String(data.status ?? "pending"),
+      raw: data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao consultar status",
+    };
+  }
+}
+
+/**
  * Formata chave PIX para envio ao endpoint de saque. Valida formato e formata
  * conforme exigido pela API: CPF/CNPJ com pontuacao, telefone com +55, etc.
  *
@@ -493,68 +555,6 @@ function formatPixKey(
   }
 
   return trimmed;
-}
-
-/**
- * Consulta status de um saque pela API PixPay.
- * Paridade Laravel DepixService::consultarStatusSaque — GET com query
- * string `id` + `senha` (NAO POST com Bearer). Os saques estavam presos
- * em PROCESSING porque a chamada POST so retornava 404/401 e o status
- * nunca atualizava.
- */
-export async function getDepixWithdrawStatus(
-  depixId: string,
-): Promise<{ success: boolean; status?: string; raw?: Record<string, unknown>; error?: string }> {
-  const senha = process.env.DEPIX_SAQUE_SENHA;
-  if (!senha) return { success: true, status: "pending" };
-  if (depixId.startsWith("mock-saque-")) return { success: true, status: "pending" };
-
-  // Mesma logica do Laravel: trocar `/withdraw` por `/withdraw-status` na
-  // saqueUrl base. Permite override por env se a API mudar.
-  const baseUrl =
-    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
-    "https://api.pixpay.space/v1/withdraw";
-  const statusUrl =
-    process.env.DEPIX_SAQUE_STATUS_URL?.replace(/\/$/, "") ??
-    baseUrl.replace(/\/withdraw$/, "/withdraw-status");
-
-  try {
-    const qs = new URLSearchParams({ id: depixId, senha });
-    const response = await fetch(`${statusUrl}?${qs.toString()}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!response.ok) {
-      logger.warn("Depix saque: erro ao consultar status", {
-        depixId,
-        httpStatus: response.status,
-      });
-      return { success: false, error: `HTTP ${response.status}` };
-    }
-    const body = (await response.json()) as
-      | Record<string, unknown>
-      | Array<Record<string, unknown>>;
-    // PixPay as vezes retorna `response`, as vezes `[{response}]`, as vezes
-    // objeto raiz. Paridade Laravel linha 934.
-    let data: Record<string, unknown>;
-    if (Array.isArray(body) && body.length > 0) {
-      const first = body[0] as Record<string, unknown>;
-      data = (first.response as Record<string, unknown>) ?? first;
-    } else {
-      data = ((body as Record<string, unknown>).response as Record<string, unknown>) ?? (body as Record<string, unknown>);
-    }
-    return {
-      success: true,
-      status: String(data.status ?? "pending"),
-      raw: data,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Erro ao consultar status",
-    };
-  }
 }
 
 /**

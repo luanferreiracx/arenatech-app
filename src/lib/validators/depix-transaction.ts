@@ -21,21 +21,64 @@ export const DEPIX_TX_KIND_LABELS: Record<string, string> = {
 
 const VALID_PIX_KEY_TYPES = ["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"] as const;
 const VALID_SOURCE_TYPES = ["WALLET", "QUICK_SALE", "SALE", "SERVICE_ORDER"] as const;
+const TAX_ID_REQUIRED_FROM_CENTS = 50_000;
 
 export const depixTransactionSourceTypeSchema = z.enum(VALID_SOURCE_TYPES);
 
+function hasText(value: string | null | undefined): boolean {
+  return (value ?? "").trim().length > 0;
+}
+
+function hasValidPhone(value: string | null | undefined): boolean {
+  if (!hasText(value)) return true;
+  const digits = (value ?? "").replace(/\D/g, "");
+  const hasBrazilianLocalNumber = digits.length === 10 || digits.length === 11;
+  const hasBrazilianCountryCode =
+    (digits.length === 12 || digits.length === 13) && digits.startsWith("55");
+  return hasBrazilianLocalNumber || hasBrazilianCountryCode;
+}
+
 /** Cria deposito: tenant escolhe quanto quer receber via PIX.
- *  Min R$ 10 (abaixo, as taxas devoram), Max R$ 5.000 (limite PixPay). */
-export const createDepositSchema = z.object({
-  grossAmountCents: z
-    .number()
-    .int()
-    .min(DEPIX_LIMITS.MIN_CENTS, "Valor minimo R$ 10,00")
-    .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
-  sourceType: depixTransactionSourceTypeSchema.optional(),
-  sourceId: z.string().uuid().optional().nullable(),
-  sourceDescription: z.string().max(200).optional().nullable(),
-});
+ *  Min R$ 10 (abaixo, as taxas devoram), Max R$ 5.000 (limite operacional). */
+export const createDepositSchema = z
+  .object({
+    grossAmountCents: z
+      .number()
+      .int()
+      .min(DEPIX_LIMITS.MIN_CENTS, "Valor minimo R$ 10,00")
+      .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
+    payerTaxId: z.string().max(18).optional().nullable(),
+    payerPhone: z.string().max(20).optional().nullable(),
+    sourceType: depixTransactionSourceTypeSchema.optional(),
+    sourceId: z.string().uuid().optional().nullable(),
+    sourceDescription: z.string().max(200).optional().nullable(),
+  })
+  .superRefine((input, ctx) => {
+    const payerTaxId = input.payerTaxId?.trim() ?? "";
+    const requiresTaxId = input.grossAmountCents >= TAX_ID_REQUIRED_FROM_CENTS;
+    if (requiresTaxId && !payerTaxId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payerTaxId"],
+        message: "CPF/CNPJ obrigatorio para recebimentos a partir de R$ 500,00",
+      });
+      return;
+    }
+    if (payerTaxId && !isValidTaxIdMod11(payerTaxId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payerTaxId"],
+        message: "CPF/CNPJ invalido",
+      });
+    }
+    if (!hasValidPhone(input.payerPhone)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payerPhone"],
+        message: "Telefone invalido",
+      });
+    }
+  });
 export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 
 export const createWithdrawSchema = z.object({

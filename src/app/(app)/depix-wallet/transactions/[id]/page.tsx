@@ -31,6 +31,19 @@ function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleString("pt-BR");
 }
+function formatTaxId(value: string | null | undefined): string {
+  const d = (value ?? "").replace(/\D/g, "");
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  return value ?? "—";
+}
+function formatPhone(value: string | null | undefined): string {
+  const d = (value ?? "").replace(/\D/g, "");
+  const local = d.startsWith("55") && d.length > 11 ? d.slice(2) : d;
+  if (local.length === 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+  if (local.length === 11) return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  return value ?? "—";
+}
 
 type StatusTone = "pending" | "processing" | "success" | "warning" | "danger" | "muted";
 
@@ -119,6 +132,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   const explorerUrl = explorerTxid
     ? `https://blockstream.info/liquid/tx/${explorerTxid}`
     : null;
+  const usesPixPayReceipt = !isDeposit && Boolean(t.pixpayReceiptUrl);
 
   const handleShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -245,7 +259,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                 }
               >
                 <Printer className="h-3.5 w-3.5 mr-1.5" />
-                Comprovante PDF
+                {usesPixPayReceipt ? "Comprovante PixPay" : "Comprovante PDF"}
               </Button>
               <Button variant="outline" size="sm" onClick={handleShare}>
                 <Share2 className="h-3.5 w-3.5 mr-1.5" />
@@ -374,6 +388,29 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
             </dl>
           </Card>
 
+          {/* Pagador (deposito) */}
+          {isDeposit && (t.payerTaxId || t.payerPhone) && (
+            <Card className="p-6">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
+                Pagador
+              </h3>
+              <dl className="space-y-2.5 text-sm">
+                {t.payerTaxId && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">CPF/CNPJ</dt>
+                    <dd className="font-mono">{formatTaxId(t.payerTaxId)}</dd>
+                  </div>
+                )}
+                {t.payerPhone && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Telefone</dt>
+                    <dd className="font-mono">{formatPhone(t.payerPhone)}</dd>
+                  </div>
+                )}
+              </dl>
+            </Card>
+          )}
+
           {/* Destinatario (saque) */}
           {!isDeposit && (
             <Card className="p-6">
@@ -495,6 +532,21 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                     ID PixPay
                   </dt>
                   <dd className="font-mono mt-0.5 text-[11px]">{t.pixpayDepixId}</dd>
+                </div>
+              )}
+              {t.pixpayReceiptUrl && (
+                <div>
+                  <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">
+                    Comprovante PixPay
+                  </dt>
+                  <a
+                    href={`/api/depix-wallet/transactions/${id}/comprovante`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline mt-1"
+                  >
+                    <ExternalLink className="h-3 w-3" /> Abrir comprovante oficial
+                  </a>
                 </div>
               )}
             </dl>
