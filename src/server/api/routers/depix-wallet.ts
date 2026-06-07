@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { compareSync } from "bcryptjs";
+import { z } from "zod";
 import {
   createTRPCRouter,
   tenantProcedure,
@@ -16,6 +18,24 @@ import * as lwk from "@/lib/services/lwk-service";
 function decimalToNumber(d: unknown): number {
   return d == null ? 0 : Number(d);
 }
+
+const ADMIN_WALLET_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
+
+function canManageWallet(ctx: {
+  tenantId: string;
+  session: {
+    user: { isSuperAdmin?: boolean };
+    availableTenants: Array<{ id: string; role?: string | null }>;
+  };
+}): boolean {
+  if (ctx.session.user.isSuperAdmin) return true;
+  const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+  return ADMIN_WALLET_ROLES.has(activeTenant?.role ?? "");
+}
+
+const revealMnemonicSchema = z.object({
+  password: z.string().min(1, "Digite sua senha para revelar a frase."),
+});
 
 export const depixWalletRouter = createTRPCRouter({
   /** Config de taxa do tenant. Retorna defaults se ainda nao existe.
@@ -74,8 +94,54 @@ export const depixWalletRouter = createTRPCRouter({
       provisioned: !!wallet?.provisionedAt,
       masterAddress: wallet?.masterAddress ?? null,
       network: wallet?.network ?? null,
+      canRevealMnemonic: canManageWallet(ctx),
+      canWithdraw: canManageWallet(ctx),
     };
   }),
+
+  /** Revela a frase de recuperacao da carteira. Nunca incluir em getWalletInfo. */
+  revealMnemonic: tenantAdminProcedure
+    .input(revealMnemonicSchema)
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.withTenant(async (tx) =>
+        tx.user.findUnique({
+          where: { id: ctx.session.user.id },
+          select: { passwordHash: true },
+        }),
+      );
+      if (!user || !compareSync(input.password, user.passwordHash)) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Senha invalida.",
+        });
+      }
+
+      const wallet = await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
+      );
+      if (!wallet?.provisionedAt) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Carteira DePix ainda nao provisionada.",
+        });
+      }
+
+      const res = await lwk.revealMnemonic(ctx.tenantId);
+      if (!res.success || !res.mnemonic) {
+        throw new TRPCError({
+          code: res.error?.includes("endpoint de frase de recuperacao nao encontrado")
+            ? "BAD_GATEWAY"
+            : "INTERNAL_SERVER_ERROR",
+          message: res.error ?? "Falha ao revelar frase de recuperacao.",
+        });
+      }
+
+      return {
+        mnemonic: res.mnemonic,
+        wordCount: res.wordCount ?? res.mnemonic.split(/\s+/).filter(Boolean).length,
+        network: res.network ?? wallet.network,
+      };
+    }),
 
   /** Saldo DePix da carteira do tenant (consulta o LWK). */
   getBalance: tenantProcedure.query(async ({ ctx }) => {

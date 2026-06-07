@@ -10,9 +10,9 @@ import {
 } from "@/lib/modules";
 
 describe("resolveModuleForPath", () => {
-  it("mapeia só a carteira para wallet; vendas avulsas e saques para depix-ops", () => {
+  it("mapeia Wallet e arquivo legado de saques para wallet; vendas avulsas para depix-ops", () => {
     expect(resolveModuleForPath("/depix-wallet")).toBe("wallet");
-    expect(resolveModuleForPath("/depix/withdrawals")).toBe("depix-ops");
+    expect(resolveModuleForPath("/depix/withdrawals")).toBe("wallet");
     expect(resolveModuleForPath("/quick-sales")).toBe("depix-ops");
   });
 

@@ -1068,13 +1068,13 @@ export const serviceOrderRouter = createTRPCRouter({
         // Cancela PIX pendente (depix_status="pending") para evitar que
         // cliente pague e webhook reactive uma OS cancelada.
         const pixToCancel =
-          order.depixTransactionId && order.depixStatus === "pending"
+          (order.walletTransactionId || order.depixTransactionId) && order.depixStatus === "pending"
             ? order.depixTransactionId
             : null;
-        if (pixToCancel) {
+        if (order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
           await tx.serviceOrder.update({
             where: { id: input.id },
-            data: { depixTransactionId: null, depixStatus: "cancelled" },
+            data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
           });
         }
 
@@ -3856,6 +3856,7 @@ export const serviceOrderRouter = createTRPCRouter({
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
+            walletTransactionId: result.id,
             depixTransactionId: result.pixpayDepixId ?? null,
             depixStatus: "pending",
           },
@@ -3890,19 +3891,20 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (!order.depixTransactionId) {
+        if (!order.walletTransactionId && !order.depixTransactionId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum PIX pendente para esta OS" });
         }
 
-        const result = await cancelPixPayment(order.depixTransactionId);
+        const result = order.depixTransactionId
+          ? await cancelPixPayment(order.depixTransactionId)
+          : { success: true };
 
-        // H2: limpar depixTransactionId tambem — antes ficava setado e um
-        // webhook racing (cliente paga segundos antes do cancel chegar na
-        // PixPay) ainda casava via findFirst({depixTransactionId, status:!PAID})
-        // e marcava a OS como PAID apos o cancel.
+        // H2: limpar ids do PIX tambem — antes ficava setado e um webhook
+        // racing (cliente paga segundos antes do cancel chegar na PixPay) ainda
+        // casava via findFirst e marcava a OS como PAID apos o cancel.
         await tx.serviceOrder.update({
           where: { id: input.orderId },
-          data: { depixTransactionId: null, depixStatus: "cancelled" },
+          data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
         });
 
         return { success: result.success };
@@ -4274,10 +4276,10 @@ async function applyQuoteApproval(
 
   // PIX foi gerado contra o total anterior; se o orcamento mudou, cancela.
   const valueChanged = !quote.newTotal.equals(quote.previousTotal);
-  if (valueChanged && order.depixTransactionId && order.depixStatus === "pending") {
+  if (valueChanged && order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
     await tx.serviceOrder.update({
       where: { id: order.id },
-      data: { depixTransactionId: null, depixStatus: "cancelled" },
+      data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
     });
     return order.depixTransactionId;
   }

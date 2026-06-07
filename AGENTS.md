@@ -43,14 +43,10 @@ outros projetos, preferencialmente:
 
 ### Skills customizadas do projeto
 
-- `.claude/skills/arenatech-module-audit/SKILL.md` - protocolo de auditoria de
-  modulo: diagnostico, `AUDIT_REPORT`, correcoes e documentacao.
 - `.claude/skills/arenatech-module-refactor/SKILL.md` - refatoracao de testes
   `@smoke` em testes `@business` reais, conforme ADR 0036.
 
-Use essas skills quando o dono pedir "auditar modulo X", "fechar pendencias do
-modulo X", "diagnosticar estado do modulo X", "rodar AUDIT_REPORT no modulo X"
-ou "refatorar E2E do modulo X".
+Use essa skill quando o dono pedir "refatorar E2E do modulo X".
 
 ## Stack obrigatoria
 

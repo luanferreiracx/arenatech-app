@@ -31,7 +31,7 @@ import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { isValidLuhn } from "@/lib/validators/imei";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
-import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
+import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 
@@ -1335,78 +1335,39 @@ export const saleRouter = createTRPCRouter({
         };
       });
 
-      // Apos a transacao: se downgrade DePix, dispara saque PixPay (HTTP externo).
+      // Apos a transacao: se downgrade DePix, dispara saque pela Wallet/LWK.
       const pixKey = input.refundDuePixKey;
       const pixKeyType = input.refundDuePixKeyType;
       if (txResult.shouldTriggerDepixWithdraw && pixKey && pixKeyType) {
         try {
-          const { createDepixWithdraw } = await import("@/lib/services/depix-service");
           const taxId = (txResult.customerName?.cpf ?? txResult.customerName?.cnpj ?? "").replace(/\D/g, "");
           if (taxId.length === 11 || taxId.length === 14) {
-            const refundReais = txResult.refundDueCents / 100;
-            const withdrawResult = await createDepixWithdraw(
-              pixKey,
+            const walletTx = await createWithdraw({
+              tenantId: ctx.tenantId,
+              userId: ctx.session.user.id,
+              userName: ctx.session.user.name ?? null,
               pixKeyType,
-              refundReais,
-              taxId,
-            );
-            if (withdrawResult.success) {
-              logger.info("Saque DePix automatico para downgrade enviado", {
-                saleId: input.saleId,
-                depixId: withdrawResult.id,
-              });
-              // Registra o saque no banco para rastreio
-              await ctx.withTenant(async (tx) => {
-                const today = new Date();
-                const prefix = `SQ${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
-                const last = await tx.depixWithdraw.findFirst({
-                  where: { number: { startsWith: prefix } },
-                  orderBy: { number: "desc" },
-                });
-                const seq = last ? parseInt(last.number.slice(-5), 10) + 1 : 1;
-                const number = `${prefix}${String(seq).padStart(5, "0")}`;
-                await tx.depixWithdraw.create({
-                  data: {
-                    tenantId: ctx.tenantId,
-                    number,
-                    pixKeyType,
-                    pixKey: pixKey.replace(/\D/g, ""),
-                    recipientName: txResult.customerName?.name ?? null,
-                    recipientTaxId: taxId,
-                    notes: `Downgrade automatico — venda ${txResult.saleNumber}`,
-                    requestedAmount: centsToPrisma(txResult.refundDueCents),
-                    depixId: withdrawResult.id ?? null,
-                    depositAddress: withdrawResult.depositAddress ?? null,
-                    depositAddressQr: withdrawResult.depositAddressQr ?? null,
-                    receivedAmount:
-                      withdrawResult.receivedAmount != null
-                        ? new Prisma.Decimal(withdrawResult.receivedAmount)
-                        : null,
-                    fee: withdrawResult.fee != null ? new Prisma.Decimal(withdrawResult.fee) : null,
-                    expiration: withdrawResult.expiration ? new Date(withdrawResult.expiration) : null,
-                    apiResponse:
-                      withdrawResult.raw == null
-                        ? Prisma.JsonNull
-                        : (withdrawResult.raw as Prisma.InputJsonValue),
-                    status: withdrawResult.status === "sent" ? "SENT" : "PROCESSING",
-                    userId: ctx.session.user.id,
-                    userName: ctx.session.user.name ?? null,
-                  },
-                });
-              });
-            } else {
-              logger.warn("Falha saque DePix automatico downgrade", {
-                saleId: input.saleId,
-                error: withdrawResult.error,
-              });
-              // Nao bloqueia a venda — operador resolve manual via /depix/withdrawals.
-            }
+              pixKey,
+              recipientName: txResult.customerName?.name ?? null,
+              recipientTaxId: taxId,
+              netAmountCents: txResult.refundDueCents,
+              sourceType: "SALE",
+              sourceId: input.saleId,
+              sourceDescription: `Downgrade automatico — venda ${txResult.saleNumber}`,
+              idempotencyKey: `${input.saleId}:downgrade-depix-refund`,
+            });
+            logger.info("Saque DePix Wallet automatico para downgrade enviado", {
+              saleId: input.saleId,
+              walletTransactionId: walletTx.id,
+              number: walletTx.number,
+            });
           }
         } catch (e) {
-          logger.error("Erro saque DePix downgrade", {
+          logger.error("Erro saque DePix Wallet downgrade", {
             saleId: input.saleId,
             error: e instanceof Error ? e.message : String(e),
           });
+          // Nao bloqueia a venda — operador acompanha/resolve pendencia pela Wallet DePix.
         }
       }
 

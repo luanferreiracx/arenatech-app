@@ -326,33 +326,21 @@ test.describe("OS — Detalhe e Edição", () => {
     await expect(page.locator("main")).toContainText(/Iniciada|OPEN/, { timeout: 10000 });
   });
 
-  test("@business T-12 detalhe mostra equipamento e problema", async ({ page }) => {
-    // Create an OS with device info
-    const customerName = await ensureCustomerExists(page);
-    await gotoAndWait(page, "/service-orders/new");
-    await selectEntityOption(page, customerName);
-    await wizardNext(page);
-    // Step 2: fill device info
-    await page.waitForTimeout(300);
-    const brandInput = page.locator("input[placeholder*='Apple']");
-    if (await brandInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await brandInput.fill("Samsung");
-    }
-    await wizardNext(page);
-    // Step 3: fill problem
-    const problem = `Detalhe-E2E-${Date.now()}`;
-    await fillProblemStep(page, problem);
-    await wizardNext(page);
-    // Step 4: skip
-    await page.waitForTimeout(300);
-    await wizardNext(page);
-    // Step 5: submit
-    await page.locator("button:has-text('Criar OS')").click({ force: true });
-    await dismissTrackingModal(page);
-    await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
 
-    // Verify detail page shows the problem
-    await expect(page.locator("main")).toContainText(/Detalhe-E2E/, { timeout: 15000 });
+  test("@business T-12 detalhe explica pendencias de avanço e cancelamento oferece termos", async ({ page }) => {
+    await createOsAndOpenDetail(page, `OS-Pendencias-${Date.now()}`);
+
+    await expect(page.getByText(/Pendencias para avancar a OS/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/Assinatura de entrada pendente/i).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /Enviar assinatura/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Confirmar fisica/i })).toBeVisible();
+
+    await page.getByRole("button", { name: /^Cancelar$/i }).click({ force: true });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText(/Termo de devolucao pendente/i)).toBeVisible({ timeout: 10000 });
+    await expect(dialog.getByRole("button", { name: /Enviar termo de devolucao/i })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Confirmar devolucao fisica/i })).toBeVisible();
+    await expect(dialog.getByText(/Forcar cancelamento sem termo/i)).toBeVisible();
   });
 });
 
