@@ -199,6 +199,12 @@ export const stockRouter = createTRPCRouter({
             orderBy: { [sortBy]: sortOrder },
             skip: page * pageSize,
             take: pageSize,
+            include: {
+              photos: {
+                orderBy: [{ isPrimary: "desc" }, { order: "asc" }],
+                take: 1,
+              },
+            },
           }),
           tx.product.count({ where }),
         ]);
@@ -244,7 +250,9 @@ export const stockRouter = createTRPCRouter({
           } else {
             currentStock = p.currentStock;
           }
-          return { ...p, currentStock };
+          const primaryPhoto = p.photos[0];
+          const thumbnailUrl = primaryPhoto?.thumbUrl ?? primaryPhoto?.mediumUrl ?? primaryPhoto?.url ?? p.imageUrl;
+          return { ...p, currentStock, thumbnailUrl };
         });
 
         const filtered = input.lowStock

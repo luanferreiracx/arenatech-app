@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque (listagem, detalhe e gerenciamento na edição). Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -66,6 +66,24 @@
 - Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
 - Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
 - Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
+### 2026-06-06 — Fotos de produtos no estoque com Cloudinary
+- Implementado: listagem de estoque passou a exibir thumbnail por produto, usando foto principal (`thumbUrl/mediumUrl/url`) com fallback para `Product.imageUrl` legado.
+- Implementado: detalhe do produto agora mostra galeria read-only, imagem principal, miniaturas e CTA para gerenciar fotos.
+- Implementado: edição de produto ganhou gerenciador de fotos com upload multipart para `/api/products/upload`, persistência via `stock.createPhoto`, remoção, definição de foto principal e limite de 3 fotos.
+- Implementado: formulário de criação informa que fotos ficam disponíveis após salvar, porque o upload exige `productId`; defaults da edição foram completados para não perder campos já existentes.
+- Implementado: script `backfill-image-providers.ts` passou a usar o Prisma 7 via adapter/RLS (`src/server/db`) em vez de instanciar `PrismaClient` sem adapter.
+- Validação: `pnpm typecheck` verde; testes unitários focados de estoque verdes (145/145); pre-push verde (typecheck + 830 unitários); `pnpm lint` completo sem erros, apenas warnings preexistentes; backfill dry-run verde com banco local (0 registros pendentes na base seed); Playwright `stock-a` verde (19/19).
+- Próximo: validar upload real em ambiente com credenciais Cloudinary e reexecutar CI do PR quando o billing do GitHub Actions for regularizado.
+
+### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
+- Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
+- Implementado: backend passou a validar DePix não manual contra a wallet canonical antes de concluir a venda, persistindo `walletTransactionId` e `depixTransactionId` em `paymentDetails`.
+- Implementado: venda avulsa DePix não pode ser marcada como paga sem liquidação real da wallet; estorno de item serializado confere estado/contagem antes de restaurar estoque.
+- Implementado: relatórios `inventoryReport`, `lowStockAlerts`, `stats`, `reportPosicao` e `reportEstoqueMin` deixaram de retornar estoque fake zero e agora usam `StockItem`, variações ou `Product.currentStock` conforme o tipo do produto.
+- Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
+- Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
+- Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
 
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.

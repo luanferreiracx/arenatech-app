@@ -1,7 +1,7 @@
-import { PrismaClient } from "@prisma/client"
 import { extractCloudinaryPublicId, inferImageProvider } from "../../src/lib/product-image-service"
+import { prisma, withAdmin } from "../../src/server/db"
 
-const prisma = new PrismaClient()
+type BackfillTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 const isApply = process.argv.includes("--apply")
 
 type Stats = {
@@ -56,8 +56,8 @@ function track(statsKey: StatsKey, url: string | null | undefined): {
   return { provider, publicId }
 }
 
-async function backfillProductPhotos(): Promise<void> {
-  const photos = await prisma.productPhoto.findMany({
+async function backfillProductPhotos(tx: BackfillTx): Promise<void> {
+  const photos = await tx.productPhoto.findMany({
     select: { id: true, url: true, provider: true, providerPublicId: true },
   })
 
@@ -67,7 +67,7 @@ async function backfillProductPhotos(): Promise<void> {
     if (photo.provider === provider && photo.providerPublicId === publicId) continue
 
     if (isApply) {
-      await prisma.productPhoto.update({
+      await tx.productPhoto.update({
         where: { id: photo.id },
         data: { provider, providerPublicId: publicId },
       })
@@ -76,8 +76,8 @@ async function backfillProductPhotos(): Promise<void> {
   }
 }
 
-async function backfillProductVariations(): Promise<void> {
-  const variations = await prisma.productVariation.findMany({
+async function backfillProductVariations(tx: BackfillTx): Promise<void> {
+  const variations = await tx.productVariation.findMany({
     where: { imageUrl: { not: null } },
     select: { id: true, imageUrl: true, imageProvider: true, imageProviderPublicId: true },
   })
@@ -88,7 +88,7 @@ async function backfillProductVariations(): Promise<void> {
     if (variation.imageProvider === provider && variation.imageProviderPublicId === publicId) continue
 
     if (isApply) {
-      await prisma.productVariation.update({
+      await tx.productVariation.update({
         where: { id: variation.id },
         data: { imageProvider: provider, imageProviderPublicId: publicId },
       })
@@ -97,8 +97,8 @@ async function backfillProductVariations(): Promise<void> {
   }
 }
 
-async function backfillCatalogDevices(): Promise<void> {
-  const devices = await prisma.catalogDevice.findMany({
+async function backfillCatalogDevices(tx: BackfillTx): Promise<void> {
+  const devices = await tx.catalogDevice.findMany({
     where: { imageUrl: { not: null } },
     select: { id: true, imageUrl: true, imageProvider: true, imageProviderPublicId: true },
   })
@@ -109,7 +109,7 @@ async function backfillCatalogDevices(): Promise<void> {
     if (device.imageProvider === provider && device.imageProviderPublicId === publicId) continue
 
     if (isApply) {
-      await prisma.catalogDevice.update({
+      await tx.catalogDevice.update({
         where: { id: device.id },
         data: { imageProvider: provider, imageProviderPublicId: publicId },
       })
@@ -119,9 +119,11 @@ async function backfillCatalogDevices(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await backfillProductPhotos()
-  await backfillProductVariations()
-  await backfillCatalogDevices()
+  await withAdmin(async (tx) => {
+    await backfillProductPhotos(tx)
+    await backfillProductVariations(tx)
+    await backfillCatalogDevices(tx)
+  })
 
   console.log(JSON.stringify({ mode: isApply ? "apply" : "dry-run", stats }, null, 2))
   if (!isApply) {
