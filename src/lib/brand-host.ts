@@ -16,6 +16,9 @@ const PDVDEPIX_HOSTS = new Set([
   "www.pdvcripto.app",
 ]);
 
+/** Hosts que devem servir o catálogo público na raiz "/". */
+const PUBLIC_CATALOG_HOSTS = new Set(["catalogo.arenatechpi.com.br"]);
+
 /** Normaliza o header host (pega o primeiro proxy host e remove porta). */
 export function normalizeHost(host: string | null | undefined): string {
   if (!host) return "";
@@ -26,4 +29,9 @@ export function normalizeHost(host: string | null | undefined): string {
 /** O host atual deve mostrar a landing publica de marketing? */
 export function isLandingHost(host: string | null | undefined): boolean {
   return PDVDEPIX_HOSTS.has(normalizeHost(host));
+}
+
+/** O host atual deve servir o catálogo público na raiz? */
+export function isPublicCatalogHost(host: string | null | undefined): boolean {
+  return PUBLIC_CATALOG_HOSTS.has(normalizeHost(host));
 }

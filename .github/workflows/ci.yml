@@ -454,7 +454,14 @@ jobs:
             wait $DOCKER_PID
             echo "   git + image prontos"
 
-            # 2) Recriar so o container app (--no-deps nao mexe em postgres/redis/minio)
+            # 2) Instalar/atualizar server block do catalogo novo
+            echo "=> Atualizando Nginx catalogo.arenatechpi.com.br..."
+            sudo -n cp deploy/nginx/catalogo.arenatechpi.com.br.conf /etc/nginx/sites-available/catalogo.arenatechpi.com.br.conf
+            sudo -n ln -sf /etc/nginx/sites-available/catalogo.arenatechpi.com.br.conf /etc/nginx/sites-enabled/catalogo.arenatechpi.com.br.conf
+            sudo -n nginx -t
+            sudo -n systemctl reload nginx
+
+            # 3) Recriar so o container app (--no-deps nao mexe em postgres/redis/minio)
             echo "=> Recriando container app..."
             cat > docker-compose.deploy.yml <<EOF
             services:
@@ -463,7 +470,7 @@ jobs:
             EOF
             docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build --no-deps app
 
-            # 3) Migrations (sem esperar healthcheck — exec funciona assim que container sobe)
+            # 4) Migrations (sem esperar healthcheck — exec funciona assim que container sobe)
             echo "=> Running migrations..."
             for i in $(seq 1 20); do
               if docker exec arenatech-app sh -c 'true' 2>/dev/null; then break; fi
@@ -473,7 +480,7 @@ jobs:
               echo "=> WARNING: Migration deploy teve issues. App esta no ar."
             }
 
-            # 4) Limpeza assincrona (nao bloqueia o deploy)
+            # 5) Limpeza assincrona (nao bloqueia o deploy)
             (docker image prune -af --filter "until=24h" >/dev/null 2>&1 &) || true
 
             echo "=> Deploy completed at $(date)"
