@@ -21,6 +21,7 @@
 - Implementado: host `catalogo.arenatechpi.com.br` reconhecido pela aplicação e reescrito da raiz `/` para `/catalog`, mantendo `/catalog` público sem autenticação.
 - Implementado: server block Nginx versionado para `catalogo.arenatechpi.com.br`, proxyando para a app Next.js em `127.0.0.1:3001` com o certificado wildcard Cloudflare já usado em produção.
 - Implementado: deploy via GitHub Actions passa a instalar/atualizar o server block do catálogo antes de recriar o container app.
+- Corrigido: sudoers da VPS permite ao usuário de deploy atualizar apenas o server block versionado do catálogo; o workflow usa caminho absoluto para bater com a regra NOPASSWD.
 - Próximo: validar CI/deploy e acessar `https://catalogo.arenatechpi.com.br` para confirmar que o catálogo novo substituiu o antigo.
 
 ### 2026-06-07 — Refinamento visual do catálogo público

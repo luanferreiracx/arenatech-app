@@ -456,7 +456,7 @@ jobs:
 
             # 2) Instalar/atualizar server block do catalogo novo
             echo "=> Atualizando Nginx catalogo.arenatechpi.com.br..."
-            sudo -n cp deploy/nginx/catalogo.arenatechpi.com.br.conf /etc/nginx/sites-available/catalogo.arenatechpi.com.br.conf
+            sudo -n cp /home/deployer/arenatech-app/deploy/nginx/catalogo.arenatechpi.com.br.conf /etc/nginx/sites-available/catalogo.arenatechpi.com.br.conf
             sudo -n ln -sf /etc/nginx/sites-available/catalogo.arenatechpi.com.br.conf /etc/nginx/sites-enabled/catalogo.arenatechpi.com.br.conf
             sudo -n nginx -t
             sudo -n systemctl reload nginx
