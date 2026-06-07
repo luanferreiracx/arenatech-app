@@ -5,8 +5,8 @@ import type { CatalogProduct } from "@/server/services/public-catalog";
 export function CatalogProductCard({ product }: { product: CatalogProduct }) {
   return (
     <Link href={`/catalog/${product.id}`} className="group block h-full">
-      <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.35)] transition duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-[0_24px_80px_rgba(201,168,76,0.12)]">
-        <div className="relative aspect-square overflow-hidden bg-zinc-900">
+      <article className="flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] transition duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-white/[0.05]">
+        <div className="relative aspect-square overflow-hidden bg-zinc-950">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={product.imageUrl}
@@ -14,7 +14,7 @@ export function CatalogProductCard({ product }: { product: CatalogProduct }) {
             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
           />
-          <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent opacity-70" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-70" />
           <div className="absolute left-3 top-3 flex flex-wrap gap-2">
             {product.discountPercent && (
               <span className="rounded-full bg-red-500 px-2.5 py-1 text-xs font-bold text-white shadow-lg">
@@ -32,7 +32,7 @@ export function CatalogProductCard({ product }: { product: CatalogProduct }) {
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col p-4">
+        <div className="flex flex-1 flex-col p-4 sm:p-5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">
               {product.brand ?? product.categoryName ?? "Arena Tech"}
@@ -44,11 +44,11 @@ export function CatalogProductCard({ product }: { product: CatalogProduct }) {
             )}
           </div>
 
-          <h3 className="line-clamp-2 min-h-11 text-sm font-semibold leading-snug text-zinc-100">
+          <h3 className="line-clamp-2 min-h-11 text-[15px] font-medium leading-snug text-zinc-100">
             {product.name}
           </h3>
 
-          <div className="mt-auto pt-4">
+          <div className="mt-auto pt-5">
             {product.salePriceCents > 0 ? (
               <div className="space-y-1">
                 {product.promotionalPriceCents && (
