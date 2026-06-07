@@ -216,7 +216,7 @@ export default function DepixSettingsPage() {
                 </Button>
                 {wallet.canRevealMnemonic === false && (
                   <p className="text-xs text-muted-foreground">
-                    Acao restrita ao dono/gerente do tenant ou super admin.
+                    Acao restrita ao perfil admin do tenant ou superadmin.
                   </p>
                 )}
               </div>

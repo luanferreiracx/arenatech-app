@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { BalanceHero } from "./_components/balance-hero";
 import { RecentTransactions } from "./_components/recent-transactions";
+import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
 
 /**
  * /depix-wallet — Overview da carteira DePix do tenant.
@@ -25,9 +26,11 @@ export default function DepixWalletPage() {
     ...trpc.depixTransaction.getOverview.queryOptions(),
     refetchInterval: 15000,
   });
+  const walletInfoQuery = useQuery(trpc.depixWallet.getWalletInfo.queryOptions());
 
-  if (overviewQuery.isLoading) return <LoadingState />;
+  if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
   const o = overviewQuery.data;
+  const walletInfo = walletInfoQuery.data;
 
   return (
     <div className="space-y-5 sm:space-y-6 animate-in fade-in duration-300">
@@ -43,6 +46,12 @@ export default function DepixWalletPage() {
         network={o?.wallet.network ?? null}
         success={o?.balance.success ?? false}
         error={o?.balance.error ?? null}
+        canWithdraw={walletInfo?.canWithdraw === true}
+      />
+
+      <RecoveryPhraseCard
+        provisioned={walletInfo?.provisioned === true}
+        canRevealMnemonic={walletInfo?.canRevealMnemonic === true}
       />
 
       {/* Atividade recente */}

@@ -16,6 +16,13 @@
 
 ---
 
+### 2026-06-06 — DePix Wallet: mnemônico e saque visíveis só para admin
+- Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.
+- Implementado: `depixWallet.getWalletInfo` retorna `canWithdraw` e alinha `canRevealMnemonic` com `tenantAdminProcedure` (`owner/manager/admin` e superadmin), permitindo tenants de teste com perfil `admin`.
+- Implementado: botão `Sacar` no hero da Wallet aparece apenas para perfil admin; acesso direto a `/depix-wallet/withdraw` mostra bloqueio amigável para perfis sem permissão, mantendo backend protegido por `tenantAdminProcedure`.
+- Validação: `pnpm typecheck` OK; unitários completos OK (`830 passed`).
+- Próximo: abrir PR/CI/deploy e validar manualmente admin vs operador no tenant de teste.
+
 ### 2026-06-06 — OS finalizacao e termos
 - Implementado: detalhe da OS agora mostra painel consolidado de pendencias para avancar/finalizar, cobrindo assinatura de entrada, orcamento pendente, laboratorio externo sem retorno e termo de entrega pendente.
 - Implementado: fluxo de cancelamento agora oferece envio de termo de devolucao, verificacao/confirmacao fisica e separa o override administrativo antes de liberar o cancelamento sem termo.

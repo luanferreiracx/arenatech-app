@@ -19,7 +19,9 @@ function decimalToNumber(d: unknown): number {
   return d == null ? 0 : Number(d);
 }
 
-function canRevealWalletSecrets(ctx: {
+const ADMIN_WALLET_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
+
+function canManageWallet(ctx: {
   tenantId: string;
   session: {
     user: { isSuperAdmin?: boolean };
@@ -28,7 +30,7 @@ function canRevealWalletSecrets(ctx: {
 }): boolean {
   if (ctx.session.user.isSuperAdmin) return true;
   const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
-  return ["OWNER", "MANAGER", "owner", "manager"].includes(activeTenant?.role ?? "");
+  return ADMIN_WALLET_ROLES.has(activeTenant?.role ?? "");
 }
 
 const revealMnemonicSchema = z.object({
@@ -92,7 +94,8 @@ export const depixWalletRouter = createTRPCRouter({
       provisioned: !!wallet?.provisionedAt,
       masterAddress: wallet?.masterAddress ?? null,
       network: wallet?.network ?? null,
-      canRevealMnemonic: canRevealWalletSecrets(ctx),
+      canRevealMnemonic: canManageWallet(ctx),
+      canWithdraw: canManageWallet(ctx),
     };
   }),
 
