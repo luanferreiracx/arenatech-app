@@ -1,154 +1,153 @@
-import { Suspense } from "react"
-import Link from "next/link"
-import { ArrowLeft, Package } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { withAdmin } from "@/server/db"
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, MessageCircle, Package, ShieldCheck, Sparkles, Truck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { getPublicCatalogProduct, getRelatedCatalogProducts } from "@/server/services/public-catalog";
+import { CatalogProductCard, formatCurrency } from "../_components/catalog-product-card";
 
 export const metadata = {
   title: "Produto | Arena Tech",
-}
+};
 
-async function getProduct(id: string) {
-  const tenantId = process.env.DEFAULT_TENANT_ID
-  if (!tenantId) return null
+type ProductDetailPageProps = {
+  params: Promise<{ id: string }>;
+};
 
-  return withAdmin(async (tx) => {
-    const product = await tx.product.findFirst({
-      where: { id, tenantId, active: true, deletedAt: null },
-      include: {
-        category: { select: { name: true } },
-        photos: { orderBy: { isPrimary: "desc" } },
-      },
-    })
-    return product
-  })
-}
+const WHATSAPP_NUMBER = "5586995647443";
 
-function formatCurrency(value: number): string {
-  return value.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  })
-}
+export default async function ProductDetailPage({ params }: ProductDetailPageProps) {
+  const { id } = await params;
+  const product = await getPublicCatalogProduct(id);
 
-export default async function ProductDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = await params
-  const product = await getProduct(id)
-
-  if (!product) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Package className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Produto nao encontrado</h1>
-          <Button asChild variant="outline" className="mt-4">
-            <Link href="/catalog">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar ao catalogo
-            </Link>
-          </Button>
-        </div>
-      </div>
-    )
+  if (!product || !product.inStock || product.images.length === 0) {
+    notFound();
   }
 
-  const salePrice = Number(product.salePrice ?? 0)
-  const promotionalPrice = product.promotionalPrice ? Number(product.promotionalPrice) : null
-  const currentPrice = promotionalPrice ?? salePrice
-  const inStock = product.isSerialized ? true : product.currentStock > 0
-  const primaryPhoto = product.photos[0]
-  const primaryImageUrl = primaryPhoto?.mediumUrl ?? primaryPhoto?.url
+  const related = await getRelatedCatalogProducts(product);
+  const whatsappHref = buildWhatsAppHref(product.name, product.currentPriceCents);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <Button asChild variant="ghost" className="mb-6">
+    <main className="min-h-screen bg-black text-zinc-100">
+      <div className="absolute inset-x-0 top-0 -z-0 h-[520px] bg-[radial-gradient(circle_at_top_left,rgba(201,168,76,0.22),transparent_32%),radial-gradient(circle_at_top_right,rgba(120,89,20,0.16),transparent_30%)]" />
+      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <Button asChild variant="ghost" className="mb-6 text-zinc-300 hover:text-primary">
           <Link href="/catalog">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar ao catalogo
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar ao catálogo
           </Link>
         </Button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Images */}
+        <section className="grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <div className="space-y-4">
-            <div className="aspect-square bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-              {primaryImageUrl ? (
-                <img
-                  src={primaryImageUrl}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <Package className="h-24 w-24 text-muted-foreground/30" />
-              )}
+            <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-zinc-950 shadow-[0_28px_100px_rgba(0,0,0,0.55)]">
+              <div className="aspect-square bg-zinc-900">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={product.mediumImageUrl} alt={product.name} className="h-full w-full object-cover" />
+              </div>
             </div>
-            {product.photos.length > 1 && (
-              <div className="grid grid-cols-4 gap-2">
-                {product.photos.slice(1, 5).map((photo) => (
-                  <div key={photo.id} className="aspect-square bg-muted rounded overflow-hidden">
-                    <img src={photo.thumbUrl ?? photo.url} alt="" className="w-full h-full object-cover" />
+            {product.images.length > 1 && (
+              <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+                {product.images.slice(0, 6).map((image) => (
+                  <div key={image.id} className="aspect-square overflow-hidden rounded-xl border border-white/10 bg-zinc-900">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={image.thumbUrl ?? image.mediumUrl ?? image.url} alt="Miniatura do produto" className="h-full w-full object-cover" />
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Info */}
-          <div>
-            {product.category && (
-              <span className="text-sm text-muted-foreground">
-                {product.category.name}
-              </span>
-            )}
-            <h1 className="text-2xl font-bold mt-1 mb-4">{product.name}</h1>
-
-            {product.description && (
-              <p className="text-muted-foreground mb-6">{product.description}</p>
-            )}
-
-            <div className="mb-6">
-              {promotionalPrice ? (
-                <div className="flex items-baseline gap-3">
-                  <span className="text-sm text-muted-foreground line-through">
-                    {formatCurrency(salePrice)}
-                  </span>
-                  <span className="text-3xl font-bold text-primary">
-                    {formatCurrency(promotionalPrice)}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-3xl font-bold text-primary">
-                  {formatCurrency(salePrice)}
+          <div className="rounded-[2rem] border border-primary/20 bg-zinc-950/90 p-6 shadow-[0_28px_100px_rgba(0,0,0,0.45)] lg:sticky lg:top-8">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {product.categoryName && (
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                  {product.categoryName}
+                </span>
+              )}
+              {product.lowStock && (
+                <span className="rounded-full bg-amber-400 px-3 py-1 text-xs font-bold text-black">
+                  {product.availableQuantity === 1 ? "Último disponível" : `Restam ${product.availableQuantity}`}
+                </span>
+              )}
+              {product.discountPercent && (
+                <span className="rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white">
+                  -{product.discountPercent}%
                 </span>
               )}
             </div>
 
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
-              inStock
-                ? "bg-green-500/10 text-green-600"
-                : "bg-red-500/10 text-red-600"
-            }`}>
-              {inStock ? "Em estoque" : "Indisponivel"}
+            {product.brand && <p className="text-sm font-bold uppercase tracking-[0.22em] text-primary">{product.brand}</p>}
+            <h1 className="mt-2 text-3xl font-black leading-tight text-white sm:text-4xl">{product.name}</h1>
+            {product.description && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-400">{product.description}</p>}
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/45 p-5">
+              {product.salePriceCents > 0 ? (
+                <div>
+                  {product.promotionalPriceCents && (
+                    <p className="text-sm text-zinc-500 line-through">{formatCurrency(product.salePriceCents)}</p>
+                  )}
+                  <div className="mt-1 flex flex-wrap items-end gap-3">
+                    <p className="text-4xl font-black tracking-tight text-primary">{formatCurrency(product.pixPriceCents)}</p>
+                    <span className="mb-1 rounded-lg bg-primary/10 px-2 py-1 text-xs font-bold text-primary">5% off no Pix</span>
+                  </div>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    ou {formatCurrency(product.currentPriceCents)} em até 6x de {formatCurrency(product.installmentCents)} sem juros
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xl font-bold text-primary">Consulte o preço</p>
+              )}
             </div>
 
-            {product.sku && (
-              <div className="mt-6 text-sm text-muted-foreground">
-                <span className="font-medium">SKU:</span> {product.sku}
-              </div>
-            )}
-            {product.brand && (
-              <div className="text-sm text-muted-foreground">
-                <span className="font-medium">Marca:</span> {product.brand}
-              </div>
-            )}
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <Benefit icon={Package} title="Disponível" text={`${product.availableQuantity} un.`} />
+              <Benefit icon={Truck} title="Retirada" text="Loja Arena" />
+              <Benefit icon={ShieldCheck} title="Garantia" text="Suporte local" />
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="flex-1 bg-[#25D366] text-black hover:bg-[#20bd5a]">
+                <a href={whatsappHref} target="_blank" rel="noreferrer">
+                  <MessageCircle className="mr-2 h-5 w-5" />
+                  Tenho interesse
+                </a>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="border-primary/40 text-primary hover:bg-primary/10">
+                <Link href="/catalog">Ver mais produtos</Link>
+              </Button>
+            </div>
           </div>
-        </div>
+        </section>
+
+        {related.length > 0 && (
+          <section className="mt-14">
+            <div className="mb-5 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h2 className="text-2xl font-bold text-white">Produtos relacionados</h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {related.map((item) => (
+                <CatalogProductCard key={item.id} product={item} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
+    </main>
+  );
+}
+
+function Benefit({ icon: Icon, title, text }: { icon: typeof Package; title: string; text: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+      <Icon className="mb-2 h-4 w-4 text-primary" />
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="text-xs text-zinc-500">{text}</p>
     </div>
-  )
+  );
+}
+
+function buildWhatsAppHref(productName: string, priceCents: number): string {
+  const message = `Olá! Tenho interesse no produto: ${productName} (${formatCurrency(priceCents)})`;
+  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
 }

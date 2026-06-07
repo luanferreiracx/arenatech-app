@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque (listagem, detalhe e gerenciamento na edição). Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque e o catálogo público `/catalog` foi reconstruído para exibir apenas produtos com foto, estoque e preço Pix/parcelamento. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
 **Ultima atualizacao:** 2026-06-06
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -15,6 +15,15 @@
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
+
+### 2026-06-06 — Catálogo público com produtos fotografados
+- Implementado: `AGENTS.md` removido sem leitura, pois é arquivo exclusivo para Codex e não deve orientar Claude.
+- Implementado: serviço server-side `public-catalog` reconstrói o catálogo público com filtro de produtos ativos, não-aparelhos, com foto, estoque disponível, categorias com contagem, busca com sinônimos, ordenação e paginação.
+- Implementado: `/catalog` virou página server-rendered com layout escuro/dourado, hero, filtros, categorias, ordenação, paginação e cards com imagem, promoção, baixo estoque, preço Pix 5% off e 6x.
+- Implementado: `/catalog/[id]` ganhou detalhe público com galeria, preço Pix/parcelamento, CTA WhatsApp e relacionados com foto.
+- Decisões: checkout/carrinho completo do Laravel ficou fora do escopo desta entrega; o CTA principal é WhatsApp e detalhe do produto.
+- Validação: `pnpm typecheck`, `pnpm lint`, `pnpm test` (830 unitários) e `pnpm build` verdes; lint completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: validar visualmente com dados reais de produção/staging que já tenham fotos e, se desejado, retomar carrinho/checkout público em etapa separada.
 
 ### 2026-06-06 — DePix Wallet: mnemônico e saque visíveis só para admin
 - Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.
