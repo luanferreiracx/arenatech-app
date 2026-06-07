@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLandingHost, normalizeHost } from "@/lib/brand-host";
+import { isLandingHost, isPublicCatalogHost, normalizeHost } from "@/lib/brand-host";
 
 describe("brand host resolution", () => {
   it("normalizes host headers from direct requests and proxies", () => {
@@ -14,5 +14,12 @@ describe("brand host resolution", () => {
     expect(isLandingHost("depixpdv.app")).toBe(true);
     expect(isLandingHost("www.depixpdv.app")).toBe(true);
     expect(isLandingHost("app.arenatechpi.com.br")).toBe(false);
+  });
+
+  it("recognizes the public catalog domain", () => {
+    expect(isPublicCatalogHost("catalogo.arenatechpi.com.br")).toBe(true);
+    expect(isPublicCatalogHost("catalogo.arenatechpi.com.br:3000")).toBe(true);
+    expect(isPublicCatalogHost("app.arenatechpi.com.br")).toBe(false);
+    expect(isPublicCatalogHost("pdvdepix.app")).toBe(false);
   });
 });

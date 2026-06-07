@@ -7,7 +7,7 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque (listagem, detalhe e gerenciamento na edição). Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet em ajuste final de recebimento/saque PixPay.
 **Ultima atualizacao:** 2026-06-07
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
@@ -19,11 +19,38 @@
 ### 2026-06-07 — DePix Wallet: recebimento avulso e saque PixPay
 - Implementado: `/depix-wallet/receive` passou a coletar telefone e CPF/CNPJ do pagador; CPF/CNPJ fica opcional até R$ 499,99 e obrigatório a partir de R$ 500,00, mantendo limite operacional máximo de R$ 5.000,00.
 - Implementado: transações Wallet persistem `payer_tax_id` e `payer_phone` nullable em `tenant_depix_transactions`, e o CPF/CNPJ continua sendo enviado ao fluxo PixPay de recebimento como `endUserTaxNumber` quando informado.
+- Implementado: detalhe da transação e comprovante PDF de depósito exibem CPF/CNPJ e telefone do pagador quando informados.
+- Implementado: comprovante de saque concluído passa a redirecionar para URL oficial da PixPay quando o webhook/status retornar comprovante.
 - Implementado: menu `Vendas Avulsas Wallet` foi removido da navegação; a rota Quick Sales permanece preservada por compatibilidade/histórico.
 - Revertido: saques da Wallet voltaram a usar PixPay (`DEPIX_API_KEY`, `DEPIX_SAQUE_SENHA`, `DEPIX_SAQUE_URL`, `DEPIX_SAQUE_STATUS_URL`) em `createDepixWithdraw` e `getDepixWithdrawStatus`.
 - Decisões: manter campos legados `pixpayDepixId`/`pixpayDepositAddress` como armazenamento compatível do provedor de off-ramp em saques novos; renome neutro fica para refactor futuro.
-- Validação: testes focados DePix verdes (11/11) após a reversão e `pnpm typecheck` verde.
+- Validação: testes focados DePix verdes (11/11), `pnpm typecheck` verde e unitários completos verdes (841/841).
 - Próximo: validar manualmente um saque real com PixPay configurado e confirmar que o fluxo LWK segue após retorno do endereço de depósito PixPay.
+
+### 2026-06-07 — Domínio público do catálogo novo
+- Em andamento: `catalogo.arenatechpi.com.br` será movido do catálogo Laravel antigo para o novo catálogo Next.js.
+- Implementado: host `catalogo.arenatechpi.com.br` reconhecido pela aplicação e reescrito da raiz `/` para `/catalog`, mantendo `/catalog` público sem autenticação.
+- Implementado: server block Nginx versionado para `catalogo.arenatechpi.com.br`, proxyando para a app Next.js em `127.0.0.1:3001` com o certificado wildcard Cloudflare já usado em produção.
+- Implementado: deploy via GitHub Actions passa a instalar/atualizar o server block do catálogo antes de recriar o container app.
+- Corrigido: sudoers da VPS permite ao usuário de deploy atualizar apenas o server block versionado do catálogo; o workflow usa caminho absoluto para bater com a regra NOPASSWD.
+- Próximo: validar CI/deploy e acessar `https://catalogo.arenatechpi.com.br` para confirmar que o catálogo novo substituiu o antigo.
+
+### 2026-06-07 — Refinamento visual do catálogo público
+- Implementado: `/catalog` removeu o hero/cabeçalho pesado, passou a usar a logo Arena Tech no topo e adotou composição minimalista com foco em busca, categorias e produtos.
+- Implementado: filtros, chips de categoria, ordenação, cards e estado vazio foram simplificados para reduzir ruído visual e melhorar a experiência do cliente que acessa o catálogo.
+- Implementado: detalhe público do produto ganhou topo com logo, botão discreto de retorno, superfícies mais limpas e CTAs arredondados com foco em WhatsApp.
+- Decisões: manter tema escuro/dourado da marca, mas com menos bordas, sombras e estatísticas promocionais para transmitir profissionalismo.
+- Validação: `pnpm typecheck` verde após limpar cache `.next`; `pnpm lint` sem erros, apenas warnings preexistentes fora do escopo.
+- Próximo: validar visualmente em desktop/mobile com dados reais e ajustar microcopy/spacing se o cliente final ainda perceber excesso de informação.
+
+### 2026-06-06 — Catálogo público com produtos fotografados
+- Implementado: `AGENTS.md` removido sem leitura, pois é arquivo exclusivo para Codex e não deve orientar Claude.
+- Implementado: serviço server-side `public-catalog` reconstrói o catálogo público com filtro de produtos ativos, não-aparelhos, com foto, estoque disponível, categorias com contagem, busca com sinônimos, ordenação e paginação.
+- Implementado: `/catalog` virou página server-rendered com layout escuro/dourado, hero, filtros, categorias, ordenação, paginação e cards com imagem, promoção, baixo estoque, preço Pix 5% off e 6x.
+- Implementado: `/catalog/[id]` ganhou detalhe público com galeria, preço Pix/parcelamento, CTA WhatsApp e relacionados com foto.
+- Decisões: checkout/carrinho completo do Laravel ficou fora do escopo desta entrega; o CTA principal é WhatsApp e detalhe do produto.
+- Validação: `pnpm typecheck`, `pnpm lint`, `pnpm test` (830 unitários) e `pnpm build` verdes; lint completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: validar visualmente com dados reais de produção/staging que já tenham fotos e, se desejado, retomar carrinho/checkout público em etapa separada.
 
 ### 2026-06-06 — DePix Wallet: mnemônico e saque visíveis só para admin
 - Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.
@@ -94,6 +121,14 @@
 - Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
 - Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
 - Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-07 — Talison usa catálogo único de aparelhos
+- Implementado: `buscar_aparelho` do Talison deixou de consultar a tabela dedicada `available_devices` e passou a usar `catalog_devices`, a mesma fonte administrada em `/aparelhos-catalogo`.
+- Implementado: migration nova faz backfill dos dados remanescentes de `available_devices` para `catalog_devices`/categorias e remove a tabela fantasma ao final.
+- Implementado: modelo Prisma `AvailableDevice`, seed JSON e script `seed-available-devices.ts` removidos.
+- Decisões: preço efetivo de aparelho no Talison é `promotionalPrice ?? price`, mantendo a regra de que o valor exibido já é PIX/à vista e não recebe novo desconto.
+- Validação: `DATABASE_URL=... pnpm db:generate`, teste focado Talison, `pnpm typecheck`, `pnpm test:unit` e busca por referências fora das migrations verdes.
+- Próximo: aplicar migration em staging/prod e confirmar que aparelhos excluídos em `/aparelhos-catalogo` não são mais ofertados pelo bot.
 
 ### 2026-06-06 — Talison IA com contexto real da Arena Tech
 - Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
