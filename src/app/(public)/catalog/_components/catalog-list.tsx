@@ -10,9 +10,9 @@ type CatalogListProps = {
 export function CatalogList({ catalog }: CatalogListProps) {
   if (catalog.products.length === 0) {
     return (
-      <div className="rounded-3xl border border-dashed border-white/15 bg-zinc-950/70 p-10 text-center">
+      <div className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-10 text-center">
         <PackageSearch className="mx-auto mb-4 h-12 w-12 text-primary/70" />
-        <h2 className="text-xl font-bold text-zinc-100">Nenhum produto com foto encontrado</h2>
+        <h2 className="text-xl font-semibold text-zinc-100">Nenhum produto encontrado</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-zinc-400">
           Tente buscar outro termo, trocar a categoria ou adicionar fotos aos produtos no estoque.
         </p>

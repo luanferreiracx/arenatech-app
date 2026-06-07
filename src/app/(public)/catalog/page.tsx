@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Camera, PackageCheck, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { Logo } from "@/components/branding/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPublicCatalog } from "@/server/services/public-catalog";
 import { CatalogFilters } from "./_components/catalog-filters";
@@ -24,78 +24,54 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   });
 
   return (
-    <main className="min-h-screen bg-black text-zinc-100">
-      <div className="absolute inset-x-0 top-0 -z-0 h-[520px] bg-[radial-gradient(circle_at_top_left,rgba(201,168,76,0.22),transparent_32%),radial-gradient(circle_at_top_right,rgba(120,89,20,0.16),transparent_30%)]" />
-      <section className="relative mx-auto max-w-7xl px-4 pb-8 pt-8 sm:px-6 lg:px-8 lg:pt-12">
-        <div className="overflow-hidden rounded-[2rem] border border-primary/20 bg-zinc-950/80 p-6 shadow-[0_28px_100px_rgba(0,0,0,0.55)] backdrop-blur md:p-8 lg:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
-            <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.22em] text-primary">
-                <Sparkles className="h-3.5 w-3.5" /> Catálogo público
-              </div>
-              <h1 className="max-w-3xl text-4xl font-black tracking-tight text-white sm:text-5xl lg:text-6xl">
-                Produtos com foto, preço claro e disponibilidade real.
-              </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-300 sm:text-lg">
-                Acessórios, periféricos e itens selecionados da Arena Tech. O catálogo mostra somente produtos com foto e estoque disponível.
-              </p>
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <HeroStat icon={Camera} label="com foto" value={catalog.totalAvailable} />
-                <HeroStat icon={PackageCheck} label="nesta busca" value={catalog.total} />
-                <HeroStat icon={ShieldCheck} label="Pix à vista" value="5% off" />
-              </div>
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-black/40 p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-black">
-                  <Search className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-semibold text-white">Busca inteligente</p>
-                  <p className="text-sm text-zinc-400">Ex.: “fonte iPhone”, “película Samsung”, “cabo tipo-c”.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+    <main className="min-h-screen bg-[#050505] text-zinc-100">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_top,rgba(201,165,92,0.14),transparent_44%)]" />
+      <div className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex justify-center py-4 sm:py-6">
+          <Logo size="lg" className="opacity-95" />
+        </header>
 
-      <section className="relative mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-[280px_1fr] lg:px-8">
-        <CatalogFilters
-          categories={catalog.categories}
-          activeCategoryId={catalog.categoryId}
-          search={catalog.search}
-          sort={catalog.sort}
-          totalAvailable={catalog.totalAvailable}
-        />
-        <div>
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-primary/80">
-                {catalog.search ? `Resultados para “${catalog.search}”` : "Produtos disponíveis"}
+        <section className="mx-auto max-w-3xl pb-8 pt-4 text-center sm:pb-10 sm:pt-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-primary/75">
+            Catálogo Arena Tech
+          </p>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+            Escolha com calma. Chame a loja quando encontrar o produto ideal.
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-zinc-400 sm:text-base">
+            Produtos disponíveis, com foto e preço claro. Use a busca ou navegue por categorias para encontrar acessórios, periféricos e itens selecionados.
+          </p>
+        </section>
+
+        <section className="grid gap-8 pb-16 lg:grid-cols-[260px_1fr] lg:items-start">
+          <CatalogFilters
+            categories={catalog.categories}
+            activeCategoryId={catalog.categoryId}
+            search={catalog.search}
+            sort={catalog.sort}
+            totalAvailable={catalog.totalAvailable}
+          />
+          <div>
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/70">
+                  {catalog.search ? `Resultados para “${catalog.search}”` : "Produtos disponíveis"}
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-white">
+                  {catalog.total} {catalog.total === 1 ? "produto encontrado" : "produtos encontrados"}
+                </h2>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Página {catalog.page} de {catalog.pageCount}
               </p>
-              <h2 className="mt-1 text-2xl font-bold text-white">{catalog.total} produto(s) com foto</h2>
             </div>
-            <p className="text-sm text-zinc-400">
-              Página {catalog.page} de {catalog.pageCount}
-            </p>
+            <Suspense fallback={<CatalogFallback />}>
+              <CatalogList catalog={catalog} />
+            </Suspense>
           </div>
-          <Suspense fallback={<CatalogFallback />}>
-            <CatalogList catalog={catalog} />
-          </Suspense>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
-  );
-}
-
-function HeroStat({ icon: Icon, label, value }: { icon: typeof Camera; label: string; value: number | string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
-      <Icon className="mb-3 h-5 w-5 text-primary" />
-      <p className="text-2xl font-black text-white">{value}</p>
-      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">{label}</p>
-    </div>
   );
 }
 

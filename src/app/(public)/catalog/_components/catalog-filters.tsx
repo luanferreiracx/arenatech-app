@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CatalogCategory, CatalogSort } from "@/server/services/public-catalog";
@@ -21,36 +21,34 @@ const SORT_OPTIONS: Array<{ value: CatalogSort; label: string }> = [
 
 export function CatalogFilters({ categories, activeCategoryId, search, sort, totalAvailable }: CatalogFiltersProps) {
   return (
-    <aside className="space-y-4 lg:sticky lg:top-6">
-      <div className="rounded-2xl border border-white/10 bg-zinc-950/80 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-100">
-          <Search className="h-4 w-4 text-primary" />
-          Buscar no catálogo
-        </div>
-        <form action="/catalog" className="space-y-3">
-          <input type="hidden" name="categoria" value={activeCategoryId} />
-          <input type="hidden" name="ordem" value={sort} />
+    <aside className="space-y-6 lg:sticky lg:top-6">
+      <form action="/catalog" className="space-y-3">
+        <input type="hidden" name="categoria" value={activeCategoryId} />
+        <input type="hidden" name="ordem" value={sort} />
+        <label className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" htmlFor="catalog-search">
+          Buscar
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
           <Input
+            id="catalog-search"
             name="q"
             defaultValue={search}
             placeholder="iPhone, fonte, película..."
-            className="border-white/10 bg-black/60 text-zinc-100 placeholder:text-zinc-500"
+            className="h-11 rounded-full border-white/10 bg-white/[0.03] pl-9 text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-primary/40"
           />
-          <Button className="w-full" type="submit">Buscar</Button>
-          {(search || activeCategoryId || sort !== "nome") && (
-            <Button className="w-full" variant="ghost" asChild>
-              <Link href="/catalog">Limpar filtros</Link>
-            </Button>
-          )}
-        </form>
-      </div>
-
-      <div className="rounded-2xl border border-white/10 bg-zinc-950/80 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-100">
-          <SlidersHorizontal className="h-4 w-4 text-primary" />
-          Categorias
         </div>
-        <nav className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+        <Button className="h-10 w-full rounded-full" type="submit">Buscar produto</Button>
+        {(search || activeCategoryId || sort !== "nome") && (
+          <Button className="h-10 w-full rounded-full text-zinc-400" variant="ghost" asChild>
+            <Link href="/catalog">Limpar filtros</Link>
+          </Button>
+        )}
+      </form>
+
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Categorias</p>
+        <nav className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:overflow-visible lg:pb-0">
           <CategoryLink
             href={buildCatalogHref({ search, sort })}
             active={!activeCategoryId}
@@ -69,17 +67,17 @@ export function CatalogFilters({ categories, activeCategoryId, search, sort, tot
         </nav>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-zinc-950/80 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
-        <div className="mb-3 text-sm font-semibold text-zinc-100">Ordenar</div>
-        <div className="grid gap-2">
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Ordenar</p>
+        <div className="flex flex-wrap gap-2 lg:grid">
           {SORT_OPTIONS.map((option) => (
             <Link
               key={option.value}
               href={buildCatalogHref({ search, categoryId: activeCategoryId, sort: option.value })}
-              className={`rounded-xl border px-3 py-2 text-sm transition ${
+              className={`rounded-full border px-3 py-2 text-sm transition ${
                 sort === option.value
-                  ? "border-primary/60 bg-primary/10 text-primary"
-                  : "border-white/10 text-zinc-300 hover:border-primary/40 hover:text-primary"
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-white/10 text-zinc-400 hover:border-primary/40 hover:text-zinc-100"
               }`}
             >
               {option.label}
@@ -95,14 +93,14 @@ function CategoryLink({ href, active, name, count }: { href: string; active: boo
   return (
     <Link
       href={href}
-      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm transition ${
+      className={`flex shrink-0 items-center justify-between rounded-full border px-3 py-2 text-sm transition lg:w-full ${
         active
-          ? "border-primary/60 bg-primary/10 text-primary"
-          : "border-white/10 text-zinc-300 hover:border-primary/40 hover:text-primary"
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-white/10 text-zinc-400 hover:border-primary/40 hover:text-zinc-100"
       }`}
     >
       <span className="truncate">{name}</span>
-      <span className="ml-2 rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-400">{count}</span>
+      <span className="ml-2 text-xs text-zinc-500">{count}</span>
     </Link>
   );
 }

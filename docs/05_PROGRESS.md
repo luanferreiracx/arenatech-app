@@ -8,13 +8,21 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary agora estão expostas na UI interna de estoque e o catálogo público `/catalog` foi reconstruído para exibir apenas produtos com foto, estoque e preço Pix/parcelamento. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs). Hotfix PDV/estoque em andamento: DePix auto-finaliza venda após confirmação e relatórios de estoque usam saldos reais.
-**Ultima atualizacao:** 2026-06-06
+**Ultima atualizacao:** 2026-06-07
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `feat/superadmin-tenant-users`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
+
+### 2026-06-07 — Refinamento visual do catálogo público
+- Implementado: `/catalog` removeu o hero/cabeçalho pesado, passou a usar a logo Arena Tech no topo e adotou composição minimalista com foco em busca, categorias e produtos.
+- Implementado: filtros, chips de categoria, ordenação, cards e estado vazio foram simplificados para reduzir ruído visual e melhorar a experiência do cliente que acessa o catálogo.
+- Implementado: detalhe público do produto ganhou topo com logo, botão discreto de retorno, superfícies mais limpas e CTAs arredondados com foco em WhatsApp.
+- Decisões: manter tema escuro/dourado da marca, mas com menos bordas, sombras e estatísticas promocionais para transmitir profissionalismo.
+- Validação: `pnpm typecheck` verde após limpar cache `.next`; `pnpm lint` sem erros, apenas warnings preexistentes fora do escopo.
+- Próximo: validar visualmente em desktop/mobile com dados reais e ajustar microcopy/spacing se o cliente final ainda perceber excesso de informação.
 
 ### 2026-06-06 — Catálogo público com produtos fotografados
 - Implementado: `AGENTS.md` removido sem leitura, pois é arquivo exclusivo para Codex e não deve orientar Claude.

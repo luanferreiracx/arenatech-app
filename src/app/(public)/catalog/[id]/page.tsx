@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessageCircle, Package, ShieldCheck, Sparkles, Truck } from "lucide-react";
+import { Logo } from "@/components/branding/logo";
 import { Button } from "@/components/ui/button";
 import { getPublicCatalogProduct, getRelatedCatalogProducts } from "@/server/services/public-catalog";
 import { CatalogProductCard, formatCurrency } from "../_components/catalog-product-card";
@@ -27,20 +28,23 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
   const whatsappHref = buildWhatsAppHref(product.name, product.currentPriceCents);
 
   return (
-    <main className="min-h-screen bg-black text-zinc-100">
-      <div className="absolute inset-x-0 top-0 -z-0 h-[520px] bg-[radial-gradient(circle_at_top_left,rgba(201,168,76,0.22),transparent_32%),radial-gradient(circle_at_top_right,rgba(120,89,20,0.16),transparent_30%)]" />
-      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Button asChild variant="ghost" className="mb-6 text-zinc-300 hover:text-primary">
-          <Link href="/catalog">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar ao catálogo
-          </Link>
-        </Button>
+    <main className="min-h-screen bg-[#050505] text-zinc-100">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_top,rgba(201,165,92,0.14),transparent_44%)]" />
+      <div className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <header className="mb-6 flex items-center justify-between gap-4">
+          <Logo size="md" className="opacity-95" />
+          <Button asChild variant="ghost" className="rounded-full text-zinc-400 hover:text-primary">
+            <Link href="/catalog">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Catálogo
+            </Link>
+          </Button>
+        </header>
 
         <section className="grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <div className="space-y-4">
-            <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-zinc-950 shadow-[0_28px_100px_rgba(0,0,0,0.55)]">
-              <div className="aspect-square bg-zinc-900">
+            <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03]">
+              <div className="aspect-square bg-zinc-950">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={product.mediumImageUrl} alt={product.name} className="h-full w-full object-cover" />
               </div>
@@ -57,7 +61,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             )}
           </div>
 
-          <div className="rounded-[2rem] border border-primary/20 bg-zinc-950/90 p-6 shadow-[0_28px_100px_rgba(0,0,0,0.45)] lg:sticky lg:top-8">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-6 lg:sticky lg:top-8">
             <div className="mb-3 flex flex-wrap gap-2">
               {product.categoryName && (
                 <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
@@ -80,7 +84,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             <h1 className="mt-2 text-3xl font-black leading-tight text-white sm:text-4xl">{product.name}</h1>
             {product.description && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-400">{product.description}</p>}
 
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/45 p-5">
+            <div className="mt-6 rounded-3xl border border-white/10 bg-black/30 p-5">
               {product.salePriceCents > 0 ? (
                 <div>
                   {product.promotionalPriceCents && (
@@ -106,14 +110,14 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="flex-1 bg-[#25D366] text-black hover:bg-[#20bd5a]">
+              <Button asChild size="lg" className="flex-1 rounded-full bg-[#25D366] text-black hover:bg-[#20bd5a]">
                 <a href={whatsappHref} target="_blank" rel="noreferrer">
                   <MessageCircle className="mr-2 h-5 w-5" />
-                  Tenho interesse
+                  Chamar no WhatsApp
                 </a>
               </Button>
-              <Button asChild size="lg" variant="outline" className="border-primary/40 text-primary hover:bg-primary/10">
-                <Link href="/catalog">Ver mais produtos</Link>
+              <Button asChild size="lg" variant="outline" className="rounded-full border-white/15 text-zinc-200 hover:border-primary/40 hover:bg-primary/10 hover:text-primary">
+                <Link href="/catalog">Ver mais</Link>
               </Button>
             </div>
           </div>
@@ -139,7 +143,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
 function Benefit({ icon: Icon, title, text }: { icon: typeof Package; title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/35 p-3">
+    <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
       <Icon className="mb-2 h-4 w-4 text-primary" />
       <p className="text-sm font-semibold text-white">{title}</p>
       <p className="text-xs text-zinc-500">{text}</p>
