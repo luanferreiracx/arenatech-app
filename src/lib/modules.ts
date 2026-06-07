@@ -38,7 +38,7 @@ const MODULE_KEY_SET = new Set<string>(MODULE_KEYS);
 /** Rótulos legíveis para a UI de configuração de plano. */
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   wallet: "Carteira DePix Wallet",
-  "depix-ops": "Vendas Avulsas DePix Wallet",
+  "depix-ops": "Vendas Avulsas Wallet",
   "service-orders": "Assistência (Ordens de Serviço)",
   customers: "Clientes",
   tools: "Ferramentas (Simulador, Avaliação, Consultas)",
@@ -66,14 +66,12 @@ export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet"];
 
 /**
  * Mapa de prefixo de rota → módulo. A ordem importa: prefixos mais específicos
- * vêm antes dos genéricos (ex.: `/depix/withdrawals` antes de qualquer `/depix`).
+ * vêm antes dos genéricos (ex.: `/depix-wallet` antes de qualquer rota financeira).
  * `resolveModuleForPath` casa pelo primeiro prefixo que bate.
  */
 const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
-  // DePix — checado antes de `financial` para "roubar" as rotas DePix.
-  // Saques novos existem apenas na Wallet; `/depix/withdrawals` fica como arquivo legado.
+  // DePix Wallet — `/depix/*` existe apenas como redirect legado para a Wallet.
   ["/depix-wallet", "wallet"],
-  ["/depix/withdrawals", "wallet"],
   ["/depix", "wallet"],
   ["/quick-sales", "depix-ops"],
 

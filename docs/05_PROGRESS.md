@@ -20,6 +20,7 @@
 - Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.
 - Implementado: `depixWallet.getWalletInfo` retorna `canWithdraw` e alinha `canRevealMnemonic` com `tenantAdminProcedure` (`owner/manager/admin` e superadmin), permitindo tenants de teste com perfil `admin`.
 - Implementado: botão `Sacar` no hero da Wallet aparece apenas para perfil admin; acesso direto a `/depix-wallet/withdraw` mostra bloqueio amigável para perfis sem permissão, mantendo backend protegido por `tenantAdminProcedure`.
+- Corrigido após validação manual: UI do DePix legado removida de vez — `/depix`, `/depix/withdrawals`, detalhes e `/settings/depix` redirecionam para a Wallet; componentes de saque legado e comprovante legado foram removidos; menu mostra apenas Wallet e vendas avulsas wallet-backed.
 - Validação: `pnpm typecheck` OK; unitários completos OK (`830 passed`).
 - Próximo: abrir PR/CI/deploy e validar manualmente admin vs operador no tenant de teste.
 
