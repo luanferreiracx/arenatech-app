@@ -16,6 +16,13 @@
 
 ---
 
+### 2026-06-07 — Domínio público do catálogo novo
+- Em andamento: `catalogo.arenatechpi.com.br` será movido do catálogo Laravel antigo para o novo catálogo Next.js.
+- Implementado: host `catalogo.arenatechpi.com.br` reconhecido pela aplicação e reescrito da raiz `/` para `/catalog`, mantendo `/catalog` público sem autenticação.
+- Implementado: server block Nginx versionado para `catalogo.arenatechpi.com.br`, proxyando para a app Next.js em `127.0.0.1:3001` com o certificado wildcard Cloudflare já usado em produção.
+- Implementado: deploy via GitHub Actions passa a instalar/atualizar o server block do catálogo antes de recriar o container app.
+- Próximo: validar CI/deploy e acessar `https://catalogo.arenatechpi.com.br` para confirmar que o catálogo novo substituiu o antigo.
+
 ### 2026-06-07 — Refinamento visual do catálogo público
 - Implementado: `/catalog` removeu o hero/cabeçalho pesado, passou a usar a logo Arena Tech no topo e adotou composição minimalista com foco em busca, categorias e produtos.
 - Implementado: filtros, chips de categoria, ordenação, cards e estado vazio foram simplificados para reduzir ruído visual e melhorar a experiência do cliente que acessa o catálogo.
