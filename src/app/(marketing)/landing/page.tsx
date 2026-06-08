@@ -163,7 +163,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Tickets: Deposito (PIX->DePix) e Saque (DePix->PIX), exemplo R$ 1.000 */}
+          {/* Tickets: Deposito (PIX->DePix) e Saque (DePix->PIX), exemplo R$ 100 */}
           <div className="relative mx-auto w-full max-w-sm space-y-4">
             <div
               className="absolute -inset-4 rounded-3xl opacity-20 blur-2xl"
@@ -183,7 +183,7 @@ export default function LandingPage() {
                   <span className="flex items-center gap-2 text-slate-300">
                     <QrCode className="h-4 w-4 text-teal-300" /> cliente paga em PIX
                   </span>
-                  <span className="text-slate-300 tabular-nums">R$ 1.000,00</span>
+                  <span className="text-slate-300 tabular-nums">R$ 100,00</span>
                 </div>
                 <div className="flex items-center justify-center text-slate-600">
                   <ArrowDownRight className="h-4 w-4" />
@@ -192,7 +192,7 @@ export default function LandingPage() {
                   <span className="flex items-center gap-2 text-slate-300">
                     <Wallet className="h-4 w-4 text-teal-300" /> entra como DePix
                   </span>
-                  <span className="font-bold text-teal-300 tabular-nums">R$ 984,01</span>
+                  <span className="font-bold text-teal-300 tabular-nums">R$ 96,91</span>
                 </div>
               </div>
             </div>
@@ -210,7 +210,7 @@ export default function LandingPage() {
                   <span className="flex items-center gap-2 text-slate-300">
                     <Wallet className="h-4 w-4 text-teal-300" /> sai da carteira DePix
                   </span>
-                  <span className="text-slate-300 tabular-nums">R$ 1.000,00</span>
+                  <span className="text-slate-300 tabular-nums">R$ 100,00</span>
                 </div>
                 <div className="flex items-center justify-center text-slate-600">
                   <ArrowDownRight className="h-4 w-4" />
@@ -219,7 +219,7 @@ export default function LandingPage() {
                   <span className="flex items-center gap-2 text-slate-300">
                     <Banknote className="h-4 w-4 text-green-400" /> cai como PIX
                   </span>
-                  <span className="font-bold text-green-400 tabular-nums">R$ 982,01</span>
+                  <span className="font-bold text-green-400 tabular-nums">R$ 96,51</span>
                 </div>
               </div>
             </div>
@@ -350,25 +350,25 @@ export default function LandingPage() {
               <div className="p-7">
                 <div className="font-mono text-xs uppercase tracking-widest text-slate-500">depósito · pix → depix</div>
                 <div className="mt-3 font-mono text-3xl font-bold text-white tabular-nums">
-                  R$ 0,99 <span className="text-lg font-medium text-teal-300">+ 1,5%</span>
+                  R$ 1,99 <span className="text-lg font-medium text-teal-300">+ 1,1%</span>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
                   por PIX recebido e convertido em DePix
                 </p>
                 <p className="mt-3 font-mono text-xs text-slate-500">
-                  R$ 1.000,00 → <span className="text-teal-300">R$ 984,01</span> na carteira
+                  R$ 100,00 → <span className="text-teal-300">R$ 96,91</span> na carteira
                 </p>
               </div>
               <div className="p-7">
                 <div className="font-mono text-xs uppercase tracking-widest text-slate-500">saque · depix → pix</div>
                 <div className="mt-3 font-mono text-3xl font-bold text-white tabular-nums">
-                  R$ 0,99 <span className="text-lg font-medium text-green-400">+ 1,7%</span>
+                  R$ 1,99 <span className="text-lg font-medium text-green-400">+ 1,5%</span>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">
                   por DePix sacado e convertido em PIX
                 </p>
                 <p className="mt-3 font-mono text-xs text-slate-500">
-                  R$ 1.000,00 → <span className="text-green-400">R$ 982,01</span> no PIX
+                  R$ 100,00 → <span className="text-green-400">R$ 96,51</span> no PIX
                 </p>
               </div>
             </div>
