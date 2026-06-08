@@ -74,6 +74,25 @@ describe("Orion Pay deposit service", () => {
     );
   });
 
+  it("uses qrCode as image URL when Orion returns response URL in qrCode", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({
+        qrCode: "https://response.eulen.app/api-response/example-qr.png",
+        transactionId: "orion-tx-url",
+        amount: 100,
+      }),
+    } as Response);
+
+    const result = await createOrionPixPayment(100, "Deposito DePix 2", "local-ref-2");
+
+    expect(result.success).toBe(true);
+    expect(result.transactionId).toBe("orion-tx-url");
+    expect(result.qrCode).toBe("");
+    expect(result.qrCodeBase64).toBe("https://response.eulen.app/api-response/example-qr.png");
+  });
+
   it("queries and normalizes paid status", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
