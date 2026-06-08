@@ -69,6 +69,45 @@ describe("LiquidX Pro DePix withdraw service", () => {
     );
   });
 
+  it("accepts production LiquidX response with withdrawalId", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({
+        success: true,
+        message: "Withdraw created successfully",
+        data: {
+          response: {
+            depositAddress: "lq1qq-prod-address",
+            depositAmountInCents: 45_455,
+            payoutAmountInCents: 45_000,
+            withdrawalId: "019ea5842994713d9d01af75bab66bc9",
+          },
+          async: false,
+        },
+        fee_info: {
+          status: "warning",
+          pending_cents: 454,
+          gross_fee_cents: 454,
+        },
+      }),
+    } as Response);
+
+    const result = await createDepixWithdraw(
+      "teste@example.com",
+      "EMAIL",
+      450,
+      "05000000096",
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.id).toBe("019ea5842994713d9d01af75bab66bc9");
+    expect(result.depositAddress).toBe("lq1qq-prod-address");
+    expect(result.depositAmountInCents).toBe(45_455);
+    expect(result.payoutAmountInCents).toBe(45_000);
+    expect(result.fee).toBe(4.55);
+  });
+
   it("queries withdraw status with LiquidX", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({

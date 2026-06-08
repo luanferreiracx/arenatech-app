@@ -245,11 +245,15 @@ export async function createLiquidXWithdraw(
       return { success: false, error: providerMessage ?? "LiquidX recusou o saque" };
     }
 
-    const id = readString(data, "id");
+    const id =
+      readString(data, "id") ??
+      readString(data, "withdrawalId") ??
+      readString(data, "withdrawId");
     if (!id) {
       logger.error("LiquidX saque: sem id", { body });
       return { success: false, error: "Resposta invalida: sem id" };
     }
+    const canonicalId = id;
 
     const depositAddress = readString(data, "depositAddress");
     const depositAmountInCents = readNumber(data, "depositAmountInCents");
@@ -262,7 +266,7 @@ export async function createLiquidXWithdraw(
 
     return {
       success: true,
-      id,
+      id: canonicalId,
       depositAddress,
       depositAddressQr: depositAddress ? await generateDepositAddressQr(depositAddress) : undefined,
       depositAmountInCents,
