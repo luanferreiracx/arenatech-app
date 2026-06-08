@@ -13,10 +13,6 @@
 
 import { logger } from "@/lib/logger";
 import {
-  createOrionPixPayment,
-  getOrionPixStatus,
-} from "@/lib/services/orion-pay-service";
-import {
   createLiquidXWithdraw,
   getLiquidXWithdrawStatus,
 } from "@/lib/services/liquidx-pro-service";
@@ -109,14 +105,8 @@ export async function createPixPayment(
   description: string,
   referenceId: string,
   taxNumber?: string | null,
-  options?: { depixAddress?: string; requireDepixAddress?: boolean; payerPhone?: string | null },
+  options?: { depixAddress?: string; requireDepixAddress?: boolean },
 ): Promise<DepixCreateResult> {
-  if (process.env.DEPIX_DEPOSIT_PROVIDER === "orion") {
-    return createOrionPixPayment(amountReais, description, referenceId, taxNumber, {
-      payerPhone: options?.payerPhone,
-    });
-  }
-
   const config = getConfig();
 
   if (options?.requireDepixAddress && !options.depixAddress) {
@@ -328,10 +318,6 @@ export async function getDepixWithdrawStatus(
 export async function getPixStatus(
   transactionId: string,
 ): Promise<DepixStatusResult> {
-  if (process.env.DEPIX_DEPOSIT_PROVIDER === "orion") {
-    return getOrionPixStatus(transactionId);
-  }
-
   const config = getConfig();
   if (!config) {
     return { success: true, status: "pending", isFinal: false };

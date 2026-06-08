@@ -3,11 +3,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { settleDepositConfirmed } from "@/server/services/depix-transaction.service";
-import {
-  extractOrionTransactionId,
-  normalizeOrionWebhookStatus,
-  verifyOrionWebhookSignature,
-} from "@/lib/services/orion-pay-service";
 import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import {
   handleDepixWithdrawWebhook,
@@ -52,23 +47,12 @@ export async function POST(req: NextRequest) {
 
   // ─── AUTH ────────────────────────────────────────────────────────────────
   const secret = process.env.PIXPAY_WEBHOOK_SECRET;
-  const orionSignature = req.headers.get("x-orionpay-signature");
-  const orionEvent = req.headers.get("x-orionpay-event");
-  const orionDelivery = req.headers.get("x-orionpay-delivery");
   const allowedIps = (process.env.DEPIX_WEBHOOK_IPS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  let signatureValidForAudit = false;
 
-  if (orionSignature || orionEvent) {
-    const verified = verifyOrionWebhookSignature(rawBody, orionSignature, orionEvent, orionDelivery);
-    if (!verified.success) {
-      logger.warn("Orion Pay webhook: HMAC invalido", { error: verified.error });
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    signatureValidForAudit = !!process.env.ORION_PAY_WEBHOOK_SECRET;
-  } else if (secret) {
+  if (secret) {
     const signature = req.headers.get("x-webhook-signature") ?? "";
     const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
     const valid =
@@ -79,7 +63,6 @@ export async function POST(req: NextRequest) {
       logger.warn("Depix-payment webhook: HMAC invalido");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    signatureValidForAudit = true;
   } else if (allowedIps.length > 0) {
     // x-forwarded-for retorna lista "client, proxy1, proxy2". Para nao
     // confiar em IP forjado pelo cliente, pegamos o ULTIMO (que e o que
@@ -126,15 +109,6 @@ export async function POST(req: NextRequest) {
     valueInCents?: number;
     payerName?: string;
     payerTaxNumber?: string;
-    event?: string;
-    delivery?: string;
-    data?: Record<string, unknown>;
-    payment?: Record<string, unknown>;
-    purchaseId?: string;
-    transactionId?: string;
-    eulenDepositId?: string;
-    paid?: boolean;
-    amount?: number;
   };
   try {
     payload = JSON.parse(rawBody);
@@ -157,13 +131,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result.body, { status: result.status });
   }
 
-  const isOrionWebhook = !!(orionSignature || orionEvent);
-  const transactionId = isOrionWebhook
-    ? extractOrionTransactionId(payload)
-    : String(payload.qrId ?? payload.id ?? "");
-  const rawStatus = isOrionWebhook
-    ? String(normalizeOrionWebhookStatus(orionEvent, payload) ?? "").toLowerCase()
-    : String(payload.status ?? payload.webhookType ?? "").toLowerCase();
+  const transactionId = String(payload.qrId ?? payload.id ?? "");
+  const rawStatus = String(payload.status ?? payload.webhookType ?? "").toLowerCase();
   const paidAt = payload.paid_at ? new Date(payload.paid_at) : new Date();
 
   // LGPD: mascarar CPF nos logs
@@ -224,18 +193,6 @@ export async function POST(req: NextRequest) {
     }),
   );
   if (walletTx) {
-    if (isPaid && isOrionWebhook) {
-      await withAdmin(async (tx) =>
-        tx.tenantDepixTransaction.updateMany({
-          where: { id: walletTx.id, status: "PENDING" },
-          data: {
-            status: "PROCESSING",
-            apiResponse: payload as never,
-          },
-        }),
-      );
-      return NextResponse.json({ received: true, wallet: true, processing: true, provider: "orion" });
-    }
     if (isPaid && walletTx.depositLabel) {
       const settled = await settleDepositConfirmed({
         tenantId: walletTx.tenantId,
@@ -298,7 +255,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── IDEMPOTENCIA: insere evento na tabela de audit + early-exit se dup ─
-  const signatureValid = signatureValidForAudit;
+  const signatureValid = !!secret;
   const sourceIpForAudit =
     (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean).pop()
     ?? req.headers.get("x-real-ip")
