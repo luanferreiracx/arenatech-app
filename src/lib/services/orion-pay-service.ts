@@ -173,15 +173,11 @@ export async function createOrionPixPayment(
       return { success: false, error: "Resposta invalida da API PIX: sem id" };
     }
 
-    const qrCode = readString(data, "qrCode") ?? readString(data, "pixCode") ?? "";
-    const qrImage = readString(data, "qrCodeImage") ?? readString(data, "qrImageUrl") ?? "";
-    const qrCodeLooksLikeImageUrl = /^https?:\/\//i.test(qrCode);
-
     return {
       success: true,
       transactionId: id,
-      qrCode: qrCodeLooksLikeImageUrl ? (readString(data, "pixCode") ?? "") : qrCode,
-      qrCodeBase64: qrImage || (qrCodeLooksLikeImageUrl ? qrCode : ""),
+      qrCode: readString(data, "qrCode") ?? readString(data, "pixCode") ?? "",
+      qrCodeBase64: readString(data, "qrCodeImage") ?? readString(data, "qrImageUrl") ?? "",
       pixKey: readString(data, "pixKey") ?? "",
     };
   } catch (error) {
