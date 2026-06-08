@@ -270,7 +270,7 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         </View>
         {tx.feePixPayCents != null && (
           <View style={styles.row}>
-            <Text style={styles.rowLabel}>Taxa PixPay</Text>
+            <Text style={styles.rowLabel}>Taxa do provedor</Text>
             <Text style={styles.rowValue}>− {fmtBRL(tx.feePixPayCents)}</Text>
           </View>
         )}
@@ -336,7 +336,7 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         )}
         {tx.pixpayDepixId && (
           <View style={styles.row}>
-            <Text style={styles.rowLabel}>ID PixPay</Text>
+            <Text style={styles.rowLabel}>{tx.kind === "DEPOSIT" ? "ID PixPay" : "ID LiquidX"}</Text>
             <Text style={[styles.rowValue, styles.monoSmall]}>{tx.pixpayDepixId}</Text>
           </View>
         )}

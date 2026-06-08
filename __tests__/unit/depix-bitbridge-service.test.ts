@@ -6,14 +6,14 @@ import {
 
 const originalEnv = process.env;
 
-describe("PixPay DePix withdraw service", () => {
+describe("LiquidX Pro DePix withdraw service", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
     process.env = {
       ...originalEnv,
-      DEPIX_API_KEY: "pixpay_token",
-      DEPIX_SAQUE_SENHA: "pixpay_secret",
-      DEPIX_SAQUE_URL: "https://api.pixpay.test/v1/withdraw",
+      LIQUIDX_API_KEY: "liquidx_code",
+      LIQUIDX_WITHDRAW_URL: "https://liquidx.test/api/withdraw",
+      LIQUIDX_WITHDRAW_STATUS_URL: "https://liquidx.test/api/withdraw/status",
     };
   });
 
@@ -23,17 +23,19 @@ describe("PixPay DePix withdraw service", () => {
     process.env = originalEnv;
   });
 
-  it("creates withdraw with PixPay payload", async () => {
+  it("creates withdraw with LiquidX payload", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        response: {
-          id: "pixpay-withdraw-123",
+      text: async () => JSON.stringify({
+        success: true,
+        data: {
+          id: "liquidx-withdraw-123",
+          pixKey: "teste@example.com",
           depositAddress: "lq1qq-address",
           depositAmountInCents: 5_050,
           payoutAmountInCents: 5_000,
-          status: "unsent",
+          status: "pending",
         },
       }),
     } as Response);
@@ -46,52 +48,52 @@ describe("PixPay DePix withdraw service", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.id).toBe("pixpay-withdraw-123");
+    expect(result.id).toBe("liquidx-withdraw-123");
     expect(result.depositAddress).toBe("lq1qq-address");
     expect(result.depositAmountInCents).toBe(5_050);
     expect(result.payoutAmountInCents).toBe(5_000);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.pixpay.test/v1/withdraw",
+      "https://liquidx.test/api/withdraw",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer pixpay_token",
+          "Content-Type": "application/json",
+          Accept: "application/json",
         }),
         body: JSON.stringify({
-          senha: "pixpay_secret",
-          valor: "50.00",
+          code: "liquidx_code",
           pixKey: "teste@example.com",
-          tipoChave: "EMAIL",
-          tax_id: "52998224725",
+          payoutAmountInCents: 5_000,
         }),
       }),
     );
   });
 
-  it("queries withdraw status with PixPay", async () => {
+  it("queries withdraw status with LiquidX", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        response: {
-          id: "pixpay-withdraw-123",
+      text: async () => JSON.stringify({
+        success: true,
+        data: {
+          id: "liquidx-withdraw-123",
           status: "completed",
         },
       }),
     } as Response);
 
-    const result = await getDepixWithdrawStatus("pixpay-withdraw-123");
+    const result = await getDepixWithdrawStatus("liquidx-withdraw-123");
 
     expect(result).toEqual({
       success: true,
       status: "completed",
       raw: {
-        id: "pixpay-withdraw-123",
+        id: "liquidx-withdraw-123",
         status: "completed",
       },
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.pixpay.test/v1/withdraw-status?id=pixpay-withdraw-123&senha=pixpay_secret",
+      "https://liquidx.test/api/withdraw/status?id=liquidx-withdraw-123",
       expect.objectContaining({
         method: "GET",
         headers: { Accept: "application/json" },

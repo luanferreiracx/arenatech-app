@@ -132,7 +132,8 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   const explorerUrl = explorerTxid
     ? `https://blockstream.info/liquid/tx/${explorerTxid}`
     : null;
-  const usesPixPayReceipt = !isDeposit && Boolean(t.pixpayReceiptUrl);
+  const usesProviderReceipt = !isDeposit && Boolean(t.pixpayReceiptUrl);
+  const providerLabel = isDeposit ? "PixPay" : "LiquidX";
 
   const handleShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -259,7 +260,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                 }
               >
                 <Printer className="h-3.5 w-3.5 mr-1.5" />
-                {usesPixPayReceipt ? "Comprovante PixPay" : "Comprovante PDF"}
+                {usesProviderReceipt ? "Comprovante LiquidX" : "Comprovante PDF"}
               </Button>
               <Button variant="outline" size="sm" onClick={handleShare}>
                 <Share2 className="h-3.5 w-3.5 mr-1.5" />
@@ -362,7 +363,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               </div>
               {t.feePixPayCents != null && (
                 <div className="flex justify-between items-baseline">
-                  <dt className="text-muted-foreground">Taxa PixPay</dt>
+                  <dt className="text-muted-foreground">Taxa do provedor</dt>
                   <dd className="font-mono tabular-nums text-muted-foreground">
                     − {formatBRL(t.feePixPayCents)}
                   </dd>
@@ -529,7 +530,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               {t.pixpayDepixId && (
                 <div>
                   <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">
-                    ID PixPay
+                    ID {providerLabel}
                   </dt>
                   <dd className="font-mono mt-0.5 text-[11px]">{t.pixpayDepixId}</dd>
                 </div>
@@ -537,7 +538,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               {t.pixpayReceiptUrl && (
                 <div>
                   <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">
-                    Comprovante PixPay
+                    Comprovante {providerLabel}
                   </dt>
                   <a
                     href={`/api/depix-wallet/transactions/${id}/comprovante`}

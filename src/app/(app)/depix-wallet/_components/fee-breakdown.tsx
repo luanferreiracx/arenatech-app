@@ -7,7 +7,7 @@ interface FeeBreakdownProps {
   kind: "DEPOSIT" | "WITHDRAW";
   netCents: number;
   feeArenaCents: number;
-  feePixPayCents: number;
+  feeProviderCents: number;
   /** Saldo disponivel pro usuario comparar com o gross (saque). Opcional. */
   availableBalanceCents?: number;
   className?: string;
@@ -24,7 +24,7 @@ function fmt(cents: number): string {
  * Card de breakdown visual das taxas. Para SAQUE:
  *   Destinatario recebe   R$ X
  *   + Taxa Arena Tech     R$ Y
- *   + Taxa PixPay (est.)  R$ Z
+ *   + Taxa LiquidX (est.) R$ Z
  *   ────
  *   Voce paga             R$ X+Y+Z
  *   Saldo disponivel      R$ ...
@@ -40,15 +40,17 @@ export function FeeBreakdown({
   kind,
   netCents,
   feeArenaCents,
-  feePixPayCents,
+  feeProviderCents,
   availableBalanceCents,
   className,
 }: FeeBreakdownProps) {
   const isWithdraw = kind === "WITHDRAW";
-  const grossCents = isWithdraw
-    ? netCents + feeArenaCents + feePixPayCents
-    : netCents + feeArenaCents + feePixPayCents;
-  const totalCents = isWithdraw ? grossCents : grossCents; // mesmo calculo, label muda
+  const providerLabel = isWithdraw ? "Taxa LiquidX" : "Taxa PixPay";
+  const providerTitle = isWithdraw
+    ? "Estimativa LiquidX. Valor real eh confirmado ao iniciar a operacao."
+    : "Estimativa PixPay para deposito. Valor real eh confirmado ao iniciar a operacao.";
+  const grossCents = netCents + feeArenaCents + feeProviderCents;
+  const totalCents = grossCents;
   const hasArenaFee = feeArenaCents > 0;
   const sign = isWithdraw ? "+" : "−";
 
@@ -90,13 +92,13 @@ export function FeeBreakdown({
 
         <div className="flex items-baseline justify-between">
           <dt className="text-muted-foreground inline-flex items-center gap-1">
-            Taxa PixPay
-            <span title="Estimativa baseada na tabela do gateway. Valor real eh confirmado ao iniciar a operacao.">
+            {providerLabel}
+            <span title={providerTitle}>
               <Info className="h-3 w-3 inline opacity-60" />
             </span>
           </dt>
           <dd className="tabular-nums font-mono text-muted-foreground">
-            {sign} {fmt(feePixPayCents)}
+            {sign} {fmt(feeProviderCents)}
           </dd>
         </div>
 
@@ -106,7 +108,7 @@ export function FeeBreakdown({
             {isWithdraw ? "Voce paga" : "Voce recebe"}
           </dt>
           <dd className="tabular-nums font-mono text-lg font-semibold">
-            {fmt(isWithdraw ? totalCents : netCents - feeArenaCents - feePixPayCents)}
+            {fmt(isWithdraw ? totalCents : netCents - feeArenaCents - feeProviderCents)}
           </dd>
         </div>
 

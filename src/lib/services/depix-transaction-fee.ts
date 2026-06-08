@@ -6,25 +6,15 @@
  *   - Entrada (deposito): R$ entryFeeFixed + entryFeePercent% sobre o bruto
  *   - Saida  (saque):     R$ exitFeeFixed  + exitFeePercent%  sobre o bruto
  *
- * Empilha sobre a taxa do gateway PixPay (calculada abaixo). UI mostra
- * breakdown transparente.
+ * Empilha sobre a taxa do provedor. UI mostra breakdown transparente.
  *
- * --- TABELA PIXPAY (medida empiricamente em 2026-05-31 em prod) ---
+ * DEPOSITO: PixPay cobra R$ 0,99 fixo + 0,5% sobre o valor pago pelo cliente.
+ * Linear.
  *
- * DEPOSITO: R$ 0,99 fixo + 0,5% sobre o valor pago pelo cliente. Linear.
- *
- * SAQUE: ESCALONADO em 3 faixas (NAO eh linear simples):
- *   - valor <= R$ 100:        fee = R$ 1,99 (piso)
- *   - R$ 100 < valor <= R$ 800: fee = R$ 1,99 + 1,65% * (valor - 100)
- *   - valor > R$ 800:         fee = R$ 5,50 + 1,00% * valor
- * Pontos de validacao (max erro R$ 0,22 — caso da R$ 250):
- *   R$ 100  -> R$ 1,99      R$ 999  -> R$ 15,49
- *   R$ 250  -> R$ 4,25      R$ 1000 -> R$ 15,50
- *   R$ 400  -> R$ 6,96      R$ 2000 -> R$ 25,50
- *   R$ 800  -> R$ 13,50     R$ 5000 -> R$ 55,50
- * Valor real eh sempre o que a PixPay retorna no createDepixWithdraw
- * (depositAmountInCents - payoutAmountInCents) — a estimativa aqui eh
- * so pra UI mostrar pro usuario antes de confirmar.
+ * SAQUE: LiquidX Pro retorna o valor real ao criar a intencao
+ * (depositAmountInCents - payoutAmountInCents). A estimativa local usa a regra
+ * observada na documentacao: payout = deposit - 1%. Ela existe so pra UI antes
+ * da confirmacao; o backend revalida saldo com o retorno real da LiquidX.
  *
  * --- LIMITES DE OPERACAO ---
  *   Min  R$ 10,00  (deposito e saque) — abaixo nao compensa as taxas
@@ -51,8 +41,8 @@ export interface DepositFeeBreakdown {
 export interface WithdrawFeeBreakdown {
   grossCents: number;
   feeArenaTechCents: number;
-  /** Estimativa da taxa PixPay no saque (valor real vem do
-   *  createDepixWithdraw: depositAmountInCents - payoutAmountInCents). */
+  /** Estimativa da taxa do provedor no saque (valor real vem da LiquidX:
+   *  depositAmountInCents - payoutAmountInCents). */
   feePixPayEstimatedCents: number;
   /** Estimativa do que o destinatario recebe via PIX. */
   netCents: number;
@@ -76,25 +66,16 @@ function pct(amountCents: number, percent: number): number {
 }
 
 /**
- * Estimativa da taxa PixPay no SAQUE em centavos (tabela escalonada).
+ * Estimativa da taxa LiquidX Pro no SAQUE em centavos.
  *
- *   - <= R$ 100:        R$ 1,99 (piso)
- *   - R$ 100 a R$ 800:  R$ 1,99 + 1,65% sobre o que excede R$ 100
- *   - > R$ 800:         R$ 5,50 + 1,00% sobre o valor todo
- *
- * Recebe `requestedReaisCents` = valor LIQUIDO pretendido pelo destinatario
- * (eh o que PixPay efetivamente envia em PIX).
+ * A LiquidX confirma o valor real no create withdraw. Para preview, usamos a
+ * relacao documentada: R$ 100,00 em DePix gera R$ 99,00 de payout PIX.
+ * Recebe `requestedReaisCents` = valor LIQUIDO pretendido pelo destinatario.
  */
 export function estimatePixPayWithdrawFee(requestedReaisCents: number): number {
-  if (requestedReaisCents <= 10000) {
-    return 199; // R$ 1,99
-  }
-  if (requestedReaisCents <= 80000) {
-    // R$ 1,99 + 1,65% sobre o excedente acima de R$ 100
-    return 199 + roundCents((requestedReaisCents - 10000) * 1.65 / 100);
-  }
-  // > R$ 800: R$ 5,50 + 1% sobre o valor todo
-  return 550 + roundCents(requestedReaisCents * 1.0 / 100);
+  if (requestedReaisCents <= 0) return 0;
+  const grossCents = Math.ceil(requestedReaisCents / 0.99);
+  return grossCents - requestedReaisCents;
 }
 
 /** Estimativa da taxa PixPay no DEPOSITO em centavos: R$ 0,99 + 0,5% linear. */
@@ -122,19 +103,18 @@ export function calcDepositFee(
 
 /**
  * Taxa do SAQUE, calculada A PARTIR DO BRUTO (forward).
- * PixPay: tabela escalonada (ver estimatePixPayWithdrawFee).
+ * LiquidX Pro: taxa estimada sobre o payout PIX.
  *
- * No saque, o net (PIX entregue ao destinatario) eh o "requested" do PixPay —
- * eh sobre ele que a taxa PixPay incide.
+ * No saque, o net (PIX entregue ao destinatario) eh o payout pretendido.
  */
 export function calcWithdrawFee(
   grossCents: number,
   cfg: DepixFeeConfig,
 ): WithdrawFeeBreakdown {
   const feeArena = cfg.exitFeeFixed + pct(grossCents, cfg.exitFeePercent);
-  // Procedimento iterativo: dado um gross, descobrir o net e a taxa PixPay
-  // que satisfazem: gross - feeArena - feePixPay(net) = net. Como feePixPay
-  // depende do net (a tabela), faz busca curta convergente.
+  // Procedimento iterativo: dado um gross, descobrir o net e a taxa do provedor
+  // que satisfazem: gross - feeArena - feeProvider(net) = net. Como a taxa
+  // depende do net, faz busca curta convergente.
   // Aproximacao inicial: assume net = gross - feeArena
   let net = grossCents - feeArena;
   let feePixPay = estimatePixPayWithdrawFee(Math.max(0, net));
@@ -156,16 +136,14 @@ export function calcWithdrawFee(
  * Inversa do saque: usuario informa o LIQUIDO (destinatario recebe X) e
  * calculamos o bruto a sair da carteira do tenant (com taxas empilhadas).
  *
- * Como a taxa PixPay eh ESCALONADA (nao linear), precisamos resolver por
- * faixa. O calculo direto eh: dado `net`, a taxa PixPay eh
- * `estimatePixPayWithdrawFee(net)` (PixPay calcula sobre o `requested`, que
- * eh o net pretendido). Entao o bruto eh:
+ * Como a taxa LiquidX depende do payout, calculamos a estimativa a partir do
+ * `net` pretendido. Entao o bruto eh:
  *
- *   gross = net + feeArena(gross) + feePixPay(net)
+ *   gross = net + feeArena(gross) + feeProvider(net)
  *
  * Mas feeArena depende do gross — precisamos da formula linear:
  *
- *   gross = (net + feePixPay(net) + exitFeeFixed) / (1 - exitFeePercent/100)
+ *   gross = (net + feeProvider(net) + exitFeeFixed) / (1 - exitFeePercent/100)
  *
  * Ajuste de drift: igual ao implementado antes pra garantir
  * forward(inverse(net)) = net e fee Arena = 0 exato pro tenant central.
@@ -174,10 +152,10 @@ export function calcWithdrawFromNet(
   netCents: number,
   cfg: DepixFeeConfig,
 ): WithdrawFeeBreakdown {
-  // 1. Taxa PixPay depende SO do net (valor que destinatario recebe).
+  // 1. Taxa do provedor depende SO do net (valor que destinatario recebe).
   const feePixPay = estimatePixPayWithdrawFee(netCents);
   // 2. Resolve o gross usando a parte LINEAR da formula Arena Tech:
-  //    gross = (net + feePixPay + exitFeeFixed) / (1 - exitFeePercent/100)
+  //    gross = (net + feeProvider + exitFeeFixed) / (1 - exitFeePercent/100)
   if (cfg.exitFeePercent >= 100) {
     // Config degenerada
     return { grossCents: 0, feeArenaTechCents: 0, feePixPayEstimatedCents: feePixPay, netCents };
@@ -186,7 +164,7 @@ export function calcWithdrawFromNet(
   const denominator = 1 - cfg.exitFeePercent / 100;
   // ceil pra garantir que net pretendido eh atingido apos arredondamentos
   let grossCents = Math.ceil(numerator / denominator);
-  // 3. Recalcula a taxa Arena Tech a partir do gross
+  // 3. Recalcula a taxa Arena Tech a partir do gross.
   const feeArena = cfg.exitFeeFixed + pct(grossCents, cfg.exitFeePercent);
   // 4. Drift: reduz o gross em ate 1-2 sat pra reconciliar
   //    (preserva taxa zero pra tenant central + consistencia forward/inverse)

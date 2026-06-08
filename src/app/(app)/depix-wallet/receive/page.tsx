@@ -204,7 +204,7 @@ export default function DepixReceivePage() {
               kind="DEPOSIT"
               netCents={amount}
               feeArenaCents={previewQuery.data.feeArenaTechCents}
-              feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+              feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
             />
           )}
         </Card>

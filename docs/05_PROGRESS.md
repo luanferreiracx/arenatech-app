@@ -7,8 +7,8 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet em ajuste final de recebimento/saque PixPay.
-**Ultima atualizacao:** 2026-06-07
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
+**Ultima atualizacao:** 2026-06-08
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/remove-depix-legacy-ui`
@@ -24,6 +24,16 @@
 - Decisões: DePix continua sendo a última forma no pagamento misto e o backend segue revalidando `TenantDepixTransaction` liquidada antes de finalizar.
 - Validação: lint focado nos dialogs DePix e páginas relacionadas verde. `pnpm typecheck` falhou por erros TypeScript preexistentes fora do escopo (integration tests, scripts e componentes antigos), sem erro novo no arquivo alterado.
 - Próximo: abrir PR/deploy e validar em produção com IP liberado pela API DePix/LWK.
+
+### 2026-06-08 — DePix Wallet: saques via LiquidX Pro
+- Implementado: `OurWebsite-API_Documentation.pdf` foi lido em `~/Downloads`; a API LiquidX Pro usa `code`, `POST /api/withdraw` e `GET /api/withdraw/status`.
+- Implementado: saques DePix passam a usar LiquidX Pro por `LIQUIDX_API_KEY`; a chave real não foi gravada no repositório.
+- Implementado: depósitos DePix continuam na PixPay com `DEPIX_API_KEY`, `DEPIX_API_URL` e `DEPIX_DEPOSIT_STATUS_URL`.
+- Implementado: `createDepixWithdraw` e `getDepixWithdrawStatus` agora delegam para o cliente LiquidX Pro, mantendo compatibilidade com o orquestrador atual.
+- Implementado: o fluxo de saque revalida o saldo após a cotação real da LiquidX antes de enviar DePix via LWK.
+- Decisões: manter campos legados `pixpayDepixId`/`pixpayDepositAddress` como compatibilidade do banco; renome neutro fica para refactor futuro.
+- Validação: `pnpm vitest run __tests__/unit/depix-bitbridge-service.test.ts --reporter=dot` verde (2/2). `pnpm typecheck` ainda falha por erros preexistentes de tipagem/Prisma fora deste escopo.
+- Próximo: configurar `LIQUIDX_API_KEY` no ambiente real e validar um saque completo com polling de status LiquidX.
 
 ### 2026-06-07 — DePix Wallet: recebimento avulso e saque PixPay
 - Implementado: `/depix-wallet/receive` passou a coletar telefone e CPF/CNPJ do pagador; CPF/CNPJ fica opcional até R$ 499,99 e obrigatório a partir de R$ 500,00, mantendo limite operacional máximo de R$ 5.000,00.

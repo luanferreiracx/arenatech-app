@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -324,7 +324,7 @@ export default function DepixWithdrawPage() {
                 kind="WITHDRAW"
                 netCents={netAmount}
                 feeArenaCents={previewQuery.data.feeArenaTechCents}
-                feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+                feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
                 availableBalanceCents={balanceCents}
               />
             )}
@@ -379,7 +379,7 @@ export default function DepixWithdrawPage() {
               kind="WITHDRAW"
               netCents={netAmount}
               feeArenaCents={previewQuery.data.feeArenaTechCents}
-              feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+              feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
               availableBalanceCents={balanceCents}
             />
           )}
