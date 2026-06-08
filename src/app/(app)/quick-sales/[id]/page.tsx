@@ -78,7 +78,7 @@ export default function QuickSaleDetailPage() {
   if (isLoading) return <LoadingState />;
   if (!sale) return <div className="text-center py-12 text-muted-foreground">Venda nao encontrada</div>;
 
-  const s = sale;
+  const s = sale as any;
   const status = s.status as string;
   const isAwaiting = status === "AWAITING_PAYMENT";
   const isPaid = status === "PAID";
