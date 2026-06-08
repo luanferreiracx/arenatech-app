@@ -231,13 +231,15 @@ export async function createDeposit(args: CreateDepositArgs) {
     depixAddress: addr.address,
   });
 
-  // ETAPA 3: gera PIX no PixPay apontando pro endereco LWK do tenant.
+  // ETAPA 3: gera PIX no provedor de deposito. No Orion Pay, o endereco DePix
+  // fica configurado no painel; mantemos o endereco LWK local apenas para match
+  // do monitor on-chain.
   const pix = await createPixPayment(
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
     payerTaxId,
-    { depixAddress: addr.address, requireDepixAddress: true },
+    { depixAddress: addr.address, requireDepixAddress: true, payerPhone },
   );
   if (!pix.success || !pix.transactionId) {
     await withTenant(args.tenantId, async (tx) =>
