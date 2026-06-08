@@ -16,6 +16,15 @@
 
 ---
 
+### 2026-06-08 — PDV DePix finaliza venda automaticamente
+- Investigado: o PDV normal gera QR DePix via wallet/LWK em `sale.generatePix`, escuta SSE em `/api/sse/sale/[saleId]` e usa `sale.checkPixStatus` como fallback.
+- Corrigido: após confirmação do DePix, o modal chamava `setStatus("paid")` e agendava `onPaid` com `setTimeout`; a mudança de status reexecutava o effect e o cleanup cancelava o timer antes de finalizar a venda.
+- Implementado: `DepixQrDialog` agora chama `onPaid` imediatamente após confirmar o pagamento, mantendo o guard idempotente contra SSE + polling duplicados; o parent fecha o QR e executa `sale.finalize` automaticamente.
+- Corrigido: `QuickSaleDepixDialog` também ganhou guard idempotente wallet-first para evitar `onPaid` duplicado quando SSE e polling confirmam quase juntos; o fluxo segue usando `walletTransactionId`/`TenantDepixTransaction` como fonte canônica.
+- Decisões: DePix continua sendo a última forma no pagamento misto e o backend segue revalidando `TenantDepixTransaction` liquidada antes de finalizar.
+- Validação: lint focado nos dialogs DePix e páginas relacionadas verde. `pnpm typecheck` falhou por erros TypeScript preexistentes fora do escopo (integration tests, scripts e componentes antigos), sem erro novo no arquivo alterado.
+- Próximo: abrir PR/deploy e validar em produção com IP liberado pela API DePix/LWK.
+
 ### 2026-06-07 — DePix Wallet: recebimento avulso e saque PixPay
 - Implementado: `/depix-wallet/receive` passou a coletar telefone e CPF/CNPJ do pagador; CPF/CNPJ fica opcional até R$ 499,99 e obrigatório a partir de R$ 500,00, mantendo limite operacional máximo de R$ 5.000,00.
 - Implementado: transações Wallet persistem `payer_tax_id` e `payer_phone` nullable em `tenant_depix_transactions`, e o CPF/CNPJ continua sendo enviado ao fluxo PixPay de recebimento como `endUserTaxNumber` quando informado.
