@@ -18,6 +18,7 @@
     "test:e2e": "playwright test",
     "test:e2e:lint": "tsx __tests__/e2e/lint-e2e.ts",
     "db:generate": "prisma generate",
+    "db:generate:local": "DATABASE_URL=${DATABASE_URL:-postgresql://dummy:dummy@localhost:5432/dummy} prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",

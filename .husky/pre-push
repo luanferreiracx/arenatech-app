@@ -8,15 +8,23 @@
 # Para rodar e2e local antes do push manualmente:
 #   pnpm test:e2e
 
-echo "🔍 Validacao rapida (typecheck + unit)..."
+echo "🔍 Validacao rapida (Prisma Client + typecheck + unit)..."
 
-# 1. Typecheck
+# 1. Prisma Client atualizado a partir do schema versionado.
+# Usa DATABASE_URL do ambiente quando existir; caso contrario, URL dummy suficiente
+# para gerar tipos sem depender de Postgres local.
+pnpm db:generate:local || {
+  echo "❌ Prisma Client falhou ao gerar. Push bloqueado."
+  exit 1
+}
+
+# 2. Typecheck
 pnpm typecheck || {
   echo "❌ Typecheck falhou. Push bloqueado."
   exit 1
 }
 
-# 2. Unit tests (Vitest, sem __tests__/integration)
+# 3. Unit tests (Vitest, sem __tests__/integration)
 pnpm test:unit || {
   echo "❌ Unit tests falharam. Push bloqueado."
   exit 1
