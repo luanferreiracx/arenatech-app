@@ -173,7 +173,6 @@ export function DepixQrDialog({
     return () => {
       es.close();
       clearInterval(interval);
-      if (paidTimer) clearTimeout(paidTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletTransactionId, transactionId, status]);
