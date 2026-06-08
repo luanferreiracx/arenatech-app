@@ -1,11 +1,10 @@
 /**
  * Trava as estimativas locais de taxas DePix.
- * Saque usa preview LiquidX Pro; deposito segue PixPay.
+ * Saque usa preview LiquidX Pro; deposito usa Orion com R$ 0,99 fixo.
  */
 import { describe, it, expect } from "vitest";
 import {
   estimatePixPayWithdrawFee,
-  estimatePixPayDepositFee,
   calcWithdrawFromNet,
   calcWithdrawFee,
   calcDepositFee,
@@ -35,18 +34,6 @@ describe("estimatePixPayWithdrawFee — preview LiquidX Pro", () => {
   it("retorna zero para valores invalidos ou zerados", () => {
     expect(estimatePixPayWithdrawFee(0)).toBe(0);
     expect(estimatePixPayWithdrawFee(-1)).toBe(0);
-  });
-});
-
-describe("estimatePixPayDepositFee", () => {
-  it("R$ 100 -> R$ 1,49 (0,99 fixo + 0,5% = 0,50)", () => {
-    expect(estimatePixPayDepositFee(10000)).toBe(149);
-  });
-  it("R$ 1000 -> R$ 5,99 (0,99 + 5,00)", () => {
-    expect(estimatePixPayDepositFee(100000)).toBe(599);
-  });
-  it("R$ 5000 -> R$ 25,99 (0,99 + 25,00)", () => {
-    expect(estimatePixPayDepositFee(500000)).toBe(2599);
   });
 });
 
@@ -93,10 +80,16 @@ describe("DEPIX_LIMITS", () => {
 });
 
 describe("calcDepositFee", () => {
-  it("tenant central R$ 100: feeArena=0, feePixPay=149 (0.99 + 0.5%)", () => {
+  it("tenant central R$ 100: desconta taxa fixa Orion de R$ 0,99", () => {
     const r = calcDepositFee(10000, cfgCentral);
     expect(r.feeArenaTechCents).toBe(0);
-    expect(r.feePixPayEstimatedCents).toBe(149);
-    expect(r.netCents).toBe(10000 - 149);
+    expect(r.feePixPayEstimatedCents).toBe(99);
+    expect(r.netCents).toBe(10000 - 99);
+  });
+
+  it("tenant normal R$ 100: desconta taxa Arena Tech + taxa fixa Orion", () => {
+    const r = calcDepositFee(10000, cfgNormal);
+    expect(r.feePixPayEstimatedCents).toBe(99);
+    expect(r.netCents).toBe(10000 - r.feeArenaTechCents - 99);
   });
 });

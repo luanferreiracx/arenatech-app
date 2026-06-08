@@ -8,8 +8,7 @@
  *
  * Empilha sobre a taxa do provedor. UI mostra breakdown transparente.
  *
- * DEPOSITO: PixPay cobra R$ 0,99 fixo + 0,5% sobre o valor pago pelo cliente.
- * Linear.
+ * DEPOSITO: Orion Pay cobra R$ 0,99 fixo por deposito.
  *
  * SAQUE: LiquidX Pro retorna o valor real ao criar a intencao
  * (depositAmountInCents - payoutAmountInCents). A estimativa local usa a regra
@@ -18,7 +17,7 @@
  *
  * --- LIMITES DE OPERACAO ---
  *   Min  R$ 10,00  (deposito e saque) — abaixo nao compensa as taxas
- *   Max  R$ 5.000,00 (deposito e saque) — limite operacional PixPay
+ *   Max  R$ 5.000,00 (deposito e saque) — limite operacional DePix
  */
 
 export interface DepixFeeConfig {
@@ -31,8 +30,7 @@ export interface DepixFeeConfig {
 export interface DepositFeeBreakdown {
   grossCents: number;
   feeArenaTechCents: number;
-  /** No deposito, fee PixPay sai do bruto antes de cair na carteira do tenant
-   *  (estimativa pra UI; valor real eh `gross - depix.amount` recebido). */
+  /** Compat legado: taxa estimada do provedor no deposito. Com Orion, R$ 0,99 fixo. */
   feePixPayEstimatedCents: number;
   /** O que efetivamente fica no saldo do tenant apos as 2 taxas. */
   netCents: number;
@@ -52,7 +50,7 @@ export interface WithdrawFeeBreakdown {
 export const DEPIX_LIMITS = {
   /** Minimo de R$ 10,00 — abaixo as taxas devoram o valor. */
   MIN_CENTS: 1000,
-  /** Maximo de R$ 5.000,00 — limite operacional do gateway PixPay. */
+  /** Maximo de R$ 5.000,00 — limite operacional DePix. */
   MAX_CENTS: 500000,
 } as const;
 
@@ -78,25 +76,21 @@ export function estimatePixPayWithdrawFee(requestedReaisCents: number): number {
   return grossCents - requestedReaisCents;
 }
 
-/** Estimativa da taxa PixPay no DEPOSITO em centavos: R$ 0,99 + 0,5% linear. */
-export function estimatePixPayDepositFee(grossCents: number): number {
-  return 99 + pct(grossCents, 0.5);
-}
-
 /**
- * Taxa do DEPOSITO. PixPay: 0,99 + 0,5% (linear).
+ * Taxa do DEPOSITO. Orion Pay substituiu PixPay nos depositos e cobra
+ * R$ 0,99 fixo por deposito.
  */
 export function calcDepositFee(
   grossCents: number,
   cfg: DepixFeeConfig,
 ): DepositFeeBreakdown {
   const feeArena = cfg.entryFeeFixed + pct(grossCents, cfg.entryFeePercent);
-  const feePixPay = estimatePixPayDepositFee(grossCents);
-  const net = Math.max(0, grossCents - feeArena - feePixPay);
+  const feeProvider = 99;
+  const net = Math.max(0, grossCents - feeArena - feeProvider);
   return {
     grossCents,
     feeArenaTechCents: feeArena,
-    feePixPayEstimatedCents: feePixPay,
+    feePixPayEstimatedCents: feeProvider,
     netCents: net,
   };
 }

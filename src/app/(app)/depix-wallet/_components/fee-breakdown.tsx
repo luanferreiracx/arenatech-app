@@ -32,9 +32,9 @@ function fmt(cents: number): string {
  * Para DEPOSITO:
  *   Cliente paga          R$ X
  *   - Taxa Arena Tech     R$ Y
- *   - Taxa PixPay         R$ Z
+ *   - Taxa Orion Pay      R$ 0,99
  *   ────
- *   Voce recebe           R$ X-Y-Z
+ *   Voce recebe           R$ X-Y-0,99
  */
 export function FeeBreakdown({
   kind,
@@ -45,10 +45,10 @@ export function FeeBreakdown({
   className,
 }: FeeBreakdownProps) {
   const isWithdraw = kind === "WITHDRAW";
-  const providerLabel = isWithdraw ? "Taxa LiquidX" : "Taxa PixPay";
+  const providerLabel = isWithdraw ? "Taxa LiquidX" : "Taxa Orion Pay";
   const providerTitle = isWithdraw
     ? "Estimativa LiquidX. Valor real eh confirmado ao iniciar a operacao."
-    : "Estimativa PixPay para deposito. Valor real eh confirmado ao iniciar a operacao.";
+    : "Orion Pay cobra R$ 0,99 fixo por deposito.";
   const grossCents = netCents + feeArenaCents + feeProviderCents;
   const totalCents = grossCents;
   const hasArenaFee = feeArenaCents > 0;
