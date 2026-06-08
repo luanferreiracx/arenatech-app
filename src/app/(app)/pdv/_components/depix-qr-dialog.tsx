@@ -60,6 +60,11 @@ export function DepixQrDialog({
   // Garante que onPaid seja agendado uma unica vez (SSE OU polling, nao ambos).
   const paidFiredRef = useRef(false);
 
+  useEffect(() => {
+    if (!open) return;
+    paidFiredRef.current = false;
+  }, [open]);
+
   // Regra DePix: PIX >= R$ 500 exige CPF/CNPJ. Se cliente nao tem cadastrado,
   // pede ao operador antes de gerar o QR.
   const requiresTaxId = totalCents >= 50_000; // R$ 500 em centavos
@@ -123,10 +128,6 @@ export function DepixQrDialog({
   useEffect(() => {
     if (!transactionId || status === "paid" || status === "failed") return;
 
-    // Timer do delay de 1.5s ate chamar onPaid. Guardado pra ser cancelado no
-    // cleanup — senao o finalize dispararia mesmo se o operador fechasse o QR
-    // dentro dessa janela.
-    let paidTimer: ReturnType<typeof setTimeout> | null = null;
     const confirmPaid = () => {
       // Idempotente: SSE e polling sao dois canais independentes de confirmacao.
       // Sem o guard, ambos disparavam onPaid e o leg DePix entrava 2x no carrinho.
@@ -134,7 +135,11 @@ export function DepixQrDialog({
       paidFiredRef.current = true;
       setStatus("paid");
       toast.success("Pagamento confirmado!");
-      paidTimer = setTimeout(() => onPaid({ walletTransactionId: walletTransactionId ?? transactionId, transactionId }), 1500);
+      // Finaliza imediatamente no parent. Antes havia um setTimeout de 1.5s
+      // guardado no cleanup deste effect; como setStatus("paid") reexecutava o
+      // effect, o cleanup cancelava o timeout antes de chamar onPaid. Resultado:
+      // a UI mostrava "Pagamento confirmado", mas a venda nao finalizava.
+      onPaid({ walletTransactionId: walletTransactionId ?? transactionId, transactionId });
     };
 
     // 1) SSE: principal canal de confirmacao
