@@ -130,25 +130,32 @@ export function buildTalisonBusinessContext(
   return {
     storeName,
     identity:
-      `${storeName} é assistência técnica e loja em Teresina/PI, com foco em Apple ` +
-      "e atendimento também para PCs/notebooks.",
+      `${storeName} é assistência técnica e loja em Teresina/PI, com foco em Apple, ` +
+      "notebooks/PCs, consoles, periféricos e eletrônicos em geral.",
     services: [
       "status de conserto/OS",
-      "orçamento e reparo",
+      "orçamento e reparo de iPhone",
+      "MacBook apenas para troca de bateria e problemas de software",
+      "iPad apenas para troca de vidro frontal",
+      "notebooks/PCs para formatação, instalação de Office e troca/upgrade de memória ou SSD",
+      "consoles para problemas na placa",
       "assistência técnica e garantia",
       "avaliação/troca de aparelho usado",
       "venda de aparelhos e acessórios",
     ],
     products: [
-      "iPhone, iPad, MacBook, Apple Watch e AirPods",
-      "consoles, PCs e notebooks",
-      "acessórios como capa, película, fone e cabo",
+      "iPhone, iPad, MacBook, AirPods, Apple Watch, notebooks gamers e consoles em geral",
+      "acessórios para celulares com foco em iPhone",
+      "periféricos de PC/notebook",
+      "eletrônicos em geral como cabos e adaptadores",
     ],
     limitations: [
       "não prometa disponibilidade de produto, preço, prazo, parcela ou valor de troca sem consultar tool ou atendente",
+      "não faz assistência técnica para celulares que não sejam iPhone, tablets que não sejam iPad, Apple Watch, AirPods ou fones de ouvido",
+      "não vende celulares que não sejam iPhone nem tablets que não sejam iPad",
       "troca/avaliação de aparelhos não-Apple, notebook comum ou PC gamer precisa de atendente humano",
-      "capinhas, cases, películas e itens muito específicos podem depender de estoque presencial ou confirmação do time",
-      "se o cliente trouxer algo fora desse escopo, explique com naturalidade e transfira para humano",
+      "se um produto existir internamente mas não estiver disponível pelo catálogo/estoque, trate como indisponível e ofereça atendimento humano",
+      "se o cliente trouxer algo fora desse escopo, explique com naturalidade, ofereça alternativa quando houver e transfira para humano",
     ],
     contact: [
       `Endereço: ${address}`,
@@ -171,7 +178,8 @@ export function buildTalisonBusinessContext(
     ],
     handoffGuidance: [
       ...(present(input.chatbotConfig?.handoffMessage) ? [`Mensagem padrão de handoff: ${input.chatbotConfig?.handoffMessage}`] : []),
-      "em vendas, qualifique o interesse antes de transferir: produto/modelo desejado, forma de pagamento, troca e urgência",
+      "em vendas, qualifique o interesse antes de transferir: nome, produto/modelo desejado, orçamento, forma de pagamento, troca e urgência quando fizer sentido",
+      "transfira para humano sempre que ficar claro que o cliente quer fechar a venda",
     ],
   };
 }

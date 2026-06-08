@@ -208,6 +208,7 @@ describe("buscar_aparelho", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
+      expect(result.data.encontrou_exato).toBe(true);
       expect(result.display).toContain("R$ 4.299,99");
       expect(result.display).toContain("R$ 3.299,00");
       expect(result.display).toContain("(Novo)");
@@ -242,6 +243,41 @@ describe("buscar_aparelho", () => {
     );
   });
 
+  it("oferece opções próximas quando não acha o modelo exato", async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          name: "iPhone 15 Pro 128GB",
+          condition: "Novo",
+          price: { toString: () => "5299.99" },
+          promotionalPrice: null,
+          description: null,
+        },
+        {
+          name: "iPhone 15 128GB",
+          condition: "Seminovo",
+          price: { toString: () => "4299.99" },
+          promotionalPrice: null,
+          description: null,
+        },
+      ]);
+    const tx = {
+      catalogDevice: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAparelho.execute({ modelo: "iPhone 15 Pro Max 256" }, makeCtx(tx));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.encontrou_exato).toBe(false);
+      expect(result.display).toContain("opções próximas disponíveis");
+      expect(result.display).toContain("iPhone 15 Pro 128GB");
+      expect(result.display).toContain("iPhone 15 128GB");
+    }
+  });
+
   it("retorna ok:false quando não há o aparelho (não inventa)", async () => {
     const tx = {
       catalogDevice: { findMany: vi.fn().mockResolvedValue([]) },
@@ -262,6 +298,10 @@ describe("buscar_acessorio", () => {
             salePrice: { toString: () => "49.90" },
             promotionalPrice: null,
             currentStock: 4,
+            isSerialized: false,
+            hasVariations: false,
+            stockItems: [],
+            variations: [],
           },
         ]),
       },
@@ -271,8 +311,50 @@ describe("buscar_acessorio", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.display).toContain("R$ 49,90");
+      expect(result.display).toContain("R$ 47,40");
       expect(result.display).toContain("em estoque");
     }
+  });
+
+  it("busca também por descrição, sku e marca", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        name: "Adaptador USB-C",
+        salePrice: { toString: () => "39.90" },
+        promotionalPrice: null,
+        currentStock: 1,
+        isSerialized: false,
+        hasVariations: false,
+        stockItems: [],
+        variations: [],
+      },
+    ]);
+    const tx = {
+      product: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAcessorio.execute({ termo: "adaptador usb" }, makeCtx(tx));
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.any(Array),
+        }),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("Adaptador USB-C");
+    }
+  });
+
+  it("retorna ok:false quando o item não está disponível no catálogo visível", async () => {
+    const tx = {
+      product: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAcessorio.execute({ termo: "capa s20" }, makeCtx(tx));
+    expect(result.ok).toBe(false);
   });
 });
 

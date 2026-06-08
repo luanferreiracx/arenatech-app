@@ -8,9 +8,12 @@ describe("Talison prompt", () => {
     const prompt = buildSystemPrompt({ contactName: "Maria", businessContext });
 
     expect(prompt).toContain("assistência técnica e loja");
-    expect(prompt).toContain("iPhone, iPad, MacBook");
+    expect(prompt).toContain("iPhone, iPad, MacBook, AirPods");
+    expect(prompt).toContain("notebooks/PCs, consoles, periféricos");
     expect(prompt).toContain("Riverside Shopping");
     expect(prompt).toContain("Entrega/retirada");
+    expect(prompt).toContain("não faz assistência técnica para celulares que não sejam iPhone");
+    expect(prompt).toContain("não vende celulares que não sejam iPhone nem tablets que não sejam iPad");
     expect(prompt).toContain("não aja como árvore de decisão");
     expect(prompt).toContain("O contato se chama Maria");
   });
