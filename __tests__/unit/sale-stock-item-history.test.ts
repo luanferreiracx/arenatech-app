@@ -22,11 +22,16 @@ describe("sale item stock item history", () => {
     expect(migration).toContain('"sale_items_tenant_id_stock_item_id_created_at_idx"');
   });
 
-  it("keeps double-sell protection in the atomic StockItem update", () => {
+  it("reserves stock items when added to cart and releases on remove/abandon/cancel", () => {
     const router = readFileSync(join(root, "src/server/api/routers/sale.ts"), "utf8");
 
-    expect(router).toContain('status: "AVAILABLE", // proteçao contra double-sell');
-    expect(router).toContain("tenantId: ctx.tenantId");
-    expect(router).toContain("deletedAt: null");
+    // Item é reservado atomicamente ao ser adicionado ao carrinho.
+    expect(router).toContain('status: "RESERVED"');
+    expect(router).toContain('reservedForType: "sale"');
+    expect(router).toContain("reservedForId: sale.id");
+    // Finalização aceita RESERVED (reservado para esta venda) ou AVAILABLE (rascunho antigo).
+    expect(router).toContain('status: "AVAILABLE" }');
+    // Reservas são liberadas ao remover item, abandonar ou cancelar venda.
+    expect(router).toContain("releaseSaleStockItemReservations");
   });
 });

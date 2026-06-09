@@ -112,6 +112,38 @@ function serializeItem(item: Record<string, unknown>) {
   };
 }
 
+async function releaseSaleStockItemReservations(
+  tx: Prisma.TransactionClient,
+  params: {
+    tenantId: string;
+    saleId?: string;
+    saleIds?: string[];
+    stockItemIds?: string[];
+  },
+) {
+  const saleIds = params.saleIds ?? (params.saleId ? [params.saleId] : []);
+  if (saleIds.length === 0 && (!params.stockItemIds || params.stockItemIds.length === 0)) return;
+
+  await tx.stockItem.updateMany({
+    where: {
+      tenantId: params.tenantId,
+      status: "RESERVED",
+      reservedForType: "sale",
+      ...(saleIds.length > 0 ? { reservedForId: { in: saleIds } } : {}),
+      ...(params.stockItemIds && params.stockItemIds.length > 0
+        ? { id: { in: params.stockItemIds } }
+        : {}),
+      deletedAt: null,
+    },
+    data: {
+      status: "AVAILABLE",
+      reservedForType: null,
+      reservedForId: null,
+      reservedAt: null,
+    },
+  });
+}
+
 export const saleRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // DRAFT MANAGEMENT
@@ -158,6 +190,25 @@ export const saleRouter = createTRPCRouter({
   /** Abandon (delete) all existing common DRAFT sales for the current seller */
   abandonDraft: tenantProcedure.mutation(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      const draftSales = await tx.sale.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          sellerId: ctx.session.user.id,
+          status: "DRAFT",
+          deletedAt: null,
+          isOSPayment: false,
+        },
+        select: { id: true },
+      });
+      const draftSaleIds = draftSales.map((s) => s.id);
+
+      if (draftSaleIds.length > 0) {
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleIds: draftSaleIds,
+        });
+      }
+
       await tx.saleItem.deleteMany({
         where: {
           sale: {
@@ -320,9 +371,17 @@ export const saleRouter = createTRPCRouter({
           const stockItem = await tx.stockItem.findUnique({
             where: { id: input.stockItemId },
             select: {
-              id: true, tenantId: true, productId: true, status: true, costPrice: true,
-              suggestedSalePrice: true, imei: true, serialNumber: true,
-              condition: true, batteryHealth: true, warrantyMonths: true,
+              id: true,
+              tenantId: true,
+              productId: true,
+              status: true,
+              costPrice: true,
+              suggestedSalePrice: true,
+              imei: true,
+              serialNumber: true,
+              condition: true,
+              batteryHealth: true,
+              warrantyMonths: true,
             },
           });
           if (!stockItem) {
@@ -330,12 +389,6 @@ export const saleRouter = createTRPCRouter({
           }
           if (stockItem.tenantId !== ctx.tenantId || stockItem.productId !== input.productId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Item nao pertence a este produto." });
-          }
-          if (stockItem.status !== "AVAILABLE") {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "Este aparelho nao esta disponivel para venda.",
-            });
           }
           // Para serializados nao consolida em existingItem — cada IMEI eh uma linha.
           const existingStock = sale.items.find((i) => i.stockItemId === input.stockItemId);
@@ -345,6 +398,29 @@ export const saleRouter = createTRPCRouter({
               message: "Este aparelho ja foi adicionado a venda.",
             });
           }
+
+          const reserveResult = await tx.stockItem.updateMany({
+            where: {
+              id: input.stockItemId,
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              status: "AVAILABLE",
+              deletedAt: null,
+            },
+            data: {
+              status: "RESERVED",
+              reservedForType: "sale",
+              reservedForId: sale.id,
+              reservedAt: new Date(),
+            },
+          });
+          if (reserveResult.count !== 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este aparelho nao esta mais disponivel. Atualize a lista e tente novamente.",
+            });
+          }
+
           const unitPriceCents = input.unitPrice
             || (stockItem.suggestedSalePrice ? decimalToCents(stockItem.suggestedSalePrice) : decimalToCents(product.salePrice));
           // Garantia: usa do StockItem; senao padrao das settings por condicao.
@@ -539,6 +615,21 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        const item = await tx.saleItem.findUnique({
+          where: { id: input.itemId },
+          select: { id: true, saleId: true, stockItemId: true },
+        });
+        if (!item || item.saleId !== input.saleId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
+        }
+
+        if (item.stockItemId) {
+          await releaseSaleStockItemReservations(tx, {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            stockItemIds: [item.stockItemId],
+          });
+        }
         await tx.saleItem.delete({ where: { id: input.itemId } });
 
         return recalculateSale(tx, input.saleId, ctx.tenantId);
@@ -915,19 +1006,30 @@ export const saleRouter = createTRPCRouter({
               where: {
                 tenantId: ctx.tenantId,
                 id: { in: stockItemIds },
-                status: "AVAILABLE", // proteçao contra double-sell
                 deletedAt: null,
+                OR: [
+                  {
+                    status: "RESERVED",
+                    reservedForType: "sale",
+                    reservedForId: sale.id,
+                  },
+                  // Compatibilidade com rascunhos criados antes da reserva no carrinho.
+                  { status: "AVAILABLE" },
+                ],
               },
               data: {
                 status: "SOLD",
                 saleId: sale.id,
                 soldAt: new Date(),
+                reservedForType: null,
+                reservedForId: null,
+                reservedAt: null,
               },
             });
             if (result.count !== stockItemIds.length) {
               throw new TRPCError({
                 code: "CONFLICT",
-                message: "Um ou mais aparelhos do carrinho ja foram vendidos. Refaça a venda.",
+                message: "Um ou mais aparelhos do carrinho nao estao mais disponiveis para esta venda. Refaça a venda.",
               });
             }
           }
@@ -1401,6 +1503,11 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleId: sale.id,
+        });
+
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
@@ -1543,6 +1650,9 @@ export const saleRouter = createTRPCRouter({
                 status: input.returnAsDefect ? "DEFECTIVE" : "AVAILABLE",
                 saleId: null,
                 soldAt: null,
+                reservedForType: null,
+                reservedForId: null,
+                reservedAt: null,
               },
             });
             if (result.count !== stockItemIds.length) {
@@ -2400,6 +2510,10 @@ export const saleRouter = createTRPCRouter({
             where: { id: { in: orphanPurchaseIds } },
           });
         }
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleId: input.saleId,
+        });
         await tx.saleUpgrade.deleteMany({ where: { saleId: input.saleId } });
         await tx.saleItem.deleteMany({ where: { saleId: input.saleId } });
         await tx.sale.delete({ where: { id: input.saleId } });
