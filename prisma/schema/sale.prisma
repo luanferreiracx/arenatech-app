@@ -119,8 +119,8 @@ model SaleItem {
 
   sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
-  @@unique([stockItemId])
   @@index([tenantId, saleId])
+  @@index([tenantId, stockItemId, createdAt])
   @@map("sale_items")
 }
 
