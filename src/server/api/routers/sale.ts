@@ -320,7 +320,7 @@ export const saleRouter = createTRPCRouter({
           const stockItem = await tx.stockItem.findUnique({
             where: { id: input.stockItemId },
             select: {
-              id: true, productId: true, status: true, costPrice: true,
+              id: true, tenantId: true, productId: true, status: true, costPrice: true,
               suggestedSalePrice: true, imei: true, serialNumber: true,
               condition: true, batteryHealth: true, warrantyMonths: true,
             },
@@ -328,7 +328,7 @@ export const saleRouter = createTRPCRouter({
           if (!stockItem) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Item de estoque nao encontrado" });
           }
-          if (stockItem.productId !== input.productId) {
+          if (stockItem.tenantId !== ctx.tenantId || stockItem.productId !== input.productId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Item nao pertence a este produto." });
           }
           if (stockItem.status !== "AVAILABLE") {
@@ -854,6 +854,7 @@ export const saleRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               productId: item.productId,
               variationId: item.variationId ?? null,
+              stockItemId: item.stockItemId ?? null,
               type: "EXIT" as const,
               quantity: item.quantity,
               reason: `Venda ${saleNumber}`,
@@ -912,8 +913,10 @@ export const saleRouter = createTRPCRouter({
           if (stockItemIds.length > 0) {
             const result = await tx.stockItem.updateMany({
               where: {
+                tenantId: ctx.tenantId,
                 id: { in: stockItemIds },
                 status: "AVAILABLE", // proteçao contra double-sell
+                deletedAt: null,
               },
               data: {
                 status: "SOLD",
@@ -1493,6 +1496,8 @@ export const saleRouter = createTRPCRouter({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
+                variationId: item.variationId ?? null,
+                stockItemId: item.stockItemId ?? null,
                 type: "ENTRY",
                 quantity: item.quantity,
                 reason: `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
@@ -1526,6 +1531,7 @@ export const saleRouter = createTRPCRouter({
           if (stockItemIds.length > 0) {
             const result = await tx.stockItem.updateMany({
               where: {
+                tenantId: ctx.tenantId,
                 id: { in: stockItemIds },
                 status: "SOLD",
                 saleId: sale.id,
