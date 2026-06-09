@@ -10,10 +10,13 @@ export async function loginAction(formData: FormData) {
   const cpf = formData.get("cpf") as string;
   const password = formData.get("password") as string;
 
-  // Rate limit: 5 attempts per IP per minute
+  // Rate limit: 5 attempts per IP per minute.
+  // Lê o ÚLTIMO IP do X-Forwarded-For — esse é o appendado pelo nginx confiável
+  // à nossa frente. O primeiro elemento é controlado pelo cliente (spoofável),
+  // então usá-lo permitiria contornar o rate limit.
   const headerStore = await headers();
   const ip =
-    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    headerStore.get("x-forwarded-for")?.split(",").at(-1)?.trim() ??
     headerStore.get("x-real-ip") ??
     "unknown";
   const rl = await rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });

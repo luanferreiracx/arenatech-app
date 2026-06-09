@@ -5,11 +5,11 @@ import { prisma } from "@/server/db";
 import { hashPassword } from "@/lib/password";
 import { sendEmail } from "@/lib/services/email-service";
 import { compareSync } from "bcryptjs";
-import { randomUUID } from "crypto";
 import { logger } from "@/lib/logger";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { escapeHtml } from "@/lib/utils/html";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
+import { generateResetToken, hashResetToken } from "@/lib/auth/reset-token";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -61,7 +61,7 @@ export const authRouter = createTRPCRouter({
       }
 
       // Generate token
-      const token = randomUUID();
+      const token = generateResetToken();
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
       // Invalidate previous tokens for this user
@@ -70,11 +70,11 @@ export const authRouter = createTRPCRouter({
         data: { usedAt: new Date() },
       });
 
-      // Create new token
+      // Store only the hash — the plaintext token is sent to the user via email
       await prisma.passwordResetToken.create({
         data: {
           userId: user.id,
-          token,
+          token: hashResetToken(token),
           expiresAt,
         },
       });
@@ -120,8 +120,9 @@ export const authRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ input }) => {
+      const tokenHash = hashResetToken(input.token);
       const resetToken = await prisma.passwordResetToken.findUnique({
-        where: { token: input.token },
+        where: { token: tokenHash },
         include: { user: { select: { id: true } } },
       });
 
