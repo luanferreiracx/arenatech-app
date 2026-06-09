@@ -200,6 +200,27 @@ describe("POST /api/webhooks/chatwoot", () => {
     expect(state.scheduleTalisonRun).not.toHaveBeenCalled();
   });
 
+  it("espelha status pending do Chatwoot como BOT_ACTIVE", async () => {
+    state.existingConversation = {
+      id: "conv-local-1",
+      contactName: "João",
+      customerId: null,
+      externalId: "chatwoot-42",
+    };
+
+    const response = await callWebhook({
+      event: "conversation_status_changed",
+      account: { id: "acct-1" },
+      conversation: { id: "chatwoot-42", status: "pending" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(state.tx.chatbotConversation.update).toHaveBeenCalledWith({
+      where: { id: "conv-local-1" },
+      data: { status: "BOT_ACTIVE", resolvedAt: null },
+    });
+  });
+
   it("ignora eco outgoing de resposta recente do bot", async () => {
     state.existingConversation = {
       id: "conv-local-1",
