@@ -1,0 +1,13 @@
+[Unit]
+Description=Roda o Talison waiting sweep a cada 1 minuto
+
+[Timer]
+# A cada minuto. Precisão de 1 min é essencial pro SLA de alerta (10min) e pras
+# mensagens de espera (a partir de 20min, a cada 5min). GitHub Actions não serve
+# (atrasa/pula schedules), por isso roda por systemd no VPS.
+OnCalendar=*:0/1
+AccuracySec=15s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

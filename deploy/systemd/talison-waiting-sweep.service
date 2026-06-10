@@ -1,0 +1,10 @@
+[Unit]
+Description=Talison waiting sweep (alerta de abandono, mensagens de espera, off-hours)
+After=network.target
+
+[Service]
+Type=oneshot
+# Carrega CRON_SECRET (e demais vars) do env de produção do app.
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+# bash -c pra expandir $CRON_SECRET de forma confiável no header.
+ExecStart=/bin/bash -c 'curl -fsS -m 50 -X POST http://127.0.0.1:3001/api/cron/talison-waiting-sweep -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'

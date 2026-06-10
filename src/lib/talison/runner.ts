@@ -205,11 +205,18 @@ export async function processConversation(
   if (config && !config.enabled) return { status: "skipped", reason: "bot desativado" };
 
   // Regra (segue o status do Chatwoot, espelhado no webhook): o bot só NÃO
-  // responde quando a conversa está OPEN (atendente no caso). pending
-  // (BOT_ACTIVE) e resolved (RESOLVED) o bot atende — cliente voltando reabre.
+  // responde quando há ATENDENTE HUMANO no caso. Status OPEN com um humano que
+  // já falou = humano atendendo (bot cala). Mas OPEN SEM nenhum humano (handoff/
+  // auto sem ninguém assumir) é uma conversa "abandonada" — se o cliente volta a
+  // escrever, o bot reassume em vez de deixá-lo esperando. "Humano falou" =
+  // ChatbotMessage senderType "agent" (a msg fixa de espera é salva como "bot").
   if (conversation.status === "OPEN") {
-    recordTalisonMetric("skipped", { conversationId, reason: "open" });
-    return { status: "skipped", reason: "conversa OPEN (atendente no caso)" };
+    const humanEngaged = messages.some((m) => m.senderType === "agent");
+    if (humanEngaged) {
+      recordTalisonMetric("skipped", { conversationId, reason: "open" });
+      return { status: "skipped", reason: "conversa OPEN (atendente no caso)" };
+    }
+    // OPEN sem humano → segue e atende (abandonada).
   }
 
   // Whitelist (modo teste): se populada, só responde os números listados.
