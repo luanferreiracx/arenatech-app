@@ -10,6 +10,7 @@ import {
   listStockItemsSchema,
   isValidTransition,
   ALLOWED_STATUS_TRANSITIONS,
+  isRepurchasableStatus,
 } from "@/lib/validators/stock-item"
 
 describe("IMEI Validation (Luhn)", () => {
@@ -284,5 +285,26 @@ describe("Stock Item Validators", () => {
       })
       expect(result.success).toBe(false)
     })
+  })
+})
+
+describe("Recompra de aparelho (isRepurchasableStatus)", () => {
+  it("permite recompra de aparelho vendido (SOLD)", () => {
+    // Caso reportado: cliente revende de volta o iPhone que comprou.
+    expect(isRepurchasableStatus("SOLD")).toBe(true)
+  })
+
+  it("permite recompra de aparelho com defeito (DEFECTIVE)", () => {
+    expect(isRepurchasableStatus("DEFECTIVE")).toBe(true)
+  })
+
+  it("bloqueia recompra de aparelho ainda em estoque (duplicidade real)", () => {
+    expect(isRepurchasableStatus("AVAILABLE")).toBe(false)
+    expect(isRepurchasableStatus("RESERVED")).toBe(false)
+    expect(isRepurchasableStatus("BLOCKED")).toBe(false)
+  })
+
+  it("nao trata RETURNED como recompra (volta ao estoque por transicao)", () => {
+    expect(isRepurchasableStatus("RETURNED")).toBe(false)
   })
 })

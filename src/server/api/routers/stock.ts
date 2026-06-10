@@ -62,6 +62,7 @@ import {
   listStockItemsSchema,
   searchImeiSchema,
   isValidTransition,
+  isRepurchasableStatus,
 } from "@/lib/validators/stock-item";
 import {
   entrySerializedItems,
@@ -997,10 +998,41 @@ export const stockRouter = createTRPCRouter({
             select: { id: true, status: true, product: { select: { name: true } } },
           });
           if (existing) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `IMEI ${cleanImei} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}). Se foi uma tentativa anterior que falhou, cancele a compra correspondente antes.`,
-            });
+            // Aparelho que a loja ja vendeu (SOLD) ou descartou (DEFECTIVE) pode
+            // ser recomprado do cliente — caso legitimo (cliente revende o que
+            // comprou). Arquiva o StockItem antigo (soft delete vira historico)
+            // e segue para criar o novo item BLOCKED desta compra. A unique
+            // constraint parcial (imei WHERE deleted_at IS NULL) nao quebra.
+            // Paridade com o trade-in/upgrade do PDV, que ja recompra IMEI vendido.
+            if (isRepurchasableStatus(existing.status)) {
+              await tx.stockItem.update({
+                where: { id: existing.id },
+                data: { deletedAt: new Date() },
+              });
+              // Cancela DevicePurchase(s) anterior(es) nao-cancelado(s) do mesmo
+              // IMEI: se o aparelho ja passou por um ciclo compra->venda->recompra,
+              // a compra antiga ainda esta ativa e viola a unique parcial
+              // (device_purchases imei WHERE cancelled_at IS NULL).
+              await tx.devicePurchase.updateMany({
+                where: { imei: cleanImei, cancelledAt: null },
+                data: {
+                  cancelledAt: new Date(),
+                  cancellationReason: "Aparelho recomprado — nova compra registrada",
+                },
+              });
+              logger.info("Recompra de aparelho ja vendido/descartado — item antigo arquivado", {
+                stockItemId: existing.id,
+                imei: cleanImei,
+                previousStatus: existing.status,
+              });
+            } else {
+              // AVAILABLE/RESERVED/BLOCKED: aparelho ainda em circulacao — e
+              // duplicidade real (ou tentativa anterior que falhou).
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `IMEI ${cleanImei} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}). Se foi uma tentativa anterior que falhou, cancele a compra correspondente antes.`,
+              });
+            }
           }
         }
 
