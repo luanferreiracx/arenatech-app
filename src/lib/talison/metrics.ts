@@ -20,6 +20,7 @@ export type TalisonMetric =
   | "hot_lead"
   | "abandoned_alert"
   | "wait_message"
+  | "wait_skipped_closed"
   | "off_hours_notice"
   | "catchup_replied";
 
