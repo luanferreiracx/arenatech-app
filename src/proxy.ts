@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { isLandingHost, isPublicCatalogHost } from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isTwoFactorEnforced, sessionRequiresTwoFactor } from "@/lib/auth/two-factor-policy";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
@@ -44,12 +45,17 @@ function isNoTenantRoute(pathname: string): boolean {
     pathname === "/select-tenant" ||
     pathname === "/switch-tenant" ||
     pathname === "/logout" ||
+    pathname === "/setup-2fa" ||
     pathname.startsWith("/admin")
   );
 }
 
 function isPasswordChangeRoute(pathname: string): boolean {
   return pathname === "/change-password" || pathname.startsWith("/api/trpc/auth.changePassword");
+}
+
+function isTwoFactorSetupRoute(pathname: string): boolean {
+  return pathname === "/setup-2fa" || pathname === "/logout";
 }
 
 export const proxy = auth((req) => {
@@ -127,6 +133,19 @@ export const proxy = auth((req) => {
   // 3. Temporary password barrier
   if (session.user.mustChangePassword && !isPasswordChangeRoute(pathname) && pathname !== "/logout") {
     return NextResponse.redirect(selfUrl("/change-password"));
+  }
+
+  // 3b. 2FA obrigatório (superadmin/admins): força enrollment quando ligado.
+  //  - Só redireciona navegações de página (não /api/*), para não quebrar as
+  //    chamadas tRPC de enrollment feitas a partir de /setup-2fa.
+  if (
+    isTwoFactorEnforced() &&
+    !pathname.startsWith("/api/") &&
+    !session.user.twoFactorEnabled &&
+    sessionRequiresTwoFactor(session) &&
+    !isTwoFactorSetupRoute(pathname)
+  ) {
+    return NextResponse.redirect(selfUrl("/setup-2fa"));
   }
 
   // 4. No tenants, not super admin
