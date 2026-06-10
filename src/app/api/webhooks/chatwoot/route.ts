@@ -202,13 +202,20 @@ export async function POST(req: NextRequest) {
           const isAudio = !!mediaUrl && !!normalizedMediaType && (
             normalizedMediaType === "audio" || normalizedMediaType.startsWith("audio/")
           )
+          // Vídeo (e file_type "video" do Chatwoot): o modelo não assiste vídeo;
+          // marca "video" pro runner instruir a pedir descrição/foto ou transferir.
+          const isVideo = !!mediaUrl && !!normalizedMediaType && (
+            normalizedMediaType === "video" || normalizedMediaType.startsWith("video/")
+          )
           const contentType = isImage
             ? "image"
             : isAudio
               ? "audio"
-              : rawMediaType
-                ? rawMediaType
-                : String(body.content_type ?? "text")
+              : isVideo
+                ? "video"
+                : rawMediaType
+                  ? rawMediaType
+                  : String(body.content_type ?? "text")
           const persistedContent = message?.trim()
             ? message
             : rawMediaType

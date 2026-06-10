@@ -62,6 +62,21 @@ async function resolveMediaContents(
       const isImage = message.contentType === "image";
       const isAudio =
         message.contentType === "audio" || message.contentType.startsWith("audio/");
+      const isVideo =
+        message.contentType === "video" || message.contentType.startsWith("video/");
+
+      // Vídeo (ou cliente que marcou a loja em vídeo/story): o modelo NÃO assiste
+      // vídeo. Em vez de ficar mudo, instrui o bot a pedir descrição/foto ou
+      // oferecer atendente. A legenda do cliente, se houver, é preservada.
+      if (isVideo) {
+        const caption = message.content?.trim();
+        const note =
+          "[cliente enviou um VÍDEO — você não consegue assistir vídeos. " +
+          "Peça gentilmente para ele descrever em texto o que precisa OU enviar uma foto; " +
+          "se for sobre um defeito/produto, ofereça transferir para um atendente.]";
+        return caption ? `${caption}\n${note}` : note;
+      }
+
       if ((!isImage && !isAudio) || !message.mediaUrl) return message.content;
 
       const cached = cachedMediaText(message.metadata);
