@@ -3,6 +3,7 @@ import {
   checkRateLimit,
   recordFailedAttempt,
   clearRateLimit,
+  getFailedAttempts,
   _resetAllBuckets,
 } from "@/lib/utils/rate-limit";
 
@@ -49,5 +50,34 @@ describe("rate-limit util", () => {
     expect(checkRateLimit("strict", cfg).remainingAttempts).toBe(1);
     recordFailedAttempt("strict", cfg);
     expect(checkRateLimit("strict", cfg).allowed).toBe(false);
+  });
+
+  describe("getFailedAttempts (gate do captcha adaptativo)", () => {
+    it("retorna 0 para chave sem falhas", () => {
+      expect(getFailedAttempts("novo")).toBe(0);
+    });
+
+    it("conta as falhas acumuladas na janela", () => {
+      recordFailedAttempt("login:123");
+      recordFailedAttempt("login:123");
+      recordFailedAttempt("login:123");
+      expect(getFailedAttempts("login:123")).toBe(3);
+    });
+
+    it("cruza o limiar de 3 falhas (captcha passa a ser exigido)", () => {
+      expect(getFailedAttempts("k") >= 3).toBe(false);
+      recordFailedAttempt("k");
+      recordFailedAttempt("k");
+      expect(getFailedAttempts("k") >= 3).toBe(false);
+      recordFailedAttempt("k");
+      expect(getFailedAttempts("k") >= 3).toBe(true);
+    });
+
+    it("janela expirada zera a contagem", () => {
+      const cfg = { maxAttempts: 5, windowMs: -1, lockoutMs: 60_000 };
+      recordFailedAttempt("expira", cfg);
+      // windowMs negativo → janela sempre considerada expirada.
+      expect(getFailedAttempts("expira", cfg)).toBe(0);
+    });
   });
 });
