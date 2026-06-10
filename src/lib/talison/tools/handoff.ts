@@ -6,6 +6,8 @@
 import { z } from "zod";
 import { toggleStatus } from "@/lib/talison/chatwoot-client";
 import { recordTalisonMetric } from "@/lib/talison/metrics";
+import { sendGroupMessage } from "@/lib/services/whatsapp-service";
+import { logger } from "@/lib/logger";
 import type { TalisonTool } from "@/lib/talison/tools/contract";
 
 const qualificarLeadSchema = z.object({
@@ -84,6 +86,115 @@ export const qualificarLead: TalisonTool<typeof qualificarLeadSchema> = {
         display: "Interesse registrado. Pode seguir pro fechamento ou transferir pra um atendente.",
       };
     });
+  },
+};
+
+const leadQuenteSchema = z.object({
+  produto_modelo: z
+    .string()
+    .describe("Produto/modelo que o cliente quer comprar — ex: 'iPhone 16 Pro 256GB', 'PS5 Slim'."),
+  forma_pagamento: z
+    .string()
+    .optional()
+    .describe("Forma de pagamento mencionada — ex: 'PIX', 'cartão 12x', 'tem aparelho pra troca'."),
+  nome: z
+    .string()
+    .optional()
+    .describe("Nome do cliente, se informado na conversa."),
+  observacoes: z
+    .string()
+    .optional()
+    .describe("Resumo curto do contexto/urgência pro vendedor pegar o lead já com tudo."),
+});
+
+export const sinalizarLeadQuente: TalisonTool<typeof leadQuenteSchema> = {
+  name: "sinalizar_lead_quente",
+  description:
+    "Use quando perceber ALTA probabilidade de fechar a venda: o cliente pediu o preço " +
+    "final/parcelamento, disse 'quero comprar', confirmou modelo + forma de pagamento, ou " +
+    "demonstrou urgência clara. Registra o lead no sistema E avisa o time de vendas no grupo " +
+    "pra um vendedor assumir. Chame UMA vez por lead. Depois de chamar, ofereça naturalmente " +
+    "transferir o cliente pra um atendente humano finalizar (use transferir_para_humano se ele aceitar).",
+  mutates: true,
+  schema: leadQuenteSchema,
+  async execute(args, ctx) {
+    const desiredModel = args.produto_modelo.trim();
+    const notesParts = [
+      args.forma_pagamento?.trim() ? `Pagamento: ${args.forma_pagamento.trim()}` : null,
+      args.observacoes?.trim() || null,
+    ].filter(Boolean);
+    const notes = notesParts.length ? notesParts.join(" | ") : null;
+    const leadName = args.nome?.trim() || ctx.conversation.contactName || "Contato WhatsApp";
+
+    // Registra/atualiza o interesse (lead) — idempotente por contato+tipo aberto.
+    const leadId = await ctx.withTenant(async (tx) => {
+      const existing = await tx.interest.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          phone: { contains: ctx.conversation.contactPhone.slice(-9) },
+          type: "PURCHASE",
+          status: "WAITING",
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        await tx.interest.update({
+          where: { id: existing.id },
+          data: { desiredModel, notes, customerName: leadName },
+        });
+        return existing.id;
+      }
+      const created = await tx.interest.create({
+        data: {
+          tenantId: ctx.tenantId,
+          customerId: ctx.conversation.customerId,
+          customerName: leadName,
+          phone: ctx.conversation.contactPhone,
+          type: "PURCHASE",
+          desiredModel,
+          notes,
+          status: "WAITING",
+        },
+        select: { id: true },
+      });
+      return created.id;
+    });
+
+    // Avisa o time no grupo do WhatsApp (mesmo grupo do alerta de abandono).
+    // Falha de entrega não invalida a tool — o lead já está registrado.
+    const groupJid = process.env.TALISON_ALERT_GROUP_JID;
+    if (groupJid) {
+      const lines = [
+        "🔥 *Lead quente no WhatsApp!*",
+        `👤 ${leadName}`,
+        `📱 ${desiredModel}`,
+        args.forma_pagamento?.trim() ? `💳 ${args.forma_pagamento.trim()}` : null,
+        args.observacoes?.trim() ? `📝 ${args.observacoes.trim()}` : null,
+        `📞 ${ctx.conversation.contactPhone}`,
+        "",
+        "Cliente com forte intenção de compra — um vendedor pode assumir pra fechar.",
+      ].filter(Boolean) as string[];
+      const sent = await sendGroupMessage(groupJid, lines.join("\n"), {
+        instanceName: process.env.TALISON_ALERT_INSTANCE,
+      });
+      if (!sent.success) {
+        logger.warn("Talison: falha ao avisar grupo sobre lead quente", {
+          conversationId: ctx.conversation.id,
+          error: sent.error,
+        });
+      }
+    }
+
+    recordTalisonMetric("hot_lead", {
+      conversationId: ctx.conversation.id,
+      produto: desiredModel,
+    });
+
+    return {
+      ok: true as const,
+      data: { lead_id: leadId, avisou_time: !!groupJid },
+      display: "Lead quente registrado e o time de vendas foi avisado. Pode oferecer transferir pra um atendente finalizar.",
+    };
   },
 };
 

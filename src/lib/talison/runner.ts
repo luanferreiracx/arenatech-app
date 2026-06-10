@@ -12,7 +12,7 @@ import { runTalison } from "@/lib/talison/agent";
 import { createDeepSeekProvider } from "@/lib/talison/providers/deepseek";
 import { createClaudeVisionProvider } from "@/lib/talison/providers/claude-vision";
 import { createGroqAudioProvider } from "@/lib/talison/providers/groq-audio";
-import { sendBotMessage } from "@/lib/talison/chatwoot-client";
+import { sendBotMessage, sendPrivateNote } from "@/lib/talison/chatwoot-client";
 import { buildTalisonBusinessContext } from "@/lib/talison/business-context";
 import { buildNowNote } from "@/lib/talison/business-hours";
 import { recordTalisonMetric } from "@/lib/talison/metrics";
@@ -52,6 +52,7 @@ function cachedMediaText(metadata: unknown): string | null {
 async function resolveMediaContents(
   messages: StoredMessage[],
   tenantId: string,
+  conversationExternalId: string | null,
 ): Promise<string[]> {
   const vision = createClaudeVisionProvider();
   const audio = createGroqAudioProvider();
@@ -76,9 +77,24 @@ async function resolveMediaContents(
             : `[imagem enviada: ${description}]`;
         } else {
           const transcription = await audio.transcribe({ audioUrl: message.mediaUrl });
-          resolved = transcription.trim()
-            ? `[áudio do cliente, transcrito]: ${transcription.trim()}`
+          const spoken = transcription.trim();
+          resolved = spoken
+            ? `[áudio do cliente, transcrito]: ${spoken}`
             : caption || "[cliente enviou um áudio sem fala reconhecível]";
+          // Mostra a transcrição ao atendente como nota privada no Chatwoot
+          // (só os atendentes veem). Só na 1ª resolução (cacheia depois). Fora
+          // do caminho crítico: falha aqui não atrapalha a resposta ao cliente.
+          if (spoken && conversationExternalId) {
+            void sendPrivateNote(
+              conversationExternalId,
+              `🎙️ *Áudio do cliente transcrito:*\n${spoken}`,
+            ).catch((error) =>
+              logger.warn("Talison: falha ao postar nota privada de áudio", {
+                conversationExternalId,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            );
+          }
         }
       } catch (error) {
         logger.warn("Talison: resolução de mídia falhou, seguindo sem ela", {
@@ -210,7 +226,7 @@ export async function processConversation(
 
   // Resolve mídia (imagem→visão, áudio→transcrição) e monta o histórico pro DeepSeek.
   // Rede fora de transação; o cache em metadata é gravado em tx curta lá dentro.
-  const resolvedContents = await resolveMediaContents(messages, tenantId);
+  const resolvedContents = await resolveMediaContents(messages, tenantId, conversation.externalId);
   const history = messages
     .map((message, index) => toLlmMessage(message, resolvedContents[index] ?? message.content))
     .filter((m): m is LlmMessage => m !== null);
