@@ -7,6 +7,7 @@ import {
   markWebhookProcessed,
   extractSourceIp,
 } from "@/lib/webhooks/replay-guard";
+import { approveQuoteBySignature } from "@/lib/services/quote-signature-approval";
 
 export const runtime = "nodejs";
 
@@ -91,6 +92,20 @@ export async function POST(req: NextRequest) {
 
   const signedAtStr = data.signed ? String(data.signed) : null;
   const signedAt = signedAtStr ? new Date(signedAtStr) : new Date();
+
+  // O mesmo documentId pode ser uma revisao de orcamento (ServiceOrderQuote)
+  // assinada pelo cliente. Tenta aprovar o orcamento primeiro; se nao for um
+  // quote, segue para o fluxo de assinatura de entrada da OS.
+  const quoteApproval = await approveQuoteBySignature(documentId, signedAt);
+  if (quoteApproval) {
+    await markWebhookProcessed("autentique", eventKey, { ok: true });
+    logger.info("Orcamento aprovado via webhook Autentique", {
+      orderId: quoteApproval.orderId,
+      documentId,
+      signedAt: signedAt.toISOString(),
+    });
+    return NextResponse.json({ received: true });
+  }
 
   // Localiza a OS pelo documentId (busca cross-tenant via admin).
   // A coluna signatureDocumentId nao tem index unico mas o id Autentique e
