@@ -50,11 +50,16 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
 
   const headerStore = await headers();
   const ip = clientIp(headerStore);
+  const hasClientIp = ip !== "unknown";
 
-  // Rate limit por IP: 5 tentativas/min.
-  const rl = await rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });
-  if (!rl.success) {
-    return { error: "Muitas tentativas. Aguarde um minuto e tente novamente." };
+  // Rate limit por IP: 5 tentativas/min. Só aplica quando temos um IP atribuível
+  // (atrás do nginx). Sem proxy/headers, todos cairiam no bucket "unknown" e um
+  // usuário bloquearia os outros — então pulamos.
+  if (hasClientIp) {
+    const rl = await rateLimit({ key: `login:${ip}`, limit: 5, windowMs: 60_000 });
+    if (!rl.success) {
+      return { error: "Muitas tentativas. Aguarde um minuto e tente novamente." };
+    }
   }
 
   // Desafio adaptativo: após N falhas para este CPF, exige reCAPTCHA válido
@@ -80,18 +85,16 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   }
 
   // Sucesso — limpa o limite por IP e o cookie de tenant ativo.
-  await resetRateLimit(`login:${ip}`);
+  if (hasClientIp) await resetRateLimit(`login:${ip}`);
   const { cookies } = await import("next/headers");
   const cookieStore = await cookies();
   cookieStore.delete("x-active-tenant");
 
-  const session = await auth();
-  if (!session) return { error: INVALID_CREDENTIALS };
-
-  if (session.user.isSuperAdmin && !session.activeTenantId) redirect("/admin");
-  if (session.activeTenantId) redirect("/painel");
-  if (session.availableTenants.length === 0) redirect("/no-access");
-  redirect("/select-tenant");
+  // O cookie de sessão recém-criado pelo signIn() ainda não é legível por auth()
+  // nesta mesma request. Redirecionamos para /login: numa nova request (já com o
+  // cookie), o proxy roteia o usuário autenticado para o destino correto
+  // (painel / select-tenant / admin / no-access) — fonte única dessa lógica.
+  redirect("/login");
 }
 
 export async function logoutAction() {
