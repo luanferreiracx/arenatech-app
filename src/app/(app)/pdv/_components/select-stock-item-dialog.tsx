@@ -134,7 +134,13 @@ export function SelectStockItemDialog({
                     {item.imei ?? item.serialNumber ?? "Sem IMEI/Serial"}
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded bg-muted">
-                    {item.condition === "NEW" ? "Novo" : item.condition === "USED" ? "Usado" : item.condition}
+                    {item.condition === "NEW"
+                      ? "Novo"
+                      : item.condition === "SEMI_NEW"
+                        ? "Seminovo"
+                        : item.condition === "USED"
+                          ? "Usado"
+                          : item.condition}
                   </span>
                   {item.conservationGrade && (
                     <span className="text-xs text-muted-foreground">Grau {item.conservationGrade}</span>
