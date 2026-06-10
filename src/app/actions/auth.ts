@@ -8,6 +8,7 @@ import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { getFailedAttempts } from "@/lib/utils/rate-limit";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { isRecaptchaConfigured, verifyRecaptcha } from "@/lib/recaptcha";
+import { TWO_FACTOR_REQUIRED_CODE, TWO_FACTOR_INVALID_CODE } from "@/lib/auth/two-factor-errors";
 
 const INVALID_CREDENTIALS = "CPF ou senha inválidos. Tente novamente.";
 
@@ -22,6 +23,8 @@ export type LoginState = {
   error?: string;
   /** Quando true, o cliente deve renderizar o widget do reCAPTCHA. */
   captchaRequired?: boolean;
+  /** Quando true, a senha está certa mas falta o código 2FA — pede o código. */
+  twoFactorRequired?: boolean;
 };
 
 function clientIp(headerStore: Headers): string {
@@ -46,6 +49,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const rawCpf = String(formData.get("cpf") ?? "");
   const password = String(formData.get("password") ?? "");
   const recaptchaToken = String(formData.get("recaptchaToken") ?? "");
+  const totp = String(formData.get("totp") ?? "");
   const cpf = normalizeCpf(rawCpf);
 
   const headerStore = await headers();
@@ -75,9 +79,18 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   }
 
   try {
-    await signIn("credentials", { cpf: rawCpf, password, redirect: false });
+    await signIn("credentials", { cpf: rawCpf, password, totp, redirect: false });
   } catch (error) {
     if (error instanceof AuthError) {
+      // authorize() re-lança erros de 2FA com um `code` (re-throw em raw mode).
+      const code = (error as { code?: string }).code;
+      if (code === TWO_FACTOR_REQUIRED_CODE) {
+        // Senha certa — agora pede o código do app.
+        return { twoFactorRequired: true };
+      }
+      if (code === TWO_FACTOR_INVALID_CODE) {
+        return { twoFactorRequired: true, error: "Código de verificação inválido. Tente novamente." };
+      }
       // A falha já foi contabilizada dentro do authorize(); reavalia o gate.
       return { error: INVALID_CREDENTIALS, captchaRequired: captchaRequiredFor(cpf) };
     }

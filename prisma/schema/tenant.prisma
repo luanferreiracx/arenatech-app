@@ -29,6 +29,15 @@ model User {
   passwordHash       String   @map("password_hash")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   isSuperAdmin       Boolean  @default(false) @map("is_super_admin")
+
+  // 2FA TOTP. O segredo é cifrado em repouso (AES-256-GCM). twoFactorEnabled só
+  // vira true após o usuário confirmar um código (enrollment concluído). Backup
+  // codes são hashes SHA-256 de uso único.
+  twoFactorSecret      String?   @map("two_factor_secret")
+  twoFactorEnabled     Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorConfirmedAt DateTime? @map("two_factor_confirmed_at")
+  twoFactorBackupCodes String[]  @map("two_factor_backup_codes")
+
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

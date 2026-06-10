@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
   const [recaptchaToken, setRecaptchaToken] = useState("");
+  const [totp, setTotp] = useState("");
 
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
     loginAction,
@@ -34,19 +35,27 @@ export default function LoginPage() {
     if (state.error) {
       setRecaptchaToken("");
       setCaptchaKey((k) => k + 1);
+      setTotp("");
     }
   }
 
   // O desafio só aparece quando o servidor o exige (após N falhas) E há site key.
   const showCaptcha = Boolean(state.captchaRequired && RECAPTCHA_SITE_KEY);
-  const submitDisabled = pending || (showCaptcha && !recaptchaToken);
+  // Segunda etapa: senha OK, falta o código 2FA.
+  const showTwoFactor = Boolean(state.twoFactorRequired);
+  const submitDisabled =
+    pending || (showCaptcha && !recaptchaToken) || (showTwoFactor && totp.length < 6);
 
   return (
     <>
       <CardHeader className="text-center pb-4 pt-6">
-        <CardTitle className="text-xl font-semibold">Acessar o sistema</CardTitle>
+        <CardTitle className="text-xl font-semibold">
+          {showTwoFactor ? "Verificação em duas etapas" : "Acessar o sistema"}
+        </CardTitle>
         <CardDescription className="text-sm">
-          Digite seu CPF e senha para entrar
+          {showTwoFactor
+            ? "Digite o código de 6 dígitos do seu app autenticador"
+            : "Digite seu CPF e senha para entrar"}
         </CardDescription>
       </CardHeader>
 
@@ -59,7 +68,9 @@ export default function LoginPage() {
             </Alert>
           )}
 
-          <div className="space-y-1.5">
+          {/* CPF e senha: ocultos na etapa do 2FA, mas mantidos no form para
+              reenvio (não guardamos a senha no servidor entre as etapas). */}
+          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
             <Label htmlFor="cpf">CPF</Label>
             <CpfInput
               id="cpf"
@@ -71,7 +82,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
             <Label htmlFor="password">Senha</Label>
             <Input
               id="password"
@@ -83,6 +94,29 @@ export default function LoginPage() {
               required
             />
           </div>
+
+          {showTwoFactor && (
+            <div className="space-y-1.5">
+              <Label htmlFor="totp">Código de verificação</Label>
+              <Input
+                id="totp"
+                name="totp"
+                autoComplete="one-time-code"
+                autoFocus
+                maxLength={11}
+                placeholder="000000 ou código de backup"
+                value={totp}
+                // Aceita 6 dígitos (TOTP) ou backup code (XXXXX-XXXXX).
+                onChange={(e) =>
+                  setTotp(e.target.value.toUpperCase().replace(/[^0-9A-Z-]/g, "").slice(0, 11))
+                }
+                className="text-center text-lg tracking-widest"
+              />
+              <p className="text-xs text-muted-foreground">
+                Sem acesso ao app? Use um dos seus códigos de backup.
+              </p>
+            </div>
+          )}
 
           {showCaptcha && RECAPTCHA_SITE_KEY && (
             <div className="flex justify-center">
@@ -100,8 +134,10 @@ export default function LoginPage() {
             {pending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Entrando...
+                {showTwoFactor ? "Verificando..." : "Entrando..."}
               </>
+            ) : showTwoFactor ? (
+              "Verificar"
             ) : (
               "Entrar"
             )}

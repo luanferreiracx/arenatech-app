@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/domain/page-header";
 import { FormActions } from "@/components/domain/forms/form-actions";
+import { TwoFactorCard } from "@/components/domain/security/two-factor-card";
 
 export default function SecurityPage() {
   const trpc = useTRPC();
@@ -54,7 +55,7 @@ export default function SecurityPage() {
     <div className="space-y-6">
       <PageHeader
         title="Seguranca"
-        subtitle="Altere sua senha de acesso ao sistema"
+        subtitle="Gerencie sua senha e a verificação em duas etapas"
       />
 
       <Card className="max-w-lg">
@@ -129,6 +130,8 @@ export default function SecurityPage() {
           </Form>
         </CardContent>
       </Card>
+
+      <TwoFactorCard />
     </div>
   );
 }

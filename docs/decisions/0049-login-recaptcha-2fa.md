@@ -1,7 +1,7 @@
 # ADR 0049 — reCAPTCHA adaptativo no login + 2FA TOTP
 
 Data: 2026-06-09
-Status: Aceito (reCAPTCHA implementado; 2FA na sequência)
+Status: Aceito (reCAPTCHA e 2FA implementados)
 
 ## Contexto
 
@@ -38,11 +38,31 @@ reCAPTCHA v2 no login. Queremos elevar a segurança de acesso com:
   precisam cobrir os hosts de login (app.arenatechpi.com.br, pdvdepix.app). As
   chaves antigas do Laravel são de outro domínio — provisionar novas.
 
-### 2FA — TOTP, obrigatório para superadmin e admins (PR seguinte)
+### 2FA — TOTP, obrigatório para superadmin e admins
 
-- **TOTP** (app autenticador): sem custo, offline, padrão de mercado.
-- **Obrigatório** para superadmin e admins de tenant; **opcional** para os demais.
-- Detalhes de schema/fluxo no PR de 2FA.
+- **TOTP** (app autenticador, lib `otpauth`): sem custo, offline, padrão de mercado.
+- **Segredo cifrado em repouso** (AES-256-GCM) com chave **derivada do
+  NEXTAUTH_SECRET** (sha256 de `secret:two-factor`) — sem nova chave crítica para
+  gerenciar. Rotacionar o NEXTAUTH_SECRET invalida os segredos 2FA (re-enroll),
+  trade-off aceito e raro.
+- **Backup codes**: 10 códigos de uso único, guardados como hashes SHA-256;
+  exibidos uma única vez na ativação. Aceitos no login quando o usuário perde o app.
+- **Fluxo de login** (single provider, sinalização confiável): `authorize()` ganha
+  o credential `totp`. Com senha correta e 2FA ativo, sem código → lança
+  `TwoFactorRequiredError` (subclasse de `CredentialsSignin` com `code`); o
+  `@auth/core` re-lança erros de `AuthError` ao chamador em `raw` mode, então o
+  `loginAction` lê `error.code` e devolve `{ twoFactorRequired }` — o NextAuth
+  mascara a *mensagem*, não o *code*. Código inválido → `TwoFactorInvalidError`.
+- **Obrigatoriedade** (`sessionRequiresTwoFactor`): superadmin + papéis admin de
+  tenant (OWNER/MANAGER/ADMIN). Ativada por **`TWO_FACTOR_ENFORCE=true`** — um
+  barrier no `proxy.ts` leva quem deve ter 2FA, e ainda não ativou, para
+  `/setup-2fa`. Gate por env para ligar em prod de forma coordenada e não quebrar
+  o E2E (a proteção de fato é o login exigir TOTP de quem já tem 2FA).
+- **Sessão**: `twoFactorEnabled` entra no JWT/sessão (cache de segurança de 15s,
+  reusado do `mustChangePassword`). Ativar/desativar invalida o cache
+  (`invalidateUserSecurity`) para refletir na hora e evitar loop no barrier.
+- **UI**: enrollment com QR + entrada manual + backup codes em
+  `settings/security` (opt-in) e na página forçada `/setup-2fa`.
 
 ## Consequências
 

@@ -1,5 +1,6 @@
 import { createTRPCRouter } from "@/server/api/trpc";
 import { authRouter } from "@/server/api/routers/auth";
+import { twoFactorRouter } from "@/server/api/routers/two-factor";
 import { cashierRouter } from "@/server/api/routers/cashier";
 import { catalogRouter } from "@/server/api/routers/catalog";
 import { commissionRouter } from "@/server/api/routers/commission";
@@ -42,6 +43,7 @@ export const appRouter = createTRPCRouter({
   depixTransaction: depixTransactionRouter,
   depixLbtcAdmin: depixLbtcAdminRouter,
   auth: authRouter,
+  twoFactor: twoFactorRouter,
   cashier: cashierRouter,
   catalog: catalogRouter,
   commission: commissionRouter,
