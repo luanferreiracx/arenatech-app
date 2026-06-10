@@ -8,9 +8,10 @@ on:
     # De hora em hora: resolve-stale-conversations (precisa de granularidade
     # pra o corte de 12h ser preciso, nao so 1x/dia).
     - cron: "0 * * * *"
-    # A cada 10 min: alert-abandoned-conversations (SLA de ~15min pra avisar o
-    # time quando o cliente fica esperando numa conversa OPEN) +
-    # process-pending-talison (rede de captura de disparos perdidos no deploy).
+    # A cada 10 min: process-pending-talison (rede de captura de disparos
+    # perdidos no deploy). O fluxo de espera/alerta/off-hours (talison-waiting-sweep)
+    # NÃO roda aqui — precisa de granularidade de 1 min, então roda por systemd
+    # timer no VPS (ver deploy/talison-waiting-sweep.{service,timer}).
     - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
@@ -24,7 +25,6 @@ on:
           - close-abandoned-cash-sessions
           - expire-rewards
           - resolve-stale-conversations
-          - alert-abandoned-conversations
           - process-pending-talison
 
 jobs:
@@ -75,20 +75,6 @@ jobs:
       - name: Invoca cron resolve-stale-conversations
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/resolve-stale-conversations" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            --max-time 60 \
-            | tee /tmp/response.json
-
-  alert-abandoned-conversations:
-    # Roda a cada 10 min (schedule */10) ou manualmente. Avisa o time no grupo do
-    # WhatsApp quando o cliente fica esperando numa conversa OPEN ha 15min+.
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'alert-abandoned-conversations' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Invoca cron alert-abandoned-conversations
-        run: |
-          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/alert-abandoned-conversations" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 60 \

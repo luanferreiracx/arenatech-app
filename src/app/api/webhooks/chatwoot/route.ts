@@ -273,7 +273,25 @@ export async function POST(req: NextRequest) {
 
           // Aciona o Talison em mensagem do cliente quando o Chatwoot diz que o
           // bot deve responder (pending/resolved). O scheduler faz o debounce.
-          const triggerBot = isIncoming && botShouldReply
+          //
+          // RETOMADA EM CONVERSA ABANDONADA: se a conversa está OPEN mas NENHUM
+          // atendente humano falou nela (status open por handoff/auto sem ninguém
+          // assumir), o cliente que volta a escrever deve ser atendido pelo bot de
+          // novo — senão fica esperando indefinidamente. "Humano falou" = existe
+          // ChatbotMessage senderType "agent" (a resposta do bot é "bot"; a msg
+          // fixa de espera também é salva como "bot", então não conta como humano).
+          let triggerBot = isIncoming && botShouldReply
+          if (isIncoming && !triggerBot && chatwootStatus === "open") {
+            const humanMessages = await tx.chatbotMessage.count({
+              where: { tenantId, conversationId: conv.id, senderType: "agent" },
+            })
+            if (humanMessages === 0) {
+              triggerBot = true
+              logger.info("Chatwoot webhook: conversa OPEN sem humano — bot reassume", {
+                conversationId: conv.id,
+              })
+            }
+          }
           return { conversationId: conv.id, triggerBot }
         })
 

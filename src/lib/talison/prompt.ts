@@ -35,6 +35,8 @@ const HOT_LEAD = `LEAD QUENTE: quando perceber ALTA probabilidade de fechar a ve
 
 const HANDOFF = `Transfira para humano (tool transferir_para_humano) quando: o cliente pedir, o assunto fugir do escopo, houver frustração/reclamação séria, uma tool não tiver o dado necessário, ou ficar claro que o cliente quer fechar a venda. Em vendas com intenção ainda em formação, registre o lead (qualificar_lead) com produto/modelo, orçamento, forma de pagamento, troca, urgência e nome quando fizer sentido. Para lead quente (intenção forte de compra), prefira sinalizar_lead_quente.`;
 
+const OFF_HOURS = `FORA DO HORÁRIO: se em AGORA (acima) a loja estiver FECHADA, você ainda pode tirar dúvidas e dar informações, mas NÃO prometa atendimento humano imediato nem transfira agora — em vez disso, avise com gentileza que estamos fora do horário de atendimento e que um atendente humano retornará no horário (segunda a sábado, das 09h30 às 20h). Registre o lead se houver interesse de compra.`;
+
 export type PromptContext = {
   contactName: string | null;
   /** Conhecimento factual da loja/tenant a ser usado sem virar script rígido. */
@@ -60,7 +62,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     dynamic.push(ctx.businessHoursNote);
   }
 
-  return [IDENTITY, SCOPE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, CLOSING, HOT_LEAD, HANDOFF, ...dynamic]
+  return [IDENTITY, SCOPE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
     .filter(Boolean)
     .join("\n\n");
 }

@@ -74,6 +74,31 @@ function parseHHmm(value: string | null | undefined): number | null {
   return hours * 60 + minutes;
 }
 
+function hoursLabelFor(config: BusinessHoursConfig): string {
+  const openMinutes = parseHHmm(config.start) ?? DEFAULT_OPEN_MINUTES;
+  const closeMinutes = parseHHmm(config.end) ?? DEFAULT_CLOSE_MINUTES;
+  const fmt = (total: number) =>
+    `${String(Math.floor(total / 60)).padStart(2, "0")}h${total % 60 ? String(total % 60).padStart(2, "0") : ""}`;
+  return `${fmt(openMinutes)}–${fmt(closeMinutes)}`;
+}
+
+/** Texto padrão da janela de atendimento, pra mensagens fixas. */
+export function businessHoursLabel(config: BusinessHoursConfig = {}): string {
+  return `segunda a sábado, das ${hoursLabelFor(config)}`;
+}
+
+/**
+ * A loja está aberta agora? (America/Fortaleza; domingo fechado no padrão;
+ * horário configurado tem precedência). Usado pelo runner e pelo cron de espera.
+ */
+export function isStoreOpen(config: BusinessHoursConfig = {}, now: Date = new Date()): boolean {
+  const { weekdayKey, hour, minute } = nowPartsInTeresina(now);
+  const nowMinutes = Number(hour) * 60 + Number(minute);
+  const openMinutes = parseHHmm(config.start) ?? DEFAULT_OPEN_MINUTES;
+  const closeMinutes = parseHHmm(config.end) ?? DEFAULT_CLOSE_MINUTES;
+  return weekdayKey !== "Sun" && nowMinutes >= openMinutes && nowMinutes < closeMinutes;
+}
+
 /**
  * Monta a nota de "agora" pro system prompt: data/hora local + aberto/fechado.
  * Domingo é considerado fechado no padrão; horário configurado tem precedência.

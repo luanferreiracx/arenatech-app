@@ -19,6 +19,8 @@ export type TalisonMetric =
   | "lead_qualified"
   | "hot_lead"
   | "abandoned_alert"
+  | "wait_message"
+  | "off_hours_notice"
   | "catchup_replied";
 
 export function recordTalisonMetric(

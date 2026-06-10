@@ -131,14 +131,33 @@ describe("processConversation — status e entrega", () => {
     resetState();
   });
 
-  it("não responde quando o status espelhado do Chatwoot é OPEN", async () => {
+  it("não responde quando OPEN e um atendente humano já falou na conversa", async () => {
     state.conversation.status = "OPEN";
+    state.messages = [
+      { direction: "incoming", senderType: "customer", content: "oi", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "agent", content: "oi, sou o atendente", contentType: "text", mediaUrl: null },
+      { direction: "incoming", senderType: "customer", content: "e aí?", contentType: "text", mediaUrl: null },
+    ];
 
     const result = await processConversation("tenant-1", "conv-1");
 
     expect(result).toEqual({ status: "skipped", reason: "conversa OPEN (atendente no caso)" });
     expect(state.runTalison).not.toHaveBeenCalled();
     expect(state.sendBotMessage).not.toHaveBeenCalled();
+  });
+
+  it("reassume quando OPEN mas nenhum humano falou (conversa abandonada)", async () => {
+    state.conversation.status = "OPEN";
+    state.messages = [
+      { direction: "incoming", senderType: "customer", content: "oi", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "bot", content: "vou te transferir", contentType: "text", mediaUrl: null },
+      { direction: "incoming", senderType: "customer", content: "alguém aí?", contentType: "text", mediaUrl: null },
+    ];
+
+    const result = await processConversation("tenant-1", "conv-1");
+
+    expect(result.status).toBe("replied");
+    expect(state.runTalison).toHaveBeenCalledOnce();
   });
 
   it.each(["BOT_ACTIVE", "RESOLVED"] as const)(

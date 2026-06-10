@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildNowNote } from "@/lib/talison/business-hours";
+import { buildNowNote, isStoreOpen, businessHoursLabel } from "@/lib/talison/business-hours";
 
 // America/Fortaleza = UTC-3 fixo (Teresina/PI), sem horário de verão.
 describe("buildNowNote — consciência de horário", () => {
@@ -33,5 +33,26 @@ describe("buildNowNote — consciência de horário", () => {
     // Config 08:00–22:00; 11:00Z = 08:00 Fortaleza → deve estar ABERTA.
     const note = buildNowNote({ start: "08:00", end: "22:00" }, new Date("2026-06-10T11:00:00Z"));
     expect(note).toContain("ABERTA");
+  });
+});
+
+describe("isStoreOpen", () => {
+  it("aberta em dia útil dentro do horário", () => {
+    expect(isStoreOpen({}, new Date("2026-06-13T17:00:00Z"))).toBe(true); // sáb 14:00
+  });
+  it("fechada no domingo", () => {
+    expect(isStoreOpen({}, new Date("2026-06-14T17:00:00Z"))).toBe(false);
+  });
+  it("fechada após as 20h", () => {
+    expect(isStoreOpen({}, new Date("2026-06-10T23:30:00Z"))).toBe(false); // 20:30 Fortaleza
+  });
+  it("fechada antes das 09h30", () => {
+    expect(isStoreOpen({}, new Date("2026-06-10T11:00:00Z"))).toBe(false); // 08:00 Fortaleza
+  });
+});
+
+describe("businessHoursLabel", () => {
+  it("usa o padrão seg–sáb 09h30–20h", () => {
+    expect(businessHoursLabel({})).toBe("segunda a sábado, das 09h30–20h");
   });
 });
