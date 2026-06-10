@@ -41,13 +41,6 @@ const CONDITION_LABEL: Record<string, string> = {
   Usado: "usado",
 };
 
-const productImageWhere: Prisma.ProductWhereInput = {
-  OR: [
-    { photos: { some: {} } },
-    { AND: [{ imageUrl: { not: null } }, { imageUrl: { not: "" } }] },
-  ],
-};
-
 const productStockWhere: Prisma.ProductWhereInput = {
   OR: [
     { isSerialized: true, stockItems: { some: { status: "AVAILABLE", deletedAt: null } } },
@@ -236,9 +229,10 @@ const buscarAcessorioSchema = z.object({
 export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
   name: "buscar_acessorio",
   description:
-    "Busca acessórios, periféricos e eletrônicos disponíveis no catálogo (capa, película, fone, cabo, " +
-    "carregador, adaptador, mouse, teclado, etc). Use quando o cliente perguntar por um acessório/produto. " +
-    "A tool só retorna itens disponíveis/visíveis; se vazio, informe indisponibilidade e ofereça transferir.",
+    "Busca acessórios, periféricos, eletrônicos e produtos diversos no catálogo (capa, película, fone, cabo, " +
+    "carregador, adaptador, mouse, teclado, figurinhas, álbuns, e itens inusitados). Use quando o cliente " +
+    "perguntar por qualquer produto que não seja um aparelho. A tool procura nos dois catálogos (acessórios " +
+    "e aparelhos) antes de dizer que não tem. Se mesmo assim vier vazio, informe indisponibilidade e ofereça transferir.",
   schema: buscarAcessorioSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
@@ -250,7 +244,9 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           deletedAt: null,
           isDevice: false,
           AND: [
-            productImageWhere,
+            // Filtro de foto removido: itens recém-cadastrados sem foto não podem
+            // ficar invisíveis pro bot (o catálogo é a fonte da verdade). Mantém
+            // só o filtro de estoque.
             productStockWhere,
             ...accessorySearchWhere(term),
           ],
@@ -269,30 +265,57 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
         },
       });
 
-      if (products.length === 0) {
+      if (products.length > 0) {
+        const lines = products.map((product) => {
+          const price = Number(product.promotionalPrice ?? product.salePrice);
+          const quantity = productAvailableQuantity(product);
+          const priceLabel =
+            price > 0
+              ? `${formatBRL(price)} (PIX ${formatBRL(roundMoney(price * (1 - ACESSORIO_PIX_DISCOUNT)))})`
+              : "preço sob consulta";
+          return `${product.name}: ${priceLabel} — ${quantity} em estoque`;
+        });
+
         return {
-          ok: false as const,
-          reason: `Não encontrei "${term}" disponível no catálogo agora. Informe a indisponibilidade e ofereça transferir para um atendente confirmar ou sugerir alternativa.`,
+          ok: true as const,
+          data: { total: products.length, algum_em_estoque: true },
+          display: lines.join("\n"),
         };
       }
 
-      const lines = products.map((product) => {
-        const price = Number(product.promotionalPrice ?? product.salePrice);
-        const quantity = productAvailableQuantity(product);
-        const priceLabel =
-          price > 0
-            ? `${formatBRL(price)} (PIX ${formatBRL(roundMoney(price * (1 - ACESSORIO_PIX_DISCOUNT)))})`
-            : "preço sob consulta";
-        return `${product.name}: ${priceLabel} — ${quantity} em estoque`;
-      });
+      // Cross-search: produtos "inusitados" (figurinhas, álbuns, etc.) podem ter
+      // sido cadastrados no catálogo de APARELHOS. Os dois catálogos são a fonte
+      // da verdade — então, se não achar como acessório, procura também lá antes
+      // de dizer que não temos. Preço de catalog_devices JÁ É o PIX/à vista.
+      const words = searchWords(term);
+      const devices =
+        words.length > 0
+          ? await tx.catalogDevice.findMany({
+              where: {
+                tenantId: ctx.tenantId,
+                available: true,
+                deletedAt: null,
+                OR: words.map((word) => ({ name: { contains: word, mode: "insensitive" } })),
+              },
+              orderBy: [{ price: "asc" }],
+              take: MAX_RESULTS,
+              select: { name: true, condition: true, price: true, promotionalPrice: true, description: true },
+            })
+          : [];
+
+      if (devices.length > 0) {
+        return {
+          ok: true as const,
+          data: { total: devices.length, fonte: "catalogo", algum_em_estoque: true },
+          display:
+            devices.map(formatDeviceLine).join("\n") +
+            "\n_Valores no PIX/à vista. No cartão há acréscimo._",
+        };
+      }
 
       return {
-        ok: true as const,
-        data: {
-          total: products.length,
-          algum_em_estoque: true,
-        },
-        display: lines.join("\n"),
+        ok: false as const,
+        reason: `Não encontrei "${term}" disponível em nenhum dos catálogos agora. Informe a indisponibilidade e ofereça transferir para um atendente confirmar ou sugerir alternativa.`,
       };
     });
   },
