@@ -30,6 +30,7 @@ import {
   getPixStatus,
   getDepixWithdrawStatus,
 } from "@/lib/services/depix-service";
+import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
@@ -176,9 +177,13 @@ export interface CreateDepositArgs {
   sourceId?: string | null;
   sourceDescription?: string | null;
   payerTaxId?: string | null;
+  payerPhone?: string | null;
 }
 
 export async function createDeposit(args: CreateDepositArgs) {
+  const payerTaxId = args.payerTaxId?.replace(/\D/g, "") || null;
+  const payerPhone = args.payerPhone?.replace(/\D/g, "") || null;
+
   // ETAPA 1: cria registro PENDING + gera numero.
   const created = await withTenant(args.tenantId, async (tx) => {
     const number = await nextTransactionNumber(tx, "DEPOSIT");
@@ -192,6 +197,8 @@ export async function createDeposit(args: CreateDepositArgs) {
         sourceType: args.sourceType ?? "WALLET",
         sourceId: args.sourceId ?? null,
         sourceDescription: args.sourceDescription ?? null,
+        payerTaxId,
+        payerPhone,
         userId: args.userId,
         userName: args.userName ?? null,
         // 30 min de validade do PIX (padrao PixPay).
@@ -229,7 +236,7 @@ export async function createDeposit(args: CreateDepositArgs) {
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
-    args.payerTaxId?.replace(/\D/g, "") || null,
+    payerTaxId,
     { depixAddress: addr.address, requireDepixAddress: true },
   );
   if (!pix.success || !pix.transactionId) {
@@ -611,10 +618,10 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
 
   // Calcula o BRUTO a partir do liquido (inverso): destinatario recebe
   // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
-  // Tech + taxa PixPay estimada).
+  // Tech + taxa do provedor estimada).
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  // Tabela PixPay escalonada esta dentro de calcWithdrawFromNet (calibrada
-  // empiricamente em prod). Nao precisa passar pct via opts mais.
+  // A estimativa local pode divergir da LiquidX; apos criar a intencao de
+  // saque, o gross real e revalidado contra o saldo disponivel.
   const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg);
   const grossAmountCents = breakdown.grossCents;
 
@@ -668,11 +675,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         kind: "WITHDRAW",
         status: "PENDING",
         // grossAmountCents aqui guarda a ESTIMATIVA inicial — sera ajustado
-        // apos o PixPay retornar o depositAmountInCents real (etapa 3).
+        // apos a LiquidX retornar o depositAmountInCents real (etapa 3).
         grossAmountCents,
         feeArenaTechCents: breakdown.feeArenaTechCents,
         // O netAmountCents do registro eh o que o destinatario recebe — eh
-        // o input do usuario, valor pretendido. PixPay confirma exato.
+        // o input do usuario, valor pretendido. LiquidX confirma o valor real.
         netAmountCents: args.netAmountCents,
         sourceType: args.sourceType ?? "WALLET",
         sourceId: args.sourceId ?? null,
@@ -688,60 +695,70 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   });
 
-  // ETAPA 2: chama PixPay createDepixWithdraw passando o valor LIQUIDO
-  // (o que o destinatario recebe). PixPay retorna depositAmount (quanto
-  // de DePix precisamos enviar pra esse valor chegar).
-  const pp = await createDepixWithdraw(
+  // ETAPA 2: chama LiquidX Pro createDepixWithdraw passando o valor LIQUIDO
+  // (o que o destinatario recebe).
+  const withdrawResult = await createDepixWithdraw(
     pixKey,
     args.pixKeyType,
     args.netAmountCents / 100,
     taxId,
   );
-  if (!pp.success || !pp.id || !pp.depositAddress) {
-    // Logamos o erro cru pra debug interna; client recebe mensagem generica.
-    logger.error("createWithdraw: PixPay falhou", { tenantId: args.tenantId, error: pp.error });
+  if (!withdrawResult.success || !withdrawResult.id || !withdrawResult.depositAddress) {
+    logger.error("createWithdraw: LiquidX falhou", {
+      tenantId: args.tenantId,
+      error: withdrawResult.error,
+    });
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: pp.error ?? "PixPay falhou" },
+        data: { status: "FAILED", errorMessage: withdrawResult.error ?? "LiquidX falhou" },
       }),
     );
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: sanitizeUserError(pp.error, "Falha ao iniciar saque no provedor PIX"),
+      message: sanitizeUserError(withdrawResult.error, "Falha ao iniciar saque no provedor PIX"),
     });
   }
 
-  // PixPay retorna depositAmountInCents (quanto DePix mandar) e
-  // payoutAmountInCents (= o valor liquido que o destinatario recebe).
-  // Como passamos o net e o PixPay confirma, payoutAmountCents == netAmountCents.
-  const depositAmountCents = pp.depositAmountInCents ?? args.netAmountCents;
-  const payoutAmountCents = pp.payoutAmountInCents ?? args.netAmountCents;
-  const feePixPayCents = Math.max(0, depositAmountCents - payoutAmountCents);
-
-  // ETAPA 3: persiste dados PixPay + ajusta gross com valor REAL do PixPay.
-  // O gross final eh depositAmount (DePix pro off-ramp) + feeArena (DePix
-  // pra Arena Tech). Se PixPay cobrou um pouco mais/menos do que a estimativa
-  // calcWithdrawFromNet previu, ajustamos aqui.
+  const payoutAmountCents = withdrawResult.payoutAmountInCents ?? args.netAmountCents;
+  const depositAmountCents = withdrawResult.depositAmountInCents ?? payoutAmountCents;
+  const providerFeeCents = Math.max(0, depositAmountCents - payoutAmountCents);
+  const feePixPayCents = providerFeeCents;
   const finalGrossCents = depositAmountCents + breakdown.feeArenaTechCents;
+
+  if (availableCents < finalGrossCents) {
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: created.id },
+        data: {
+          status: "FAILED",
+          errorMessage: "Saldo insuficiente para taxa final do provedor",
+          apiResponse: withdrawResult.raw as never,
+        },
+      }),
+    );
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Saldo disponivel insuficiente apos cotacao LiquidX. Necessario R$ ${(finalGrossCents / 100).toFixed(2)}; disponivel R$ ${(availableCents / 100).toFixed(2)}`,
+    });
+  }
+
   await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixTransaction.update({
       where: { id: created.id },
       data: {
-        pixpayDepixId: pp.id,
-        pixpayDepositAddress: pp.depositAddress,
+        pixpayDepixId: withdrawResult.id,
+        pixpayDepositAddress: withdrawResult.depositAddress,
         feePixPayCents,
         netAmountCents: payoutAmountCents,
         grossAmountCents: finalGrossCents,
+        apiResponse: withdrawResult.raw as never,
       },
     }),
   );
 
-  // ETAPA 4: tx LWK. Se tem taxa Arena Tech > 0, 2 outputs (off-ramp +
-  // Arena Tech) atomicamente. Se tenant central (taxa=0), so 1 output
-  // pro off-ramp — nao precisa buscar masterAddress.
   const recipients: lwk.LwkTransferRecipient[] = [
-    { to: pp.depositAddress, amountBrl: depositAmountCents / 100 },
+    { to: withdrawResult.depositAddress, amountBrl: depositAmountCents / 100 },
   ];
   if (breakdown.feeArenaTechCents > 0) {
     try {
@@ -781,13 +798,10 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     );
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      // Mensagens LWK ja vem traduzidas PT-BR (insufficient_lbtc etc).
-      // Sanitiza pra cortar caso vaze stack/host.
       message: sanitizeUserError(sweep.error, "Falha ao transmitir saque on-chain"),
     });
   }
 
-  // ETAPA 5: persiste txid + ledger SETTLED (so se houve taxa cobrada).
   const final = await withTenant(args.tenantId, async (tx) => {
     const updated = await tx.tenantDepixTransaction.update({
       where: { id: created.id },
@@ -898,20 +912,32 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
       }
     }
   } else if (txRow.kind === "WITHDRAW") {
-    // Confere status do saque no PixPay.
+    // Confere status do saque na LiquidX Pro.
     if (txRow.pixpayDepixId) {
       const ws = await getDepixWithdrawStatus(txRow.pixpayDepixId);
       if (ws.success && ws.status) {
         const raw = ws.status.toLowerCase();
+        const receiptUrl = extractDepixWithdrawReceiptUrl(ws.raw);
         let newStatus: typeof txRow.status | null = null;
-        if (["sent", "send", "sending", "paid", "completed"].includes(raw)) newStatus = "COMPLETED";
+        if (["sent", "send", "paid", "completed"].includes(raw)) newStatus = "COMPLETED";
         else if (["failed", "error", "rejected"].includes(raw)) newStatus = "FAILED";
-        else if (["cancelled", "canceled", "expired"].includes(raw)) newStatus = "CANCELLED";
-        if (newStatus && newStatus !== txRow.status) {
+        else if (["expired"].includes(raw)) newStatus = "EXPIRED";
+        else if (["cancelled", "canceled"].includes(raw)) newStatus = "CANCELLED";
+        else if (["pending", "processing", "sending"].includes(raw)) newStatus = "PROCESSING";
+        else newStatus = null;
+        if (newStatus === "PROCESSING" && txRow.status === "PROCESSING") {
+          newStatus = null;
+        }
+        if ((newStatus && newStatus !== txRow.status) || receiptUrl) {
           await withTenant(tenantId, async (tx) =>
             tx.tenantDepixTransaction.update({
               where: { id: txRow.id },
-              data: { status: newStatus!, completedAt: newStatus === "COMPLETED" ? new Date() : undefined },
+              data: {
+                status: newStatus ?? txRow.status,
+                completedAt: newStatus === "COMPLETED" ? new Date() : undefined,
+                pixpayReceiptUrl: receiptUrl ?? undefined,
+                apiResponse: ws.raw ? (ws.raw as never) : undefined,
+              },
             }),
           );
           // Side-effects pos-conclusao do saque (best-effort, nao bloqueia).

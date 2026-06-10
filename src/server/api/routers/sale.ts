@@ -31,7 +31,7 @@ import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { isValidLuhn } from "@/lib/validators/imei";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
-import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
+import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 
@@ -59,6 +59,14 @@ function isCashMethod(method: string): boolean {
     .trim()
     .toLowerCase();
   return norm === "dinheiro" || norm === "cash" || norm === "money" || norm === "especie";
+}
+
+function isCompletedDepixStatus(status: string): boolean {
+  return status === "COMPLETED" || status === "COMPLETED_FEE_PENDING";
+}
+
+function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
+  return payment.depixManual === true;
 }
 
 function generatePublicLink(): string {
@@ -102,6 +110,38 @@ function serializeItem(item: Record<string, unknown>) {
     discount: decimalToCents(item.discount as Prisma.Decimal),
     total: decimalToCents(item.total as Prisma.Decimal),
   };
+}
+
+async function releaseSaleStockItemReservations(
+  tx: Prisma.TransactionClient,
+  params: {
+    tenantId: string;
+    saleId?: string;
+    saleIds?: string[];
+    stockItemIds?: string[];
+  },
+) {
+  const saleIds = params.saleIds ?? (params.saleId ? [params.saleId] : []);
+  if (saleIds.length === 0 && (!params.stockItemIds || params.stockItemIds.length === 0)) return;
+
+  await tx.stockItem.updateMany({
+    where: {
+      tenantId: params.tenantId,
+      status: "RESERVED",
+      reservedForType: "sale",
+      ...(saleIds.length > 0 ? { reservedForId: { in: saleIds } } : {}),
+      ...(params.stockItemIds && params.stockItemIds.length > 0
+        ? { id: { in: params.stockItemIds } }
+        : {}),
+      deletedAt: null,
+    },
+    data: {
+      status: "AVAILABLE",
+      reservedForType: null,
+      reservedForId: null,
+      reservedAt: null,
+    },
+  });
 }
 
 export const saleRouter = createTRPCRouter({
@@ -150,6 +190,25 @@ export const saleRouter = createTRPCRouter({
   /** Abandon (delete) all existing common DRAFT sales for the current seller */
   abandonDraft: tenantProcedure.mutation(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      const draftSales = await tx.sale.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          sellerId: ctx.session.user.id,
+          status: "DRAFT",
+          deletedAt: null,
+          isOSPayment: false,
+        },
+        select: { id: true },
+      });
+      const draftSaleIds = draftSales.map((s) => s.id);
+
+      if (draftSaleIds.length > 0) {
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleIds: draftSaleIds,
+        });
+      }
+
       await tx.saleItem.deleteMany({
         where: {
           sale: {
@@ -312,22 +371,24 @@ export const saleRouter = createTRPCRouter({
           const stockItem = await tx.stockItem.findUnique({
             where: { id: input.stockItemId },
             select: {
-              id: true, productId: true, status: true, costPrice: true,
-              suggestedSalePrice: true, imei: true, serialNumber: true,
-              condition: true, batteryHealth: true, warrantyMonths: true,
+              id: true,
+              tenantId: true,
+              productId: true,
+              status: true,
+              costPrice: true,
+              suggestedSalePrice: true,
+              imei: true,
+              serialNumber: true,
+              condition: true,
+              batteryHealth: true,
+              warrantyMonths: true,
             },
           });
           if (!stockItem) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Item de estoque nao encontrado" });
           }
-          if (stockItem.productId !== input.productId) {
+          if (stockItem.tenantId !== ctx.tenantId || stockItem.productId !== input.productId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Item nao pertence a este produto." });
-          }
-          if (stockItem.status !== "AVAILABLE") {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "Este aparelho nao esta disponivel para venda.",
-            });
           }
           // Para serializados nao consolida em existingItem — cada IMEI eh uma linha.
           const existingStock = sale.items.find((i) => i.stockItemId === input.stockItemId);
@@ -337,6 +398,29 @@ export const saleRouter = createTRPCRouter({
               message: "Este aparelho ja foi adicionado a venda.",
             });
           }
+
+          const reserveResult = await tx.stockItem.updateMany({
+            where: {
+              id: input.stockItemId,
+              tenantId: ctx.tenantId,
+              productId: input.productId,
+              status: "AVAILABLE",
+              deletedAt: null,
+            },
+            data: {
+              status: "RESERVED",
+              reservedForType: "sale",
+              reservedForId: sale.id,
+              reservedAt: new Date(),
+            },
+          });
+          if (reserveResult.count !== 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este aparelho nao esta mais disponivel. Atualize a lista e tente novamente.",
+            });
+          }
+
           const unitPriceCents = input.unitPrice
             || (stockItem.suggestedSalePrice ? decimalToCents(stockItem.suggestedSalePrice) : decimalToCents(product.salePrice));
           // Garantia: usa do StockItem; senao padrao das settings por condicao.
@@ -531,6 +615,21 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        const item = await tx.saleItem.findUnique({
+          where: { id: input.itemId },
+          select: { id: true, saleId: true, stockItemId: true },
+        });
+        if (!item || item.saleId !== input.saleId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
+        }
+
+        if (item.stockItemId) {
+          await releaseSaleStockItemReservations(tx, {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            stockItemIds: [item.stockItemId],
+          });
+        }
         await tx.saleItem.delete({ where: { id: input.itemId } });
 
         return recalculateSale(tx, input.saleId, ctx.tenantId);
@@ -677,6 +776,35 @@ export const saleRouter = createTRPCRouter({
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
+        // DePix via QR so pode finalizar depois de liquidado na wallet. O
+        // frontend auto-finaliza quando recebe SSE/polling, mas o servidor
+        // revalida para impedir tampering ou corrida com status ainda pendente.
+        for (const payment of payments) {
+          if (payment.method !== "depix" || isManualDepixPayment(payment)) continue;
+          if (!payment.walletTransactionId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
+            });
+          }
+          const walletTx = await checkTransactionStatus(ctx.tenantId, payment.walletTransactionId);
+          if (!walletTx) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
+          }
+          if (walletTx.sourceType !== "SALE" || walletTx.sourceId !== sale.id) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Transacao DePix nao pertence a esta venda.",
+            });
+          }
+          if (!isCompletedDepixStatus(walletTx.status)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "DePix ainda nao liquidado. Aguarde a confirmacao do pagamento.",
+            });
+          }
+        }
+
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
         // Determina tipo da venda: se TODOS os itens sao aparelhos -> APARELHO;
         // se NENHUM -> NAO_APARELHO; misto -> AMBOS.
@@ -781,10 +909,8 @@ export const saleRouter = createTRPCRouter({
         const hasPendingDepix = payments.some(
           (p) =>
             p.method === "depix" &&
-            p.depixTransactionId &&
-            // Detect: se UI marcou como pago manualmente, ja considera ok
-            // (operador assumiu responsabilidade).
-            !(p as { depixManual?: boolean }).depixManual,
+            !isManualDepixPayment(p) &&
+            !p.walletTransactionId,
         );
         // Troco = quanto o cliente pagou alem do que devia (apos upgrade).
         const rawChangeCents = refundDueCents > 0
@@ -819,6 +945,7 @@ export const saleRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               productId: item.productId,
               variationId: item.variationId ?? null,
+              stockItemId: item.stockItemId ?? null,
               type: "EXIT" as const,
               quantity: item.quantity,
               reason: `Venda ${saleNumber}`,
@@ -877,19 +1004,32 @@ export const saleRouter = createTRPCRouter({
           if (stockItemIds.length > 0) {
             const result = await tx.stockItem.updateMany({
               where: {
+                tenantId: ctx.tenantId,
                 id: { in: stockItemIds },
-                status: "AVAILABLE", // proteçao contra double-sell
+                deletedAt: null,
+                OR: [
+                  {
+                    status: "RESERVED",
+                    reservedForType: "sale",
+                    reservedForId: sale.id,
+                  },
+                  // Compatibilidade com rascunhos criados antes da reserva no carrinho.
+                  { status: "AVAILABLE" },
+                ],
               },
               data: {
                 status: "SOLD",
                 saleId: sale.id,
                 soldAt: new Date(),
+                reservedForType: null,
+                reservedForId: null,
+                reservedAt: null,
               },
             });
             if (result.count !== stockItemIds.length) {
               throw new TRPCError({
                 code: "CONFLICT",
-                message: "Um ou mais aparelhos do carrinho ja foram vendidos. Refaça a venda.",
+                message: "Um ou mais aparelhos do carrinho nao estao mais disponiveis para esta venda. Refaça a venda.",
               });
             }
           }
@@ -1086,12 +1226,15 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // Build paymentDetails JSON. Preserva depixTransactionId para o
-        // webhook PixPay conseguir localizar e marcar a venda como paga.
+        // Build paymentDetails JSON. Preserva ids DePix para conciliacao
+        // wallet-first e compatibilidade com webhook PixPay legado.
         const paymentDetails = payments.map((p) => ({
           method: p.method,
           amount: p.amount,
           installments: p.installments ?? 1,
+          ...(p.walletTransactionId
+            ? { walletTransactionId: p.walletTransactionId }
+            : {}),
           ...(p.depixTransactionId
             ? { depixTransactionId: p.depixTransactionId }
             : {}),
@@ -1297,78 +1440,39 @@ export const saleRouter = createTRPCRouter({
         };
       });
 
-      // Apos a transacao: se downgrade DePix, dispara saque PixPay (HTTP externo).
+      // Apos a transacao: se downgrade DePix, dispara saque pela Wallet/LWK.
       const pixKey = input.refundDuePixKey;
       const pixKeyType = input.refundDuePixKeyType;
       if (txResult.shouldTriggerDepixWithdraw && pixKey && pixKeyType) {
         try {
-          const { createDepixWithdraw } = await import("@/lib/services/depix-service");
           const taxId = (txResult.customerName?.cpf ?? txResult.customerName?.cnpj ?? "").replace(/\D/g, "");
           if (taxId.length === 11 || taxId.length === 14) {
-            const refundReais = txResult.refundDueCents / 100;
-            const withdrawResult = await createDepixWithdraw(
-              pixKey,
+            const walletTx = await createWithdraw({
+              tenantId: ctx.tenantId,
+              userId: ctx.session.user.id,
+              userName: ctx.session.user.name ?? null,
               pixKeyType,
-              refundReais,
-              taxId,
-            );
-            if (withdrawResult.success) {
-              logger.info("Saque DePix automatico para downgrade enviado", {
-                saleId: input.saleId,
-                depixId: withdrawResult.id,
-              });
-              // Registra o saque no banco para rastreio
-              await ctx.withTenant(async (tx) => {
-                const today = new Date();
-                const prefix = `SQ${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}-`;
-                const last = await tx.depixWithdraw.findFirst({
-                  where: { number: { startsWith: prefix } },
-                  orderBy: { number: "desc" },
-                });
-                const seq = last ? parseInt(last.number.slice(-5), 10) + 1 : 1;
-                const number = `${prefix}${String(seq).padStart(5, "0")}`;
-                await tx.depixWithdraw.create({
-                  data: {
-                    tenantId: ctx.tenantId,
-                    number,
-                    pixKeyType,
-                    pixKey: pixKey.replace(/\D/g, ""),
-                    recipientName: txResult.customerName?.name ?? null,
-                    recipientTaxId: taxId,
-                    notes: `Downgrade automatico — venda ${txResult.saleNumber}`,
-                    requestedAmount: centsToPrisma(txResult.refundDueCents),
-                    depixId: withdrawResult.id ?? null,
-                    depositAddress: withdrawResult.depositAddress ?? null,
-                    depositAddressQr: withdrawResult.depositAddressQr ?? null,
-                    receivedAmount:
-                      withdrawResult.receivedAmount != null
-                        ? new Prisma.Decimal(withdrawResult.receivedAmount)
-                        : null,
-                    fee: withdrawResult.fee != null ? new Prisma.Decimal(withdrawResult.fee) : null,
-                    expiration: withdrawResult.expiration ? new Date(withdrawResult.expiration) : null,
-                    apiResponse:
-                      withdrawResult.raw == null
-                        ? Prisma.JsonNull
-                        : (withdrawResult.raw as Prisma.InputJsonValue),
-                    status: withdrawResult.status === "sent" ? "SENT" : "PROCESSING",
-                    userId: ctx.session.user.id,
-                    userName: ctx.session.user.name ?? null,
-                  },
-                });
-              });
-            } else {
-              logger.warn("Falha saque DePix automatico downgrade", {
-                saleId: input.saleId,
-                error: withdrawResult.error,
-              });
-              // Nao bloqueia a venda — operador resolve manual via /depix/withdrawals.
-            }
+              pixKey,
+              recipientName: txResult.customerName?.name ?? null,
+              recipientTaxId: taxId,
+              netAmountCents: txResult.refundDueCents,
+              sourceType: "SALE",
+              sourceId: input.saleId,
+              sourceDescription: `Downgrade automatico — venda ${txResult.saleNumber}`,
+              idempotencyKey: `${input.saleId}:downgrade-depix-refund`,
+            });
+            logger.info("Saque DePix Wallet automatico para downgrade enviado", {
+              saleId: input.saleId,
+              walletTransactionId: walletTx.id,
+              number: walletTx.number,
+            });
           }
         } catch (e) {
-          logger.error("Erro saque DePix downgrade", {
+          logger.error("Erro saque DePix Wallet downgrade", {
             saleId: input.saleId,
             error: e instanceof Error ? e.message : String(e),
           });
+          // Nao bloqueia a venda — operador acompanha/resolve pendencia pela Wallet DePix.
         }
       }
 
@@ -1398,6 +1502,11 @@ export const saleRouter = createTRPCRouter({
             message: "Apenas rascunhos podem ser cancelados. Use 'estornar' para vendas finalizadas.",
           });
         }
+
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleId: sale.id,
+        });
 
         await tx.sale.update({
           where: { id: input.saleId },
@@ -1494,6 +1603,8 @@ export const saleRouter = createTRPCRouter({
               data: {
                 tenantId: ctx.tenantId,
                 productId: item.productId,
+                variationId: item.variationId ?? null,
+                stockItemId: item.stockItemId ?? null,
                 type: "ENTRY",
                 quantity: item.quantity,
                 reason: `Estorno venda ${sale.number}${input.returnAsDefect ? " (defeito)" : ""}`,
@@ -1525,16 +1636,31 @@ export const saleRouter = createTRPCRouter({
             .map((i) => i.stockItemId)
             .filter((id): id is string => !!id);
           if (stockItemIds.length > 0) {
-            await tx.stockItem.updateMany({
-              where: { id: { in: stockItemIds } },
+            const result = await tx.stockItem.updateMany({
+              where: {
+                tenantId: ctx.tenantId,
+                id: { in: stockItemIds },
+                status: "SOLD",
+                saleId: sale.id,
+                deletedAt: null,
+              },
               data: {
                 // Defeito: aparelho volta como DEFECTIVE (nao vende mais).
                 // Caso contrario: AVAILABLE.
                 status: input.returnAsDefect ? "DEFECTIVE" : "AVAILABLE",
                 saleId: null,
                 soldAt: null,
+                reservedForType: null,
+                reservedForId: null,
+                reservedAt: null,
               },
             });
+            if (result.count !== stockItemIds.length) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Um ou mais aparelhos nao estao mais vinculados a esta venda. Atualize e tente novamente.",
+              });
+            }
           }
         }
 
@@ -2384,6 +2510,10 @@ export const saleRouter = createTRPCRouter({
             where: { id: { in: orphanPurchaseIds } },
           });
         }
+        await releaseSaleStockItemReservations(tx, {
+          tenantId: ctx.tenantId,
+          saleId: input.saleId,
+        });
         await tx.saleUpgrade.deleteMany({ where: { saleId: input.saleId } });
         await tx.saleItem.deleteMany({ where: { saleId: input.saleId } });
         await tx.sale.delete({ where: { id: input.saleId } });

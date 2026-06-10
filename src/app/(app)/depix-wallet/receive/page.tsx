@@ -10,9 +10,11 @@ import { toast } from "@/lib/toast";
 import { PageHeader } from "@/components/domain/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
+import { isValidTaxId } from "@/lib/utils/tax-id";
 import { WizardStepper } from "../_components/wizard-stepper";
 import { AmountQuickPicks } from "../_components/amount-quick-picks";
 import { FeeBreakdown } from "../_components/fee-breakdown";
@@ -29,11 +31,54 @@ function formatBRL(cents: number): string {
   });
 }
 
+function maskTaxIdLive(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 11) {
+    return d
+      .replace(/^(\d{3})(\d)/, "$1.$2")
+      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/\.(\d{3})(\d)/, ".$1-$2");
+  }
+  return d
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+}
+
+function maskPhoneLive(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 13);
+  const local = d.startsWith("55") && d.length > 11 ? d.slice(2) : d;
+  if (local.length <= 10) {
+    return local
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+  return local
+    .replace(/^(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
+}
+
+function isValidOptionalPhone(value: string): boolean {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return true;
+  return digits.length === 10 || digits.length === 11 ||
+    ((digits.length === 12 || digits.length === 13) && digits.startsWith("55"));
+}
+
 export default function DepixReceivePage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
   const [amount, setAmount] = useState(0);
+  const [payerTaxId, setPayerTaxId] = useState("");
+  const [payerPhone, setPayerPhone] = useState("");
+
+  const payerTaxIdDigits = payerTaxId.replace(/\D/g, "");
+  const requiresTaxId = amount >= 50_000;
+  const hasPayerTaxId = payerTaxIdDigits.length > 0;
+  const payerTaxIdValid = !hasPayerTaxId || isValidTaxId(payerTaxIdDigits);
+  const payerPhoneValid = isValidOptionalPhone(payerPhone);
 
   const previewQuery = useQuery({
     ...trpc.depixTransaction.previewFee.queryOptions({
@@ -55,7 +100,11 @@ export default function DepixReceivePage() {
   );
 
   const canSubmit =
-    amount >= DEPIX_LIMITS.MIN_CENTS && amount <= DEPIX_LIMITS.MAX_CENTS;
+    amount >= DEPIX_LIMITS.MIN_CENTS &&
+    amount <= DEPIX_LIMITS.MAX_CENTS &&
+    (!requiresTaxId || hasPayerTaxId) &&
+    payerTaxIdValid &&
+    payerPhoneValid;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -99,12 +148,63 @@ export default function DepixReceivePage() {
             <AmountQuickPicks value={amount} onChange={setAmount} />
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="payerPhone">
+                Telefone do pagador{" "}
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  (opcional)
+                </span>
+              </Label>
+              <Input
+                id="payerPhone"
+                value={maskPhoneLive(payerPhone)}
+                onChange={(event) => setPayerPhone(event.target.value)}
+                placeholder="(86) 99999-9999"
+                inputMode="tel"
+                autoComplete="tel"
+              />
+              {!payerPhoneValid && (
+                <p className="text-xs text-destructive mt-1.5">
+                  Telefone invalido.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="payerTaxId">
+                CPF/CNPJ do pagador {requiresTaxId ? "*" : ""}
+              </Label>
+              <Input
+                id="payerTaxId"
+                value={maskTaxIdLive(payerTaxId)}
+                onChange={(event) => setPayerTaxId(event.target.value)}
+                placeholder="000.000.000-00"
+                inputMode="numeric"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Opcional ate R$ 499,99; obrigatorio a partir de R$ 500,00.
+              </p>
+              {requiresTaxId && !hasPayerTaxId && (
+                <p className="text-xs text-destructive mt-1.5">
+                  Informe CPF/CNPJ para recebimentos de {formatBRL(amount)}.
+                </p>
+              )}
+              {hasPayerTaxId && !payerTaxIdValid && (
+                <p className="text-xs text-destructive mt-1.5">
+                  CPF/CNPJ invalido.
+                </p>
+              )}
+            </div>
+          </div>
+
           {amount >= DEPIX_LIMITS.MIN_CENTS && previewQuery.data && (
             <FeeBreakdown
               kind="DEPOSIT"
               netCents={amount}
               feeArenaCents={previewQuery.data.feeArenaTechCents}
-              feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+              feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
             />
           )}
         </Card>
@@ -114,7 +214,13 @@ export default function DepixReceivePage() {
             <Link href="/depix-wallet">Cancelar</Link>
           </Button>
           <Button
-            onClick={() => createMutation.mutate({ grossAmountCents: amount })}
+            onClick={() =>
+              createMutation.mutate({
+                grossAmountCents: amount,
+                payerTaxId: payerTaxIdDigits || null,
+                payerPhone: payerPhone.replace(/\D/g, "") || null,
+              })
+            }
             disabled={!canSubmit || createMutation.isPending}
             className="shadow-[0_0_20px_-4px_var(--primary)] hover:shadow-[0_0_28px_-4px_var(--primary)] transition-shadow"
           >

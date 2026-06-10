@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useActionState, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,54 +9,68 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CpfInput } from "@/components/forms/cpf-input";
 import { Loader2, AlertCircle } from "lucide-react";
+import { loginAction, type LoginState } from "@/app/actions/auth";
+
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
 export default function LoginPage() {
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [recaptchaToken, setRecaptchaToken] = useState("");
+  const [totp, setTotp] = useState("");
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+  const [state, formAction, pending] = useActionState<LoginState, FormData>(
+    loginAction,
+    {},
+  );
 
-    const result = await signIn("credentials", {
-      cpf,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("CPF ou senha inválidos. Tente novamente.");
-      setLoading(false);
-      return;
+  // Token do reCAPTCHA é de uso único — o servidor o consome no siteverify. A
+  // cada nova resposta do servidor, remontamos o widget (key) e limpamos o token
+  // para o usuário resolver de novo. Padrão "ajustar estado ao mudar prop" do
+  // React (set durante render, guardado), sem useEffect.
+  const [handledState, setHandledState] = useState(state);
+  const [captchaKey, setCaptchaKey] = useState(0);
+  if (state !== handledState) {
+    setHandledState(state);
+    if (state.error) {
+      setRecaptchaToken("");
+      setCaptchaKey((k) => k + 1);
+      setTotp("");
     }
-
-    // Full navigation so middleware can handle auth-aware redirect.
-    // Vai para /painel (a raiz "/" e a landing publica nos hosts de marketing).
-    window.location.href = "/painel";
   }
+
+  // O desafio só aparece quando o servidor o exige (após N falhas) E há site key.
+  const showCaptcha = Boolean(state.captchaRequired && RECAPTCHA_SITE_KEY);
+  // Segunda etapa: senha OK, falta o código 2FA.
+  const showTwoFactor = Boolean(state.twoFactorRequired);
+  const submitDisabled =
+    pending || (showCaptcha && !recaptchaToken) || (showTwoFactor && totp.length < 6);
 
   return (
     <>
       <CardHeader className="text-center pb-4 pt-6">
-        <CardTitle className="text-xl font-semibold">Acessar o sistema</CardTitle>
+        <CardTitle className="text-xl font-semibold">
+          {showTwoFactor ? "Verificação em duas etapas" : "Acessar o sistema"}
+        </CardTitle>
         <CardDescription className="text-sm">
-          Digite seu CPF e senha para entrar
+          {showTwoFactor
+            ? "Digite o código de 6 dígitos do seu app autenticador"
+            : "Digite seu CPF e senha para entrar"}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="pb-6">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
+        <form action={formAction} className="space-y-4">
+          {state.error && (
             <Alert variant="destructive" className="py-3">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>{state.error}</AlertDescription>
             </Alert>
           )}
 
-          <div className="space-y-1.5">
+          {/* CPF e senha: ocultos na etapa do 2FA, mas mantidos no form para
+              reenvio (não guardamos a senha no servidor entre as etapas). */}
+          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
             <Label htmlFor="cpf">CPF</Label>
             <CpfInput
               id="cpf"
@@ -68,7 +82,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
             <Label htmlFor="password">Senha</Label>
             <Input
               id="password"
@@ -81,12 +95,49 @@ export default function LoginPage() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
+          {showTwoFactor && (
+            <div className="space-y-1.5">
+              <Label htmlFor="totp">Código de verificação</Label>
+              <Input
+                id="totp"
+                name="totp"
+                autoComplete="one-time-code"
+                autoFocus
+                maxLength={11}
+                placeholder="000000 ou código de backup"
+                value={totp}
+                // Aceita 6 dígitos (TOTP) ou backup code (XXXXX-XXXXX).
+                onChange={(e) =>
+                  setTotp(e.target.value.toUpperCase().replace(/[^0-9A-Z-]/g, "").slice(0, 11))
+                }
+                className="text-center text-lg tracking-widest"
+              />
+              <p className="text-xs text-muted-foreground">
+                Sem acesso ao app? Use um dos seus códigos de backup.
+              </p>
+            </div>
+          )}
+
+          {showCaptcha && RECAPTCHA_SITE_KEY && (
+            <div className="flex justify-center">
+              <ReCAPTCHA
+                key={captchaKey}
+                sitekey={RECAPTCHA_SITE_KEY}
+                onChange={(token) => setRecaptchaToken(token ?? "")}
+                onExpired={() => setRecaptchaToken("")}
+              />
+            </div>
+          )}
+          <input type="hidden" name="recaptchaToken" value={recaptchaToken} />
+
+          <Button type="submit" className="w-full" disabled={submitDisabled}>
+            {pending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Entrando...
+                {showTwoFactor ? "Verificando..." : "Entrando..."}
               </>
+            ) : showTwoFactor ? (
+              "Verificar"
             ) : (
               "Entrar"
             )}

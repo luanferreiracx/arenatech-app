@@ -101,7 +101,6 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Vendas", href: "/pdv", icon: ShoppingCart, module: "pdv" },
       { label: "Historico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
-      { label: "Vendas Avulsas DePix", href: "/quick-sales", icon: CreditCard, module: "depix-ops" },
     ],
   },
   {
@@ -137,7 +136,6 @@ export const appNavGroups: NavGroup[] = [
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
-      { label: "Histórico Saques DePix", href: "/depix/withdrawals", icon: Banknote, module: "depix-ops" },
     ],
   },
   {

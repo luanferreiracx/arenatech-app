@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: "Novo Saque DePix | Arena Tech",
+  title: "DePix Wallet | Arena Tech",
 };
 
 export default function NewWithdrawPage() {

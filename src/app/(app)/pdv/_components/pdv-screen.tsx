@@ -359,7 +359,11 @@ export function PdvScreen() {
           setShowResults(false);
           searchRef.current?.focus();
         },
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          void queryClient.invalidateQueries({ queryKey: trpc.stock.listStockItems.queryKey() });
+          void queryClient.invalidateQueries({ queryKey: trpc.sale.searchProducts.queryKey() });
+        },
       },
     );
   };

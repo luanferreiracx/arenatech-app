@@ -96,6 +96,18 @@ export function recordFailedAttempt(key: string, config: RateLimitConfig = DEFAU
 }
 
 /**
+ * Quantas tentativas falhas estão registradas na janela atual.
+ * Usado para decidir o desafio adaptativo (ex.: exigir reCAPTCHA após N falhas).
+ * Janela expirada conta como 0.
+ */
+export function getFailedAttempts(key: string, config: RateLimitConfig = DEFAULT_CONFIG): number {
+  const entry = buckets.get(key);
+  if (!entry) return 0;
+  if (Date.now() - entry.windowStart > config.windowMs) return 0;
+  return entry.count;
+}
+
+/**
  * Reseta o contador (chamado apos login bem-sucedido).
  */
 export function clearRateLimit(key: string): void {

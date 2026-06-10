@@ -16,16 +16,22 @@ import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
-import { qualificarLead, transferirParaHumano } from "@/lib/talison/tools/handoff";
+import { qualificarLead, sinalizarLeadQuente, transferirParaHumano } from "@/lib/talison/tools/handoff";
 import { toggleStatus } from "@/lib/talison/chatwoot-client";
+import { sendGroupMessage } from "@/lib/services/whatsapp-service";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
   sendBotMessage: vi.fn().mockResolvedValue(true),
   toggleStatus: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("@/lib/services/whatsapp-service", () => ({
+  sendGroupMessage: vi.fn().mockResolvedValue({ success: true, messageId: "m1" }),
+}));
+
 beforeEach(() => {
   vi.mocked(toggleStatus).mockClear();
+  vi.mocked(sendGroupMessage).mockClear();
 });
 
 const baseConversation = {
@@ -173,32 +179,46 @@ describe("consultar_avaliacao", () => {
 });
 
 describe("buscar_aparelho", () => {
-  it("lista aparelhos com condição traduzida, preço PIX e observação", async () => {
-    const tx = {
-      availableDevice: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            model: "iPhone 15 128gb",
-            condition: "NEW",
-            price: { toString: () => "4299.99" },
-            note: null,
-          },
-          {
-            model: "iPhone 15 Plus 128gb",
-            condition: "SEMI_NEW",
-            price: { toString: () => "3299.00" },
-            note: "Bateria 83%, bem conservado",
-          },
-        ]),
+  it("lista aparelhos do catálogo com condição, preço PIX e observação", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        name: "iPhone 15 128gb",
+        condition: "Novo",
+        price: { toString: () => "4599.99" },
+        promotionalPrice: { toString: () => "4299.99" },
+        description: null,
       },
+      {
+        name: "iPhone 15 Plus 128gb",
+        condition: "Seminovo",
+        price: { toString: () => "3299.00" },
+        promotionalPrice: null,
+        description: "Bateria 83%, bem conservado",
+      },
+    ]);
+    const tx = {
+      catalogDevice: { findMany },
     } as unknown as Partial<TalisonTx>;
 
     const result = await buscarAparelho.execute({ modelo: "iPhone 15" }, makeCtx(tx));
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          available: true,
+          deletedAt: null,
+          name: { contains: "iPhone 15", mode: "insensitive" },
+        }),
+      }),
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
+      expect(result.data.encontrou_exato).toBe(true);
       expect(result.display).toContain("R$ 4.299,99");
-      expect(result.display).toContain("(novo)");
-      expect(result.display).toContain("(seminovo)");
+      expect(result.display).toContain("R$ 3.299,00");
+      expect(result.display).toContain("(Novo)");
+      expect(result.display).toContain("(Seminovo)");
       expect(result.display).toContain("Bateria 83%");
       // Preço é PIX/à vista — NÃO pode recalcular desconto sobre ele.
       expect(result.display).toContain("PIX/à vista");
@@ -208,9 +228,65 @@ describe("buscar_aparelho", () => {
     }
   });
 
+  it("filtra a condição do catálogo sem diferenciar maiúsculas", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const tx = {
+      catalogDevice: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAparelho.execute(
+      { modelo: "iPhone 15", condicao: "seminovo" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          condition: { equals: "seminovo", mode: "insensitive" },
+        }),
+      }),
+    );
+  });
+
+  it("oferece opções próximas quando não acha o modelo exato", async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          name: "iPhone 15 Pro 128GB",
+          condition: "Novo",
+          price: { toString: () => "5299.99" },
+          promotionalPrice: null,
+          description: null,
+        },
+        {
+          name: "iPhone 15 128GB",
+          condition: "Seminovo",
+          price: { toString: () => "4299.99" },
+          promotionalPrice: null,
+          description: null,
+        },
+      ]);
+    const tx = {
+      catalogDevice: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAparelho.execute({ modelo: "iPhone 15 Pro Max 256" }, makeCtx(tx));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.encontrou_exato).toBe(false);
+      expect(result.display).toContain("opções próximas disponíveis");
+      expect(result.display).toContain("iPhone 15 Pro 128GB");
+      expect(result.display).toContain("iPhone 15 128GB");
+    }
+  });
+
   it("retorna ok:false quando não há o aparelho (não inventa)", async () => {
     const tx = {
-      availableDevice: { findMany: vi.fn().mockResolvedValue([]) },
+      catalogDevice: { findMany: vi.fn().mockResolvedValue([]) },
     } as unknown as Partial<TalisonTx>;
 
     const result = await buscarAparelho.execute({ modelo: "Galaxy S99" }, makeCtx(tx));
@@ -228,6 +304,10 @@ describe("buscar_acessorio", () => {
             salePrice: { toString: () => "49.90" },
             promotionalPrice: null,
             currentStock: 4,
+            isSerialized: false,
+            hasVariations: false,
+            stockItems: [],
+            variations: [],
           },
         ]),
       },
@@ -237,8 +317,50 @@ describe("buscar_acessorio", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.display).toContain("R$ 49,90");
+      expect(result.display).toContain("R$ 47,40");
       expect(result.display).toContain("em estoque");
     }
+  });
+
+  it("busca também por descrição, sku e marca", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        name: "Adaptador USB-C",
+        salePrice: { toString: () => "39.90" },
+        promotionalPrice: null,
+        currentStock: 1,
+        isSerialized: false,
+        hasVariations: false,
+        stockItems: [],
+        variations: [],
+      },
+    ]);
+    const tx = {
+      product: { findMany },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAcessorio.execute({ termo: "adaptador usb" }, makeCtx(tx));
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.any(Array),
+        }),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("Adaptador USB-C");
+    }
+  });
+
+  it("retorna ok:false quando o item não está disponível no catálogo visível", async () => {
+    const tx = {
+      product: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await buscarAcessorio.execute({ termo: "capa s20" }, makeCtx(tx));
+    expect(result.ok).toBe(false);
   });
 });
 
@@ -316,6 +438,55 @@ describe("qualificar_lead", () => {
     expect(update).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
     if (result.ok) expect(result.data.atualizado).toBe(true);
+  });
+});
+
+describe("sinalizar_lead_quente", () => {
+  it("registra o lead e avisa o grupo quando há grupo configurado", async () => {
+    const prev = process.env.TALISON_ALERT_GROUP_JID;
+    process.env.TALISON_ALERT_GROUP_JID = "120363@g.us";
+    const create = vi.fn().mockResolvedValue({ id: "lead-9" });
+    const tx = {
+      interest: { findFirst: vi.fn().mockResolvedValue(null), create, update: vi.fn() },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await sinalizarLeadQuente.execute(
+      { produto_modelo: "iPhone 16 Pro 256GB", forma_pagamento: "PIX", nome: "João" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(create).toHaveBeenCalledOnce();
+    expect(vi.mocked(sendGroupMessage)).toHaveBeenCalledOnce();
+    const [jid, text] = vi.mocked(sendGroupMessage).mock.calls[0]!;
+    expect(jid).toBe("120363@g.us");
+    expect(text).toContain("iPhone 16 Pro 256GB");
+    if (result.ok) expect(result.data.avisou_time).toBe(true);
+
+    process.env.TALISON_ALERT_GROUP_JID = prev;
+  });
+
+  it("não duplica o lead e não quebra sem grupo configurado", async () => {
+    const prev = process.env.TALISON_ALERT_GROUP_JID;
+    delete process.env.TALISON_ALERT_GROUP_JID;
+    const update = vi.fn().mockResolvedValue({ id: "lead-9" });
+    const create = vi.fn();
+    const tx = {
+      interest: { findFirst: vi.fn().mockResolvedValue({ id: "lead-9" }), create, update },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await sinalizarLeadQuente.execute(
+      { produto_modelo: "PS5 Slim" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(update).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
+    expect(vi.mocked(sendGroupMessage)).not.toHaveBeenCalled();
+    if (result.ok) expect(result.data.avisou_time).toBe(false);
+
+    process.env.TALISON_ALERT_GROUP_JID = prev;
   });
 });
 

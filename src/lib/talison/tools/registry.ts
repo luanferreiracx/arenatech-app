@@ -11,7 +11,7 @@ import { buscarCliente } from "@/lib/talison/tools/customer";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
-import { qualificarLead, transferirParaHumano } from "@/lib/talison/tools/handoff";
+import { qualificarLead, sinalizarLeadQuente, transferirParaHumano } from "@/lib/talison/tools/handoff";
 
 export const TALISON_TOOLS: readonly TalisonTool[] = [
   consultarStatusOs,
@@ -24,6 +24,7 @@ export const TALISON_TOOLS: readonly TalisonTool[] = [
   buscarAcessorio,
   simularParcelamento,
   qualificarLead,
+  sinalizarLeadQuente,
   transferirParaHumano,
 ];
 

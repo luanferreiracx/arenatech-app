@@ -7,16 +7,170 @@
 
 ## Estado atual
 
-**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido com paridade total ao Laravel (DePix como devolucao, StockItem AVAILABLE, IMEI Luhn, PDF com IMEIs).
-**Ultima atualizacao:** 2026-06-05
+**Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
+**Ultima atualizacao:** 2026-06-08
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/superadmin-tenant-users`
+**Branch atual:** `fix/remove-depix-legacy-ui`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
 
-## Histórico de execução
+### 2026-06-08 — PDV DePix finaliza venda automaticamente
+- Investigado: o PDV normal gera QR DePix via wallet/LWK em `sale.generatePix`, escuta SSE em `/api/sse/sale/[saleId]` e usa `sale.checkPixStatus` como fallback.
+- Corrigido: após confirmação do DePix, o modal chamava `setStatus("paid")` e agendava `onPaid` com `setTimeout`; a mudança de status reexecutava o effect e o cleanup cancelava o timer antes de finalizar a venda.
+- Implementado: `DepixQrDialog` agora chama `onPaid` imediatamente após confirmar o pagamento, mantendo o guard idempotente contra SSE + polling duplicados; o parent fecha o QR e executa `sale.finalize` automaticamente.
+- Corrigido: `QuickSaleDepixDialog` também ganhou guard idempotente wallet-first para evitar `onPaid` duplicado quando SSE e polling confirmam quase juntos; o fluxo segue usando `walletTransactionId`/`TenantDepixTransaction` como fonte canônica.
+- Decisões: DePix continua sendo a última forma no pagamento misto e o backend segue revalidando `TenantDepixTransaction` liquidada antes de finalizar.
+- Validação: lint focado nos dialogs DePix e páginas relacionadas verde. `pnpm typecheck` falhou por erros TypeScript preexistentes fora do escopo (integration tests, scripts e componentes antigos), sem erro novo no arquivo alterado.
+- Próximo: abrir PR/deploy e validar em produção com IP liberado pela API DePix/LWK.
+
+### 2026-06-08 — DePix Wallet: saques via LiquidX Pro
+- Implementado: `OurWebsite-API_Documentation.pdf` foi lido em `~/Downloads`; a API LiquidX Pro usa `code`, `POST /api/withdraw` e `GET /api/withdraw/status`.
+- Implementado: saques DePix passam a usar LiquidX Pro por `LIQUIDX_API_KEY`; a chave real não foi gravada no repositório.
+- Implementado: depósitos DePix continuam na PixPay com `DEPIX_API_KEY`, `DEPIX_API_URL` e `DEPIX_DEPOSIT_STATUS_URL`.
+- Implementado: `createDepixWithdraw` e `getDepixWithdrawStatus` agora delegam para o cliente LiquidX Pro, mantendo compatibilidade com o orquestrador atual.
+- Implementado: o fluxo de saque revalida o saldo após a cotação real da LiquidX antes de enviar DePix via LWK.
+- Decisões: manter campos legados `pixpayDepixId`/`pixpayDepositAddress` como compatibilidade do banco; renome neutro fica para refactor futuro.
+- Validação: `pnpm vitest run __tests__/unit/depix-bitbridge-service.test.ts --reporter=dot` verde (2/2). `pnpm typecheck` ainda falha por erros preexistentes de tipagem/Prisma fora deste escopo.
+- Próximo: configurar `LIQUIDX_API_KEY` no ambiente real e validar um saque completo com polling de status LiquidX.
+
+### 2026-06-07 — DePix Wallet: recebimento avulso e saque PixPay
+- Implementado: `/depix-wallet/receive` passou a coletar telefone e CPF/CNPJ do pagador; CPF/CNPJ fica opcional até R$ 499,99 e obrigatório a partir de R$ 500,00, mantendo limite operacional máximo de R$ 5.000,00.
+- Implementado: transações Wallet persistem `payer_tax_id` e `payer_phone` nullable em `tenant_depix_transactions`, e o CPF/CNPJ continua sendo enviado ao fluxo PixPay de recebimento como `endUserTaxNumber` quando informado.
+- Implementado: detalhe da transação e comprovante PDF de depósito exibem CPF/CNPJ e telefone do pagador quando informados.
+- Implementado: comprovante de saque concluído passa a redirecionar para URL oficial da PixPay quando o webhook/status retornar comprovante.
+- Implementado: menu `Vendas Avulsas Wallet` foi removido da navegação; a rota Quick Sales permanece preservada por compatibilidade/histórico.
+- Revertido: saques da Wallet voltaram a usar PixPay (`DEPIX_API_KEY`, `DEPIX_SAQUE_SENHA`, `DEPIX_SAQUE_URL`, `DEPIX_SAQUE_STATUS_URL`) em `createDepixWithdraw` e `getDepixWithdrawStatus`.
+- Decisões: manter campos legados `pixpayDepixId`/`pixpayDepositAddress` como armazenamento compatível do provedor de off-ramp em saques novos; renome neutro fica para refactor futuro.
+- Validação: testes focados DePix verdes (11/11), `pnpm typecheck` verde e unitários completos verdes (841/841).
+- Próximo: validar manualmente um saque real com PixPay configurado e confirmar que o fluxo LWK segue após retorno do endereço de depósito PixPay.
+
+### 2026-06-07 — Domínio público do catálogo novo
+- Em andamento: `catalogo.arenatechpi.com.br` será movido do catálogo Laravel antigo para o novo catálogo Next.js.
+- Implementado: host `catalogo.arenatechpi.com.br` reconhecido pela aplicação e reescrito da raiz `/` para `/catalog`, mantendo `/catalog` público sem autenticação.
+- Implementado: server block Nginx versionado para `catalogo.arenatechpi.com.br`, proxyando para a app Next.js em `127.0.0.1:3001` com o certificado wildcard Cloudflare já usado em produção.
+- Implementado: deploy via GitHub Actions passa a instalar/atualizar o server block do catálogo antes de recriar o container app.
+- Corrigido: sudoers da VPS permite ao usuário de deploy atualizar apenas o server block versionado do catálogo; o workflow usa caminho absoluto para bater com a regra NOPASSWD.
+- Próximo: validar CI/deploy e acessar `https://catalogo.arenatechpi.com.br` para confirmar que o catálogo novo substituiu o antigo.
+
+### 2026-06-07 — Refinamento visual do catálogo público
+- Implementado: `/catalog` removeu o hero/cabeçalho pesado, passou a usar a logo Arena Tech no topo e adotou composição minimalista com foco em busca, categorias e produtos.
+- Implementado: filtros, chips de categoria, ordenação, cards e estado vazio foram simplificados para reduzir ruído visual e melhorar a experiência do cliente que acessa o catálogo.
+- Implementado: detalhe público do produto ganhou topo com logo, botão discreto de retorno, superfícies mais limpas e CTAs arredondados com foco em WhatsApp.
+- Decisões: manter tema escuro/dourado da marca, mas com menos bordas, sombras e estatísticas promocionais para transmitir profissionalismo.
+- Validação: `pnpm typecheck` verde após limpar cache `.next`; `pnpm lint` sem erros, apenas warnings preexistentes fora do escopo.
+- Próximo: validar visualmente em desktop/mobile com dados reais e ajustar microcopy/spacing se o cliente final ainda perceber excesso de informação.
+
+### 2026-06-06 — Catálogo público com produtos fotografados
+- Implementado: `AGENTS.md` removido sem leitura, pois é arquivo exclusivo para Codex e não deve orientar Claude.
+- Implementado: serviço server-side `public-catalog` reconstrói o catálogo público com filtro de produtos ativos, não-aparelhos, com foto, estoque disponível, categorias com contagem, busca com sinônimos, ordenação e paginação.
+- Implementado: `/catalog` virou página server-rendered com layout escuro/dourado, hero, filtros, categorias, ordenação, paginação e cards com imagem, promoção, baixo estoque, preço Pix 5% off e 6x.
+- Implementado: `/catalog/[id]` ganhou detalhe público com galeria, preço Pix/parcelamento, CTA WhatsApp e relacionados com foto.
+- Decisões: checkout/carrinho completo do Laravel ficou fora do escopo desta entrega; o CTA principal é WhatsApp e detalhe do produto.
+- Validação: `pnpm typecheck`, `pnpm lint`, `pnpm test` (830 unitários) e `pnpm build` verdes; lint completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: validar visualmente com dados reais de produção/staging que já tenham fotos e, se desejado, retomar carrinho/checkout público em etapa separada.
+
+### 2026-06-06 — DePix Wallet: mnemônico e saque visíveis só para admin
+- Implementado: `/depix-wallet` agora exibe o card de frase de recuperação para carteiras provisionadas, com confirmação de senha, copiar/ocultar e sem expor segredo em `getWalletInfo`.
+- Implementado: `depixWallet.getWalletInfo` retorna `canWithdraw` e alinha `canRevealMnemonic` com `tenantAdminProcedure` (`owner/manager/admin` e superadmin), permitindo tenants de teste com perfil `admin`.
+- Implementado: botão `Sacar` no hero da Wallet aparece apenas para perfil admin; acesso direto a `/depix-wallet/withdraw` mostra bloqueio amigável para perfis sem permissão, mantendo backend protegido por `tenantAdminProcedure`.
+- Corrigido após validação manual: UI do DePix legado removida de vez — `/depix`, `/depix/withdrawals`, detalhes e `/settings/depix` redirecionam para a Wallet; componentes de saque legado e comprovante legado foram removidos; menu mostra apenas Wallet e vendas avulsas wallet-backed.
+- Validação: `pnpm typecheck` OK; unitários completos OK (`830 passed`).
+- Próximo: abrir PR/CI/deploy e validar manualmente admin vs operador no tenant de teste.
+
+### 2026-06-06 — OS finalizacao e termos
+- Implementado: detalhe da OS agora mostra painel consolidado de pendencias para avancar/finalizar, cobrindo assinatura de entrada, orcamento pendente, laboratorio externo sem retorno e termo de entrega pendente.
+- Implementado: fluxo de cancelamento agora oferece envio de termo de devolucao, verificacao/confirmacao fisica e separa o override administrativo antes de liberar o cancelamento sem termo.
+- Implementado: termo de entrega permanece mais visivel apos pagamento/retirada e continua auditavel apos entrega; referencias ativas obsoletas da skill `arenatech-module-audit` foram removidas de `CLAUDE.md` e `AGENTS.md`.
+- Validacao: `pnpm vitest run __tests__/unit/validators/service-order.test.ts` verde (49/49), `DATABASE_URL=... pnpm prisma generate` + `DATABASE_URL=... pnpm typecheck` verde, `pnpm lint` sem erros (warnings preexistentes). E2E focado `pnpm playwright test __tests__/e2e/service-orders.spec.ts -g "T-12" --workers=1` nao iniciou por falta de `APP_DATABASE_URL`/`DATABASE_URL` no webserver do Playwright.
+- Proximo: rodar E2E focado de OS em ambiente com app/banco disponiveis e adicionar testes de integracao finos dos gates do router se o ambiente de integracao estiver estavel.
+
+### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
+- Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
+- Implementado: backend passou a validar DePix não manual contra a wallet canonical antes de concluir a venda, persistindo `walletTransactionId` e `depixTransactionId` em `paymentDetails`.
+- Implementado: venda avulsa DePix não pode ser marcada como paga sem liquidação real da wallet; estorno de item serializado confere estado/contagem antes de restaurar estoque.
+- Implementado: relatórios `inventoryReport`, `lowStockAlerts`, `stats`, `reportPosicao` e `reportEstoqueMin` deixaram de retornar estoque fake zero e agora usam `StockItem`, variações ou `Product.currentStock` conforme o tipo do produto.
+- Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
+- Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
+- Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
+### 2026-06-06 — DePix legado desabilitado para novas operações
+- Implementado: downgrade/reembolso DePix de venda deixou de criar `DepixWithdraw` legado e agora dispara saque via `TenantDepixTransaction`/Wallet LWK (`createWithdraw`) com idempotência por venda.
+- Implementado: OS ganhou `walletTransactionId` canônico (`wallet_transaction_id`) e geração/cancelamento de PIX passa a limpar/persistir esse vínculo junto do `depixTransactionId` externo PixPay.
+- Implementado: navegação removeu `Histórico Saques DePix`; `/depix/withdrawals` ficou como arquivo legado somente leitura/compatibilidade, com CTAs apontando para `/depix-wallet/withdraw`; módulo `depix-ops` agora representa apenas vendas avulsas wallet-backed.
+- Decisões: `DepixWithdraw`, webhooks legados e `depix-service.ts` permanecem como compatibilidade/histórico/adapters PixPay; critério é não criar novas operações canônicas no legado.
+- Validação: `DATABASE_URL=... pnpm prisma generate`, `DATABASE_URL=... pnpm prisma validate`, `pnpm typecheck`, teste focado de módulos e unitários completos OK (`830 passed`).
+- Próximo: abrir PR/CI e validar manualmente venda avulsa, saque Wallet, downgrade com reembolso DePix e PIX de OS em ambiente com LWK real.
+
+### 2026-06-06 — Hotfix DePix: LWK revela mnemônico sem 404
+- Implementado: produção atualizada manualmente no serviço `arenatech-lwk-wallet` para incluir `POST /wallet/{tenant_id}/mnemonic/reveal`; arquivo antigo da VPS salvo em `/opt/lwk-wallet/app.py.bak.20260606_154241` e volume `lwk-wallet_lwk_wallet_data` preservado.
+- Implementado: cliente LWK agora traduz 404 do reveal para mensagem explícita de serviço LWK desatualizado/URL incorreta; router tRPC mapeia esse caso como `BAD_GATEWAY` em vez de erro genérico.
+- Validação: LWK em produção saudável e endpoint deixou de retornar 404 (sem auth retorna 401); `pnpm typecheck` OK; unitários OK (`830 passed`).
+- Próximo: commitar/abrir PR para versionar a melhoria de diagnóstico no app e evitar regressão de mensagem.
+
+### 2026-06-06 — DePix: revelar mnemônico da carteira para SideSwap
+- Implementado: fluxo seguro para admins/superadmins revelarem a frase de recuperação da carteira DePix/Liquid do tenant e importarem no SideSwap.
+- Decisões: mnemônico continua fora do Postgres; não entra em `getWalletInfo`; exposição ocorre só por mutation explícita `revealMnemonic`, protegida por `tenantAdminProcedure`, com confirmação na UI e redigitação da senha do usuário antes de buscar o segredo no LWK.
+- Segurança: senha é validada no backend contra `passwordHash` com bcrypt, não é enviada ao LWK e não é logada; mnemônico só é buscado após senha correta e nunca é persistido/logado.
+- Validação: `pnpm typecheck` OK; `pnpm lint` OK; testes unitários sem integração OK (`770 passed`). `pnpm test` completo ainda depende de banco/seed de integração neste worktree e falhou apenas nas suítes `__tests__/integration/*` por ambiente.
+- Próximo: validar manualmente em ambiente com LWK real/container e usuário admin do tenant.
+
+### 2026-06-06 — Fotos de produtos no estoque com Cloudinary
+- Implementado: listagem de estoque passou a exibir thumbnail por produto, usando foto principal (`thumbUrl/mediumUrl/url`) com fallback para `Product.imageUrl` legado.
+- Implementado: detalhe do produto agora mostra galeria read-only, imagem principal, miniaturas e CTA para gerenciar fotos.
+- Implementado: edição de produto ganhou gerenciador de fotos com upload multipart para `/api/products/upload`, persistência via `stock.createPhoto`, remoção, definição de foto principal e limite de 3 fotos.
+- Implementado: formulário de criação informa que fotos ficam disponíveis após salvar, porque o upload exige `productId`; defaults da edição foram completados para não perder campos já existentes.
+- Implementado: script `backfill-image-providers.ts` passou a usar o Prisma 7 via adapter/RLS (`src/server/db`) em vez de instanciar `PrismaClient` sem adapter.
+- Validação: `pnpm typecheck` verde; testes unitários focados de estoque verdes (145/145); pre-push verde (typecheck + 830 unitários); `pnpm lint` completo sem erros, apenas warnings preexistentes; backfill dry-run verde com banco local (0 registros pendentes na base seed); Playwright `stock-a` verde (19/19).
+- Próximo: validar upload real em ambiente com credenciais Cloudinary e reexecutar CI do PR quando o billing do GitHub Actions for regularizado.
+
+### 2026-06-06 — Auditoria PDV/Estoque: DePix auto-finaliza e saldos reais
+- Implementado: PDV DePix agora auto-finaliza a venda via `sale.finalize` assim que o QR é confirmado por SSE/polling, mantendo o leg DePix para retry se a finalização falhar e evitando dupla chamada.
+- Implementado: backend passou a validar DePix não manual contra a wallet canonical antes de concluir a venda, persistindo `walletTransactionId` e `depixTransactionId` em `paymentDetails`.
+- Implementado: venda avulsa DePix não pode ser marcada como paga sem liquidação real da wallet; estorno de item serializado confere estado/contagem antes de restaurar estoque.
+- Implementado: relatórios `inventoryReport`, `lowStockAlerts`, `stats`, `reportPosicao` e `reportEstoqueMin` deixaram de retornar estoque fake zero e agora usam `StockItem`, variações ou `Product.currentStock` conforme o tipo do produto.
+- Documentado: `docs/AUDIT_PDV_ESTOQUE.md` com correções aplicadas e backlog de consolidação de estoque/testes business.
+- Validação: `DATABASE_URL=... pnpm prisma generate` verde; `pnpm exec tsc --noEmit --pretty false | rg ...` focado nos arquivos alterados sem saída. `pnpm typecheck` completo segue falhando por erros preexistentes fora do escopo (RLS/scripts/componentes tipados como `never`).
+- Próximo: rodar lint/testes focados quando a suíte estiver estabilizada e validar manualmente uma venda DePix real no PDV.
+
+### 2026-06-07 — Talison usa catálogo único de aparelhos
+- Implementado: `buscar_aparelho` do Talison deixou de consultar a tabela dedicada `available_devices` e passou a usar `catalog_devices`, a mesma fonte administrada em `/aparelhos-catalogo`.
+- Implementado: migration nova faz backfill dos dados remanescentes de `available_devices` para `catalog_devices`/categorias e remove a tabela fantasma ao final.
+- Implementado: modelo Prisma `AvailableDevice`, seed JSON e script `seed-available-devices.ts` removidos.
+- Decisões: preço efetivo de aparelho no Talison é `promotionalPrice ?? price`, mantendo a regra de que o valor exibido já é PIX/à vista e não recebe novo desconto.
+- Validação: `DATABASE_URL=... pnpm db:generate`, teste focado Talison, `pnpm typecheck`, `pnpm test:unit` e busca por referências fora das migrations verdes.
+- Próximo: aplicar migration em staging/prod e confirmar que aparelhos excluídos em `/aparelhos-catalogo` não são mais ofertados pelo bot.
+
+### 2026-06-06 — Talison IA com contexto real da Arena Tech
+- Implementado: prompt do Talison agora recebe um perfil de negócio estruturado com serviços, produtos, limitações, localização, contato, pagamentos, entrega, garantias/prazos gerais e orientação de handoff, usando dados do tenant quando disponíveis e defaults da Arena Tech derivados do Laravel.
+- Implementado: runner do Talison carrega `TenantSettings` e `TenantAssistanceSettings`, monta `businessContext` e injeta no system prompt sem alterar a arquitetura de tools.
+- Decisões: não portar o fluxo rígido do Laravel; manter LLM flexível e usar o contexto apenas como conhecimento factual. Preço, parcela, status, prazo específico, garantia específica e valor de troca continuam obrigatoriamente via tool.
+- Validação: testes focados Talison verdes (38/38), `pnpm typecheck` verde após `prisma generate`, ESLint focado em Talison sem erros. `pnpm lint` completo segue apenas com warnings preexistentes fora do escopo.
+- Próximo: observar conversas reais no Chatwoot e ajustar o perfil se alguma política comercial precisar refinamento.
+
+### 2026-06-05 — Skills globais reinstaladas e CLAUDE.md reconciliado
+- Implementado: skills do pacote `~/Downloads/claude-kit` instaladas em `~/.claude/skills/` e regras de precedência registradas em `CLAUDE.md`.
+- Implementado: `CLAUDE.md` reconciliado com as skills `software-engineering`, `typescript`, `react`, `database`, `docker-infra`, `reviewing-code` e `writing`, preservando overrides específicos do projeto.
+- Implementado: skills customizadas antigas do projeto removidas de `.claude/skills/` a pedido do dono, e `CLAUDE.md` atualizado para não referenciá-las como ativas.
+- Decisões: Conventional Commits permanece override explícito sobre a recomendação genérica da skill `writing`; Next.js 16 e Prisma 7 passam a ser refletidos nas instruções permanentes.
+- Próximo: usar as skills globais como autoridade especializada por domínio nas próximas janelas/worktrees.
+
+### 2026-06-05 — Superadmin administra usuarios de tenants
+- Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
+- Implementado: novos usuarios criados pelo Superadmin recebem senha temporaria forte, `must_change_password=true` e exigem troca no primeiro acesso.
+- Implementado: mutations antigas de cadastro/edicao/remocao/reset em `settings` foram bloqueadas com erro explicito; a intranet central manteve apenas consulta dos usuarios vinculados.
+- Implementado: menus da intranet deixaram de oferecer cadastro local de usuarios, e as rotas antigas `/settings/users/new` e `/settings/users/[id]/edit` redirecionam para a consulta.
+- Decisoes: `settings.listUsers` permanece ativo para leituras operacionais; administracao de vinculo e credenciais fica exclusiva do Superadmin.
+- Validacao: `pnpm typecheck`, validators admin focados, `pnpm test -- --reporter=dot`, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verdes.
+- Proximo: abrir PR, rodar CI e fazer deploy.
 
 ### 2026-06-05 — Superadmin administra usuarios de tenants
 - Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
@@ -49,6 +203,7 @@
 - Decisoes: reset por link de e-mail e troca manual de senha limpam a flag; usuarios existentes nao sao forçados em massa para evitar impacto indevido em producao.
 - Validacao: `pnpm db:generate`, `pnpm typecheck`, `pnpm lint` sem erros (warnings preexistentes), validators admin/subscription verdes (36/36), `pnpm prisma validate` e `pnpm build` verdes.
 - Proximo: merge/deploy e marcar o usuario do tenant criado antes deste hotfix para trocar senha no proximo acesso, mantendo a senha temporaria atual.
+
 
 ### 2026-06-05 — Superadmin reset de senha de usuario do tenant
 - Implementado: superadmin agora consegue resetar senha de usuario vinculado ao tenant pela tela de detalhes do tenant, recebendo uma nova senha temporaria forte para copiar e informar ao usuario.

@@ -27,6 +27,13 @@ export async function POST(req: NextRequest) {
     // Chatwoot Agent Bot não permite header customizado, então também aceitamos
     // o token via query string (?token=...) — é a forma prática de autenticar
     // com o bot. Headers continuam suportados (proxy/nginx que injete auth).
+    //
+    // ⚠️ SEGURANÇA: quando o token vem via query string, ele aparece na URL e
+    // por padrão é gravado em texto puro nas access logs do nginx. Quem ler as
+    // logs consegue forjar webhooks. Mitigação operacional: o server block do
+    // nginx para este endpoint redige o parâmetro `token` antes de logar
+    // (ver docs/decisions/0048-chatwoot-webhook-token-redaction.md). Prefira
+    // sempre o header `authorization: Bearer <token>` quando o caminho permitir.
     const token =
       req.headers.get("x-chatwoot-signature") ??
       req.headers.get("authorization") ??
@@ -191,11 +198,17 @@ export async function POST(req: NextRequest) {
           const isImage = !!mediaUrl && !!normalizedMediaType && (
             normalizedMediaType === "image" || normalizedMediaType.startsWith("image/")
           )
+          // Áudio do WhatsApp (ogg/opus): normaliza pra "audio" pro runner transcrever via Groq.
+          const isAudio = !!mediaUrl && !!normalizedMediaType && (
+            normalizedMediaType === "audio" || normalizedMediaType.startsWith("audio/")
+          )
           const contentType = isImage
             ? "image"
-            : rawMediaType
-              ? rawMediaType
-              : String(body.content_type ?? "text")
+            : isAudio
+              ? "audio"
+              : rawMediaType
+                ? rawMediaType
+                : String(body.content_type ?? "text")
           const persistedContent = message?.trim()
             ? message
             : rawMediaType

@@ -22,6 +22,8 @@ export interface DepixTxReceiptPdfData {
     depositTxId: string | null;
     depositAddress: string | null;
     pixpayDepixId: string | null;
+    payerTaxId: string | null;
+    payerPhone: string | null;
     createdAt: Date;
     completedAt: Date | null;
     userName: string | null;
@@ -193,6 +195,19 @@ function fmtDate(d: Date | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleString("pt-BR");
 }
+function fmtTaxId(value: string | null | undefined): string {
+  const d = (value ?? "").replace(/\D/g, "");
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  return value ?? "—";
+}
+function fmtPhone(value: string | null | undefined): string {
+  const d = (value ?? "").replace(/\D/g, "");
+  const local = d.startsWith("55") && d.length > 11 ? d.slice(2) : d;
+  if (local.length === 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+  if (local.length === 11) return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  return value ?? "—";
+}
 
 export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
   const title =
@@ -255,7 +270,7 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         </View>
         {tx.feePixPayCents != null && (
           <View style={styles.row}>
-            <Text style={styles.rowLabel}>Taxa PixPay</Text>
+            <Text style={styles.rowLabel}>Taxa do provedor</Text>
             <Text style={styles.rowValue}>− {fmtBRL(tx.feePixPayCents)}</Text>
           </View>
         )}
@@ -266,6 +281,24 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
             </Text>
             <Text style={styles.totalValue}>{fmtBRL(tx.netAmountCents)}</Text>
           </View>
+        )}
+
+        {tx.kind === "DEPOSIT" && (tx.payerTaxId || tx.payerPhone) && (
+          <>
+            <Text style={styles.sectionTitle}>Pagador</Text>
+            {tx.payerTaxId && (
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>CPF/CNPJ</Text>
+                <Text style={styles.rowValue}>{fmtTaxId(tx.payerTaxId)}</Text>
+              </View>
+            )}
+            {tx.payerPhone && (
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>Telefone</Text>
+                <Text style={styles.rowValue}>{fmtPhone(tx.payerPhone)}</Text>
+              </View>
+            )}
+          </>
         )}
 
         {tx.kind === "WITHDRAW" && (
@@ -303,7 +336,7 @@ export function DepixTxReceiptPdf({ tx, store }: DepixTxReceiptPdfData) {
         )}
         {tx.pixpayDepixId && (
           <View style={styles.row}>
-            <Text style={styles.rowLabel}>ID PixPay</Text>
+            <Text style={styles.rowLabel}>{tx.kind === "DEPOSIT" ? "ID PixPay" : "ID LiquidX"}</Text>
             <Text style={[styles.rowValue, styles.monoSmall]}>{tx.pixpayDepixId}</Text>
           </View>
         )}

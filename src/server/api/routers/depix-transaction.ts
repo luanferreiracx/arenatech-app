@@ -59,6 +59,8 @@ export const depixTransactionRouter = createTRPCRouter({
         sourceType: input.sourceType ?? "WALLET",
         sourceId: input.sourceId ?? null,
         sourceDescription: input.sourceDescription ?? null,
+        payerTaxId: input.payerTaxId ?? null,
+        payerPhone: input.payerPhone ?? null,
       });
       return tx;
     }),

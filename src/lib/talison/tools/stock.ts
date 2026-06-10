@@ -5,8 +5,9 @@
  * com REGRAS DE PREÇO DIFERENTES (resgatadas fielmente do Talison Laravel —
  * ChatbotController:4820). Assimetria crítica:
  *
- *  - buscar_aparelho → available_devices: o preço da tabela JÁ É o preço PIX/à
- *    vista (promocional). NÃO se aplica desconto. No débito/cartão o valor é
+ *  - buscar_aparelho → catalog_devices: usa o catálogo curado administrado em
+ *    /aparelhos-catalogo. O preço efetivo (promotionalPrice ?? price) JÁ É o
+ *    preço PIX/à vista. NÃO se aplica desconto. No débito/cartão o valor é
  *    MAIOR (acréscimo da operadora). A tool informa isso, sem recalcular.
  *
  *  - buscar_acessorio → products: o preço da tabela é o preço CHEIO (crédito).
@@ -15,11 +16,14 @@
  * Nunca inventa preço nem disponibilidade.
  */
 
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
 
 const MAX_RESULTS = 8;
 const ACESSORIO_PIX_DISCOUNT = 0.05;
+
+const STORAGE_OR_COLOR_WORDS = new Set(["64", "64gb", "128", "128gb", "256", "256gb", "512", "512gb", "1tb"]);
 
 /** Tradução do enum DeviceCondition pra linguagem de cliente. */
 const CONDITION_LABEL: Record<string, string> = {
@@ -29,7 +33,110 @@ const CONDITION_LABEL: Record<string, string> = {
   DISPLAY: "vitrine",
   REFURBISHED: "recondicionado",
   DEFECTIVE: "com defeito",
+  novo: "novo",
+  seminovo: "seminovo",
+  usado: "usado",
+  Novo: "novo",
+  Seminovo: "seminovo",
+  Usado: "usado",
 };
+
+const productImageWhere: Prisma.ProductWhereInput = {
+  OR: [
+    { photos: { some: {} } },
+    { AND: [{ imageUrl: { not: null } }, { imageUrl: { not: "" } }] },
+  ],
+};
+
+const productStockWhere: Prisma.ProductWhereInput = {
+  OR: [
+    { isSerialized: true, stockItems: { some: { status: "AVAILABLE", deletedAt: null } } },
+    { hasVariations: true, variations: { some: { active: true, deletedAt: null, currentStock: { gt: 0 } } } },
+    { isSerialized: false, hasVariations: false, currentStock: { gt: 0 } },
+  ],
+};
+
+function searchWords(input: string): string[] {
+  return input
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length >= 2);
+}
+
+function accessorySearchWhere(term: string): Prisma.ProductWhereInput[] {
+  return searchWords(term).map((word) => ({
+    OR: [
+      { name: { contains: word, mode: "insensitive" } },
+      { brand: { contains: word, mode: "insensitive" } },
+      { sku: { contains: word, mode: "insensitive" } },
+      { barcode: { contains: word, mode: "insensitive" } },
+      { description: { contains: word, mode: "insensitive" } },
+    ],
+  }));
+}
+
+function deviceAlternativeWhere(model: string): Prisma.CatalogDeviceWhereInput[] {
+  const words = searchWords(model).filter((word) => !STORAGE_OR_COLOR_WORDS.has(word));
+  const priorityWords = words.slice(0, 3);
+
+  return priorityWords.map((word) => ({
+    name: { contains: word, mode: "insensitive" },
+  }));
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function formatCondition(condition: string | null): string {
+  const label = CONDITION_LABEL[condition ?? ""] ?? condition ?? "";
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
+}
+
+function formatDeviceLine(device: {
+  name: string;
+  condition: string | null;
+  price: Prisma.Decimal | number | string | null;
+  promotionalPrice: Prisma.Decimal | number | string | null;
+  description: string | null;
+}): string {
+  const effectivePrice = device.promotionalPrice ?? device.price;
+  const price = effectivePrice == null ? 0 : Number(effectivePrice);
+  const priceLabel = price > 0 ? `${formatBRL(price)} no PIX/à vista` : "preço sob consulta";
+  const condition = formatCondition(device.condition);
+  const note = device.description ? ` — ${device.description}` : "";
+  return `${device.name} (${condition}): ${priceLabel}${note}`;
+}
+
+function deviceData(device: {
+  name: string;
+  condition: string | null;
+  price: Prisma.Decimal | number | string | null;
+  promotionalPrice: Prisma.Decimal | number | string | null;
+}) {
+  const effectivePrice = device.promotionalPrice ?? device.price;
+  const price = effectivePrice == null ? 0 : Number(effectivePrice);
+  return {
+    modelo: device.name,
+    condicao: formatCondition(device.condition),
+    preco_pix: price > 0 ? formatBRL(price) : "sob consulta",
+  };
+}
+
+function productAvailableQuantity(product: {
+  isSerialized: boolean;
+  hasVariations: boolean;
+  currentStock: number;
+  stockItems: { id: string }[];
+  variations: { currentStock: number }[];
+}): number {
+  if (product.isSerialized) return product.stockItems.length;
+  if (product.hasVariations) {
+    return product.variations.reduce((sum, variation) => sum + Math.max(0, variation.currentStock), 0);
+  }
+  return Math.max(0, product.currentStock);
+}
 
 const buscarAparelhoSchema = z.object({
   modelo: z
@@ -44,8 +151,9 @@ const buscarAparelhoSchema = z.object({
 export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
   name: "buscar_aparelho",
   description:
-    "Busca aparelhos disponíveis para venda (iPhone, iPad, MacBook, Apple Watch, AirPods, console). " +
+    "Busca aparelhos disponíveis para venda (iPhone, iPad, MacBook, Apple Watch, AirPods, notebook gamer, console). " +
     "Use SEMPRE que o cliente perguntar 'tem iPhone X?' ou 'quanto custa o aparelho Y?'. " +
+    "Se o modelo exato não existir, a tool pode retornar alternativas próximas disponíveis da mesma família/categoria. " +
     "IMPORTANTE: o preço retornado JÁ É o valor PROMOCIONAL no PIX/à vista — informe-o como tal. " +
     "No débito e no cartão de crédito o valor é MAIOR (acréscimo da operadora) — diga isso se o cliente " +
     "perguntar de cartão, mas NUNCA invente o valor do cartão; ofereça simular com um atendente. " +
@@ -54,59 +162,66 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
       const model = args.modelo.trim();
-      const conditionFilter =
+      const conditionFilter: Prisma.CatalogDeviceWhereInput =
         args.condicao === "novo"
-          ? { condition: "NEW" as const }
+          ? { condition: { equals: "novo", mode: "insensitive" } }
           : args.condicao === "seminovo"
-            ? { condition: "SEMI_NEW" as const }
+            ? { condition: { equals: "seminovo", mode: "insensitive" } }
             : args.condicao === "usado"
-              ? { condition: "USED" as const }
+              ? { condition: { equals: "usado", mode: "insensitive" } }
               : {};
 
-      const devices = await tx.availableDevice.findMany({
+      const baseWhere: Prisma.CatalogDeviceWhereInput = {
+        tenantId: ctx.tenantId,
+        available: true,
+        deletedAt: null,
+        ...conditionFilter,
+      };
+
+      const devices = await tx.catalogDevice.findMany({
         where: {
-          tenantId: ctx.tenantId,
-          active: true,
-          deletedAt: null,
-          ...conditionFilter,
-          model: { contains: model, mode: "insensitive" },
+          ...baseWhere,
+          name: { contains: model, mode: "insensitive" },
         },
         orderBy: [{ price: "asc" }],
         take: MAX_RESULTS,
-        select: { model: true, condition: true, price: true, note: true },
+        select: { name: true, condition: true, price: true, promotionalPrice: true, description: true },
       });
 
-      if (devices.length === 0) {
+      const exactMatch = devices.length > 0;
+      const fallbackDevices = exactMatch
+        ? []
+        : await tx.catalogDevice.findMany({
+            where: {
+              ...baseWhere,
+              OR: deviceAlternativeWhere(model),
+            },
+            orderBy: [{ featured: "desc" }, { order: "asc" }, { price: "asc" }],
+            take: MAX_RESULTS,
+            select: { name: true, condition: true, price: true, promotionalPrice: true, description: true },
+          });
+      const foundDevices = exactMatch ? devices : fallbackDevices;
+
+      if (foundDevices.length === 0) {
         return {
           ok: false as const,
-          reason: `Não encontrei "${model}" entre os aparelhos disponíveis. Diga que vai confirmar a disponibilidade com um atendente (ou ofereça um modelo parecido, se o cliente quiser).`,
+          reason: `Não encontrei "${model}" entre os aparelhos disponíveis. Diga que no momento não aparece disponível no catálogo e ofereça transferir para um atendente confirmar alternativas.`,
         };
       }
 
-      const lines = devices.map((device) => {
-        const price = Number(device.price);
-        // Preço da tabela JÁ É o PIX/à vista — não recalcula. Cartão é maior.
-        const priceLabel = price > 0 ? `${formatBRL(price)} no PIX/à vista` : "preço sob consulta";
-        const condition = CONDITION_LABEL[device.condition] ?? device.condition;
-        const note = device.note ? ` — ${device.note}` : "";
-        return `${device.model} (${condition}): ${priceLabel}${note}`;
-      });
-      // Nota fiel ao Laravel, pro modelo não confundir PIX com cartão.
+      const header = exactMatch ? "" : `Não encontrei exatamente "${model}", mas encontrei estas opções próximas disponíveis:\n`;
       const footer =
         "\n_Valores no PIX/à vista. No débito e cartão de crédito o valor é maior (acréscimo da operadora)._";
 
       return {
         ok: true as const,
         data: {
-          total: devices.length,
+          total: foundDevices.length,
+          encontrou_exato: exactMatch,
           observacao_pagamento: "preços são PIX/à vista; cartão tem acréscimo",
-          aparelhos: devices.map((device) => ({
-            modelo: device.model,
-            condicao: CONDITION_LABEL[device.condition] ?? device.condition,
-            preco_pix: Number(device.price) > 0 ? formatBRL(Number(device.price)) : "sob consulta",
-          })),
+          aparelhos: foundDevices.map(deviceData),
         },
-        display: lines.join("\n") + footer,
+        display: header + foundDevices.map(formatDeviceLine).join("\n") + footer,
       };
     });
   },
@@ -115,14 +230,15 @@ export const buscarAparelho: TalisonTool<typeof buscarAparelhoSchema> = {
 const buscarAcessorioSchema = z.object({
   termo: z
     .string()
-    .describe("Acessório procurado — ex: 'capa S20', 'película iPhone 14', 'fone bluetooth', 'cabo usb-c'."),
+    .describe("Acessório/produto procurado — ex: 'capa S20', 'película iPhone 14', 'fone bluetooth', 'cabo usb-c', 'mouse gamer'."),
 });
 
 export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
   name: "buscar_acessorio",
   description:
-    "Busca acessórios em estoque (capa, película, fone, cabo, carregador, etc). Use quando o cliente " +
-    "perguntar por um acessório. Copie nomes e preços do retorno; nunca invente. Se vazio, ofereça transferir.",
+    "Busca acessórios, periféricos e eletrônicos disponíveis no catálogo (capa, película, fone, cabo, " +
+    "carregador, adaptador, mouse, teclado, etc). Use quando o cliente perguntar por um acessório/produto. " +
+    "A tool só retorna itens disponíveis/visíveis; se vazio, informe indisponibilidade e ofereça transferir.",
   schema: buscarAcessorioSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
@@ -133,39 +249,48 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           active: true,
           deletedAt: null,
           isDevice: false,
-          OR: [
-            { name: { contains: term, mode: "insensitive" } },
-            { brand: { contains: term, mode: "insensitive" } },
+          AND: [
+            productImageWhere,
+            productStockWhere,
+            ...accessorySearchWhere(term),
           ],
         },
         orderBy: [{ currentStock: "desc" }, { name: "asc" }],
         take: MAX_RESULTS,
-        select: { name: true, salePrice: true, promotionalPrice: true, currentStock: true },
+        select: {
+          name: true,
+          salePrice: true,
+          promotionalPrice: true,
+          currentStock: true,
+          isSerialized: true,
+          hasVariations: true,
+          stockItems: { where: { status: "AVAILABLE", deletedAt: null }, select: { id: true } },
+          variations: { where: { active: true, deletedAt: null }, select: { currentStock: true } },
+        },
       });
 
       if (products.length === 0) {
         return {
           ok: false as const,
-          reason: `Não encontrei "${term}" entre os acessórios. Diga que vai confirmar com um atendente.`,
+          reason: `Não encontrei "${term}" disponível no catálogo agora. Informe a indisponibilidade e ofereça transferir para um atendente confirmar ou sugerir alternativa.`,
         };
       }
 
       const lines = products.map((product) => {
-        // Acessório: preço da tabela é o CHEIO (crédito); PIX tem 5% de desconto.
         const price = Number(product.promotionalPrice ?? product.salePrice);
+        const quantity = productAvailableQuantity(product);
         const priceLabel =
           price > 0
-            ? `${formatBRL(price)} (PIX ${formatBRL(price * (1 - ACESSORIO_PIX_DISCOUNT))})`
+            ? `${formatBRL(price)} (PIX ${formatBRL(roundMoney(price * (1 - ACESSORIO_PIX_DISCOUNT)))})`
             : "preço sob consulta";
-        const availability = product.currentStock > 0 ? "em estoque" : "sob encomenda";
-        return `${product.name}: ${priceLabel} — ${availability}`;
+        return `${product.name}: ${priceLabel} — ${quantity} em estoque`;
       });
 
       return {
         ok: true as const,
         data: {
           total: products.length,
-          algum_em_estoque: products.some((p) => p.currentStock > 0),
+          algum_em_estoque: true,
         },
         display: lines.join("\n"),
       };

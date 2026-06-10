@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
@@ -101,6 +101,8 @@ export function PaymentDialog({
   const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
   const [showDepixQr, setShowDepixQr] = useState(false);
+  const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
+  const autoFinalizeAttemptedRef = useRef(false);
   // Leg DePix aguardando confirmacao do QR. So entra em `payments` quando o
   // pagamento e confirmado (onPaid). Paridade Laravel: QR ao adicionar o leg,
   // conclusao manual depois.
@@ -201,9 +203,10 @@ export function PaymentDialog({
     setStep("select");
 
     // DePix com QR: gera o QR AGORA (paridade Laravel — QR ao adicionar o
-    // leg, nao no Confirmar). O leg so entra no carrinho quando o pagamento
-    // for confirmado (onPaid). A conclusao da venda continua MANUAL.
+    // leg, nao no Confirmar). O leg entra em `payments` quando confirmado e
+    // dispara finalizacao automatica da venda.
     if (leg.method === "depix" && !leg.depixManual) {
+      autoFinalizeAttemptedRef.current = false;
       setPendingDepix(leg);
       setShowDepixQr(true);
       return;
@@ -254,19 +257,22 @@ export function PaymentDialog({
     runFinalize();
   };
 
-  const runFinalize = () => {
+  const runFinalize = (paymentsToFinalize = payments, options?: { autoDepix?: boolean }) => {
+    if (finalizeMutation.isPending || isAutoFinalizing) return;
+    if (options?.autoDepix) setIsAutoFinalizing(true);
     finalizeMutation.mutate(
       {
         saleId,
         customerId,
-        payments: payments.map((p) => ({
+        payments: paymentsToFinalize.map((p) => ({
           method: p.method,
           paymentMethodId: p.paymentMethodId,
           amount: p.amount,
           installments: p.installments,
           totalPaidByCustomer: p.totalPaidByCustomer,
-          // Vincula o transactionId DePix no leg — gravado em paymentDetails
-          // para rastreabilidade (o webhook PixPay localiza a venda por ele).
+          // Vincula os ids DePix no leg — gravado em paymentDetails para
+          // rastreabilidade e validacao server-side wallet-first.
+          ...(p.depixManual ? { depixManual: true } : {}),
           ...(p.walletTransactionId ? { walletTransactionId: p.walletTransactionId } : {}),
           ...(p.depixTransactionId ? { depixTransactionId: p.depixTransactionId } : {}),
         })),
@@ -274,11 +280,18 @@ export function PaymentDialog({
       },
       {
         onSuccess: (data) => {
-          toast.success("Venda finalizada com sucesso!");
+          toast.success(options?.autoDepix ? "DePix confirmado. Venda finalizada!" : "Venda finalizada com sucesso!");
           onSuccess((data as unknown as { id: string }).id);
         },
         onError: (err) => {
-          toast.error(err.message);
+          toast.error(
+            options?.autoDepix
+              ? `DePix confirmado, mas a finalizacao falhou: ${err.message}. Tente confirmar novamente.`
+              : err.message,
+          );
+        },
+        onSettled: () => {
+          if (options?.autoDepix) setIsAutoFinalizing(false);
         },
       },
     );
@@ -576,22 +589,25 @@ export function PaymentDialog({
 
         {/* Footer */}
         <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isAutoFinalizing}>
             Cancelar
           </Button>
           <Button
             disabled={
               !isComplete ||
               payments.length === 0 ||
-              finalizeMutation.isPending
+              finalizeMutation.isPending ||
+              isAutoFinalizing
             }
             onClick={handleFinalize}
             className="gap-2"
           >
             <Check className="h-4 w-4" />
-            {finalizeMutation.isPending
-              ? "Processando..."
-              : "Confirmar Pagamento"}
+            {isAutoFinalizing
+              ? "Finalizando venda..."
+              : finalizeMutation.isPending
+                ? "Processando..."
+                : "Confirmar Pagamento"}
           </Button>
         </div>
       </DialogContent>
@@ -611,20 +627,21 @@ export function PaymentDialog({
           setPendingDepix(null);
         }}
         onPaid={({ walletTransactionId, transactionId }) => {
-          // DePix confirmado: adiciona o leg ao carrinho com o vinculo wallet.
-          // NAO finaliza — a conclusao e manual (operador clica Confirmar).
-          if (pendingDepix) {
-            setPayments((prev) => [
-              ...prev,
-              {
-                ...pendingDepix,
-                walletTransactionId,
-                ...(transactionId ? { depixTransactionId: transactionId } : {}),
-              },
-            ]);
-          }
+          if (!pendingDepix || autoFinalizeAttemptedRef.current) return;
+          autoFinalizeAttemptedRef.current = true;
+          const confirmedDepix: PaymentEntry = {
+            ...pendingDepix,
+            walletTransactionId,
+            ...(transactionId ? { depixTransactionId: transactionId } : {}),
+          };
+          const nextPayments = [...payments, confirmedDepix];
+
+          // DePix confirmado: fecha o QR e finaliza automaticamente pelo
+          // mesmo sale.finalize transacional. Em falha, o leg fica na tela para retry.
+          setPayments(nextPayments);
           setPendingDepix(null);
           setShowDepixQr(false);
+          runFinalize(nextPayments, { autoDepix: true });
         }}
       />
     )}

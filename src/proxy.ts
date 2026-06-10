@@ -11,9 +11,10 @@
  */
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
-import { isLandingHost } from "@/lib/brand-host";
+import { isLandingHost, isPublicCatalogHost } from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isTwoFactorEnforced, sessionRequiresTwoFactor } from "@/lib/auth/two-factor-policy";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
 
@@ -30,6 +31,7 @@ function isPublicRoute(pathname: string): boolean {
     // Rotas de midia publica para WhatsApp Cloud API baixar PDFs (HMAC-tokenized).
     // Meta precisa acessar sem cookies de auth.
     pathname.startsWith("/api/whatsapp-media/") ||
+    pathname.startsWith("/catalog") ||
     pathname.startsWith("/os/") ||
     pathname.startsWith("/quote/") ||
     pathname.startsWith("/pay/") ||
@@ -43,12 +45,17 @@ function isNoTenantRoute(pathname: string): boolean {
     pathname === "/select-tenant" ||
     pathname === "/switch-tenant" ||
     pathname === "/logout" ||
+    pathname === "/setup-2fa" ||
     pathname.startsWith("/admin")
   );
 }
 
 function isPasswordChangeRoute(pathname: string): boolean {
   return pathname === "/change-password" || pathname.startsWith("/api/trpc/auth.changePassword");
+}
+
+function isTwoFactorSetupRoute(pathname: string): boolean {
+  return pathname === "/setup-2fa" || pathname === "/logout";
 }
 
 export const proxy = auth((req) => {
@@ -71,9 +78,15 @@ export const proxy = auth((req) => {
   // 0. Raiz "/" por host:
   //  - host de landing (pdvdepix.app): SEMPRE mostra a landing publica
   //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
+  //  - host do catálogo (catalogo.arenatechpi): SEMPRE mostra o catálogo novo
+  //    via rewrite, mantendo a URL e aposentando o catálogo Laravel antigo.
   //  - host de app (app.arenatechpi): "/" -> /painel (o dashboard saiu da raiz).
   if (pathname === "/") {
-    if (isLandingHost(req.headers.get("host"))) {
+    const host = req.headers.get("host");
+    if (isPublicCatalogHost(host)) {
+      return NextResponse.rewrite(new URL("/catalog", req.url));
+    }
+    if (isLandingHost(host)) {
       return NextResponse.rewrite(new URL("/landing", req.url));
     }
     return NextResponse.redirect(selfUrl("/painel"));
@@ -120,6 +133,19 @@ export const proxy = auth((req) => {
   // 3. Temporary password barrier
   if (session.user.mustChangePassword && !isPasswordChangeRoute(pathname) && pathname !== "/logout") {
     return NextResponse.redirect(selfUrl("/change-password"));
+  }
+
+  // 3b. 2FA obrigatório (superadmin/admins): força enrollment quando ligado.
+  //  - Só redireciona navegações de página (não /api/*), para não quebrar as
+  //    chamadas tRPC de enrollment feitas a partir de /setup-2fa.
+  if (
+    isTwoFactorEnforced() &&
+    !pathname.startsWith("/api/") &&
+    !session.user.twoFactorEnabled &&
+    sessionRequiresTwoFactor(session) &&
+    !isTwoFactorSetupRoute(pathname)
+  ) {
+    return NextResponse.redirect(selfUrl("/setup-2fa"));
   }
 
   // 4. No tenants, not super admin

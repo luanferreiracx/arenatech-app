@@ -146,7 +146,8 @@ model ServiceOrder {
   receiptSent         Boolean             @default(false) @map("receipt_sent")
   receiptSentAt       DateTime?           @map("receipt_sent_at")
 
-  // Depix (PIX)
+  // Depix Wallet (PIX)
+  walletTransactionId String?             @map("wallet_transaction_id") @db.Uuid
   depixTransactionId  String?             @map("depix_transaction_id")
   depixStatus         String?             @map("depix_status")
   // Timestamp do PIX/DePix confirmado (paridade Laravel `depix_pago_em`).
@@ -170,6 +171,7 @@ model ServiceOrder {
   @@index([tenantId, technicianId])
   @@index([tenantId, entryDate])
   @@index([tenantId, deletedAt])
+  @@index([tenantId, walletTransactionId])
   @@index([publicLink])
   // Lookups cross-tenant disparados pelos webhooks Autentique + queries
   // de garantia. Indices PARTIAL (definidos no SQL da migration) — a

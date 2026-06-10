@@ -15,6 +15,8 @@ import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
+import { decryptSecret, verifyTotp, consumeBackupCode } from "@/lib/auth/two-factor";
+import { TwoFactorRequiredError, TwoFactorInvalidError } from "@/lib/auth/two-factor-errors";
 
 /**
  * Resolve os módulos liberados por tenant (gating por plano), com cache em
@@ -26,25 +28,37 @@ const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
 const ACTIVE_TENANT_STATUS = "ACTIVE";
 const USER_SECURITY_CACHE_TTL_MS = 15_000;
-const userSecurityCache = new Map<string, { mustChangePassword: boolean; expiresAt: number }>();
+type UserSecurity = { mustChangePassword: boolean; twoFactorEnabled: boolean };
+const userSecurityCache = new Map<string, UserSecurity & { expiresAt: number }>();
 
-async function resolveMustChangePassword(userId: string): Promise<boolean> {
+async function resolveUserSecurity(userId: string): Promise<UserSecurity> {
   const now = Date.now();
   const cached = userSecurityCache.get(userId);
-  if (cached && cached.expiresAt > now) return cached.mustChangePassword;
+  if (cached && cached.expiresAt > now) {
+    return { mustChangePassword: cached.mustChangePassword, twoFactorEnabled: cached.twoFactorEnabled };
+  }
 
   const user = await withAdmin((tx) =>
     tx.user.findUnique({
       where: { id: userId },
-      select: { mustChangePassword: true },
+      select: { mustChangePassword: true, twoFactorEnabled: true },
     }),
   );
-  const mustChangePassword = user?.mustChangePassword === true;
-  userSecurityCache.set(userId, {
-    mustChangePassword,
-    expiresAt: now + USER_SECURITY_CACHE_TTL_MS,
-  });
-  return mustChangePassword;
+  const security: UserSecurity = {
+    mustChangePassword: user?.mustChangePassword === true,
+    twoFactorEnabled: user?.twoFactorEnabled === true,
+  };
+  userSecurityCache.set(userId, { ...security, expiresAt: now + USER_SECURITY_CACHE_TTL_MS });
+  return security;
+}
+
+/**
+ * Invalida o cache de segurança de um usuário. Chamado quando o 2FA é
+ * ativado/desativado para que a sessão reflita a mudança sem esperar o TTL
+ * (evita loop no barrier de enrollment obrigatório).
+ */
+export function invalidateUserSecurity(userId: string): void {
+  userSecurityCache.delete(userId);
 }
 
 async function resolveModulesByTenant(
@@ -128,6 +142,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       credentials: {
         cpf: { label: "CPF", type: "text" },
         password: { label: "Senha", type: "password" },
+        totp: { label: "Código 2FA", type: "text" },
       },
       async authorize(credentials) {
         const parsed = cpfSchema.safeParse(credentials?.cpf);
@@ -160,8 +175,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        // Sucesso — limpa contador
-        clearRateLimit(rateLimitKey);
+        // Senha OK. Se o usuário tem 2FA, exige um código válido antes da sessão.
+        if (user.twoFactorEnabled && user.twoFactorSecret) {
+          const totp = typeof credentials?.totp === "string" ? credentials.totp.trim() : "";
+          if (!totp) {
+            // Senha certa, mas falta o código — sinaliza ao loginAction (sem
+            // contar como falha de senha).
+            throw new TwoFactorRequiredError();
+          }
+          const secret = decryptSecret(user.twoFactorSecret);
+          if (verifyTotp(secret, totp)) {
+            clearRateLimit(rateLimitKey);
+          } else {
+            // Tenta backup code (uso único).
+            const remaining = consumeBackupCode(totp, user.twoFactorBackupCodes);
+            if (!remaining) {
+              recordFailedAttempt(rateLimitKey);
+              throw new TwoFactorInvalidError();
+            }
+            await withAdmin((tx) =>
+              tx.user.update({ where: { id: user.id }, data: { twoFactorBackupCodes: remaining } }),
+            );
+            clearRateLimit(rateLimitKey);
+            logger.info("Login: backup code 2FA usado", { userId: user.id, remaining: remaining.length });
+          }
+        } else {
+          // Sem 2FA — limpa contador no sucesso.
+          clearRateLimit(rateLimitKey);
+        }
 
         return {
           id: user.id,
@@ -170,6 +211,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           cpf: user.cpf,
           isSuperAdmin: user.isSuperAdmin,
           mustChangePassword: user.mustChangePassword,
+          twoFactorEnabled: user.twoFactorEnabled,
         };
       },
     }),
@@ -183,6 +225,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.cpf = (user as { cpf: string }).cpf;
         token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
         token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
+        token.twoFactorEnabled = (user as { twoFactorEnabled: boolean }).twoFactorEnabled;
 
         const userTenants = await withAdmin(async (tx) => {
           return tx.userTenant.findMany({
@@ -217,7 +260,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.impersonatedTenantId = null;
       } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
         if (typeof token.id === "string") {
-          token.mustChangePassword = await resolveMustChangePassword(token.id);
+          const security = await resolveUserSecurity(token.id);
+          token.mustChangePassword = security.mustChangePassword;
+          token.twoFactorEnabled = security.twoFactorEnabled;
         }
 
         // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
@@ -249,7 +294,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.activeTenantId = null;
         }
       } else if (typeof token.id === "string") {
-        token.mustChangePassword = await resolveMustChangePassword(token.id);
+        const security = await resolveUserSecurity(token.id);
+        token.mustChangePassword = security.mustChangePassword;
+        token.twoFactorEnabled = security.twoFactorEnabled;
       }
 
       return token;
@@ -260,6 +307,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.user.cpf = token.cpf as string;
       session.user.isSuperAdmin = token.isSuperAdmin as boolean;
       session.user.mustChangePassword = token.mustChangePassword === true;
+      session.user.twoFactorEnabled = token.twoFactorEnabled === true;
       session.activeTenantId = (token.activeTenantId as string) ?? null;
       session.impersonatedTenantId = (token.impersonatedTenantId as string) ?? null;
       session.availableTenants =

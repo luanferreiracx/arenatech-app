@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
 import { Copy, CheckCircle2, Loader2, X } from "lucide-react";
@@ -63,6 +63,12 @@ export function QuickSaleDepixDialog({
   const [qrCode, setQrCode] = useState<string | null>(existingQrCode ?? null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(existingQrCodeBase64 ?? null);
   const [status, setStatus] = useState<"pending" | "paid" | "failed">("pending");
+  const paidFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    paidFiredRef.current = false;
+  }, [open]);
 
   const requiresTaxId = totalCents >= 50_000;
   const existingTaxId = (buyerTaxId ?? "").replace(/\D/g, "");
@@ -114,11 +120,19 @@ export function QuickSaleDepixDialog({
   useEffect(() => {
     if (!walletTransactionId && !transactionId) return;
 
-    const es = new EventSource(`/api/sse/quick-sale/${quickSaleId}`);
-    es.addEventListener("paid", () => {
+    const confirmPaid = () => {
+      if (paidFiredRef.current) return;
+      paidFiredRef.current = true;
       setStatus("paid");
       toast.success("Pagamento confirmado!");
-      setTimeout(() => onPaid(), 1500);
+      // SSE e polling podem confirmar quase juntos; sem esse guard, onPaid podia
+      // invalidar queries/fechar modal duas vezes.
+      onPaid();
+    };
+
+    const es = new EventSource(`/api/sse/quick-sale/${quickSaleId}`);
+    es.addEventListener("paid", () => {
+      confirmPaid();
       es.close();
     });
     es.onerror = () => {
@@ -131,9 +145,7 @@ export function QuickSaleDepixDialog({
         {
           onSuccess: (res) => {
             if (res.status === "paid") {
-              setStatus("paid");
-              toast.success("Pagamento confirmado!");
-              setTimeout(() => onPaid(), 1500);
+              confirmPaid();
             } else if (res.status === "failed" || res.status === "expired") {
               setStatus("failed");
               toast.error(

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -75,6 +75,7 @@ export default function DepixWithdrawPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const overviewQuery = useQuery(trpc.depixTransaction.getOverview.queryOptions());
+  const walletInfoQuery = useQuery(trpc.depixWallet.getWalletInfo.queryOptions());
 
   const previewQuery = useQuery({
     ...trpc.depixTransaction.previewFee.queryOptions({
@@ -154,7 +155,33 @@ export default function DepixWithdrawPage() {
     setConfirmOpen(false);
   }
 
-  if (overviewQuery.isLoading) return <LoadingState />;
+  if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
+
+  if (walletInfoQuery.data?.canWithdraw === false) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title={
+            <div className="flex items-center gap-2">
+              <Button asChild variant="ghost" size="icon">
+                <Link href="/depix-wallet" aria-label="Voltar">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <span>Sacar via PIX</span>
+            </div>
+          }
+          subtitle="Saque disponivel apenas para perfil admin do tenant."
+        />
+        <Card className="max-w-xl mx-auto p-6 border-amber-500/30 bg-amber-500/5">
+          <p className="text-sm text-muted-foreground">
+            Seu perfil pode consultar a carteira, mas nao pode iniciar saques.
+            Solicite a um usuario com perfil admin do tenant ou a um superadmin.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -297,7 +324,7 @@ export default function DepixWithdrawPage() {
                 kind="WITHDRAW"
                 netCents={netAmount}
                 feeArenaCents={previewQuery.data.feeArenaTechCents}
-                feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+                feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
                 availableBalanceCents={balanceCents}
               />
             )}
@@ -352,7 +379,7 @@ export default function DepixWithdrawPage() {
               kind="WITHDRAW"
               netCents={netAmount}
               feeArenaCents={previewQuery.data.feeArenaTechCents}
-              feePixPayCents={previewQuery.data.feePixPayEstimatedCents}
+              feeProviderCents={previewQuery.data.feePixPayEstimatedCents}
               availableBalanceCents={balanceCents}
             />
           )}

@@ -6,6 +6,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
+import { buildServiceOrderQuotePdf } from "@/lib/pdf/service-order-quote-builder";
 import { buildServiceOrderTermoEntregaPdf, buildServiceOrderTermoDevolucaoPdf } from "@/lib/pdf/service-order-terms-builder";
 import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
@@ -1068,13 +1069,13 @@ export const serviceOrderRouter = createTRPCRouter({
         // Cancela PIX pendente (depix_status="pending") para evitar que
         // cliente pague e webhook reactive uma OS cancelada.
         const pixToCancel =
-          order.depixTransactionId && order.depixStatus === "pending"
+          (order.walletTransactionId || order.depixTransactionId) && order.depixStatus === "pending"
             ? order.depixTransactionId
             : null;
-        if (pixToCancel) {
+        if (order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
           await tx.serviceOrder.update({
             where: { id: input.id },
-            data: { depixTransactionId: null, depixStatus: "cancelled" },
+            data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
           });
         }
 
@@ -3466,29 +3467,70 @@ export const serviceOrderRouter = createTRPCRouter({
         return { order, quote: updatedQuote, customer, phone };
       });
 
-      // HTTP (token gen + WhatsApp Cloud) FORA da tx.
+      // IO externo FORA da tx — gera PDF do orcamento e cria documento no
+      // Autentique para o cliente assinar (paridade com a assinatura de entrada
+      // da OS). O orcamento revisado segue o mesmo fluxo: o cliente recebe um
+      // PDF com botao "Assinar". A aprovacao via /quote permanece disponivel
+      // como fallback (page publica), e admin/gerente pode aprovar manualmente
+      // via approveQuoteManually.
+      let pdfBuffer: Buffer;
+      try {
+        const buf = await buildServiceOrderQuotePdf(ctx.tenantId, input.orderId);
+        if (!buf) throw new Error("Orcamento nao encontrado");
+        pdfBuffer = buf;
+      } catch (err) {
+        logger.error("Falha ao gerar PDF do orcamento para assinatura", { orderId: input.orderId, error: err });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar PDF do orcamento para assinatura" });
+      }
+
+      const autentique = await createDocumentWithLink(
+        `Orcamento - OS ${prep.order.number}`,
+        [{ name: prep.customer.name, whatsapp: formatWhatsApp(prep.phone) }],
+        pdfBuffer,
+      );
+      if (!autentique.success) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: autentique.error ?? "Erro ao enviar orcamento para Autentique",
+        });
+      }
+
+      // Persiste o vinculo Autentique no quote (o webhook usa signatureDocumentId
+      // para aprovar o orcamento quando o cliente assinar).
+      await ctx.withTenant(async (tx) => {
+        await tx.serviceOrderQuote.update({
+          where: { id: prep.quote.id },
+          data: {
+            signatureDocumentId: autentique.documentId ?? null,
+            signatureLink: autentique.signatureLink ?? null,
+          },
+        });
+      });
+
+      // Envia via WhatsApp com botao "Assinar" (template os_termo_pdf_link).
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-      const approvalLink = `${appUrl}/quote/${prep.quote.approvalLink}`;
-      const totalFormatted = (Number(prep.quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-      const caption = `Orcamento - OS #${prep.order.number}\nValor: ${totalFormatted}\n\nPara aprovar ou rejeitar:\n${approvalLink}`;
-
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-      // Rota dedicada do PDF de orcamento adicional (NAO o PDF da OS) — antes
-      // anexava o PDF principal da OS, sem comparacao previous/new e sem
-      // motivo. Paridade Laravel `gerarPdfOrcamento`.
       const pdfUrl = `${appUrl}/api/whatsapp-media/os-quote/pdf/${pdfToken}`;
-      // Contexto `os_orcamento_pdf` (sem `_link`) — o template aprovado nao
-      // tem botao URL, o link de aprovacao vai no caption. O contexto
-      // `os_orcamento_pdf_link` nao existe no catalogo e fazia o envio
-      // falhar silencioso fora da janela 24h (retornava antes do fallback).
+      const autentiqueToken = autentique.signatureLink
+        ? extractShortlinkToken(autentique.signatureLink)
+        : null;
+      const totalFormatted = (Number(prep.quote.newTotal)).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const signatureLine = autentique.signatureLink
+        ? `Para aprovar, assine digitalmente:\n${autentique.signatureLink}`
+        : "Para aprovar, assine digitalmente pelo botao abaixo.";
+      const caption =
+        `📋 *Orcamento - OS #${prep.order.number}*\n\n` +
+        `Ola, ${prep.customer.name}! Houve uma alteracao no orcamento.\n` +
+        `Novo valor: ${totalFormatted}\n\n${signatureLine}`;
+
       const wa = await sendPdfWithFallback({
         phone: prep.phone,
         pdfUrl,
         fileName: `OS_${prep.order.number}_orcamento.pdf`,
         caption,
-        contexto: "os_orcamento_pdf",
+        contexto: autentiqueToken ? "os_termo_pdf_link" : "os_termo_pdf",
         params: [prep.customer.name, prep.order.number],
+        urlButtonParam: autentiqueToken ?? undefined,
         log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.orderId },
       });
       if (!wa.success) {
@@ -3506,12 +3548,12 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: prep.order.status,
             newStatus: prep.order.status,
-            notes: `Orcamento enviado para o cliente via WhatsApp. Motivo: ${input.reason}`,
+            notes: `Orcamento enviado para assinatura digital (Autentique). Motivo: ${input.reason}`,
           },
         });
       });
 
-      return { success: true, whatsappSent: wa.success };
+      return { success: true, whatsappSent: wa.success, signatureLink: autentique.signatureLink };
     }),
 
   // ── 12. CHECK QUOTE STATUS ──
@@ -3856,6 +3898,7 @@ export const serviceOrderRouter = createTRPCRouter({
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
+            walletTransactionId: result.id,
             depixTransactionId: result.pixpayDepixId ?? null,
             depixStatus: "pending",
           },
@@ -3890,19 +3933,20 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (!order.depixTransactionId) {
+        if (!order.walletTransactionId && !order.depixTransactionId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum PIX pendente para esta OS" });
         }
 
-        const result = await cancelPixPayment(order.depixTransactionId);
+        const result = order.depixTransactionId
+          ? await cancelPixPayment(order.depixTransactionId)
+          : { success: true };
 
-        // H2: limpar depixTransactionId tambem — antes ficava setado e um
-        // webhook racing (cliente paga segundos antes do cancel chegar na
-        // PixPay) ainda casava via findFirst({depixTransactionId, status:!PAID})
-        // e marcava a OS como PAID apos o cancel.
+        // H2: limpar ids do PIX tambem — antes ficava setado e um webhook
+        // racing (cliente paga segundos antes do cancel chegar na PixPay) ainda
+        // casava via findFirst e marcava a OS como PAID apos o cancel.
         await tx.serviceOrder.update({
           where: { id: input.orderId },
-          data: { depixTransactionId: null, depixStatus: "cancelled" },
+          data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
         });
 
         return { success: result.success };
@@ -4274,10 +4318,10 @@ async function applyQuoteApproval(
 
   // PIX foi gerado contra o total anterior; se o orcamento mudou, cancela.
   const valueChanged = !quote.newTotal.equals(quote.previousTotal);
-  if (valueChanged && order.depixTransactionId && order.depixStatus === "pending") {
+  if (valueChanged && order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
     await tx.serviceOrder.update({
       where: { id: order.id },
-      data: { depixTransactionId: null, depixStatus: "cancelled" },
+      data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
     });
     return order.depixTransactionId;
   }

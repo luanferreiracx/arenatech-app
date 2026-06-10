@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Pencil, Trash2, Eye, AlertTriangle } from "lucide-react";
+import { Pencil, Trash2, Eye, AlertTriangle, Package } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
@@ -26,6 +26,7 @@ interface ProductRow {
   unit: string;
   active: boolean;
   hasVariations: boolean;
+  thumbnailUrl: string | null;
 }
 
 function formatCurrency(value: ProductRow["salePrice"]): string {
@@ -85,13 +86,27 @@ export function ProductsTable() {
       accessorKey: "name",
       header: "Produto",
       cell: ({ row }) => (
-        <div>
-          <span className="font-medium">{row.original.name}</span>
-          {row.original.sku && (
-            <span className="block text-xs text-muted-foreground">
-              SKU: {row.original.sku}
-            </span>
-          )}
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+            {row.original.thumbnailUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={row.original.thumbnailUrl}
+                alt={row.original.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <Package className="h-5 w-5 text-muted-foreground/50" />
+            )}
+          </div>
+          <div>
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.sku && (
+              <span className="block text-xs text-muted-foreground">
+                SKU: {row.original.sku}
+              </span>
+            )}
+          </div>
         </div>
       ),
     },
