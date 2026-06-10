@@ -17,6 +17,7 @@ export type TalisonMetric =
   | "suspicious_price"
   | "handoff"
   | "lead_qualified"
+  | "hot_lead"
   | "abandoned_alert"
   | "catchup_replied";
 

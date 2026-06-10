@@ -16,16 +16,22 @@ import { estimarOrcamento } from "@/lib/talison/tools/catalog";
 import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
-import { qualificarLead, transferirParaHumano } from "@/lib/talison/tools/handoff";
+import { qualificarLead, sinalizarLeadQuente, transferirParaHumano } from "@/lib/talison/tools/handoff";
 import { toggleStatus } from "@/lib/talison/chatwoot-client";
+import { sendGroupMessage } from "@/lib/services/whatsapp-service";
 
 vi.mock("@/lib/talison/chatwoot-client", () => ({
   sendBotMessage: vi.fn().mockResolvedValue(true),
   toggleStatus: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("@/lib/services/whatsapp-service", () => ({
+  sendGroupMessage: vi.fn().mockResolvedValue({ success: true, messageId: "m1" }),
+}));
+
 beforeEach(() => {
   vi.mocked(toggleStatus).mockClear();
+  vi.mocked(sendGroupMessage).mockClear();
 });
 
 const baseConversation = {
@@ -432,6 +438,55 @@ describe("qualificar_lead", () => {
     expect(update).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
     if (result.ok) expect(result.data.atualizado).toBe(true);
+  });
+});
+
+describe("sinalizar_lead_quente", () => {
+  it("registra o lead e avisa o grupo quando há grupo configurado", async () => {
+    const prev = process.env.TALISON_ALERT_GROUP_JID;
+    process.env.TALISON_ALERT_GROUP_JID = "120363@g.us";
+    const create = vi.fn().mockResolvedValue({ id: "lead-9" });
+    const tx = {
+      interest: { findFirst: vi.fn().mockResolvedValue(null), create, update: vi.fn() },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await sinalizarLeadQuente.execute(
+      { produto_modelo: "iPhone 16 Pro 256GB", forma_pagamento: "PIX", nome: "João" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(create).toHaveBeenCalledOnce();
+    expect(vi.mocked(sendGroupMessage)).toHaveBeenCalledOnce();
+    const [jid, text] = vi.mocked(sendGroupMessage).mock.calls[0]!;
+    expect(jid).toBe("120363@g.us");
+    expect(text).toContain("iPhone 16 Pro 256GB");
+    if (result.ok) expect(result.data.avisou_time).toBe(true);
+
+    process.env.TALISON_ALERT_GROUP_JID = prev;
+  });
+
+  it("não duplica o lead e não quebra sem grupo configurado", async () => {
+    const prev = process.env.TALISON_ALERT_GROUP_JID;
+    delete process.env.TALISON_ALERT_GROUP_JID;
+    const update = vi.fn().mockResolvedValue({ id: "lead-9" });
+    const create = vi.fn();
+    const tx = {
+      interest: { findFirst: vi.fn().mockResolvedValue({ id: "lead-9" }), create, update },
+    } as unknown as Partial<TalisonTx>;
+
+    const result = await sinalizarLeadQuente.execute(
+      { produto_modelo: "PS5 Slim" },
+      makeCtx(tx),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(update).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
+    expect(vi.mocked(sendGroupMessage)).not.toHaveBeenCalled();
+    if (result.ok) expect(result.data.avisou_time).toBe(false);
+
+    process.env.TALISON_ALERT_GROUP_JID = prev;
   });
 });
 

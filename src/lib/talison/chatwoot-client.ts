@@ -64,6 +64,21 @@ export async function sendBotMessage(
   });
 }
 
+/**
+ * Posta uma NOTA PRIVADA na conversa (visível só pros atendentes, nunca vai
+ * pro cliente). Usado pra dar contexto ao humano — ex.: transcrição de áudio.
+ */
+export async function sendPrivateNote(
+  conversationId: string,
+  content: string,
+): Promise<boolean> {
+  return chatwootFetch(`/conversations/${conversationId}/messages`, {
+    content,
+    message_type: "outgoing",
+    private: true,
+  });
+}
+
 /** Muda o status da conversa (open | resolved | pending). */
 export async function toggleStatus(
   conversationId: string,
