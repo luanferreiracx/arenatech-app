@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useActionState, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,34 +9,37 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CpfInput } from "@/components/forms/cpf-input";
 import { Loader2, AlertCircle } from "lucide-react";
+import { loginAction, type LoginState } from "@/app/actions/auth";
+
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
 export default function LoginPage() {
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [recaptchaToken, setRecaptchaToken] = useState("");
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+  const [state, formAction, pending] = useActionState<LoginState, FormData>(
+    loginAction,
+    {},
+  );
 
-    const result = await signIn("credentials", {
-      cpf,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("CPF ou senha inválidos. Tente novamente.");
-      setLoading(false);
-      return;
+  // Token do reCAPTCHA é de uso único — o servidor o consome no siteverify. A
+  // cada nova resposta do servidor, remontamos o widget (key) e limpamos o token
+  // para o usuário resolver de novo. Padrão "ajustar estado ao mudar prop" do
+  // React (set durante render, guardado), sem useEffect.
+  const [handledState, setHandledState] = useState(state);
+  const [captchaKey, setCaptchaKey] = useState(0);
+  if (state !== handledState) {
+    setHandledState(state);
+    if (state.error) {
+      setRecaptchaToken("");
+      setCaptchaKey((k) => k + 1);
     }
-
-    // Full navigation so middleware can handle auth-aware redirect.
-    // Vai para /painel (a raiz "/" e a landing publica nos hosts de marketing).
-    window.location.href = "/painel";
   }
+
+  // O desafio só aparece quando o servidor o exige (após N falhas) E há site key.
+  const showCaptcha = Boolean(state.captchaRequired && RECAPTCHA_SITE_KEY);
+  const submitDisabled = pending || (showCaptcha && !recaptchaToken);
 
   return (
     <>
@@ -48,11 +51,11 @@ export default function LoginPage() {
       </CardHeader>
 
       <CardContent className="pb-6">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
+        <form action={formAction} className="space-y-4">
+          {state.error && (
             <Alert variant="destructive" className="py-3">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>{state.error}</AlertDescription>
             </Alert>
           )}
 
@@ -81,8 +84,20 @@ export default function LoginPage() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
+          {showCaptcha && RECAPTCHA_SITE_KEY && (
+            <div className="flex justify-center">
+              <ReCAPTCHA
+                key={captchaKey}
+                sitekey={RECAPTCHA_SITE_KEY}
+                onChange={(token) => setRecaptchaToken(token ?? "")}
+                onExpired={() => setRecaptchaToken("")}
+              />
+            </div>
+          )}
+          <input type="hidden" name="recaptchaToken" value={recaptchaToken} />
+
+          <Button type="submit" className="w-full" disabled={submitDisabled}>
+            {pending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Entrando...
