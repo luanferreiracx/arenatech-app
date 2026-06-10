@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { toggleStatus } from "@/lib/talison/chatwoot-client";
+import { recordTalisonMetric } from "@/lib/talison/metrics";
 import type { TalisonTool } from "@/lib/talison/tools/contract";
 
 const qualificarLeadSchema = z.object({
@@ -72,6 +73,11 @@ export const qualificarLead: TalisonTool<typeof qualificarLeadSchema> = {
         select: { id: true },
       });
 
+      recordTalisonMetric("lead_qualified", {
+        conversationId: ctx.conversation.id,
+        tipo: args.tipo,
+      });
+
       return {
         ok: true as const,
         data: { lead_id: interest.id, atualizado: false },
@@ -111,6 +117,11 @@ export const transferirParaHumano: TalisonTool<typeof transferirSchema> = {
     if (ctx.conversation.externalId) {
       await toggleStatus(ctx.conversation.externalId, "open");
     }
+
+    recordTalisonMetric("handoff", {
+      conversationId: ctx.conversation.id,
+      motivo: args.motivo,
+    });
 
     return {
       ok: true as const,

@@ -177,15 +177,30 @@ describe("processConversation — status e entrega", () => {
     expect(state.runTalison).toHaveBeenCalledOnce();
   });
 
-  it("não responde quando a última mensagem não é do cliente", async () => {
+  it("não responde quando não há mensagem do cliente pendente", async () => {
     state.messages = [
       { direction: "outgoing", senderType: "bot", content: "olá", contentType: "text", mediaUrl: null },
     ];
 
     const result = await processConversation("tenant-1", "conv-1");
 
-    expect(result).toEqual({ status: "skipped", reason: "última mensagem não é do cliente" });
+    expect(result).toEqual({ status: "skipped", reason: "sem mensagem do cliente pendente de resposta" });
     expect(state.runTalison).not.toHaveBeenCalled();
+  });
+
+  it("responde follow-up do cliente mesmo após resposta anterior do bot", async () => {
+    // Regressão da "corrida da saudação": cliente manda nova pergunta depois de
+    // uma resposta do bot — não pode ficar órfã só porque o bot já falou antes.
+    state.messages = [
+      { direction: "incoming", senderType: "customer", content: "oi", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "bot", content: "olá! como ajudo?", contentType: "text", mediaUrl: null },
+      { direction: "incoming", senderType: "customer", content: "quanto custa a troca de tela?", contentType: "text", mediaUrl: null },
+    ];
+
+    const result = await processConversation("tenant-1", "conv-1");
+
+    expect(result.status).toBe("replied");
+    expect(state.runTalison).toHaveBeenCalledOnce();
   });
 
   it("injeta contexto de negócio configurado no prompt do Talison", async () => {

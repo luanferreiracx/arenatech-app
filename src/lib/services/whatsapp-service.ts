@@ -134,6 +134,56 @@ export async function sendTextMessage(
 }
 
 /**
+ * Send a text message to a WhatsApp group (JID like "12036...@g.us").
+ * Unlike sendTextMessage, the JID is sent verbatim (no phone formatting).
+ */
+export async function sendGroupMessage(
+  groupJid: string,
+  text: string,
+  options: WhatsAppSendOptions = {},
+): Promise<WhatsAppSendResult> {
+  const config = getConfig();
+  const instanceName = options.instanceName ?? config?.instanceName;
+
+  if (!config || !instanceName) {
+    logger.info("WhatsApp: mock group send (no credentials)", { groupJid });
+    return { success: true, messageId: `mock-wa-group-${Date.now()}` };
+  }
+
+  try {
+    const response = await fetch(`${config.url}/message/sendText/${instanceName}`, {
+      method: "POST",
+      headers: { apikey: config.apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ number: groupJid, text }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      return {
+        success: false,
+        error: `Evolution API HTTP ${response.status}: ${body.substring(0, 200)}`,
+      };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const key = data["key"] as Record<string, unknown> | undefined;
+    const messageId = key ? String(key["id"] ?? "") : undefined;
+    logger.info("WhatsApp: group text sent", { groupJid, instanceName, messageId });
+    return { success: true, messageId };
+  } catch (error) {
+    logger.error("WhatsApp: send group error", {
+      groupJid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao enviar para grupo",
+    };
+  }
+}
+
+/**
  * Send a media message (PDF, image) via WhatsApp.
  */
 export async function sendMediaMessage(

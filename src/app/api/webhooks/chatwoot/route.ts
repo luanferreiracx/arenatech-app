@@ -198,11 +198,17 @@ export async function POST(req: NextRequest) {
           const isImage = !!mediaUrl && !!normalizedMediaType && (
             normalizedMediaType === "image" || normalizedMediaType.startsWith("image/")
           )
+          // Áudio do WhatsApp (ogg/opus): normaliza pra "audio" pro runner transcrever via Groq.
+          const isAudio = !!mediaUrl && !!normalizedMediaType && (
+            normalizedMediaType === "audio" || normalizedMediaType.startsWith("audio/")
+          )
           const contentType = isImage
             ? "image"
-            : rawMediaType
-              ? rawMediaType
-              : String(body.content_type ?? "text")
+            : isAudio
+              ? "audio"
+              : rawMediaType
+                ? rawMediaType
+                : String(body.content_type ?? "text")
           const persistedContent = message?.trim()
             ? message
             : rawMediaType

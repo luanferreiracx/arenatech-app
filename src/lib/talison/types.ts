@@ -58,3 +58,10 @@ export type VisionProvider = {
   /** Recebe a URL da imagem + um hint de contexto, devolve descrição textual. */
   describe(args: { imageUrl: string; prompt?: string }): Promise<string>;
 };
+
+/** Provider de transcrição de áudio (Groq Whisper) — áudio do cliente → texto. */
+export type AudioProvider = {
+  readonly name: string;
+  /** Recebe a URL do áudio (ogg/opus do WhatsApp), devolve a transcrição. */
+  transcribe(args: { audioUrl: string }): Promise<string>;
+};
