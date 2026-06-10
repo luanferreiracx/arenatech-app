@@ -6,6 +6,7 @@ import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { sendGroupMessage } from "@/lib/services/whatsapp-service"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 import { isStoreOpen, businessHoursLabel } from "@/lib/talison/business-hours"
+import { isCustomerWaitingReply } from "@/lib/talison/intent"
 import { recordTalisonMetric } from "@/lib/talison/metrics"
 
 export const dynamic = "force-dynamic"
@@ -30,6 +31,9 @@ export const dynamic = "force-dynamic"
 const ALERT_MINUTES = Number(process.env.TALISON_ABANDONED_ALERT_MINUTES ?? 10)
 const WAIT_MSG_AFTER_MINUTES = Number(process.env.TALISON_WAIT_MSG_AFTER_MINUTES ?? 20)
 const WAIT_MSG_INTERVAL_MINUTES = Number(process.env.TALISON_WAIT_MSG_INTERVAL_MINUTES ?? 5)
+// Quantas vezes no máximo mandar a mensagem fixa de espera antes de parar
+// (decisão do dono): evita ficar incomodando indefinidamente.
+const WAIT_MSG_MAX = Number(process.env.TALISON_WAIT_MSG_MAX ?? 2)
 const MAX_AGE_HOURS = Number(process.env.TALISON_WAIT_MAX_AGE_HOURS ?? 24)
 const BATCH = Number(process.env.TALISON_WAIT_BATCH ?? 60)
 const ALERT_GROUP_JID = process.env.TALISON_ALERT_GROUP_JID
@@ -135,6 +139,8 @@ export async function POST(request: NextRequest) {
     let waitMsgs = 0
     let offHoursMsgs = 0
 
+    let alertedSkippedClosed = 0
+
     for (const conv of candidates) {
       const lastCustomer = conv.messages.find((m) => m.senderType === "customer")?.createdAt ?? null
       const lastAgent = conv.messages.find((m) => m.senderType === "agent")?.createdAt ?? null
@@ -143,14 +149,51 @@ export async function POST(request: NextRequest) {
       if (lastAgent && lastAgent > lastCustomer) continue
 
       const waitedMin = (now - lastCustomer.getTime()) / 60000
-      const config = await configFor(conv.tenantId)
-      const open = isStoreOpen(config)
+      // Só faz sentido agir a partir do 1º marco (alerta aos 10min). Antes disso,
+      // nem classifica (poupa chamada de LLM).
+      if (waitedMin < ALERT_MINUTES) continue
 
+      const lastCustomerIso = lastCustomer.toISOString()
       const baseMeta =
         conv.metadata && typeof conv.metadata === "object"
           ? (conv.metadata as Record<string, unknown>)
           : {}
       const patch: Record<string, unknown> = {}
+
+      // GATE DE INTENÇÃO (decisão do dono): só alerta/naga se a IA disser que o
+      // cliente está MESMO aguardando — não quando ele só encerrou ("ok",
+      // "obrigado", "tô a caminho"). Decisão cacheada por mensagem do cliente
+      // (não reclassifica a cada minuto).
+      let waiting: boolean
+      if (baseMeta.waitingDecisionAt === lastCustomerIso && typeof baseMeta.waiting === "boolean") {
+        waiting = baseMeta.waiting
+      } else {
+        const transcript = conv.messages
+          .slice(0, 5)
+          .reverse()
+          .map((m) => `${m.senderType === "customer" ? "Cliente" : "Loja"}: ${(m.content ?? "").slice(0, 200)}`)
+          .join("\n")
+        waiting = await isCustomerWaitingReply(transcript)
+        patch.waitingDecisionAt = lastCustomerIso
+        patch.waiting = waiting
+      }
+
+      if (!waiting) {
+        alertedSkippedClosed++
+        recordTalisonMetric("wait_skipped_closed", { conversationId: conv.id })
+        if (Object.keys(patch).length > 0) {
+          await withAdmin((tx) =>
+            tx.chatbotConversation.update({
+              where: { id: conv.id },
+              data: { metadata: { ...baseMeta, ...patch } as Prisma.InputJsonValue },
+            }),
+          )
+        }
+        continue
+      }
+
+      const config = await configFor(conv.tenantId)
+      const open = isStoreOpen(config)
 
       if (!open) {
         // Fora do horário: avisa uma vez (reseta quando o cliente escreve de novo).
@@ -163,7 +206,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         // Dentro do horário: alerta no grupo aos 10 min.
-        if (waitedMin >= ALERT_MINUTES && ALERT_GROUP_JID) {
+        if (ALERT_GROUP_JID) {
           const alertedAt = metaDate(conv.metadata, "abandonedAlertedAt")
           if (!alertedAt || alertedAt < lastCustomer) {
             const who = conv.contactName?.trim() || conv.contactPhone
@@ -182,18 +225,21 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // A partir de 20 min: mensagem fixa de espera a cada 5 min.
+        // A partir de 20 min: mensagem fixa de espera a cada 5 min, NO MÁXIMO
+        // WAIT_MSG_MAX vezes (depois para — fica só o alerta no grupo).
         if (waitedMin >= WAIT_MSG_AFTER_MINUTES) {
+          const cycleAt = typeof baseMeta.waitCountAt === "string" ? baseMeta.waitCountAt : null
+          const count = cycleAt === lastCustomerIso && typeof baseMeta.waitCount === "number" ? baseMeta.waitCount : 0
           const lastWait = metaDate(conv.metadata, "waitMsgLastAt")
-          const due =
-            !lastWait ||
-            lastWait < lastCustomer ||
-            now - lastWait.getTime() >= WAIT_MSG_INTERVAL_MINUTES * 60000
-          if (due) {
+          const intervalDue =
+            !lastWait || lastWait < lastCustomer || now - lastWait.getTime() >= WAIT_MSG_INTERVAL_MINUTES * 60000
+          if (count < WAIT_MSG_MAX && intervalDue) {
             await sendCustomerMessage(conv.tenantId, conv.id, conv.externalId, WAIT_MESSAGE)
             patch.waitMsgLastAt = new Date().toISOString()
+            patch.waitCount = count + 1
+            patch.waitCountAt = lastCustomerIso
             waitMsgs++
-            recordTalisonMetric("wait_message", { conversationId: conv.id })
+            recordTalisonMetric("wait_message", { conversationId: conv.id, n: count + 1 })
           }
         }
       }
@@ -208,10 +254,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (alerted || waitMsgs || offHoursMsgs) {
-      logger.info(`[cron] Talison waiting-sweep: ${alerted} alertas, ${waitMsgs} msgs espera, ${offHoursMsgs} off-hours`)
+    if (alerted || waitMsgs || offHoursMsgs || alertedSkippedClosed) {
+      logger.info(
+        `[cron] Talison waiting-sweep: ${alerted} alertas, ${waitMsgs} msgs espera, ${offHoursMsgs} off-hours, ${alertedSkippedClosed} encerradas (puladas)`,
+      )
     }
-    return NextResponse.json({ candidates: candidates.length, alerted, waitMsgs, offHoursMsgs })
+    return NextResponse.json({ candidates: candidates.length, alerted, waitMsgs, offHoursMsgs, skippedClosed: alertedSkippedClosed })
   } catch (error) {
     logger.error("[cron] talison-waiting-sweep failed", { error })
     return NextResponse.json(
