@@ -161,3 +161,22 @@ export function isValidTransition(currentStatus: string, newStatus: string): boo
   if (!allowed) return false
   return allowed.includes(newStatus)
 }
+
+// ── Recompra de aparelho ──
+
+/**
+ * Status de StockItem que permitem RECOMPRA do mesmo IMEI (a loja vendeu/
+ * descartou o aparelho e agora o compra de volta do cliente).
+ *
+ * SOLD: aparelho vendido — cliente quer revender de volta (caso reportado).
+ * DEFECTIVE: aparelho que saiu de circulacao por defeito; pode ser recomprado
+ *            (ex: cliente devolve com defeito e a loja recompra para conserto).
+ *
+ * AVAILABLE/RESERVED/BLOCKED indicam que o aparelho AINDA esta em circulacao no
+ * estoque — um cadastro novo com o mesmo IMEI e duplicidade real, nao recompra.
+ */
+const REPURCHASABLE_STATUSES = new Set(["SOLD", "DEFECTIVE"])
+
+export function isRepurchasableStatus(status: string): boolean {
+  return REPURCHASABLE_STATUSES.has(status)
+}
