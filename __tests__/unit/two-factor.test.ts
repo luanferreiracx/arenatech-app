@@ -48,7 +48,15 @@ describe("two-factor", () => {
 
     it("payload corrompido falha ao decifrar (GCM autentica)", () => {
       const enc = encryptSecret("HELLO");
-      const tampered = enc.slice(0, -2) + (enc.endsWith("A") ? "B" : "A");
+      // Formato: iv_b64:authTag_b64:ciphertext_b64. Corrompe um byte do authTag
+      // (flip do bit menos significativo do primeiro byte) — adulteracao
+      // deterministica que o GCM sempre detecta. Mexer no ultimo char do
+      // ciphertext base64 era flaky: o ultimo char carrega poucos bits uteis,
+      // entao trocar A<->B as vezes nao alterava nenhum byte.
+      const parts = enc.split(":");
+      const authTag = Buffer.from(parts[1]!, "base64");
+      authTag[0]! ^= 0x01;
+      const tampered = [parts[0], authTag.toString("base64"), parts[2]].join(":");
       expect(() => decryptSecret(tampered)).toThrow();
     });
   });

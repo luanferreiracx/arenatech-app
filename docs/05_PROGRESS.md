@@ -181,6 +181,15 @@
 - Validacao: `pnpm typecheck`, validators admin focados, `pnpm test -- --reporter=dot`, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verdes.
 - Proximo: abrir PR, rodar CI e fazer deploy.
 
+### 2026-06-05 — Superadmin administra usuarios de tenants
+- Implementado: detalhe do tenant no Superadmin agora cria, edita, remove, vincula usuario existente e reseta senha de usuarios do tenant.
+- Implementado: novos usuarios criados pelo Superadmin recebem senha temporaria forte, `must_change_password=true` e exigem troca no primeiro acesso.
+- Implementado: mutations antigas de cadastro/edicao/remocao/reset em `settings` foram bloqueadas com erro explicito; a intranet central manteve apenas consulta dos usuarios vinculados.
+- Implementado: menus da intranet deixaram de oferecer cadastro local de usuarios, e as rotas antigas `/settings/users/new` e `/settings/users/[id]/edit` redirecionam para a consulta.
+- Decisoes: `settings.listUsers` permanece ativo para leituras operacionais; administracao de vinculo e credenciais fica exclusiva do Superadmin.
+- Validacao: `pnpm typecheck`, validators admin focados, `pnpm test -- --reporter=dot`, `pnpm lint` sem erros (warnings preexistentes) e `pnpm build` verdes.
+- Proximo: abrir PR, rodar CI e fazer deploy.
+
 ### 2026-06-05 — Separacao testes unitarios e integracao local
 - Implementado: `pnpm test` agora roda apenas Vitest unitario, alinhado ao CI e ao pre-push rapido, sem depender de Postgres/seed local.
 - Implementado: novo fluxo `pnpm test:integration` prepara o Postgres local com migrations + seed antes de executar `__tests__/integration` RLS/auth.

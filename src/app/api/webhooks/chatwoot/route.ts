@@ -314,6 +314,11 @@ export async function POST(req: NextRequest) {
               where: { id: conv.id },
               data: { status: "OPEN", resolvedAt: null },
             })
+          } else if (status === "pending") {
+            await tx.chatbotConversation.update({
+              where: { id: conv.id },
+              data: { status: "BOT_ACTIVE", resolvedAt: null },
+            })
           }
         })
         break
