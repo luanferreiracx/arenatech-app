@@ -9,6 +9,10 @@ const PIX_DISCOUNT_PERCENT = 5;
 const INSTALLMENTS = 6;
 const LOW_STOCK_THRESHOLD = 3;
 
+// Fallback usado apenas se o tenant ainda nao configurou um telefone em
+// TenantSettings.phone. No futuro, cada tenant terá o seu proprio numero.
+const FALLBACK_WHATSAPP_NUMBER = "5586995647443";
+
 const SEARCH_SYNONYMS: Record<string, readonly string[]> = {
   iphone: ["iphone", "lightning", "apple"],
   ipad: ["ipad", "lightning", "apple"],
@@ -94,9 +98,15 @@ export type CatalogProduct = {
   createdAt: string;
 };
 
+export type CatalogContact = {
+  storeName: string;
+  whatsappNumber: string;
+};
+
 export type PublicCatalogResult = {
   products: CatalogProduct[];
   categories: CatalogCategory[];
+  contact: CatalogContact;
   total: number;
   totalAvailable: number;
   page: number;
@@ -121,11 +131,11 @@ export async function getPublicCatalog(params: PublicCatalogParams): Promise<Pub
     }
 
     const baseWhere = buildCatalogWhere({ tenantId, search, categoryId });
-    const categories = await getCatalogCategories(tx, tenantId);
-    const rows = await tx.product.findMany({
-      where: baseWhere,
-      include: catalogProductInclude,
-    });
+    const [categories, contact, rows] = await Promise.all([
+      getCatalogCategories(tx, tenantId),
+      getCatalogContact(tx, tenantId),
+      tx.product.findMany({ where: baseWhere, include: catalogProductInclude }),
+    ]);
 
     const products = rows.map(toCatalogProduct).sort((a, b) => compareCatalogProducts(a, b, sort));
     const start = (page - 1) * pageSize;
@@ -134,6 +144,7 @@ export async function getPublicCatalog(params: PublicCatalogParams): Promise<Pub
     return {
       products: pagedProducts,
       categories,
+      contact,
       total: products.length,
       totalAvailable: await tx.product.count({ where: buildCatalogWhere({ tenantId }) }),
       page,
@@ -158,6 +169,14 @@ export async function getPublicCatalogProduct(id: string): Promise<CatalogProduc
 
     if (!product) return null;
     return toCatalogProduct(product);
+  });
+}
+
+export async function getPublicCatalogContact(): Promise<CatalogContact> {
+  return withAdmin(async (tx) => {
+    const tenantId = await resolveCatalogTenantId(tx);
+    if (!tenantId) return fallbackContact();
+    return getCatalogContact(tx, tenantId);
   });
 }
 
@@ -261,6 +280,38 @@ async function getCatalogCategories(tx: AdminTx, tenantId: string): Promise<Cata
     .filter((category) => category.count > 0);
 }
 
+async function getCatalogContact(tx: AdminTx, tenantId: string): Promise<CatalogContact> {
+  const [settings, tenant] = await Promise.all([
+    tx.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { phone: true, tradeName: true, legalName: true },
+    }),
+    tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+  ]);
+
+  return {
+    storeName: settings?.tradeName?.trim() || settings?.legalName?.trim() || tenant?.name?.trim() || "Arena Tech",
+    whatsappNumber: normalizeWhatsappNumber(settings?.phone) ?? FALLBACK_WHATSAPP_NUMBER,
+  };
+}
+
+function fallbackContact(): CatalogContact {
+  return { storeName: "Arena Tech", whatsappNumber: FALLBACK_WHATSAPP_NUMBER };
+}
+
+/**
+ * Normaliza um telefone para o formato aceito pelo wa.me (apenas digitos, com
+ * DDI). Numeros brasileiros sem DDI (10-11 digitos) recebem o prefixo 55.
+ * Retorna null se nao houver digitos suficientes para um numero valido.
+ */
+function normalizeWhatsappNumber(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  if (digits.length <= 11) return `55${digits}`;
+  return digits;
+}
+
 async function resolveCatalogTenantId(tx: AdminTx): Promise<string | null> {
   if (process.env.DEFAULT_TENANT_ID) return process.env.DEFAULT_TENANT_ID;
 
@@ -343,6 +394,7 @@ function emptyCatalog(input: { page: number; pageSize: number; sort: CatalogSort
   return {
     products: [],
     categories: [],
+    contact: fallbackContact(),
     total: 0,
     totalAvailable: 0,
     page: input.page,
