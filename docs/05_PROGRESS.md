@@ -8,13 +8,22 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-08
+**Ultima atualizacao:** 2026-06-10
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/remove-depix-legacy-ui`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 
 ---
+
+### 2026-06-10 — Catálogo público: redesign premium mobile-first
+- Implementado: front-end do catálogo público (`/catalog` e `/catalog/[id]`) refeito por completo com a skill `frontend-design`, priorizando a experiência no celular (principal queixa: catálogo "ridículo" no mobile).
+- Implementado: layout `(public)/layout.tsx` com fontes distintivas escopadas (Bricolage Grotesque + Outfit + JetBrains Mono nos preços) e tema escuro forçado; atmosfera (malha de gradiente dourado + grão) e reveal escalonado em `catalog.css`, tudo isolado em `.catalog-scope` para não vazar na intranet.
+- Implementado: header sticky com busca grande sempre visível e chips de categoria com scroll-snap; ordenação/categorias migraram de sidebar (quebrada no mobile) para um bottom Sheet; grid de 2 colunas no celular; galeria do produto com scroll-snap nativo (sem lib de carrossel); CTA WhatsApp fixo no rodapé do mobile + FAB na listagem.
+- Implementado: número de WhatsApp deixou de ser hardcoded e passa a vir de `TenantSettings.phone` (com `getCatalogContact`/`normalizeWhatsappNumber`, fallback para o número antigo), preparando catálogo por tenant no futuro. Sem migration — reuso de coluna existente.
+- Decisões: nenhuma dependência nova; serviço `public-catalog` e shape de dados preservados (só adicionado `contact` ao resultado). Reverter exportação do normalizador para mantê-lo interno (sem teste unitário dedicado por causa do `server-only`).
+- Validação: `pnpm build` verde (BUILD_EXIT=0), `/catalog` e `/catalog/[id]` compilam como rotas dinâmicas sem warnings; tsc e eslint limpos nos arquivos do catálogo (erros restantes são preexistentes/Prisma fora do escopo).
+- Próximo: abrir PR, validar visualmente em mobile real e ajustar microcopy/spacing com o cliente.
 
 ### 2026-06-08 — PDV DePix finaliza venda automaticamente
 - Investigado: o PDV normal gera QR DePix via wallet/LWK em `sale.generatePix`, escuta SSE em `/api/sse/sale/[saleId]` e usa `sale.checkPixStatus` como fallback.

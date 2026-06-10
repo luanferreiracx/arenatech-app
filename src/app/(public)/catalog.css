@@ -1,0 +1,107 @@
+/* ============================================================
+   CATÁLOGO PÚBLICO — estilo "premium showroom" (skill frontend-design)
+   Tudo escopado em .catalog-scope para nunca vazar na intranet.
+   Paleta: obsidiana #060606 + dourado #c9a55c (brand).
+   ============================================================ */
+
+.catalog-scope {
+  /* Tokens locais do catalogo */
+  --gold: #c9a55c;
+  --gold-soft: #e2c98a;
+  --ink: #060606;
+  --ink-raised: #0d0d0e;
+  --hairline: rgba(255, 255, 255, 0.08);
+
+  font-family: var(--font-catalog-body), ui-sans-serif, system-ui, sans-serif;
+  color: #f4f2ed;
+  background-color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.catalog-scope .font-display {
+  font-family: var(--font-catalog-display), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.catalog-scope .font-numeric {
+  font-family: var(--font-catalog-mono), ui-monospace, monospace;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.02em;
+}
+
+/* --- Atmosfera: malha de gradiente dourado + leve textura de grão --- */
+.catalog-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 50% -12rem, rgba(201, 165, 92, 0.16), transparent 70%),
+    radial-gradient(40rem 30rem at 100% 0%, rgba(201, 165, 92, 0.07), transparent 60%),
+    radial-gradient(46rem 36rem at 0% 30%, rgba(120, 96, 200, 0.05), transparent 60%);
+}
+
+.catalog-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* --- Reveal escalonado na carga (um momento bem orquestrado) --- */
+@keyframes catalog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.catalog-rise {
+  animation: catalog-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-rise {
+    animation: none;
+  }
+  .catalog-scope * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Galeria por scroll-snap (sem lib de carrossel) --- */
+.snap-x-gallery {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.snap-x-gallery::-webkit-scrollbar {
+  display: none;
+}
+.snap-x-gallery > * {
+  scroll-snap-align: center;
+}
+
+/* Faixa de chips de categoria com fade nas bordas no mobile */
+.chip-scroll {
+  scrollbar-width: none;
+}
+.chip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Borda dourada sutil em hover de cards (textura/profundidade) */
+.card-sheen {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)) padding-box,
+    linear-gradient(160deg, rgba(201, 165, 92, 0.35), rgba(255, 255, 255, 0.04) 40%) border-box;
+  border: 1px solid transparent;
+}
