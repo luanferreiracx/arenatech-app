@@ -1,4 +1,4 @@
-import { CredentialsSignin } from "next-auth";
+import { CredentialsSignin } from "@auth/core/errors";
 
 /**
  * Códigos sinalizados pelo authorize() ao loginAction quando a senha está certa

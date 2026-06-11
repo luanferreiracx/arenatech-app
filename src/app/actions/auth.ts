@@ -9,8 +9,11 @@ import { getFailedAttempts } from "@/lib/utils/rate-limit";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { isTurnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { TWO_FACTOR_REQUIRED_CODE, TWO_FACTOR_INVALID_CODE } from "@/lib/auth/two-factor-errors";
+import { RATE_LIMITED_CODE } from "@/lib/auth/login-errors";
+import { logger } from "@/lib/logger";
 
 const INVALID_CREDENTIALS = "CPF ou senha inválidos. Tente novamente.";
+const GENERIC_ERROR = "Não foi possível entrar agora. Tente novamente em instantes.";
 
 /**
  * Após este número de falhas para o mesmo CPF, o login passa a exigir o desafio
@@ -82,7 +85,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     await signIn("credentials", { cpf: rawCpf, password, totp, redirect: false });
   } catch (error) {
     if (error instanceof AuthError) {
-      // authorize() re-lança erros de 2FA com um `code` (re-throw em raw mode).
+      // authorize() re-lança erros tipados com um `code` (re-throw em raw mode).
       const code = (error as { code?: string }).code;
       if (code === TWO_FACTOR_REQUIRED_CODE) {
         // Senha certa — agora pede o código do app.
@@ -91,10 +94,19 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
       if (code === TWO_FACTOR_INVALID_CODE) {
         return { twoFactorRequired: true, error: "Código de verificação inválido. Tente novamente." };
       }
+      if (code === RATE_LIMITED_CODE) {
+        return { error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." };
+      }
       // A falha já foi contabilizada dentro do authorize(); reavalia o gate.
       return { error: INVALID_CREDENTIALS, captchaRequired: captchaRequiredFor(cpf) };
     }
-    throw error;
+
+    // Erro inesperado no authorize/signIn: loga e mostra mensagem amigável, em
+    // vez de vazar para o error boundary global ("Algo deu errado").
+    logger.error("loginAction: erro inesperado no signIn", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { error: GENERIC_ERROR };
   }
 
   // Sucesso — limpa o limite por IP e o cookie de tenant ativo.
