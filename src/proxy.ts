@@ -11,7 +11,7 @@
  */
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
-import { isLandingHost, isPublicCatalogHost } from "@/lib/brand-host";
+import { isLandingHost, isPublicCatalogHost, isAppSubdomainHost } from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { isTwoFactorEnforced, sessionRequiresTwoFactor } from "@/lib/auth/two-factor-policy";
@@ -75,12 +75,24 @@ export const proxy = auth((req) => {
     return new URL(path, `${proto}://${host}`);
   };
 
+  // 0a. Subdomínio legado: app.arenatechpi.com.br → redireciona para pdvdepix.app.
+  //  O Nginx já faz o redirect na borda; esta linha é defense-in-depth.
+  {
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    if (isAppSubdomainHost(host)) {
+      const search = req.nextUrl.search;
+      return NextResponse.redirect(
+        new URL(pathname + search, "https://pdvdepix.app"),
+        { status: 301 },
+      );
+    }
+  }
+
   // 0. Raiz "/" por host:
   //  - host de landing (pdvdepix.app): SEMPRE mostra a landing publica
   //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
   //  - host do catálogo (catalogo.arenatechpi): SEMPRE mostra o catálogo novo
   //    via rewrite, mantendo a URL e aposentando o catálogo Laravel antigo.
-  //  - host de app (app.arenatechpi): "/" -> /painel (o dashboard saiu da raiz).
   if (pathname === "/") {
     const host = req.headers.get("host");
     if (isPublicCatalogHost(host)) {
