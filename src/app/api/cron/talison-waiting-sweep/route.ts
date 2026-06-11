@@ -165,6 +165,7 @@ export async function POST(request: NextRequest) {
       // "obrigado", "tô a caminho"). Decisão cacheada por mensagem do cliente
       // (não reclassifica a cada minuto).
       let waiting: boolean
+      let freshlyClassified = false
       if (baseMeta.waitingDecisionAt === lastCustomerIso && typeof baseMeta.waiting === "boolean") {
         waiting = baseMeta.waiting
       } else {
@@ -176,11 +177,14 @@ export async function POST(request: NextRequest) {
         waiting = await isCustomerWaitingReply(transcript)
         patch.waitingDecisionAt = lastCustomerIso
         patch.waiting = waiting
+        freshlyClassified = true
       }
 
       if (!waiting) {
         alertedSkippedClosed++
-        recordTalisonMetric("wait_skipped_closed", { conversationId: conv.id })
+        // Só registra a métrica na 1ª classificação (cache miss) — senão repetiria
+        // a cada minuto pra mesma conversa, poluindo os logs.
+        if (freshlyClassified) recordTalisonMetric("wait_skipped_closed", { conversationId: conv.id })
         if (Object.keys(patch).length > 0) {
           await withAdmin((tx) =>
             tx.chatbotConversation.update({
