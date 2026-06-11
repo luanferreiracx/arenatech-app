@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 import {
   createServiceSchema,
   updateServiceSchema,
@@ -475,10 +476,7 @@ export const catalogRouter = createTRPCRouter({
 
       // ETAPA 2 — token + WhatsApp Cloud (fora da tx).
       const token = createSignedPayloadToken<ServiceQuotePdfData>(built.pdfData, 60 * 60 * 1000);
-      const appUrl =
-        process.env.NEXT_PUBLIC_APP_URL ??
-        process.env.NEXTAUTH_URL ??
-        "https://app.arenatechpi.com.br";
+      const appUrl = getAppBaseUrl();
       const pdfUrl = `${appUrl}/api/whatsapp-media/service-quote/pdf/${token}`;
 
       const sendResult = await sendPdfWithFallback({

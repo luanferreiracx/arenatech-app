@@ -34,6 +34,7 @@ import { logger } from "@/lib/logger";
 import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 
 // ── Helpers ──
 
@@ -2580,7 +2581,7 @@ export const saleRouter = createTRPCRouter({
       // ETAPA 2 — IO externo (Meta Cloud template pdv_recibo_pdf + fallback).
       // PDF via rota publica HMAC-tokenizada (Meta consegue baixar sem auth).
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.saleId, 60 * 60 * 1000);
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const appUrl = getAppBaseUrl();
       const pdfUrl = `${appUrl}/api/whatsapp-media/sale/pdf/${pdfToken}`;
       const caption = `📄 Recibo - Venda #${sale.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua compra.`;
       const wa = await sendPdfWithFallback({
@@ -2715,7 +2716,7 @@ export const saleRouter = createTRPCRouter({
           60 * 60 * 1000,
           "delivery",
         );
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const appUrl = getAppBaseUrl();
         const pdfUrl = `${appUrl}/api/whatsapp-media/sale/pdf/${pdfToken}`;
         const autentiqueToken = extractShortlinkToken(doc.signatureLink);
         const caption =
