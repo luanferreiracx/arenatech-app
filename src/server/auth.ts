@@ -17,6 +17,7 @@ import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
 import { decryptSecret, verifyTotp, consumeBackupCode } from "@/lib/auth/two-factor";
 import { TwoFactorRequiredError, TwoFactorInvalidError } from "@/lib/auth/two-factor-errors";
+import { RateLimitedError } from "@/lib/auth/login-errors";
 
 /**
  * Resolve os módulos liberados por tenant (gating por plano), com cache em
@@ -146,7 +147,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!limitCheck.allowed) {
           const minutes = Math.ceil(limitCheck.retryAfterMs / 60000);
           logger.warn("Login bloqueado por rate limit", { cpf: cpf.slice(0, 3) + "***", retryAfterMin: minutes });
-          throw new Error(`Muitas tentativas de login. Tente novamente em ${minutes} minuto${minutes > 1 ? "s" : ""}.`);
+          // AuthError tipado → loginAction mostra mensagem amigável (não crasha).
+          throw new RateLimitedError(minutes);
         }
 
         const user = await withAdmin(async (tx) => {
@@ -171,7 +173,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             // contar como falha de senha).
             throw new TwoFactorRequiredError();
           }
-          const secret = decryptSecret(user.twoFactorSecret);
+          // Decifrar pode estourar se o segredo estiver corrompido/sem a chave
+          // certa (ex.: rotação do NEXTAUTH_SECRET). Tratamos como código inválido
+          // em vez de derrubar o login — recuperação é via reset do 2FA.
+          let secret: string;
+          try {
+            secret = decryptSecret(user.twoFactorSecret);
+          } catch (err) {
+            logger.error("2FA: falha ao decifrar segredo — tratando como inválido", {
+              userId: user.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            recordFailedAttempt(rateLimitKey);
+            throw new TwoFactorInvalidError();
+          }
           if (verifyTotp(secret, totp)) {
             clearRateLimit(rateLimitKey);
           } else {
