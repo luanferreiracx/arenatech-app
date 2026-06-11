@@ -1,4 +1,4 @@
-import { CredentialsSignin } from "@auth/core/errors";
+import { CredentialsSignin } from "next-auth";
 
 /**
  * Erro de rate-limit do login. Subclasse de `CredentialsSignin` (AuthError) para
