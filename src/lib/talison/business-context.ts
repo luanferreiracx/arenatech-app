@@ -155,7 +155,7 @@ export function buildTalisonBusinessContext(
       "não vende celulares que não sejam iPhone nem tablets que não sejam iPad",
       "troca/avaliação de aparelhos não-Apple, notebook comum ou PC gamer precisa de atendente humano",
       "se um produto existir internamente mas não estiver disponível pelo catálogo/estoque, trate como indisponível e ofereça atendimento humano",
-      "se o cliente trouxer algo fora desse escopo, explique com naturalidade, ofereça alternativa quando houver e transfira para humano",
+      "se o cliente trouxer algo que NÃO fazemos (conserto não-Apple, etc.), apenas diga com educação que não fazemos e encerre — sem indicar outra loja e sem transferir para humano",
     ],
     contact: [
       `Endereço: ${address}`,
