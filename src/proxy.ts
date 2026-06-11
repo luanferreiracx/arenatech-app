@@ -88,12 +88,12 @@ export const proxy = auth((req) => {
   //  - host do catálogo (catalogo.arenatechpi): SEMPRE mostra o catálogo novo
   //    via rewrite, mantendo a URL e aposentando o catálogo Laravel antigo.
   if (pathname === "/") {
-    const host = req.headers.get("host");
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
     if (isPublicCatalogHost(host)) {
-      return NextResponse.rewrite(new URL("/catalog", req.url));
+      return NextResponse.rewrite(selfUrl("/catalog"));
     }
     if (isLandingHost(host)) {
-      return NextResponse.rewrite(new URL("/landing", req.url));
+      return NextResponse.rewrite(selfUrl("/landing"));
     }
     return NextResponse.redirect(selfUrl("/painel"));
   }

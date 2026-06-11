@@ -324,6 +324,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (target.host === base.host) return url;
         // Host diferente (ex: vazando p/ arenatechpi): descarta o host,
         // preserva apenas o path+query no host atual.
+        logger.warn("Auth redirect: host descartado — possível misconfiguration", {
+          targetHost: target.host,
+          baseHost: base.host,
+          url,
+        });
         return `${target.pathname}${target.search}` || "/";
       } catch {
         return "/";
