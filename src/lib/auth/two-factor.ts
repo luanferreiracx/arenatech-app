@@ -19,8 +19,11 @@ const AUTH_TAG_LENGTH = 16;
 const TOTP_ISSUER = "Arena Tech";
 const TOTP_PERIOD = 30;
 const TOTP_DIGITS = 6;
-// Janela ±1 (±30s) tolera relógio levemente fora de sincronia.
-const TOTP_WINDOW = 1;
+// Janela ±2 (±60s) tolera dessincronia comum entre o relógio do servidor e o do
+// app autenticador. Mais que isso indica relógio do servidor fora do ar (corrigir
+// NTP), não algo a compensar afrouxando a verificação. Custo de segurança
+// desprezível: 5 janelas de 6 dígitos vs. o rate limit por CPF (5/15min).
+const TOTP_WINDOW = 2;
 
 const BACKUP_CODE_COUNT = 10;
 
