@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Copy, KeyRound, Loader2, Pencil, Plus, UserMinus } from "lucide-react";
+import { Copy, KeyRound, Loader2, Pencil, Plus, ShieldOff, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,6 +101,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editUser, setEditUser] = useState<TenantUser | null>(null);
   const [resetTarget, setResetTarget] = useState<UserTarget | null>(null);
+  const [twoFactorTarget, setTwoFactorTarget] = useState<UserTarget | null>(null);
   const [removeTarget, setRemoveTarget] = useState<UserTarget | null>(null);
   const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
 
@@ -111,6 +112,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const updateUserMutation = useMutation(trpc.admin.updateTenantUser.mutationOptions());
   const removeUserMutation = useMutation(trpc.admin.removeTenantUser.mutationOptions());
   const resetPasswordMutation = useMutation(trpc.admin.resetTenantUserPassword.mutationOptions());
+  const resetTwoFactorMutation = useMutation(trpc.admin.resetTenantUserTwoFactor.mutationOptions());
 
   const tenant = tenantQuery.data;
   const walletOnlyPlans = plansQuery.data?.filter(
@@ -248,6 +250,21 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     );
   };
 
+  const confirmTwoFactorReset = () => {
+    if (!twoFactorTarget) return;
+    resetTwoFactorMutation.mutate(
+      { tenantId, userId: twoFactorTarget.userId },
+      {
+        onSuccess: (result) => {
+          setTwoFactorTarget(null);
+          invalidateTenant();
+          toast.success(`2FA de ${result.user.name} desativado`);
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
   const copyTemporaryPassword = async () => {
     if (!passwordResult) return;
     try {
@@ -357,6 +374,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                           type="button"
                           variant="ghost"
                           size="sm"
+                          title="Resetar senha"
                           onClick={() => setResetTarget({ userId: tenantUser.userId, name: tenantUser.user.name })}
                           disabled={resetPasswordMutation.isPending}
                         >
@@ -366,6 +384,17 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                           type="button"
                           variant="ghost"
                           size="sm"
+                          title="Resetar 2FA"
+                          onClick={() => setTwoFactorTarget({ userId: tenantUser.userId, name: tenantUser.user.name })}
+                          disabled={resetTwoFactorMutation.isPending}
+                        >
+                          <ShieldOff className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          title="Remover do tenant"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setRemoveTarget({ userId: tenantUser.userId, name: tenantUser.user.name })}
                         >
@@ -546,6 +575,19 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         confirmLabel="Gerar senha"
         onConfirm={confirmPasswordReset}
         isLoading={resetPasswordMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={twoFactorTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !resetTwoFactorMutation.isPending) setTwoFactorTarget(null);
+        }}
+        title="Resetar 2FA"
+        description={`Desativar a verificação em duas etapas de ${twoFactorTarget?.name ?? "este usuario"}? Ele poderá entrar só com a senha e configurar o 2FA de novo se quiser.`}
+        confirmLabel="Resetar 2FA"
+        variant="destructive"
+        onConfirm={confirmTwoFactorReset}
+        isLoading={resetTwoFactorMutation.isPending}
       />
 
       <ConfirmDialog

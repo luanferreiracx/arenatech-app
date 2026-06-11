@@ -150,6 +150,12 @@ export const resetTenantUserPasswordSchema = z.object({
 });
 export type ResetTenantUserPasswordInput = z.infer<typeof resetTenantUserPasswordSchema>;
 
+export const resetTenantUserTwoFactorSchema = z.object({
+  tenantId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+export type ResetTenantUserTwoFactorInput = z.infer<typeof resetTenantUserTwoFactorSchema>;
+
 export const tenantUserRoleEnum = z.enum(["admin", "operator", "technician", "cashier"]);
 export type TenantUserRole = z.infer<typeof tenantUserRoleEnum>;
 
