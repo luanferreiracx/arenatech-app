@@ -76,6 +76,19 @@ describe("two-factor", () => {
       expect(verifyTotp(secret, "000000")).toBe(false);
     });
 
+    it("tolera dessincronia de ~1min (janela ±2)", () => {
+      const secret = generateTotpSecret();
+      const totp = new OTPAuth.TOTP({
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secret),
+      });
+      // Código gerado 50s atrás (t-2 steps) — rejeitado com window=1, aceito com ±2.
+      const skewed = totp.generate({ timestamp: Date.now() - 50_000 });
+      expect(verifyTotp(secret, skewed)).toBe(true);
+    });
+
     it("rejeita formatos inválidos sem lançar", () => {
       const secret = generateTotpSecret();
       expect(verifyTotp(secret, "")).toBe(false);
