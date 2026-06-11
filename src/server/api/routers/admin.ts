@@ -32,6 +32,7 @@ import {
   listPreRegistrationsSchema,
   listTenantsSchema,
   resetTenantUserPasswordSchema,
+  resetTenantUserTwoFactorSchema,
   createTenantUserSchema,
   updateTenantUserSchema,
   removeTenantUserSchema,
@@ -462,6 +463,63 @@ export const adminRouter = createTRPCRouter({
             id: membership.tenant.id,
             name: membership.tenant.name,
           },
+        };
+      });
+    }),
+
+  /** Desativa o 2FA de um usuário de tenant (recuperação de conta travada). */
+  resetTenantUserTwoFactor: adminProcedure
+    .input(resetTenantUserTwoFactorSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const membership = await tx.userTenant.findUnique({
+          where: {
+            userId_tenantId: {
+              userId: input.userId,
+              tenantId: input.tenantId,
+            },
+          },
+          select: {
+            role: true,
+            user: { select: { id: true, name: true, isSuperAdmin: true, twoFactorEnabled: true } },
+            tenant: { select: { id: true, name: true } },
+          },
+        });
+
+        if (!membership) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Usuario nao encontrado neste tenant",
+          });
+        }
+        if (membership.user.isSuperAdmin) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e permitido resetar 2FA de superadmin interno",
+          });
+        }
+
+        await tx.user.update({
+          where: { id: input.userId },
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+            twoFactorConfirmedAt: null,
+            twoFactorBackupCodes: [],
+          },
+        });
+
+        logger.info("Tenant user 2FA reset by superadmin", {
+          tenantId: membership.tenant.id,
+          userId: membership.user.id,
+          role: membership.role,
+          wasEnabled: membership.user.twoFactorEnabled,
+          byAdmin: ctx.session.user.id,
+        });
+
+        return {
+          user: { id: membership.user.id, name: membership.user.name },
+          tenant: { id: membership.tenant.id, name: membership.tenant.name },
         };
       });
     }),

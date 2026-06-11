@@ -8,6 +8,7 @@ import {
   listPreRegistrationsSchema,
   listTenantsSchema,
   resetTenantUserPasswordSchema,
+  resetTenantUserTwoFactorSchema,
   createTenantUserSchema,
   updateTenantUserSchema,
   removeTenantUserSchema,
@@ -165,6 +166,17 @@ describe("resetTenantUserPasswordSchema", () => {
   it("rejeita ids invalidos", () => {
     expect(resetTenantUserPasswordSchema.safeParse({ tenantId: "tenant", userId: UUID }).success).toBe(false);
     expect(resetTenantUserPasswordSchema.safeParse({ tenantId: UUID, userId: "user" }).success).toBe(false);
+  });
+});
+
+describe("resetTenantUserTwoFactorSchema", () => {
+  it("aceita tenant e usuario validos", () => {
+    expect(resetTenantUserTwoFactorSchema.safeParse({ tenantId: UUID, userId: UUID }).success).toBe(true);
+  });
+
+  it("rejeita ids invalidos", () => {
+    expect(resetTenantUserTwoFactorSchema.safeParse({ tenantId: "x", userId: UUID }).success).toBe(false);
+    expect(resetTenantUserTwoFactorSchema.safeParse({ tenantId: UUID, userId: "x" }).success).toBe(false);
   });
 });
 
