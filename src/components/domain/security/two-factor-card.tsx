@@ -43,7 +43,7 @@ function BackupCodes({ codes }: { codes: string[] }) {
   );
 }
 
-export function TwoFactorCard({ onDone }: { onDone?: () => void }) {
+export function TwoFactorCard() {
   const trpc = useTRPC();
   const statusQuery = useQuery(trpc.twoFactor.getStatus.queryOptions());
 
@@ -176,14 +176,7 @@ export function TwoFactorCard({ onDone }: { onDone?: () => void }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {backupCodes ? (
-          <div className="space-y-4">
-            <BackupCodes codes={backupCodes} />
-            {onDone && (
-              <Button type="button" className="w-full" onClick={onDone}>
-                Já guardei meus códigos — continuar
-              </Button>
-            )}
-          </div>
+          <BackupCodes codes={backupCodes} />
         ) : !enroll ? (
           <Button
             type="button"

@@ -4,7 +4,6 @@ import { compareSync } from "bcryptjs";
 import QRCode from "qrcode";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
-import { invalidateUserSecurity } from "@/server/auth";
 import { logger } from "@/lib/logger";
 import {
   buildOtpAuthUrl,
@@ -88,8 +87,6 @@ export const twoFactorRouter = createTRPCRouter({
         },
       });
 
-      // Reflete na sessão sem esperar o TTL do cache (evita loop no barrier).
-      invalidateUserSecurity(ctx.session.user.id);
       logger.info("2FA: ativado", { userId: ctx.session.user.id });
       return { backupCodes: codes };
     }),
@@ -142,7 +139,6 @@ export const twoFactorRouter = createTRPCRouter({
           twoFactorBackupCodes: [],
         },
       });
-      invalidateUserSecurity(ctx.session.user.id);
       logger.info("2FA: desativado", { userId: ctx.session.user.id });
       return { success: true };
     }),

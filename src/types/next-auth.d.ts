@@ -6,7 +6,6 @@ declare module "next-auth" {
     cpf: string;
     isSuperAdmin: boolean;
     mustChangePassword: boolean;
-    twoFactorEnabled: boolean;
   }
 
   interface Session {
@@ -17,7 +16,6 @@ declare module "next-auth" {
       cpf: string;
       isSuperAdmin: boolean;
       mustChangePassword: boolean;
-      twoFactorEnabled: boolean;
     };
     activeTenantId: string | null;
     impersonatedTenantId?: string | null;
@@ -38,7 +36,6 @@ declare module "next-auth/jwt" {
     cpf: string;
     isSuperAdmin: boolean;
     mustChangePassword: boolean;
-    twoFactorEnabled: boolean;
     activeTenantId: string | null;
     impersonatedTenantId?: string | null;
     availableTenants: Array<{

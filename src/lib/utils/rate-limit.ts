@@ -97,7 +97,7 @@ export function recordFailedAttempt(key: string, config: RateLimitConfig = DEFAU
 
 /**
  * Quantas tentativas falhas estão registradas na janela atual.
- * Usado para decidir o desafio adaptativo (ex.: exigir reCAPTCHA após N falhas).
+ * Usado para decidir o desafio adaptativo (ex.: exigir Turnstile após N falhas).
  * Janela expirada conta como 0.
  */
 export function getFailedAttempts(key: string, config: RateLimitConfig = DEFAULT_CONFIG): number {

@@ -7,21 +7,21 @@ import { headers } from "next/headers";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { getFailedAttempts } from "@/lib/utils/rate-limit";
 import { normalizeCpf } from "@/lib/validators/cpf";
-import { isRecaptchaConfigured, verifyRecaptcha } from "@/lib/recaptcha";
+import { isTurnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { TWO_FACTOR_REQUIRED_CODE, TWO_FACTOR_INVALID_CODE } from "@/lib/auth/two-factor-errors";
 
 const INVALID_CREDENTIALS = "CPF ou senha inválidos. Tente novamente.";
 
 /**
- * Após este número de falhas para o mesmo CPF, o login passa a exigir reCAPTCHA
- * (desafio adaptativo). O contador é o mesmo do `authorize()` (key `login:<cpf>`),
- * então não há dupla contagem — aqui só lemos para decidir o gate.
+ * Após este número de falhas para o mesmo CPF, o login passa a exigir o desafio
+ * do Turnstile (adaptativo). O contador é o mesmo do `authorize()` (key
+ * `login:<cpf>`), então não há dupla contagem — aqui só lemos para decidir o gate.
  */
 const CAPTCHA_AFTER_FAILED_ATTEMPTS = 3;
 
 export type LoginState = {
   error?: string;
-  /** Quando true, o cliente deve renderizar o widget do reCAPTCHA. */
+  /** Quando true, o cliente deve renderizar o widget do Turnstile. */
   captchaRequired?: boolean;
   /** Quando true, a senha está certa mas falta o código 2FA — pede o código. */
   twoFactorRequired?: boolean;
@@ -37,10 +37,10 @@ function clientIp(headerStore: Headers): string {
   );
 }
 
-/** Exige reCAPTCHA quando configurado e o CPF já acumulou falhas suficientes. */
+/** Exige Turnstile quando configurado e o CPF já acumulou falhas suficientes. */
 function captchaRequiredFor(cpf: string): boolean {
   return (
-    isRecaptchaConfigured() &&
+    isTurnstileConfigured() &&
     getFailedAttempts(`login:${cpf}`) >= CAPTCHA_AFTER_FAILED_ATTEMPTS
   );
 }
@@ -48,7 +48,7 @@ function captchaRequiredFor(cpf: string): boolean {
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const rawCpf = String(formData.get("cpf") ?? "");
   const password = String(formData.get("password") ?? "");
-  const recaptchaToken = String(formData.get("recaptchaToken") ?? "");
+  const turnstileToken = String(formData.get("turnstileToken") ?? "");
   const totp = String(formData.get("totp") ?? "");
   const cpf = normalizeCpf(rawCpf);
 
@@ -66,10 +66,10 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     }
   }
 
-  // Desafio adaptativo: após N falhas para este CPF, exige reCAPTCHA válido
+  // Desafio adaptativo: após N falhas para este CPF, exige Turnstile válido
   // ANTES de checar a senha (encarece o brute force sem atritar o caminho feliz).
   if (captchaRequiredFor(cpf)) {
-    const human = await verifyRecaptcha(recaptchaToken, ip);
+    const human = await verifyTurnstile(turnstileToken, ip);
     if (!human) {
       return {
         error: "Confirme que você não é um robô e tente novamente.",
