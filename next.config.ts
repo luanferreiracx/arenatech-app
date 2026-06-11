@@ -20,13 +20,13 @@ const isDev = process.env.NODE_ENV !== "production";
  * Cloudflare — liberamos o beacon de analytics defensivamente.
  */
 function buildCsp(): string {
-  // Google reCAPTCHA v2: o widget carrega api.js de www.google.com, assets de
-  // www.gstatic.com e abre o desafio num iframe de www.google.com.
-  const recaptchaHosts = ["https://www.google.com", "https://www.gstatic.com"];
+  // Cloudflare Turnstile: o widget carrega api.js de challenges.cloudflare.com,
+  // abre o desafio num iframe do mesmo host e troca o token via fetch.
+  const turnstileHost = "https://challenges.cloudflare.com";
 
   // Turbopack/React Refresh usam eval e websocket de HMR em dev.
-  const scriptSrc = ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com", ...recaptchaHosts];
-  const connectSrc = ["'self'", "https://cloudflareinsights.com", ...recaptchaHosts];
+  const scriptSrc = ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com", turnstileHost];
+  const connectSrc = ["'self'", "https://cloudflareinsights.com", turnstileHost];
   if (isDev) {
     scriptSrc.push("'unsafe-eval'");
     connectSrc.push("ws:");
@@ -43,8 +43,8 @@ function buildCsp(): string {
     ["style-src", ["'self'", "'unsafe-inline'"]],
     ["script-src", scriptSrc],
     ["connect-src", connectSrc],
-    // reCAPTCHA renderiza o desafio num iframe de www.google.com.
-    ["frame-src", ["'self'", "https://www.google.com"]],
+    // Turnstile renderiza o desafio num iframe de challenges.cloudflare.com.
+    ["frame-src", ["'self'", turnstileHost]],
     ["worker-src", ["'self'", "blob:"]],
     ["manifest-src", ["'self'"]],
     // Em prod, força subrecursos http para https (atrás de Cloudflare/HSTS).

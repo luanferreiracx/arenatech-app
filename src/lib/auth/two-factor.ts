@@ -10,7 +10,7 @@ import * as OTPAuth from "otpauth";
  * exige uma nova variável crítica. Rotacionar o NEXTAUTH_SECRET invalida os
  * segredos 2FA (usuários reconfiguram) — trade-off aceito e raro.
  *
- * @see docs/decisions/0049-login-recaptcha-2fa.md
+ * @see docs/decisions/0049-login-turnstile-2fa.md
  */
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;

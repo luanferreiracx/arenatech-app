@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import ReCAPTCHA from "react-google-recaptcha";
+import { Turnstile } from "@marsidev/react-turnstile";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,12 +11,12 @@ import { CpfInput } from "@/components/forms/cpf-input";
 import { Loader2, AlertCircle } from "lucide-react";
 import { loginAction, type LoginState } from "@/app/actions/auth";
 
-const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 export default function LoginPage() {
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
-  const [recaptchaToken, setRecaptchaToken] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
   const [totp, setTotp] = useState("");
 
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
@@ -24,7 +24,7 @@ export default function LoginPage() {
     {},
   );
 
-  // Token do reCAPTCHA é de uso único — o servidor o consome no siteverify. A
+  // Token do Turnstile é de uso único — o servidor o consome no siteverify. A
   // cada nova resposta do servidor, remontamos o widget (key) e limpamos o token
   // para o usuário resolver de novo. Padrão "ajustar estado ao mudar prop" do
   // React (set durante render, guardado), sem useEffect.
@@ -33,18 +33,18 @@ export default function LoginPage() {
   if (state !== handledState) {
     setHandledState(state);
     if (state.error) {
-      setRecaptchaToken("");
+      setTurnstileToken("");
       setCaptchaKey((k) => k + 1);
       setTotp("");
     }
   }
 
   // O desafio só aparece quando o servidor o exige (após N falhas) E há site key.
-  const showCaptcha = Boolean(state.captchaRequired && RECAPTCHA_SITE_KEY);
+  const showCaptcha = Boolean(state.captchaRequired && TURNSTILE_SITE_KEY);
   // Segunda etapa: senha OK, falta o código 2FA.
   const showTwoFactor = Boolean(state.twoFactorRequired);
   const submitDisabled =
-    pending || (showCaptcha && !recaptchaToken) || (showTwoFactor && totp.length < 6);
+    pending || (showCaptcha && !turnstileToken) || (showTwoFactor && totp.length < 6);
 
   return (
     <>
@@ -118,17 +118,19 @@ export default function LoginPage() {
             </div>
           )}
 
-          {showCaptcha && RECAPTCHA_SITE_KEY && (
+          {showCaptcha && TURNSTILE_SITE_KEY && (
             <div className="flex justify-center">
-              <ReCAPTCHA
+              <Turnstile
                 key={captchaKey}
-                sitekey={RECAPTCHA_SITE_KEY}
-                onChange={(token) => setRecaptchaToken(token ?? "")}
-                onExpired={() => setRecaptchaToken("")}
+                siteKey={TURNSTILE_SITE_KEY}
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken("")}
+                onError={() => setTurnstileToken("")}
+                options={{ theme: "auto" }}
               />
             </div>
           )}
-          <input type="hidden" name="recaptchaToken" value={recaptchaToken} />
+          <input type="hidden" name="turnstileToken" value={turnstileToken} />
 
           <Button type="submit" className="w-full" disabled={submitDisabled}>
             {pending ? (
