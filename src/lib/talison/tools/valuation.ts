@@ -47,7 +47,7 @@ export const consultarAvaliacao: TalisonTool<typeof consultarAvaliacaoSchema> = 
       if (!valuation) {
         return {
           ok: false as const,
-          reason: `Não há avaliação cadastrada para "${args.modelo}"${args.armazenamento ? ` ${args.armazenamento}` : ""}. Transfira pra um atendente avaliar o aparelho.`,
+          reason: `Não há avaliação cadastrada para "${args.modelo}"${args.armazenamento ? ` ${args.armazenamento}` : ""}. NÃO convide o cliente a ir à loja (pode ser algo que não recebemos): transfira pra um atendente humano confirmar se aceitamos e qual o valor.`,
         };
       }
 
