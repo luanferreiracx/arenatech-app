@@ -59,6 +59,7 @@ import { cancelPixPayment } from "@/lib/services/depix-service";
 import { createDeposit } from "@/server/services/depix-transaction.service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 import {
   reserveStockForOsItem,
   releaseStockForOsItem,
@@ -2638,7 +2639,7 @@ export const serviceOrderRouter = createTRPCRouter({
       // ETAPA 4 — envia via Meta Cloud (fora de tx tambem; falha nao reverte).
       if (result.signatureLink) {
         const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const appUrl = getAppBaseUrl();
         const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
         const autentiqueToken = extractShortlinkToken(result.signatureLink);
         const caption =
@@ -2919,8 +2920,7 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!phone) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone para envio." });
         }
-        const appUrl =
-          process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+        const appUrl = getAppBaseUrl();
         return {
           order,
           customerName: customer?.name ?? "Cliente",
@@ -3508,7 +3508,7 @@ export const serviceOrderRouter = createTRPCRouter({
       });
 
       // Envia via WhatsApp com botao "Assinar" (template os_termo_pdf_link).
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const appUrl = getAppBaseUrl();
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
       const pdfUrl = `${appUrl}/api/whatsapp-media/os-quote/pdf/${pdfToken}`;
       const autentiqueToken = autentique.signatureLink
@@ -3711,7 +3711,7 @@ export const serviceOrderRouter = createTRPCRouter({
       // ETAPA 2 — envio Meta Cloud (fora de tx; HTTP pode demorar).
       // Paridade Laravel OrdemServicoController::enviarReciboWhatsApp.
       const pdfToken = createPublicPdfToken(ctx.tenantId, input.orderId, 60 * 60 * 1000);
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+      const appUrl = getAppBaseUrl();
       const pdfUrl = `${appUrl}/api/whatsapp-media/os/pdf/${pdfToken}`;
       const caption = `📄 Recibo - OS #${order.number}\n\nOlá, ${customerName}! Segue em anexo o recibo da sua Ordem de Serviço.`;
       const wa = await sendPdfWithFallback({

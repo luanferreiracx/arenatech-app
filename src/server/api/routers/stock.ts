@@ -74,6 +74,7 @@ import {
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 
 type StockSourceProduct = {
   id: string;
@@ -1631,10 +1632,7 @@ export const stockRouter = createTRPCRouter({
             60 * 60 * 1000,
             "purchase_term",
           );
-          const appUrl =
-            process.env.NEXT_PUBLIC_APP_URL ??
-            process.env.NEXTAUTH_URL ??
-            "http://localhost:3000";
+          const appUrl = getAppBaseUrl();
           const pdfUrl = `${appUrl}/api/whatsapp-media/purchase/pdf/${pdfToken}`;
           const autentiqueToken = extractShortlinkToken(result.signatureLink);
           const caption =

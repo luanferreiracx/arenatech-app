@@ -10,6 +10,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { escapeHtml } from "@/lib/utils/html";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { generateResetToken, hashResetToken } from "@/lib/auth/reset-token";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 
 export const authRouter = createTRPCRouter({
   /** Return current session info */
@@ -80,7 +81,7 @@ export const authRouter = createTRPCRouter({
       });
 
       // Build reset link
-      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.APP_URL ?? "http://localhost:3000";
+      const baseUrl = getAppBaseUrl();
       const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
       // Send email — escapa nome do usuario para evitar HTML injection.

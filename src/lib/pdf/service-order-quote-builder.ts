@@ -6,6 +6,7 @@ import {
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withAdmin, withTenant } from "@/server/db";
 import { formatCpf } from "@/lib/utils";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 
 /**
  * Builda o PDF do orcamento adicional (revisao de orcamento da OS).
@@ -55,7 +56,7 @@ export async function buildServiceOrderQuotePdf(
     ),
   ]);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppBaseUrl();
   const approvalLinkUrl = `${appUrl}/quote/${quote.approvalLink}`;
 
   // Snapshots de itens: previous = estado pre-revisao (snapshot tirado quando

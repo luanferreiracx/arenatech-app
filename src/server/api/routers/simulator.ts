@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 import {
   simulateSchema,
   updateSimulatorConfigSchema,
@@ -209,10 +210,7 @@ export const simulatorRouter = createTRPCRouter({
 
       // Token HMAC carregando o payload da simulacao (TTL 1h). Sem Redis/banco.
       const token = createSignedPayloadToken<SimulatorPdfData>(pdfData, 60 * 60 * 1000);
-      const appUrl =
-        process.env.NEXT_PUBLIC_APP_URL ??
-        process.env.NEXTAUTH_URL ??
-        "https://app.arenatechpi.com.br";
+      const appUrl = getAppBaseUrl();
       const pdfUrl = `${appUrl}/api/whatsapp-media/simulator/pdf/${token}`;
 
       const sendResult = await sendPdfWithFallback({
