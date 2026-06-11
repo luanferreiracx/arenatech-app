@@ -19,6 +19,12 @@ const PDVDEPIX_HOSTS = new Set([
 /** Hosts que devem servir o catálogo público na raiz "/". */
 const PUBLIC_CATALOG_HOSTS = new Set(["catalogo.arenatechpi.com.br"]);
 
+/**
+ * Subdomínio legado da intranet — redirecionado para pdvdepix.app.
+ * O Nginx já faz o redirect na borda; esta função é defense-in-depth no proxy.
+ */
+const APP_SUBDOMAIN_HOSTS = new Set(["app.arenatechpi.com.br"]);
+
 /** Normaliza o header host (pega o primeiro proxy host e remove porta). */
 export function normalizeHost(host: string | null | undefined): string {
   if (!host) return "";
@@ -34,4 +40,9 @@ export function isLandingHost(host: string | null | undefined): boolean {
 /** O host atual deve servir o catálogo público na raiz? */
 export function isPublicCatalogHost(host: string | null | undefined): boolean {
   return PUBLIC_CATALOG_HOSTS.has(normalizeHost(host));
+}
+
+/** O host é o subdomínio legado da intranet (deve redirecionar para pdvdepix.app)? */
+export function isAppSubdomainHost(host: string | null | undefined): boolean {
+  return APP_SUBDOMAIN_HOSTS.has(normalizeHost(host));
 }

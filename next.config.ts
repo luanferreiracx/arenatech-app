@@ -64,7 +64,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "res.cloudinary.com" },
       { protocol: "http", hostname: "localhost", port: "9000" },
       { protocol: "http", hostname: "minio", port: "9000" },
-      { protocol: "https", hostname: "app.arenatechpi.com.br" },
+      { protocol: "https", hostname: "pdvdepix.app" },
     ],
   },
 
