@@ -17,17 +17,20 @@ const state = vi.hoisted(() => ({
     },
     chatbotConversation: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
     chatbotMessage: {
       findFirst: vi.fn(),
       create: vi.fn().mockResolvedValue({}),
+      update: vi.fn().mockResolvedValue({}),
     },
     chatbotFollowUp: {
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   },
+  sendBotMessage: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/server/db", () => ({
@@ -42,6 +45,10 @@ vi.mock("@/lib/webhooks/replay-guard", () => ({
 vi.mock("@/lib/talison/scheduler", () => ({
   scheduleTalisonRun: (tenantId: string, conversationId: string) =>
     state.scheduleTalisonRun(tenantId, conversationId),
+}));
+
+vi.mock("@/lib/talison/chatwoot-client", () => ({
+  sendBotMessage: (conversationId: string, content: string) => state.sendBotMessage(conversationId, content),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -111,7 +118,12 @@ beforeEach(() => {
   state.tx.chatbotConversation.update.mockClear();
   state.tx.chatbotMessage.create.mockClear();
   state.tx.chatbotMessage.findFirst.mockImplementation(() => Promise.resolve(state.recentBotEcho));
+  state.tx.chatbotMessage.update.mockClear();
+  state.tx.chatbotMessage.update.mockResolvedValue({});
+  state.tx.chatbotConversation.findUnique.mockReset();
   state.tx.chatbotFollowUp.updateMany.mockClear();
+  state.sendBotMessage.mockClear();
+  state.sendBotMessage.mockResolvedValue(true);
 });
 
 describe("POST /api/webhooks/chatwoot", () => {
@@ -238,5 +250,57 @@ describe("POST /api/webhooks/chatwoot", () => {
 
     expect(state.tx.chatbotMessage.create).not.toHaveBeenCalled();
     expect(state.scheduleTalisonRun).not.toHaveBeenCalled();
+  });
+
+  describe("message_updated (falha de entrega)", () => {
+    const failedPayload = (extra: Record<string, unknown> = {}) =>
+      makePayload({ event: "message_updated", id: "ext-1", status: "failed", ...extra });
+
+    it("marca falha e REENVIA a mensagem do bot (1x)", async () => {
+      state.tx.chatbotMessage.findFirst.mockResolvedValue({
+        id: "m1", senderType: "bot", content: "Olá! Como posso ajudar?",
+        conversationId: "c1", deliveryFailed: false, metadata: null,
+      });
+      state.tx.chatbotConversation.findUnique.mockResolvedValue({ externalId: "cw-42" });
+
+      await callWebhook(failedPayload());
+
+      expect(state.tx.chatbotMessage.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { deliveryFailed: true } }),
+      );
+      expect(state.tx.chatbotMessage.create).toHaveBeenCalled(); // reenvio persistido (isRetry)
+      expect(state.sendBotMessage).toHaveBeenCalledWith("cw-42", "Olá! Como posso ajudar?");
+    });
+
+    it("NÃO reenvia mensagem de atendente humano que falhou (só marca)", async () => {
+      state.tx.chatbotMessage.findFirst.mockResolvedValue({
+        id: "m2", senderType: "agent", content: "oi, sou o atendente",
+        conversationId: "c1", deliveryFailed: false, metadata: null,
+      });
+
+      await callWebhook(failedPayload());
+
+      expect(state.tx.chatbotMessage.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { deliveryFailed: true } }),
+      );
+      expect(state.sendBotMessage).not.toHaveBeenCalled();
+    });
+
+    it("NÃO reenvia um reenvio que falhou (evita loop)", async () => {
+      state.tx.chatbotMessage.findFirst.mockResolvedValue({
+        id: "m3", senderType: "bot", content: "Olá!",
+        conversationId: "c1", deliveryFailed: false, metadata: { isRetry: true },
+      });
+
+      await callWebhook(failedPayload());
+
+      expect(state.sendBotMessage).not.toHaveBeenCalled();
+    });
+
+    it("ignora status que não seja failed", async () => {
+      await callWebhook(failedPayload({ status: "delivered" }));
+      expect(state.tx.chatbotMessage.update).not.toHaveBeenCalled();
+      expect(state.sendBotMessage).not.toHaveBeenCalled();
+    });
   });
 });

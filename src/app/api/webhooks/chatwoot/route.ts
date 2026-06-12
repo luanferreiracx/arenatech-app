@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
 import { scheduleTalisonRun } from "@/lib/talison/scheduler"
+import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 
 /**
  * POST /api/webhooks/chatwoot
@@ -137,7 +138,16 @@ export async function POST(req: NextRequest) {
           metaSender?.phone_number ??
           ""
         ).replace(/\D/g, "")
-        const contactName = String(sender?.name ?? "")
+        // Nome do CONTATO (cliente) vem do meta.sender da conversa — esse é sempre
+        // o contato, independente de quem enviou a mensagem. Em mensagem OUTGOING,
+        // sender.name é o ATENDENTE; usar isso aqui corrompia o nome do cliente
+        // (alertas/leads saíam com o nome do atendente). Só caímos em sender.name
+        // quando é mensagem do próprio cliente (incoming).
+        const contactName = String(
+          metaSender?.name ??
+          (isIncoming ? sender?.name : undefined) ??
+          "",
+        )
         const externalConvId = String(conversation?.id ?? "")
         const senderUserId = sender?.id ? String(sender.id) : null
 
@@ -291,6 +301,58 @@ export async function POST(req: NextRequest) {
             chatwootStatus,
             messageType,
           })
+        }
+        break
+      }
+
+      case "message_updated": {
+        // Atualização de status de entrega (Chatwoot/Meta). Quando o envio FALHA:
+        //  - marca a ChatbotMessage como deliveryFailed (não conta como resposta);
+        //  - se for mensagem do BOT, reenvia UMA vez (falhas da Meta são
+        //    transitórias) — sem reenviar um reenvio (evita loop).
+        const messageId = String(body.id ?? "")
+        const status = String(body.status ?? "").toLowerCase()
+        if (!messageId || status !== "failed") break
+
+        const retry = await withAdmin(async (tx) => {
+          const msg = await tx.chatbotMessage.findFirst({
+            where: { tenantId, externalId: messageId },
+            select: { id: true, senderType: true, content: true, conversationId: true, deliveryFailed: true, metadata: true },
+          })
+          if (!msg || msg.deliveryFailed) return null
+          await tx.chatbotMessage.update({ where: { id: msg.id }, data: { deliveryFailed: true } })
+
+          const isRetry =
+            !!msg.metadata && typeof msg.metadata === "object" &&
+            (msg.metadata as Record<string, unknown>).isRetry === true
+          if (msg.senderType !== "bot" || isRetry || !msg.content.trim()) return null
+
+          const conv = await tx.chatbotConversation.findUnique({
+            where: { id: msg.conversationId },
+            select: { externalId: true },
+          })
+          if (!conv?.externalId) return null
+
+          // Persiste o reenvio já marcado como isRetry (não será reenviado de novo).
+          await tx.chatbotMessage.create({
+            data: {
+              tenantId,
+              conversationId: msg.conversationId,
+              direction: "outgoing",
+              senderType: "bot",
+              content: msg.content,
+              contentType: "text",
+              metadata: { isRetry: true },
+            },
+          })
+          return { externalId: conv.externalId, content: msg.content }
+        })
+
+        if (retry) {
+          logger.warn("Chatwoot webhook: reenviando mensagem do bot que falhou na entrega", {
+            externalConvId: retry.externalId,
+          })
+          void sendBotMessage(retry.externalId, retry.content)
         }
         break
       }

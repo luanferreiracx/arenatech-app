@@ -40,6 +40,10 @@ model ChatbotMessage {
   contentType       String   @default("text") @map("content_type") // text, image, document, audio
   mediaUrl          String?  @map("media_url")
   externalId        String?  @map("external_id") // Chatwoot message ID
+  // Entrega no WhatsApp falhou (status "failed" do Chatwoot/Meta). Mensagem
+  // falhada NÃO conta como resposta (ex.: atendente cujo envio falhou) e, se for
+  // do bot, é reenviada uma vez.
+  deliveryFailed    Boolean  @default(false) @map("delivery_failed")
   metadata          Json?
   createdAt         DateTime @default(now()) @map("created_at")
 
@@ -47,6 +51,7 @@ model ChatbotMessage {
 
   @@index([tenantId, conversationId])
   @@index([tenantId, createdAt])
+  @@index([tenantId, externalId])
   @@map("chatbot_messages")
 }
 

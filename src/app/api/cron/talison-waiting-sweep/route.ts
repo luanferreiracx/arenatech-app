@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
           messages: {
             orderBy: { createdAt: "desc" },
             take: 15,
-            select: { senderType: true, content: true, createdAt: true },
+            select: { senderType: true, content: true, createdAt: true, deliveryFailed: true },
           },
         },
         orderBy: { lastMessageAt: "asc" },
@@ -143,7 +143,10 @@ export async function POST(request: NextRequest) {
 
     for (const conv of candidates) {
       const lastCustomer = conv.messages.find((m) => m.senderType === "customer")?.createdAt ?? null
-      const lastAgent = conv.messages.find((m) => m.senderType === "agent")?.createdAt ?? null
+      // Resposta do atendente que FALHOU na entrega não conta (o cliente não
+      // recebeu) — senão o sweep acha que foi atendido e não alerta.
+      const lastAgent =
+        conv.messages.find((m) => m.senderType === "agent" && !m.deliveryFailed)?.createdAt ?? null
       if (!lastCustomer) continue
       // Humano respondeu depois do cliente → está atendendo, não mexe.
       if (lastAgent && lastAgent > lastCustomer) continue
