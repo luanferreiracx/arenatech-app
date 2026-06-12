@@ -1,7 +1,7 @@
 "use server";
 
 import { signIn, signOut, auth } from "@/server/auth";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { AuthError } from "next-auth";
 import { headers } from "next/headers";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
@@ -49,6 +49,21 @@ function captchaRequiredFor(cpf: string): boolean {
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  try {
+    return await runLogin(formData);
+  } catch (error) {
+    // redirect()/notFound() usam exceções de controle de fluxo — deixa passar.
+    unstable_rethrow(error);
+    // Qualquer outro erro inesperado (fora do signIn já tratado): loga e mostra
+    // mensagem amigável, nunca o error boundary global ("Algo deu errado").
+    logger.error("loginAction: erro inesperado", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { error: GENERIC_ERROR };
+  }
+}
+
+async function runLogin(formData: FormData): Promise<LoginState> {
   const rawCpf = String(formData.get("cpf") ?? "");
   const password = String(formData.get("password") ?? "");
   const turnstileToken = String(formData.get("turnstileToken") ?? "");
