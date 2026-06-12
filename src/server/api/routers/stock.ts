@@ -1847,13 +1847,22 @@ export const stockRouter = createTRPCRouter({
 
   /** Search products for autocomplete (EntitySelector) */
   searchProducts: tenantProcedure
-    .input(z.object({ search: z.string().min(1) }))
+    .input(
+      z.object({
+        search: z.string().min(1),
+        // Telas que so operam saldo por quantidade (baixa, ajuste por quantidade)
+        // passam true: serializados nao tem saldo agregado e sao recusados pelo
+        // servidor — esconde-los da busca evita o erro tardio e a confusao.
+        excludeSerialized: z.boolean().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const products = await tx.product.findMany({
           where: {
             deletedAt: null,
             active: true,
+            ...(input.excludeSerialized ? { isSerialized: false } : {}),
             OR: [
               { name: { contains: input.search, mode: "insensitive" } },
               { sku: { contains: input.search, mode: "insensitive" } },

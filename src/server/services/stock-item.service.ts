@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
+import { TRPCError } from "@trpc/server"
 import { isValidTransition } from "@/lib/validators/stock-item"
 
 /**
@@ -169,6 +170,18 @@ export async function adjustInventory(
   }
 ): Promise<void> {
   const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } })
+
+  // Serializados nao tem saldo agregado: currentStock deriva de
+  // count(StockItem AVAILABLE). Setar currentStock direto aqui corromperia o
+  // saldo exibido. A baixa/entrada de serializado e por StockItem (compra,
+  // venda, descarte) — nao por ajuste de quantidade.
+  if (product.isSerialized) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `"${product.name}" e um produto serializado — ajuste o estoque pelo item (IMEI/serie), nao por quantidade.`,
+    })
+  }
+
   const before = product.currentStock
   const diff = params.newQuantity - before
 

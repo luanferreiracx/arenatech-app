@@ -59,13 +59,26 @@ export default function StockExitPage() {
     }),
   );
 
-  const submit = form.handleSubmit((data) => {
-    const label = STOCK_WRITEOFF_REASONS.find((r) => r.code === reasonCode)?.label ?? reasonCode;
-    const reason = reasonDetail.trim()
-      ? `${label}: ${reasonDetail.trim()}`
-      : label;
-    exitMutation.mutate({ ...data, reason });
-  });
+  const submit = form.handleSubmit(
+    (data) => {
+      const label = STOCK_WRITEOFF_REASONS.find((r) => r.code === reasonCode)?.label ?? reasonCode;
+      const reason = reasonDetail.trim()
+        ? `${label}: ${reasonDetail.trim()}`
+        : label;
+      exitMutation.mutate({ ...data, reason });
+    },
+    // onInvalid: sem isto, o submit era bloqueado em silencio (botao "nao fazia
+    // nada") quando algum campo estava invalido — ex: quantidade vazia (NaN) ou
+    // produto nao selecionado. Agora avisa o operador.
+    (errors) => {
+      if (errors.productId) {
+        toast.error("Selecione um produto.");
+        return;
+      }
+      const first = errors.quantity ?? errors.variationId;
+      toast.error(first?.message ?? "Revise os campos destacados antes de registrar a baixa.");
+    },
+  );
 
   return (
     <div>
@@ -78,7 +91,7 @@ export default function StockExitPage() {
             <EntitySelector<ProductSearchResult>
               value={form.watch("productId")}
               onChange={(v) => {
-                form.setValue("productId", v ?? "");
+                form.setValue("productId", v ?? "", { shouldValidate: true });
                 form.setValue("variationId", null);
                 setSelectedProductHasVariations(false);
               }}
@@ -86,21 +99,40 @@ export default function StockExitPage() {
                 setSelectedProductHasVariations(p.hasVariations);
               }}
               searchFn={async (search) => {
+                // excludeSerialized: a baixa por quantidade nao se aplica a
+                // serializados (o servidor os recusa). Esconde-los da busca
+                // evita selecionar um produto que daria erro ao registrar.
                 return queryClient.fetchQuery(
-                  trpc.stock.searchProducts.queryOptions({ search }),
+                  trpc.stock.searchProducts.queryOptions({ search, excludeSerialized: true }),
                 ) as Promise<ProductSearchResult[]>;
               }}
               getOptionLabel={(p) => `${p.name}`}
               getOptionValue={(p) => p.id}
               placeholder="Buscar produto..."
             />
+            {form.formState.errors.productId && (
+              // productId so falha quando nada foi selecionado (campo e um uuid
+              // vindo do seletor) — mensagem direta em vez do "Invalid UUID" do Zod.
+              <p className="text-sm text-destructive">Selecione um produto.</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Aparelhos e itens com numero de serie nao aparecem aqui — sua baixa
+              e feita pela venda ou pelo descarte do item no estoque.
+            </p>
             {selectedProductHasVariations && (
-              <VariationPicker
-                productId={form.watch("productId") || null}
-                value={form.watch("variationId") ?? null}
-                onChange={(v) => form.setValue("variationId", v)}
-                showStock
-              />
+              <>
+                <VariationPicker
+                  productId={form.watch("productId") || null}
+                  value={form.watch("variationId") ?? null}
+                  onChange={(v) => form.setValue("variationId", v, { shouldValidate: true })}
+                  showStock
+                />
+                {form.formState.errors.variationId && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.variationId.message}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </FormSection>
@@ -110,6 +142,11 @@ export default function StockExitPage() {
             <div className="space-y-2">
               <Label>Quantidade *</Label>
               <Input type="number" min={1} {...form.register("quantity", { valueAsNumber: true })} />
+              {form.formState.errors.quantity && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.quantity.message}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Motivo da baixa *</Label>

@@ -100,7 +100,10 @@ export type ListProductsInput = z.infer<typeof listProductsSchema>;
 
 export const adjustStockSchema = z.object({
   productId: z.string().uuid(),
-  quantity: z.number().int().refine((v) => v !== 0, "Quantidade nao pode ser zero"),
+  quantity: z
+    .number({ error: "Informe a quantidade do ajuste" })
+    .int("Quantidade deve ser um numero inteiro")
+    .refine((v) => v !== 0, "Quantidade nao pode ser zero"),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
 });
 
@@ -359,7 +362,13 @@ export const stockExitSchema = z.object({
   productId: z.string().uuid(),
   /** Obrigatorio quando product.has_variations = true. */
   variationId: z.string().uuid().optional().nullable(),
-  quantity: z.number().int().min(1, "Quantidade minima e 1"),
+  // O `error` cobre o caso do input vazio (valueAsNumber -> NaN): antes a
+  // mensagem padrao do Zod era tecnica e, sem exibicao de erro na tela, o
+  // submit falhava em silencio (botao "nao fazia nada").
+  quantity: z
+    .number({ error: "Informe a quantidade" })
+    .int("Quantidade deve ser um numero inteiro")
+    .min(1, "Quantidade minima e 1"),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
 });
 

@@ -116,8 +116,10 @@ export default function BulkAdjustStockPage() {
               })
             }
             searchFn={async (search) => {
+              // Ajuste por quantidade nao se aplica a serializados (saldo deriva
+              // dos StockItems) — escondidos da busca para evitar erro tardio.
               return queryClient.fetchQuery(
-                trpc.stock.searchProducts.queryOptions({ search }),
+                trpc.stock.searchProducts.queryOptions({ search, excludeSerialized: true }),
               ) as Promise<ProductSearchResult[]>;
             }}
             getOptionLabel={(p) => `${p.name}${p.sku ? ` — ${p.sku}` : ""}`}

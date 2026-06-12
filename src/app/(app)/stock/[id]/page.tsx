@@ -89,9 +89,13 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 Voltar
               </Link>
             </Button>
-            <Button variant="outline" onClick={() => setShowAdjust(true)}>
-              Ajustar Estoque
-            </Button>
+            {/* Ajuste por quantidade nao se aplica a serializados (saldo deriva
+                dos StockItems) — escondido para evitar uma acao que so daria erro. */}
+            {!product.isSerialized && (
+              <Button variant="outline" onClick={() => setShowAdjust(true)}>
+                Ajustar Estoque
+              </Button>
+            )}
             <Button asChild>
               <Link href={`/stock/${id}/edit`}>
                 <Pencil className="mr-2 h-4 w-4" />
