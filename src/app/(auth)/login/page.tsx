@@ -68,32 +68,43 @@ export default function LoginPage() {
             </Alert>
           )}
 
-          {/* CPF e senha: ocultos na etapa do 2FA, mas mantidos no form para
-              reenvio (não guardamos a senha no servidor entre as etapas). */}
-          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
-            <Label htmlFor="cpf">CPF</Label>
-            <CpfInput
-              id="cpf"
-              name="cpf"
-              value={cpf}
-              onValueChange={setCpf}
-              autoComplete="username"
-              required
-            />
-          </div>
+          {/* Na etapa do 2FA o CPF e a senha viram inputs HIDDEN explícitos — o
+              servidor é stateless entre as etapas e precisa deles no reenvio.
+              Campos visíveis com display:none + password manager às vezes não
+              reenviavam o valor; o hidden garante. */}
+          {showTwoFactor ? (
+            <>
+              <input type="hidden" name="cpf" value={cpf} />
+              <input type="hidden" name="password" value={password} />
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="cpf">CPF</Label>
+                <CpfInput
+                  id="cpf"
+                  name="cpf"
+                  value={cpf}
+                  onValueChange={setCpf}
+                  autoComplete="username"
+                  required
+                />
+              </div>
 
-          <div className={showTwoFactor ? "hidden" : "space-y-1.5"}>
-            <Label htmlFor="password">Senha</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password">Senha</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+            </>
+          )}
 
           {showTwoFactor && (
             <div className="space-y-1.5">
