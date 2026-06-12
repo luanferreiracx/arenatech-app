@@ -28,6 +28,8 @@ export type LoginState = {
   captchaRequired?: boolean;
   /** Quando true, a senha está certa mas falta o código 2FA — pede o código. */
   twoFactorRequired?: boolean;
+  /** Login concluído — o cliente navega via window.location (navegação completa). */
+  success?: boolean;
 };
 
 function clientIp(headerStore: Headers): string {
@@ -146,11 +148,14 @@ async function runLogin(formData: FormData): Promise<LoginState> {
   const cookieStore = await cookies();
   cookieStore.delete("x-active-tenant");
 
-  // O cookie de sessão recém-criado pelo signIn() ainda não é legível por auth()
-  // nesta mesma request. Redirecionamos para /login: numa nova request (já com o
-  // cookie), o proxy roteia o usuário autenticado para o destino correto
-  // (painel / select-tenant / admin / no-access) — fonte única dessa lógica.
-  redirect("/login");
+  // NÃO usamos redirect() aqui de propósito. Um redirect() de Server Action para
+  // /painel (que o proxy ainda re-redireciona conforme o tenant) encadeia
+  // action-redirect → middleware-redirect numa navegação RSC e, em produção,
+  // caía no error boundary ("Algo deu errado") — embora a sessão JÁ estivesse
+  // criada (por isso uma navegação completa manual funcionava). Retornamos
+  // success e o cliente faz uma navegação COMPLETA (window.location), em que o
+  // proxy roteia normalmente. O Set-Cookie da sessão acompanha esta resposta.
+  return { success: true };
 }
 
 export async function logoutAction() {
