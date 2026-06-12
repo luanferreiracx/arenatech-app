@@ -221,82 +221,96 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   callbacks: {
     async jwt({ token, user }) {
-      // First call after login — populate token with user data + tenants
-      if (user) {
-        token.id = user.id!;
-        token.cpf = (user as { cpf: string }).cpf;
-        token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
-        token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
+      try {
+        // First call after login — populate token with user data + tenants
+        if (user) {
+          token.id = user.id!;
+          token.cpf = (user as { cpf: string }).cpf;
+          token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
+          token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
 
-        const userTenants = await withAdmin(async (tx) => {
-          return tx.userTenant.findMany({
-            where: {
-              userId: user.id!,
-              tenant: { status: ACTIVE_TENANT_STATUS },
-            },
-            include: {
-              tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
-            },
+          const userTenants = await withAdmin(async (tx) => {
+            return tx.userTenant.findMany({
+              where: {
+                userId: user.id!,
+                tenant: { status: ACTIVE_TENANT_STATUS },
+              },
+              include: {
+                tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
+              },
+            });
           });
-        });
 
-        const modulesByTenantId = await resolveModulesByTenant(
-          userTenants.map((ut) => ({
-            slug: ut.tenant.slug,
-            plan: ut.tenant.plan,
+          const modulesByTenantId = await resolveModulesByTenant(
+            userTenants.map((ut) => ({
+              slug: ut.tenant.slug,
+              plan: ut.tenant.plan,
+              id: ut.tenant.id,
+              status: ut.tenant.status,
+            })),
+          );
+
+          token.availableTenants = userTenants.map((ut) => ({
             id: ut.tenant.id,
-            status: ut.tenant.status,
-          })),
-        );
+            slug: ut.tenant.slug,
+            name: ut.tenant.name,
+            role: ut.role,
+            modules: modulesByTenantId.get(ut.tenant.id) ?? [],
+          }));
 
-        token.availableTenants = userTenants.map((ut) => ({
-          id: ut.tenant.id,
-          slug: ut.tenant.slug,
-          name: ut.tenant.name,
-          role: ut.role,
-          modules: modulesByTenantId.get(ut.tenant.id) ?? [],
-        }));
+          token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
+          token.impersonatedTenantId = null;
+        } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
+          if (typeof token.id === "string") {
+            token.mustChangePassword = await resolveMustChangePassword(token.id);
+          }
 
-        token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
-        token.impersonatedTenantId = null;
-      } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
-        if (typeof token.id === "string") {
+          // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
+          // do plano atual, com cache de curta duração (TTL). Garante que mudar o
+          // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
+          // bater no banco a cada request. (Decisão: "JWT + invalidar ao mudar plano".)
+          const current = token.availableTenants as Array<{
+            id: string;
+            slug: string;
+            name: string;
+            role: string;
+            modules: string[];
+          }>;
+          const fresh = await resolveModulesByTenant(
+            current.map((t) => ({ slug: t.slug, plan: null, id: t.id })),
+            { withPlan: true },
+          );
+          token.availableTenants = current
+            .filter((t) => fresh.has(t.id))
+            .map((t) => ({
+              ...t,
+              modules: fresh.get(t.id) ?? t.modules,
+            }));
+
+          if (
+            typeof token.activeTenantId === "string" &&
+            !fresh.has(token.activeTenantId)
+          ) {
+            token.activeTenantId = null;
+          }
+        } else if (typeof token.id === "string") {
           token.mustChangePassword = await resolveMustChangePassword(token.id);
         }
 
-        // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
-        // do plano atual, com cache de curta duração (TTL). Garante que mudar o
-        // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
-        // bater no banco a cada request. (Decisão: "JWT + invalidar ao mudar plano".)
-        const current = token.availableTenants as Array<{
-          id: string;
-          slug: string;
-          name: string;
-          role: string;
-          modules: string[];
-        }>;
-        const fresh = await resolveModulesByTenant(
-          current.map((t) => ({ slug: t.slug, plan: null, id: t.id })),
-          { withPlan: true },
-        );
-        token.availableTenants = current
-          .filter((t) => fresh.has(t.id))
-          .map((t) => ({
-            ...t,
-            modules: fresh.get(t.id) ?? t.modules,
-          }));
-
-        if (
-          typeof token.activeTenantId === "string" &&
-          !fresh.has(token.activeTenantId)
-        ) {
-          token.activeTenantId = null;
-        }
-      } else if (typeof token.id === "string") {
-        token.mustChangePassword = await resolveMustChangePassword(token.id);
+        return token;
+      } catch (error) {
+        // Caminho de LOGIN (user presente): deixa o erro subir — o loginAction
+        // trata e mostra mensagem amigável.
+        if (user) throw error;
+        // Caminho de REFRESH (sem user, roda em TODA navegação via proxy): uma
+        // falha de banco aqui NÃO pode derrubar a navegação para o error boundary
+        // ("Algo deu errado"). Degrada mantendo o token atual (módulos/tenants do
+        // último refresh) — o cache/TTL já pressupõe essa tolerância.
+        logger.error("jwt refresh falhou — mantendo token atual", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return token;
       }
-
-      return token;
     },
 
     async session({ session, token }) {
