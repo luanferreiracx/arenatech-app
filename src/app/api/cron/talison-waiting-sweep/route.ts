@@ -6,7 +6,7 @@ import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { sendGroupMessage } from "@/lib/services/whatsapp-service"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 import { isStoreOpen, businessHoursLabel } from "@/lib/talison/business-hours"
-import { isCustomerWaitingReply } from "@/lib/talison/intent"
+import { isCustomerWaitingReply, looksLikeWaitingNudge } from "@/lib/talison/intent"
 import { recordTalisonMetric } from "@/lib/talison/metrics"
 
 export const dynamic = "force-dynamic"
@@ -164,9 +164,20 @@ export async function POST(request: NextRequest) {
       // cliente está MESMO aguardando — não quando ele só encerrou ("ok",
       // "obrigado", "tô a caminho"). Decisão cacheada por mensagem do cliente
       // (não reclassifica a cada minuto).
+      // Cutucada/pergunta óbvia ("ola?", "tem retorno?") = está aguardando,
+      // sem depender do modelo (que às vezes erra e classifica como encerrado).
+      const lastCustomerMsg = conv.messages.find((m) => m.senderType === "customer")?.content
+      const nudge = looksLikeWaitingNudge(lastCustomerMsg)
+
       let waiting: boolean
       let freshlyClassified = false
-      if (baseMeta.waitingDecisionAt === lastCustomerIso && typeof baseMeta.waiting === "boolean") {
+      if (nudge) {
+        waiting = true
+        if (baseMeta.waitingDecisionAt !== lastCustomerIso || baseMeta.waiting !== true) {
+          patch.waitingDecisionAt = lastCustomerIso
+          patch.waiting = true
+        }
+      } else if (baseMeta.waitingDecisionAt === lastCustomerIso && typeof baseMeta.waiting === "boolean") {
         waiting = baseMeta.waiting
       } else {
         const transcript = conv.messages

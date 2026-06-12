@@ -21,8 +21,23 @@ const SYSTEM_PROMPT =
   "Você analisa o fim de uma conversa de WhatsApp de uma loja de tecnologia. " +
   "Decida se o CLIENTE está AGUARDANDO uma resposta ou ação da loja, ou se " +
   "apenas ENCERROU a conversa (agradeceu, confirmou, disse ok/tchau/beleza, " +
-  "ou avisou que vai/está indo à loja). Responda SOMENTE com uma palavra: " +
-  "AGUARDANDO ou ENCERROU.";
+  "ou avisou que vai/está indo à loja). Na dúvida, prefira AGUARDANDO. " +
+  "Cutucadas como 'oi?', 'olá?', 'tem retorno?', 'alguém aí?', 'cadê?' significam " +
+  "AGUARDANDO. Responda SOMENTE com uma palavra: AGUARDANDO ou ENCERROU.";
+
+/**
+ * Heurística determinística: a última mensagem do cliente é claramente uma
+ * cutucada/pergunta de quem está ESPERANDO resposta? Cobre os casos óbvios que
+ * o modelo pequeno às vezes erra (ex.: classificar "ola?" como encerrado).
+ */
+export function looksLikeWaitingNudge(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().toLowerCase();
+  if (!t) return false;
+  if (t.endsWith("?")) return true;
+  return /^(oi+|ol[áa]+|opa|e a[íi]|al[ôo]|alguem|algu[ée]m|cad[êe]|ainda|demora|tem (algum )?(retorno|novidade|previs[ãa]o))/.test(
+    t,
+  );
+}
 
 /**
  * O cliente está aguardando uma resposta/ação da loja?
