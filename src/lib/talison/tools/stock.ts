@@ -23,6 +23,14 @@ import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
 const MAX_RESULTS = 8;
 const ACESSORIO_PIX_DISCOUNT = 0.05;
 
+/** Base do catálogo público (configurável). Link já com a busca aplicada. */
+const CATALOG_BASE_URL = process.env.TALISON_CATALOG_URL ?? "https://catalogo.arenatechpi.com.br";
+
+/** Monta o link do catálogo público com a busca do cliente já aplicada. */
+function catalogSearchLink(term: string): string {
+  return `${CATALOG_BASE_URL.replace(/\/$/, "")}/catalog?q=${encodeURIComponent(term)}`;
+}
+
 const STORAGE_OR_COLOR_WORDS = new Set(["64", "64gb", "128", "128gb", "256", "256gb", "512", "512gb", "1tb"]);
 
 /** Tradução do enum DeviceCondition pra linguagem de cliente. */
@@ -232,7 +240,9 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
     "Busca acessórios, periféricos, eletrônicos e produtos diversos no catálogo (capa, película, fone, cabo, " +
     "carregador, adaptador, mouse, teclado, figurinhas, álbuns, e itens inusitados). Use quando o cliente " +
     "perguntar por qualquer produto que não seja um aparelho. A tool procura nos dois catálogos (acessórios " +
-    "e aparelhos) antes de dizer que não tem. Se mesmo assim vier vazio, informe indisponibilidade e ofereça transferir.",
+    "e aparelhos) antes de dizer que não tem. O retorno inclui um LINK do catálogo público já com a busca do " +
+    "cliente aplicada — compartilhe esse link com o cliente pra ele ver fotos e variações (cor/modelo). " +
+    "Se mesmo assim vier vazio, informe indisponibilidade e ofereça transferir.",
   schema: buscarAcessorioSchema,
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
@@ -276,10 +286,11 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           return `${product.name}: ${priceLabel} — ${quantity} em estoque`;
         });
 
+        const link = catalogSearchLink(term);
         return {
           ok: true as const,
-          data: { total: products.length, algum_em_estoque: true },
-          display: lines.join("\n"),
+          data: { total: products.length, algum_em_estoque: true, link_catalogo: link },
+          display: `${lines.join("\n")}\n\n👉 Ver mais opções (cores/modelos) com fotos no catálogo: ${link}`,
         };
       }
 
@@ -304,12 +315,14 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           : [];
 
       if (devices.length > 0) {
+        const link = catalogSearchLink(term);
         return {
           ok: true as const,
-          data: { total: devices.length, fonte: "catalogo", algum_em_estoque: true },
+          data: { total: devices.length, fonte: "catalogo", algum_em_estoque: true, link_catalogo: link },
           display:
             devices.map(formatDeviceLine).join("\n") +
-            "\n_Valores no PIX/à vista. No cartão há acréscimo._",
+            "\n_Valores no PIX/à vista. No cartão há acréscimo._" +
+            `\n\n👉 Ver mais com fotos no catálogo: ${link}`,
         };
       }
 
