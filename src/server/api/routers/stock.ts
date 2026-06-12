@@ -59,6 +59,7 @@ import {
   stockWriteOffSchema,
   stockAdjustmentSchema,
   changeStockItemStatusSchema,
+  disposeStockItemSchema,
   listStockItemsSchema,
   searchImeiSchema,
   isValidTransition,
@@ -70,6 +71,7 @@ import {
   exitNonSerialized,
   adjustInventory,
   changeItemStatus,
+  disposeStockItem,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
@@ -1847,13 +1849,22 @@ export const stockRouter = createTRPCRouter({
 
   /** Search products for autocomplete (EntitySelector) */
   searchProducts: tenantProcedure
-    .input(z.object({ search: z.string().min(1) }))
+    .input(
+      z.object({
+        search: z.string().min(1),
+        // Telas que so operam saldo por quantidade (baixa, ajuste por quantidade)
+        // passam true: serializados nao tem saldo agregado e sao recusados pelo
+        // servidor — esconde-los da busca evita o erro tardio e a confusao.
+        excludeSerialized: z.boolean().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const products = await tx.product.findMany({
           where: {
             deletedAt: null,
             active: true,
+            ...(input.excludeSerialized ? { isSerialized: false } : {}),
             OR: [
               { name: { contains: input.search, mode: "insensitive" } },
               { sku: { contains: input.search, mode: "insensitive" } },
@@ -4268,6 +4279,24 @@ export const stockRouter = createTRPCRouter({
           reason: input.reason,
           reservedForType: input.reservedForType,
           reservedForId: input.reservedForId,
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Baixa/descarte de uma unidade serializada (soft delete + movimento EXIT). */
+  disposeStockItem: tenantProcedure
+    .input(disposeStockItemSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      // Baixa de patrimonio (perda) exige manager+ — mesmo nivel de DEFECTIVE.
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para dar baixa em itens." });
+      }
+      return ctx.withTenant(async (tx) => {
+        await disposeStockItem(tx as any, ctx.tenantId, ctx.session.user.id, {
+          stockItemId: input.stockItemId,
+          reason: input.reason,
         });
         return { success: true };
       });

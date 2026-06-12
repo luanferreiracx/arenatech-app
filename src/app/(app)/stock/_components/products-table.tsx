@@ -26,6 +26,7 @@ interface ProductRow {
   unit: string;
   active: boolean;
   hasVariations: boolean;
+  isSerialized: boolean;
   thumbnailUrl: string | null;
 }
 
@@ -172,19 +173,23 @@ export function ProductsTable() {
               <Eye className="h-4 w-4" />
             </Link>
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label={`Ajustar estoque de ${row.original.name}`}
-            onClick={() => setAdjustTarget({
-              id: row.original.id,
-              name: row.original.name,
-              currentStock: row.original.currentStock,
-            })}
-          >
-            <span className="text-xs font-medium">+/-</span>
-          </Button>
+          {/* Ajuste por quantidade nao se aplica a serializados (saldo deriva
+              dos StockItems) — o botao some para evitar uma acao que so daria erro. */}
+          {!row.original.isSerialized && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Ajustar estoque de ${row.original.name}`}
+              onClick={() => setAdjustTarget({
+                id: row.original.id,
+                name: row.original.name,
+                currentStock: row.original.currentStock,
+              })}
+            >
+              <span className="text-xs font-medium">+/-</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
