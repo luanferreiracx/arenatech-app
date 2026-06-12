@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { stockMovementTypeLabels } from "@/lib/validators/stock";
 import { AdjustStockDialog } from "../_components/adjust-stock-dialog";
+import { StockItemsPanel } from "../_components/stock-items-panel";
 import { useState } from "react";
 
 function formatCurrency(value: unknown): string {
@@ -218,6 +219,12 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{product.description}</p>
           </CardContent>
         </Card>
+      )}
+
+      {product.isSerialized && (
+        <div className="mb-6">
+          <StockItemsPanel productId={product.id} />
+        </div>
       )}
 
       <Card>

@@ -94,6 +94,15 @@ export const changeStockItemStatusSchema = z.object({
 
 export type ChangeStockItemStatusInput = z.infer<typeof changeStockItemStatusSchema>
 
+// ── Baixa/descarte de unidade serializada ──
+// Motivo obrigatorio: baixa de patrimonio precisa de justificativa rastreavel.
+export const disposeStockItemSchema = z.object({
+  stockItemId: z.string().uuid(),
+  reason: z.string().min(3, "Descreva o motivo da baixa").max(200),
+})
+
+export type DisposeStockItemInput = z.infer<typeof disposeStockItemSchema>
+
 // ── List/filter ──
 
 export const listStockItemsSchema = z.object({

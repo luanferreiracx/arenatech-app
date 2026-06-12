@@ -279,3 +279,60 @@ export async function changeItemStatus(
     },
   })
 }
+
+/**
+ * Baixa/descarte de um StockItem serializado: tira a unidade do estoque de vez
+ * (soft delete) e registra o movimento de saida com motivo. Usado quando o
+ * aparelho vira perda total (nao sera vendido). Difere de marcar DEFECTIVE, que
+ * mantem a unidade no estoque (pode ser vendida "como esta" pelo PDV depois).
+ *
+ * So permite descartar itens que estao no estoque (AVAILABLE/DEFECTIVE/BLOCKED/
+ * RETURNED). SOLD e RESERVED tem fluxo proprio (estorno/liberacao) e nao podem
+ * ser descartados direto — evita apagar rastro de uma venda/reserva ativa.
+ */
+const DISPOSABLE_STATUSES = new Set(["AVAILABLE", "DEFECTIVE", "BLOCKED", "RETURNED"])
+
+export async function disposeStockItem(
+  tx: PrismaClient,
+  tenantId: string,
+  userId: string,
+  params: { stockItemId: string; reason: string }
+): Promise<void> {
+  const item = await tx.stockItem.findUniqueOrThrow({
+    where: { id: params.stockItemId },
+  })
+
+  if (item.deletedAt) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Este item ja foi baixado." })
+  }
+  if (!DISPOSABLE_STATUSES.has(item.status)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        item.status === "SOLD"
+          ? "Item vendido: a baixa e feita por estorno da venda, nao por descarte."
+          : item.status === "RESERVED"
+            ? "Item reservado: libere a reserva antes de descartar."
+            : `Nao e possivel descartar um item no status ${item.status}.`,
+    })
+  }
+
+  await tx.stockItem.update({
+    where: { id: params.stockItemId },
+    data: { status: "DEFECTIVE", deletedAt: new Date() },
+  })
+
+  await tx.stockMovement.create({
+    data: {
+      tenantId,
+      productId: item.productId,
+      variationId: item.variationId,
+      stockItemId: params.stockItemId,
+      type: "EXIT",
+      quantity: 1,
+      reason: params.reason,
+      referenceType: "dispose",
+      userId,
+    },
+  })
+}

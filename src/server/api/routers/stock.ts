@@ -59,6 +59,7 @@ import {
   stockWriteOffSchema,
   stockAdjustmentSchema,
   changeStockItemStatusSchema,
+  disposeStockItemSchema,
   listStockItemsSchema,
   searchImeiSchema,
   isValidTransition,
@@ -70,6 +71,7 @@ import {
   exitNonSerialized,
   adjustInventory,
   changeItemStatus,
+  disposeStockItem,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
@@ -4277,6 +4279,24 @@ export const stockRouter = createTRPCRouter({
           reason: input.reason,
           reservedForType: input.reservedForType,
           reservedForId: input.reservedForId,
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Baixa/descarte de uma unidade serializada (soft delete + movimento EXIT). */
+  disposeStockItem: tenantProcedure
+    .input(disposeStockItemSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      // Baixa de patrimonio (perda) exige manager+ — mesmo nivel de DEFECTIVE.
+      if (!userRole || userRole === "operator") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para dar baixa em itens." });
+      }
+      return ctx.withTenant(async (tx) => {
+        await disposeStockItem(tx as any, ctx.tenantId, ctx.session.user.id, {
+          stockItemId: input.stockItemId,
+          reason: input.reason,
         });
         return { success: true };
       });
