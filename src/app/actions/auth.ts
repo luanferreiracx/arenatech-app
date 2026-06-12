@@ -74,6 +74,15 @@ async function runLogin(formData: FormData): Promise<LoginState> {
   const ip = clientIp(headerStore);
   const hasClientIp = ip !== "unknown";
 
+  // Diagnóstico (sem segredos): permite ver, nos logs, se a 2ª etapa do 2FA
+  // chegou sem senha (causa de "voltar para o login") ou com totp.
+  logger.info("loginAction: tentativa", {
+    cpfPrefix: cpf.slice(0, 3),
+    cpfLen: cpf.length,
+    hasPassword: password.length > 0,
+    hasTotp: totp.length > 0,
+  });
+
   // Rate limit por IP: 5 tentativas/min. Só aplica quando temos um IP atribuível
   // (atrás do nginx). Sem proxy/headers, todos cairiam no bucket "unknown" e um
   // usuário bloquearia os outros — então pulamos.
@@ -112,7 +121,14 @@ async function runLogin(formData: FormData): Promise<LoginState> {
       if (code === RATE_LIMITED_CODE) {
         return { error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." };
       }
-      // A falha já foi contabilizada dentro do authorize(); reavalia o gate.
+      // Credenciais inválidas (ou senha ausente na 2ª etapa). Loga o code real
+      // para diagnóstico — "CredentialsSignin" genérico aqui com hasTotp=true
+      // indica que a senha não chegou no reenvio do 2FA.
+      logger.warn("loginAction: credenciais inválidas", {
+        code: code ?? "(sem code)",
+        hadTotp: totp.length > 0,
+        hadPassword: password.length > 0,
+      });
       return { error: INVALID_CREDENTIALS, captchaRequired: captchaRequiredFor(cpf) };
     }
 
