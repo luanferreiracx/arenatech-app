@@ -326,9 +326,17 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
         };
       }
 
+      // Não achou por nome exato — mas acessórios (capa, película, fone, cabo,
+      // carregador) costumam estar cadastrados com nome genérico, sem o modelo.
+      // NÃO negue ("não temos"): ofereça o link do catálogo pra o cliente navegar
+      // com fotos. Só transfira/diga indisponível se o cliente pedir.
+      const link = catalogSearchLink(term);
       return {
-        ok: false as const,
-        reason: `Não encontrei "${term}" disponível em nenhum dos catálogos agora. Informe a indisponibilidade e ofereça transferir para um atendente confirmar ou sugerir alternativa.`,
+        ok: true as const,
+        data: { total: 0, encontrou_exato: false, link_catalogo: link },
+        display:
+          `Não achei um resultado exato pra "${term}" por aqui, mas pode estar no catálogo com outro nome. ` +
+          `Dá uma olhada nas opções com fotos: ${link}`,
       };
     });
   },
