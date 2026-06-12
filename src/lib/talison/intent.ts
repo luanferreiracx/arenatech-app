@@ -40,6 +40,22 @@ export function looksLikeWaitingNudge(text: string | null | undefined): boolean 
 }
 
 /**
+ * A última mensagem do cliente é um encerramento/adiamento ÓBVIO (agradeceu,
+ * ok, vai pensar, tô a caminho)? Usado pra NÃO alertar/incomodar quem encerrou.
+ * Conservador: só pega casos claros — "sim"/"certo" NÃO contam (podem ser um
+ * "sim, me transfere" de quem segue aguardando).
+ */
+export function isObviousCloser(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().toLowerCase().replace(/[!.…\s]+$/u, "");
+  if (!t) return false;
+  // Só emojis/agradecimento/curto de fechamento.
+  if (/^[\p{Emoji}\s]+$/u.test(t)) return true;
+  return /^(ok|okay|okww|blz|beleza|valeu|vlw|obrigad[oa]+|brigad[oa]+|agradec|tchau|at[ée]( mais| logo| breve)?|falou|tmj|tranquilo|de nada|por nada|imagina|vou pensar|vou ver|vou analisar|depois( eu)? (vejo|volto|retorno|falo)|mais tarde|j[áa] (volto|retorno)|vou conversar|(t[ôo]|estou|j[áa] (t[ôo]|estou)) (indo|a caminho)|a caminho|vou a[íi]|vou na loja|vou at[ée])/.test(
+    t,
+  );
+}
+
+/**
  * O cliente está aguardando uma resposta/ação da loja?
  * `transcript` deve trazer as últimas mensagens (cliente por último).
  */

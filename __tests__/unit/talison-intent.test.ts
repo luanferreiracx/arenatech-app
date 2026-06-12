@@ -8,7 +8,20 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { isCustomerWaitingReply, looksLikeWaitingNudge } from "@/lib/talison/intent";
+import { isCustomerWaitingReply, looksLikeWaitingNudge, isObviousCloser } from "@/lib/talison/intent";
+
+describe("isObviousCloser", () => {
+  it("reconhece encerramentos/adiamentos óbvios", () => {
+    for (const t of ["ok", "obrigado", "obrigada!", "valeu", "vlw", "tchau", "até mais", "vou pensar", "vou ver", "tô a caminho", "vou na loja", "👍", "🙏"]) {
+      expect(isObviousCloser(t)).toBe(true);
+    }
+  });
+  it("NÃO marca 'sim'/'certo'/perguntas como encerramento", () => {
+    for (const t of ["sim", "certo", "tem retorno?", "ola?", "quero o 16 pro", "qual o valor"]) {
+      expect(isObviousCloser(t)).toBe(false);
+    }
+  });
+});
 
 describe("looksLikeWaitingNudge", () => {
   it("detecta cutucadas/perguntas como aguardando", () => {
