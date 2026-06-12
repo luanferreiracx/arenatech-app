@@ -357,14 +357,19 @@ describe("buscar_acessorio", () => {
     }
   });
 
-  it("retorna ok:false quando o item não está em nenhum dos catálogos", async () => {
+  it("quando não acha por nome exato, oferece o link do catálogo (não nega)", async () => {
     const tx = {
       product: { findMany: vi.fn().mockResolvedValue([]) },
       catalogDevice: { findMany: vi.fn().mockResolvedValue([]) },
     } as unknown as Partial<TalisonTx>;
 
-    const result = await buscarAcessorio.execute({ termo: "capa s20" }, makeCtx(tx));
-    expect(result.ok).toBe(false);
+    const result = await buscarAcessorio.execute({ termo: "capinha iphone 17" }, makeCtx(tx));
+    // Não nega ("não temos"): devolve ok:true com o link pro cliente navegar.
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.display).toContain("catalogo.arenatechpi.com.br/catalog?q=capinha%20iphone%2017");
+      expect(result.data.link_catalogo).toBeTruthy();
+    }
   });
 
   it("acha no catálogo de aparelhos quando não existe como acessório (figurinha)", async () => {
