@@ -85,12 +85,34 @@ export function buildOtpAuthUrl(base32Secret: string, accountLabel: string): str
   return buildTotp(base32Secret, accountLabel).toString();
 }
 
-/** Valida um código TOTP de 6 dígitos contra o segredo (janela ±1). */
+/** Valida um código TOTP de 6 dígitos contra o segredo (janela ±2). */
 export function verifyTotp(base32Secret: string, token: string): boolean {
   const normalized = token.replace(/\s/g, "");
   if (!/^\d{6}$/.test(normalized)) return false;
   const delta = buildTotp(base32Secret, "x").validate({ token: normalized, window: TOTP_WINDOW });
   return delta !== null;
+}
+
+// Janela larga (±5min) usada SÓ para diagnóstico — nunca para aceitar um login.
+const TOTP_DIAGNOSTIC_WINDOW = 10;
+
+/**
+ * Classifica a falha de um código que NÃO passou no verifyTotp:
+ * - `{ skewSteps }` (≠0): o código casa com o segredo, mas fora da janela →
+ *   relógio dessincronizado em ~`skewSteps * 30s` (negativo = código atrasado).
+ * - `null`: o código não casa com este segredo nem em ±5min → é de outra config
+ *   (entrada antiga no app) ou simplesmente errado.
+ *
+ * Não vaza o código nem o segredo — só o offset de tempo.
+ */
+export function diagnoseTotpFailure(base32Secret: string, token: string): { skewSteps: number } | null {
+  const normalized = token.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(normalized)) return null;
+  const delta = buildTotp(base32Secret, "x").validate({
+    token: normalized,
+    window: TOTP_DIAGNOSTIC_WINDOW,
+  });
+  return delta === null ? null : { skewSteps: delta };
 }
 
 const BACKUP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem chars ambíguos

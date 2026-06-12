@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import {
   buildOtpAuthUrl,
   decryptSecret,
+  diagnoseTotpFailure,
   encryptSecret,
   generateBackupCodes,
   generateTotpSecret,
@@ -73,8 +74,31 @@ export const twoFactorRouter = createTRPCRouter({
       if (!user?.twoFactorSecret) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Inicie a configuração do 2FA primeiro." });
       }
-      if (!verifyTotp(decryptSecret(user.twoFactorSecret), input.code)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Código inválido. Tente novamente." });
+      const secret = decryptSecret(user.twoFactorSecret);
+      if (!verifyTotp(secret, input.code)) {
+        // Distingue as duas causas reais de "código não bate":
+        const diag = diagnoseTotpFailure(secret, input.code);
+        if (diag) {
+          // O código casa com ESTE segredo, mas fora da janela → relógio fora.
+          const seconds = Math.abs(diag.skewSteps) * 30;
+          logger.warn("2FA confirm: código fora da janela de tempo (clock skew)", {
+            userId: ctx.session.user.id,
+            skewSteps: diag.skewSteps,
+          });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `O código está fora da janela de tempo (desvio de ~${seconds}s entre o servidor e seu app). Sincronize o horário do app autenticador e tente de novo.`,
+          });
+        }
+        // Não casa nem em ±5min → o app está com uma entrada de outra configuração.
+        logger.warn("2FA confirm: código não casa com o segredo atual (entrada antiga no app?)", {
+          userId: ctx.session.user.id,
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Código inválido. Se você já tinha tentado ativar o 2FA antes, remova a conta antiga do app autenticador e escaneie o QR novo desta tela.",
+        });
       }
 
       const { codes, hashes } = generateBackupCodes();

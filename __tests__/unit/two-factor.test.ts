@@ -4,6 +4,7 @@ import {
   buildOtpAuthUrl,
   consumeBackupCode,
   decryptSecret,
+  diagnoseTotpFailure,
   encryptSecret,
   generateBackupCodes,
   generateTotpSecret,
@@ -87,6 +88,34 @@ describe("two-factor", () => {
       // Código gerado 50s atrás (t-2 steps) — rejeitado com window=1, aceito com ±2.
       const skewed = totp.generate({ timestamp: Date.now() - 50_000 });
       expect(verifyTotp(secret, skewed)).toBe(true);
+    });
+
+    describe("diagnoseTotpFailure", () => {
+      function totpFor(secret: string) {
+        return new OTPAuth.TOTP({
+          algorithm: "SHA1",
+          digits: 6,
+          period: 30,
+          secret: OTPAuth.Secret.fromBase32(secret),
+        });
+      }
+
+      it("detecta clock skew: código fora da janela, mas casa com o segredo", () => {
+        const secret = generateTotpSecret();
+        // ~2min atrás: fora do ±2 do verifyTotp, mas dentro do ±5min do diagnóstico.
+        const stale = totpFor(secret).generate({ timestamp: Date.now() - 120_000 });
+        expect(verifyTotp(secret, stale)).toBe(false);
+        const diag = diagnoseTotpFailure(secret, stale);
+        expect(diag).not.toBeNull();
+        expect(diag!.skewSteps).toBeLessThan(0); // código atrasado
+      });
+
+      it("retorna null quando o código é de outro segredo (entrada antiga no app)", () => {
+        const secret = generateTotpSecret();
+        const otherSecret = generateTotpSecret();
+        const codeFromOther = totpFor(otherSecret).generate();
+        expect(diagnoseTotpFailure(secret, codeFromOther)).toBeNull();
+      });
     });
 
     it("rejeita formatos inválidos sem lançar", () => {
