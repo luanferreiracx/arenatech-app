@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,13 @@ export default function LoginPage() {
     {},
   );
 
+  // Login concluído → navegação COMPLETA (não client-router): o proxy roteia
+  // para painel/select-tenant/admin/no-access conforme a sessão. Evita o
+  // encadeamento action-redirect → middleware-redirect que quebrava em produção.
+  useEffect(() => {
+    if (state.success) window.location.href = "/painel";
+  }, [state.success]);
+
   // Token do Turnstile é de uso único — o servidor o consome no siteverify. A
   // cada nova resposta do servidor, remontamos o widget (key) e limpamos o token
   // para o usuário resolver de novo. Padrão "ajustar estado ao mudar prop" do
@@ -43,8 +50,9 @@ export default function LoginPage() {
   const showCaptcha = Boolean(state.captchaRequired && TURNSTILE_SITE_KEY);
   // Segunda etapa: senha OK, falta o código 2FA.
   const showTwoFactor = Boolean(state.twoFactorRequired);
+  const navigating = Boolean(state.success);
   const submitDisabled =
-    pending || (showCaptcha && !turnstileToken) || (showTwoFactor && totp.length < 6);
+    pending || navigating || (showCaptcha && !turnstileToken) || (showTwoFactor && totp.length < 6);
 
   return (
     <>
@@ -144,10 +152,10 @@ export default function LoginPage() {
           <input type="hidden" name="turnstileToken" value={turnstileToken} />
 
           <Button type="submit" className="w-full" disabled={submitDisabled}>
-            {pending ? (
+            {pending || navigating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {showTwoFactor ? "Verificando..." : "Entrando..."}
+                {navigating ? "Entrando..." : showTwoFactor ? "Verificando..." : "Entrando..."}
               </>
             ) : showTwoFactor ? (
               "Verificar"
