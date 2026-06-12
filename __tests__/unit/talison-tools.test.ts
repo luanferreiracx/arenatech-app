@@ -319,6 +319,9 @@ describe("buscar_acessorio", () => {
       expect(result.display).toContain("R$ 49,90");
       expect(result.display).toContain("R$ 47,40");
       expect(result.display).toContain("em estoque");
+      // Link do catálogo público já com a busca aplicada (como no Laravel).
+      expect(result.display).toContain("catalogo.arenatechpi.com.br/catalog?q=capa%20s20");
+      expect(result.data.link_catalogo).toBe("https://catalogo.arenatechpi.com.br/catalog?q=capa%20s20");
     }
   });
 
