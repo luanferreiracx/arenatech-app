@@ -8,7 +8,20 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { isCustomerWaitingReply } from "@/lib/talison/intent";
+import { isCustomerWaitingReply, looksLikeWaitingNudge } from "@/lib/talison/intent";
+
+describe("looksLikeWaitingNudge", () => {
+  it("detecta cutucadas/perguntas como aguardando", () => {
+    for (const t of ["ola?", "Olá?", "oi", "tem retorno?", "alguém aí?", "cadê?", "ainda não veio", "tem previsão?", "?"]) {
+      expect(looksLikeWaitingNudge(t)).toBe(true);
+    }
+  });
+  it("não marca encerramentos como aguardando", () => {
+    for (const t of ["ok", "obrigado", "valeu", "tô a caminho", "até mais", "👍", ""]) {
+      expect(looksLikeWaitingNudge(t)).toBe(false);
+    }
+  });
+});
 
 describe("isCustomerWaitingReply", () => {
   beforeEach(() => {
