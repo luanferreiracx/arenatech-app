@@ -11,6 +11,7 @@ import {
   isValidTransition,
   ALLOWED_STATUS_TRANSITIONS,
   isRepurchasableStatus,
+  isPurchaseReversibleStatus,
 } from "@/lib/validators/stock-item"
 
 describe("IMEI Validation (Luhn)", () => {
@@ -306,5 +307,22 @@ describe("Recompra de aparelho (isRepurchasableStatus)", () => {
 
   it("nao trata RETURNED como recompra (volta ao estoque por transicao)", () => {
     expect(isRepurchasableStatus("RETURNED")).toBe(false)
+  })
+})
+
+describe("Cancelamento de compra (isPurchaseReversibleStatus)", () => {
+  it("libera item BLOCKED — caso reportado: compra cancelada antes de assinar termo", () => {
+    // createPurchase cria o StockItem como BLOCKED (aguarda termo). Cancelar
+    // antes de assinar precisa liberar este status, senao o IMEI fica preso.
+    expect(isPurchaseReversibleStatus("BLOCKED")).toBe(true)
+  })
+
+  it("libera item AVAILABLE (termo assinado, ainda nao vendido)", () => {
+    expect(isPurchaseReversibleStatus("AVAILABLE")).toBe(true)
+  })
+
+  it("nao libera item ja vendido ou reservado (tem fluxo proprio)", () => {
+    expect(isPurchaseReversibleStatus("SOLD")).toBe(false)
+    expect(isPurchaseReversibleStatus("RESERVED")).toBe(false)
   })
 })

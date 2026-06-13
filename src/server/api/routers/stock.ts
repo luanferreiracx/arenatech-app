@@ -65,6 +65,7 @@ import {
   searchImeiSchema,
   isValidTransition,
   isRepurchasableStatus,
+  PURCHASE_REVERSIBLE_STATUSES,
 } from "@/lib/validators/stock-item";
 import {
   entrySerializedItems,
@@ -1374,13 +1375,17 @@ export const stockRouter = createTRPCRouter({
             select: { isSerialized: true },
           });
           if (product?.isSerialized) {
-            // Marca StockItem AVAILABLE criado por essa compra como REMOVED.
-            // Detectado por imei+productId (createPurchase usa esses dados).
+            // Marca o StockItem criado por essa compra como removido (soft delete)
+            // para liberar o IMEI. createPurchase cria o item como BLOCKED (aguarda
+            // termo de responsabilidade) e ele vira AVAILABLE so apos assinar — por
+            // isso aceitamos AMBOS os status: cancelar antes de assinar deixava o
+            // item BLOCKED orfao, com o IMEI preso e impedindo recadastro.
+            // SOLD/RESERVED ficam de fora: ja tem fluxo proprio (venda/reserva).
             const matched = await tx.stockItem.findFirst({
               where: {
                 productId: purchase.productId,
                 imei: purchase.imei,
-                status: "AVAILABLE",
+                status: { in: [...PURCHASE_REVERSIBLE_STATUSES] },
                 deletedAt: null,
               },
               select: { id: true },
