@@ -189,3 +189,24 @@ const REPURCHASABLE_STATUSES = new Set(["SOLD", "DEFECTIVE"])
 export function isRepurchasableStatus(status: string): boolean {
   return REPURCHASABLE_STATUSES.has(status)
 }
+
+// ── Cancelamento de compra de aparelho ──
+
+/**
+ * Status de StockItem que o cancelamento de uma compra pode liberar (soft delete)
+ * para devolver o IMEI ao pool.
+ *
+ * BLOCKED: estado inicial apos createPurchase (aguarda termo de responsabilidade).
+ *          Cancelar antes de assinar precisa liberar este — antes a busca so
+ *          considerava AVAILABLE, deixando o item BLOCKED orfao e o IMEI preso.
+ * AVAILABLE: termo ja assinado e item liberado, mas a compra ainda nao foi
+ *            consumida por uma venda.
+ *
+ * SOLD/RESERVED ficam de fora: ja foram para uma venda/reserva, que tem fluxo
+ * proprio de estorno/liberacao — cancelar a compra nao deve apagar esse rastro.
+ */
+export const PURCHASE_REVERSIBLE_STATUSES = ["BLOCKED", "AVAILABLE"] as const
+
+export function isPurchaseReversibleStatus(status: string): boolean {
+  return (PURCHASE_REVERSIBLE_STATUSES as readonly string[]).includes(status)
+}
