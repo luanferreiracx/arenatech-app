@@ -125,6 +125,10 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   const isFinal = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
   const isCompleted = t.status === "COMPLETED";
   const isFailed = ["FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
+  // PIX ja aprovado pelo PixPay mas ainda aguardando confirmacao on-chain
+  // (DePix a caminho). Sinaliza ao operador que o pagamento entrou — o saldo
+  // so e creditado de fato no COMPLETED (confirmacao da rede Liquid).
+  const pixReceivedPendingChain = isDeposit && !isFinal && Boolean(t.pixApprovedAt);
   const tone = STATUS_TONE[t.status] ?? "muted";
   const toneCls = TONE_CLASSES[tone];
 
@@ -248,6 +252,23 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               </p>
             )}
           </div>
+
+          {/* PIX recebido, aguardando confirmacao on-chain — agiliza o
+              atendimento na loja sem creditar antes da rede confirmar. */}
+          {pixReceivedPendingChain && (
+            <div className="flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                  PIX recebido
+                </p>
+                <p className="text-muted-foreground text-xs mt-0.5">
+                  Confirmando na rede Liquid (~2 min). O saldo é creditado assim que
+                  a rede confirmar.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Acoes rapidas */}
           {isCompleted && (

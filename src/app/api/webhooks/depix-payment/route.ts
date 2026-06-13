@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
-import { settleDepositConfirmed } from "@/server/services/depix-transaction.service";
 import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import {
   handleDepixWithdrawWebhook,
@@ -193,15 +192,26 @@ export async function POST(req: NextRequest) {
     }),
   );
   if (walletTx) {
-    if (isPaid && walletTx.depositLabel) {
-      const settled = await settleDepositConfirmed({
-        tenantId: walletTx.tenantId,
-        depositLabel: walletTx.depositLabel,
-        depositTxId: transactionId,
-        depixAmount: (payload.valueInCents ?? walletTx.grossAmountCents) / 100,
-        confirmations: 1,
+    if (isPaid) {
+      // SINAL INTERMEDIARIO — NAO credita. Para depositos de wallet, o DePix
+      // vai on-chain direto pro endereco LWK do tenant; o credito real (status
+      // COMPLETED) acontece SOMENTE no webhook LWK `confirmed`, que verifica o
+      // on-chain. Aqui so registramos que o PixPay aprovou o PIX, pra UI
+      // mostrar "PIX recebido, confirmando na rede" e agilizar o atendimento.
+      // (Antes este branch chamava settleDepositConfirmed, creditando sem
+      // confirmacao on-chain — risco removido.)
+      await withAdmin(async (tx) =>
+        tx.tenantDepixTransaction.updateMany({
+          // updateMany + guard: nao mexe em quem ja concluiu/falhou.
+          where: { id: walletTx.id, status: { in: ["PENDING", "PROCESSING"] } },
+          data: { pixApprovedAt: new Date() },
+        }),
+      );
+      logger.info("Depix-payment webhook: PIX aprovado (sinal intermediario, sem credito)", {
+        transactionId,
+        walletTxId: walletTx.id,
       });
-      return NextResponse.json({ received: true, wallet: true, ...settled });
+      return NextResponse.json({ received: true, wallet: true, pixApproved: true });
     }
     if (isExpired || isFailed) {
       await withAdmin(async (tx) =>
