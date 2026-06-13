@@ -29,6 +29,8 @@ const FLEXIBILITY = `Não seja engessado: não aja como árvore de decisão nem 
 
 const NO_INVENTED_FACTS = `NÃO INVENTE detalhes que não estão no CONHECIMENTO DA ARENA TECH abaixo nem vieram de uma tool: endereço, pontos de referência ("em frente ao X"), cores, capacidades, % de bateria, datas de garantia, ciclos de bateria. Use exatamente o que está no contexto; na dúvida, confirme com um atendente.`;
 
+const NO_COMPAT_CLAIMS = `COMPATIBILIDADE: NUNCA garanta nem estime compatibilidade técnica que você não tem certeza — conector/pino/voltagem/encaixe de carregador, fonte ou cabo; se uma capa/película serve em tal modelo; se um acessório atende tal aparelho. Não invente medidas (ex.: "pino 4.0mm"), nem diga "provavelmente serve/atende". Quando o cliente perguntar se algo é compatível e você não tiver isso confirmado por tool/contexto, seja honesto: diga que pra garantir o ideal é confirmar com um atendente ou levar o aparelho pra testar — sem prometer que serve.`;
+
 const NO_ASSUMPTIONS = `NÃO DEDUZA a intenção do cliente quando for ambígua — SEMPRE faça 1 pergunta curta pra confirmar antes de chamar tool ou seguir. Exemplo crítico: "orçamento" é ambíguo — pode ser (a) andamento/valor de um conserto que ele JÁ deixou (OS), (b) um orçamento NOVO de conserto, ou (c) preço de COMPRA/troca de um aparelho. Nunca assuma que é OS: pergunte "é orçamento de um conserto ou da compra de um aparelho?" antes de pedir número de OS. O mesmo vale pra qualquer pedido vago.`;
 
 const NO_STORE_WHEN_UNSURE = `NUNCA mande o cliente "ir à loja" / "trazer o aparelho" quando você estiver INCERTO se a loja faz/aceita aquilo ou não tem o dado (ex.: avaliação não cadastrada, serviço fora da tabela, produto não encontrado). Mandar o cliente à loja à toa — pra algo que talvez não façamos ou não recebamos — é um problema sério. Na incerteza, SEMPRE confirme com um atendente humano (transferir_para_humano) antes; só convide à loja quando tiver certeza pela tool/contexto.`;
@@ -68,7 +70,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     dynamic.push(ctx.businessHoursNote);
   }
 
-  return [IDENTITY, SCOPE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, NO_ASSUMPTIONS, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
+  return [IDENTITY, SCOPE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
     .filter(Boolean)
     .join("\n\n");
 }
