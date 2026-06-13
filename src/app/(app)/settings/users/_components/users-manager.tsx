@@ -41,16 +41,12 @@ import {
 const ROLES = [
   { value: "admin", label: "Administrador" },
   { value: "operator", label: "Operador" },
-  { value: "technician", label: "Tecnico" },
-  { value: "cashier", label: "Caixa" },
 ] as const;
 
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-500/10 text-purple-500 border-purple-500/20",
   operator: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  technician: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
-  cashier: "bg-green-500/10 text-green-500 border-green-500/20",
 };
 
 function formatCpf(cpf: string): string {
@@ -61,6 +57,8 @@ function formatCpf(cpf: string): string {
 type UserRow = {
   userId: string;
   role: string;
+  isTechnician: boolean;
+  isCashier: boolean;
   name: string;
   cpf: string;
   email: string | null;
@@ -82,7 +80,15 @@ export function UsersManager() {
   // ── Create / edit form state ──
   const [showCreate, setShowCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<UserRow | null>(null);
-  const [form, setForm] = useState({ name: "", cpf: "", email: "", phone: "", role: "operator" });
+  const [form, setForm] = useState({
+    name: "",
+    cpf: "",
+    email: "",
+    phone: "",
+    role: "operator",
+    isTechnician: false,
+    isCashier: false,
+  });
 
   // ── Confirm / result state ──
   const [removeTarget, setRemoveTarget] = useState<Target | null>(null);
@@ -142,12 +148,20 @@ export function UsersManager() {
   );
 
   function openCreate() {
-    setForm({ name: "", cpf: "", email: "", phone: "", role: "operator" });
+    setForm({ name: "", cpf: "", email: "", phone: "", role: "operator", isTechnician: false, isCashier: false });
     setShowCreate(true);
   }
   function openEdit(u: UserRow) {
     setEditTarget(u);
-    setForm({ name: u.name, cpf: u.cpf, email: u.email ?? "", phone: "", role: u.role });
+    setForm({
+      name: u.name,
+      cpf: u.cpf,
+      email: u.email ?? "",
+      phone: "",
+      role: u.role === "admin" ? "admin" : "operator",
+      isTechnician: u.isTechnician,
+      isCashier: u.isCashier,
+    });
   }
 
   const submitCreate = () =>
@@ -156,7 +170,9 @@ export function UsersManager() {
       cpf: form.cpf.replace(/\D/g, ""),
       email: form.email.trim() || null,
       phone: form.phone.trim() || null,
-      role: form.role as "admin" | "operator" | "technician" | "cashier",
+      role: form.role as "admin" | "operator",
+      isTechnician: form.isTechnician,
+      isCashier: form.isCashier,
     });
   const submitEdit = () => {
     if (!editTarget) return;
@@ -165,7 +181,9 @@ export function UsersManager() {
       name: form.name.trim(),
       email: form.email.trim() || null,
       phone: form.phone.trim() || null,
-      role: form.role as "admin" | "operator" | "technician" | "cashier",
+      role: form.role as "admin" | "operator",
+      isTechnician: form.isTechnician,
+      isCashier: form.isCashier,
     });
   };
 
@@ -224,9 +242,13 @@ export function UsersManager() {
                   <TableCell className="font-mono text-sm">{formatCpf(u.cpf)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={ROLE_COLORS[u.role] ?? ""}>
-                      {ROLE_LABELS[u.role] ?? u.role}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="outline" className={ROLE_COLORS[u.role] ?? ""}>
+                        {ROLE_LABELS[u.role] ?? u.role}
+                      </Badge>
+                      {u.isTechnician && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Técnico</Badge>}
+                      {u.isCashier && <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">Caixa</Badge>}
+                    </div>
                   </TableCell>
                   {canManage && (
                     <TableCell className="text-right">
@@ -301,6 +323,25 @@ export function UsersManager() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2 pt-1">
+              <Label className="text-xs text-muted-foreground">Funções (independentes do perfil)</Label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.isTechnician}
+                  onChange={(e) => setForm((f) => ({ ...f, isTechnician: e.target.checked }))}
+                />
+                É técnico (atende reparos / atribuição de OS)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.isCashier}
+                  onChange={(e) => setForm((f) => ({ ...f, isCashier: e.target.checked }))}
+                />
+                É caixa (opera o PDV/caixa)
+              </label>
             </div>
           </div>
           <DialogFooter>

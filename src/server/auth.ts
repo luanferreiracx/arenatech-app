@@ -255,6 +255,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             slug: ut.tenant.slug,
             name: ut.tenant.name,
             role: ut.role,
+            isTechnician: ut.isTechnician,
             modules: modulesByTenantId.get(ut.tenant.id) ?? [],
           }));
 
@@ -274,6 +275,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             slug: string;
             name: string;
             role: string;
+            isTechnician?: boolean;
             modules: string[];
           }>;
           const fresh = await resolveModulesByTenant(
@@ -326,6 +328,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           slug: string;
           name: string;
           role: string;
+          isTechnician?: boolean;
           modules: string[];
         }>) ?? [];
       return session;

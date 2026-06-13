@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
 
-export type TenantUserRole = "admin" | "operator" | "technician" | "cashier";
+export type TenantUserRole = "admin" | "operator";
 
 type Tx = Prisma.TransactionClient;
 
@@ -102,6 +102,8 @@ export type CreateTenantUserParams = {
   email?: string | null;
   phone?: string | null;
   role: TenantUserRole;
+  isTechnician?: boolean;
+  isCashier?: boolean;
 };
 
 /** Cria (ou vincula um usuário existente) ao tenant. Retorna tempPassword se for conta nova. */
@@ -150,7 +152,8 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
       userId: user.id,
       tenantId: tenant.id,
       role: params.role,
-      isTechnician: params.role === "technician",
+      isTechnician: params.isTechnician ?? false,
+      isCashier: params.isCashier ?? false,
     },
   });
 
@@ -175,6 +178,8 @@ export type UpdateTenantUserParams = {
   email?: string | null;
   phone?: string | null;
   role: TenantUserRole;
+  isTechnician?: boolean;
+  isCashier?: boolean;
 };
 
 export async function updateTenantUserInTx(tx: Tx, params: UpdateTenantUserParams) {
@@ -192,7 +197,11 @@ export async function updateTenantUserInTx(tx: Tx, params: UpdateTenantUserParam
   });
   await tx.userTenant.update({
     where: { userId_tenantId: { userId: params.userId, tenantId: params.tenantId } },
-    data: { role: params.role, isTechnician: params.role === "technician" },
+    data: {
+      role: params.role,
+      isTechnician: params.isTechnician ?? false,
+      isCashier: params.isCashier ?? false,
+    },
   });
   logger.info("Tenant user updated", { tenantId: params.tenantId, userId: params.userId, role: params.role });
   return { success: true as const };

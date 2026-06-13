@@ -55,21 +55,19 @@ import {
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
   operator: "Operador",
-  technician: "Tecnico",
-  cashier: "Caixa",
 };
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-500/10 text-purple-500 border-purple-500/20",
   operator: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  technician: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
-  cashier: "bg-green-500/10 text-green-500 border-green-500/20",
 };
 
 type TenantUser = {
   userId: string;
   tenantId: string;
   role: string;
+  isTechnician?: boolean;
+  isCashier?: boolean;
   user: {
     id: string;
     name: string;
@@ -135,6 +133,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       email: "",
       phone: "",
       role: "operator",
+      isTechnician: false,
+      isCashier: false,
     },
   });
   const editUserForm = useForm<UpdateTenantUserInput>({
@@ -146,6 +146,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       email: "",
       phone: "",
       role: "operator",
+      isTechnician: false,
+      isCashier: false,
     },
   });
   const tenantStatus = useWatch({ control: tenantForm.control, name: "status" });
@@ -180,6 +182,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           email: "",
           phone: "",
           role: "operator",
+          isTechnician: false,
+          isCashier: false,
         });
         if (result.tempPassword) {
           setPasswordResult({
@@ -201,7 +205,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       name: user.user.name,
       email: user.user.email ?? "",
       phone: user.user.phone ?? "",
-      role: user.role as UpdateTenantUserInput["role"],
+      role: (user.role === "admin" ? "admin" : "operator") as UpdateTenantUserInput["role"],
+      isTechnician: user.isTechnician ?? false,
+      isCashier: user.isCashier ?? false,
     });
   };
 
@@ -354,9 +360,13 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                     </TableCell>
                     <TableCell className="font-mono text-sm">{formatCpf(tenantUser.user.cpf)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={ROLE_COLORS[tenantUser.role] ?? ""}>
-                        {ROLE_LABELS[tenantUser.role] ?? tenantUser.role}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline" className={ROLE_COLORS[tenantUser.role] ?? ""}>
+                          {ROLE_LABELS[tenantUser.role] ?? tenantUser.role}
+                        </Badge>
+                        {tenantUser.isTechnician && <Badge variant="outline" className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Técnico</Badge>}
+                        {tenantUser.isCashier && <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">Caixa</Badge>}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {tenantUser.user.mustChangePassword ? (
@@ -482,6 +492,19 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                   </FormItem>
                 )}
               />
+              <div className="space-y-2">
+                <FormLabel className="text-xs text-muted-foreground">Funções (independentes do tipo de acesso)</FormLabel>
+                <FormField control={createUserForm.control} name="isTechnician" render={({ field }) => (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} /> É técnico
+                  </label>
+                )} />
+                <FormField control={createUserForm.control} name="isCashier" render={({ field }) => (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} /> É caixa
+                  </label>
+                )} />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>Cancelar</Button>
                 <Button type="submit" disabled={createUserMutation.isPending}>
@@ -553,6 +576,19 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                   </FormItem>
                 )}
               />
+              <div className="space-y-2">
+                <FormLabel className="text-xs text-muted-foreground">Funções (independentes do tipo de acesso)</FormLabel>
+                <FormField control={editUserForm.control} name="isTechnician" render={({ field }) => (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} /> É técnico
+                  </label>
+                )} />
+                <FormField control={editUserForm.control} name="isCashier" render={({ field }) => (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} /> É caixa
+                  </label>
+                )} />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setEditUser(null)}>Cancelar</Button>
                 <Button type="submit" disabled={updateUserMutation.isPending}>

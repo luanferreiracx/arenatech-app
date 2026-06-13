@@ -594,7 +594,8 @@ export const adminRouter = createTRPCRouter({
             userId: user.id,
             tenantId: tenant.id,
             role: input.role,
-            isTechnician: input.role === "technician",
+            isTechnician: input.isTechnician ?? false,
+            isCashier: input.isCashier ?? false,
           },
         });
 
@@ -671,7 +672,8 @@ export const adminRouter = createTRPCRouter({
           },
           data: {
             role: input.role,
-            isTechnician: input.role === "technician",
+            isTechnician: input.isTechnician ?? false,
+            isCashier: input.isCashier ?? false,
           },
         });
 

@@ -156,7 +156,7 @@ export const resetTenantUserTwoFactorSchema = z.object({
 });
 export type ResetTenantUserTwoFactorInput = z.infer<typeof resetTenantUserTwoFactorSchema>;
 
-export const tenantUserRoleEnum = z.enum(["admin", "operator", "technician", "cashier"]);
+export const tenantUserRoleEnum = z.enum(["admin", "operator"]);
 export type TenantUserRole = z.infer<typeof tenantUserRoleEnum>;
 
 export const createTenantUserSchema = z.object({
@@ -170,6 +170,8 @@ export const createTenantUserSchema = z.object({
   email: z.string().email("Email invalido").max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   role: tenantUserRoleEnum,
+  isTechnician: z.boolean().optional(),
+  isCashier: z.boolean().optional(),
 });
 export type CreateTenantUserInput = z.infer<typeof createTenantUserSchema>;
 
@@ -180,6 +182,8 @@ export const updateTenantUserSchema = z.object({
   email: z.string().email("Email invalido").max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   role: tenantUserRoleEnum,
+  isTechnician: z.boolean().optional(),
+  isCashier: z.boolean().optional(),
 });
 export type UpdateTenantUserInput = z.infer<typeof updateTenantUserSchema>;
 
