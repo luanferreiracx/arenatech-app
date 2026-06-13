@@ -75,6 +75,7 @@ export default function ChangePasswordPage() {
         <CardTitle className="text-xl font-semibold">Altere sua senha</CardTitle>
         <CardDescription>
           A senha temporaria precisa ser substituida antes de acessar o sistema.
+          Se preferir trocar depois, volte ao login.
         </CardDescription>
       </CardHeader>
 
@@ -135,6 +136,16 @@ export default function ChangePasswordPage() {
             ) : (
               "Alterar senha"
             )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            disabled={mutation.isPending}
+            onClick={() => void signOut({ callbackUrl: "/login" })}
+          >
+            Voltar ao login
           </Button>
         </form>
       </CardContent>
