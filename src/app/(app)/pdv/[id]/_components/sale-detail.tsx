@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   ArrowLeft,
   ShoppingCart,
@@ -24,6 +26,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/whatsapp-recipient-picker";
@@ -75,17 +84,58 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const [showSendReceiptDialog, setShowSendReceiptDialog] = useState(false);
   const [showSignatureDialog, setShowSignatureDialog] = useState(false);
   const [showPhysicalSignDialog, setShowPhysicalSignDialog] = useState(false);
+  const [showSellerDialog, setShowSellerDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [returnStock, setReturnStock] = useState(true);
   const [receiptPhone, setReceiptPhone] = useState("");
   const [signaturePhone, setSignaturePhone] = useState("");
+  const [newSellerId, setNewSellerId] = useState("");
+  const [sellerReason, setSellerReason] = useState("");
+
+  const { data: session } = useSession();
+  // Troca de vendedor e operacao administrativa (mesma RBAC do backend).
+  const canChangeSeller = !!(
+    session && session.activeTenantId && isTenantAdmin(session, session.activeTenantId)
+  );
 
   const cancelMutation = useMutation(trpc.sale.cancel.mutationOptions());
   const refundMutation = useMutation(trpc.sale.refund.mutationOptions());
   const sendReceiptMutation = useMutation(trpc.sale.sendReceipt.mutationOptions());
   const sendSignatureMutation = useMutation(trpc.sale.sendForSignature.mutationOptions());
   const confirmPhysicalMutation = useMutation(trpc.sale.confirmPhysicalSignature.mutationOptions());
+  const updateSellerMutation = useMutation(trpc.sale.updateSaleSeller.mutationOptions());
+
+  // Lista de vendedores so e buscada quando o admin abre o dialog.
+  const sellersQuery = useQuery({
+    ...trpc.sale.listSellers.queryOptions(),
+    enabled: showSellerDialog,
+  });
+  const sellers = (sellersQuery.data ?? []) as Array<{ id: string; name: string }>;
+
+  const handleChangeSeller = () => {
+    if (!newSellerId) {
+      toast.error("Selecione o vendedor.");
+      return;
+    }
+    if (sellerReason.trim().length < 1) {
+      toast.error("Informe o motivo da alteracao.");
+      return;
+    }
+    updateSellerMutation.mutate(
+      { saleId, sellerId: newSellerId, reason: sellerReason.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Vendedor atualizado");
+          setShowSellerDialog(false);
+          setNewSellerId("");
+          setSellerReason("");
+          queryClient.invalidateQueries({ queryKey: trpc.sale.getById.queryKey({ id: saleId }) });
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
 
   // Polling do status de assinatura enquanto enviada mas nao assinada.
   const hasPendingSignature =
@@ -374,9 +424,25 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               <span className="text-muted-foreground">Data</span>
               <span>{formatDate(sale.saleDate as string)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Vendedor</span>
-              <span>{sale.sellerName as string}</span>
+              <span className="flex items-center gap-2">
+                {sale.sellerName as string}
+                {canChangeSeller && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => {
+                      setNewSellerId("");
+                      setSellerReason("");
+                      setShowSellerDialog(true);
+                    }}
+                  >
+                    Trocar
+                  </Button>
+                )}
+              </span>
             </div>
             {sale.observations && (
               <div>
@@ -745,6 +811,62 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Trocar vendedor — somente admin (RBAC reforcada no backend) */}
+      <Dialog open={showSellerDialog} onOpenChange={setShowSellerDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Trocar vendedor</DialogTitle>
+            <DialogDescription>
+              Corrige o vendedor atribuido a esta venda. A alteracao fica
+              registrada na auditoria da venda.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Vendedor atual</Label>
+              <p className="text-sm text-muted-foreground">{sale.sellerName as string}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Novo vendedor *</Label>
+              <Select value={newSellerId} onValueChange={setNewSellerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={sellersQuery.isLoading ? "Carregando..." : "Selecione o vendedor"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {sellers
+                    .filter((s) => s.id !== (sale.sellerId as string))
+                    .map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Motivo *</Label>
+              <Textarea
+                value={sellerReason}
+                onChange={(e) => setSellerReason(e.target.value)}
+                placeholder="Ex.: vendedor lancado errado no fechamento da venda."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSellerDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleChangeSeller}
+              disabled={updateSellerMutation.isPending || !newSellerId || sellerReason.trim().length < 1}
+            >
+              {updateSellerMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>

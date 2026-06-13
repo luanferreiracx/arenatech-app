@@ -284,3 +284,10 @@ export const updateSaleDateSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 export type UpdateSaleDateInput = z.infer<typeof updateSaleDateSchema>;
+
+export const updateSaleSellerSchema = z.object({
+  saleId: z.string().uuid(),
+  sellerId: z.string().uuid(),
+  reason: z.string().min(1, "Informe o motivo da alteracao").max(500),
+});
+export type UpdateSaleSellerInput = z.infer<typeof updateSaleSellerSchema>;
