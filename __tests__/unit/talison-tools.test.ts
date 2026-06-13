@@ -153,6 +153,40 @@ describe("estimar_orcamento", () => {
     const result = await estimarOrcamento.execute({ servico: "xpto" }, makeCtx(tx));
     expect(result.ok).toBe(false);
   });
+
+  it("casa termo do cliente 'vidro traseiro' com serviço 'Tampa Traseira'", async () => {
+    // Regressão: cliente diz "vidro traseiro", catálogo tem "Troca de Tampa Traseira".
+    // O filtro precisa exigir (tampa|vidro|...) E (traseir|...) no nome.
+    const findMany = vi.fn().mockResolvedValue([
+      { name: "Troca de Tampa Traseira iPhone 13", basePrice: { toString: () => "350.00" }, deviceModel: "iPhone 13", estimatedTime: "1h" },
+    ]);
+    const tx = { service: { findMany } } as unknown as Partial<TalisonTx>;
+
+    const result = await estimarOrcamento.execute({ servico: "vidro traseiro", modelo: "iPhone 13" }, makeCtx(tx));
+
+    expect(result.ok).toBe(true);
+    const where = findMany.mock.calls[0]?.[0]?.where as { AND: Array<{ OR: Array<{ name: { contains: string } }> }> };
+    expect(where.AND).toHaveLength(2);
+    const groups = where.AND.map((cond) => cond.OR.map((c) => c.name.contains));
+    // grupo 1 (do token "vidro") inclui "tampa"; grupo 2 (do token "traseiro") inclui "traseir"
+    expect(groups[0]).toContain("tampa");
+    expect(groups[1]).toContain("traseir");
+  });
+
+  it("ignora acento e stopwords no termo ('troca de bateria')", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { name: "Troca de Bateria iPhone 12", basePrice: { toString: () => "200.00" }, deviceModel: "iPhone 12", estimatedTime: "40min" },
+    ]);
+    const tx = { service: { findMany } } as unknown as Partial<TalisonTx>;
+
+    const result = await estimarOrcamento.execute({ servico: "troca de câmera" }, makeCtx(tx));
+
+    expect(result.ok).toBe(true);
+    const where = findMany.mock.calls[0]?.[0]?.where as { AND: Array<{ OR: Array<{ name: { contains: string } }> }> };
+    // só "camera" sobra (troca/de são stopwords); acento removido
+    expect(where.AND).toHaveLength(1);
+    expect(where.AND[0]?.OR.map((c) => c.name.contains)).toContain("camera");
+  });
 });
 
 describe("consultar_avaliacao", () => {
