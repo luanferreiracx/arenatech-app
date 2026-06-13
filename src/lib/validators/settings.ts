@@ -140,7 +140,9 @@ export const createUserSchema = z.object({
     .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
   email: z.string().email("Email invalido").max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  role: z.enum(["admin", "operator", "technician", "cashier"]),
+  role: z.enum(["admin", "operator"]),
+  isTechnician: z.boolean().optional(),
+  isCashier: z.boolean().optional(),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
@@ -150,7 +152,9 @@ export const updateUserSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(255),
   email: z.string().email("Email invalido").max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  role: z.enum(["admin", "operator", "technician", "cashier"]),
+  role: z.enum(["admin", "operator"]),
+  isTechnician: z.boolean().optional(),
+  isCashier: z.boolean().optional(),
 });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;

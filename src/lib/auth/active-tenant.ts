@@ -3,6 +3,7 @@ export type SessionTenant = {
   slug: string;
   name: string;
   role: string;
+  isTechnician?: boolean;
   modules: string[];
 };
 

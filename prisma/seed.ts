@@ -129,10 +129,11 @@ async function main() {
   });
   await prisma.userTenant.upsert({
     where: { userId_tenantId: { userId: tecnicoArena.id, tenantId: tenantArena.id } },
-    update: { role: "technician" },
-    create: { userId: tecnicoArena.id, tenantId: tenantArena.id, role: "technician" },
+    // Modelo novo: privilégio = operator; "técnico" é flag de função.
+    update: { role: "operator", isTechnician: true },
+    create: { userId: tecnicoArena.id, tenantId: tenantArena.id, role: "operator", isTechnician: true },
   });
-  console.log(`User: ${tecnicoArena.name} (${tecnicoArena.id}) [technician]`);
+  console.log(`User: ${tecnicoArena.name} (${tecnicoArena.id}) [operator+técnico]`);
 
   // --- Entregadores (item 8) ---
   // Laravel nao tem seed de entregadores (gerenciados via CRUD). Como nao ha

@@ -24,6 +24,8 @@ declare module "next-auth" {
       slug: string;
       name: string;
       role: string;
+      /** Função "técnico" (flag) — usada p/ escopo de OS e listagem de técnicos. */
+      isTechnician?: boolean;
       /** Módulos liberados para este tenant (gating por plano). */
       modules: string[];
     }>;
@@ -43,6 +45,8 @@ declare module "next-auth/jwt" {
       slug: string;
       name: string;
       role: string;
+      /** Função "técnico" (flag) — usada p/ escopo de OS e listagem de técnicos. */
+      isTechnician?: boolean;
       /** Módulos liberados para este tenant (gating por plano). */
       modules: string[];
     }>;

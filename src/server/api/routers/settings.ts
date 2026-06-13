@@ -431,6 +431,8 @@ export const settingsRouter = createTRPCRouter({
           userId: ut.userId,
           tenantId: ut.tenantId,
           role: ut.role,
+          isTechnician: ut.isTechnician,
+          isCashier: ut.isCashier,
           name: ut.user.name,
           cpf: ut.user.cpf,
           email: ut.user.email,
@@ -474,6 +476,8 @@ export const settingsRouter = createTRPCRouter({
           email: input.email,
           phone: input.phone,
           role: input.role,
+          isTechnician: input.isTechnician,
+          isCashier: input.isCashier,
         }),
       );
     }),
@@ -489,6 +493,8 @@ export const settingsRouter = createTRPCRouter({
           email: input.email,
           phone: input.phone,
           role: input.role,
+          isTechnician: input.isTechnician,
+          isCashier: input.isCashier,
         }),
       );
     }),

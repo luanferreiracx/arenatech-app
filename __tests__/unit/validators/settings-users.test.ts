@@ -16,7 +16,7 @@ describe("createUserSchema (gestão de usuários do tenant)", () => {
   });
 
   it("aceita sem email (opcional)", () => {
-    expect(createUserSchema.safeParse({ name: "Fulano", cpf: VALID_CPF, role: "cashier" }).success).toBe(true);
+    expect(createUserSchema.safeParse({ name: "Fulano", cpf: VALID_CPF, role: "operator" }).success).toBe(true);
   });
 
   it("rejeita CPF com dígito verificador inválido", () => {
@@ -28,14 +28,23 @@ describe("createUserSchema (gestão de usuários do tenant)", () => {
     expect(r.success).toBe(false);
   });
 
-  it("rejeita role fora do conjunto permitido", () => {
-    expect(createUserSchema.safeParse({ name: "X", cpf: VALID_CPF, role: "superadmin" }).success).toBe(false);
+  it("só aceita admin/operator (technician/cashier viraram flags)", () => {
+    expect(createUserSchema.safeParse({ name: "X", cpf: VALID_CPF, role: "admin" }).success).toBe(true);
+    expect(createUserSchema.safeParse({ name: "X", cpf: VALID_CPF, role: "operator" }).success).toBe(true);
+    for (const role of ["technician", "cashier", "superadmin", "owner", "manager"]) {
+      expect(createUserSchema.safeParse({ name: "X", cpf: VALID_CPF, role }).success).toBe(false);
+    }
   });
 
-  it("aceita os quatro perfis do tenant (inclui admin)", () => {
-    for (const role of ["admin", "operator", "technician", "cashier"]) {
-      expect(createUserSchema.safeParse({ name: "X", cpf: VALID_CPF, role }).success).toBe(true);
-    }
+  it("aceita as flags de função isTechnician/isCashier", () => {
+    const r = createUserSchema.safeParse({
+      name: "X",
+      cpf: VALID_CPF,
+      role: "operator",
+      isTechnician: true,
+      isCashier: true,
+    });
+    expect(r.success).toBe(true);
   });
 });
 

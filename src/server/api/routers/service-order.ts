@@ -183,12 +183,11 @@ export const serviceOrderRouter = createTRPCRouter({
         const where: any = { deletedAt: null };
 
         // Tecnico (nao admin/gerente) ve apenas as proprias OS. Paridade
-        // Laravel OrdemServicoController::index ($user->eh_tecnico &&
-        // role !== 'admin' => where tecnico_responsavel_usuario_id = user.id).
-        // `isTechnician`: hoje ainda via role string "technician" (vira flag no PR2).
-        const rawRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+        // Técnico (flag) não-admin vê só as próprias OS (paridade Laravel
+        // OrdemServicoController::index com eh_tecnico).
+        const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
         const isPrivileged = isTenantAdmin(ctx.session, ctx.tenantId);
-        if (rawRole === "technician" && !isPrivileged) {
+        if (activeTenant?.isTechnician && !isPrivileged) {
           where.technicianId = ctx.session.user.id;
         }
 
@@ -319,10 +318,10 @@ export const serviceOrderRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       // Tecnico (nao privilegiado) ve apenas os contadores das proprias OS
       // — espelha o escopo de `list`. Paridade Laravel index.
-      const rawRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
       const isPrivileged = isTenantAdmin(ctx.session, ctx.tenantId);
       const statsWhere: { deletedAt: null; technicianId?: string } = { deletedAt: null };
-      if (rawRole === "technician" && !isPrivileged) {
+      if (activeTenant?.isTechnician && !isPrivileged) {
         statsWhere.technicianId = ctx.session.user.id;
       }
       const counts = await tx.serviceOrder.groupBy({
@@ -2712,15 +2711,8 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     });
 
-    // Tecnicos "de verdade" (role technician) primeiro; depois os demais
-    // elegiveis — facilita o operador encontrar o tecnico dedicado no topo.
-    return userTenants
-      .map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role }))
-      .sort((a, b) => {
-        if (a.role === "technician" && b.role !== "technician") return -1;
-        if (a.role !== "technician" && b.role === "technician") return 1;
-        return a.name.localeCompare(b.name);
-      });
+    // Todos aqui têm a flag isTechnician; ordena por nome (já vem ordenado).
+    return userTenants.map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role }));
   }),
 
   // ── LIST VENDORS ──
