@@ -37,7 +37,7 @@ export interface DepixTxReceiptPdfData {
   };
 }
 
-const GOLD = "#c9a84c";
+const GOLD = "#2ec4b6";
 const GOLD_SOFT = "#f4e9c6";
 const TEXT = "#1a1a1a";
 const MUTED = "#666";

@@ -16,7 +16,7 @@ import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/render
  * venda (sale-receipt-pdf) e dompdf do Laravel.
  */
 
-const GOLD = "#c9a84c";
+const GOLD = "#2ec4b6";
 const TEXT = "#1a1a1a";
 const MUTED = "#666";
 const LABEL = "#888";

@@ -21,7 +21,7 @@ export interface ServiceQuotePdfData {
 }
 
 const C = {
-  gold: "#c9a84c",
+  gold: "#2ec4b6",
   ink: "#1c1a16",
   muted: "#6b6358",
   line: "#e5e0d2",

@@ -58,7 +58,7 @@ export interface SaleReceiptPdfData {
 }
 
 // Paleta Arena Tech (paridade Laravel intranetpdv recibo.blade.php)
-const GOLD = "#c9a84c";
+const GOLD = "#2ec4b6";
 const NIGHT = "#1a1a2e";
 const TEXT = "#1a1a1a";
 const MUTED = "#666";

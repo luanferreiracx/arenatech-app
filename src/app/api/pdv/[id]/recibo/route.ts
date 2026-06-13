@@ -201,11 +201,11 @@ export async function GET(
   .header-info .dados-loja { font-size: 7.5pt; color: #666; margin-top: 1px; }
   .header-right { text-align: right; vertical-align: middle; }
   .header-right .doc-label { font-size: 7pt; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-  .header-right .doc-numero { font-size: 14pt; font-weight: bold; color: #c9a55c; }
+  .header-right .doc-numero { font-size: 14pt; font-weight: bold; color: #2ec4b6; }
   .header-right .doc-data { font-size: 7.5pt; color: #888; }
-  .header-divider { border: none; border-top: 2px solid #c9a55c; margin-bottom: 10px; }
+  .header-divider { border: none; border-top: 2px solid #2ec4b6; margin-bottom: 10px; }
   .section { margin-bottom: 8px; page-break-inside: avoid; }
-  .section-title { background: #f3f4f6; padding: 3px 8px; font-weight: bold; font-size: 8.5pt; margin-bottom: 5px; border-left: 3px solid #c9a55c; color: #333; }
+  .section-title { background: #f3f4f6; padding: 3px 8px; font-weight: bold; font-size: 8.5pt; margin-bottom: 5px; border-left: 3px solid #2ec4b6; color: #333; }
   .info-cols { width: 100%; border-collapse: collapse; }
   .info-cols td { vertical-align: top; width: 50%; }
   .field { margin-bottom: 2px; }
@@ -226,7 +226,7 @@ export async function GET(
   table.totais tr.desconto td { color: #dc2626; }
   table.totais tr.total td { background: #1a1a2e; color: #fff; font-size: 12pt; font-weight: bold; padding: 8px; }
   table.totais tr.pagamento td { background: #f8f9fa; color: #666; font-size: 7.5pt; padding: 4px 8px; }
-  .footer { border-top: 2px solid #c9a55c; padding-top: 8px; text-align: center; margin-top: 15px; }
+  .footer { border-top: 2px solid #2ec4b6; padding-top: 8px; text-align: center; margin-top: 15px; }
   .footer-detalhe { font-size: 7.5pt; color: #999; }
   .footer-legal { font-size: 6.5pt; color: #aaa; margin-top: 4px; line-height: 1.4; }
   @media print { body { margin: 0; } }

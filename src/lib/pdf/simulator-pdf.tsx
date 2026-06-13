@@ -2,7 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 
 /**
  * PDF da simulacao de parcelamento (anexado no WhatsApp via HEADER DOCUMENT).
- * Identidade Arena Tech (dourado #c9a84c + preto-noite). Paridade visual com
+ * Identidade Arena Tech (teal #2ec4b6 + preto-noite). Paridade visual com
  * a rota HTML antiga + os demais PDFs do projeto.
  */
 
@@ -19,7 +19,7 @@ export interface SimulatorPdfData {
 }
 
 const C = {
-  gold: "#c9a84c",
+  gold: "#2ec4b6",
   ink: "#1c1a16",
   muted: "#6b6358",
   line: "#e5e0d2",

@@ -137,14 +137,14 @@ export async function GET(
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 9pt; color: #000; line-height: 1.3; margin: 12mm; }
-  .header { border-bottom: 2px solid #c9a55c; padding-bottom: 10px; margin-bottom: 14px; }
+  .header { border-bottom: 2px solid #2ec4b6; padding-bottom: 10px; margin-bottom: 14px; }
   .title { font-size: 14pt; font-weight: bold; text-align: center; margin: 16px 0; }
   .meta { display: flex; justify-content: space-between; font-size: 9pt; margin-bottom: 12px; }
   .meta-item { display: flex; flex-direction: column; }
   .meta-label { font-size: 7pt; color: #888; text-transform: uppercase; }
   .meta-value { font-weight: bold; }
   .section { margin: 14px 0; }
-  .section-title { font-size: 10pt; font-weight: bold; color: #c9a55c; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 6px; }
+  .section-title { font-size: 10pt; font-weight: bold; color: #2ec4b6; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 6px; }
   .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .summary-card { border: 1px solid #ddd; padding: 8px; border-radius: 4px; }
   .summary-card .label { font-size: 7pt; color: #888; text-transform: uppercase; }

@@ -727,7 +727,7 @@ export const fiscalRouter = createTRPCRouter({
 
         const html = `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-            <h2 style="color:#c9a55c;">${typeLabel} ${numberStr}</h2>
+            <h2 style="color:#2ec4b6;">${typeLabel} ${numberStr}</h2>
             <p>Segue em anexo sua nota fiscal eletronica.</p>
             <table style="width:100%;border-collapse:collapse;margin:16px 0;">
               <tr>

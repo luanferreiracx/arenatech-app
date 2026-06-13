@@ -92,12 +92,12 @@ export const authRouter = createTRPCRouter({
         "Arena Tech - Redefinir senha",
         `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #c9a55c;">Arena Tech</h2>
+          <h2 style="color: #2ec4b6;">Arena Tech</h2>
           <p>Ola, ${safeName}!</p>
           <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
           <div style="text-align: center; margin: 32px 0;">
             <a href="${resetLink}"
-               style="background-color: #c9a55c; color: #0a0a0a; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+               style="background-color: #2ec4b6; color: #0a0a0a; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
               Redefinir Senha
             </a>
           </div>
