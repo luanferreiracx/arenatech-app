@@ -105,6 +105,12 @@ export const createWithdrawSchema = z.object({
     .max(DEPIX_LIMITS.MAX_CENTS, "Valor maximo R$ 5.000,00"),
   /** Cliente-side UUID pra idempotencia em retry. */
   idempotencyKey: z.string().uuid().optional(),
+  /**
+   * Codigo 2FA (TOTP de 6 digitos OU backup code) — saque move dinheiro
+   * on-chain irreversivel, entao exige re-confirmacao de identidade do admin
+   * alem da sessao. Aceita ambos os formatos; a verificacao distingue.
+   */
+  twoFactorCode: z.string().trim().min(1, "Informe o codigo 2FA").max(20),
 });
 export type CreateWithdrawInput = z.infer<typeof createWithdrawSchema>;
 

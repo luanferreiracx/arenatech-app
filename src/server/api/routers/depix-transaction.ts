@@ -27,6 +27,7 @@ import {
 } from "@/server/services/depix-transaction.service";
 import * as lwk from "@/lib/services/lwk-service";
 import { logger } from "@/lib/logger";
+import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
 
 function serialize(t: Prisma.JsonObject | Record<string, unknown> | null) {
   // Helper de tipagem: aqui apenas garante shape. Serializacao real do Prisma
@@ -79,6 +80,23 @@ export const depixTransactionRouter = createTRPCRouter({
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
       await rlCreateWithdraw(ctx, "depixTransaction.createWithdraw");
+
+      // Step-up 2FA: saque move dinheiro on-chain irreversivel. Alem de ser
+      // admin (tenantAdminProcedure), o usuario re-confirma a identidade com
+      // um codigo 2FA. Sem 2FA habilitado, o saque eh BLOQUEADO (forca o 2FA
+      // como pre-requisito) — defesa contra sessao roubada/XSS.
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
+      if (!stepUp.ok) {
+        if (stepUp.reason === "not_enrolled") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Saque exige autenticacao de dois fatores (2FA). Habilite o 2FA em Configuracoes > Seguranca antes de sacar.",
+          });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
+      }
+
       const tx = await createWithdraw({
         tenantId: ctx.tenantId,
         userId: ctx.session.user.id,
