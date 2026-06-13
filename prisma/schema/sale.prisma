@@ -200,7 +200,7 @@ model SaleAudit {
   tenantId      String   @map("tenant_id") @db.Uuid
   saleId        String   @map("sale_id") @db.Uuid
   userId        String   @map("user_id") @db.Uuid
-  action        String   // "cancel" | "refund" | "date_changed" | "customer_linked"
+  action        String   // "cancel" | "refund" | "date_changed" | "customer_linked" | "seller_changed"
   field         String?
   previousValue String?  @map("previous_value")
   newValue      String?  @map("new_value")

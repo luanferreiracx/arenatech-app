@@ -25,6 +25,7 @@ import {
   checkSalePixStatusSchema,
   linkSaleCustomerSchema,
   updateSaleDateSchema,
+  updateSaleSellerSchema,
 } from "@/lib/validators/sale";
 import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-service";
 import { createDocumentWithLink, getDocumentStatus, extractShortlinkToken } from "@/lib/services/autentique-service";
@@ -3198,6 +3199,66 @@ export const saleRouter = createTRPCRouter({
             field: "sale_date",
             previousValue: previousDate,
             newValue: newDate.toISOString(),
+            reason: input.reason,
+          },
+        });
+        return { success: true };
+      });
+    }),
+
+  /** Troca o vendedor de uma venda (correcao operacional). Apenas admin. */
+  updateSaleSeller: tenantProcedure
+    .input(updateSaleSellerSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem alterar o vendedor da venda.",
+        });
+      }
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
+        if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (sale.sellerId === input.sellerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A venda ja esta atribuida a este vendedor.",
+          });
+        }
+
+        // O novo vendedor precisa estar vinculado a este tenant.
+        const link = await tx.userTenant.findFirst({
+          where: { tenantId: ctx.tenantId, userId: input.sellerId },
+          select: { user: { select: { id: true, name: true } } },
+        });
+        if (!link) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Vendedor nao encontrado neste tenant.",
+          });
+        }
+
+        const previousSeller = await tx.user.findUnique({
+          where: { id: sale.sellerId },
+          select: { name: true },
+        });
+
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: { sellerId: input.sellerId },
+        });
+
+        await tx.saleAudit.create({
+          data: {
+            tenantId: ctx.tenantId,
+            saleId: input.saleId,
+            userId: ctx.session.user.id,
+            action: "seller_changed",
+            field: "seller_id",
+            // Guarda nome + id para a trilha ficar legivel mesmo se o vinculo mudar.
+            previousValue: `${previousSeller?.name ?? "?"} (${sale.sellerId})`,
+            newValue: `${link.user.name} (${input.sellerId})`,
             reason: input.reason,
           },
         });
