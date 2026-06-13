@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant, withAdmin } from "@/server/db";
 import { formatCnpj } from "@/lib/utils";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
@@ -22,7 +23,7 @@ export async function GET(
   }
 
   const cookies = _req.cookies;
-  const tenantId = cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
+  const tenantId = resolveActiveTenant(session, cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) {
     return NextResponse.json({ error: "No active tenant" }, { status: 403 });
   }

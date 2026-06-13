@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { buildSaleDeliveryPdf } from "@/lib/pdf/sale-delivery-builder";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function GET(
   }
 
   const tenantId =
-    req.cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
+    resolveActiveTenant(session, req.cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) {
     return NextResponse.json({ error: "No active tenant" }, { status: 403 });
   }

@@ -523,8 +523,7 @@ export const commissionRouter = createTRPCRouter({
   deleteSocioRule: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
