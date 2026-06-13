@@ -49,22 +49,22 @@ export async function POST(req: NextRequest) {
   <style>
     * { box-sizing: border-box; }
     body { font-family: helvetica, Arial, sans-serif; color: #1c1a16; margin: 0; padding: 28px 32px; font-size: 12px; line-height: 1.4; }
-    .header { border-bottom: 3px solid #c9a84c; padding-bottom: 14px; margin-bottom: 22px; }
-    .brand { color: #c9a84c; font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+    .header { border-bottom: 3px solid #2ec4b6; padding-bottom: 14px; margin-bottom: 22px; }
+    .brand { color: #2ec4b6; font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
     .doc-title { color: #555; font-size: 13px; margin-top: 4px; }
     .saudacao { font-size: 14px; margin-bottom: 16px; }
     .saudacao b { color: #1c1a16; }
-    .resumo { background: #f7f3e9; border-left: 4px solid #c9a84c; padding: 12px 16px; margin-bottom: 22px; border-radius: 4px; }
+    .resumo { background: #f7f3e9; border-left: 4px solid #2ec4b6; padding: 12px 16px; margin-bottom: 22px; border-radius: 4px; }
     .resumo-row { margin: 3px 0; font-size: 13px; }
     .resumo-row .label { color: #6b6358; display: inline-block; width: 160px; }
     .resumo-row .val { font-weight: 700; color: #1c1a16; }
-    h2 { font-size: 14px; color: #c9a84c; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    h2 { font-size: 14px; color: #2ec4b6; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-    thead th { background: #1c1a16; color: #c9a84c; font-weight: 600; text-align: left; padding: 9px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    thead th { background: #1c1a16; color: #2ec4b6; font-weight: 600; text-align: left; padding: 9px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
     tbody td { padding: 8px 12px; border-bottom: 1px solid #e5e0d2; font-size: 12px; }
     tbody tr:last-child td { border-bottom: none; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .destaque { color: #c9a84c; font-weight: 700; }
+    .destaque { color: #2ec4b6; font-weight: 700; }
     .footer { margin-top: 24px; padding-top: 14px; border-top: 1px solid #e5e0d2; font-size: 11px; color: #6b6358; text-align: center; }
   </style>
 </head>

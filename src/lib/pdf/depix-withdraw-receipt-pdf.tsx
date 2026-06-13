@@ -31,7 +31,7 @@ export interface DepixWithdrawReceiptPdfData {
 }
 
 // Paleta paridade Laravel saques-depix/pdf/comprovante.blade.php
-const GOLD = "#c9a84c";
+const GOLD = "#2ec4b6";
 const TEXT = "#1a1a1a";
 const MUTED = "#666";
 const LABEL = "#888";

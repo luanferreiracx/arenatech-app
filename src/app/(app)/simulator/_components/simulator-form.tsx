@@ -155,7 +155,7 @@ export function SimulatorForm() {
       <html><head><title>Simulacao de Parcelamento - Arena Tech</title>
       <style>
         body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
-        h1 { color: #c9a55c; font-size: 18pt; margin-bottom: 5px; }
+        h1 { color: #2ec4b6; font-size: 18pt; margin-bottom: 5px; }
         h2 { color: #666; font-size: 12pt; font-weight: normal; margin-bottom: 20px; }
         .info { margin-bottom: 15px; }
         .info span { font-weight: bold; }

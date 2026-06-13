@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { margin: 15mm; size: A4 portrait; }
     body { font-family: 'Inter', Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.4; color: #000; }
-    .no-print { display: inline-block; margin-bottom: 20px; padding: 8px 16px; background: #c9a55c; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+    .no-print { display: inline-block; margin-bottom: 20px; padding: 8px 16px; background: #2ec4b6; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
     @media print {
       .no-print { display: none !important; }
       thead { display: table-header-group; }

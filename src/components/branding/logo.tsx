@@ -37,15 +37,15 @@ export function Logo({ size = "md", variant = "full", className }: LogoProps) {
           xmlns="http://www.w3.org/2000/svg"
           aria-label="Arena Tech"
         >
-          <rect width="32" height="32" rx="6" fill="#c9a55c" fillOpacity="0.12" />
+          <rect width="32" height="32" rx="6" fill="#2ec4b6" fillOpacity="0.12" />
           <path
             d="M16 6L26 26H6L16 6Z"
-            stroke="#c9a55c"
+            stroke="#2ec4b6"
             strokeWidth="2"
             strokeLinejoin="round"
             fill="none"
           />
-          <line x1="10" y1="20" x2="22" y2="20" stroke="#c9a55c" strokeWidth="2" />
+          <line x1="10" y1="20" x2="22" y2="20" stroke="#2ec4b6" strokeWidth="2" />
         </svg>
       </div>
     );
@@ -84,15 +84,15 @@ export function Logo({ size = "md", variant = "full", className }: LogoProps) {
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="6" fill="#c9a55c" fillOpacity="0.12" />
+        <rect width="32" height="32" rx="6" fill="#2ec4b6" fillOpacity="0.12" />
         <path
           d="M16 6L26 26H6L16 6Z"
-          stroke="#c9a55c"
+          stroke="#2ec4b6"
           strokeWidth="2"
           strokeLinejoin="round"
           fill="none"
         />
-        <line x1="10" y1="20" x2="22" y2="20" stroke="#c9a55c" strokeWidth="2" />
+        <line x1="10" y1="20" x2="22" y2="20" stroke="#2ec4b6" strokeWidth="2" />
       </svg>
       <span
         className={cn("font-bold text-primary select-none", textSize)}

@@ -16,14 +16,14 @@ type AuthLayoutProps = {
 
 function ArenaAuthShell({ children }: AuthLayoutProps) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden p-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden p-4 antialiased">
       {/* Radial glow background */}
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden="true"
         style={{
           background:
-            "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(201,165,92,0.08) 0%, transparent 70%)",
+            "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(46,196,182,0.08) 0%, transparent 70%)",
         }}
       />
 

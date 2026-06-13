@@ -559,10 +559,10 @@ export function DashboardContent({
             />
             <KpiCard
               icon={Calendar}
-              iconColor="#c9a84c"
+              iconColor="#2ec4b6"
               label={`Faturamento Mes (${stats.sales.monthCount} vendas)`}
               value={formatCurrency(stats.sales.monthTotal)}
-              valueColor="#c9a84c"
+              valueColor="#2ec4b6"
             />
             <KpiCard
               icon={TrendingUp}
