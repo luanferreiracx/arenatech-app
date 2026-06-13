@@ -70,10 +70,15 @@ export const proxy = auth((req) => {
   };
 
   // 0a. Subdomínio legado: app.arenatechpi.com.br → redireciona para pdvdepix.app.
-  //  O Nginx já faz o redirect na borda; esta linha é defense-in-depth.
+  //  EXCEÇÃO: webhooks de provedores externos (ex.: PixPay) chegam por POST e
+  //  NÃO seguem redirects — um 301 mata a entrega da notificação. O PixPay tem
+  //  a URL legada configurada e não conseguimos alterá-la no painel deles, então
+  //  servimos /api/webhooks/* direto no host legado, sem redirecionar. (Bug em
+  //  prod: depósitos DePix pararam de confirmar em 06-09 porque o webhook batia
+  //  neste 301 e morria.)
   {
     const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    if (isAppSubdomainHost(host)) {
+    if (isAppSubdomainHost(host) && !pathname.startsWith("/api/webhooks/")) {
       const search = req.nextUrl.search;
       return NextResponse.redirect(
         new URL(pathname + search, "https://pdvdepix.app"),
