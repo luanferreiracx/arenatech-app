@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidCpf } from "@/lib/utils/tax-id";
 
 // ── General settings ──
 
@@ -132,8 +133,13 @@ export type ListUsersInput = z.infer<typeof listUsersSchema>;
 
 export const createUserSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(255),
-  cpf: z.string().min(11, "CPF obrigatorio").max(11),
-  phone: z.string().max(11).optional().nullable(),
+  cpf: z
+    .string()
+    .min(11, "CPF obrigatorio")
+    .max(14)
+    .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
+  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
   role: z.enum(["admin", "operator", "technician", "cashier"]),
 });
 
@@ -141,8 +147,9 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 
 export const updateUserSchema = z.object({
   userId: z.string().uuid(),
-  name: z.string().min(1).max(255).optional(),
-  phone: z.string().max(11).optional().nullable(),
+  name: z.string().min(1, "Nome obrigatorio").max(255),
+  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
   role: z.enum(["admin", "operator", "technician", "cashier"]),
 });
 

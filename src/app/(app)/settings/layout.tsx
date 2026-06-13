@@ -12,7 +12,7 @@ const tabs = [
   { label: "Parcelamento", href: "/settings/installments" },
   { label: "Recebimento", href: "/settings/receiving" },
   { label: "Integracoes", href: "/settings/integrations" },
-  { label: "Equipe", href: "/settings/team" },
+  { label: "Equipe", href: "/settings/users" },
   { label: "Entregadores", href: "/settings/delivery-persons" },
   { label: "Assinatura", href: "/settings/subscription" },
   { label: "Logs", href: "/settings/logs" },

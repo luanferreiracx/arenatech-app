@@ -2,9 +2,16 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantProcedure, tenantAdminProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import { logAudit, pickChanges } from "@/server/services/audit-log.service";
+import {
+  createTenantUserInTx,
+  updateTenantUserInTx,
+  removeTenantUserInTx,
+  resetTenantUserPasswordInTx,
+  resetTenantUserTwoFactorInTx,
+} from "@/server/services/tenant-user.service";
 import {
   updateGeneralSettingsSchema,
   updatePaymentMethodSchema,
@@ -22,13 +29,6 @@ import {
   listAuditLogsSchema,
   updateFiscalSettingsSchema,
 } from "@/lib/validators/subscription";
-
-function throwTenantUserManagementMovedToSuperadmin(): never {
-  throw new TRPCError({
-    code: "FORBIDDEN",
-    message: "Cadastro e administracao de usuarios de tenant devem ser feitos pelo Superadmin.",
-  });
-}
 
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -453,36 +453,71 @@ export const settingsRouter = createTRPCRouter({
           );
         }
 
+        // O cliente usa isto para mostrar as ações de gestão só para admins do
+        // tenant (o backend reforça via tenantAdminProcedure de qualquer forma).
+        const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "";
+        const canManage =
+          ctx.session.user.isSuperAdmin ||
+          ["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"].includes(role);
+
         return {
           data,
           total,
           pageCount: Math.ceil(total / pageSize),
+          canManage,
         };
       });
     }),
 
-  createUser: tenantProcedure
+  // Gestão de usuários DO PRÓPRIO tenant — restrita aos admins do tenant
+  // (tenantAdminProcedure). Escopo sempre em ctx.tenantId; usa withAdmin para
+  // escrever nas tabelas globais users/user_tenants via o service compartilhado.
+  createUser: tenantAdminProcedure
     .input(createUserSchema)
-    .mutation(() => {
-      throwTenantUserManagementMovedToSuperadmin();
+    .mutation(async ({ ctx, input }) => {
+      return withAdmin((tx) =>
+        createTenantUserInTx(tx, {
+          tenantId: ctx.tenantId,
+          name: input.name,
+          cpf: input.cpf,
+          email: input.email,
+          phone: input.phone,
+          role: input.role,
+        }),
+      );
     }),
 
-  updateUser: tenantProcedure
+  updateUser: tenantAdminProcedure
     .input(updateUserSchema)
-    .mutation(() => {
-      throwTenantUserManagementMovedToSuperadmin();
+    .mutation(async ({ ctx, input }) => {
+      return withAdmin((tx) =>
+        updateTenantUserInTx(tx, {
+          tenantId: ctx.tenantId,
+          userId: input.userId,
+          name: input.name,
+          email: input.email,
+          phone: input.phone,
+          role: input.role,
+        }),
+      );
     }),
 
-  removeUser: tenantProcedure
+  removeUser: tenantAdminProcedure
     .input(z.object({ userId: z.string().uuid() }))
-    .mutation(() => {
-      throwTenantUserManagementMovedToSuperadmin();
+    .mutation(async ({ ctx, input }) => {
+      return withAdmin((tx) => removeTenantUserInTx(tx, ctx.tenantId, input.userId));
     }),
 
-  resetUserPassword: tenantProcedure
+  resetUserPassword: tenantAdminProcedure
     .input(z.object({ userId: z.string().uuid() }))
-    .mutation(() => {
-      throwTenantUserManagementMovedToSuperadmin();
+    .mutation(async ({ ctx, input }) => {
+      return withAdmin((tx) => resetTenantUserPasswordInTx(tx, ctx.tenantId, input.userId));
+    }),
+
+  resetUserTwoFactor: tenantAdminProcedure
+    .input(z.object({ userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return withAdmin((tx) => resetTenantUserTwoFactorInTx(tx, ctx.tenantId, input.userId));
     }),
 
   // ═══════════════════════════════════════

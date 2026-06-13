@@ -154,10 +154,11 @@ test.describe("Settings — Usuários", () => {
     await expect(page.locator("table th, table [role='columnheader']").first()).toBeVisible();
   });
 
-  test("@business S-13 usuários informa gestão pelo Superadmin", async ({ page }) => {
+  test("@business S-13 operador não vê ação de cadastro (gestão restrita a admins)", async ({ page }) => {
+    // 52998224725 é operador → vê a lista, mas sem o botão de criar usuário.
     await gotoAndWait(page, "/settings/users");
-    await expect(page.locator("main")).toContainText(/Superadmin/i, { timeout: 10000 });
-    await expect(page.locator("main")).not.toContainText(/Novo Usuario|Novo usuário|Cadastrar Usuario|Cadastrar usuário/i);
+    await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: /Novo usuario|Novo usuário/i })).toHaveCount(0);
   });
 });
 
