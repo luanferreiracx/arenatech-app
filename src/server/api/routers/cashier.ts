@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   openCashRegisterSchema,
   closeCashRegisterSchema,
@@ -689,8 +690,7 @@ export const cashierRouter = createTRPCRouter({
       reason: z.string().min(3).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode forcar fechamento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -807,8 +807,7 @@ export const cashierRouter = createTRPCRouter({
       reason: z.string().min(3, "Motivo obrigatorio").max(300),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode fazer ajuste manual" });
       }
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
@@ -3170,8 +3171,7 @@ export const saleRouter = createTRPCRouter({
   updateSaleDate: tenantProcedure
     .input(updateSaleDateSchema)
     .mutation(async ({ ctx, input }) => {
-      const isAdmin = ctx.session.user.isSuperAdmin === true;
-      if (!isAdmin) {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Apenas administradores podem alterar a data da venda.",

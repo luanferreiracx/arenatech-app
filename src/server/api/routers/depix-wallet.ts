@@ -8,6 +8,7 @@ import {
   superAdminTenantProcedure,
   CENTRAL_TENANT_SLUG,
 } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   updateDepixFeeConfigSchema,
   DEFAULT_DEPIX_FEE,
@@ -19,18 +20,14 @@ function decimalToNumber(d: unknown): number {
   return d == null ? 0 : Number(d);
 }
 
-const ADMIN_WALLET_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
-
 function canManageWallet(ctx: {
   tenantId: string;
   session: {
     user: { isSuperAdmin?: boolean };
-    availableTenants: Array<{ id: string; role?: string | null }>;
+    availableTenants: Array<{ id: string; role: string }>;
   };
 }): boolean {
-  if (ctx.session.user.isSuperAdmin) return true;
-  const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
-  return ADMIN_WALLET_ROLES.has(activeTenant?.role ?? "");
+  return isTenantAdmin(ctx.session, ctx.tenantId);
 }
 
 const revealMnemonicSchema = z.object({

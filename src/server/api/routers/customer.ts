@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createCustomerSchema,
   updateCustomerSchema,
@@ -127,7 +128,7 @@ export const customerRouter = createTRPCRouter({
           ...customer,
           serviceOrderCount,
           serviceOrders,
-          viewerIsAdmin: ctx.session.user.isSuperAdmin === true,
+          viewerIsAdmin: isTenantAdmin(ctx.session, ctx.tenantId),
         };
       });
     }),
@@ -283,8 +284,7 @@ export const customerRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // SPEC 6: RBAC — soft delete requires manager or owner
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || !["manager", "owner", "admin"].includes(userRole)) {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Apenas gerentes e proprietários podem excluir clientes",
@@ -312,8 +312,7 @@ export const customerRouter = createTRPCRouter({
   restore: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || !["manager", "owner", "admin"].includes(userRole)) {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Apenas gerentes e proprietários podem restaurar clientes",
@@ -343,7 +342,7 @@ export const customerRouter = createTRPCRouter({
    * SessionProvider no client.
    */
   viewerInfo: tenantProcedure.query(({ ctx }) => {
-    return { isAdmin: ctx.session.user.isSuperAdmin === true };
+    return { isAdmin: isTenantAdmin(ctx.session, ctx.tenantId) };
   }),
 
   /**

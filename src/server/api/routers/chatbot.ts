@@ -8,6 +8,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
+import { isTenantAdmin } from "@/lib/auth/roles"
 
 export const chatbotRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -302,9 +303,8 @@ export const chatbotRouter = createTRPCRouter({
       followUpDelayHours: z.number().int().min(1).max(168).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role
-      if (userRole !== "owner" && userRole !== "manager") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configuração do chatbot" })
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores do tenant podem alterar configuração do chatbot" })
       }
       return ctx.withTenant(async (tx) => {
         const data = {

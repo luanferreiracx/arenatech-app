@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createDeliveryPersonSchema,
   updateDeliveryPersonSchema,
@@ -465,8 +466,7 @@ export const operationRouter = createTRPCRouter({
       autoApprove: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      const canAutoApprove = input.autoApprove && (userRole === "owner" || userRole === "manager");
+      const canAutoApprove = Boolean(input.autoApprove) && isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const expense = await tx.expense.create({
           data: {
@@ -494,8 +494,7 @@ export const operationRouter = createTRPCRouter({
       payableDueDate: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem aprovar despesas" });
       }
       return ctx.withTenant(async (tx) => {
@@ -554,8 +553,7 @@ export const operationRouter = createTRPCRouter({
   rejectExpense: tenantProcedure
     .input(z.object({ id: z.string().uuid(), reason: z.string().min(3).max(500) }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
@@ -580,8 +578,7 @@ export const operationRouter = createTRPCRouter({
   deleteExpense: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
