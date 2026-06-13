@@ -15,7 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/inputs/money-input";
-import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ShieldCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
 import {
   PIX_KEY_PLACEHOLDER,
@@ -73,9 +82,15 @@ export default function DepixWithdrawPage() {
   const [recipientName, setRecipientName] = useState("");
   const [netAmount, setNetAmount] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
 
   const overviewQuery = useQuery(trpc.depixTransaction.getOverview.queryOptions());
   const walletInfoQuery = useQuery(trpc.depixWallet.getWalletInfo.queryOptions());
+  // Saque exige step-up 2FA. Carrega o status pra orientar o admin: se nao
+  // tem 2FA ativo, mostramos o aviso pra habilitar (o backend bloqueia de
+  // qualquer forma — defesa em profundidade).
+  const twoFactorStatusQuery = useQuery(trpc.twoFactor.getStatus.queryOptions());
+  const twoFactorEnabled = twoFactorStatusQuery.data?.enabled === true;
 
   const previewQuery = useQuery({
     ...trpc.depixTransaction.previewFee.queryOptions({
@@ -151,8 +166,10 @@ export default function DepixWithdrawPage() {
       recipientTaxId,
       netAmountCents: netAmount,
       idempotencyKey,
+      twoFactorCode: twoFactorCode.trim(),
     });
     setConfirmOpen(false);
+    setTwoFactorCode("");
   }
 
   if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
@@ -414,14 +431,80 @@ export default function DepixWithdrawPage() {
         </div>
       )}
 
-      <ConfirmDialog
+      <Dialog
         open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Confirmar saque"
-        description={`O destinatario vai receber ${formatBRL(netAmount)} via PIX. ${formatBRL(grossCents)} sera debitado do seu saldo DePix. A operacao e on-chain e nao pode ser desfeita.`}
-        confirmLabel="Confirmar"
-        onConfirm={handleSubmit}
-      />
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) setTwoFactorCode("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar saque</DialogTitle>
+            <DialogDescription>
+              O destinatario vai receber {formatBRL(netAmount)} via PIX.{" "}
+              {formatBRL(grossCents)} sera debitado do seu saldo DePix. A operacao
+              e on-chain e nao pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+
+          {twoFactorEnabled ? (
+            <div className="space-y-2">
+              <Label htmlFor="twoFactorCode" className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                Codigo de autenticacao (2FA)
+              </Label>
+              <Input
+                id="twoFactorCode"
+                value={twoFactorCode}
+                onChange={(e) => setTwoFactorCode(e.target.value)}
+                placeholder="000000"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                className="font-mono tracking-[0.3em] text-center text-lg"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && twoFactorCode.trim() && !createMutation.isPending) {
+                    handleSubmit();
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Digite o codigo do seu app autenticador (ou um backup code).
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+              <p className="text-sm">
+                Saque exige autenticacao de dois fatores (2FA). Habilite o 2FA em{" "}
+                <Link href="/settings/security" className="text-primary underline">
+                  Configuracoes &gt; Seguranca
+                </Link>{" "}
+                antes de sacar.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={createMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={
+                createMutation.isPending || !twoFactorEnabled || twoFactorCode.trim().length === 0
+              }
+            >
+              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
