@@ -258,7 +258,14 @@ export async function createDeposit(args: CreateDepositArgs) {
       where: { id: created.id },
       data: {
         depositAddress: addr.address,
-        depositLabel: addr.label ?? created.id,
+        // O monitor LWK reporta o label do deposito como `label.user` no
+        // webhook (lwk-deposit-handler usa payload.label.user) — que eh o
+        // `user` que passamos a generateAddress, i.e. created.id. NAO usar
+        // addr.label: o servico LWK transforma o user num label proprio
+        // (trunca sem hifen + sufixo aleatorio, ex "<uuid-sem-hifen>_a1b2"),
+        // que NUNCA bate com o que o webhook envia → deposito travava em
+        // PROCESSING/PENDING sem nunca confirmar.
+        depositLabel: created.id,
         pixpayDepixId: pix.transactionId,
         qrCode: pix.qrCode ?? null,
         qrCodeBase64: pix.qrCodeBase64 ?? null,
