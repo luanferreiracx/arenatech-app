@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isTenantAdmin } from "@/lib/auth/roles";
@@ -93,10 +92,13 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const [newSellerId, setNewSellerId] = useState("");
   const [sellerReason, setSellerReason] = useState("");
 
-  const { data: session } = useSession();
+  // Sessao via tRPC (auth.me) — o app nao usa SessionProvider, entao useSession()
+  // do next-auth/react nao e confiavel aqui. auth.me devolve user +
+  // availableTenants + activeTenantId de forma estavel.
+  const { data: me } = useQuery(trpc.auth.me.queryOptions());
   // Troca de vendedor e operacao administrativa (mesma RBAC do backend).
   const canChangeSeller = !!(
-    session && session.activeTenantId && isTenantAdmin(session, session.activeTenantId)
+    me && me.activeTenantId && isTenantAdmin(me, me.activeTenantId)
   );
 
   const cancelMutation = useMutation(trpc.sale.cancel.mutationOptions());
