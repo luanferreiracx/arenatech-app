@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/server/auth"
 import { uploadProductImage, uploadVariationImage } from "@/lib/product-image-service"
+import { isTenantAdmin } from "@/lib/auth/roles"
 import { randomUUID } from "crypto"
 
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
@@ -16,9 +17,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Tenant não selecionado" }, { status: 400 })
   }
 
-  // Check role
-  const userRole = session.availableTenants.find((t) => t.id === tenantId)?.role
-  if (!userRole || userRole === "operator") {
+  // Gestão de imagens de produto é ação de admin do tenant.
+  if (!isTenantAdmin(session, tenantId)) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 })
   }
 

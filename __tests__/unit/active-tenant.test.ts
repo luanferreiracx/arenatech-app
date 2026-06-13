@@ -42,4 +42,13 @@ describe("active tenant resolution", () => {
   it("nao concede acesso especial por superadmin fora da lista de tenants", () => {
     expect(hasTenantAccess(session({ availableTenants: [] }), jma.id)).toBe(false);
   });
+
+  // Contrato de seguranca usado pelas rotas /api/** (recibos, PDFs, exports):
+  // elas escopam o RLS com resolveActiveTenant(session, cookie)?.id. Um cookie
+  // x-active-tenant forjado apontando pra outro tenant, sem fallback valido,
+  // precisa resultar em undefined (a rota responde 403) — nunca no id forjado.
+  it("cookie forjado sem fallback valido resolve para undefined (rota nega)", () => {
+    const orphan = session({ activeTenantId: null, availableTenants: [] });
+    expect(resolveActiveTenant(orphan, jma.id)?.id).toBeUndefined();
+  });
 });

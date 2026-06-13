@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { buildServiceOrderTermoEntregaPdf } from "@/lib/pdf/service-order-terms-builder";
 
 export const runtime = "nodejs";
@@ -21,7 +22,7 @@ export async function GET(
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const tenantId = req.cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
+  const tenantId = resolveActiveTenant(session, req.cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) {
     return NextResponse.json({ error: "No active tenant" }, { status: 403 });
   }

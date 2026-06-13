@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant } from "@/server/db";
 import { Prisma } from "@prisma/client";
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "ID do caixa obrigatorio" }, { status: 400 });
   }
 
-  const tenantId = req.cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
+  const tenantId = resolveActiveTenant(session, req.cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) {
     return NextResponse.json({ error: "Tenant nao selecionado" }, { status: 403 });
   }
