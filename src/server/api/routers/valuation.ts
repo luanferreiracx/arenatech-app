@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createValuationSchema,
   updateValuationSchema,
@@ -29,21 +30,17 @@ function centsToPrisma(cents: number): Prisma.Decimal {
 }
 
 /**
- * RBAC: avaliacao = tabela de precos de compra (sensivel). No Laravel todo
- * store/update/destroy/ajuste exige role admin. Aqui alinhamos ao padrao do
- * projeto: apenas owner/manager pode alterar.
+ * RBAC: avaliacao = tabela de precos de compra (sensivel). Restrito a admin do
+ * tenant (ou superadmin) — operador nao gerencia avaliacoes.
  */
 function assertCanManageValuations(ctx: {
-  session: { availableTenants: Array<{ id: string; role: string }> };
+  session: { user: { isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> };
   tenantId: string;
 }): void {
-  const role = ctx.session.availableTenants.find(
-    (t) => t.id === ctx.tenantId,
-  )?.role;
-  if (role !== "owner" && role !== "manager") {
+  if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Apenas dono ou gerente pode gerenciar avaliacoes.",
+      message: "Apenas administradores do tenant podem gerenciar avaliacoes.",
     });
   }
 }

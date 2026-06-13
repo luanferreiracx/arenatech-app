@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createInterestSchema,
   updateInterestStatusSchema,
@@ -195,12 +196,10 @@ export const interestRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Interação não encontrada" });
         }
 
-        // SPEC RN-14: only creator or manager/owner
-        const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-        const isOwnerOrManager = userRole && ["manager", "owner", "admin"].includes(userRole);
+        // SPEC RN-14: só o criador ou um admin do tenant
         const isCreator = interaction.userId === ctx.session.user.id;
 
-        if (!isCreator && !isOwnerOrManager) {
+        if (!isCreator && !isTenantAdmin(ctx.session, ctx.tenantId)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Você não tem permissão para excluir esta interação",
@@ -219,11 +218,10 @@ export const interestRouter = createTRPCRouter({
   delete: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || !["manager", "owner", "admin"].includes(userRole)) {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Apenas gerentes e proprietários podem excluir interesses",
+          message: "Apenas administradores do tenant podem excluir interesses",
         });
       }
 

@@ -2,11 +2,16 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
 
-// RBAC helper: operator can only see RECEIVABLE (F8, ADR 0032)
-function getUserRole(ctx: { session: { availableTenants: Array<{ id: string; role: string }> }; tenantId: string }): string {
-  return ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "operator";
+// RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
+// (ou superadmin) faz tudo. Retorna "admin" | "operator" para os checks abaixo.
+function getUserRole(ctx: {
+  session: { user: { isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> };
+  tenantId: string;
+}): "admin" | "operator" {
+  return isTenantAdmin(ctx.session, ctx.tenantId) ? "admin" : "operator";
 }
 
 function applyTypeFilter(role: string, where: any): any {
@@ -638,14 +643,11 @@ export const financialRouter = createTRPCRouter({
   reverseInstallment: tenantProcedure
     .input(reverseInstallmentSchema)
     .mutation(async ({ ctx, input }) => {
-      // RBAC: estorno e operacao sensivel — restringe a manager+.
-      const userRole = ctx.session.availableTenants.find(
-        (t) => t.id === ctx.tenantId,
-      )?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      // RBAC: estorno é operacao sensivel — restringe a admin do tenant.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Apenas gestores podem estornar parcelas pagas",
+          message: "Apenas administradores do tenant podem estornar parcelas pagas",
         });
       }
       return ctx.withTenant(async (tx) => {
@@ -1365,8 +1367,7 @@ export const financialRouter = createTRPCRouter({
       type: z.enum(["RECEITA", "DESPESA"]),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1380,17 +1381,13 @@ export const financialRouter = createTRPCRouter({
   toggleCategory: tenantProcedure
     .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
         const cat = await tx.financialCategory.findUnique({ where: { id: input.id } });
         if (!cat) throw new TRPCError({ code: "NOT_FOUND" });
-        // FIXED categories: only owner can deactivate
-        if (cat.kind === "FIXED" && userRole !== "owner") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode desativar categoria do sistema" });
-        }
+        // Admin do tenant pode gerenciar inclusive categorias FIXED do sistema.
         return tx.financialCategory.update({ where: { id: input.id }, data: { active: input.active } });
       });
     }),
@@ -1403,16 +1400,12 @@ export const financialRouter = createTRPCRouter({
       type: z.enum(["RECEITA", "DESPESA"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {
         const cat = await tx.financialCategory.findUnique({ where: { id: input.id } });
         if (!cat) throw new TRPCError({ code: "NOT_FOUND" });
-        if (cat.kind === "FIXED" && userRole !== "owner") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode editar categoria do sistema" });
-        }
         const data: Record<string, unknown> = {};
         if (input.name) {
           data.name = input.name;
@@ -1432,8 +1425,7 @@ export const financialRouter = createTRPCRouter({
   deleteCategory: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {

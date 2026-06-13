@@ -5,6 +5,7 @@ import { auth } from "@/server/auth";
 import { withTenant, withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
+import { isTenantAdmin } from "@/lib/auth/roles";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -90,15 +91,11 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
  * etc) que NAO devem ser acessiveis pro operator/cashier comum, mesmo que
  * tenham sessao valida no tenant.
  */
-const ADMIN_ROLES = new Set(["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"]);
 export const tenantAdminProcedure = tenantProcedure.use(async ({ ctx, next }) => {
-  const active = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
-  const role = active?.role ?? "";
-  if (!ADMIN_ROLES.has(role) && !ctx.session.user.isSuperAdmin) {
+  if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
     logger.warn("tenantAdminProcedure: non-admin role access attempt", {
       userId: ctx.session.user.id,
       tenantId: ctx.tenantId,
-      role,
     });
     throw new TRPCError({
       code: "FORBIDDEN",

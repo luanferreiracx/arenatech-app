@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createProductSchema,
   updateProductSchema,
@@ -326,8 +327,7 @@ export const stockRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createProductSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -499,8 +499,7 @@ export const stockRouter = createTRPCRouter({
   update: tenantProcedure
     .input(updateProductSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -2164,8 +2163,7 @@ export const stockRouter = createTRPCRouter({
   stockEntry: tenantProcedure
     .input(stockEntrySchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
       }
       return ctx.withTenant(async (tx) => {
@@ -2238,8 +2236,7 @@ export const stockRouter = createTRPCRouter({
   stockEntryBatch: tenantProcedure
     .input(stockEntryBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
       }
       return ctx.withTenant(async (tx) => {
@@ -2328,8 +2325,7 @@ export const stockRouter = createTRPCRouter({
   stockExit: tenantProcedure
     .input(stockExitSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para baixa de estoque" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3514,8 +3510,7 @@ export const stockRouter = createTRPCRouter({
   createAttribute: tenantProcedure
     .input(createAttributeSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3540,8 +3535,7 @@ export const stockRouter = createTRPCRouter({
   updateAttribute: tenantProcedure
     .input(updateAttributeSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3559,8 +3553,7 @@ export const stockRouter = createTRPCRouter({
   deleteAttribute: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3578,8 +3571,7 @@ export const stockRouter = createTRPCRouter({
   createAttributeValue: tenantProcedure
     .input(createAttributeValueSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3600,8 +3592,7 @@ export const stockRouter = createTRPCRouter({
   updateAttributeValue: tenantProcedure
     .input(updateAttributeValueSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3613,8 +3604,7 @@ export const stockRouter = createTRPCRouter({
   deleteAttributeValue: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3663,8 +3653,7 @@ export const stockRouter = createTRPCRouter({
   createVariation: tenantProcedure
     .input(createVariationSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3696,8 +3685,7 @@ export const stockRouter = createTRPCRouter({
   updateVariation: tenantProcedure
     .input(updateVariationSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3731,8 +3719,7 @@ export const stockRouter = createTRPCRouter({
   deleteVariation: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3752,8 +3739,7 @@ export const stockRouter = createTRPCRouter({
       imageProviderPublicId: z.string().max(500).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3772,8 +3758,7 @@ export const stockRouter = createTRPCRouter({
   removeVariationImage: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3811,8 +3796,7 @@ export const stockRouter = createTRPCRouter({
   createPhoto: tenantProcedure
     .input(createPhotoSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3852,8 +3836,7 @@ export const stockRouter = createTRPCRouter({
   deletePhoto: tenantProcedure
     .input(z.object({ id: z.string().uuid(), productId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3892,8 +3875,7 @@ export const stockRouter = createTRPCRouter({
   setPrimaryPhoto: tenantProcedure
     .input(setPrimaryPhotoSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3962,8 +3944,7 @@ export const stockRouter = createTRPCRouter({
   duplicateProduct: tenantProcedure
     .input(duplicateProductSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4126,8 +4107,7 @@ export const stockRouter = createTRPCRouter({
   entrySerializedItems: tenantProcedure
     .input(createStockItemBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4149,8 +4129,7 @@ export const stockRouter = createTRPCRouter({
   entryQuantity: tenantProcedure
     .input(stockEntryQuantitySchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4169,8 +4148,7 @@ export const stockRouter = createTRPCRouter({
   writeOff: tenantProcedure
     .input(stockWriteOffSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4210,8 +4188,7 @@ export const stockRouter = createTRPCRouter({
   adjustInventory: tenantProcedure
     .input(stockAdjustmentSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4228,8 +4205,7 @@ export const stockRouter = createTRPCRouter({
   bulkAdjust: tenantProcedure
     .input(bulkAdjustStockSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (!userRole || userRole === "operator") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       // Ajusta cada produto sequencialmente, dentro de UMA transacao — falha
@@ -4257,18 +4233,12 @@ export const stockRouter = createTRPCRouter({
   changeItemStatus: tenantProcedure
     .input(changeStockItemStatusSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-
-      // RBAC: blocking/unblocking requires owner
-      if (input.newStatus === "BLOCKED" || input.newStatus === "AVAILABLE") {
-        // Unblocking from BLOCKED requires owner
-        // Reserving requires at least operator
+      const tenantAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+      // RBAC: bloquear item e marcar defeito/devolucao sao acoes de admin do tenant.
+      if (input.newStatus === "BLOCKED" && !tenantAdmin) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores do tenant podem bloquear" });
       }
-      if ((input.newStatus === "BLOCKED") && userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas dono pode bloquear" });
-      }
-      // Entry/exit/defect requires manager+
-      if (["DEFECTIVE", "RETURNED"].includes(input.newStatus) && (!userRole || userRole === "operator")) {
+      if (["DEFECTIVE", "RETURNED"].includes(input.newStatus) && !tenantAdmin) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
 
@@ -4288,9 +4258,8 @@ export const stockRouter = createTRPCRouter({
   disposeStockItem: tenantProcedure
     .input(disposeStockItemSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      // Baixa de patrimonio (perda) exige manager+ — mesmo nivel de DEFECTIVE.
-      if (!userRole || userRole === "operator") {
+      // Baixa de patrimonio (perda) exige admin do tenant.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para dar baixa em itens." });
       }
       return ctx.withTenant(async (tx) => {

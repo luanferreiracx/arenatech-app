@@ -4,6 +4,7 @@ import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, tenantAdminProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit, pickChanges } from "@/server/services/audit-log.service";
 import {
   createTenantUserInTx,
@@ -47,8 +48,7 @@ export const settingsRouter = createTRPCRouter({
   updateGeneral: tenantProcedure
     .input(updateGeneralSettingsSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações gerais" });
       }
       return ctx.withTenant(async (tx) => {
@@ -106,8 +106,7 @@ export const settingsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Apenas gerentes e proprietarios podem alterar a logo",
@@ -145,8 +144,7 @@ export const settingsRouter = createTRPCRouter({
 
   /** Remove a logo do tenant (deleta do MinIO + zera o campo). */
   deleteLogo: tenantProcedure.mutation(async ({ ctx }) => {
-    const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-    if (userRole !== "owner" && userRole !== "manager") {
+    if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Apenas gerentes e proprietarios podem alterar a logo",
@@ -214,8 +212,7 @@ export const settingsRouter = createTRPCRouter({
   createPaymentMethod: tenantProcedure
     .input(createPaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -235,8 +232,7 @@ export const settingsRouter = createTRPCRouter({
   updatePaymentMethod: tenantProcedure
     .input(updatePaymentMethodSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -253,8 +249,7 @@ export const settingsRouter = createTRPCRouter({
   deletePaymentMethod: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -302,8 +297,7 @@ export const settingsRouter = createTRPCRouter({
   updatePaymentMethodFull: tenantProcedure
     .input(updatePaymentMethodFullSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar formas de pagamento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -455,10 +449,7 @@ export const settingsRouter = createTRPCRouter({
 
         // O cliente usa isto para mostrar as ações de gestão só para admins do
         // tenant (o backend reforça via tenantAdminProcedure de qualquer forma).
-        const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "";
-        const canManage =
-          ctx.session.user.isSuperAdmin ||
-          ["OWNER", "MANAGER", "ADMIN", "owner", "manager", "admin"].includes(role);
+        const canManage = isTenantAdmin(ctx.session, ctx.tenantId);
 
         return {
           data,
@@ -631,8 +622,7 @@ export const settingsRouter = createTRPCRouter({
   updateFiscalSettings: tenantProcedure
     .input(updateFiscalSettingsSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar configurações fiscais" });
       }
       const data = {
@@ -834,8 +824,7 @@ export const settingsRouter = createTRPCRouter({
       valuationValidityDays: z.number().int().min(1).max(90).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar configurações de assistência" });
       }
       // Normaliza email vazio → null
@@ -886,8 +875,7 @@ export const settingsRouter = createTRPCRouter({
       defaultIcmsDiffRate: z.number().min(0).max(100).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar configurações de recebimento" });
       }
       return ctx.withTenant(async (tx) => {
@@ -923,8 +911,7 @@ export const settingsRouter = createTRPCRouter({
       password: z.string().min(1, "Senha do certificado obrigatória"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem gerenciar certificados" });
       }
 
@@ -1003,8 +990,7 @@ export const settingsRouter = createTRPCRouter({
   /** Remove certificate (Owner only) */
   removeFiscalCertificate: tenantProcedure
     .mutation(async ({ ctx }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
 
@@ -1087,8 +1073,7 @@ export const settingsRouter = createTRPCRouter({
       lockoutMinutes: z.number().int().min(0).max(1440).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar políticas de segurança" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1144,8 +1129,7 @@ export const settingsRouter = createTRPCRouter({
       active: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerentes e proprietários podem alterar notificações" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1184,8 +1168,7 @@ export const settingsRouter = createTRPCRouter({
   toggleNotificationConfig: tenantProcedure
     .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.withTenant(async (tx) => {

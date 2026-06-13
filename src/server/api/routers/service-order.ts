@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
@@ -97,9 +98,7 @@ function canForceSignatureOps(ctx: {
   session: { user: { isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> };
   tenantId: string;
 }): boolean {
-  if (ctx.session.user.isSuperAdmin === true) return true;
-  const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-  return role === "owner" || role === "admin" || role === "manager";
+  return isTenantAdmin(ctx.session, ctx.tenantId);
 }
 
 /**
@@ -186,11 +185,10 @@ export const serviceOrderRouter = createTRPCRouter({
         // Tecnico (nao admin/gerente) ve apenas as proprias OS. Paridade
         // Laravel OrdemServicoController::index ($user->eh_tecnico &&
         // role !== 'admin' => where tecnico_responsavel_usuario_id = user.id).
-        const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-        const isPrivileged =
-          ctx.session.user.isSuperAdmin === true ||
-          role === "owner" || role === "admin" || role === "manager";
-        if (role === "technician" && !isPrivileged) {
+        // `isTechnician`: hoje ainda via role string "technician" (vira flag no PR2).
+        const rawRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+        const isPrivileged = isTenantAdmin(ctx.session, ctx.tenantId);
+        if (rawRole === "technician" && !isPrivileged) {
           where.technicianId = ctx.session.user.id;
         }
 
@@ -321,12 +319,10 @@ export const serviceOrderRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       // Tecnico (nao privilegiado) ve apenas os contadores das proprias OS
       // — espelha o escopo de `list`. Paridade Laravel index.
-      const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      const isPrivileged =
-        ctx.session.user.isSuperAdmin === true ||
-        role === "owner" || role === "admin" || role === "manager";
+      const rawRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
+      const isPrivileged = isTenantAdmin(ctx.session, ctx.tenantId);
       const statsWhere: { deletedAt: null; technicianId?: string } = { deletedAt: null };
-      if (role === "technician" && !isPrivileged) {
+      if (rawRole === "technician" && !isPrivileged) {
         statsWhere.technicianId = ctx.session.user.id;
       }
       const counts = await tx.serviceOrder.groupBy({
@@ -424,14 +420,9 @@ export const serviceOrderRouter = createTRPCRouter({
           linkedSale,
           // Expose admin flag para UI poder mostrar botões restritos sem
           // depender de useSession no client.
-          viewerIsAdmin: ctx.session.user.isSuperAdmin === true,
-          // Pode autorizar orcamento manualmente (mesma RBAC de approveQuoteManually):
-          // super admin ou role owner/admin/manager no tenant.
-          viewerCanAuthorize:
-            ctx.session.user.isSuperAdmin === true ||
-            ["owner", "admin", "manager"].includes(
-              ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role ?? "",
-            ),
+          viewerIsAdmin: isTenantAdmin(ctx.session, ctx.tenantId),
+          // Pode autorizar orcamento manualmente (mesma RBAC): admin do tenant.
+          viewerCanAuthorize: isTenantAdmin(ctx.session, ctx.tenantId),
           termsOfService: assistance?.termsOfService ?? null,
           warrantyPolicy: assistance?.warrantyPolicy ?? null,
           history: order.history.map((h) => ({
@@ -619,11 +610,7 @@ export const serviceOrderRouter = createTRPCRouter({
         // H4: trocar cliente de uma OS assinada exige privilegio (gerente/admin).
         // Antes qualquer tenant member podia trocar customerId via tRPC direto.
         if (data.customerId && data.customerId !== order.customerId) {
-          const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-          const canChangeCustomer =
-            ctx.session.user.isSuperAdmin === true ||
-            role === "owner" || role === "admin" || role === "manager";
-          if (!canChangeCustomer) {
+          if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
             throw new TRPCError({
               code: "FORBIDDEN",
               message: "Sem permissao para trocar o cliente da OS.",
@@ -1130,8 +1117,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(uncancelOrderSchema)
     .mutation(async ({ ctx, input }) => {
       // RBAC: paridade Laravel `descancelar` exige role admin.
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para descancelar OS" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1239,8 +1225,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(refundOrderSchema)
     .mutation(async ({ ctx, input }) => {
       // RBAC: paridade Laravel `estornar` exige role admin.
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para estornar OS" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1361,8 +1346,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // RBAC: paridade Laravel `destroy` exige role admin.
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para excluir OS" });
       }
       return ctx.withTenant(async (tx) => {
@@ -1600,7 +1584,7 @@ export const serviceOrderRouter = createTRPCRouter({
         }
 
         const userId = ctx.session.user.id;
-        const isAdmin = ctx.session.user.isSuperAdmin === true;
+        const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
         const orderTotal = Number(order.totalAmount);
         const canSkipPdv = orderTotal <= 0 || order.isWarranty;
 
@@ -2069,11 +2053,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // RBAC: paridade Laravel `aprovarOrcamentoManual` exige gerente/admin.
       // Super admin sempre pode.
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      const canAuthorize =
-        ctx.session.user.isSuperAdmin === true ||
-        userRole === "owner" || userRole === "admin" || userRole === "manager";
-      if (!canAuthorize) {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para aprovar orcamento manualmente" });
       }
       const userName = ctx.session.user.name ?? "Administrador";
@@ -2308,12 +2288,8 @@ export const serviceOrderRouter = createTRPCRouter({
   adminRespondQuote: tenantProcedure
     .input(adminRespondQuoteSchema)
     .mutation(async ({ ctx, input }) => {
-      // RBAC: so gerente/admin/owner (ou super admin) autoriza/rejeita manualmente.
-      const role = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      const canAuthorize =
-        ctx.session.user.isSuperAdmin === true ||
-        role === "owner" || role === "admin" || role === "manager";
-      if (!canAuthorize) {
+      // RBAC: só admin do tenant (ou super admin) autoriza/rejeita manualmente.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para responder orcamento manualmente" });
       }
       const userName = ctx.session.user.name ?? "Operador";
@@ -2377,8 +2353,7 @@ export const serviceOrderRouter = createTRPCRouter({
   attachNfse: tenantProcedure
     .input(attachNfseSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para anexar NFS-e" });
       }
 
@@ -2471,8 +2446,7 @@ export const serviceOrderRouter = createTRPCRouter({
   detachNfse: tenantProcedure
     .input(detachNfseSchema)
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para desfazer anexo de NFS-e" });
       }
 
@@ -3626,8 +3600,7 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(updateTechnicianSchema)
     .mutation(async ({ ctx, input }) => {
       // RBAC: paridade Laravel `atualizarTecnico` exige role admin.
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner" && userRole !== "admin" && userRole !== "manager") {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para alterar tecnico responsavel" });
       }
       return ctx.withTenant(async (tx) => {

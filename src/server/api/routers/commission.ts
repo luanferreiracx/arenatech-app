@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { withAdmin } from "@/server/db";
 import {
   createRuleSchema,
@@ -490,9 +491,8 @@ export const commissionRouter = createTRPCRouter({
       notes: z.string().max(500).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userRole = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId)?.role;
-      if (userRole !== "owner") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas proprietários podem alterar comissões de sócio" });
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores do tenant podem alterar comissões de sócio" });
       }
       return ctx.withTenant(async (tx) => {
         return tx.socioCommissionRule.upsert({
