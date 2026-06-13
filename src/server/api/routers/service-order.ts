@@ -57,6 +57,7 @@ import {
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { cancelPixPayment } from "@/lib/services/depix-service";
+import { statusAfterQuote, lastRealOriginWhere } from "@/lib/services/quote-status";
 import { createDeposit } from "@/server/services/depix-transaction.service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
@@ -106,6 +107,13 @@ function canForceSignatureOps(ctx: {
  * Le o ultimo serviceOrderHistory com newStatus=WAITING_APPROVAL —
  * ele guarda em previousStatus o status que a OS estava antes do quote.
  * Fallback: APPROVED em aprovacao, IN_DIAGNOSIS em rejeicao.
+ *
+ * IMPORTANTE: ignora registros cujo previousStatus tambem e WAITING_APPROVAL.
+ * Quando uma revisao de orcamento comeca enquanto a OS JA esta WAITING_APPROVAL
+ * (revisoes encadeadas — cliente/equipe alterando o orcamento varias vezes), o
+ * history grava WAITING_APPROVAL -> WAITING_APPROVAL. Usar esse registro fazia a
+ * "restauracao" devolver WAITING_APPROVAL, prendendo a OS num loop (bug real:
+ * OS202600260). O status de origem correto e o ultimo que NAO era WAITING_APPROVAL.
  */
 async function resolveStatusAfterQuote(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,17 +121,12 @@ async function resolveStatusAfterQuote(
   orderId: string,
   action: "approve" | "reject",
 ): Promise<string> {
-  const lastWaiting = await tx.serviceOrderHistory.findFirst({
-    where: { orderId, newStatus: "WAITING_APPROVAL" },
+  const lastRealOrigin = await tx.serviceOrderHistory.findFirst({
+    where: lastRealOriginWhere(orderId),
     orderBy: { createdAt: "desc" },
     select: { previousStatus: true },
   });
-  if (action === "approve") {
-    return (lastWaiting?.previousStatus as string | null) || "APPROVED";
-  }
-  // Rejeicao: volta pro status anterior ou IN_DIAGNOSIS (alinhado com
-  // logica antiga do respondToQuote).
-  return (lastWaiting?.previousStatus as string | null) || "IN_DIAGNOSIS";
+  return statusAfterQuote(lastRealOrigin?.previousStatus ?? null, action);
 }
 
  
