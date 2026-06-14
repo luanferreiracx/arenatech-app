@@ -16,30 +16,6 @@ const MAX_RESULTS = 8;
 const SERVICE_PIX_DISCOUNT = 0.05;
 const SERVICE_MAX_INTEREST_FREE = 6;
 
-/**
- * Vocabulário do cliente x catálogo. O cliente raramente usa o nome exato do
- * serviço cadastrado ("Troca de Tampa Traseira"). Cada entrada é um grupo de
- * sinônimos: se o termo do cliente bate em qualquer um, a busca casa contra TODOS
- * os termos do grupo no nome do serviço (OR). Ex.: "vidro traseiro" → o cliente
- * escreve "vidro", que é sinônimo de "tampa", e "traseiro" casa direto com
- * "Traseira". Sem isso, o `contains` literal não acharia nada e o bot diria
- * (errado) que não fazemos o serviço.
- *
- * IMPORTANTE: "vidro" sozinho é ambíguo (existe "Troca de Vidro" frontal em iPad
- * e "Tampa Traseira"). A desambiguação vem do token de localização ("traseir",
- * "trás", "fundo") que o cliente costuma incluir. Mantemos os dois termos no
- * grupo pra cobrir ambos os nomes cadastrados.
- */
-const SERVICE_SYNONYMS: ReadonlyArray<readonly string[]> = [
-  ["tampa", "vidro"],
-  ["traseir", "tras", "atras", "fundo", "costas", "back"],
-  ["tela", "display", "frontal", "frente"],
-  ["bateria", "pilha"],
-  ["camera", "lente"],
-  ["carcaca", "chassi", "estrutura"],
-  ["flex", "conector", "dock"],
-];
-
 /** Remove acentos e baixa caixa — alinha o termo do cliente ao nome cadastrado. */
 function normalize(text: string): string {
   return text
@@ -52,14 +28,15 @@ function normalize(text: string): string {
 const STOP_TOKENS = new Set(["de", "do", "da", "para", "pra", "o", "a", "e", "troca", "trocar", "conserto", "consertar", "reparo", "reparar"]);
 
 /**
- * Monta um filtro Prisma a partir do termo do cliente: cada token significativo
- * vira um `OR` com seus sinônimos, e todos os tokens entram num `AND`. Assim
- * "vidro traseiro" exige um nome que contenha (tampa|vidro|...) E (traseir|...),
- * casando "Troca de Tampa Traseira" sem casar "Troca de Vidro" frontal.
+ * Monta um filtro Prisma a partir do termo do serviço. O modelo já recebe no
+ * prompt a lista de serviços que existem e é instruído a traduzir o pedido do
+ * cliente pro nome canônico antes de chamar a tool (ex.: "vidro traseiro" →
+ * "tampa traseira"). Aqui só tokenizamos e normalizamos (acento/stopwords) pra
+ * tolerar pequenas variações: cada token significativo precisa estar no nome
+ * (AND), sem mapa de sinônimos.
  */
 function buildServiceNameFilter(servico: string): Prisma.ServiceWhereInput[] {
-  const term = normalize(servico);
-  const tokens = term
+  const tokens = normalize(servico)
     .split(/\s+/)
     .filter((token) => token.length >= 3 && !STOP_TOKENS.has(token));
 
@@ -68,15 +45,7 @@ function buildServiceNameFilter(servico: string): Prisma.ServiceWhereInput[] {
     return [{ name: { contains: servico.trim(), mode: "insensitive" } }];
   }
 
-  return tokens.map((token) => {
-    const group = SERVICE_SYNONYMS.find((syns) => syns.some((s) => token.includes(s) || s.includes(token)));
-    const variants = group ?? [token];
-    return {
-      OR: variants.map((variant) => ({
-        name: { contains: variant, mode: "insensitive" as const },
-      })),
-    };
-  });
+  return tokens.map((token) => ({ name: { contains: token, mode: "insensitive" as const } }));
 }
 
 const estimarSchema = z.object({

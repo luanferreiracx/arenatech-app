@@ -57,6 +57,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("Parcelamento no cartão: só com a tool simular_parcelamento");
   });
 
+  it("instrui a traduzir o vocabulário do cliente pro termo canônico do catálogo", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("VOCABULÁRIO");
+    expect(prompt).toContain("Troca de Tampa Traseira");
+    expect(prompt).toContain("vidro traseiro");
+    expect(prompt).toContain("power banks");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
