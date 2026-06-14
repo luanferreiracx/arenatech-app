@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashSync } from "bcryptjs";
 
@@ -6,6 +6,22 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 const BCRYPT_ROUNDS = 12;
+
+/**
+ * Upsert de usuário por CPF. Desde o ADR 0050, cpf é único PARCIAL no banco e
+ * não é mais `@unique` para o Prisma — `upsert({ where: { cpf } })` não compila.
+ * Substituímos por findFirst-por-cpf + update-por-id / create (idempotente).
+ */
+async function upsertUserByCpf(
+  cpf: string,
+  data: Omit<Prisma.UserUncheckedCreateInput, "cpf"> & { cpf?: string },
+) {
+  const existing = await prisma.user.findFirst({ where: { cpf }, select: { id: true } });
+  if (existing) {
+    return prisma.user.update({ where: { id: existing.id }, data });
+  }
+  return prisma.user.create({ data: { ...data, cpf } });
+}
 
 async function main() {
   const superCpf = process.env.SUPERADMIN_CPF;
@@ -43,16 +59,11 @@ async function main() {
   console.log(`Tenant: ${tenantTest.name} (${tenantTest.id})`);
 
   // --- Super Admin (no tenant link — accesses /admin directly) ---
-  const superAdmin = await prisma.user.upsert({
-    where: { cpf: superCpf },
-    update: { name: "Super Admin", isSuperAdmin: true, passwordHash: hashSync(superPassword, BCRYPT_ROUNDS) },
-    create: {
-      cpf: superCpf,
-      name: "Super Admin",
-      email: "admin@arenatechpi.com.br",
-      passwordHash: hashSync(superPassword, BCRYPT_ROUNDS),
-      isSuperAdmin: true,
-    },
+  const superAdmin = await upsertUserByCpf(superCpf, {
+    name: "Super Admin",
+    email: "admin@arenatechpi.com.br",
+    passwordHash: hashSync(superPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: true,
   });
   console.log(`User: ${superAdmin.name} (${superAdmin.id}) [super admin, no tenant]`);
 
@@ -63,16 +74,11 @@ async function main() {
   const operadorCpf = process.env.OPERADOR_ARENA_CPF ?? "52998224725";
   const operadorPassword = process.env.OPERADOR_ARENA_PASSWORD ?? "Arena@2026";
 
-  const operadorArena = await prisma.user.upsert({
-    where: { cpf: operadorCpf },
-    update: { name: "Operador Arena", passwordHash: hashSync(operadorPassword, BCRYPT_ROUNDS) },
-    create: {
-      cpf: operadorCpf,
-      name: "Operador Arena",
-      email: "operador@arenatechpi.com.br",
-      passwordHash: hashSync(operadorPassword, BCRYPT_ROUNDS),
-      isSuperAdmin: false,
-    },
+  const operadorArena = await upsertUserByCpf(operadorCpf, {
+    name: "Operador Arena",
+    email: "operador@arenatechpi.com.br",
+    passwordHash: hashSync(operadorPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: false,
   });
   console.log(`User: ${operadorArena.name} (${operadorArena.id}) [single tenant]`);
 
@@ -86,16 +92,11 @@ async function main() {
   const multiCpf = process.env.OPERADOR_MULTI_CPF ?? "11144477735";
   const multiPassword = process.env.OPERADOR_MULTI_PASSWORD ?? "Multi@2026";
 
-  const operadorMulti = await prisma.user.upsert({
-    where: { cpf: multiCpf },
-    update: { name: "Operador Multi", passwordHash: hashSync(multiPassword, BCRYPT_ROUNDS) },
-    create: {
-      cpf: multiCpf,
-      name: "Operador Multi",
-      email: "multi@arenatechpi.com.br",
-      passwordHash: hashSync(multiPassword, BCRYPT_ROUNDS),
-      isSuperAdmin: false,
-    },
+  const operadorMulti = await upsertUserByCpf(multiCpf, {
+    name: "Operador Multi",
+    email: "multi@arenatechpi.com.br",
+    passwordHash: hashSync(multiPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: false,
   });
   console.log(`User: ${operadorMulti.name} (${operadorMulti.id}) [multi tenant]`);
 
@@ -116,16 +117,11 @@ async function main() {
   // operacional.
   const tecnicoCpf = process.env.TECNICO_ARENA_CPF ?? "39053344705";
   const tecnicoPassword = process.env.TECNICO_ARENA_PASSWORD ?? "Tecnico@2026";
-  const tecnicoArena = await prisma.user.upsert({
-    where: { cpf: tecnicoCpf },
-    update: { name: "Tecnico Arena", passwordHash: hashSync(tecnicoPassword, BCRYPT_ROUNDS) },
-    create: {
-      cpf: tecnicoCpf,
-      name: "Tecnico Arena",
-      email: "tecnico@arenatechpi.com.br",
-      passwordHash: hashSync(tecnicoPassword, BCRYPT_ROUNDS),
-      isSuperAdmin: false,
-    },
+  const tecnicoArena = await upsertUserByCpf(tecnicoCpf, {
+    name: "Tecnico Arena",
+    email: "tecnico@arenatechpi.com.br",
+    passwordHash: hashSync(tecnicoPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: false,
   });
   await prisma.userTenant.upsert({
     where: { userId_tenantId: { userId: tecnicoArena.id, tenantId: tenantArena.id } },
@@ -163,15 +159,10 @@ async function main() {
   const noAccessCpf = process.env.NOACCESS_CPF ?? "98765432100";
   const noAccessPassword = process.env.NOACCESS_PASSWORD ?? "NoAccess@2026";
 
-  const noAccessUser = await prisma.user.upsert({
-    where: { cpf: noAccessCpf },
-    update: { name: "Sem Acesso", passwordHash: hashSync(noAccessPassword, BCRYPT_ROUNDS) },
-    create: {
-      cpf: noAccessCpf,
-      name: "Sem Acesso",
-      passwordHash: hashSync(noAccessPassword, BCRYPT_ROUNDS),
-      isSuperAdmin: false,
-    },
+  const noAccessUser = await upsertUserByCpf(noAccessCpf, {
+    name: "Sem Acesso",
+    passwordHash: hashSync(noAccessPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: false,
   });
   console.log(`User: ${noAccessUser.name} (${noAccessUser.id}) [no tenants]`);
 

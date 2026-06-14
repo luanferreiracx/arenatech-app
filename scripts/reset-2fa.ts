@@ -26,7 +26,7 @@ async function main() {
   }
   const cpf = rawCpf.replace(/\D/g, "");
 
-  const user = await prisma.user.findUnique({
+  const user = await prisma.user.findFirst({
     where: { cpf },
     select: { id: true, name: true, twoFactorEnabled: true },
   });

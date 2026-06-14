@@ -114,7 +114,8 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
   const email = normalizeOptionalEmail(params.email);
   const tempPassword = generateTempPassword();
 
-  const existingUser = await tx.user.findUnique({
+  // cpf é único PARCIAL no banco (ADR 0050) — não é mais @unique p/ o Prisma.
+  const existingUser = await tx.user.findFirst({
     where: { cpf },
     select: { id: true, name: true, email: true, isSuperAdmin: true },
   });

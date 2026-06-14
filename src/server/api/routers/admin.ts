@@ -539,7 +539,7 @@ export const adminRouter = createTRPCRouter({
         const email = normalizeOptionalEmail(input.email);
         const tempPassword = generateTempPassword();
 
-        const existingUser = await tx.user.findUnique({
+        const existingUser = await tx.user.findFirst({
           where: { cpf },
           select: {
             id: true,
@@ -878,6 +878,15 @@ export const adminRouter = createTRPCRouter({
 
         const slug = generateSlug(pr.tradeName);
         const tempPassword = generateTempPassword();
+        // Este fluxo de aprovação ainda é o caminho KYC (pré-cadastro com CPF).
+        // A aprovação NO-KYC (sem documento, login por email) é a Fase 4 do
+        // ADR 0050; por ora exigimos CPF aqui.
+        if (!pr.ownerCpf) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Pré-cadastro sem CPF: aprovação NO-KYC ainda não suportada.",
+          });
+        }
         const ownerCpf = normalizeRequiredDigits(pr.ownerCpf);
         const ownerPhone = normalizeDigits(pr.ownerPhone);
 
@@ -892,7 +901,7 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
-        const existingUser = await tx.user.findUnique({
+        const existingUser = await tx.user.findFirst({
           where: { cpf: ownerCpf },
         });
         if (existingUser) {
@@ -1020,7 +1029,7 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
-        const existingUser = await tx.user.findUnique({
+        const existingUser = await tx.user.findFirst({
           where: { cpf: ownerCpf },
         });
         if (existingUser) {

@@ -151,8 +151,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           throw new RateLimitedError(minutes);
         }
 
+        // cpf deixou de ser @unique no nível de tipo do Prisma (virou único
+        // PARCIAL no banco — ADR 0050), então usamos findFirst. O login dual
+        // por email chega na Fase 2; por ora o fluxo continua por CPF.
         const user = await withAdmin(async (tx) => {
-          return tx.user.findUnique({ where: { cpf } });
+          return tx.user.findFirst({ where: { cpf } });
         });
 
         if (!user) {
@@ -225,7 +228,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // First call after login — populate token with user data + tenants
         if (user) {
           token.id = user.id!;
-          token.cpf = (user as { cpf: string }).cpf;
+          token.cpf = (user as { cpf: string | null }).cpf;
           token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
           token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
 
@@ -317,7 +320,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
     async session({ session, token }) {
       session.user.id = token.id as string;
-      session.user.cpf = token.cpf as string;
+      session.user.cpf = (token.cpf as string | null) ?? null;
       session.user.isSuperAdmin = token.isSuperAdmin as boolean;
       session.user.mustChangePassword = token.mustChangePassword === true;
       session.activeTenantId = (token.activeTenantId as string) ?? null;
