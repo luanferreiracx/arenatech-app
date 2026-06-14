@@ -27,12 +27,15 @@ enum PreRegistrationStatus {
 }
 
 model PreRegistration {
-  id            String                @id @default(uuid()) @db.Uuid
-  tradeName     String                @map("trade_name")
-  legalName     String?               @map("legal_name")
-  cnpj          String?
-  ownerName     String                @map("owner_name")
-  ownerCpf      String                @map("owner_cpf")
+  id        String  @id @default(uuid()) @db.Uuid
+  tradeName String  @map("trade_name")
+  legalName String? @map("legal_name")
+  cnpj      String?
+  ownerName String  @map("owner_name")
+  // NO-KYC: pré-cadastro sem documento — `ownerCpf` opcional. KYC legado podia
+  // exigir CPF, mas o auto-cadastro passa a ser exclusivo do NO-KYC (ADR 0050);
+  // tenant KYC é criado manualmente pelo superadmin, sem pré-cadastro.
+  ownerCpf      String?               @map("owner_cpf")
   ownerEmail    String                @map("owner_email")
   ownerPhone    String                @map("owner_phone")
   planId        String?               @map("plan_id") @db.Uuid
@@ -40,8 +43,17 @@ model PreRegistration {
   notes         String?
   reviewedAt    DateTime?             @map("reviewed_at")
   reviewedById  String?               @map("reviewed_by_id") @db.Uuid
-  createdAt     DateTime              @default(now()) @map("created_at")
-  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  // Campos do fluxo NO-KYC: o próprio interessado define a senha no cadastro
+  // (não recebe senha temporária na aprovação) e verifica email + telefone
+  // antes de ir para a fila de aprovação. Hash em repouso; timestamps de
+  // verificação preenchidos ao consumir o respectivo código (VerificationCode).
+  passwordHash    String?   @map("password_hash")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  phoneVerifiedAt DateTime? @map("phone_verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("pre_registrations")
 }

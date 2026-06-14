@@ -21,8 +21,14 @@ enum TenantStatus {
 }
 
 model User {
-  id                 String   @id @default(uuid()) @db.Uuid
-  cpf                String   @unique
+  id String @id @default(uuid()) @db.Uuid
+  // KYC: usuário de tenant normal loga por CPF (presente). NO-KYC: loga por
+  // email, sem CPF (nullable). Unicidade é por índice único PARCIAL
+  // (`WHERE cpf IS NOT NULL` / `WHERE email IS NOT NULL`) criado em migration
+  // SQL manual — Prisma não expressa `@unique` parcial, então o `@unique` de
+  // schema foi removido para não gerar índice total que rejeitaria múltiplos
+  // NULLs de forma inconsistente. Ver ADR 0050.
+  cpf                String?
   name               String
   email              String?
   phone              String?  // WhatsApp do usuario (tecnico/vendedor) — notificacao automatica de OS atribuida
@@ -45,6 +51,37 @@ model User {
   passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+/// Códigos de verificação (OTP) de email/telefone no auto-cadastro NO-KYC.
+/// Tabela GLOBAL (sem tenant, sem RLS — igual a password_reset_tokens): o
+/// usuário/tenant ainda não existe durante o cadastro. O código é guardado como
+/// hash SHA-256 (nunca em claro), tem expiração e contador de tentativas. Ver
+/// ADR 0050.
+model VerificationCode {
+  id                String    @id @default(uuid()) @db.Uuid
+  /// Alvo verificado: endereço de email ou telefone (E.164/dígitos).
+  target            String
+  /// Canal de envio do código.
+  channel           VerificationChannel
+  /// Pré-cadastro associado (o fluxo NO-KYC verifica antes de criar o usuário).
+  preRegistrationId String?   @map("pre_registration_id") @db.Uuid
+  /// Hash SHA-256 do código (nunca o código em claro).
+  codeHash          String    @map("code_hash")
+  expiresAt         DateTime  @map("expires_at")
+  attempts          Int       @default(0)
+  consumedAt        DateTime? @map("consumed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([target, channel])
+  @@index([preRegistrationId])
+  @@index([expiresAt])
+  @@map("verification_codes")
+}
+
+enum VerificationChannel {
+  EMAIL
+  WHATSAPP
 }
 
 model UserTenant {

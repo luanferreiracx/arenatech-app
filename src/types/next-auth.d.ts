@@ -3,7 +3,8 @@ import "next-auth/jwt";
 
 declare module "next-auth" {
   interface User {
-    cpf: string;
+    // NO-KYC loga por email e não tem CPF (ADR 0050) — cpf é opcional/nulo.
+    cpf: string | null;
     isSuperAdmin: boolean;
     mustChangePassword: boolean;
   }
@@ -13,7 +14,7 @@ declare module "next-auth" {
       id: string;
       name: string;
       email?: string | null;
-      cpf: string;
+      cpf: string | null;
       isSuperAdmin: boolean;
       mustChangePassword: boolean;
     };
@@ -35,7 +36,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id: string;
-    cpf: string;
+    cpf: string | null;
     isSuperAdmin: boolean;
     mustChangePassword: boolean;
     activeTenantId: string | null;

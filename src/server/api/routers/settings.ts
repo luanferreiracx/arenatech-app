@@ -445,7 +445,7 @@ export const settingsRouter = createTRPCRouter({
           data = data.filter(
             (u) =>
               u.name.toLowerCase().includes(term) ||
-              (digitsTerm && u.cpf.includes(digitsTerm))
+              (digitsTerm ? (u.cpf?.includes(digitsTerm) ?? false) : false)
           );
         }
 

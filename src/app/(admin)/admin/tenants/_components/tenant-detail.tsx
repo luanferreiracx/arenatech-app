@@ -71,7 +71,8 @@ type TenantUser = {
   user: {
     id: string;
     name: string;
-    cpf: string;
+    // NO-KYC não tem CPF (ADR 0050).
+    cpf: string | null;
     email: string | null;
     phone: string | null;
     mustChangePassword: boolean;
@@ -87,7 +88,8 @@ type PasswordResult = UserTarget & {
   tempPassword: string;
 };
 
-function formatCpf(cpf: string): string {
+function formatCpf(cpf: string | null): string {
+  if (!cpf) return "—";
   if (cpf.length !== 11) return cpf;
   return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
 }
