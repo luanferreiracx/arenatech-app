@@ -16,6 +16,12 @@
 
 ---
 
+### 2026-06-14 — NO-KYC Fase 2: login dual (CPF/email)
+- Implementado: `src/lib/auth/login-identifier.ts` — `resolveLoginIdentifier` (contém `@` → email; senão CPF com validação de dígito) + `maskIdentifier` p/ logs. `authorize` (NextAuth) resolve o identificador, faz rate-limit por `login:<kind>:<valor>` e busca por `cpf` OU `email` (findFirst). Tela de login: campo único "CPF ou e-mail" (Input livre, sem máscara); key do form segue `cpf` por compat.
+- Decisão (dono): **email único basta** como identidade do NO-KYC; **telefone NÃO precisa ser único** (mesmo celular pode ser contato de mais de uma loja/sócio; phone já serve p/ notificação de OS, com repetições plausíveis). Anti-abuso coberto por email único + OTP do telefone + aprovação manual do superadmin. O índice único PARCIAL de email (Fase 0) já impede reuso de email por QUALQUER cadastro (KYC ou NO-KYC); checagem amigável no cadastro vem na Fase 3.
+- Validação: typecheck, lint, unit. Comportamento KYC preservado (CPF continua logando).
+- Próximo: Fase 3 — onboarding público NO-KYC.
+
 ### 2026-06-14 — NO-KYC Fase 0: schema base (ADR 0050)
 - Implementado (PR #107, mergeado): `users.cpf` nullable + índice único PARCIAL (`WHERE cpf IS NOT NULL`); `users.email` índice único parcial; tabela global `verification_codes` (sem RLS, igual `password_reset_tokens`) para OTP; `pre_registrations` com `owner_cpf` opcional + `password_hash`/`email_verified_at`/`phone_verified_at`.
 - Decisões: migration SQL manual (unicidade parcial); `cpf` deixou de ser `@unique` p/ o Prisma → `findUnique({where:{cpf}})` virou `findFirst`, seed usa helper `upsertUserByCpf`; tipos NextAuth `cpf: string | null`; `approvePreRegistration` ainda exige CPF (aprovação NO-KYC é Fase 4). Login dual é Fase 2 — comportamento de login inalterado nesta fase.

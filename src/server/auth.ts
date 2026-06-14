@@ -10,7 +10,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compareSync } from "bcryptjs";
-import { cpfSchema } from "@/lib/validators/cpf";
+import { resolveLoginIdentifier, maskIdentifier } from "@/lib/auth/login-identifier";
 import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
@@ -129,33 +129,39 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Credentials({
       credentials: {
-        cpf: { label: "CPF", type: "text" },
+        // Campo único: CPF (tenant KYC) ou e-mail (tenant NO-KYC) — ADR 0050.
+        // Mantém a key `cpf` por compatibilidade com o loginAction/cliente.
+        cpf: { label: "CPF ou e-mail", type: "text" },
         password: { label: "Senha", type: "password" },
         totp: { label: "Código 2FA", type: "text" },
       },
       async authorize(credentials) {
-        const parsed = cpfSchema.safeParse(credentials?.cpf);
-        if (!parsed.success) return null;
+        // Login dual: se contém "@" é e-mail (NO-KYC), senão CPF (KYC).
+        const identifier = resolveLoginIdentifier(credentials?.cpf);
+        if (!identifier) return null;
 
-        const cpf = parsed.data;
         const password = credentials?.password;
         if (typeof password !== "string" || !password) return null;
 
-        // Rate limit por CPF (5 tentativas / 15min → lockout 15min)
-        const rateLimitKey = `login:${cpf}`;
+        // Rate limit por identificador (5 tentativas / 15min → lockout 15min).
+        const rateLimitKey = `login:${identifier.kind}:${identifier.value}`;
         const limitCheck = checkRateLimit(rateLimitKey);
         if (!limitCheck.allowed) {
           const minutes = Math.ceil(limitCheck.retryAfterMs / 60000);
-          logger.warn("Login bloqueado por rate limit", { cpf: cpf.slice(0, 3) + "***", retryAfterMin: minutes });
+          logger.warn("Login bloqueado por rate limit", {
+            kind: identifier.kind,
+            id: maskIdentifier(identifier),
+            retryAfterMin: minutes,
+          });
           // AuthError tipado → loginAction mostra mensagem amigável (não crasha).
           throw new RateLimitedError(minutes);
         }
 
-        // cpf deixou de ser @unique no nível de tipo do Prisma (virou único
-        // PARCIAL no banco — ADR 0050), então usamos findFirst. O login dual
-        // por email chega na Fase 2; por ora o fluxo continua por CPF.
+        // cpf/email são únicos PARCIAIS no banco (ADR 0050), não @unique p/ o
+        // Prisma → findFirst pelo campo do identificador resolvido.
+        const where = identifier.kind === "cpf" ? { cpf: identifier.value } : { email: identifier.value };
         const user = await withAdmin(async (tx) => {
-          return tx.user.findFirst({ where: { cpf } });
+          return tx.user.findFirst({ where });
         });
 
         if (!user) {
@@ -164,7 +170,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
         if (!compareSync(password, user.passwordHash)) {
           const updated = recordFailedAttempt(rateLimitKey);
-          logger.warn("Login falhou: senha incorreta", { cpf: cpf.slice(0, 3) + "***", remaining: updated.remainingAttempts });
+          logger.warn("Login falhou: senha incorreta", {
+            kind: identifier.kind,
+            id: maskIdentifier(identifier),
+            remaining: updated.remainingAttempts,
+          });
           return null;
         }
 
