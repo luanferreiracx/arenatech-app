@@ -35,6 +35,16 @@ export function PreRegistrationsTable() {
     { accessorKey: "ownerName", header: "Responsavel" },
     { accessorKey: "ownerEmail", header: "Email" },
     {
+      id: "tipo",
+      header: "Tipo",
+      // Tipo inferido pela presença de documento (ADR 0050): sem CPF = NO-KYC.
+      cell: ({ row }: { row: { original: { ownerCpf: string | null } } }) => (
+        <StatusBadge variant={row.original.ownerCpf ? "default" : "info"}>
+          {row.original.ownerCpf ? "KYC" : "NO-KYC"}
+        </StatusBadge>
+      ),
+    },
+    {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }: { row: { original: { status: string } } }) => (

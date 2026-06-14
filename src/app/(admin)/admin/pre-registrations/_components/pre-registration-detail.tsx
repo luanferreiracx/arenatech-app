@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/domain/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
 import { PRE_REGISTRATION_STATUS_LABELS, PRE_REGISTRATION_STATUS_VARIANT } from "@/lib/validators/admin";
@@ -74,17 +75,44 @@ export function PreRegistrationDetail({ preRegId }: { preRegId: string }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div className="grid grid-cols-2 gap-4">
-            <div><span className="text-muted-foreground">Razao Social:</span><p className="font-medium">{pr.legalName ?? "-"}</p></div>
-            <div><span className="text-muted-foreground">CNPJ:</span><p className="font-medium">{pr.cnpj ?? "-"}</p></div>
-            <div><span className="text-muted-foreground">Responsavel:</span><p className="font-medium">{pr.ownerName}</p></div>
-            <div><span className="text-muted-foreground">CPF:</span><p className="font-medium">{pr.ownerCpf}</p></div>
-            <div><span className="text-muted-foreground">Email:</span><p className="font-medium">{pr.ownerEmail}</p></div>
-            <div><span className="text-muted-foreground">Telefone:</span><p className="font-medium">{pr.ownerPhone}</p></div>
-            {pr.notes && (
-              <div className="col-span-2"><span className="text-muted-foreground">Observacoes:</span><p>{pr.notes}</p></div>
-            )}
-          </div>
+          {/* Tipo inferido pela presença de documento (ADR 0050): sem CPF = NO-KYC. */}
+          {(() => {
+            const isNoKyc = !pr.ownerCpf;
+            return (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 flex flex-wrap items-center gap-2">
+                  <Badge variant={isNoKyc ? "secondary" : "default"}>
+                    {isNoKyc ? "NO-KYC (e-mail)" : "KYC (CPF/CNPJ)"}
+                  </Badge>
+                  {isNoKyc && (
+                    <>
+                      <Badge variant={pr.emailVerifiedAt ? "default" : "outline"}>
+                        {pr.emailVerifiedAt ? "E-mail verificado" : "E-mail não verificado"}
+                      </Badge>
+                      <Badge variant={pr.phoneVerifiedAt ? "default" : "outline"}>
+                        {pr.phoneVerifiedAt ? "WhatsApp verificado" : "WhatsApp não verificado"}
+                      </Badge>
+                    </>
+                  )}
+                </div>
+                {!isNoKyc && (
+                  <>
+                    <div><span className="text-muted-foreground">Razao Social:</span><p className="font-medium">{pr.legalName ?? "-"}</p></div>
+                    <div><span className="text-muted-foreground">CNPJ:</span><p className="font-medium">{pr.cnpj ?? "-"}</p></div>
+                  </>
+                )}
+                <div><span className="text-muted-foreground">Responsavel:</span><p className="font-medium">{pr.ownerName}</p></div>
+                {!isNoKyc && (
+                  <div><span className="text-muted-foreground">CPF:</span><p className="font-medium">{pr.ownerCpf}</p></div>
+                )}
+                <div><span className="text-muted-foreground">Email:</span><p className="font-medium">{pr.ownerEmail}</p></div>
+                <div><span className="text-muted-foreground">Telefone:</span><p className="font-medium">{pr.ownerPhone}</p></div>
+                {pr.notes && (
+                  <div className="col-span-2"><span className="text-muted-foreground">Observacoes:</span><p>{pr.notes}</p></div>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 

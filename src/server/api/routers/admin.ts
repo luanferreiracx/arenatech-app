@@ -85,6 +85,15 @@ function generateTempPassword(): string {
   return `Arena@${suffix}`;
 }
 
+/**
+ * Slug OPACO para tenant NO-KYC (ADR 0050): `pdv-<hex>`. Não-sequencial e sem
+ * dados do usuário — não revela a contagem de tenants nem a identidade (foco em
+ * confidencialidade).
+ */
+function generateOpaqueSlug(): string {
+  return `pdv-${randomBytes(4).toString("hex")}`;
+}
+
 function normalizeDigits(value: string | null | undefined): string | null {
   const digits = (value ?? "").replace(/\D/g, "");
   return digits.length > 0 ? digits : null;
@@ -876,33 +885,49 @@ export const adminRouter = createTRPCRouter({
         const cnpj = normalizeDigits(pr.cnpj);
         await assertTenantCnpjAvailable(tx, cnpj);
 
-        const slug = generateSlug(pr.tradeName);
-        const tempPassword = generateTempPassword();
-        // Este fluxo de aprovação ainda é o caminho KYC (pré-cadastro com CPF).
-        // A aprovação NO-KYC (sem documento, login por email) é a Fase 4 do
-        // ADR 0050; por ora exigimos CPF aqui.
-        if (!pr.ownerCpf) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Pré-cadastro sem CPF: aprovação NO-KYC ainda não suportada.",
-          });
-        }
-        const ownerCpf = normalizeRequiredDigits(pr.ownerCpf);
         const ownerPhone = normalizeDigits(pr.ownerPhone);
+        // Tipo inferido pela presença de documento (ADR 0050): com CPF = KYC;
+        // sem CPF = NO-KYC (login por e-mail, senha definida no cadastro).
+        const isNoKyc = !pr.ownerCpf;
+
+        if (isNoKyc) {
+          // NO-KYC exige e-mail e telefone já verificados no auto-cadastro.
+          if (!pr.emailVerifiedAt || !pr.phoneVerifiedAt) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Pré-cadastro NO-KYC sem e-mail/telefone verificados.",
+            });
+          }
+          if (!pr.passwordHash) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Pré-cadastro NO-KYC sem senha definida.",
+            });
+          }
+        }
+
+        const tempPassword = isNoKyc ? null : generateTempPassword();
+        const ownerCpf = pr.ownerCpf ? normalizeRequiredDigits(pr.ownerCpf) : null;
+
+        // Slug opaco no NO-KYC (confidencialidade); derivado do nome no KYC.
+        const slug = isNoKyc
+          ? generateOpaqueSlug()
+          : `${generateSlug(pr.tradeName)}-${Date.now().toString(36)}`;
 
         // Create tenant
         const tenant = await tx.tenant.create({
           data: {
             name: pr.tradeName,
-            slug: `${slug}-${Date.now().toString(36)}`,
+            slug,
             cnpj,
             plan: planId,
             status: "ACTIVE",
           },
         });
 
+        // Usuário existente: por CPF (KYC) ou por e-mail (NO-KYC).
         const existingUser = await tx.user.findFirst({
-          where: { cpf: ownerCpf },
+          where: ownerCpf ? { cpf: ownerCpf } : { email: pr.ownerEmail },
         });
         if (existingUser) {
           assertExistingUserCanBeLinked(existingUser, pr.ownerEmail);
@@ -923,8 +948,10 @@ export const adminRouter = createTRPCRouter({
                 cpf: ownerCpf,
                 email: pr.ownerEmail,
                 phone: ownerPhone,
-                passwordHash: hashPassword(tempPassword),
-                mustChangePassword: true,
+                // NO-KYC: usa o hash da senha definida no cadastro (sem troca
+                // forçada). KYC: senha temporária + troca obrigatória.
+                passwordHash: isNoKyc ? pr.passwordHash! : hashPassword(tempPassword!),
+                mustChangePassword: !isNoKyc,
               },
             });
 

@@ -16,6 +16,12 @@
 
 ---
 
+### 2026-06-14 — NO-KYC Fase 4: aprovação pelo superadmin
+- Implementado: `approvePreRegistration` bifurca KYC vs NO-KYC (tipo inferido por `ownerCpf` presente/nulo). NO-KYC: exige email+telefone verificados e senha definida; cria tenant ACTIVE com **slug opaco** `pdv-<hex>` (helper `generateOpaqueSlug`); cria user por **email sem CPF**, com a **senha do cadastro** (sem temporária, `mustChangePassword=false`); vínculo `admin`; provisiona carteira DePix (reusa `provisionDepixWallet`). UI `/admin/pre-registrations`: coluna "Tipo" (KYC/NO-KYC) na lista + no detalhe selos de verificação email/WhatsApp e CPF/CNPJ ocultos no NO-KYC.
+- Decisão (dono): Fase 4 enxuta — provisiona carteira direto na aprovação (como KYC); a escolha "criar nova vs aproveitar carteira existente" no 1º acesso fica para a Fase 6. Investigação do LWK: import por mnemonic NÃO existe (serviço Python só tem `create`/`reveal`); exigiria endpoint novo + manejo seguro da seed → Fase 6.
+- Validação: typecheck, lint (0), unit 991; aprovação NO-KYC validada ponta-a-ponta em banco real (slug opaco, cpf null, senha=cadastro, mustChange=false, role admin).
+- Próximo: Fase 5 — gating reforçado (NO-KYC só wallet) + aposentar auto-cadastro KYC. Fase 6 (futura) — import de carteira no 1º acesso.
+
 ### 2026-06-14 — NO-KYC Fase 3: onboarding público multi-step
 - Implementado: router `noKyc` (público, rate-limited) com `startRegistration` (cria PreRegistration NO-KYC sem CPF/CNPJ, com passwordHash; rejeita email já cadastrado com erro amigável; reusa pré-cadastro PENDING do mesmo email), `verifyEmail` (valida OTP do email → marca emailVerifiedAt → dispara OTP do telefone), `verifyPhone` (valida OTP WhatsApp → phoneVerifiedAt = cadastro completo) e `resendCode`. Validators em `src/lib/validators/no-kyc.ts` (senha ≥8 com letra+número, telefone ≥10 dígitos). UI: `/register` reescrito como fluxo multi-step (dados → código email → código WhatsApp → /register/pending), reaproveitando Card/Input/Button.
 - Decisão: o `admin.submitPreRegistration` (KYC público antigo) fica órfão da UI; sua remoção formal é a Fase 5 ("aposentar register KYC"). O usuário/tenant só são criados na aprovação (Fase 4).
