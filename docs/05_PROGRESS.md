@@ -16,6 +16,11 @@
 
 ---
 
+### 2026-06-14 — NO-KYC Fase 5: gating reforçado + aposentar auto-cadastro KYC (NÚCLEO CONCLUÍDO)
+- Implementado: `allowedModulesForTenant` ganha `isNoKyc` — tenant NO-KYC fica SEMPRE limitado a `NO_KYC_MODULES = ["wallet"]`, independente do plano (constante própria, à prova de mudança do default). `auth.ts` passa `isNoKyc: !tenant.cnpj` (cnpj agora sempre no select). Removido o `admin.submitPreRegistration` (auto-cadastro público KYC, órfão desde a Fase 3) + imports órfãos; pré-cadastro público agora é exclusivo do NO-KYC, tenant KYC criado manualmente pelo superadmin (createTenant).
+- Validação: typecheck, lint (0 erros), unit 995 (+5 do gating NO-KYC: só wallet mesmo com plano cheio; arena-tech intacto; KYC respeita plano).
+- **Núcleo NO-KYC concluído (Fases 0–5).** Pendências: (a) template `nokyc_verificacao` precisa ser APROVADO na Meta para a verificação de telefone funcionar em prod (hoje mock); (b) Fase 6 futura — import de carteira existente no 1º acesso (exige endpoint novo no serviço LWK Python).
+
 ### 2026-06-14 — NO-KYC Fase 4: aprovação pelo superadmin
 - Implementado: `approvePreRegistration` bifurca KYC vs NO-KYC (tipo inferido por `ownerCpf` presente/nulo). NO-KYC: exige email+telefone verificados e senha definida; cria tenant ACTIVE com **slug opaco** `pdv-<hex>` (helper `generateOpaqueSlug`); cria user por **email sem CPF**, com a **senha do cadastro** (sem temporária, `mustChangePassword=false`); vínculo `admin`; provisiona carteira DePix (reusa `provisionDepixWallet`). UI `/admin/pre-registrations`: coluna "Tipo" (KYC/NO-KYC) na lista + no detalhe selos de verificação email/WhatsApp e CPF/CNPJ ocultos no NO-KYC.
 - Decisão (dono): Fase 4 enxuta — provisiona carteira direto na aprovação (como KYC); a escolha "criar nova vs aproveitar carteira existente" no 1º acesso fica para a Fase 6. Investigação do LWK: import por mnemonic NÃO existe (serviço Python só tem `create`/`reveal`); exigiria endpoint novo + manejo seguro da seed → Fase 6.

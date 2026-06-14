@@ -65,6 +65,14 @@ export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
 export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet"];
 
 /**
+ * Teto rígido de módulos para tenants NO-KYC (ADR 0050): apenas a carteira
+ * DePix, independente do plano. Constante própria (não reaproveita
+ * DEFAULT_RELEASED_MODULES) para que mudar o default de tenants novos no futuro
+ * não eleve acidentalmente o acesso de um tenant sem documento.
+ */
+export const NO_KYC_MODULES: ModuleKey[] = ["wallet"];
+
+/**
  * Mapa de prefixo de rota → módulo. A ordem importa: prefixos mais específicos
  * vêm antes dos genéricos (ex.: `/depix-wallet` antes de qualquer rota financeira).
  * `resolveModuleForPath` casa pelo primeiro prefixo que bate.
@@ -157,9 +165,16 @@ export function allowedModulesForTenant(args: {
   tenantSlug: string | null | undefined;
   planFeatures: unknown;
   hasPlan: boolean;
+  /** Tenant NO-KYC (sem documento — ADR 0050): teto rígido em `wallet`. */
+  isNoKyc?: boolean;
 }): ModuleKey[] {
   if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) {
     return [...MODULE_KEYS];
+  }
+  // NO-KYC fica SEMPRE limitado ao DePix Wallet, independente do plano — o
+  // plano nunca eleva um tenant sem documento acima da carteira (ADR 0050).
+  if (args.isNoKyc) {
+    return [...NO_KYC_MODULES];
   }
   if (!args.hasPlan) {
     return [...DEFAULT_RELEASED_MODULES];

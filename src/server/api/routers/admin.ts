@@ -2,10 +2,9 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
-import { prisma, withAdmin } from "@/server/db";
+import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
 import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
-import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { modulesFromPlanFeatures } from "@/lib/modules";
 
 /**
@@ -26,7 +25,6 @@ import {
   createPlanSchema,
   updatePlanSchema,
   listPlansSchema,
-  submitPreRegistrationSchema,
   approvePreRegistrationSchema,
   rejectPreRegistrationSchema,
   listPreRegistrationsSchema,
@@ -1576,27 +1574,7 @@ export const adminRouter = createTRPCRouter({
     }));
   }),
 
-  submitPreRegistration: publicProcedure
-    // Rate limit: 5 pre-registros por IP a cada 1h. Endpoint publico aberto.
-    .use(rateLimitMiddleware({ limit: 5, windowMs: 60 * 60 * 1000 }))
-    .input(submitPreRegistrationSchema)
-    .mutation(async ({ input }) => {
-      const planId = await withAdmin((tx) => resolveWalletOnlyActivePlanId(tx, input.planId));
-      const cnpj = normalizeDigits(input.cnpj);
-      const pr = await prisma.preRegistration.create({
-        data: {
-          tradeName: input.tradeName,
-          legalName: input.legalName ?? null,
-          cnpj,
-          ownerName: input.ownerName,
-          ownerCpf: normalizeRequiredDigits(input.ownerCpf),
-          ownerEmail: input.ownerEmail,
-          ownerPhone: normalizeDigits(input.ownerPhone) ?? input.ownerPhone,
-          planId,
-          notes: input.notes ?? null,
-        },
-      });
-      logger.info("Pre-registration submitted", { id: pr.id });
-      return { id: pr.id };
-    }),
+  // O auto-cadastro público KYC (submitPreRegistration) foi aposentado na Fase 5
+  // do ADR 0050: o pré-cadastro público agora é exclusivo do NO-KYC (router
+  // `noKyc`); tenant KYC é criado manualmente pelo superadmin (createTenant).
 });

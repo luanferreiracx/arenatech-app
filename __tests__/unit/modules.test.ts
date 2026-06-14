@@ -97,6 +97,46 @@ describe("allowedModulesForTenant", () => {
       }),
     ).toEqual(["wallet", "pdv"]);
   });
+
+  // ── NO-KYC: teto rígido em wallet (ADR 0050) ──
+  it("NO-KYC fica só em wallet MESMO com plano que libera tudo", () => {
+    expect(
+      allowedModulesForTenant({
+        tenantSlug: "pdv-7f3a9c",
+        planFeatures: { modules: ["wallet", "pdv", "stock", "financial"] },
+        hasPlan: true,
+        isNoKyc: true,
+      }),
+    ).toEqual(["wallet"]);
+  });
+
+  it("NO-KYC sem plano também só wallet", () => {
+    expect(
+      allowedModulesForTenant({ tenantSlug: "pdv-x", planFeatures: null, hasPlan: false, isNoKyc: true }),
+    ).toEqual(["wallet"]);
+  });
+
+  it("isNoKyc não afeta o tenant de acesso total (arena-tech)", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "arena-tech",
+      planFeatures: null,
+      hasPlan: false,
+      isNoKyc: true,
+    });
+    expect(mods.length).toBeGreaterThan(1);
+    expect(mods).toContain("pdv");
+  });
+
+  it("KYC (isNoKyc=false) segue respeitando o plano", () => {
+    expect(
+      allowedModulesForTenant({
+        tenantSlug: "loja-kyc",
+        planFeatures: { modules: ["wallet", "pdv"] },
+        hasPlan: true,
+        isNoKyc: false,
+      }),
+    ).toEqual(["wallet", "pdv"]);
+  });
 });
 
 describe("isPathAllowed", () => {
