@@ -461,24 +461,38 @@ jobs:
             sudo -n nginx -t
             sudo -n systemctl reload nginx
 
-            # 3) Recriar so o container app (--no-deps nao mexe em postgres/redis/minio)
-            echo "=> Recriando container app..."
             cat > docker-compose.deploy.yml <<EOF
             services:
               app:
                 image: ${IMAGE}
             EOF
-            docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build --no-deps app
 
-            # 4) Migrations (sem esperar healthcheck — exec funciona assim que container sobe)
-            echo "=> Running migrations..."
-            for i in $(seq 1 20); do
-              if docker exec arenatech-app sh -c 'true' 2>/dev/null; then break; fi
-              sleep 1
-            done
-            docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || {
-              echo "=> WARNING: Migration deploy teve issues. App esta no ar."
-            }
+            # 3) Migrations ANTES de subir o app novo.
+            #
+            #    Ordem critica: a imagem NOVA roda `migrate deploy` num container
+            #    efemero (run --rm) — com o env/rede do compose (postgres healthy)
+            #    e o prisma CLI ja no PATH (/opt/prisma). So depois subimos o app.
+            #
+            #    Por que: se subissemos o app ANTES da migration (ordem antiga),
+            #    havia uma janela em que o app no ar usava o schema velho — toda
+            #    query na tabela alterada estourava "column ... does not exist"
+            #    ate a migration terminar (ex.: pix_approved_at em 2026-06-14).
+            #
+            #    Fail-fast: se a migration falhar, ABORTA o deploy (exit 1) e
+            #    mantem o app ANTIGO no ar — nunca sobe app com schema
+            #    dessincronizado. O `app` antigo segue servindo (codigo antigo
+            #    e compativel com o schema antigo).
+            echo "=> Running migrations (imagem nova, antes de subir o app)..."
+            docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml \
+              run --rm --no-deps app prisma migrate deploy || {
+                echo "=> ERRO: migrate deploy falhou. Abortando deploy; app ANTIGO segue no ar."
+                exit 1
+              }
+
+            # 4) Recriar so o container app (--no-deps nao mexe em postgres/redis/minio).
+            #    Schema ja esta atualizado => app novo sobe consistente.
+            echo "=> Recriando container app..."
+            docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d --no-build --no-deps app
 
             # 5) Limpeza assincrona (nao bloqueia o deploy)
             (docker image prune -af --filter "until=24h" >/dev/null 2>&1 &) || true
