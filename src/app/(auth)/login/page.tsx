@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CpfInput } from "@/components/forms/cpf-input";
 import { Loader2, AlertCircle } from "lucide-react";
 import { loginAction, type LoginState } from "@/app/actions/auth";
 
@@ -63,7 +62,7 @@ export default function LoginPage() {
         <CardDescription className="text-sm">
           {showTwoFactor
             ? "Digite o código de 6 dígitos do seu app autenticador"
-            : "Digite seu CPF e senha para entrar"}
+            : "Digite seu CPF ou e-mail e a senha para entrar"}
         </CardDescription>
       </CardHeader>
 
@@ -88,13 +87,18 @@ export default function LoginPage() {
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label htmlFor="cpf">CPF</Label>
-                <CpfInput
+                <Label htmlFor="cpf">CPF ou e-mail</Label>
+                {/* Campo único: CPF (tenant KYC) ou e-mail (NO-KYC) — ADR 0050.
+                    Input livre (sem máscara de CPF) p/ aceitar ambos; a key do
+                    form segue "cpf" por compatibilidade com o loginAction. */}
+                <Input
                   id="cpf"
                   name="cpf"
+                  type="text"
                   value={cpf}
-                  onValueChange={setCpf}
+                  onChange={(e) => setCpf(e.target.value)}
                   autoComplete="username"
+                  placeholder="CPF ou e-mail"
                   required
                 />
               </div>
