@@ -31,9 +31,11 @@ import { checklistRouter } from "@/server/api/routers/checklist";
 import { rewardRouter } from "@/server/api/routers/reward";
 import { chatbotRouter } from "@/server/api/routers/chatbot";
 import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
+import { noKycRouter } from "@/server/api/routers/no-kyc";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
+  noKyc: noKycRouter,
   nfeImport: nfeImportRouter,
   checklist: checklistRouter,
   reward: rewardRouter,

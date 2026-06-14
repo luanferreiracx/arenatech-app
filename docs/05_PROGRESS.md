@@ -16,6 +16,12 @@
 
 ---
 
+### 2026-06-14 — NO-KYC Fase 3: onboarding público multi-step
+- Implementado: router `noKyc` (público, rate-limited) com `startRegistration` (cria PreRegistration NO-KYC sem CPF/CNPJ, com passwordHash; rejeita email já cadastrado com erro amigável; reusa pré-cadastro PENDING do mesmo email), `verifyEmail` (valida OTP do email → marca emailVerifiedAt → dispara OTP do telefone), `verifyPhone` (valida OTP WhatsApp → phoneVerifiedAt = cadastro completo) e `resendCode`. Validators em `src/lib/validators/no-kyc.ts` (senha ≥8 com letra+número, telefone ≥10 dígitos). UI: `/register` reescrito como fluxo multi-step (dados → código email → código WhatsApp → /register/pending), reaproveitando Card/Input/Button.
+- Decisão: o `admin.submitPreRegistration` (KYC público antigo) fica órfão da UI; sua remoção formal é a Fase 5 ("aposentar register KYC"). O usuário/tenant só são criados na aprovação (Fase 4).
+- Validação: typecheck, lint (0), unit 991 (+8 validators NO-KYC), build verde (/register compila).
+- Próximo: Fase 4 — aprovação NO-KYC pelo superadmin (cria user por email, slug opaco, plano wallet-only, provisiona carteira).
+
 ### 2026-06-14 — NO-KYC Fase 2: login dual (CPF/email)
 - Implementado: `src/lib/auth/login-identifier.ts` — `resolveLoginIdentifier` (contém `@` → email; senão CPF com validação de dígito) + `maskIdentifier` p/ logs. `authorize` (NextAuth) resolve o identificador, faz rate-limit por `login:<kind>:<valor>` e busca por `cpf` OU `email` (findFirst). Tela de login: campo único "CPF ou e-mail" (Input livre, sem máscara); key do form segue `cpf` por compat.
 - Decisão (dono): **email único basta** como identidade do NO-KYC; **telefone NÃO precisa ser único** (mesmo celular pode ser contato de mais de uma loja/sócio; phone já serve p/ notificação de OS, com repetições plausíveis). Anti-abuso coberto por email único + OTP do telefone + aprovação manual do superadmin. O índice único PARCIAL de email (Fase 0) já impede reuso de email por QUALQUER cadastro (KYC ou NO-KYC); checagem amigável no cadastro vem na Fase 3.
