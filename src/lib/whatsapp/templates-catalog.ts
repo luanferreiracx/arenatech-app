@@ -184,6 +184,28 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
     params: 2,
     body: "Olá, {{1}}! Temos uma solicitação de coleta/entrega referente a {{2}}. Verifique os detalhes no WhatsApp ou responda aqui.",
   },
+
+  // ── Verificação de telefone no auto-cadastro NO-KYC (ADR 0050) ──
+  // Categoria AUTHENTICATION: a Meta GERA o corpo (texto fixo) — não se escreve
+  // texto livre. Formato "código de cópia" (botão COPY_CODE), validade 10min.
+  // {{1}} = código OTP (vai no body E no botão copy_code). O `body` aqui é só a
+  // representação local do texto que a Meta renderiza.
+  // PENDENTE de aprovação no Meta Business Manager (WABA 3564717570348730).
+  // Criar via Graph API:
+  //   POST /{WABA_ID}/message_templates
+  //   { name:"nokyc_verificacao", language:"pt_BR", category:"AUTHENTICATION",
+  //     components:[
+  //       { type:"BODY", add_security_recommendation:true },
+  //       { type:"FOOTER", code_expiration_minutes:10 },
+  //       { type:"BUTTONS", buttons:[{ type:"OTP", otp_type:"COPY_CODE" }] } ] }
+  nokyc_verificacao: {
+    name: "nokyc_verificacao",
+    language: "pt_BR",
+    category: "AUTHENTICATION",
+    params: 1,
+    isOtp: true,
+    body: "{{1}} é seu código de verificação. Por segurança, não compartilhe este código.",
+  },
 };
 
 /**
