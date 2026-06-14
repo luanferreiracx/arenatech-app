@@ -87,6 +87,11 @@ model TenantDepixTransaction {
   /// txid on-chain do deposito recebido (PixPay -> tenant via LWK).
   depositTxId           String?                 @map("deposit_tx_id")
   confirmations         Int?                    @default(0)
+  /// Sinal INTERMEDIARIO: PixPay confirmou o PIX (status approved/paid) — o
+  /// DePix esta a caminho on-chain. NAO credita saldo: o credito real so
+  /// acontece no webhook LWK `confirmed` (status COMPLETED). Usado apenas pra
+  /// UI agilizar o atendimento ("PIX recebido, confirmando na rede ~2min").
+  pixApprovedAt         DateTime?               @map("pix_approved_at")
 
   /// ─── AUDITORIA ──────────────────────────────────────────────────────
   apiResponse           Json?                   @map("api_response")
