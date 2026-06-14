@@ -16,6 +16,12 @@
 
 ---
 
+### 2026-06-14 — NO-KYC Fase 0: schema base (ADR 0050)
+- Implementado (PR #107, mergeado): `users.cpf` nullable + índice único PARCIAL (`WHERE cpf IS NOT NULL`); `users.email` índice único parcial; tabela global `verification_codes` (sem RLS, igual `password_reset_tokens`) para OTP; `pre_registrations` com `owner_cpf` opcional + `password_hash`/`email_verified_at`/`phone_verified_at`.
+- Decisões: migration SQL manual (unicidade parcial); `cpf` deixou de ser `@unique` p/ o Prisma → `findUnique({where:{cpf}})` virou `findFirst`, seed usa helper `upsertUserByCpf`; tipos NextAuth `cpf: string | null`; `approvePreRegistration` ainda exige CPF (aprovação NO-KYC é Fase 4). Login dual é Fase 2 — comportamento de login inalterado nesta fase.
+- Validação: migrate deploy em banco limpo + seed idempotente; unicidade parcial conferida; typecheck/lint/unit 961 verdes; E2E @smoke verde.
+- Próximo: Fase 1 — infra de verificação por código (OTP email via Resend, telefone via WhatsApp Cloud template AUTHENTICATION).
+
 ### 2026-06-14 — Planejamento: onboarding de tenant NO-KYC (ADR 0050)
 - Investigado: o auto-cadastro KYC já existe (`/register` → `PreRegistration` PENDING → aprovação superadmin cria tenant+user+wallet). Gating já tem `DEFAULT_RELEASED_MODULES = ["wallet"]`. WhatsApp Cloud API oficial já implementada (`whatsapp-cloud-service.ts`). Resend pronto. Não há verificação por código (só 2FA TOTP). Sistema NÃO resolve tenant por host (mesma app/banco; tenant ativo vem da sessão).
 - Decisões (dono): tipo inferido por presença de documento (sem flag nova); `User.cpf` nullable + login dual (CPF para KYC, email para NO-KYC); pré-cadastro vira exclusivo do NO-KYC (KYC criado manualmente pelo superadmin); slug opaco `pdv-<hash>` (sem subdomínio); login bloqueado até aprovar; email + telefone obrigatórios e verificados (telefone via WA Cloud, template AUTHENTICATION novo `nokyc_verificacao`); NO-KYC limitado ao DePix Wallet; reaproveitar `/register`.
