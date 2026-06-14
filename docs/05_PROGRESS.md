@@ -16,6 +16,12 @@
 
 ---
 
+### 2026-06-14 — Planejamento: onboarding de tenant NO-KYC (ADR 0050)
+- Investigado: o auto-cadastro KYC já existe (`/register` → `PreRegistration` PENDING → aprovação superadmin cria tenant+user+wallet). Gating já tem `DEFAULT_RELEASED_MODULES = ["wallet"]`. WhatsApp Cloud API oficial já implementada (`whatsapp-cloud-service.ts`). Resend pronto. Não há verificação por código (só 2FA TOTP). Sistema NÃO resolve tenant por host (mesma app/banco; tenant ativo vem da sessão).
+- Decisões (dono): tipo inferido por presença de documento (sem flag nova); `User.cpf` nullable + login dual (CPF para KYC, email para NO-KYC); pré-cadastro vira exclusivo do NO-KYC (KYC criado manualmente pelo superadmin); slug opaco `pdv-<hash>` (sem subdomínio); login bloqueado até aprovar; email + telefone obrigatórios e verificados (telefone via WA Cloud, template AUTHENTICATION novo `nokyc_verificacao`); NO-KYC limitado ao DePix Wallet; reaproveitar `/register`.
+- Entregue: ADR `docs/decisions/0050-tenant-no-kyc-onboarding.md` com schema proposto, definição do template OTP (a criar na Meta) e plano em 6 fases (0 schema → 5 gating/UX). Sem código (escopo "só planejar").
+- Próximo: aguardando aval do dono para iniciar a Fase 0 (schema/migrations). Dependência externa: aprovação do template `nokyc_verificacao` pela Meta.
+
 ### 2026-06-10 — Catálogo público: redesign premium mobile-first
 - Implementado: front-end do catálogo público (`/catalog` e `/catalog/[id]`) refeito por completo com a skill `frontend-design`, priorizando a experiência no celular (principal queixa: catálogo "ridículo" no mobile).
 - Implementado: layout `(public)/layout.tsx` com fontes distintivas escopadas (Bricolage Grotesque + Outfit + JetBrains Mono nos preços) e tema escuro forçado; atmosfera (malha de gradiente dourado + grão) e reveal escalonado em `catalog.css`, tudo isolado em `.catalog-scope` para não vazar na intranet.
