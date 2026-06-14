@@ -73,13 +73,13 @@ async function resolveModulesByTenant(
       // Quando chamado em requisições subsequentes, não temos o plano no token:
       // buscamos tenant.plan no banco. No login já temos, mas reconsultar é
       // barato e mantém uma única fonte de verdade.
-      const dbTenants =
-        opts?.withPlan
-          ? await tx.tenant.findMany({
-              where: { id: { in: stale.map((t) => t.id) } },
-              select: { id: true, slug: true, plan: true, status: true },
-            })
-          : stale.map((t) => ({ id: t.id, slug: t.slug, plan: t.plan }));
+      // cnpj entra no select para inferir NO-KYC (sem documento → teto wallet).
+      // Buscamos sempre no banco (mesmo sem withPlan): o token não carrega cnpj
+      // e o reforço de gating do NO-KYC não pode depender só do plano.
+      const dbTenants = await tx.tenant.findMany({
+        where: { id: { in: stale.map((t) => t.id) } },
+        select: { id: true, slug: true, plan: true, status: true, cnpj: true },
+      });
 
       const activeTenants = dbTenants.filter(
         (t) => !("status" in t) || t.status === ACTIVE_TENANT_STATUS,
@@ -102,6 +102,8 @@ async function resolveModulesByTenant(
         tenantSlug: t.slug,
         hasPlan: Boolean(t.plan),
         planFeatures: t.plan ? data.featuresByPlanId.get(t.plan) : null,
+        // Tipo inferido pela presença de documento (ADR 0050): sem CNPJ = NO-KYC.
+        isNoKyc: !t.cnpj,
       });
       modulesCache.set(t.id, { modules, expiresAt: now + MODULES_CACHE_TTL_MS });
       result.set(t.id, modules);
