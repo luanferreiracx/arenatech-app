@@ -455,7 +455,9 @@ export const csvImportLineSchema = z.object({
   // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
   // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
   costPrice: z.number().int().min(0).optional(),
-  salePrice: z.number().int().min(0, "Preco de venda obrigatorio"),
+  // Preco de venda em centavos: min(1) rejeita produto a R$ 0 ja na validacao
+  // (antes o preview avisava mas o import nao revalidava — bypassavel).
+  salePrice: z.number().int().min(1, "Preco de venda deve ser maior que zero"),
   promotionalPrice: z.number().int().min(0).optional(),
   minStock: z.number().int().min(0).optional(),
   quantity: z.number().int().min(0).optional(),
@@ -465,8 +467,14 @@ export const csvImportLineSchema = z.object({
 
 export type CsvImportLineInput = z.infer<typeof csvImportLineSchema>;
 
+// Limite de linhas: protege contra import gigante (DoS por memoria/tx longa).
+const CSV_IMPORT_MAX_LINES = 2000;
+
 export const csvImportSchema = z.object({
-  lines: z.array(csvImportLineSchema).min(1, "Pelo menos uma linha obrigatoria"),
+  lines: z
+    .array(csvImportLineSchema)
+    .min(1, "Pelo menos uma linha obrigatoria")
+    .max(CSV_IMPORT_MAX_LINES, `Importe no maximo ${CSV_IMPORT_MAX_LINES} linhas por vez`),
 });
 
 export type CsvImportInput = z.infer<typeof csvImportSchema>;

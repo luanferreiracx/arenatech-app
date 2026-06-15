@@ -129,16 +129,19 @@ export async function exitNonSerialized(
   }
 ): Promise<void> {
   const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } })
-  const before = product.currentStock
 
-  if (before < params.quantity) {
+  // Compare-and-set atomico: o WHERE currentStock >= quantity evita oversell sob
+  // concorrencia (dois EXIT simultaneos nao baixam abaixo de zero). Antes era
+  // read-check-write nao-atomico (TOCTOU).
+  const updated = await tx.product.updateMany({
+    where: { id: params.productId, currentStock: { gte: params.quantity } },
+    data: { currentStock: { decrement: params.quantity } },
+  })
+  if (updated.count !== 1) {
     throw new Error("Estoque insuficiente")
   }
 
-  await tx.product.update({
-    where: { id: params.productId },
-    data: { currentStock: { decrement: params.quantity } },
-  })
+  const before = product.currentStock
 
   await tx.stockMovement.create({
     data: {
@@ -335,4 +338,53 @@ export async function disposeStockItem(
       userId,
     },
   })
+}
+
+/**
+ * Libera reservas de StockItem presas: ao adicionar um aparelho ao carrinho do
+ * PDV, ele vira RESERVED (reservedForType="sale"). Se o vendedor fecha o
+ * navegador sem finalizar nem abandonar, o aparelho ficava preso para sempre —
+ * nao havia limpeza. Este job devolve para AVAILABLE os itens RESERVED ha mais
+ * de `staleMinutes` cuja venda de origem ainda esta em DRAFT (nao finalizada).
+ *
+ * Cross-tenant: chamado pelo cron com withAdmin (BYPASSRLS). Idempotente.
+ */
+export async function releaseStaleReservations(
+  tx: PrismaClient,
+  staleMinutes = 30,
+): Promise<{ releasedCount: number }> {
+  const cutoff = new Date(Date.now() - staleMinutes * 60_000)
+
+  // Candidatos: RESERVED para venda, com reserva antiga. Confirmamos que a venda
+  // de origem ainda esta DRAFT (uma venda finalizada marca o item SOLD; se ainda
+  // RESERVED apos finalizar seria outro bug, mas nao liberamos por seguranca).
+  const stale = await tx.stockItem.findMany({
+    where: {
+      status: "RESERVED",
+      reservedForType: "sale",
+      reservedAt: { lt: cutoff },
+      deletedAt: null,
+    },
+    select: { id: true, reservedForId: true },
+  })
+  if (stale.length === 0) return { releasedCount: 0 }
+
+  const saleIds = [...new Set(stale.map((s) => s.reservedForId).filter((v): v is string => !!v))]
+  const activeDrafts = await tx.sale.findMany({
+    where: { id: { in: saleIds }, status: "DRAFT", deletedAt: null },
+    select: { id: true },
+  })
+  const draftSet = new Set(activeDrafts.map((s) => s.id))
+
+  // Libera: reserva sem venda (orfa) OU reserva de venda ainda em DRAFT.
+  const releasableIds = stale
+    .filter((s) => !s.reservedForId || draftSet.has(s.reservedForId))
+    .map((s) => s.id)
+  if (releasableIds.length === 0) return { releasedCount: 0 }
+
+  const result = await tx.stockItem.updateMany({
+    where: { id: { in: releasableIds }, status: "RESERVED" },
+    data: { status: "AVAILABLE", reservedForType: null, reservedForId: null, reservedAt: null },
+  })
+  return { releasedCount: result.count }
 }
