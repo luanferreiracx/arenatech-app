@@ -86,7 +86,10 @@ export default function StockEntryPage() {
       />
 
       <form
-        onSubmit={form.handleSubmit((data) => entryMutation.mutate(data))}
+        onSubmit={form.handleSubmit(
+          (data) => entryMutation.mutate(data),
+          () => toast.error("Revise os campos destacados antes de registrar a entrada."),
+        )}
         className="space-y-6"
       >
         {/* Header: dados compartilhados pelo lote */}

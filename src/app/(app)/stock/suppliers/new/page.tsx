@@ -81,13 +81,16 @@ export default function NewSupplierPage() {
   });
   const duplicate = dupQuery.data?.duplicate ? dupQuery.data : null;
 
-  const onSubmit = form.handleSubmit((data) => {
-    if (duplicate) {
-      toast.error("Documento ja cadastrado em outro fornecedor.");
-      return;
-    }
-    createMutation.mutate(data);
-  });
+  const onSubmit = form.handleSubmit(
+    (data) => {
+      if (duplicate) {
+        toast.error("Documento ja cadastrado em outro fornecedor.");
+        return;
+      }
+      createMutation.mutate(data);
+    },
+    () => toast.error("Revise os campos destacados antes de salvar."),
+  );
 
   return (
     <div>

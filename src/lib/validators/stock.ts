@@ -446,24 +446,36 @@ export const upgradesSchema = reportDateRangeSchema.extend({
 
 export type UpgradesInput = z.infer<typeof upgradesSchema>;
 
-export const csvImportLineSchema = z.object({
-  name: z.string().min(1, "Nome obrigatorio"),
-  sku: z.string().optional(),
-  barcode: z.string().optional(),
-  brand: z.string().optional(),
-  category: z.string().optional(),
-  // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
-  // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
-  costPrice: z.number().int().min(0).optional(),
-  // Preco de venda em centavos: min(1) rejeita produto a R$ 0 ja na validacao
-  // (antes o preview avisava mas o import nao revalidava — bypassavel).
-  salePrice: z.number().int().min(1, "Preco de venda deve ser maior que zero"),
-  promotionalPrice: z.number().int().min(0).optional(),
-  minStock: z.number().int().min(0).optional(),
-  quantity: z.number().int().min(0).optional(),
-  isSerialized: z.boolean().optional(),
-  description: z.string().optional(),
-});
+export const csvImportLineSchema = z
+  .object({
+    name: z.string().min(1, "Nome obrigatorio"),
+    sku: z.string().optional(),
+    barcode: z.string().optional(),
+    brand: z.string().optional(),
+    category: z.string().optional(),
+    // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
+    // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
+    costPrice: z.number().int().min(0).optional(),
+    salePrice: z.number().int().min(0, "Preco de venda nao pode ser negativo"),
+    promotionalPrice: z.number().int().min(0).optional(),
+    minStock: z.number().int().min(0).optional(),
+    quantity: z.number().int().min(0).optional(),
+    isSerialized: z.boolean().optional(),
+    description: z.string().optional(),
+  })
+  // Produto NAO-serializado precisa de preco de venda > 0 (vende pelo proprio
+  // preco). Serializado pode entrar com 0: o preco real vem por unidade (na
+  // compra/entrada de cada aparelho). Antes o preview avisava mas o import nao
+  // revalidava (bypassavel) — e um min(1) cego quebraria serializados.
+  .superRefine((line, ctx) => {
+    if (!line.isSerialized && line.salePrice <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["salePrice"],
+        message: "Preco de venda deve ser maior que zero",
+      });
+    }
+  });
 
 export type CsvImportLineInput = z.infer<typeof csvImportLineSchema>;
 

@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
 export default function AttributesPage() {
   const trpc = useTRPC();
@@ -34,6 +35,10 @@ export default function AttributesPage() {
   const [newValueName, setNewValueName] = useState("");
   const [newValueAttrId, setNewValueAttrId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Dialog global controlado (1 por pagina, nao 1 por linha) para confirmar
+  // exclusoes destrutivas de atributo/valor.
+  const [deleteAttrTarget, setDeleteAttrTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteValueTarget, setDeleteValueTarget] = useState<{ id: string; label: string } | null>(null);
 
   const { data: attributes } = useQuery(
     trpc.stock.listAttributes.queryOptions({ active: undefined })
@@ -159,9 +164,10 @@ export default function AttributesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label={`Excluir atributo ${attr.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteAttr.mutate({ id: attr.id });
+                        setDeleteAttrTarget({ id: attr.id, name: attr.name });
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -182,7 +188,10 @@ export default function AttributesPage() {
                             >
                               {val.displayValue || val.value}
                               <button
-                                onClick={() => deleteValue.mutate({ id: val.id })}
+                                aria-label={`Remover valor ${val.displayValue || val.value}`}
+                                onClick={() =>
+                                  setDeleteValueTarget({ id: val.id, label: val.displayValue || val.value })
+                                }
                                 className="ml-1 text-destructive hover:text-destructive/80"
                               >
                                 ×
@@ -239,6 +248,32 @@ export default function AttributesPage() {
           </TableBody>
         </Table>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteAttrTarget}
+        onOpenChange={(o) => !o && setDeleteAttrTarget(null)}
+        title="Excluir atributo"
+        description={`Remover o atributo "${deleteAttrTarget?.name ?? ""}" e seus valores? Esta acao nao pode ser desfeita.`}
+        confirmLabel="Excluir"
+        variant="destructive"
+        onConfirm={() => {
+          if (deleteAttrTarget) deleteAttr.mutate({ id: deleteAttrTarget.id });
+          setDeleteAttrTarget(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deleteValueTarget}
+        onOpenChange={(o) => !o && setDeleteValueTarget(null)}
+        title="Remover valor"
+        description={`Remover o valor "${deleteValueTarget?.label ?? ""}"?`}
+        confirmLabel="Remover"
+        variant="destructive"
+        onConfirm={() => {
+          if (deleteValueTarget) deleteValue.mutate({ id: deleteValueTarget.id });
+          setDeleteValueTarget(null);
+        }}
+      />
     </div>
   );
 }
