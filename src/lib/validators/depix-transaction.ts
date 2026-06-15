@@ -111,6 +111,13 @@ export const createWithdrawSchema = z.object({
    * alem da sessao. Aceita ambos os formatos; a verificacao distingue.
    */
   twoFactorCode: z.string().trim().min(1, "Informe o codigo 2FA").max(20),
+  /**
+   * Passphrase da carteira (ADR 0051) — obrigatoria quando a carteira do tenant
+   * e non-custodial (o LWK assina decifrando a seed). Opcional aqui (o service
+   * valida conforme custodyModel); NUNCA logada. Sem .trim() — espacos podem
+   * ser intencionais na passphrase.
+   */
+  walletPassphrase: z.string().min(1).max(256).optional(),
 });
 export type CreateWithdrawInput = z.infer<typeof createWithdrawSchema>;
 

@@ -93,6 +93,9 @@ export const depixWalletRouter = createTRPCRouter({
       network: wallet?.network ?? null,
       canRevealMnemonic: canManageWallet(ctx),
       canWithdraw: canManageWallet(ctx),
+      // ADR 0051: a UI usa isto pra exigir a passphrase no saque (non_custodial)
+      // ou oferecer a migracao (custodial). "custodial" por default.
+      custodyModel: wallet?.custodyModel ?? "custodial",
     };
   }),
 
