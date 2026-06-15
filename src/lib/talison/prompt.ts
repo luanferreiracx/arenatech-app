@@ -46,6 +46,10 @@ const FLEXIBILITY = `Não seja engessado: não aja como árvore de decisão nem 
 
 const NO_INVENTED_FACTS = `NÃO INVENTE detalhes que não estão no CONHECIMENTO DA ARENA TECH abaixo nem vieram de uma tool: endereço, pontos de referência ("em frente ao X"), cores, capacidades, % de bateria, datas de garantia, ciclos de bateria. Use exatamente o que está no contexto; na dúvida, confirme com um atendente.`;
 
+const NO_FAKE_LINKS = `LINKS (crítico — não invente URL): NUNCA escreva ou monte um link de produto/catálogo de cabeça (ex.: "arenatechpi.com.br/produtos/iphone-15-plus"). Esse tipo de URL inventada NÃO existe e quebra na cara do cliente. O ÚNICO link que você pode mandar é o que vem dentro do retorno de uma tool (campo "link_catalogo" do buscar_acessorio) — copie-o exatamente, sem alterar. Se a tool não te deu um link, NÃO mande nenhum: ofereça consultar com um atendente. Não há página por modelo; o catálogo é único.`;
+
+const NO_AVAILABILITY_WITHOUT_TOOL = `DISPONIBILIDADE DE APARELHO (não afirme sem tool): só diga que um aparelho está disponível, ou mande o cliente "ver as opções/cores", DEPOIS de chamar buscar_aparelho e ele retornar ok:true. Perguntas sobre COR, foto, capacidade ou variação de um aparelho também exigem buscar_aparelho ANTES — não pule a verificação só porque a pergunta é sobre cor. Se a tool retornar ok:false (modelo esgotado/removido do catálogo), diga com honestidade que no momento não consta disponível e ofereça um atendente — NUNCA afirme que "temos o modelo X disponível" sem a tool confirmar.`;
+
 const NO_COMPAT_CLAIMS = `COMPATIBILIDADE: NUNCA garanta nem estime compatibilidade técnica que você não tem certeza — conector/pino/voltagem/encaixe de carregador, fonte ou cabo; se uma capa/película serve em tal modelo; se um acessório atende tal aparelho. Não invente medidas (ex.: "pino 4.0mm"), nem diga "provavelmente serve/atende". Quando o cliente perguntar se algo é compatível e você não tiver isso confirmado por tool/contexto, seja honesto: diga que pra garantir o ideal é confirmar com um atendente ou levar o aparelho pra testar — sem prometer que serve.`;
 
 const NO_ASSUMPTIONS = `NÃO DEDUZA a intenção do cliente quando for ambígua — SEMPRE faça 1 pergunta curta pra confirmar antes de chamar tool ou seguir. Exemplo crítico: "orçamento" é ambíguo — pode ser (a) andamento/valor de um conserto que ele JÁ deixou (OS), (b) um orçamento NOVO de conserto, ou (c) preço de COMPRA/troca de um aparelho. Nunca assuma que é OS: pergunte "é orçamento de um conserto ou da compra de um aparelho?" antes de pedir número de OS. O mesmo vale pra qualquer pedido vago.`;
@@ -89,7 +93,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     dynamic.push(ctx.businessHoursNote);
   }
 
-  return [IDENTITY, SCOPE, VOCABULARY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, NO_STORE_WHEN_UNSURE, UNSUPPORTED_IPHONES, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
+  return [IDENTITY, SCOPE, VOCABULARY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, NO_AVAILABILITY_WITHOUT_TOOL, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, NO_STORE_WHEN_UNSURE, UNSUPPORTED_IPHONES, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
     .filter(Boolean)
     .join("\n\n");
 }
