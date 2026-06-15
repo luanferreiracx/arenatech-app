@@ -8,6 +8,7 @@ import {
   extractSourceIp,
 } from "@/lib/webhooks/replay-guard";
 import { approveQuoteBySignature } from "@/lib/services/quote-signature-approval";
+import { approveDevicePurchaseTermBySignature } from "@/lib/services/device-purchase-signature";
 
 export const runtime = "nodejs";
 
@@ -101,6 +102,20 @@ export async function POST(req: NextRequest) {
     await markWebhookProcessed("autentique", eventKey, { ok: true });
     logger.info("Orcamento aprovado via webhook Autentique", {
       orderId: quoteApproval.orderId,
+      documentId,
+      signedAt: signedAt.toISOString(),
+    });
+    return NextResponse.json({ received: true });
+  }
+
+  // O documentId tambem pode ser o termo de responsabilidade de uma compra de
+  // aparelho (DevicePurchase). Confirma o termo e libera o StockItem BLOCKED —
+  // antes o webhook ignorava e o aparelho ficava preso ate verificacao manual.
+  const purchaseTerm = await approveDevicePurchaseTermBySignature(documentId, signedAt);
+  if (purchaseTerm) {
+    await markWebhookProcessed("autentique", eventKey, { ok: true });
+    logger.info("Termo de compra assinado via webhook Autentique — aparelho liberado", {
+      purchaseId: purchaseTerm.purchaseId,
       documentId,
       signedAt: signedAt.toISOString(),
     });

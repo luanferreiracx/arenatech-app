@@ -35,6 +35,15 @@ const state = vi.hoisted(() => ({
       findFirst: vi.fn().mockResolvedValue({ previousStatus: "IN_PROGRESS" }),
       create: vi.fn().mockResolvedValue({}),
     },
+    // Termo de compra (DevicePurchase): default null = documento nao e compra,
+    // segue para o fluxo de OS. Casos especificos sobrescrevem.
+    devicePurchase: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    stockItem: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
   },
 }));
 
@@ -81,6 +90,8 @@ beforeEach(() => {
   state.recordWebhookEvent.mockResolvedValue(true);
   state.tx.serviceOrderItem.findMany.mockResolvedValue([]);
   state.tx.serviceOrderHistory.findFirst.mockResolvedValue({ previousStatus: "IN_PROGRESS" });
+  state.tx.devicePurchase.findFirst.mockResolvedValue(null);
+  state.tx.stockItem.updateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("POST /api/webhooks/autentique — assinatura de orcamento", () => {
@@ -183,5 +194,53 @@ describe("POST /api/webhooks/autentique — assinatura de orcamento", () => {
         data: expect.objectContaining({ signatureSignedAt: expect.any(Date) }),
       }),
     );
+  });
+
+  it("confirma o termo da compra e libera o aparelho quando o documento e um DevicePurchase", async () => {
+    state.tx.serviceOrderQuote.findFirst.mockResolvedValue(null);
+    state.tx.devicePurchase.findFirst.mockResolvedValue({
+      id: "purchase-1",
+      productId: "prod-1",
+      imei: "350230978114253",
+      serial: null,
+      termSigned: false,
+    });
+
+    const res = await POST(makeRequest(signaturePayload("doc-purchase")));
+
+    expect(res.status).toBe(200);
+    // Marca o termo assinado.
+    expect(state.tx.devicePurchase.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "purchase-1" },
+        data: expect.objectContaining({ termSigned: true, termSignedVia: "autentique" }),
+      }),
+    );
+    // Libera o StockItem BLOCKED -> AVAILABLE.
+    expect(state.tx.stockItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "BLOCKED", imei: "350230978114253" }),
+        data: expect.objectContaining({ status: "AVAILABLE" }),
+      }),
+    );
+    // Nao deve cair no fluxo de OS.
+    expect(state.tx.serviceOrder.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("e idempotente: compra ja assinada nao re-libera", async () => {
+    state.tx.serviceOrderQuote.findFirst.mockResolvedValue(null);
+    state.tx.devicePurchase.findFirst.mockResolvedValue({
+      id: "purchase-2",
+      productId: "prod-1",
+      imei: "350230978114253",
+      serial: null,
+      termSigned: true,
+    });
+
+    const res = await POST(makeRequest(signaturePayload("doc-purchase-2")));
+
+    expect(res.status).toBe(200);
+    expect(state.tx.devicePurchase.update).not.toHaveBeenCalled();
+    expect(state.tx.stockItem.updateMany).not.toHaveBeenCalled();
   });
 });
