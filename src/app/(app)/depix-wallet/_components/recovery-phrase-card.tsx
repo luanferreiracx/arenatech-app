@@ -21,13 +21,17 @@ import {
 interface RecoveryPhraseCardProps {
   provisioned: boolean;
   canRevealMnemonic: boolean;
+  /** ADR 0051: "custodial" pede senha de login; "non_custodial" pede a passphrase. */
+  custodyModel?: string;
 }
 
 export function RecoveryPhraseCard({
   provisioned,
   canRevealMnemonic,
+  custodyModel = "custodial",
 }: RecoveryPhraseCardProps) {
   const trpc = useTRPC();
+  const isNonCustodial = custodyModel === "non_custodial";
   const [confirmRevealOpen, setConfirmRevealOpen] = useState(false);
   const [revealPassword, setRevealPassword] = useState("");
   const [revealedMnemonic, setRevealedMnemonic] = useState<string | null>(null);
@@ -126,16 +130,19 @@ export function RecoveryPhraseCard({
           <DialogHeader>
             <DialogTitle>Revelar frase de recuperacao?</DialogTitle>
             <DialogDescription>
-              Confirme sua senha para exibir as 24 palavras que permitem importar
-              e controlar a carteira no SideSwap. Nao compartilhe, nao envie por
-              WhatsApp e prefira guardar offline.
+              {isNonCustodial
+                ? "Digite a senha da sua carteira para exibir as 24 palavras."
+                : "Confirme sua senha para exibir as 24 palavras que permitem importar e controlar a carteira no SideSwap."}{" "}
+              Nao compartilhe, nao envie por WhatsApp e prefira guardar offline.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded border border-destructive/30 bg-destructive/10 p-3 text-sm">
             Qualquer pessoa com essa frase pode movimentar os fundos da carteira DePix/Liquid.
           </div>
           <div className="space-y-2">
-            <Label htmlFor="depix-wallet-mnemonic-password">Sua senha</Label>
+            <Label htmlFor="depix-wallet-mnemonic-password">
+              {isNonCustodial ? "Senha da carteira" : "Sua senha"}
+            </Label>
             <Input
               id="depix-wallet-mnemonic-password"
               type="password"
@@ -143,10 +150,12 @@ export function RecoveryPhraseCard({
               onChange={(event) => setRevealPassword(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && revealPassword && !revealMnemonicMutation.isPending) {
-                  revealMnemonicMutation.mutate({ password: revealPassword });
+                  revealMnemonicMutation.mutate(
+                    isNonCustodial ? { passphrase: revealPassword } : { password: revealPassword },
+                  );
                 }
               }}
-              autoComplete="current-password"
+              autoComplete={isNonCustodial ? "off" : "current-password"}
             />
           </div>
           <DialogFooter>
@@ -156,7 +165,11 @@ export function RecoveryPhraseCard({
             <Button
               type="button"
               variant="destructive"
-              onClick={() => revealMnemonicMutation.mutate({ password: revealPassword })}
+              onClick={() =>
+                revealMnemonicMutation.mutate(
+                  isNonCustodial ? { passphrase: revealPassword } : { password: revealPassword },
+                )
+              }
               disabled={revealMnemonicMutation.isPending || !revealPassword}
             >
               {revealMnemonicMutation.isPending ? "Revelando..." : "Confirmar senha e revelar"}

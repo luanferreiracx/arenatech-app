@@ -14,7 +14,17 @@ import {
   DEFAULT_DEPIX_FEE,
 } from "@/lib/validators/depix-wallet";
 import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
+import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
+import { logger } from "@/lib/logger";
 import * as lwk from "@/lib/services/lwk-service";
+
+// Rate-limit das acoes sensiveis de custodia (ADR 0051): expor/derivar a seed e
+// trocar passphrase. 5/15min por usuario — defesa contra brute-force da senha
+// da carteira.
+const rlSensitiveWallet = enforceRateLimit({ limit: 5, windowMs: 15 * 60 * 1000 });
+
+/** Passphrase da carteira (ADR 0051): sem trim (espacos podem ser intencionais). */
+const passphraseSchema = z.string().min(1, "Informe a senha da carteira.").max(256);
 
 function decimalToNumber(d: unknown): number {
   return d == null ? 0 : Number(d);
@@ -31,7 +41,10 @@ function canManageWallet(ctx: {
 }
 
 const revealMnemonicSchema = z.object({
-  password: z.string().min(1, "Digite sua senha para revelar a frase."),
+  // Custodial: senha de login. Non-custodial: ignorado (usa passphrase).
+  password: z.string().optional(),
+  // Non-custodial: passphrase da carteira. Custodial: ignorado.
+  passphrase: z.string().max(256).optional(),
 });
 
 export const depixWalletRouter = createTRPCRouter({
@@ -99,22 +112,14 @@ export const depixWalletRouter = createTRPCRouter({
     };
   }),
 
-  /** Revela a frase de recuperacao da carteira. Nunca incluir em getWalletInfo. */
+  /** Revela a frase de recuperacao da carteira. Nunca incluir em getWalletInfo.
+   *  Custodial: exige a SENHA DE LOGIN. Non-custodial (ADR 0051): exige a
+   *  PASSPHRASE da carteira (o servidor nao consegue ler a seed sem ela; nem
+   *  superadmin revela seed alheia). */
   revealMnemonic: tenantAdminProcedure
     .input(revealMnemonicSchema)
     .mutation(async ({ ctx, input }) => {
-      const user = await ctx.withTenant(async (tx) =>
-        tx.user.findUnique({
-          where: { id: ctx.session.user.id },
-          select: { passwordHash: true },
-        }),
-      );
-      if (!user || !compareSync(input.password, user.passwordHash)) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Senha invalida.",
-        });
-      }
+      await rlSensitiveWallet(ctx, "depixWallet.revealMnemonic");
 
       const wallet = await ctx.withTenant(async (tx) =>
         tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
@@ -126,12 +131,41 @@ export const depixWalletRouter = createTRPCRouter({
         });
       }
 
-      const res = await lwk.revealMnemonic(ctx.tenantId);
+      const isNonCustodial = wallet.custodyModel === "non_custodial";
+      let res: lwk.LwkMnemonicResult;
+      if (isNonCustodial) {
+        if (!input.passphrase) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Informe a senha da carteira para ver sua frase de recuperacao.",
+          });
+        }
+        res = await lwk.revealMnemonic(ctx.tenantId, {
+          encryptedSeed: wallet.encryptedSeed,
+          passphrase: input.passphrase,
+        });
+      } else {
+        // Custodial: a senha de LOGIN protege a revelacao (a seed esta no volume).
+        const user = await ctx.withTenant(async (tx) =>
+          tx.user.findUnique({
+            where: { id: ctx.session.user.id },
+            select: { passwordHash: true },
+          }),
+        );
+        if (!user || !input.password || !compareSync(input.password, user.passwordHash)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha invalida." });
+        }
+        res = await lwk.revealMnemonic(ctx.tenantId);
+      }
+
       if (!res.success || !res.mnemonic) {
+        const isWrongPass = res.error === "Senha da carteira incorreta.";
         throw new TRPCError({
-          code: res.error?.includes("endpoint de frase de recuperacao nao encontrado")
-            ? "BAD_GATEWAY"
-            : "INTERNAL_SERVER_ERROR",
+          code: isWrongPass
+            ? "UNAUTHORIZED"
+            : res.error?.includes("endpoint de frase de recuperacao nao encontrado")
+              ? "BAD_GATEWAY"
+              : "INTERNAL_SERVER_ERROR",
           message: res.error ?? "Falha ao revelar frase de recuperacao.",
         });
       }
@@ -141,6 +175,125 @@ export const depixWalletRouter = createTRPCRouter({
         wordCount: res.wordCount ?? res.mnemonic.split(/\s+/).filter(Boolean).length,
         network: res.network ?? wallet.network,
       };
+    }),
+
+  /**
+   * MIGRACAO custodial -> non-custodial (ADR 0051 Etapa 5). O operador define
+   * uma passphrase; o LWK cifra a seed atual com ela e devolve o blob, que
+   * gravamos + setamos custodyModel=non_custodial. NAO apaga a seed em claro do
+   * volume (a purga ocorre depois, com carencia). Idempotente-safe: rejeita se
+   * ja for non_custodial.
+   */
+  setupNonCustodial: tenantAdminProcedure
+    .input(z.object({ passphrase: passphraseSchema }))
+    .mutation(async ({ ctx, input }) => {
+      await rlSensitiveWallet(ctx, "depixWallet.setupNonCustodial");
+
+      const wallet = await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
+      );
+      if (!wallet?.provisionedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira ainda nao provisionada." });
+      }
+      if (wallet.custodyModel === "non_custodial") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Esta carteira ja esta protegida por senha (non-custodial).",
+        });
+      }
+
+      const res = await lwk.encryptSeed(ctx.tenantId, input.passphrase);
+      if (!res.success || !res.encryptedSeed) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: res.error ?? "Falha ao proteger a carteira.",
+        });
+      }
+
+      await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.update({
+          where: { tenantId: ctx.tenantId },
+          data: {
+            encryptedSeed: res.encryptedSeed as never,
+            custodyModel: "non_custodial",
+            seedKdfVersion: 1,
+          },
+        }),
+      );
+      logger.info("DePix wallet migrada para non-custodial", { tenantId: ctx.tenantId });
+      return { success: true };
+    }),
+
+  /** Troca a passphrase da carteira non-custodial (ADR 0051). */
+  rewrapPassphrase: tenantAdminProcedure
+    .input(z.object({ oldPassphrase: passphraseSchema, newPassphrase: passphraseSchema }))
+    .mutation(async ({ ctx, input }) => {
+      await rlSensitiveWallet(ctx, "depixWallet.rewrapPassphrase");
+
+      const wallet = await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
+      );
+      if (wallet?.custodyModel !== "non_custodial" || !wallet.encryptedSeed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira nao e non-custodial." });
+      }
+
+      const res = await lwk.rewrapSeed(
+        ctx.tenantId,
+        wallet.encryptedSeed,
+        input.oldPassphrase,
+        input.newPassphrase,
+      );
+      if (!res.success || !res.encryptedSeed) {
+        throw new TRPCError({
+          code: res.error === "Senha da carteira incorreta." ? "UNAUTHORIZED" : "INTERNAL_SERVER_ERROR",
+          message: res.error ?? "Falha ao trocar a senha da carteira.",
+        });
+      }
+
+      await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.update({
+          where: { tenantId: ctx.tenantId },
+          data: { encryptedSeed: res.encryptedSeed as never },
+        }),
+      );
+      logger.info("DePix wallet: passphrase trocada", { tenantId: ctx.tenantId });
+      return { success: true };
+    }),
+
+  /**
+   * RECUPERACAO por mnemonico (ADR 0051): o operador esqueceu a passphrase mas
+   * tem as 24 palavras. Informa o mnemonico + nova passphrase; o LWK valida que
+   * deriva o MESMO descriptor (sem mover fundos) e recifra. Sobrescreve o blob.
+   */
+  recoverNonCustodial: tenantAdminProcedure
+    .input(z.object({ mnemonic: z.string().min(1).max(1000), newPassphrase: passphraseSchema }))
+    .mutation(async ({ ctx, input }) => {
+      await rlSensitiveWallet(ctx, "depixWallet.recoverNonCustodial");
+
+      const wallet = await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
+      );
+      if (!wallet?.provisionedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira ainda nao provisionada." });
+      }
+
+      const res = await lwk.recoverWallet(ctx.tenantId, input.mnemonic.trim(), input.newPassphrase);
+      if (!res.success || !res.encryptedSeed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: res.error ?? "Falha na recuperacao." });
+      }
+
+      await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.update({
+          where: { tenantId: ctx.tenantId },
+          data: {
+            encryptedSeed: res.encryptedSeed as never,
+            custodyModel: "non_custodial",
+            seedKdfVersion: 1,
+          },
+        }),
+      );
+      logger.info("DePix wallet recuperada via mnemonico", { tenantId: ctx.tenantId });
+      return { success: true };
     }),
 
   /** Saldo DePix da carteira do tenant (consulta o LWK). */
