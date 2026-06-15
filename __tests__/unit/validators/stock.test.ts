@@ -562,6 +562,19 @@ describe("csvImportSchema", () => {
     expect(r.success).toBe(false);
   });
 
+  it("rejeita preco de venda zero (antes era bypassavel no import)", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [{ name: "Produto", salePrice: 0 }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejeita import acima do limite de linhas (DoS)", () => {
+    const lines = Array.from({ length: 2001 }, (_, i) => ({ name: `P${i}`, salePrice: 100 }));
+    const r = csvImportSchema.safeParse({ lines });
+    expect(r.success).toBe(false);
+  });
+
   it("aceita linha completa", () => {
     const r = csvImportSchema.safeParse({
       lines: [{

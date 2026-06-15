@@ -26,6 +26,7 @@ on:
           - expire-rewards
           - resolve-stale-conversations
           - process-pending-talison
+          - release-stale-reservations
 
 jobs:
   mark-overdue:
@@ -89,6 +90,20 @@ jobs:
       - name: Invoca cron process-pending-talison
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/process-pending-talison" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            | tee /tmp/response.json
+
+  release-stale-reservations:
+    # Roda a cada 10 min (schedule */10) ou manualmente. Libera reservas de
+    # StockItem presas (carrinho PDV abandonado sem finalizar/abandonar).
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'release-stale-reservations' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron release-stale-reservations
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/release-stale-reservations" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 120 \
