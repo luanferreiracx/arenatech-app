@@ -25,16 +25,34 @@ const SYSTEM_PROMPT =
   "Cutucadas como 'oi?', 'olá?', 'tem retorno?', 'alguém aí?', 'cadê?' significam " +
   "AGUARDANDO. Responda SOMENTE com uma palavra: AGUARDANDO ou ENCERROU.";
 
+/** Tira emojis, pontuação solta e espaços do FIM — pra não cegar o endsWith("?"). */
+function trimTrailingNoise(text: string): string {
+  return text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+$/u, "").trimEnd();
+}
+
 /**
  * Heurística determinística: a última mensagem do cliente é claramente uma
  * cutucada/pergunta de quem está ESPERANDO resposta? Cobre os casos óbvios que
  * o modelo pequeno às vezes erra (ex.: classificar "ola?" como encerrado).
+ *
+ * Pega três sinais fortes: (1) pergunta — termina com "?" mesmo que haja emoji
+ * depois ("pode fazer? 😿"); (2) urgência explícita ("urgente", "preciso",
+ * "rápido", "liguei agora"); (3) cutucada de abertura ("oi?", "alguém?", "cadê").
  */
 export function looksLikeWaitingNudge(text: string | null | undefined): boolean {
-  const t = (text ?? "").trim().toLowerCase();
+  const t = trimTrailingNoise((text ?? "").trim().toLowerCase());
   if (!t) return false;
   if (t.endsWith("?")) return true;
-  return /^(oi+|ol[áa]+|opa|e a[íi]|al[ôo]|alguem|algu[ée]m|cad[êe]|ainda|demora|tem (algum )?(retorno|novidade|previs[ãa]o))/.test(
+  // Urgência / cobrança em qualquer ponto da frase.
+  if (
+    /(urg[êe]nc|urgente|me\s+respond|sem\s+resposta|aguardando|(acabei de |j[áa] )?(liguei|ligando|tentei ligar|acabei de ligar))/u.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  // Cutucada de abertura no início da frase.
+  return /^(oi+|ol[áa]+|opa|e a[íi]|al[ôo]|alguem|algu[ée]m|cad[êe]|ainda|demora|preciso|tem (algum )?(retorno|novidade|previs[ãa]o))/.test(
     t,
   );
 }
@@ -46,10 +64,12 @@ export function looksLikeWaitingNudge(text: string | null | undefined): boolean 
  * "sim, me transfere" de quem segue aguardando).
  */
 export function isObviousCloser(text: string | null | undefined): boolean {
-  const t = (text ?? "").trim().toLowerCase().replace(/[!.…\s]+$/u, "");
-  if (!t) return false;
+  const raw = (text ?? "").trim().toLowerCase();
   // Só emojis/agradecimento/curto de fechamento.
-  if (/^[\p{Emoji}\s]+$/u.test(t)) return true;
+  if (/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+$/u.test(raw) && raw !== "") return true;
+  // Tira emoji + pontuação do fim ("obrigada 🙏", "valeu!") antes de casar.
+  const t = trimTrailingNoise(raw).replace(/[!.…\s]+$/u, "");
+  if (!t) return false;
   return /^(ok|okay|okww|blz|beleza|valeu|vlw|obrigad[oa]+|brigad[oa]+|agradec|tchau|at[ée]( mais| logo| breve)?|falou|tmj|tranquilo|de nada|por nada|imagina|vou pensar|vou ver|vou analisar|depois( eu)? (vejo|volto|retorno|falo)|mais tarde|j[áa] (volto|retorno)|vou conversar|(t[ôo]|estou|j[áa] (t[ôo]|estou)) (indo|a caminho)|a caminho|vou a[íi]|vou na loja|vou at[ée])/.test(
     t,
   );

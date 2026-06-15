@@ -16,6 +16,11 @@ describe("isObviousCloser", () => {
       expect(isObviousCloser(t)).toBe(true);
     }
   });
+  it("reconhece encerramento com emoji no fim", () => {
+    for (const t of ["obrigada 🙏", "valeu!", "obrigado 😊", "ok 👍"]) {
+      expect(isObviousCloser(t)).toBe(true);
+    }
+  });
   it("NÃO marca 'sim'/'certo'/perguntas como encerramento", () => {
     for (const t of ["sim", "certo", "tem retorno?", "ola?", "quero o 16 pro", "qual o valor"]) {
       expect(isObviousCloser(t)).toBe(false);
@@ -29,8 +34,22 @@ describe("looksLikeWaitingNudge", () => {
       expect(looksLikeWaitingNudge(t)).toBe(true);
     }
   });
+  it("detecta pergunta mesmo com emoji depois do '?' (caso real)", () => {
+    // Regressão (varredura jun/26): "...pelo lilás? 😿" não alertava porque o
+    // emoji vinha depois do "?" e o endsWith falhava.
+    for (const t of ["não dá para fazer esse valor pelo lilás? 😿", "tem desconto? 🙏", "qual o valor?😅"]) {
+      expect(looksLikeWaitingNudge(t)).toBe(true);
+    }
+  });
+  it("detecta urgência/cobrança explícita como aguardando (caso real)", () => {
+    // Regressão (varredura jun/26 — Duda Araújo esperou 20min): urgência não
+    // era pega por heurística e caía no LLM, que às vezes errava.
+    for (const t of ["Estou precisando urgente", "Seria uma urgência", "preciso muito", "acabei de ligar pra vcs", "me responde por favor", "to sem resposta ainda"]) {
+      expect(looksLikeWaitingNudge(t)).toBe(true);
+    }
+  });
   it("não marca encerramentos como aguardando", () => {
-    for (const t of ["ok", "obrigado", "valeu", "tô a caminho", "até mais", "👍", ""]) {
+    for (const t of ["ok", "obrigado", "valeu", "tô a caminho", "até mais", "👍", "", "Não obrigada", "Vou não obrigada", "obrigada 🙏", "tudo certo, obg!"]) {
       expect(looksLikeWaitingNudge(t)).toBe(false);
     }
   });
