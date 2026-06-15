@@ -31,6 +31,7 @@ import { sendTextMessage, sendMediaMessage } from "@/lib/services/whatsapp-servi
 import { createDocumentWithLink, getDocumentStatus, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { isValidLuhn } from "@/lib/validators/imei";
+import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
@@ -1324,6 +1325,31 @@ export const saleRouter = createTRPCRouter({
             )
               ? (upg.condition as "NEW" | "SEMI_NEW" | "USED" | "DISPLAY")
               : "USED";
+
+          // Recompra do mesmo IMEI (aparelho que a loja ja vendeu volta como
+          // entrada): arquiva o StockItem antigo (SOLD/DEFECTIVE) e cancela
+          // DevicePurchase anterior nao-cancelado para liberar o IMEI, senao a
+          // criacao abaixo viola as unique parciais (deleted_at/cancelled_at).
+          // Paridade com createPurchase. So mexe em itens fora de circulacao.
+          if (upg.imei) {
+            const oldItem = await tx.stockItem.findFirst({
+              where: { tenantId: ctx.tenantId, imei: upg.imei, deletedAt: null },
+              select: { id: true, status: true },
+            });
+            if (oldItem && isRepurchasableStatus(oldItem.status)) {
+              await tx.stockItem.update({
+                where: { id: oldItem.id },
+                data: { deletedAt: new Date() },
+              });
+              await tx.devicePurchase.updateMany({
+                where: { tenantId: ctx.tenantId, imei: upg.imei, cancelledAt: null },
+                data: {
+                  cancelledAt: new Date(),
+                  cancellationReason: "Aparelho recomprado como entrada (upgrade)",
+                },
+              });
+            }
+          }
 
           const purchase = await tx.devicePurchase.create({
             data: {
@@ -3049,11 +3075,16 @@ export const saleRouter = createTRPCRouter({
             });
           }
           // Duplicidade — paridade Laravel verificar-imei-historico.
+          // Aparelho que a loja JA vendeu (SOLD) ou descartou (DEFECTIVE) pode
+          // voltar como aparelho de entrada (trade-in) — caso legitimo: o cliente
+          // revende de volta o que comprou. So bloqueia se o IMEI ainda estiver
+          // EM CIRCULACAO no estoque (AVAILABLE/RESERVED/BLOCKED) — ai e
+          // duplicidade real. Paridade com createPurchase.
           const existing = await tx.stockItem.findFirst({
             where: { imei: imeiDigits, deletedAt: null },
             select: { id: true, status: true, product: { select: { name: true } } },
           });
-          if (existing) {
+          if (existing && !isRepurchasableStatus(existing.status)) {
             throw new TRPCError({
               code: "CONFLICT",
               message:

@@ -34,4 +34,15 @@ describe("sale item stock item history", () => {
     // Reservas são liberadas ao remover item, abandonar ou cancelar venda.
     expect(router).toContain("releaseSaleStockItemReservations");
   });
+
+  it("allows trade-in (upgrade) of an IMEI the store already sold", () => {
+    const router = readFileSync(join(root, "src/server/api/routers/sale.ts"), "utf8");
+
+    // addUpgrade não bloqueia mais cegamente: só recusa IMEI ainda em circulação.
+    // SOLD/DEFECTIVE (fora de circulação) podem voltar como aparelho de entrada.
+    expect(router).toContain("isRepurchasableStatus(existing.status)");
+    // Na finalização, o StockItem antigo é arquivado e o DevicePurchase anterior
+    // cancelado, para liberar o IMEI antes de recriar (unique parcial).
+    expect(router).toContain("Aparelho recomprado como entrada (upgrade)");
+  });
 });
