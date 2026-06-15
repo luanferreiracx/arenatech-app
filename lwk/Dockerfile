@@ -11,6 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
+# crypto.py — cifragem da seed non-custodial (ADR 0051). app.py faz `import crypto`.
+COPY crypto.py .
 
 # Usuario nao-root: limita o blast radius se a app for comprometida
 # (o mnemonic vive no volume; rodar como root daria acesso total ao host).
