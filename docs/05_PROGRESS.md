@@ -16,6 +16,13 @@
 
 ---
 
+### 2026-06-14 — NO-KYC: e-mail de verificação via marca pdvdepix + ativação em prod
+- Implementado: `sendEmail` ganha 4º parâmetro `from` opcional (default = EMAIL_FROM global Arena Tech, callers inalterados); `verification.service` envia o código NO-KYC de `NOKYC_EMAIL_FROM` (default `noreply@pdvdepix.app`) — coerente com a marca do onboarding, sem mudar o remetente dos demais e-mails.
+- Produção (via SSH): criado o template WhatsApp `nokyc_verificacao` na WABA …348730 (Graph API) — **APPROVED** na hora (AUTHENTICATION, copy-code, 10min). Container `arenatech-app` já tem `META_WHATSAPP_TOKEN` → **verificação de telefone operacional**. `RESEND_API_KEY` adicionada ao `.env.production` (backup feito) + container recriado.
+- PENDENTE (ação do dono): **verificar o domínio `pdvdepix.app` no Resend** (Add Domain + DNS SPF/DKIM/DMARC) — sem isso o envio de e-mail é recusado (403 domain not verified). Depois disso, validar envio real. Rotacionar a RESEND_API_KEY (foi exposta em chat).
+- Decisão (dono): migrar tudo para a marca pdvdepix.app é um REBRAND à parte (ADR/fases próprias, futuro); por ora só o e-mail NO-KYC usa @pdvdepix.app.
+- Validação: typecheck, lint (0), unit 995 (callers de sendEmail intactos — from é opcional).
+
 ### 2026-06-14 — NO-KYC Fase 5: gating reforçado + aposentar auto-cadastro KYC (NÚCLEO CONCLUÍDO)
 - Implementado: `allowedModulesForTenant` ganha `isNoKyc` — tenant NO-KYC fica SEMPRE limitado a `NO_KYC_MODULES = ["wallet"]`, independente do plano (constante própria, à prova de mudança do default). `auth.ts` passa `isNoKyc: !tenant.cnpj` (cnpj agora sempre no select). Removido o `admin.submitPreRegistration` (auto-cadastro público KYC, órfão desde a Fase 3) + imports órfãos; pré-cadastro público agora é exclusivo do NO-KYC, tenant KYC criado manualmente pelo superadmin (createTenant).
 - Validação: typecheck, lint (0 erros), unit 995 (+5 do gating NO-KYC: só wallet mesmo com plano cheio; arena-tech intacto; KYC respeita plano).

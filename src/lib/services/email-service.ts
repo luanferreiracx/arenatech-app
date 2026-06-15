@@ -28,9 +28,15 @@ export async function sendEmail(
   to: string,
   subject: string,
   html: string,
+  /**
+   * Remetente. Default: EMAIL_FROM global (marca Arena Tech). Fluxos com marca
+   * própria (ex.: NO-KYC/pdvdepix) passam o seu — sem alterar o remetente dos
+   * demais e-mails. Ver ADR 0050.
+   */
+  from?: string,
 ): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM ?? "noreply@arenatechpi.com.br";
+  const fromAddress = from ?? process.env.EMAIL_FROM ?? "noreply@arenatechpi.com.br";
 
   if (!apiKey) {
     // Em prod, mock-mode silencioso e perigoso (ex: reset de senha
@@ -53,7 +59,7 @@ export async function sendEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from,
+        from: fromAddress,
         to: [to],
         subject,
         html,
