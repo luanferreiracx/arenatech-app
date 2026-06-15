@@ -31,6 +31,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import lwk
 
+# ADR 0051 — cifragem da seed non-custodial (passphrase do usuario).
+import crypto
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -186,6 +189,43 @@ def load_or_create_wallet(tenant_id):
         wollet = lwk.Wollet(network, descriptor, p.dir)
         logger.info(f"Nova carteira criada para tenant {tenant_id}")
         return wollet, signer, descriptor_str, mnemonic_str
+
+
+# ── Non-custodial (ADR 0051) ──────────────────────────────────────────────────
+#
+# No modelo non-custodial a seed NAO esta no disco: ela vive cifrada no Postgres
+# e chega ao /transfer no corpo da requisicao como {encrypted_seed, passphrase}.
+# Estas funcoes derivam o signer/watch-only SEM tocar o caminho custodial (que
+# segue identico em load_or_create_wallet) — para nao arriscar o fluxo de saque
+# que ja move dinheiro em producao.
+
+def load_watch_only(tenant_id):
+    """Carrega so a parte WATCH-ONLY (Wollet) a partir do descriptor em disco.
+    NAO toca mnemonic. Usada no caminho non-custodial, onde o signer vem do
+    blob cifrado (derive_signer_from_blob), nao do disco."""
+    p = WalletPaths(tenant_id)
+    if not os.path.exists(p.descriptor):
+        raise FileNotFoundError("descriptor ausente (carteira nao provisionada)")
+    with open(p.descriptor) as f:
+        descriptor_str = f.read().strip()
+    network = get_network()
+    wollet = lwk.Wollet(network, lwk.WolletDescriptor(descriptor_str), p.dir)
+    return wollet, descriptor_str
+
+
+def derive_signer_from_blob(encrypted_seed, passphrase):
+    """Decifra o blob em memoria, deriva o lwk.Signer e retorna (signer,
+    descriptor_str). O mnemonico em claro existe so dentro desta funcao — nao
+    e gravado, logado, nem retornado. Levanta crypto.InvalidPassphraseError se
+    a passphrase estiver errada."""
+    mnemonic_str = crypto.decrypt_seed(encrypted_seed, passphrase)
+    try:
+        signer = lwk.Signer(lwk.Mnemonic(mnemonic_str), get_network())
+        descriptor_str = str(signer.wpkh_slip77_descriptor())
+        return signer, descriptor_str
+    finally:
+        # Best-effort: solta a referencia ao mnemonico em claro o quanto antes.
+        del mnemonic_str
 
 
 def _write_secret(path, content):
@@ -694,9 +734,24 @@ def wallet_mnemonic_reveal(tenant_id):
     bad = _require_tenant(tenant_id)
     if bad:
         return bad
+    # Non-custodial (ADR 0051): com {encrypted_seed, passphrase}, decifra o blob
+    # e devolve o mnemonico SO a quem prova posse da passphrase. Sem passphrase
+    # -> 400. (Superadmin nao revela seed alheia.) Sem o blob, cai no caminho
+    # custodial (le o mnemonic.txt — compat enquanto o tenant nao migrou).
+    data = request.get_json(silent=True) or {}
+    encrypted_seed = data.get("encrypted_seed")
+    passphrase = data.get("passphrase")
     try:
-        with wallet_lock(tenant_id):
-            _, _, _, mnemonic_str = load_or_create_wallet(tenant_id)
+        if encrypted_seed is not None:
+            if not passphrase or not isinstance(passphrase, str):
+                return fail("passphrase obrigatoria para carteira non-custodial")
+            try:
+                mnemonic_str = crypto.decrypt_seed(encrypted_seed, passphrase)
+            except crypto.InvalidPassphraseError:
+                return fail("invalid_passphrase", 400)
+        else:
+            with wallet_lock(tenant_id):
+                _, _, _, mnemonic_str = load_or_create_wallet(tenant_id)
         return jsonify({
             "tenant_id":   tenant_id,
             "mnemonic":    mnemonic_str,
@@ -705,6 +760,101 @@ def wallet_mnemonic_reveal(tenant_id):
         })
     except Exception as e:
         return fail("internal_error", 500, log_detail=f"mnemonic_reveal[{tenant_id}]: {e}")
+
+
+@app.route("/wallet/<tenant_id>/encrypt-seed", methods=["POST"])
+def wallet_encrypt_seed(tenant_id):
+    """Migracao custodial -> non-custodial (ADR 0051 Etapa 5). Le o mnemonic.txt
+    atual + recebe a passphrase do usuario -> devolve o blob cifrado. NAO apaga
+    o txt (a purga ocorre depois, com carencia). NAO loga passphrase/mnemonico."""
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    passphrase = data.get("passphrase")
+    if not passphrase or not isinstance(passphrase, str):
+        return fail("passphrase obrigatoria")
+    try:
+        with wallet_lock(tenant_id):
+            _, _, descriptor_str, mnemonic_str = load_or_create_wallet(tenant_id)
+        blob = crypto.encrypt_seed(mnemonic_str, passphrase)
+        del mnemonic_str
+        return jsonify({
+            "tenant_id":   tenant_id,
+            "encrypted_seed": blob,
+            "descriptor":  descriptor_str,
+            "network":     NETWORK_NAME,
+        })
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"encrypt_seed[{tenant_id}]: {e}")
+
+
+@app.route("/wallet/<tenant_id>/rewrap", methods=["POST"])
+def wallet_rewrap(tenant_id):
+    """Troca a passphrase (ADR 0051). Decifra com a antiga, recifra com a nova.
+    Nao toca on-chain. Sem passphrase antiga correta -> invalid_passphrase."""
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    encrypted_seed = data.get("encrypted_seed")
+    old_passphrase = data.get("old_passphrase")
+    new_passphrase = data.get("new_passphrase")
+    if not isinstance(encrypted_seed, dict):
+        return fail("encrypted_seed obrigatorio")
+    if not old_passphrase or not new_passphrase:
+        return fail("old_passphrase e new_passphrase obrigatorias")
+    try:
+        new_blob = crypto.rewrap_seed(encrypted_seed, old_passphrase, new_passphrase)
+    except crypto.InvalidPassphraseError:
+        return fail("invalid_passphrase", 400)
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"rewrap[{tenant_id}]: {e}")
+    return jsonify({"tenant_id": tenant_id, "encrypted_seed": new_blob, "network": NETWORK_NAME})
+
+
+@app.route("/wallet/<tenant_id>/recover", methods=["POST"])
+def wallet_recover(tenant_id):
+    """Recuperacao por mnemonico (ADR 0051): usuario informa as 24 palavras +
+    nova passphrase. So aceita se o mnemonico derivar o MESMO descriptor ja
+    registrado da carteira (prova ser a carteira certa, sem mover fundos).
+    Devolve o novo blob cifrado."""
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    mnemonic_in = data.get("mnemonic")
+    new_passphrase = data.get("new_passphrase")
+    if not mnemonic_in or not isinstance(mnemonic_in, str):
+        return fail("mnemonic obrigatorio")
+    if not new_passphrase or not isinstance(new_passphrase, str):
+        return fail("new_passphrase obrigatoria")
+    try:
+        mnemonic_in = mnemonic_in.strip()
+        try:
+            signer = lwk.Signer(lwk.Mnemonic(mnemonic_in), get_network())
+            derived_descriptor = str(signer.wpkh_slip77_descriptor())
+        except Exception:
+            return fail("mnemonic invalido")
+        # Confere contra o descriptor registrado (sem mover fundos).
+        wollet, expected_descriptor = load_watch_only(tenant_id)
+        del wollet
+        if derived_descriptor != expected_descriptor:
+            return fail("mnemonic nao corresponde a esta carteira", 400)
+        blob = crypto.encrypt_seed(mnemonic_in, new_passphrase)
+        del mnemonic_in
+        return jsonify({"tenant_id": tenant_id, "encrypted_seed": blob, "network": NETWORK_NAME})
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"recover[{tenant_id}]: {e}")
 
 
 @app.route("/wallet/<tenant_id>/balance", methods=["GET"])
@@ -863,9 +1013,26 @@ def transfer(tenant_id):
                 logger.info(f"[{tenant_id}] Transfer idempotente (replay): key={idem_key} txid={cached.get('txid')}")
                 return jsonify({**cached, "idempotent_replay": True})
 
+    # Non-custodial (ADR 0051): se o body traz {encrypted_seed, passphrase}, o
+    # signer e derivado do blob em memoria (a seed NAO esta no disco). Senao,
+    # caminho CUSTODIAL inalterado (signer do mnemonic.txt). A passphrase nunca
+    # e logada nem persistida.
+    encrypted_seed = data.get("encrypted_seed")
+    passphrase = data.get("passphrase")
+    non_custodial = encrypted_seed is not None
+
     with wallet_lock(tenant_id):
         try:
-            wollet, signer, _, _ = load_or_create_wallet(tenant_id)
+            if non_custodial:
+                if not passphrase or not isinstance(passphrase, str):
+                    return fail("passphrase obrigatoria para carteira non-custodial")
+                wollet, _ = load_watch_only(tenant_id)
+                try:
+                    signer, _ = derive_signer_from_blob(encrypted_seed, passphrase)
+                except crypto.InvalidPassphraseError:
+                    return fail("invalid_passphrase", 400)
+            else:
+                wollet, signer, _, _ = load_or_create_wallet(tenant_id)
             if not sync_wallet(wollet, silent=True):
                 return fail("carteira indisponivel: sync falhou", 503)
 
