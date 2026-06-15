@@ -108,6 +108,14 @@ export async function verifyCode(
   return { ok: true };
 }
 
+/**
+ * Remetente do e-mail de verificação NO-KYC. O onboarding NO-KYC vive em
+ * pdvdepix.app, então o código sai dessa marca (não do EMAIL_FROM global
+ * Arena Tech). Configurável via NOKYC_EMAIL_FROM. O domínio precisa estar
+ * verificado no Resend. Ver ADR 0050.
+ */
+const NOKYC_EMAIL_FROM = process.env.NOKYC_EMAIL_FROM ?? "noreply@pdvdepix.app";
+
 async function sendByEmail(to: string, code: string): Promise<boolean> {
   const subject = "Seu código de verificação";
   const html = `
@@ -115,7 +123,7 @@ async function sendByEmail(to: string, code: string): Promise<boolean> {
     <p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p>
     <p>Ele expira em ${VERIFICATION_CODE_TTL_MINUTES} minutos. Por segurança, não compartilhe este código.</p>
   `;
-  const result = await sendEmail(to, subject, html);
+  const result = await sendEmail(to, subject, html, NOKYC_EMAIL_FROM);
   return result.success;
 }
 
