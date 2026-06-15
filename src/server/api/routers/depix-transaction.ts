@@ -107,6 +107,9 @@ export const depixTransactionRouter = createTRPCRouter({
         recipientTaxId: input.recipientTaxId,
         netAmountCents: input.netAmountCents,
         idempotencyKey: input.idempotencyKey,
+        // Non-custodial (ADR 0051): repassa a passphrase da carteira. O service
+        // exige-a se o tenant for non_custodial; ignora se custodial.
+        passphrase: input.walletPassphrase,
       });
       return tx;
     }),

@@ -589,6 +589,10 @@ export interface CreateWithdrawArgs {
   sourceType?: DepixTransactionSourceType;
   sourceId?: string | null;
   sourceDescription?: string | null;
+  /** Non-custodial (ADR 0051): passphrase da carteira p/ assinar o saque.
+   *  Obrigatoria se a carteira do tenant for non_custodial; ignorada se
+   *  custodial. NUNCA logada nem persistida. */
+  passphrase?: string;
 }
 
 export async function createWithdraw(args: CreateWithdrawArgs) {
@@ -606,6 +610,34 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       }),
     );
     if (existing) return existing;
+  }
+
+  // Custodia (ADR 0051): carrega o modelo da carteira. Se non_custodial, o
+  // saque EXIGE a passphrase do usuario (o LWK assina decifrando a seed em
+  // memoria). Fail-fast aqui, antes de criar a intencao de saque / chamar a
+  // LiquidX — assim passphrase ausente nao gera registro orfao.
+  const wallet = await withTenant(args.tenantId, async (tx) =>
+    tx.tenantDepixWallet.findUnique({
+      where: { tenantId: args.tenantId },
+      select: { custodyModel: true, encryptedSeed: true },
+    }),
+  );
+  const isNonCustodial = wallet?.custodyModel === "non_custodial";
+  if (isNonCustodial) {
+    if (!args.passphrase) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Informe a senha da carteira (2FA da carteira) para sacar.",
+      });
+    }
+    if (!wallet?.encryptedSeed) {
+      // Estado inconsistente: non_custodial sem blob. Bloqueia em vez de cair
+      // pro caminho custodial (que assinaria com a seed em claro).
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Carteira non-custodial sem seed cifrada. Contate o suporte.",
+      });
+    }
   }
 
   // Limite PIX por CPF/CNPJ do destinatario (R$ 5.000/tx).
@@ -790,6 +822,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
 
   const sweep = await lwk.transfer(args.tenantId, recipients, {
     idempotencyKey: created.id,
+    // Non-custodial: o LWK assina decifrando a seed com a passphrase. Custodial:
+    // ambos undefined -> LWK usa o mnemonic.txt (caminho atual).
+    ...(isNonCustodial
+      ? { encryptedSeed: wallet!.encryptedSeed, passphrase: args.passphrase }
+      : {}),
   });
   if (!sweep.success || !sweep.txid) {
     logger.error("createWithdraw: LWK transfer falhou", {
