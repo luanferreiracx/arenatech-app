@@ -54,7 +54,8 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("NUNCA inventa números");
     expect(prompt).toContain("preço, valor de troca, status, prazo específico");
     expect(prompt).toContain("quanto custa o X?\", use a tool certa");
-    expect(prompt).toContain("Parcelamento no cartão: só com a tool simular_parcelamento");
+    expect(prompt).toContain("SEMPRE chame simular_parcelamento");
+    expect(prompt).toContain("JÁ É o valor FINAL no cartão");
   });
 
   it("instrui a traduzir o vocabulário do cliente pro termo canônico do catálogo", () => {
