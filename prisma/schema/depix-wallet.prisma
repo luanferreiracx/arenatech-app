@@ -1,9 +1,14 @@
 /// Vinculo entre tenant e sua carteira Liquid/DePix (gerida pelo servico LWK).
 ///
-/// O mnemonic/chave privada NUNCA fica no Postgres — vive so no volume do
-/// servico LWK (WALLET_DATA_DIR/{tenant_id}/, chmod 0600). Aqui guardamos
-/// apenas o descriptor PUBLICO (watch-only) e o endereco mestre de
-/// recebimento. Uma carteira por tenant (PK = tenant_id).
+/// Modelo CUSTODIAL (legado): mnemonic em texto puro no volume LWK
+/// (WALLET_DATA_DIR/{tenant_id}/mnemonic.txt). Aqui guardamos so o descriptor
+/// PUBLICO (watch-only) e o endereco mestre. Uma carteira por tenant.
+///
+/// Modelo NON-CUSTODIAL (ADR 0051): o mnemonic e cifrado com uma passphrase que
+/// SO o usuario sabe (Argon2id + AES-256-GCM) e o blob fica em `encryptedSeed`
+/// AQUI. O servidor nao consegue ler a seed sem a passphrase. `custodyModel`
+/// controla a coexistencia: default "custodial" (comportamento atual intacto),
+/// "non_custodial" apos o tenant migrar.
 model TenantDepixWallet {
   tenantId           String    @id @map("tenant_id") @db.Uuid
   /// Descriptor publico (watch-only) — permite ver saldo/historico, NAO gastar.
@@ -16,6 +21,15 @@ model TenantDepixWallet {
   /// Liquid paga fee em L-BTC, nao DePix). Nao usado na fase 1.
   lbtcFundingAddress String?   @map("lbtc_funding_address")
   provisionedAt      DateTime? @map("provisioned_at")
+  /// Modelo de custodia: "custodial" (seed no volume LWK) | "non_custodial"
+  /// (seed cifrada com passphrase do usuario, blob em encryptedSeed). ADR 0051.
+  custodyModel       String    @default("custodial") @map("custody_model")
+  /// Blob versionado do mnemonic cifrado (Argon2id + AES-256-GCM). So presente
+  /// quando custodyModel = "non_custodial". INUTIL sem a passphrase do usuario —
+  /// por isso pode viver no Postgres com seguranca. Formato no ADR 0051.
+  encryptedSeed      Json?     @map("encrypted_seed")
+  /// Versao do esquema de KDF/cifragem do encryptedSeed (rotacao futura de params).
+  seedKdfVersion     Int?      @map("seed_kdf_version")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
