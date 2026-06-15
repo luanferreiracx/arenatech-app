@@ -7,6 +7,18 @@ import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 
 /**
+ * Prefixo da chave de contato para Instagram (Channel::Api), que não tem telefone.
+ * Guardamos `ig:<identifier do Chatwoot>` em contact_phone pra distinguir do
+ * WhatsApp (só dígitos) e pular a lógica que pressupõe telefone real.
+ */
+const IG_PREFIX = "ig:"
+
+/** A chave de contato é um telefone real (WhatsApp)? Falso para Instagram. */
+function isPhoneKey(contactKey: string): boolean {
+  return !contactKey.startsWith(IG_PREFIX)
+}
+
+/**
  * POST /api/webhooks/chatwoot
  *
  * Chatwoot webhook receiver — handles incoming messages and conversation events.
@@ -133,11 +145,22 @@ export async function POST(req: NextRequest) {
 
         const meta = (conversation as Record<string, unknown>)?.meta as Record<string, unknown> | undefined
         const metaSender = meta?.sender as Record<string, unknown> | undefined
-        const contactPhone = String(
+        const phoneDigits = String(
           (sender as Record<string, unknown>)?.phone_number ??
           metaSender?.phone_number ??
           ""
         ).replace(/\D/g, "")
+        // Identificador do contato. WhatsApp tem telefone; Instagram (Channel::Api)
+        // NÃO tem — vem só com identifier/id do Chatwoot. Caímos nele e prefixamos
+        // com "ig:" pra distinguir e satisfazer a unique key (tenant, contact_phone).
+        const igIdentifier = String(
+          metaSender?.identifier ??
+          (sender as Record<string, unknown>)?.identifier ??
+          metaSender?.id ??
+          (sender as Record<string, unknown>)?.id ??
+          ""
+        ).trim()
+        const contactPhone = phoneDigits || (igIdentifier ? `${IG_PREFIX}${igIdentifier}` : "")
         // Nome do CONTATO (cliente) vem do meta.sender da conversa — esse é sempre
         // o contato, independente de quem enviou a mensagem. Em mensagem OUTGOING,
         // sender.name é o ATENDENTE; usar isso aqui corrompia o nome do cliente
@@ -154,19 +177,21 @@ export async function POST(req: NextRequest) {
         if (!contactPhone) break
 
         const persisted = await withAdmin(async (tx) => {
-          // Lookup customer por telefone (cliente cadastrado)
-          // Telefone pode ter prefixos diversos; busca pelos ultimos 8/9 digitos
+          // Lookup customer por telefone (cliente cadastrado). Só vale pra WhatsApp;
+          // contato de Instagram não tem telefone, então não há vínculo automático.
           const last9 = contactPhone.slice(-9)
-          const customer = await tx.customer.findFirst({
-            where: {
-              tenantId,
-              OR: [
-                { phone: { contains: last9 } },
-                { phoneSecondary: { contains: last9 } },
-              ],
-            },
-            select: { id: true, name: true },
-          })
+          const customer = isPhoneKey(contactPhone)
+            ? await tx.customer.findFirst({
+                where: {
+                  tenantId,
+                  OR: [
+                    { phone: { contains: last9 } },
+                    { phoneSecondary: { contains: last9 } },
+                  ],
+                },
+                select: { id: true, name: true },
+              })
+            : null
 
           // Status mapeado do Chatwoot (fonte da verdade).
           // open→OPEN (atendente), pending→BOT_ACTIVE, resolved→RESOLVED.

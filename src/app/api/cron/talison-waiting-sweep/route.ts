@@ -238,7 +238,10 @@ export async function POST(request: NextRequest) {
         if (ALERT_GROUP_JID) {
           const alertedAt = metaDate(conv.metadata, "abandonedAlertedAt")
           if (!alertedAt || alertedAt < lastCustomer) {
-            const who = conv.contactName?.trim() || conv.contactPhone
+            // Pra Instagram o contactPhone é "ig:<id>" (não é telefone) — nunca
+            // mostrar isso cru no alerta; prefere o nome (já vem com o @handle).
+            const isInstagram = conv.contactPhone.startsWith("ig:")
+            const who = conv.contactName?.trim() || (isInstagram ? "cliente do Instagram" : conv.contactPhone)
             const last = conv.messages.find((m) => m.senderType === "customer")
             const preview = (last?.content ?? "").replace(/\s+/g, " ").slice(0, 180)
             const text =

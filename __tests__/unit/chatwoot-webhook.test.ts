@@ -105,6 +105,7 @@ beforeEach(() => {
   state.customer = null;
   state.recentBotEcho = null;
 
+  state.tx.customer.findFirst.mockClear();
   state.tx.customer.findFirst.mockImplementation(() => Promise.resolve(state.customer));
   state.tx.chatbotConversation.findFirst.mockImplementation(() =>
     Promise.resolve(state.existingConversation),
@@ -149,6 +150,50 @@ describe("POST /api/webhooks/chatwoot", () => {
       }),
     });
     expect(state.scheduleTalisonRun).toHaveBeenCalledWith("tenant-1", "conv-local-1");
+  });
+
+  describe("Instagram (sem telefone)", () => {
+    // Contato de Instagram (Channel::Api) não tem phone_number — vem só com
+    // identifier. A conversa deve ser criada com contact_phone "ig:<id>" e o bot
+    // deve ser acionado igual ao WhatsApp.
+    const igPayload = (overrides: Record<string, unknown> = {}) =>
+      makePayload({
+        content: "Cês tem iPhone 15 pro?",
+        sender: { id: 555, type: "contact", name: "Alvaro Davi (@davidesousa_02)", identifier: "2891426091207875" },
+        conversation: {
+          id: "chatwoot-99",
+          status: "pending",
+          meta: { sender: { name: "Alvaro Davi (@davidesousa_02)", identifier: "2891426091207875" } },
+        },
+        ...overrides,
+      });
+
+    it("cria conversa com chave ig:<identifier> e agenda o bot", async () => {
+      const response = await callWebhook(igPayload());
+
+      expect(response.status).toBe(200);
+      expect(state.tx.chatbotConversation.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ contactPhone: "ig:2891426091207875" }),
+      });
+      expect(state.tx.chatbotMessage.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ direction: "incoming", senderType: "customer", content: "Cês tem iPhone 15 pro?" }),
+      });
+      expect(state.scheduleTalisonRun).toHaveBeenCalledWith("tenant-1", "conv-local-1");
+    });
+
+    it("NÃO faz lookup de cliente por telefone para Instagram", async () => {
+      await callWebhook(igPayload());
+      expect(state.tx.customer.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("ainda ignora quando não há telefone nem identifier nem id", async () => {
+      await callWebhook(makePayload({
+        sender: { type: "contact", name: "Anônimo" },
+        conversation: { id: "chatwoot-77", status: "pending", meta: { sender: { name: "Anônimo" } } },
+      }));
+      expect(state.tx.chatbotMessage.create).not.toHaveBeenCalled();
+      expect(state.scheduleTalisonRun).not.toHaveBeenCalled();
+    });
   });
 
   it("persiste, mas não agenda quando Chatwoot está open", async () => {
