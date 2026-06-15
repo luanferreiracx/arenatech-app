@@ -29,10 +29,12 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 export default function SuppliersPage() {
   const router = useRouter();
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
@@ -65,12 +67,14 @@ export default function SuppliersPage() {
         title="Fornecedores"
         subtitle="Gerencie seus fornecedores"
         actions={
-          <Button asChild>
-            <Link href="/stock/suppliers/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Novo Fornecedor
-            </Link>
-          </Button>
+          isAdmin ? (
+            <Button asChild>
+              <Link href="/stock/suppliers/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Novo Fornecedor
+              </Link>
+            </Button>
+          ) : null
         }
       />
 
@@ -156,6 +160,7 @@ export default function SuppliersPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
+                          {isAdmin && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -165,6 +170,8 @@ export default function SuppliersPage() {
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
+                          )}
+                          {isAdmin && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -174,6 +181,7 @@ export default function SuppliersPage() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

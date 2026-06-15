@@ -19,9 +19,11 @@ import {
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 export default function CategoriesPage() {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const queryClient = useQueryClient();
   const [newName, setNewName] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function CategoriesPage() {
         title="Categorias de Produtos"
         subtitle="Organize seus produtos por categoria"
         actions={
-          !isAdding && (
+          isAdmin && !isAdding && (
             <Button onClick={() => setIsAdding(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Nova Categoria
@@ -188,7 +190,7 @@ export default function CategoriesPage() {
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
-                        ) : (
+                        ) : isAdmin ? (
                           <div className="flex gap-1">
                             <Button
                               variant="ghost"
@@ -209,7 +211,7 @@ export default function CategoriesPage() {
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                        )}
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))
