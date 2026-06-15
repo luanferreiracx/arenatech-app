@@ -66,6 +66,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("power banks");
   });
 
+  it("proíbe inventar links e afirmar disponibilidade sem tool", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("não invente URL");
+    expect(prompt).toContain("link_catalogo");
+    expect(prompt).toContain("DISPONIBILIDADE DE APARELHO");
+    expect(prompt).toContain("buscar_aparelho");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
