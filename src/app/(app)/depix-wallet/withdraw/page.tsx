@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ShieldCheck } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
 import {
@@ -83,9 +84,13 @@ export default function DepixWithdrawPage() {
   const [netAmount, setNetAmount] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [walletPassphrase, setWalletPassphrase] = useState("");
 
   const overviewQuery = useQuery(trpc.depixTransaction.getOverview.queryOptions());
   const walletInfoQuery = useQuery(trpc.depixWallet.getWalletInfo.queryOptions());
+  // ADR 0051: carteira non-custodial exige a passphrase do usuario no saque
+  // (o LWK assina decifrando a seed). Custodial nao pede nada novo.
+  const isNonCustodial = walletInfoQuery.data?.custodyModel === "non_custodial";
   // Saque exige step-up 2FA. Carrega o status pra orientar o admin: se nao
   // tem 2FA ativo, mostramos o aviso pra habilitar (o backend bloqueia de
   // qualquer forma — defesa em profundidade).
@@ -167,9 +172,13 @@ export default function DepixWithdrawPage() {
       netAmountCents: netAmount,
       idempotencyKey,
       twoFactorCode: twoFactorCode.trim(),
+      // Non-custodial: envia a passphrase (sem trim — espacos podem ser parte
+      // dela). Custodial: undefined (o backend ignora).
+      walletPassphrase: isNonCustodial ? walletPassphrase : undefined,
     });
     setConfirmOpen(false);
     setTwoFactorCode("");
+    setWalletPassphrase("");
   }
 
   if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
@@ -485,6 +494,39 @@ export default function DepixWithdrawPage() {
             </div>
           )}
 
+          {/* Carteira non-custodial: a passphrase decifra a seed para assinar.
+              So o usuario a conhece — sem ela o saque nao sai. */}
+          {isNonCustodial && (
+            <div className="space-y-2">
+              <Label htmlFor="walletPassphrase" className="flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5 text-primary" />
+                Senha da carteira
+              </Label>
+              <Input
+                id="walletPassphrase"
+                type="password"
+                value={walletPassphrase}
+                onChange={(e) => setWalletPassphrase(e.target.value)}
+                placeholder="Sua senha da carteira"
+                autoComplete="off"
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    twoFactorCode.trim() &&
+                    walletPassphrase.length > 0 &&
+                    !createMutation.isPending
+                  ) {
+                    handleSubmit();
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                So voce conhece esta senha. Ela libera a assinatura do saque e nao
+                fica guardada no sistema.
+              </p>
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -496,7 +538,10 @@ export default function DepixWithdrawPage() {
             <Button
               onClick={handleSubmit}
               disabled={
-                createMutation.isPending || !twoFactorEnabled || twoFactorCode.trim().length === 0
+                createMutation.isPending ||
+                !twoFactorEnabled ||
+                twoFactorCode.trim().length === 0 ||
+                (isNonCustodial && walletPassphrase.length === 0)
               }
             >
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
