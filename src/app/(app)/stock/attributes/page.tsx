@@ -26,9 +26,11 @@ import {
 } from "@/components/ui/table";
 import { Plus, ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 export default function AttributesPage() {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newAttrName, setNewAttrName] = useState("");
@@ -93,6 +95,7 @@ export default function AttributesPage() {
       <PageHeader
         title="Atributos de Produto"
         actions={
+          !isAdmin ? null : (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -120,6 +123,7 @@ export default function AttributesPage() {
               </div>
             </DialogContent>
           </Dialog>
+          )
         }
       />
 
@@ -161,6 +165,7 @@ export default function AttributesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
+                    {isAdmin && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -172,6 +177,7 @@ export default function AttributesPage() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    )}
                   </TableCell>
                 </TableRow>
                 {expandedId === attr.id && (

@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
 
@@ -47,6 +48,7 @@ function formatCurrency(value: ProductRow["salePrice"]): string {
 export function ProductsTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const isAdmin = useIsTenantAdmin();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -173,9 +175,10 @@ export function ProductsTable() {
               <Eye className="h-4 w-4" />
             </Link>
           </Button>
-          {/* Ajuste por quantidade nao se aplica a serializados (saldo deriva
-              dos StockItems) — o botao some para evitar uma acao que so daria erro. */}
-          {!row.original.isSerialized && (
+          {/* Ajustar/Editar/Excluir mutam catalogo/saldo — admin-only no backend.
+              Escondidos para operador (ajuste tambem nao se aplica a serializado,
+              cujo saldo deriva dos StockItems). */}
+          {isAdmin && !row.original.isSerialized && (
             <Button
               variant="ghost"
               size="icon"
@@ -190,17 +193,20 @@ export function ProductsTable() {
               <span className="text-xs font-medium">+/-</span>
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            asChild
-            aria-label={`Editar ${row.original.name}`}
-          >
-            <Link href={`/stock/${row.original.id}/edit`}>
-              <Pencil className="h-4 w-4" />
-            </Link>
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              asChild
+              aria-label={`Editar ${row.original.name}`}
+            >
+              <Link href={`/stock/${row.original.id}/edit`}>
+                <Pencil className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
+          {isAdmin && (
           <Button
             variant="ghost"
             size="icon"
@@ -210,6 +216,7 @@ export function ProductsTable() {
           >
             <Trash2 className="h-4 w-4" />
           </Button>
+          )}
         </div>
       ),
     },

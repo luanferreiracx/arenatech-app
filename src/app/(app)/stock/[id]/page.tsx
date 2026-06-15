@@ -21,6 +21,7 @@ import {
 import { stockMovementTypeLabels } from "@/lib/validators/stock";
 import { AdjustStockDialog } from "../_components/adjust-stock-dialog";
 import { StockItemsPanel } from "../_components/stock-items-panel";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { useState } from "react";
 
 function formatCurrency(value: unknown): string {
@@ -50,6 +51,7 @@ function formatDate(date: string | Date): string {
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const [showAdjust, setShowAdjust] = useState(false);
 
   const { data: product, isLoading } = useQuery(
@@ -90,19 +92,21 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 Voltar
               </Link>
             </Button>
-            {/* Ajuste por quantidade nao se aplica a serializados (saldo deriva
-                dos StockItems) — escondido para evitar uma acao que so daria erro. */}
-            {!product.isSerialized && (
+            {/* Ajustar/Editar mutam o produto — admin-only no backend. Ajuste
+                tambem nao se aplica a serializado (saldo deriva dos StockItems). */}
+            {isAdmin && !product.isSerialized && (
               <Button variant="outline" onClick={() => setShowAdjust(true)}>
                 Ajustar Estoque
               </Button>
             )}
-            <Button asChild>
-              <Link href={`/stock/${id}/edit`}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Editar
-              </Link>
-            </Button>
+            {isAdmin && (
+              <Button asChild>
+                <Link href={`/stock/${id}/edit`}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar
+                </Link>
+              </Button>
+            )}
           </div>
         }
       />

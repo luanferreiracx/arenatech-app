@@ -29,6 +29,7 @@ import {
   stockItemStatusLabels,
   stockItemConditionLabels,
 } from "@/lib/validators/stock-item";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 type StockItemRow = {
   id: string;
@@ -49,6 +50,7 @@ const statusVariant: Record<string, "success" | "destructive" | "warning" | "def
 
 export function StockItemsPanel({ productId }: { productId: string }) {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const queryClient = useQueryClient();
   const [disposeTarget, setDisposeTarget] = useState<StockItemRow | null>(null);
   const [disposeReason, setDisposeReason] = useState("");
@@ -106,7 +108,7 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                 <TableHead>IMEI / Serie</TableHead>
                 <TableHead>Condicao</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Acoes</TableHead>
+                {isAdmin && <TableHead className="text-right">Acoes</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -127,6 +129,7 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                         {stockItemStatusLabels[item.status] ?? item.status}
                       </StatusBadge>
                     </TableCell>
+                    {isAdmin && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {item.status === "AVAILABLE" && (
@@ -178,6 +181,7 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                         )}
                       </div>
                     </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
