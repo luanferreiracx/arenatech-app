@@ -694,6 +694,9 @@ export const stockRouter = createTRPCRouter({
   delete: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir produtos." });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.product.findUnique({ where: { id: input.id } });
         if (!existing) {
@@ -716,6 +719,9 @@ export const stockRouter = createTRPCRouter({
   adjustStock: tenantProcedure
     .input(adjustStockSchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem ajustar o estoque." });
+      }
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findUnique({ where: { id: input.productId } });
         if (!product || product.deletedAt) {
@@ -916,6 +922,9 @@ export const stockRouter = createTRPCRouter({
   createPurchase: tenantProcedure
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem registrar compra de aparelhos." });
+      }
       return ctx.withTenant(async (tx) => {
         // Product OBRIGATORIO. Operador escolhe via combobox (Estoque ->
         // Produtos cadastrados como aparelho serializado). Sem digitacao
@@ -1350,6 +1359,9 @@ export const stockRouter = createTRPCRouter({
       reason: z.string().min(3).max(300),
     }))
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem cancelar compras." });
+      }
       return ctx.withTenant(async (tx) => {
         const purchase = await tx.devicePurchase.findUnique({ where: { id: input.id } });
         if (!purchase) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1476,10 +1488,23 @@ export const stockRouter = createTRPCRouter({
       purchaseDate: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem alterar a data da compra." });
+      }
+      const newDate = new Date(input.purchaseDate);
+      if (Number.isNaN(newDate.getTime())) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Data invalida." });
+      }
+      // Compra nao pode ter data no futuro (corrige auditoria/relatorios).
+      if (newDate.getTime() > Date.now()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A data da compra nao pode ser no futuro." });
+      }
       return ctx.withTenant(async (tx) => {
+        const existing = await tx.devicePurchase.findUnique({ where: { id: input.id } });
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Compra nao encontrada" });
         await tx.devicePurchase.update({
           where: { id: input.id },
-          data: { purchaseDate: new Date(input.purchaseDate) },
+          data: { purchaseDate: newDate },
         });
         return { success: true };
       });
@@ -1887,7 +1912,15 @@ export const stockRouter = createTRPCRouter({
             isSerialized: true,
           },
         });
-        return products;
+        // Resolve o saldo REAL: serializados contam StockItem AVAILABLE,
+        // produtos com variacoes somam o estoque das variacoes. Sem isto, o
+        // currentStock cru ficava errado (sempre 0/desatualizado) para esses
+        // tipos — divergindo do PDV, que ja resolve corretamente.
+        const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+        return products.map((p) => ({
+          ...p,
+          currentStock: stockByProduct.get(p.id) ?? 0,
+        }));
       });
     }),
 
@@ -1947,6 +1980,9 @@ export const stockRouter = createTRPCRouter({
   createSupplier: tenantProcedure
     .input(createSupplierSchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem cadastrar fornecedores." });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.supplier.create({
           data: {
@@ -1975,6 +2011,9 @@ export const stockRouter = createTRPCRouter({
   updateSupplier: tenantProcedure
     .input(updateSupplierSchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar fornecedores." });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.supplier.findFirst({
           where: { id: input.id, deletedAt: null },
@@ -2009,6 +2048,9 @@ export const stockRouter = createTRPCRouter({
   deleteSupplier: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir fornecedores." });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.supplier.findFirst({
           where: { id: input.id, deletedAt: null },
@@ -2109,6 +2151,9 @@ export const stockRouter = createTRPCRouter({
   createCategory: tenantProcedure
     .input(createCategorySchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar categorias." });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.productCategory.create({
           data: {
@@ -2122,6 +2167,9 @@ export const stockRouter = createTRPCRouter({
   updateCategory: tenantProcedure
     .input(updateCategorySchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar categorias." });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.productCategory.findFirst({
           where: { id: input.id, deletedAt: null },
@@ -2139,6 +2187,9 @@ export const stockRouter = createTRPCRouter({
   deleteCategory: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir categorias." });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.productCategory.findFirst({
           where: { id: input.id, deletedAt: null },
@@ -2404,82 +2455,80 @@ export const stockRouter = createTRPCRouter({
   /** Stock dashboard stats with alerts (enhanced) */
   stockDashboard: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      // Agregados sem carregar lista de produtos:
-      // - totalProducts via count
-      // - totalItems + totalCostValue via groupBy + sum
-      // - totalSaleValue via raw SQL (precisa JOIN com products.salePrice)
-      // - low/out of stock: top 20 ordenados (UI mostra alerts, nao lista cheia)
-      const [totalProducts, stockByProduct] = await Promise.all([
+      // Saldo efetivo por produto cobrindo os TRES tipos (antes so contava
+      // stock_items, ignorando produtos simples e com variacoes — totais e
+      // alertas vinham subestimados e divergiam do card "stats"):
+      //  - serializado: COUNT(stock_items AVAILABLE)
+      //  - com variacoes: SUM(product_variations.current_stock)
+      //  - simples: products.current_stock
+      // qty = quantidade disponivel; cost/sale value derivam dela.
+      const effectiveStockCte = Prisma.sql`
+        SELECT
+          p.id,
+          p.name,
+          p.sku,
+          p.min_stock,
+          p.cost_price,
+          p.sale_price,
+          CASE
+            WHEN p.is_serialized THEN COALESCE(si.qty, 0)
+            WHEN p.has_variations THEN COALESCE(pv.qty, 0)
+            ELSE p.current_stock
+          END AS qty
+        FROM products p
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int AS qty
+          FROM stock_items
+          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
+          GROUP BY product_id
+        ) si ON si.product_id = p.id
+        LEFT JOIN (
+          SELECT product_id, COALESCE(SUM(current_stock), 0)::int AS qty
+          FROM product_variations
+          WHERE deleted_at IS NULL
+          GROUP BY product_id
+        ) pv ON pv.product_id = p.id
+        WHERE p.deleted_at IS NULL AND p.active = true
+      `;
+
+      const [totalProducts, totalsRows] = await Promise.all([
         tx.product.count({ where: { deletedAt: null, active: true } }),
-        tx.stockItem.groupBy({
-          by: ["productId"],
-          where: { status: "AVAILABLE", deletedAt: null },
-          _count: { _all: true },
-          _sum: { costPrice: true },
-        }),
+        tx.$queryRaw<Array<{ totalItems: number; totalCost: string | null; totalSale: string | null }>>(
+          Prisma.sql`
+            SELECT
+              COALESCE(SUM(eff.qty), 0)::int AS "totalItems",
+              COALESCE(SUM(eff.qty * eff.cost_price), 0)::text AS "totalCost",
+              COALESCE(SUM(eff.qty * eff.sale_price), 0)::text AS "totalSale"
+            FROM (${effectiveStockCte}) eff
+          `,
+        ),
       ]);
 
-      const totalItems = stockByProduct.reduce((s, x) => s + x._count._all, 0);
-      const totalCostValue = stockByProduct.reduce(
-        (s, x) => s + Number(x._sum.costPrice ?? 0),
-        0,
-      );
-
-      // totalSaleValue: SUM(stock_qty * sale_price) — raw SQL pra evitar
-      // carregar todos products no memo.
-      const saleValueRows = await tx.$queryRaw<Array<{ total: string | null }>>`
-        SELECT COALESCE(SUM(stock_count.qty * p.sale_price), 0)::text AS total
-        FROM products p
-        JOIN (
-          SELECT product_id, COUNT(*)::int AS qty
-          FROM stock_items
-          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
-          GROUP BY product_id
-        ) stock_count ON stock_count.product_id = p.id
-        WHERE p.deleted_at IS NULL AND p.active = true
-      `;
-      const totalSaleValue = Number(saleValueRows[0]?.total ?? 0);
+      const totalItems = Number(totalsRows[0]?.totalItems ?? 0);
+      const totalCostValue = Number(totalsRows[0]?.totalCost ?? 0);
+      const totalSaleValue = Number(totalsRows[0]?.totalSale ?? 0);
 
       // Low/out of stock: limita 20 cada — dashboard mostra alerta, nao
-      // tabela completa.
-      const lowStockRaw = await tx.$queryRaw<
+      // tabela completa. Usa o mesmo saldo efetivo (cobre os 3 tipos).
+      const lowStockProducts = await tx.$queryRaw<
         Array<{ id: string; name: string; sku: string | null; minStock: number; currentStock: number }>
-      >`
-        SELECT p.id, p.name, p.sku, p.min_stock AS "minStock",
-               COALESCE(stock_count.qty, 0)::int AS "currentStock"
-        FROM products p
-        LEFT JOIN (
-          SELECT product_id, COUNT(*)::int AS qty
-          FROM stock_items
-          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
-          GROUP BY product_id
-        ) stock_count ON stock_count.product_id = p.id
-        WHERE p.deleted_at IS NULL AND p.active = true
-          AND p.min_stock > 0
-          AND COALESCE(stock_count.qty, 0) <= p.min_stock
-          AND COALESCE(stock_count.qty, 0) > 0
-        ORDER BY (COALESCE(stock_count.qty, 0)::float / NULLIF(p.min_stock, 0)) ASC
+      >(Prisma.sql`
+        SELECT eff.id, eff.name, eff.sku, eff.min_stock AS "minStock", eff.qty AS "currentStock"
+        FROM (${effectiveStockCte}) eff
+        WHERE eff.min_stock > 0 AND eff.qty <= eff.min_stock AND eff.qty > 0
+        ORDER BY (eff.qty::float / NULLIF(eff.min_stock, 0)) ASC
         LIMIT 20
-      `;
-      const lowStockProducts = lowStockRaw;
+      `);
 
-      const outOfStockRaw = await tx.$queryRaw<
+      const outOfStockProducts = await tx.$queryRaw<
         Array<{ id: string; name: string; sku: string | null; minStock: number; currentStock: number }>
-      >`
-        SELECT p.id, p.name, p.sku, p.min_stock AS "minStock", 0 AS "currentStock"
-        FROM products p
-        LEFT JOIN (
-          SELECT product_id, COUNT(*)::int AS qty
-          FROM stock_items
-          WHERE status = 'AVAILABLE' AND deleted_at IS NULL
-          GROUP BY product_id
-        ) stock_count ON stock_count.product_id = p.id
-        WHERE p.deleted_at IS NULL AND p.active = true
-          AND COALESCE(stock_count.qty, 0) = 0
-        ORDER BY p.name ASC
+      >(Prisma.sql`
+        SELECT eff.id, eff.name, eff.sku, eff.min_stock AS "minStock", 0 AS "currentStock"
+        FROM (${effectiveStockCte}) eff
+        WHERE eff.qty = 0
+        ORDER BY eff.name ASC
         LIMIT 20
-      `;
-      const outOfStockProducts = outOfStockRaw;
+      `);
 
       // Recent movements
       const recentMovements = await tx.stockMovement.findMany({
@@ -3331,6 +3380,9 @@ export const stockRouter = createTRPCRouter({
   importCsv: tenantProcedure
     .input(csvImportSchema)
     .mutation(async ({ ctx, input }) => {
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem importar produtos via CSV." });
+      }
       return ctx.withTenant(async (tx) => {
         let productsCreated = 0;
         let stockEntries = 0;
