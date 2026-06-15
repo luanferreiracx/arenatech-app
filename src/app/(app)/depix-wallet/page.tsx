@@ -7,6 +7,7 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { BalanceHero } from "./_components/balance-hero";
 import { RecentTransactions } from "./_components/recent-transactions";
 import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
+import { WalletProtectionCard } from "./_components/wallet-protection-card";
 
 /**
  * /depix-wallet — Overview da carteira DePix do tenant.
@@ -49,9 +50,18 @@ export default function DepixWalletPage() {
         canWithdraw={walletInfo?.canWithdraw === true}
       />
 
+      {/* Protecao da carteira (ADR 0051): migrar p/ non-custodial, trocar senha,
+          recuperar. So aparece p/ admin com carteira provisionada. */}
+      <WalletProtectionCard
+        provisioned={walletInfo?.provisioned === true}
+        custodyModel={walletInfo?.custodyModel ?? "custodial"}
+        canManage={walletInfo?.canRevealMnemonic === true}
+      />
+
       <RecoveryPhraseCard
         provisioned={walletInfo?.provisioned === true}
         canRevealMnemonic={walletInfo?.canRevealMnemonic === true}
+        custodyModel={walletInfo?.custodyModel ?? "custodial"}
       />
 
       {/* Atividade recente */}
