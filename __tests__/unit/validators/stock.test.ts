@@ -562,11 +562,18 @@ describe("csvImportSchema", () => {
     expect(r.success).toBe(false);
   });
 
-  it("rejeita preco de venda zero (antes era bypassavel no import)", () => {
+  it("rejeita preco de venda zero em produto nao-serializado", () => {
     const r = csvImportSchema.safeParse({
       lines: [{ name: "Produto", salePrice: 0 }],
     });
     expect(r.success).toBe(false);
+  });
+
+  it("aceita preco de venda zero em produto serializado (preco vem por unidade)", () => {
+    const r = csvImportSchema.safeParse({
+      lines: [{ name: "iPhone 15", salePrice: 0, isSerialized: true }],
+    });
+    expect(r.success).toBe(true);
   });
 
   it("rejeita import acima do limite de linhas (DoS)", () => {

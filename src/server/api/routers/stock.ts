@@ -3331,7 +3331,8 @@ export const stockRouter = createTRPCRouter({
           if (l.barcode && existingBarcodeSet.has(l.barcode)) {
             warnings.push({ line: i + 1, field: "barcode", message: `Codigo de barras ${l.barcode} ja existe no banco — sera duplicado` });
           }
-          if (l.salePrice <= 0) {
+          // Serializado pode entrar com preco 0 (preco real vem por unidade).
+          if (!l.isSerialized && l.salePrice <= 0) {
             errors.push({ line: i + 1, field: "salePrice", message: "Preço de venda deve ser maior que zero" });
           }
           if (l.costPrice != null && l.costPrice > l.salePrice) {
