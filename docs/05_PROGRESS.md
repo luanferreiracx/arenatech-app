@@ -16,6 +16,14 @@
 
 ---
 
+### 2026-06-15 — ADR 0051: DePix wallet non-custodial (seed cifrada com passphrase)
+- Decisão arquitetural (com o dono): migrar a custódia da DePix wallet de **custodial** (mnemônico em texto puro no volume LWK) para **non-custodial** — seed cifrada com **passphrase que só o usuário sabe** (Argon2id + AES-256-GCM), blob no Postgres (`TenantDepixWallet.encryptedSeed`), LWK assina decifrando em memória e descarta. Servidor deixa de conseguir ver a seed; superadmin não revela mais seed alheia. ADR completo em `docs/decisions/0051-depix-non-custodial-passphrase.md`.
+- Decisões fechadas: tenant central segue custodial (assina refill L-BTC sem usuário; HSM futuro); taxa de depósito vai p/ **sub-conta custodial dedicada**; **sem cache de passphrase** (2FA + passphrase a cada saque); migração **opt-in por tenant** (`custodyModel` default `custodial`, nada quebra até migrar); **v1 server-side agora**, v2 (assinatura no browser via `lwk_wasm`, ainda proof-of-concept) como projeto seguinte.
+- Recuperação de acesso explícita: dois caminhos independentes (passphrase **ou** as 24 palavras); perde os dois = perda total. Setup obriga backup do mnemônico.
+- Implementação faseada em 7 etapas (ETAPA 0 = este ADR; 1 = schema+cripto; 2 = endpoints LWK; 3 = camada TS; 4 = UI; 5 = rollout; 6 = purga seeds em claro; 7 = sub-conta de taxas).
+- Habilita, sem retrabalho, a feature pedida de **criar/importar/trocar carteira** (próxima etapa, sobre este modelo).
+- Próximo: aprovação do ADR → ETAPA 1 (migration `encryptedSeed`/`custodyModel` + `lwk/crypto.py`).
+
 ### 2026-06-14 — NO-KYC: e-mail de verificação via marca pdvdepix + ativação em prod
 - Implementado: `sendEmail` ganha 4º parâmetro `from` opcional (default = EMAIL_FROM global Arena Tech, callers inalterados); `verification.service` envia o código NO-KYC de `NOKYC_EMAIL_FROM` (default `noreply@pdvdepix.app`) — coerente com a marca do onboarding, sem mudar o remetente dos demais e-mails.
 - Produção (via SSH): criado o template WhatsApp `nokyc_verificacao` na WABA …348730 (Graph API) — **APPROVED** na hora (AUTHENTICATION, copy-code, 10min). Container `arenatech-app` já tem `META_WHATSAPP_TOKEN` → **verificação de telefone operacional**. `RESEND_API_KEY` adicionada ao `.env.production` (backup feito) + container recriado.
