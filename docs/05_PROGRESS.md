@@ -8,11 +8,23 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-10
+**Ultima atualizacao:** 2026-06-15
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/remove-depix-legacy-ui`
+**Branch atual:** `docs/depix-firstaccess-adr`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
+**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. Pendente: rebuild do container LWK em prod p/ publicar o endpoint `/setup-noncustodial`.
+
+---
+
+### 2026-06-15 — ADR 0051 (cont.): carteira nasce non-custodial no 1º acesso (etapas 1–4 + reorientação)
+- Implementado (etapas 1–4, PRs #129–#134): endpoint LWK `/wallet/{id}/setup-noncustodial` (gera/importa em memória, grava só `descriptor.txt`, devolve blob cifrado — **nunca** escreve `mnemonic.txt`); `lwk-service.setupWallet` + procedure `depixWallet.setupWallet` (bloqueia central por slug; rejeita já-provisionado); wizard `/depix-wallet/setup` (criar/importar → passphrase → no create exibe 24 palavras + confirma a Nª); gates na overview e no withdraw (`provisioned=false`); telas de gerenciamento (trocar senha via `rewrapPassphrase`, recuperar via `recoverNonCustodial`) e passphrase no saque.
+- **Reorientação (dono):** descartada a migração custodial→non-custodial (Fases 1-2 do plano original) — tinha bug e os tenants comuns eram todos de teste (limpos: L-BTC varrido p/ carteira-mãe, tenants deletados do banco+volume). Em vez de migrar, **todo tenant novo nasce non-custodial no 1º acesso**.
+- **Auto-provision removido:** `provisionDepixWallet` (em `createTenant`/`approvePreRegistration`), procedure `depixWallet.provision`, serviço `depix-wallet-provision.service.ts` e `ensureWallet` — todos órfãos. Tenant nasce sem linha `TenantDepixWallet`; `getWalletInfo` trata como `provisioned:false`.
+- **Purga descartada:** como o fluxo non-custodial nunca grava `mnemonic.txt`, não há seed em claro a purgar (Fase 2/ETAPA 6 original cai). O único `mnemonic.txt` no volume é o do central (custodial, intencional).
+- **Central (`arena-tech`):** permanece custodial, bloqueado por slug no `setupWallet`, nunca vê o wizard; provisionado pelo caminho existente (assina refill L-BTC sem usuário).
+- Validação: typecheck + lint verdes; 1021 unit + LWK Python verdes no CI; E2E @smoke verde. ADR 0051 atualizado (status Aceito + seção "Atualização 2026-06-15").
+- Próximo: rebuild do container LWK em produção (processo já validado: backup volume+código, build, recriar via compose) p/ publicar `/setup-noncustodial`; validar 1º acesso ponta-a-ponta.
 
 ---
 

@@ -1,6 +1,6 @@
 # 0051 — DePix Wallet: custódia non-custodial (seed cifrada com passphrase do usuário)
 
-- **Status:** Proposto
+- **Status:** Aceito (reorientado — ver "Atualização 2026-06-15")
 - **Data:** 2026-06-15
 - **Decisores:** Dono do produto + dev sênior (migração Arena Tech)
 - **Contexto relacionado:** serviço LWK (`lwk/app.py`), orquestração de saque (`src/server/services/depix-transaction.service.ts`, `src/lib/services/lwk-service.ts`), cifragem AES-256-GCM já usada em 2FA ([[0049-login-turnstile-2fa]], `src/lib/auth/two-factor.ts`), pipeline de deploy com migration antes do app (PR #105).
@@ -186,3 +186,50 @@ mesmo passo:
 - Ninguém (nem superadmin, nem suporte) recupera fundos de quem perde passphrase **e** seed.
 - A base (blob, KDF, backup, recuperação) habilita tanto a feature de **criar/importar/trocar
   carteira** quanto a futura **v2** (assinatura no navegador), sem retrabalho.
+
+---
+
+## Atualização 2026-06-15 — carteira nasce non-custodial no 1º acesso (migração e purga descartadas)
+
+Após implementar a base (schema `custodyModel`/`encryptedSeed`, cripto Argon2id+AES-GCM no
+LWK, endpoints, passphrase no saque) e validar o LWK em produção, o dono **reorientou o
+modelo de ativação**. O plano original (Fases 1-2: migrar carteiras custodiais existentes →
+purgar `mnemonic.txt`) é **descartado**. Motivos:
+
+- O fluxo de migração custodial→non-custodial tinha um bug ("senha inválida": o card pedia a
+  senha de login, não a passphrase) e adicionava complexidade para um ganho que deixou de
+  existir: **todos os tenants comuns eram de teste** e foram limpos (saldo L-BTC varrido para
+  a carteira-mãe, tenants deletados do banco + volume). Não há carteira custodial legada a migrar.
+- Em vez de migrar, **todo tenant novo nasce non-custodial no primeiro acesso**.
+
+### O que muda
+
+1. **Endpoint isolado `/wallet/{id}/setup-noncustodial`** (LWK), em vez de reusar
+   `/create`+`/encrypt-seed`. O `/create` gravava `mnemonic.txt` **em claro** (caminho
+   custodial); o endpoint novo gera/recebe o mnemônico **em memória**, deriva o descriptor,
+   grava **só** `descriptor.txt` (watch-only) e devolve o blob cifrado. **`mnemonic.txt` nunca
+   é escrito** no fluxo non-custodial.
+2. **Onboarding no 1º acesso** (`/depix-wallet/setup`): o usuário escolhe **criar nova** vs
+   **importar existente** (24 palavras) e define a **passphrase**. No *create*, as 24 palavras
+   são exibidas uma vez com confirmação obrigatória (digite a Nª palavra). A carteira nasce cifrada.
+3. **Sem auto-provisionamento.** Removido `provisionDepixWallet` de `createTenant`/
+   `approvePreRegistration`, a procedure `depixWallet.provision`, o serviço
+   `depix-wallet-provision.service.ts` e o `ensureWallet` (todos órfãos). O tenant nasce **sem**
+   linha `TenantDepixWallet`; o `getWalletInfo` trata ausência como `provisioned:false`, e a UI
+   mostra o gate de configuração.
+4. **Tenant central (`arena-tech`) permanece custodial** e **não passa pelo wizard** —
+   bloqueado por slug no `setupWallet`. Continua provisionado pelo caminho existente (assina o
+   auto-refill de L-BTC sem usuário). É o único `mnemonic.txt` remanescente no volume, e é
+   intencional.
+
+### Sobre a purga (Fase 2 original): **não existe mais**
+
+Como nenhuma carteira non-custodial grava `mnemonic.txt`, **não há seed em claro para purgar**
+nesse fluxo. O job de purga é descartado. O único `mnemonic.txt` no volume é o do tenant
+central (custodial por design).
+
+### Consequência para o modelo de confiança
+
+A linha "seed em claro no volume" da tabela some para todo tenant comum desde o nascimento —
+a v1 entregue é mais forte que a originalmente planejada para o estado pós-migração. O resíduo
+da v1 (passphrase atravessa o servidor por um instante no saque) permanece, eliminado só na v2.
