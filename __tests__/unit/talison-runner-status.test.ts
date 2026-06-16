@@ -11,6 +11,7 @@ type StoredMessage = {
   content: string;
   contentType: string;
   mediaUrl: string | null;
+  deliveryFailed?: boolean;
 };
 
 const state = vi.hoisted(() => ({
@@ -146,6 +147,38 @@ describe("processConversation — status e entrega", () => {
     expect(result).toEqual({ status: "skipped", reason: "conversa OPEN (atendente no caso)" });
     expect(state.runTalison).not.toHaveBeenCalled();
     expect(state.sendBotMessage).not.toHaveBeenCalled();
+  });
+
+  it("não responde quando um atendente humano já falou na conversa (mesmo em BOT_ACTIVE)", async () => {
+    // Regressão (varredura jun/26): atendente entra e digita sem fazer o "assign"
+    // (status segue BOT_ACTIVE) e o bot atropela respondendo junto. O bot deve recuar.
+    state.conversation.status = "BOT_ACTIVE";
+    state.messages = [
+      { direction: "incoming", senderType: "customer", content: "tem iphone?", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "bot", content: "temos sim!", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "agent", content: "oi, sou o Romulo", contentType: "text", mediaUrl: null },
+      { direction: "incoming", senderType: "customer", content: "está manchado?", contentType: "text", mediaUrl: null },
+    ];
+
+    const result = await processConversation("tenant-1", "conv-1");
+
+    expect(result).toEqual({ status: "skipped", reason: "atendente humano já respondeu nesta conversa" });
+    expect(state.runTalison).not.toHaveBeenCalled();
+    expect(state.sendBotMessage).not.toHaveBeenCalled();
+  });
+
+  it("RESPONDE se a única mensagem de atendente falhou na entrega (cliente não recebeu)", async () => {
+    state.conversation.status = "BOT_ACTIVE";
+    state.messages = [
+      { direction: "incoming", senderType: "customer", content: "tem iphone?", contentType: "text", mediaUrl: null },
+      { direction: "outgoing", senderType: "agent", content: "oi", contentType: "text", mediaUrl: null, deliveryFailed: true },
+      { direction: "incoming", senderType: "customer", content: "alô?", contentType: "text", mediaUrl: null },
+    ];
+
+    const result = await processConversation("tenant-1", "conv-1");
+
+    expect(result.status).toBe("replied");
+    expect(state.runTalison).toHaveBeenCalledOnce();
   });
 
   it.each(["BOT_ACTIVE", "RESOLVED"] as const)(

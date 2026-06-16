@@ -186,7 +186,7 @@ export async function processConversation(
         where: { tenantId, conversationId },
         orderBy: { createdAt: "desc" },
         take: HISTORY_LIMIT,
-        select: { id: true, direction: true, senderType: true, content: true, contentType: true, mediaUrl: true, metadata: true },
+        select: { id: true, direction: true, senderType: true, content: true, contentType: true, mediaUrl: true, metadata: true, deliveryFailed: true },
       }),
     ]);
     return {
@@ -223,13 +223,26 @@ export async function processConversation(
     if (!allowed) return { status: "skipped", reason: "fora da whitelist" };
   }
 
+  // ATENDENTE HUMANO NO CASO (decisão do dono): se um atendente já respondeu —
+  // mesmo sem fazer o "assign" formal que mudaria o status pra OPEN — o bot RECUA
+  // e deixa o humano conduzir. Senão o bot atropela (observado em prod: atendente
+  // entra, manda fotos/mensagens, e o bot responde junto, às vezes "analisando" o
+  // que o próprio atendente enviou). Resposta de atendente cuja ENTREGA falhou não
+  // conta (o cliente não recebeu — o bot ainda precisa cobrir).
+  const humanIsHandling = messages.some(
+    (message) => message.senderType === "agent" && !message.deliveryFailed,
+  );
+  if (humanIsHandling) {
+    recordTalisonMetric("skipped", { conversationId, reason: "human_handling" });
+    return { status: "skipped", reason: "atendente humano já respondeu nesta conversa" };
+  }
+
   // Precisa haver mensagem do cliente AINDA NÃO respondida. Em vez de exigir que
   // a ÚLTIMA mensagem seja do cliente (frágil quando uma saudação/eco cai depois
   // da pergunta real), respondemos quando há mensagem do cliente após a última
-  // resposta do bot/atendente — assim follow-ups do cliente não ficam órfãos.
+  // resposta do bot — assim follow-ups do cliente não ficam órfãos.
   const lastRepliedIndex = messages.reduce(
-    (acc, message, index) =>
-      message.senderType === "bot" || message.senderType === "agent" ? index : acc,
+    (acc, message, index) => (message.senderType === "bot" ? index : acc),
     -1,
   );
   const hasUnansweredCustomer = messages
