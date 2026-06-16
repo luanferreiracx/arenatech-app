@@ -27,6 +27,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { NcmInput } from "@/components/inputs/ncm-input";
 import { VariationsEditor } from "./variations-editor";
 import { ProductPhotoManager } from "./product-photo-manager";
+import { VariationImagesPanel } from "./variation-images-panel";
 
 interface ProductFormProps {
   defaultValues?: CreateProductInput & { id?: string };
@@ -282,6 +283,13 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
         </FormSection>
 
         {hasVariations && <VariationsEditor />}
+
+        {/* Imagem por variacao: so na edicao (precisa das variacoes ja salvas). */}
+        {hasVariations && isEdit && defaultValues?.id && (
+          <FormSection title="Imagens por Variacao">
+            <VariationImagesPanel productId={defaultValues.id} />
+          </FormSection>
+        )}
 
         {!hasVariations && (
           <FormSection title="Precos e Estoque">
