@@ -9,6 +9,7 @@ const tabs = [
   { label: "Assistência", href: "/settings/assistance" },
   { label: "Fiscal", href: "/settings/fiscal" },
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
+  { label: "Meios de Recebimento", href: "/settings/card-acquirers" },
   { label: "Parcelamento", href: "/settings/installments" },
   { label: "Recebimento", href: "/settings/receiving" },
   { label: "Integracoes", href: "/settings/integrations" },
