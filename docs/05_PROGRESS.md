@@ -11,9 +11,9 @@
 **Ultima atualizacao:** 2026-06-15
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `docs/depix-firstaccess-adr`
+**Branch atual:** `docs/lwk-rebuild-done`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
-**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. Pendente: rebuild do container LWK em prod p/ publicar o endpoint `/setup-noncustodial`.
+**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado em prod** (2026-06-15): `/setup-noncustodial` publicado e validado; saldo do central intacto.
 
 ---
 
@@ -24,7 +24,8 @@
 - **Purga descartada:** como o fluxo non-custodial nunca grava `mnemonic.txt`, não há seed em claro a purgar (Fase 2/ETAPA 6 original cai). O único `mnemonic.txt` no volume é o do central (custodial, intencional).
 - **Central (`arena-tech`):** permanece custodial, bloqueado por slug no `setupWallet`, nunca vê o wizard; provisionado pelo caminho existente (assina refill L-BTC sem usuário).
 - Validação: typecheck + lint verdes; 1021 unit + LWK Python verdes no CI; E2E @smoke verde. ADR 0051 atualizado (status Aceito + seção "Atualização 2026-06-15").
-- Próximo: rebuild do container LWK em produção (processo já validado: backup volume+código, build, recriar via compose) p/ publicar `/setup-noncustodial`; validar 1º acesso ponta-a-ponta.
+- **Rebuild LWK em prod (2026-06-15, ETAPA 5b):** o container `/opt/lwk-wallet` não tem deploy automatizado — atualizado manualmente. Só faltava o endpoint no `app.py` (crypto.py + deps já estavam do rebuild anterior); diff era acréscimo puro. Backups antes: volume (`/opt/lwk-backups/lwk_wallet_data_*.tar.gz`), código (`/opt/lwk-wallet.bak-*`), imagem (`lwk-depix-wallet:rollback-*`). `docker compose build && up -d` → healthy. **Validado:** health 200; `/setup-noncustodial` sem auth → 401 (antes 404); saldo central intacto (37.2 DePix + 8000 sat); teste funcional `create` → blob argon2id + 24 palavras + `descriptor.txt` (SEM `mnemonic.txt`); guard 409 na 2ª chamada; tenant de teste limpo do volume.
+- Próximo: validar o 1º acesso ponta-a-ponta na UI (criar/importar) com um tenant novo real; (futuro) versionar o deploy do LWK p/ não depender de rebuild manual.
 
 ---
 
