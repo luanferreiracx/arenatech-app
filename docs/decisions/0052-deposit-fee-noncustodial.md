@@ -1,6 +1,6 @@
 # 0052 — Taxa de depósito em carteiras non-custodial (cobrança sem usuário presente)
 
-- **Status:** Proposto (investigação — aguarda decisão do dono)
+- **Status:** Aceito (Opção A refinada — ver "Decisão final 2026-06-16")
 - **Data:** 2026-06-16
 - **Decisores:** Dono do produto + dev sênior
 - **Relacionado:** [[0051-depix-non-custodial-passphrase]] (ETAPA 7 / "Fase 3" original, reaberta após a reorientação non-custodial)
@@ -72,8 +72,29 @@ Consulta no banco prod: **todos os 53 depósitos DePix são do tenant central (c
 2. Dono escolhe A/B/C → este ADR vira "Aceito" com o desenho final + plano de implementação.
 3. **Gate operacional:** enquanto não implementado, não habilitar depósito para tenant non-custodial em produção sem aceitar que a taxa fica `PENDING_SETTLEMENT` (cliente recebe o DePix; taxa coletada depois). Hoje isso é inócuo (zero depósitos non-custodial).
 
-## Consequências (enquanto não decidido)
+## Consequências (enquanto não implementado)
 
 - Depósitos em tenant non-custodial **funcionam** (cliente recebe o DePix).
-- A taxa Arena Tech do depósito **não é coletada automaticamente** — fica `COMPLETED_FEE_PENDING` / `PENDING_SETTLEMENT` no ledger. Sem perda contábil (registrada), mas sem coleta até a decisão.
+- A taxa Arena Tech do depósito **não é coletada automaticamente** — fica `COMPLETED_FEE_PENDING` / `PENDING_SETTLEMENT` no ledger. Sem perda contábil (registrada), mas sem coleta até a feature ligar.
 - O saque (com usuário/passphrase) e a taxa de saque seguem normais. O tenant central (custodial) não é afetado.
+
+---
+
+## Decisão final 2026-06-16 — Opção A refinada (carteira de taxas custodial dedicada)
+
+O dono **descartou B e C**:
+- **B (cobrar no próximo saque):** cria incentivo perverso — um tenant poderia usar o serviço **só para depositar** e nunca sacar, nunca pagando a taxa.
+- **C (split no PixPay):** não existe na API do PixPay; e, mesmo se existisse, **feriria a privacidade** (exporia a relação tenant↔Arena Tech à operadora de PIX) — privacidade é foco do produto.
+
+**Escolhida: Opção A refinada.** Uma **carteira custodial nova e dedicada** — tenant técnico **`arena-fees`** ("operacional Arena Tech": taxas + futuramente L-BTC) — gerenciada pelo **superadmin**. Para tenant **non-custodial**:
+
+1. `createDeposit` aponta o PixPay para um endereço da **carteira de taxas** (não do tenant), único por tx (`label = transactionId`). **Fail-closed:** se `arena-fees` não estiver provisionada, o depósito é bloqueado.
+2. O DePix cai na carteira de taxas. O webhook chega com `tenant_id = arena-fees`.
+3. `settleDepositViaFeeWallet`: acha a tx pelo label (via `withAdmin`), calcula a taxa, e a carteira de taxas (custodial, **assina sem passphrase**) **repassa o líquido** (bruto − taxa) → `master_address` do tenant real. A **taxa fica retida** na carteira de taxas (sem tx própria).
+4. **Falha no repasse → fila idempotente** (`DepixDepositRepayment`, `idempotencyKey=repay:{id}`) + cron de retry. **Os efeitos de negócio (liberar venda/saldo) só são aplicados após o repasse confirmar** — o cliente só "tem" o dinheiro quando ele chega na carteira dele.
+
+**Por que A apesar dos contras:** B e C foram vetadas; A é a única que coleta a taxa de forma automática, on-chain, sem depender do saque nem expor a relação. O trade-off (o depósito passa pela nossa carteira custodial por um instante) foi **aceito conscientemente**, mitigado por: repasse imediato + retry (o líquido sai rápido; só a taxa acumula).
+
+**Escopo:** só tenants **non-custodial** passam pela carteira de taxas. Tenant central (`arena-tech`) e quaisquer custodiais **mantêm o fluxo atual** (`settleDepositConfirmed`, intacto). **ETAPA 8 futura** (ADR próprio): migrar o central para non-custodial, deixando `arena-fees` como a **única** carteira custodial do sistema (assumindo também o auto-refill de L-BTC).
+
+Plano de implementação (6 PRs): provisão idempotente da carteira → migration da fila de repasse → roteamento no `createDeposit` → settle via fee wallet → cron de retry → painel superadmin.
