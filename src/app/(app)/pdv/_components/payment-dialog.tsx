@@ -48,6 +48,26 @@ interface PaymentEntry {
   walletTransactionId?: string;
   /** transactionId da PixPay espelhado para compatibilidade temporaria. */
   depixTransactionId?: string;
+  /** Recebível de cartão: adquirente/bandeira/tipo (quando informados). */
+  acquirerId?: string | null;
+  cardBrandId?: string | null;
+  cardKind?: "CREDIT" | "DEBIT" | null;
+}
+
+/** Tipo da forma de pagamento (PaymentMethodType) a partir do code de fallback. */
+function fallbackType(key: string): string {
+  if (key === "cartao_credito") return "CREDIT_CARD";
+  if (key === "cartao_debito") return "DEBIT_CARD";
+  if (key === "pix") return "PIX";
+  if (key === "dinheiro") return "CASH";
+  return "OTHER";
+}
+
+/** Deriva o tipo de cartão (CREDIT/DEBIT) do PaymentMethodType, ou null. */
+function cardKindFromType(type: string | undefined): "CREDIT" | "DEBIT" | null {
+  if (type === "CREDIT_CARD") return "CREDIT";
+  if (type === "DEBIT_CARD") return "DEBIT";
+  return null;
 }
 
 /** Fallback quando o tenant nao tem PaymentMethod cadastrado ainda. */
@@ -100,6 +120,8 @@ export function PaymentDialog({
   const [observations, setObservations] = useState("");
   const [refundDueMethod, setRefundDueMethod] = useState<"cash" | "pix">("cash");
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
+  const [selectedAcquirerId, setSelectedAcquirerId] = useState<string | null>(null);
+  const [selectedCardBrandId, setSelectedCardBrandId] = useState<string | null>(null);
   const [showDepixQr, setShowDepixQr] = useState(false);
   const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
   const autoFinalizeAttemptedRef = useRef(false);
@@ -135,15 +157,31 @@ export function PaymentDialog({
   const depixEnabled = tenantSlug === "arena-tech";
 
   const baseOptions = dbMethods.length > 0
-    ? dbMethods.map((m) => ({ id: m.id, key: m.code ?? m.id, label: m.name, acceptsInstallments: m.acceptsInstallments, installmentsMax: m.installmentsMax }))
-    : FALLBACK_METHODS.map((m) => ({ id: null as string | null, key: m.key, label: m.label, acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
+    ? dbMethods.map((m) => ({ id: m.id, key: m.code ?? m.id, label: m.name, type: m.type, acceptsInstallments: m.acceptsInstallments, installmentsMax: m.installmentsMax }))
+    : FALLBACK_METHODS.map((m) => ({ id: null as string | null, key: m.key, label: m.label, type: fallbackType(m.key), acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
 
   // Garante DePix disponivel no tenant arena-tech, mesmo se nao cadastrado
   // como PaymentMethod (fluxo PIX gera transacao via PixPay direto).
   const hasDepix = baseOptions.some((m) => m.key === "depix");
   const methodOptions = depixEnabled && !hasDepix
-    ? [...baseOptions, { id: null as string | null, key: "depix", label: "DePix", acceptsInstallments: false, installmentsMax: 1 }]
+    ? [...baseOptions, { id: null as string | null, key: "depix", label: "DePix", type: "PIX", acceptsInstallments: false, installmentsMax: 1 }]
     : baseOptions;
+
+  // Recebíveis de cartão: tipo da forma selecionada (CREDIT_CARD/DEBIT_CARD)
+  // habilita a captura de adquirente+bandeira p/ gerar CardReceivable.
+  const selectedMethodType = methodOptions.find((m) => m.key === selectedMethod)?.type;
+  const selectedCardKind = cardKindFromType(selectedMethodType);
+  const isCardPayment = selectedCardKind !== null;
+
+  // Adquirentes/bandeiras ativas (só carrega quando o dialog está aberto).
+  const acquirersQuery = useQuery(
+    trpc.receiving.acquirers.list.queryOptions(undefined, { enabled: open }),
+  );
+  const brandsQuery = useQuery(
+    trpc.receiving.brands.list.queryOptions(undefined, { enabled: open }),
+  );
+  const activeAcquirers = (acquirersQuery.data ?? []).filter((a) => a.active);
+  const activeBrands = (brandsQuery.data ?? []).filter((b) => b.active);
 
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 
@@ -157,6 +195,8 @@ export function PaymentDialog({
     setSelectedMethod(method);
     setSelectedLabel(label);
     setSelectedPaymentMethodId(paymentMethodId);
+    setSelectedAcquirerId(null);
+    setSelectedCardBrandId(null);
     setFormAmount((remaining / 100).toFixed(2));
     setFormInstallments("1");
     setDepixManualMode(false);
@@ -187,6 +227,17 @@ export function PaymentDialog({
     const totalPaidByCustomer = valorPagoCents;
     const installments = parseInt(formInstallments, 10) || 1;
 
+    // Recebível de cartão: só anexa adquirente/bandeira quando AMBOS escolhidos.
+    // Sem isso, a venda no cartão segue sem recebível (fallback do backend).
+    const cardFields =
+      isCardPayment && selectedAcquirerId && selectedCardBrandId && selectedCardKind
+        ? {
+            acquirerId: selectedAcquirerId,
+            cardBrandId: selectedCardBrandId,
+            cardKind: selectedCardKind,
+          }
+        : {};
+
     const leg: PaymentEntry = {
       method: selectedMethod,
       paymentMethodId: selectedPaymentMethodId,
@@ -194,11 +245,14 @@ export function PaymentDialog({
       amount: amountMercadoria,
       installments,
       totalPaidByCustomer,
+      ...cardFields,
       ...(selectedMethod === "depix" && depixManualMode ? { depixManual: true } : {}),
     };
 
     setSelectedMethod(null);
     setSelectedPaymentMethodId(null);
+    setSelectedAcquirerId(null);
+    setSelectedCardBrandId(null);
     setDepixManualMode(false);
     setStep("select");
 
@@ -275,6 +329,9 @@ export function PaymentDialog({
           ...(p.depixManual ? { depixManual: true } : {}),
           ...(p.walletTransactionId ? { walletTransactionId: p.walletTransactionId } : {}),
           ...(p.depixTransactionId ? { depixTransactionId: p.depixTransactionId } : {}),
+          ...(p.acquirerId ? { acquirerId: p.acquirerId } : {}),
+          ...(p.cardBrandId ? { cardBrandId: p.cardBrandId } : {}),
+          ...(p.cardKind ? { cardKind: p.cardKind } : {}),
         })),
         observations: observations || null,
       },
@@ -541,6 +598,47 @@ export function PaymentDialog({
                 </div>
               )}
             </div>
+
+            {isCardPayment && activeAcquirers.length > 0 && activeBrands.length > 0 && (
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <Label>Adquirente</Label>
+                  <Select
+                    value={selectedAcquirerId ?? ""}
+                    onValueChange={(v) => setSelectedAcquirerId(v || null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Maquininha (opcional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeAcquirers.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label>Bandeira</Label>
+                  <Select
+                    value={selectedCardBrandId ?? ""}
+                    onValueChange={(v) => setSelectedCardBrandId(v || null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Bandeira" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeBrands.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
 
             {showChange && (
               <div>
