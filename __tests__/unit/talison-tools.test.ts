@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract";
 import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/service-order";
 import { estimarOrcamento } from "@/lib/talison/tools/catalog";
-import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
+import { iniciarAvaliacao, calcularAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
 import { qualificarLead, sinalizarLeadQuente, transferirParaHumano } from "@/lib/talison/tools/handoff";
@@ -185,26 +185,112 @@ describe("estimar_orcamento", () => {
   });
 });
 
-describe("consultar_avaliacao", () => {
-  it("devolve valor de trade-in formatado e validade", async () => {
-    const tx = {
-      deviceValuation: {
-        findFirst: vi.fn().mockResolvedValue({
-          modelo: "iPhone 13 Pro",
-          armazenamento: "128GB",
-          saudeBateria: "89%",
-          valor: { toString: () => "3500.00" },
-          validadeDias: 7,
-        }),
-      },
-    } as unknown as Partial<TalisonTx>;
-
-    const result = await consultarAvaliacao.execute({ modelo: "iPhone 13 Pro" }, makeCtx(tx));
+describe("iniciar_avaliacao", () => {
+  it("envia o questionário da categoria com todos os campos e o disclaimer", async () => {
+    const result = await iniciarAvaliacao.execute({ categoria: "iphone" }, makeCtx({}));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.valor).toBe("R$ 3.500,00");
-      expect(result.display).toContain("7 dias");
+      expect(result.display).toContain("Saúde da bateria");
+      expect(result.display).toContain("Tem caixa");
+      expect(result.display).toContain("marcas de uso");
+      expect(result.display).toContain("iCloud");
+      expect(result.display).toContain("validade de APENAS 1 DIA");
     }
+  });
+});
+
+describe("calcular_avaliacao", () => {
+  // valuation que casa iPhone 13 Pro Max 128GB > 90% = 2600 (valores reais da tabela).
+  function valuationTx(row: Record<string, unknown> | null) {
+    const findFirst = vi.fn().mockResolvedValue(row);
+    return { tx: { deviceValuation: { findFirst } } as unknown as Partial<TalisonTx>, findFirst };
+  }
+  const row13 = {
+    modelo: "iPhone 13 Pro Max",
+    armazenamento: "128GB",
+    saudeBateria: "> 90%",
+    valor: { toString: () => "2600.00" },
+    validadeDias: 1,
+  };
+
+  it("recusa (sem transferir) aparelho com iCloud bloqueado", async () => {
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 13 Pro Max", bloqueado_icloud: true },
+      makeCtx({}),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/não recebemos|NÃO é aceito/i);
+      expect(result.reason).toMatch(/NÃO transfira/i);
+    }
+  });
+
+  it("transfere quando há peça substituída, não funciona ou marcas fortes", async () => {
+    for (const args of [
+      { peca_substituida: true },
+      { tudo_funciona: false },
+      { marcas_uso: "fortes" as const },
+    ]) {
+      const result = await calcularAvaliacao.execute(
+        { categoria: "iphone", modelo: "iPhone 13 Pro Max", ...args },
+        makeCtx({}),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/atendente|transfira/i);
+    }
+  });
+
+  it("transfere iPad sem caixa (precisa documento de origem)", async () => {
+    const result = await calcularAvaliacao.execute(
+      { categoria: "ipad", modelo: "iPad Pro", tem_caixa: false },
+      makeCtx({}),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/documento de origem|atendente/i);
+  });
+
+  it("mapeia a faixa de bateria e devolve o valor de tabela", async () => {
+    const { tx, findFirst } = valuationTx(row13);
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 13 Pro Max", armazenamento: "128GB", saude_bateria_percent: 92, tem_caixa: true },
+      makeCtx(tx),
+    );
+    expect(findFirst.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("> 90%");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.valor_final).toBe("R$ 2.600,00");
+      expect(result.display).toContain("R$ 2.600,00");
+    }
+  });
+
+  it("81% cai na faixa 80% - 85%", async () => {
+    const { findFirst } = valuationTx(null);
+    await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 15 Pro", saude_bateria_percent: 81, tem_caixa: true },
+      makeCtx({ deviceValuation: { findFirst } } as unknown as Partial<TalisonTx>),
+    );
+    expect(findFirst.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("80% - 85%");
+  });
+
+  it("aplica -10% sem caixa (iPhone) e -R$100 marcas leves", async () => {
+    const { tx } = valuationTx(row13);
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 13 Pro Max", armazenamento: "128GB", saude_bateria_percent: 92, tem_caixa: false, marcas_uso: "leves" },
+      makeCtx(tx),
+    );
+    expect(result.ok).toBe(true);
+    // 2600 - 10% (260) - 100 = 2240
+    if (result.ok) expect(result.data.valor_final).toBe("R$ 2.240,00");
+  });
+
+  it("transfere quando o modelo não tem avaliação cadastrada", async () => {
+    const { tx } = valuationTx(null);
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone XPTO", tem_caixa: true },
+      makeCtx(tx),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/atendente/i);
   });
 });
 

@@ -76,6 +76,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("buscar_aparelho");
   });
 
+  it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("AVALIAÇÃO DE TROCA");
+    expect(prompt).toContain("iniciar_avaliacao");
+    expect(prompt).toContain("calcular_avaliacao");
+    expect(prompt).toContain("NUNCA invente nem assuma");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,

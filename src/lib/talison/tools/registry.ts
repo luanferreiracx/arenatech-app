@@ -8,7 +8,7 @@ import { toToolDefinition, type TalisonTool } from "@/lib/talison/tools/contract
 import { consultarStatusOs, verificarGarantia } from "@/lib/talison/tools/service-order";
 import { estimarOrcamento, listarServicos } from "@/lib/talison/tools/catalog";
 import { buscarCliente } from "@/lib/talison/tools/customer";
-import { consultarAvaliacao } from "@/lib/talison/tools/valuation";
+import { iniciarAvaliacao, calcularAvaliacao } from "@/lib/talison/tools/valuation";
 import { buscarAparelho, buscarAcessorio } from "@/lib/talison/tools/stock";
 import { simularParcelamento } from "@/lib/talison/tools/installment";
 import { qualificarLead, sinalizarLeadQuente, transferirParaHumano } from "@/lib/talison/tools/handoff";
@@ -19,7 +19,8 @@ export const TALISON_TOOLS: readonly TalisonTool[] = [
   estimarOrcamento,
   listarServicos,
   buscarCliente,
-  consultarAvaliacao,
+  iniciarAvaliacao,
+  calcularAvaliacao,
   buscarAparelho,
   buscarAcessorio,
   simularParcelamento,
