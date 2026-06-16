@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -113,6 +113,14 @@ export default function StockImportPage() {
   } | null>(null);
 
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  // Erros/avisos da validacao SERVER-SIDE (previewCsvImport): pega regras que o
+  // parse no navegador nao ve — SKU/barcode ja existentes no banco, etc.
+  const [serverIssues, setServerIssues] = useState<{
+    errors: Array<{ line: number; field?: string; message: string }>;
+    warnings: Array<{ line: number; field?: string; message: string }>;
+  } | null>(null);
+  const [checkingServer, setCheckingServer] = useState(false);
   const importMutation = useMutation(
     trpc.stock.importCsv.mutationOptions({
       onSuccess: (data) => {
@@ -168,17 +176,35 @@ export default function StockImportPage() {
     [processFile],
   );
 
-  const handleImport = useCallback(() => {
+  const handleImport = useCallback(async () => {
     const validLines = parsedLines.filter((l) => !l._error);
     if (validLines.length === 0) {
       toast.error("Nenhuma linha valida para importar.");
       return;
     }
+    const payloadLines = validLines.map(({ _lineNum, _error, ...rest }) => rest);
 
-    importMutation.mutate({
-      lines: validLines.map(({ _lineNum, _error, ...rest }) => rest),
-    });
-  }, [parsedLines, importMutation]);
+    // Validacao server-side antes de importar: confere regras que o navegador
+    // nao ve (duplicidade no banco etc). Se houver erro, nao importa.
+    setCheckingServer(true);
+    try {
+      const preview = await queryClient.fetchQuery(
+        trpc.stock.previewCsvImport.queryOptions({ lines: payloadLines }),
+      );
+      setServerIssues({ errors: preview.errors, warnings: preview.warnings });
+      if (!preview.canProceed) {
+        toast.error(`Validacao do servidor encontrou ${preview.errors.length} erro(s). Corrija e tente novamente.`);
+        return;
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao validar no servidor.");
+      return;
+    } finally {
+      setCheckingServer(false);
+    }
+
+    importMutation.mutate({ lines: payloadLines });
+  }, [parsedLines, importMutation, queryClient, trpc]);
 
   const formatCurrency = (cents: number) =>
     (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -269,6 +295,46 @@ export default function StockImportPage() {
             </Card>
           )}
 
+          {serverIssues && serverIssues.errors.length > 0 && (
+            <Card className="border-destructive">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  <span className="font-medium text-destructive">
+                    Validacao do servidor: {serverIssues.errors.length} erro(s)
+                  </span>
+                </div>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  {serverIssues.errors.map((e, i) => (
+                    <li key={i}>
+                      Linha {e.line}{e.field ? ` (${e.field})` : ""}: {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {serverIssues && serverIssues.warnings.length > 0 && (
+            <Card className="border-yellow-500/50">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                  <span className="font-medium text-yellow-600">
+                    {serverIssues.warnings.length} aviso(s)
+                  </span>
+                </div>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  {serverIssues.warnings.map((w, i) => (
+                    <li key={i}>
+                      Linha {w.line}{w.field ? ` (${w.field})` : ""}: {w.message}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">
@@ -280,14 +346,16 @@ export default function StockImportPage() {
                 </Button>
                 <Button
                   onClick={handleImport}
-                  disabled={importMutation.isPending || parsedLines.filter((l) => !l._error).length === 0}
+                  disabled={importMutation.isPending || checkingServer || parsedLines.filter((l) => !l._error).length === 0}
                 >
-                  {importMutation.isPending ? (
+                  {importMutation.isPending || checkingServer ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <CheckCircle className="mr-2 h-4 w-4" />
                   )}
-                  Importar {parsedLines.filter((l) => !l._error).length} produtos
+                  {checkingServer
+                    ? "Validando..."
+                    : `Importar ${parsedLines.filter((l) => !l._error).length} produtos`}
                 </Button>
               </div>
             </CardHeader>
