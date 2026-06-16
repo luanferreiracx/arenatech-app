@@ -857,6 +857,85 @@ def wallet_recover(tenant_id):
         return fail("internal_error", 500, log_detail=f"recover[{tenant_id}]: {e}")
 
 
+@app.route("/wallet/<tenant_id>/setup-noncustodial", methods=["POST"])
+def wallet_setup_noncustodial(tenant_id):
+    """Provisiona uma carteira NON-CUSTODIAL no primeiro acesso (ADR 0051).
+
+    mode=create: gera um mnemonico aleatorio (24 palavras).
+    mode=import: usa o mnemonico de 24 palavras informado pelo usuario.
+
+    Em AMBOS os casos a seed e cifrada com a passphrase do usuario e SO o
+    descriptor (watch-only) e gravado no volume. O mnemonic.txt NUNCA e escrito
+    — a seed em claro existe apenas como variavel local e e descartada. O
+    mnemonico so volta na resposta no modo create (backup unico do usuario).
+    """
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode")
+    passphrase = data.get("passphrase")
+    mnemonic_in = data.get("mnemonic")
+
+    if mode not in ("create", "import"):
+        return fail("mode invalido (create|import)")
+    if not passphrase or not isinstance(passphrase, str):
+        return fail("passphrase obrigatoria")
+    if mode == "import" and (not mnemonic_in or not isinstance(mnemonic_in, str)):
+        return fail("mnemonic obrigatorio no modo import")
+
+    try:
+        with wallet_lock(tenant_id):
+            p = WalletPaths(tenant_id)
+            # Guard: nao sobrescreve carteira existente (apagaria acesso ao saldo).
+            if os.path.exists(p.descriptor):
+                return fail("carteira ja provisionada", 409)
+
+            # Deriva o mnemonico EM MEMORIA.
+            if mode == "create":
+                mnemonic = lwk.Mnemonic.from_random(24)
+            else:
+                cleaned = mnemonic_in.strip()
+                if len(cleaned.split()) != 24:
+                    return fail("mnemonic invalido (deve ter 24 palavras)")
+                try:
+                    mnemonic = lwk.Mnemonic(cleaned)
+                except Exception:
+                    return fail("mnemonic invalido")
+
+            mnemonic_str = str(mnemonic)
+            signer = lwk.Signer(mnemonic, get_network())
+            descriptor = signer.wpkh_slip77_descriptor()
+            descriptor_str = str(descriptor)
+
+            # Grava SO o descriptor (watch-only). NUNCA o mnemonic.txt.
+            _write_secret(p.descriptor, descriptor_str)
+
+            wollet = lwk.Wollet(get_network(), descriptor, p.dir)
+            master_address = str(wollet.address(0).address())
+
+            blob = crypto.encrypt_seed(mnemonic_str, passphrase)
+
+        resp = {
+            "tenant_id":      tenant_id,
+            "encrypted_seed": blob,
+            "descriptor":     descriptor_str,
+            "master_address": master_address,
+            "network":        NETWORK_NAME,
+        }
+        # Mnemonico so no create (backup unico). No import o usuario ja o tem.
+        if mode == "create":
+            resp["mnemonic"] = mnemonic_str
+        del mnemonic_str
+        logger.info(f"[{tenant_id}] Carteira non-custodial provisionada (mode={mode})")
+        return jsonify(resp)
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"setup_noncustodial[{tenant_id}]: {e}")
+
+
 @app.route("/wallet/<tenant_id>/balance", methods=["GET"])
 def wallet_balance(tenant_id):
     err = auth_required()

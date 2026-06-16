@@ -215,5 +215,105 @@ class TestNonCustodialEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+import shutil
+import uuid as _uuid
+
+
+class TestSetupNonCustodial(unittest.TestCase):
+    """ADR 0051 — provisionamento non-custodial no primeiro acesso."""
+
+    def setUp(self):
+        app.app.config["TESTING"] = True
+        self.client = app.app.test_client()
+        # Tenant unico por teste -> dir limpo (guard 409 + checagem de arquivos).
+        self.tenant = str(_uuid.uuid4())
+
+    def tearDown(self):
+        d = os.path.join(os.environ["WALLET_DATA_DIR"], self.tenant)
+        shutil.rmtree(d, ignore_errors=True)
+
+    def _paths(self):
+        return app.WalletPaths(self.tenant)
+
+    def test_create_returns_blob_and_mnemonic(self):
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": PASSPHRASE},
+            headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 200)
+        body = r.get_json()
+        self.assertIn("mnemonic", body)
+        self.assertIn("encrypted_seed", body)
+        self.assertIn("descriptor", body)
+        self.assertIn("master_address", body)
+        self.assertEqual(crypto.decrypt_seed(body["encrypted_seed"], PASSPHRASE), body["mnemonic"])
+
+    def test_create_never_writes_mnemonic_file(self):
+        self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": PASSPHRASE},
+            headers=HEADERS,
+        )
+        p = self._paths()
+        # GARANTIA CENTRAL: so o descriptor e gravado; mnemonic.txt NUNCA.
+        self.assertTrue(os.path.exists(p.descriptor))
+        self.assertFalse(os.path.exists(p.mnemonic))
+
+    def test_import_uses_provided_mnemonic_and_omits_it(self):
+        m = "abandon " * 23 + "art"
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "import", "passphrase": PASSPHRASE, "mnemonic": m},
+            headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 200)
+        body = r.get_json()
+        self.assertNotIn("mnemonic", body)
+        self.assertEqual(crypto.decrypt_seed(body["encrypted_seed"], PASSPHRASE), m)
+
+    def test_import_rejects_wrong_word_count(self):
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "import", "passphrase": PASSPHRASE, "mnemonic": "word word word"},
+            headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("24 palavras", r.get_json()["error"])
+
+    def test_requires_passphrase(self):
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create"}, headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_invalid_mode(self):
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "xxx", "passphrase": PASSPHRASE}, headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_rejects_if_already_provisioned(self):
+        r1 = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": PASSPHRASE}, headers=HEADERS,
+        )
+        self.assertEqual(r1.status_code, 200)
+        r2 = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": "outra-senha"}, headers=HEADERS,
+        )
+        self.assertEqual(r2.status_code, 409)
+
+    def test_requires_auth(self):
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": PASSPHRASE},
+        )
+        self.assertEqual(r.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
