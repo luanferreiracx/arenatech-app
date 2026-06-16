@@ -47,7 +47,6 @@ import {
 import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
 import { suggestNcm } from "@/lib/integrations/ncm-suggest";
 import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
-import { lookupCpfDirectD } from "@/lib/integrations/directd-cpf";
 import {
   createDocumentWithLink,
   getDocumentStatus,
@@ -3998,14 +3997,6 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ input }) => {
       return lookupCnpjApi(input.cnpj);
     }),
-
-  /** Consulta CPF via DirectD (Receita Federal). Paridade Laravel buscarCpfRfb. */
-  lookupCpf: tenantProcedure
-    .input(z.object({
-      cpf: z.string().min(11).max(14),
-      birthDate: z.string().optional(),
-    }))
-    .query(async ({ input }) => lookupCpfDirectD(input.cpf, input.birthDate)),
 
   // ═══════════════════════════════════════
   // DUPLICATE PRODUCT (Estoque-A)
