@@ -1174,6 +1174,23 @@ export const financialRouter = createTRPCRouter({
           }
         }
 
+        // Recebíveis de cartão PENDING entram como entrada (líquido) na data de
+        // liquidação esperada. Compõem o fluxo projetado junto das parcelas.
+        const cardReceivables = await tx.cardReceivable.findMany({
+          where: {
+            status: "PENDING",
+            expectedSettlementDate: { gte: today, lte: endDate },
+          },
+          select: { expectedSettlementDate: true, netAmount: true },
+        });
+        for (const cr of cardReceivables) {
+          const key = cr.expectedSettlementDate.toISOString().split("T")[0]!;
+          if (!dailyMap[key]) {
+            dailyMap[key] = { receivable: 0, payable: 0 };
+          }
+          dailyMap[key]!.receivable += decimalToCents(cr.netAmount);
+        }
+
         let cumulativeBalance = 0;
         const projection = Object.entries(dailyMap)
           .sort(([a], [b]) => a.localeCompare(b))
