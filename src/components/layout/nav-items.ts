@@ -200,5 +200,6 @@ export const adminNavItems: NavItem[] = [
   { label: "Estornos", href: "/admin/refunds", icon: Undo2 },
   { label: "WhatsApp Logs", href: "/admin/whatsapp-logs", icon: MessageSquare },
   { label: "L-BTC Refills", href: "/admin/depix-lbtc", icon: Banknote },
+  { label: "Carteira de Taxas", href: "/admin/depix-fees", icon: Percent },
   { label: "Relatorios", href: "/admin/reports", icon: FileText },
 ];

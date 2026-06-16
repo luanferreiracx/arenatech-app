@@ -24,6 +24,7 @@ import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
 import { depixWalletRouter } from "@/server/api/routers/depix-wallet";
 import { depixTransactionRouter } from "@/server/api/routers/depix-transaction";
 import { depixLbtcAdminRouter } from "@/server/api/routers/depix-lbtc-admin";
+import { depixFeeWalletAdminRouter } from "@/server/api/routers/depix-fee-wallet-admin";
 import { providerCommissionRouter } from "@/server/api/routers/provider-commission";
 import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
@@ -44,6 +45,7 @@ export const appRouter = createTRPCRouter({
   depixWallet: depixWalletRouter,
   depixTransaction: depixTransactionRouter,
   depixLbtcAdmin: depixLbtcAdminRouter,
+  depixFeeWalletAdmin: depixFeeWalletAdminRouter,
   auth: authRouter,
   twoFactor: twoFactorRouter,
   cashier: cashierRouter,
