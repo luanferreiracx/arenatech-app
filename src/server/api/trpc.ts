@@ -149,6 +149,14 @@ export const superAdminTenantProcedure = tenantProcedure.use(async ({ ctx, next 
 export const CENTRAL_TENANT_SLUG = "arena-tech";
 
 /**
+ * Fee wallet tenant slug — carteira custodial operacional da Arena Tech,
+ * dedicada a receber depositos de tenants non-custodial, reter a taxa e
+ * repassar o liquido (ADR 0052). Tenant tecnico (sem usuarios), provisionado
+ * pelo painel superadmin. NUNCA paga taxa de si mesmo.
+ */
+export const FEE_WALLET_TENANT_SLUG = "arena-fees";
+
+/**
  * Central tenant procedure — only the central tenant (arena-tech) can use it.
  * Extends tenantProcedure with a slug check against the user's available tenants.
  */

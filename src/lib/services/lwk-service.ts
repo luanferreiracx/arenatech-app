@@ -649,3 +649,54 @@ export async function setupWallet(
     return { success: false, error: "LWK indisponivel" };
   }
 }
+
+export interface LwkCreateWalletResult {
+  success: boolean;
+  descriptor?: string;
+  masterAddress?: string;
+  network?: string;
+  error?: string;
+}
+
+/**
+ * Provisiona (ou carrega, se ja existe) uma carteira CUSTODIAL no LWK
+ * (`POST /wallet/{id}/create`). O LWK gera a seed e grava `mnemonic.txt` no
+ * volume — a Arena Tech assina sem usuario presente. Idempotente: se a carteira
+ * ja existe, o LWK retorna a mesma (descriptor inalterado).
+ *
+ * Usado SO para carteiras operacionais da Arena Tech (central, carteira de
+ * taxas) — NUNCA para tenant comum (esses nascem non-custodial via setupWallet).
+ */
+export async function createCustodialWallet(
+  tenantId: string,
+): Promise<LwkCreateWalletResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) {
+    return {
+      success: true,
+      descriptor: `ct(mock-${tenantId})`,
+      masterAddress: `lq1mock${tenantId.replace(/-/g, "").slice(0, 20)}`,
+      network: "mainnet",
+    };
+  }
+  try {
+    const { ok, status, body } = await lwkFetch(config, "POST", `/wallet/${tenantId}/create`);
+    if (!ok) {
+      logger.error("LWK createCustodialWallet falhou", { tenantId, status, error: body.error });
+      return { success: false, error: String(body.error ?? `HTTP ${status}`) };
+    }
+    return {
+      success: true,
+      descriptor: body.descriptor as string | undefined,
+      masterAddress: body.master_address as string | undefined,
+      network: body.network as string | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK createCustodialWallet erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
