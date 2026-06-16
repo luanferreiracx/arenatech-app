@@ -1,4 +1,5 @@
 /// Transacao DePix multi-tenant unificada (deposito + saque) via carteira LWK.
+/// (number unico por tenant — ver @@unique([tenantId, number]).)
 ///
 /// Modulo novo da Fase 2 — NAO se confunde com DepixWithdraw (legacy PixPay
 /// direto, sem LWK). O fluxo aqui vai por carteira LWK propria do tenant,
