@@ -99,6 +99,11 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 Ajustar Estoque
               </Button>
             )}
+            {isAdmin && product.hasVariations && (
+              <Button variant="outline" asChild>
+                <Link href={`/stock/${id}/variations`}>Variacoes</Link>
+              </Button>
+            )}
             {isAdmin && (
               <Button asChild>
                 <Link href={`/stock/${id}/edit`}>

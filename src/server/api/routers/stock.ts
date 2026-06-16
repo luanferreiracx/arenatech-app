@@ -3781,6 +3781,18 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
+        // Nao deletar variacao que ainda tem itens no estoque — deixaria
+        // StockItems orfaos. Mesma protecao do update do produto.
+        const hasStock = await tx.stockItem.findFirst({
+          where: { variationId: input.id, deletedAt: null },
+          select: { id: true },
+        });
+        if (hasStock) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e possivel excluir uma variacao que tem itens no estoque.",
+          });
+        }
         return tx.productVariation.update({
           where: { id: input.id },
           data: { deletedAt: new Date() },
