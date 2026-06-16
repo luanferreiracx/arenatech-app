@@ -20,7 +20,11 @@
 
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
-import { settleDepositConfirmed } from "@/server/services/depix-transaction.service";
+import {
+  settleDepositConfirmed,
+  settleDepositViaFeeWallet,
+} from "@/server/services/depix-transaction.service";
+import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 import { withTenant } from "@/server/db";
 import * as lwk from "@/lib/services/lwk-service";
 
@@ -101,28 +105,52 @@ export async function handleLwkDepositWebhook(
     return { status: 200, body: { ok: true, matched: false, reason: "no label" } };
   }
 
+  // ADR 0052: deposito de tenant non-custodial cai na CARTEIRA DE TAXAS
+  // (arena-fees) — o webhook chega com tenant_id = arena-fees. A tx pertence ao
+  // tenant real; achamos pelo label (UUID global). Custodial/central seguem o
+  // caminho normal (tenant_id = o proprio tenant).
+  const feeWalletTenantId = await getFeeWalletTenantId();
+  const isFeeWalletDeposit = !!feeWalletTenantId && tenantId === feeWalletTenantId;
+
   if (status === "pending") {
     // Atualiza confirmations + status PROCESSING. Nao cobra taxa ainda.
-    await withTenant(tenantId, async (tx) => {
-      const row = await tx.tenantDepixTransaction.findFirst({
-        where: {
-          tenantId,
-          kind: "DEPOSIT",
-          depositLabel,
-          status: { in: ["PENDING", "PROCESSING"] },
-        },
+    // Fee wallet: a tx pertence ao tenant real -> busca/atualiza via withAdmin
+    // (o withTenant(arena-fees) nao enxerga a tx via RLS).
+    if (isFeeWalletDeposit) {
+      await withAdmin(async (tx) => {
+        const row = await tx.tenantDepixTransaction.findFirst({
+          where: { kind: "DEPOSIT", depositLabel, status: { in: ["PENDING", "PROCESSING"] } },
+          select: { id: true },
+        });
+        if (row) {
+          await tx.tenantDepixTransaction.update({
+            where: { id: row.id },
+            data: { status: "PROCESSING", depositTxId: txid, confirmations: payload.confirmations ?? 0 },
+          });
+        }
       });
-      if (row) {
-        await tx.tenantDepixTransaction.update({
-          where: { id: row.id },
-          data: {
-            status: "PROCESSING",
-            depositTxId: txid,
-            confirmations: payload.confirmations ?? 0,
+    } else {
+      await withTenant(tenantId, async (tx) => {
+        const row = await tx.tenantDepixTransaction.findFirst({
+          where: {
+            tenantId,
+            kind: "DEPOSIT",
+            depositLabel,
+            status: { in: ["PENDING", "PROCESSING"] },
           },
         });
-      }
-    });
+        if (row) {
+          await tx.tenantDepixTransaction.update({
+            where: { id: row.id },
+            data: {
+              status: "PROCESSING",
+              depositTxId: txid,
+              confirmations: payload.confirmations ?? 0,
+            },
+          });
+        }
+      });
+    }
     await markProcessed(eventKey, status, "pending_acked");
     return { status: 200, body: { ok: true, status: "pending" } };
   }
@@ -152,24 +180,39 @@ export async function handleLwkDepositWebhook(
   }
 
   try {
-    const result = await settleDepositConfirmed({
-      tenantId,
-      depositLabel,
-      depositTxId: txid,
-      // Usa o valor VERIFICADO on-chain, nao o do payload.
-      depixAmount: crossCheck.onchainAmount,
-      confirmations: payload.confirmations ?? 0,
-    });
+    const result = isFeeWalletDeposit
+      ? await settleDepositViaFeeWallet({
+          feeWalletTenantId: tenantId,
+          depositLabel,
+          depositTxId: txid,
+          depixAmount: crossCheck.onchainAmount,
+          confirmations: payload.confirmations ?? 0,
+        })
+      : await settleDepositConfirmed({
+          tenantId,
+          depositLabel,
+          depositTxId: txid,
+          // Usa o valor VERIFICADO on-chain, nao o do payload.
+          depixAmount: crossCheck.onchainAmount,
+          confirmations: payload.confirmations ?? 0,
+        });
     await markProcessed(
       eventKey,
       status,
-      result.completed ? "completed" : result.feePending ? "fee_pending" : "matched",
+      result.completed
+        ? "completed"
+        : "feePending" in result && result.feePending
+          ? "fee_pending"
+          : "repayPending" in result && result.repayPending
+            ? "repay_pending"
+            : "matched",
     );
     return { status: 200, body: { ok: true, ...result } };
   } catch (err) {
-    logger.error("LWK webhook: settleDepositConfirmed erro", {
+    logger.error("LWK webhook: settle deposito erro", {
       tenantId,
       txid,
+      isFeeWalletDeposit,
       err: err instanceof Error ? err.message : String(err),
     });
     await markProcessed(eventKey, status, `error: ${String(err)}`);
