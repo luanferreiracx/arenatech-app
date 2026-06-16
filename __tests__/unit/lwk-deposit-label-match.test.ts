@@ -23,6 +23,13 @@ const eventUpdateMany = vi.fn();
 
 vi.mock("@/server/services/depix-transaction.service", () => ({
   settleDepositConfirmed: (...args: unknown[]) => settleDepositConfirmed(...args),
+  settleDepositViaFeeWallet: vi.fn(),
+}));
+
+// Evita arrastar @/server/api/trpc (NextAuth/next/server) via o fee-wallet
+// service. Sem carteira de taxas -> deposito segue o fluxo normal.
+vi.mock("@/server/services/depix-fee-wallet.service", () => ({
+  getFeeWalletTenantId: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/server/db", () => ({
