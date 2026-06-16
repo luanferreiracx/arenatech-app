@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/inputs/date-input";
+import { EntitySelector } from "@/components/domain/entity-selector";
 import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/whatsapp-recipient-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -84,6 +86,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const [showSignatureDialog, setShowSignatureDialog] = useState(false);
   const [showPhysicalSignDialog, setShowPhysicalSignDialog] = useState(false);
   const [showSellerDialog, setShowSellerDialog] = useState(false);
+  const [showDateDialog, setShowDateDialog] = useState(false);
+  const [showLinkCustomerDialog, setShowLinkCustomerDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [returnStock, setReturnStock] = useState(true);
@@ -91,9 +95,13 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const [signaturePhone, setSignaturePhone] = useState("");
   const [newSellerId, setNewSellerId] = useState("");
   const [sellerReason, setSellerReason] = useState("");
+  const [newDate, setNewDate] = useState("");
+  const [dateReason, setDateReason] = useState("");
 
-  // Troca de vendedor e operacao administrativa (mesma RBAC do backend).
-  const canChangeSeller = useIsTenantAdmin();
+  // Trocar vendedor e corrigir data sao operacoes administrativas (RBAC no
+  // backend). Vincular cliente nao exige admin no backend — operador pode.
+  const isAdmin = useIsTenantAdmin();
+  const canChangeSeller = isAdmin;
 
   const cancelMutation = useMutation(trpc.sale.cancel.mutationOptions());
   const refundMutation = useMutation(trpc.sale.refund.mutationOptions());
@@ -101,6 +109,49 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const sendSignatureMutation = useMutation(trpc.sale.sendForSignature.mutationOptions());
   const confirmPhysicalMutation = useMutation(trpc.sale.confirmPhysicalSignature.mutationOptions());
   const updateSellerMutation = useMutation(trpc.sale.updateSaleSeller.mutationOptions());
+  const updateDateMutation = useMutation(trpc.sale.updateSaleDate.mutationOptions());
+  const linkCustomerMutation = useMutation(trpc.sale.linkCustomer.mutationOptions());
+
+  const invalidateSale = () =>
+    queryClient.invalidateQueries({ queryKey: trpc.sale.getById.queryKey({ id: saleId }) });
+
+  const handleUpdateDate = () => {
+    if (!newDate) {
+      toast.error("Informe a nova data.");
+      return;
+    }
+    if (dateReason.trim().length < 1) {
+      toast.error("Informe o motivo da alteracao.");
+      return;
+    }
+    updateDateMutation.mutate(
+      { saleId, saleDate: new Date(newDate).toISOString(), reason: dateReason.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Data da venda atualizada");
+          setShowDateDialog(false);
+          setNewDate("");
+          setDateReason("");
+          invalidateSale();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
+  const handleLinkCustomer = (customerId: string) => {
+    linkCustomerMutation.mutate(
+      { saleId, customerId },
+      {
+        onSuccess: () => {
+          toast.success("Cliente vinculado a venda");
+          setShowLinkCustomerDialog(false);
+          invalidateSale();
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
 
   // Lista de vendedores so e buscada quando o admin abre o dialog.
   const sellersQuery = useQuery({
@@ -416,9 +467,25 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               <span className="text-muted-foreground">Numero</span>
               <span className="font-medium">{sale.number as string}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Data</span>
-              <span>{formatDate(sale.saleDate as string)}</span>
+              <span className="flex items-center gap-2">
+                {formatDate(sale.saleDate as string)}
+                {isAdmin && sale.status === "COMPLETED" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => {
+                      setNewDate("");
+                      setDateReason("");
+                      setShowDateDialog(true);
+                    }}
+                  >
+                    Corrigir
+                  </Button>
+                )}
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Vendedor</span>
@@ -467,7 +534,19 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 )}
               </div>
             ) : (
-              <p className="text-muted-foreground">Sem cliente vinculado</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-muted-foreground">Sem cliente vinculado</p>
+                {sale.status === "COMPLETED" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setShowLinkCustomerDialog(true)}
+                  >
+                    Vincular cliente
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -865,6 +944,76 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               {updateSellerMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Corrigir data da venda — somente admin (RBAC no backend, audita). */}
+      <Dialog open={showDateDialog} onOpenChange={setShowDateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Corrigir data da venda</DialogTitle>
+            <DialogDescription>
+              Ajusta a data desta venda. A alteracao fica registrada na auditoria.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nova data *</Label>
+              <DateInput value={newDate} onChange={setNewDate} />
+            </div>
+            <div className="space-y-2">
+              <Label>Motivo *</Label>
+              <Textarea
+                value={dateReason}
+                onChange={(e) => setDateReason(e.target.value)}
+                placeholder="Ex.: venda lancada no dia seguinte por falha de sistema."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDateDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleUpdateDate}
+              disabled={updateDateMutation.isPending || !newDate || dateReason.trim().length < 1}
+            >
+              {updateDateMutation.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vincular cliente a uma venda ja finalizada. */}
+      <Dialog open={showLinkCustomerDialog} onOpenChange={setShowLinkCustomerDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vincular cliente</DialogTitle>
+            <DialogDescription>
+              Associa um cliente a esta venda finalizada (busca por nome, CPF ou CNPJ).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Cliente</Label>
+            <EntitySelector<{ id: string; name: string; cpf?: string | null; cnpj?: string | null }>
+              value={undefined}
+              onChange={() => {}}
+              onSelect={(item) => handleLinkCustomer(item.id)}
+              searchFn={async (query: string) => {
+                const res = await queryClient.fetchQuery(
+                  trpc.customer.list.queryOptions({ search: query, page: 0, pageSize: 10 }),
+                );
+                return res.data as Array<{ id: string; name: string; cpf?: string | null; cnpj?: string | null }>;
+              }}
+              getOptionLabel={(item) => {
+                const doc = item.cpf ?? item.cnpj;
+                return doc ? `${item.name} — ${doc}` : item.name;
+              }}
+              getOptionValue={(item) => item.id}
+              placeholder="Buscar cliente..."
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </div>
