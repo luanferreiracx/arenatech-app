@@ -1,0 +1,150 @@
+// Fundação do controle financeiro de recebimentos (PDV).
+//
+// Modela meios de recebimento por cartão de forma estruturada (adquirente +
+// bandeira + taxa por parcela) e gera recebíveis (CardReceivable) com valor
+// líquido esperado e data de liquidação D+N. Base para a conciliação futura.
+//
+// Tudo tenant-scoped (RLS no SQL da migration). Vendas/OS são referenciadas
+// por UUID solto (saleId/serviceOrderId), sem relation Prisma — mesmo padrão
+// de FinancialTransaction, pra não forçar back-relations em Sale/ServiceOrder.
+
+enum ReceivingAccountType {
+  CASH // caixa físico da loja
+  BANK // conta bancária
+  PIX // conta/chave PIX dedicada
+  WALLET // carteira (ex: DePix)
+}
+
+enum CardKind {
+  CREDIT
+  DEBIT
+}
+
+enum CardReceivableStatus {
+  PENDING // aguardando liquidação da adquirente
+  SETTLED // liquidado (base p/ conciliação futura)
+  CANCELLED // venda/OS cancelada
+}
+
+/// Conta onde o dinheiro é recebido: caixa físico, conta bancária, PIX, wallet.
+model ReceivingAccount {
+  id            String               @id @default(uuid()) @db.Uuid
+  tenantId      String               @map("tenant_id") @db.Uuid
+  name          String
+  type          ReceivingAccountType
+  bankName      String?              @map("bank_name")
+  agency        String?
+  accountNumber String?              @map("account_number")
+  pixKey        String?              @map("pix_key")
+  active        Boolean              @default(true)
+  isDefault     Boolean              @default(false) @map("is_default")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  acquirers    Acquirer[]
+  receivables  CardReceivable[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+  @@map("receiving_accounts")
+}
+
+/// Adquirente / credenciadora (Stone, Cielo, Rede, PagSeguro…).
+model Acquirer {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  name               String
+  active             Boolean          @default(true)
+  // Conta onde a adquirente deposita as liquidações.
+  receivingAccountId String?          @map("receiving_account_id") @db.Uuid
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  receivingAccount ReceivingAccount? @relation(fields: [receivingAccountId], references: [id])
+  rates            AcquirerRate[]
+  receivables      CardReceivable[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+  @@index([tenantId, receivingAccountId])
+  @@map("acquirers")
+}
+
+/// Bandeira do cartão (Visa, Master, Elo, Hipercard, Amex…). Catálogo padrão
+/// semeado por tenant, editável.
+model CardBrand {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rates       AcquirerRate[]
+  receivables CardReceivable[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+  @@map("card_brands")
+}
+
+/// Taxa por adquirente × bandeira × tipo (crédito/débito) × parcela, com prazo
+/// de liquidação. Snapshot é copiado pro CardReceivable na criação da venda.
+model AcquirerRate {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  acquirerId     String   @map("acquirer_id") @db.Uuid
+  cardBrandId    String   @map("card_brand_id") @db.Uuid
+  kind           CardKind
+  installments   Int
+  feePercent     Decimal  @default(0) @map("fee_percent") @db.Decimal(5, 2)
+  feeFixed       Decimal  @default(0) @map("fee_fixed") @db.Decimal(10, 2)
+  settlementDays Int      @default(0) @map("settlement_days")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  acquirer  Acquirer  @relation(fields: [acquirerId], references: [id], onDelete: Cascade)
+  cardBrand CardBrand @relation(fields: [cardBrandId], references: [id], onDelete: Cascade)
+
+  @@unique([acquirerId, cardBrandId, kind, installments])
+  @@index([tenantId, acquirerId])
+  @@map("acquirer_rates")
+}
+
+/// Recebível de cartão: 1 por parcela da operadora. Guarda bruto, taxa e
+/// líquido esperado (snapshot da AcquirerRate) + data de liquidação D+N.
+/// status PENDING nasce aqui; a conciliação futura muda p/ SETTLED.
+model CardReceivable {
+  id                    String               @id @default(uuid()) @db.Uuid
+  tenantId              String               @map("tenant_id") @db.Uuid
+  // Origem (exatamente uma): venda, OS. cashMovementId vincula ao caixa.
+  saleId                String?              @map("sale_id") @db.Uuid
+  serviceOrderId        String?              @map("service_order_id") @db.Uuid
+  cashMovementId        String?              @map("cash_movement_id") @db.Uuid
+  acquirerId            String               @map("acquirer_id") @db.Uuid
+  cardBrandId           String               @map("card_brand_id") @db.Uuid
+  kind                  CardKind
+  installmentNumber     Int                  @map("installment_number")
+  installmentsTotal     Int                  @map("installments_total")
+  grossAmount           Decimal              @map("gross_amount") @db.Decimal(10, 2)
+  feeAmount             Decimal              @map("fee_amount") @db.Decimal(10, 2)
+  netAmount             Decimal              @map("net_amount") @db.Decimal(10, 2)
+  expectedSettlementDate DateTime            @map("expected_settlement_date")
+  receivingAccountId    String?              @map("receiving_account_id") @db.Uuid
+  status                CardReceivableStatus @default(PENDING)
+  settledAt             DateTime?            @map("settled_at")
+  createdByUserId       String?              @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  acquirer         Acquirer          @relation(fields: [acquirerId], references: [id])
+  cardBrand        CardBrand         @relation(fields: [cardBrandId], references: [id])
+  receivingAccount ReceivingAccount? @relation(fields: [receivingAccountId], references: [id])
+
+  @@index([tenantId, status, expectedSettlementDate])
+  @@index([tenantId, saleId])
+  @@index([tenantId, serviceOrderId])
+  @@index([tenantId, acquirerId])
+  @@map("card_receivables")
+}
