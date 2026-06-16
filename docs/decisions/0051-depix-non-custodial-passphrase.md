@@ -222,11 +222,22 @@ purgar `mnemonic.txt`) é **descartado**. Motivos:
    auto-refill de L-BTC sem usuário). É o único `mnemonic.txt` remanescente no volume, e é
    intencional.
 
-### Sobre a purga (Fase 2 original): **não existe mais**
+### Sobre a purga (Fase 2 / ETAPA 6 original): **não existe mais**
 
 Como nenhuma carteira non-custodial grava `mnemonic.txt`, **não há seed em claro para purgar**
 nesse fluxo. O job de purga é descartado. O único `mnemonic.txt` no volume é o do tenant
 central (custodial por design).
+
+### Sobre a taxa de depósito (Fase 3 / ETAPA 7 original): **ainda em aberto → [[0052-deposit-fee-noncustodial]]**
+
+A taxa Arena Tech do depósito é cobrada no webhook (`settleDepositConfirmed`), **sem usuário
+presente**, via `lwk.transfer` da carteira do tenant — o que a carteira non-custodial não
+consegue assinar sem a passphrase. A "sub-conta custodial de taxas" deste ADR foi desenhada
+assumindo desvio antes do dinheiro chegar ao tenant, mas hoje o DePix entra **direto** na
+carteira do tenant — então o desenho perdeu o encaixe natural. A decisão (sub-conta vs cobrar
+no próximo saque via ledger vs split no PixPay) foi destacada para o **ADR 0052**. Estado: o
+código já tolera (tx vira `COMPLETED_FEE_PENDING`, ledger `PENDING_SETTLEMENT`); em prod, zero
+depósitos non-custodial até agora — sem impacto, decisão sem urgência.
 
 ### Consequência para o modelo de confiança
 

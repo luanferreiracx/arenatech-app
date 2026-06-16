@@ -17,6 +17,13 @@
 
 ---
 
+### 2026-06-16 — DePix: ETAPAs 6 e 7 do plano original (pós-reorientação non-custodial)
+Revisão do que sobrou do plano de 7 etapas do ADR 0051 após a carteira virar non-custodial-no-nascimento:
+- **ETAPA 6 (purga das seeds em claro): ✅ morta por eliminação.** Carteira non-custodial nunca grava `mnemonic.txt` → não há o que purgar. Único `mnemonic.txt` é o do central (intencional).
+- **ETAPA 7 (taxa de depósito): ⚠️ lacuna real, destacada para o ADR 0052** (`docs/decisions/0052-deposit-fee-noncustodial.md`). A taxa Arena Tech do depósito é cobrada no webhook (sem usuário) via `lwk.transfer` da carteira do tenant — non-custodial não assina sem passphrase. Opções no ADR: (A) sub-conta custodial de taxas; (B) acumular no ledger e cobrar no próximo saque (usuário presente); (C) split no PixPay (em BRL). Recomendação preliminar: B ou C. **Impacto medido em prod: zero depósitos non-custodial até agora, ledger de taxa vazio → sem urgência.** Código já tolera (`COMPLETED_FEE_PENDING` / `PENDING_SETTLEMENT`). Próximo: confirmar split no PixPay + dono escolhe A/B/C.
+
+---
+
 ### 2026-06-16 — DePix: 2 bugs de auto-create custodial corrigidos (ADR 0051)
 Ao testar o 1º acesso real, o setup falhava com "Carteira já provisionada" e, após configurar, a carteira non-custodial era corrompida. **Causa comum:** caminhos do LWK usavam `load_or_create_wallet`, que **recria carteira custodial** (grava `mnemonic.txt` em claro) quando não acha `descriptor.txt` **ou** quando falta `mnemonic.txt` (caso non-custodial → caía no `else` e gerava carteira nova, sobrescrevendo o descriptor).
 - **Bug 1 (PR #138):** `getOverview` chamava `lwk.getBalance` incondicionalmente → o LWK `/balance` auto-criava carteira fantasma → guard 409 travava o `setupWallet`. Fix: app só consulta o LWK quando `provisionedAt != null`; LWK `/balance`/`/master-address`/`/address/new`/`/transactions` passam a usar `load_watch_only` (só lê descriptor, nunca cria) → **404** se não existe.
