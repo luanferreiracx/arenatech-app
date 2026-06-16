@@ -17,6 +17,19 @@
 
 ---
 
+### 2026-06-16 — Controle financeiro: fundação de meios, contas e recebíveis de cartão
+Pedido do dono: controle financeiro robusto "como nos melhores PDVs" (conferência de caixa, meios de recebimento com cartão/bandeiras/adquirentes, contas de recebimento, recebíveis). Investigação (`/investigate`) achou caixa + financeiro (AP/AR, DRE, fluxo) já maduros e `PaymentMethod`+rates já existentes; 4 lacunas reais: meio como string solta (FK `payment_method_id` nunca populada), sem bandeira/adquirente, sem recebível de cartão D+N, sem conta bancária. Laravel antigo também não tinha — feature nova guiada por mercado (Stone/Omie/ContaAzul).
+- **Decisões (dono):** escopo = Fundação (sem conciliação ainda); arquitetura = modelo dedicado Acquirer+CardBrand+AcquirerRate (taxa por adquirente×bandeira×tipo×parcela); público = só KYC.
+- **Entregue em 5 PRs mergeadas:**
+  - **PR #163 (db):** schema `receiving.prisma` — ReceivingAccount, Acquirer, CardBrand, AcquirerRate, CardReceivable + RLS por tenant. Migration `20260616125119_receiving_foundation` (validada do zero em DB limpo).
+  - **PR #165 (backend):** `receivingRouter` (nested CRUD: accounts/acquirers/brands/rates + previewCardSettlement) + `card-receivable.service.computeCardSettlement` (taxa/líquido/D+N) + seed de bandeiras em `tenant-financial-init`.
+  - **PR #166 (UI config):** `/settings/card-acquirers` ("Meios de Recebimento") — 3 abas (adquirentes c/ editor de grade de taxas, bandeiras, contas). Rota `/settings/receiving` já existia (outra feature) → usei `/card-acquirers`.
+  - **PR #168 (venda):** `splitCardReceivable` + `generateCardReceivables` (fail-soft); `sale.finalize` gera CardReceivable por parcela e **popula `cash_movements.payment_method_id`** (fecha a lacuna nº 1); estorno total cancela recebíveis PENDING.
+  - **PR #169 (visão):** `/financial/card-receivables` (filtros, totais bruto/taxa/líquido, breakdown por adquirente) + recebíveis entram no `projectedCashFlow` (líquido na data de liquidação).
+- **Decisões não óbvias:** taxas de adquirente via `tenantAdminProcedure` (contrato do lojista, não precificação Arena Tech como `PaymentMethodRate`); `CardReceivable.status` já nasce PENDING/SETTLED/CANCELLED pra não remigrar na conciliação; cada parcela liquida mês a mês (D+N, D+N+30…).
+- **Próximo:** **PR4b** — capturar adquirente/bandeira no PDV (`payment-dialog`) + OS (campos já aceitos pelo backend, opcionais). **Plano seguinte:** conciliação (marcar SETTLED vs extrato da adquirente).
+- Validação: typecheck/lint/build/unit (1064) + E2E @smoke verdes em todas as 5 PRs.
+
 ### 2026-06-16 — DePix ETAPA 7: taxa de depósito non-custodial via carteira de taxas (ADR 0052)
 Tenant non-custodial não assina a cobrança da taxa de depósito no webhook (sem passphrase). Solução (Opção A refinada, B/C descartadas pelo dono — incentivo perverso / privacidade): **carteira custodial dedicada** (`arena-fees`) recebe o depósito non-custodial, retém a taxa Arena Tech e **repassa o líquido** ao tenant. Implementada em 6 PRs:
 - **PR1 #145:** `lwk.createCustodialWallet` (wrapper `/create`); serviço `depix-fee-wallet` (`getFeeWalletTenantId` cache, `ensureFeeWalletProvisioned` idempotente); `FEE_WALLET_TENANT_SLUG="arena-fees"`. ADR 0052 → Aceito.
