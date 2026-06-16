@@ -1,0 +1,92 @@
+import { z } from "zod";
+
+// ── Enums ──
+
+export const receivingAccountTypeEnum = z.enum(["CASH", "BANK", "PIX", "WALLET"]);
+export type ReceivingAccountType = z.infer<typeof receivingAccountTypeEnum>;
+
+export const cardKindEnum = z.enum(["CREDIT", "DEBIT"]);
+export type CardKind = z.infer<typeof cardKindEnum>;
+
+export const RECEIVING_ACCOUNT_TYPE_LABELS: Record<ReceivingAccountType, string> = {
+  CASH: "Caixa",
+  BANK: "Conta bancária",
+  PIX: "Conta PIX",
+  WALLET: "Carteira",
+};
+
+export const CARD_KIND_LABELS: Record<CardKind, string> = {
+  CREDIT: "Crédito",
+  DEBIT: "Débito",
+};
+
+// ── Receiving accounts ──
+
+export const createReceivingAccountSchema = z.object({
+  name: z.string().min(1, "Nome obrigatório").max(100),
+  type: receivingAccountTypeEnum,
+  bankName: z.string().max(100).optional(),
+  agency: z.string().max(20).optional(),
+  accountNumber: z.string().max(30).optional(),
+  pixKey: z.string().max(140).optional(),
+  isDefault: z.boolean().optional(),
+});
+
+export const updateReceivingAccountSchema = createReceivingAccountSchema.partial().extend({
+  id: z.string().uuid(),
+});
+
+// ── Acquirers ──
+
+export const createAcquirerSchema = z.object({
+  name: z.string().min(1, "Nome obrigatório").max(100),
+  receivingAccountId: z.string().uuid().optional().nullable(),
+});
+
+export const updateAcquirerSchema = createAcquirerSchema.partial().extend({
+  id: z.string().uuid(),
+});
+
+// ── Card brands ──
+
+export const createCardBrandSchema = z.object({
+  name: z.string().min(1, "Nome obrigatório").max(60),
+});
+
+export const updateCardBrandSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(60).optional(),
+});
+
+// ── Toggle (active) — compartilhado por conta/adquirente/bandeira ──
+
+export const toggleActiveSchema = z.object({
+  id: z.string().uuid(),
+  active: z.boolean(),
+});
+
+// ── Acquirer rates (replace-all por adquirente) ──
+
+export const acquirerRateRowSchema = z.object({
+  cardBrandId: z.string().uuid(),
+  kind: cardKindEnum,
+  installments: z.number().int().min(1).max(36),
+  feePercent: z.number().min(0).max(100),
+  feeFixed: z.number().int().min(0), // centavos
+  settlementDays: z.number().int().min(0).max(180),
+});
+
+export const upsertAcquirerRatesSchema = z.object({
+  acquirerId: z.string().uuid(),
+  rates: z.array(acquirerRateRowSchema).max(500),
+});
+
+// ── Preview de liquidação (UI do PDV / config) ──
+
+export const previewCardSettlementSchema = z.object({
+  acquirerId: z.string().uuid(),
+  cardBrandId: z.string().uuid(),
+  kind: cardKindEnum,
+  installments: z.number().int().min(1).max(36),
+  grossCents: z.number().int().min(0),
+});

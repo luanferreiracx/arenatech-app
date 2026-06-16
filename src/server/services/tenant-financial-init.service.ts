@@ -30,6 +30,9 @@ const DEFAULT_PAYMENT_METHODS: Array<{
   { name: "Crediário", type: "STORE_CREDIT" },
 ]
 
+/** Catálogo padrão de bandeiras de cartão (editável pelo tenant). */
+const DEFAULT_CARD_BRANDS = ["Visa", "Mastercard", "Elo", "Amex", "Hipercard"] as const
+
 /**
  * Seeds FIXED financial categories + default payment methods for a new tenant.
  * Idempotent: running 2x does not duplicate (uses upsert by tenantId+code unique
@@ -69,6 +72,15 @@ export async function tenantFinancialInit(
         active: true,
         acceptsChange: pm.acceptsChange ?? false,
       })),
+    })
+  }
+
+  // Seed catálogo padrão de bandeiras de cartão (fundação de recebíveis).
+  // Idempotente: só cria se o tenant ainda não tiver nenhuma bandeira.
+  const existingBrands = await tx.cardBrand.count({ where: { tenantId } })
+  if (existingBrands === 0) {
+    await tx.cardBrand.createMany({
+      data: DEFAULT_CARD_BRANDS.map((name) => ({ tenantId, name })),
     })
   }
 
@@ -135,4 +147,4 @@ async function isCentralTenantId(
   return t?.slug === CENTRAL_TENANT_SLUG
 }
 
-export { FIXED_CATEGORIES, DEFAULT_PAYMENT_METHODS }
+export { FIXED_CATEGORIES, DEFAULT_PAYMENT_METHODS, DEFAULT_CARD_BRANDS }
