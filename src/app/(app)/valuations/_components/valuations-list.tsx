@@ -37,8 +37,7 @@ export function ValuationsList() {
   const [saudeBateria, setSaudeBateria] = useState("");
   const [valor, setValor] = useState(0);
   const [validadeDias, setValidadeDias] = useState<number | undefined>(undefined);
-  const [adjustPercent, setAdjustPercent] = useState(0);
-  const [adjustPercentRaw, setAdjustPercentRaw] = useState("0");
+  const [adjustPercentRaw, setAdjustPercentRaw] = useState("");
   const [adjustModelo, setAdjustModelo] = useState("");
   const [dupSource, setDupSource] = useState("");
   const [dupTarget, setDupTarget] = useState("");
@@ -48,7 +47,6 @@ export function ValuationsList() {
   const [whatsAppName, setWhatsAppName] = useState("");
   const [showAdjustFixedDialog, setShowAdjustFixedDialog] = useState(false);
   const [adjustFixedModelo, setAdjustFixedModelo] = useState("");
-  const [adjustFixedAmount, setAdjustFixedAmount] = useState(0); // centavos
   const [adjustFixedRaw, setAdjustFixedRaw] = useState("");
 
   const modelsQuery = useQuery(trpc.valuation.listModels.queryOptions());
@@ -148,14 +146,18 @@ export function ValuationsList() {
       toast.error("Selecione um modelo");
       return;
     }
+    const adjustPercent = parseFloat(adjustPercentRaw.replace(",", "."));
+    if (isNaN(adjustPercent)) {
+      toast.error("Informe um percentual válido");
+      return;
+    }
     adjustMutation.mutate(
       { modelo: adjustModelo, adjustPercent },
       {
         onSuccess: (data) => {
           toast.success(`${data.updated} precos ajustados`);
           setShowAdjustDialog(false);
-          setAdjustPercent(0);
-          setAdjustPercentRaw("0");
+          setAdjustPercentRaw("");
           invalidate();
         },
         onError: (err) => toast.error(err.message),
@@ -168,17 +170,18 @@ export function ValuationsList() {
       toast.error("Selecione um modelo");
       return;
     }
-    if (adjustFixedAmount === 0) {
+    const reais = parseFloat(adjustFixedRaw.replace(",", "."));
+    if (isNaN(reais) || reais === 0) {
       toast.error("Informe o valor do ajuste");
       return;
     }
+    const adjustFixedAmount = Math.round(reais * 100);
     adjustFixedMutation.mutate(
       { modelo: adjustFixedModelo, adjustAmount: adjustFixedAmount },
       {
         onSuccess: (data) => {
           toast.success(`${data.updated} precos ajustados`);
           setShowAdjustFixedDialog(false);
-          setAdjustFixedAmount(0);
           setAdjustFixedRaw("");
           invalidate();
         },
@@ -455,12 +458,7 @@ export function ValuationsList() {
                 type="text"
                 inputMode="decimal"
                 value={adjustPercentRaw}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setAdjustPercentRaw(raw);
-                  const parsed = parseFloat(raw);
-                  if (!isNaN(parsed)) setAdjustPercent(parsed);
-                }}
+                onChange={(e) => setAdjustPercentRaw(e.target.value)}
                 placeholder="Ex: 10 para +10%, -5 para -5%"
               />
               <p className="text-xs text-muted-foreground mt-1">
@@ -541,12 +539,7 @@ export function ValuationsList() {
                 placeholder="Ex: -100 ou 50"
                 className="font-mono"
                 value={adjustFixedRaw}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setAdjustFixedRaw(raw);
-                  const reais = parseFloat(raw.replace(",", "."));
-                  setAdjustFixedAmount(isNaN(reais) ? 0 : Math.round(reais * 100));
-                }}
+                onChange={(e) => setAdjustFixedRaw(e.target.value)}
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Positivo = aumento, negativo = reducao. Ex: -100 reduz R$ 100,00.
