@@ -12,6 +12,7 @@ import {
   toggleActiveSchema,
   upsertAcquirerRatesSchema,
   previewCardSettlementSchema,
+  listCardReceivablesSchema,
 } from "@/lib/validators/receiving";
 import { computeCardSettlement } from "@/server/services/card-receivable.service";
 
@@ -334,6 +335,103 @@ export const receivingRouter = createTRPCRouter({
         };
       });
     }),
+
+  // ═══════════════════════════════════════
+  // CARD RECEIVABLES (recebíveis de cartão — visão)
+  // ═══════════════════════════════════════
+
+  cardReceivables: createTRPCRouter({
+    /**
+     * Lista recebíveis de cartão com filtro (status, adquirente, intervalo de
+     * data de liquidação) + totais (bruto/taxa/líquido) e agregação por
+     * adquirente. Página os itens; os totais cobrem o filtro inteiro.
+     */
+    list: tenantProcedure
+      .input(listCardReceivablesSchema)
+      .query(async ({ ctx, input }) => {
+        return ctx.withTenant(async (tx) => {
+          const where: Prisma.CardReceivableWhereInput = {
+            tenantId: ctx.tenantId,
+            status: input.status,
+            ...(input.acquirerId ? { acquirerId: input.acquirerId } : {}),
+          };
+          if (input.dateFrom || input.dateTo) {
+            const range: Prisma.DateTimeFilter = {};
+            if (input.dateFrom) range.gte = new Date(input.dateFrom);
+            if (input.dateTo) {
+              const end = new Date(input.dateTo);
+              end.setHours(23, 59, 59, 999);
+              range.lte = end;
+            }
+            where.expectedSettlementDate = range;
+          }
+
+          const [items, total, totals, byAcquirerRaw, acquirers, brands] = await Promise.all([
+            tx.cardReceivable.findMany({
+              where,
+              orderBy: { expectedSettlementDate: "asc" },
+              skip: input.page * input.pageSize,
+              take: input.pageSize,
+            }),
+            tx.cardReceivable.count({ where }),
+            tx.cardReceivable.aggregate({
+              where,
+              _sum: { grossAmount: true, feeAmount: true, netAmount: true },
+            }),
+            tx.cardReceivable.groupBy({
+              by: ["acquirerId"],
+              where,
+              _sum: { netAmount: true },
+              _count: { _all: true },
+            }),
+            tx.acquirer.findMany({
+              where: { tenantId: ctx.tenantId },
+              select: { id: true, name: true },
+            }),
+            tx.cardBrand.findMany({
+              where: { tenantId: ctx.tenantId },
+              select: { id: true, name: true },
+            }),
+          ]);
+
+          const acquirerName = new Map(acquirers.map((a) => [a.id, a.name]));
+          const brandName = new Map(brands.map((b) => [b.id, b.name]));
+
+          return {
+            data: items.map((r) => ({
+              id: r.id,
+              saleId: r.saleId,
+              serviceOrderId: r.serviceOrderId,
+              acquirerId: r.acquirerId,
+              acquirerName: acquirerName.get(r.acquirerId) ?? "Adquirente",
+              cardBrandId: r.cardBrandId,
+              cardBrandName: brandName.get(r.cardBrandId) ?? "Bandeira",
+              kind: r.kind,
+              installmentNumber: r.installmentNumber,
+              installmentsTotal: r.installmentsTotal,
+              grossCents: reaisToCents(r.grossAmount),
+              feeCents: reaisToCents(r.feeAmount),
+              netCents: reaisToCents(r.netAmount),
+              expectedSettlementDate: r.expectedSettlementDate,
+              status: r.status,
+            })),
+            total,
+            pageCount: Math.ceil(total / input.pageSize),
+            summary: {
+              grossCents: reaisToCents(totals._sum.grossAmount),
+              feeCents: reaisToCents(totals._sum.feeAmount),
+              netCents: reaisToCents(totals._sum.netAmount),
+            },
+            byAcquirer: byAcquirerRaw.map((g) => ({
+              acquirerId: g.acquirerId,
+              acquirerName: acquirerName.get(g.acquirerId) ?? "Adquirente",
+              count: g._count._all,
+              netCents: reaisToCents(g._sum.netAmount),
+            })),
+          };
+        });
+      }),
+  }),
 });
 
 // ── Ownership guard (defesa em profundidade além do RLS) ──

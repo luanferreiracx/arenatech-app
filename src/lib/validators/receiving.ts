@@ -90,3 +90,23 @@ export const previewCardSettlementSchema = z.object({
   installments: z.number().int().min(1).max(36),
   grossCents: z.number().int().min(0),
 });
+
+// ── Card receivables (listagem/visão) ──
+
+export const cardReceivableStatusEnum = z.enum(["PENDING", "SETTLED", "CANCELLED"]);
+export type CardReceivableStatus = z.infer<typeof cardReceivableStatusEnum>;
+
+export const CARD_RECEIVABLE_STATUS_LABELS: Record<CardReceivableStatus, string> = {
+  PENDING: "A receber",
+  SETTLED: "Liquidado",
+  CANCELLED: "Cancelado",
+};
+
+export const listCardReceivablesSchema = z.object({
+  status: cardReceivableStatusEnum.default("PENDING"),
+  acquirerId: z.string().uuid().optional(),
+  dateFrom: z.string().optional(), // ISO date (expectedSettlementDate)
+  dateTo: z.string().optional(),
+  page: z.number().int().min(0).default(0),
+  pageSize: z.number().int().min(1).max(200).default(50),
+});

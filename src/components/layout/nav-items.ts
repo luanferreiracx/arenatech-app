@@ -130,6 +130,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Financeiro", href: "/financial", icon: Wallet, module: "financial" },
       { label: "Recebimentos", href: "/financial/receivables", icon: Receipt, module: "financial" },
+      { label: "Recebíveis de Cartão", href: "/financial/card-receivables", icon: CreditCard, module: "financial" },
       { label: "Pendentes", href: "/financial/pending", icon: Clock, module: "financial" },
       { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt, module: "financial" },
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial" },
