@@ -8,12 +8,22 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-15
+**Ultima atualizacao:** 2026-06-16
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `docs/lwk-rebuild-done`
+**Branch atual:** `docs/depix-watchonly-fixes`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
-**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado em prod** (2026-06-15): `/setup-noncustodial` publicado e validado; saldo do central intacto.
+**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`).
+
+---
+
+### 2026-06-16 — DePix: 2 bugs de auto-create custodial corrigidos (ADR 0051)
+Ao testar o 1º acesso real, o setup falhava com "Carteira já provisionada" e, após configurar, a carteira non-custodial era corrompida. **Causa comum:** caminhos do LWK usavam `load_or_create_wallet`, que **recria carteira custodial** (grava `mnemonic.txt` em claro) quando não acha `descriptor.txt` **ou** quando falta `mnemonic.txt` (caso non-custodial → caía no `else` e gerava carteira nova, sobrescrevendo o descriptor).
+- **Bug 1 (PR #138):** `getOverview` chamava `lwk.getBalance` incondicionalmente → o LWK `/balance` auto-criava carteira fantasma → guard 409 travava o `setupWallet`. Fix: app só consulta o LWK quando `provisionedAt != null`; LWK `/balance`/`/master-address`/`/address/new`/`/transactions` passam a usar `load_watch_only` (só lê descriptor, nunca cria) → **404** se não existe.
+- **Bug 2 (PR #139):** o **monitor** (`monitor_tenant`, a cada 30s) usava `load_or_create_wallet` → 20s após o tenant configurar, recriava carteira custodial por cima da non-custodial (descriptor divergente do blob no banco + seed em claro no volume). Fix: monitor usa `load_watch_only` (só observa depósitos, nunca assina).
+- **Regra geral aprendida:** no LWK, só `/create` (custodial explícito) e `/setup-noncustodial` podem criar carteira. **Todo caminho de leitura/monitor usa `load_watch_only`** (funciona p/ custodial e non-custodial, pois ambos têm `descriptor.txt`). Testes de regressão Python cobrem os dois.
+- **Recuperação em prod:** disco corrompido do tenant `pdv-e5348bf7` restaurado — `descriptor.txt` regravado do banco (carteira real intacta, blob cifrado nunca foi tocado), `mnemonic.txt` fantasma removido; master-address bate com o banco; monitor não recria mais. Backups em `/opt/lwk-backups/`.
+- LWK rebuildado 2x (endpoints de leitura + monitor). Validação: typecheck/lint/unit/LWK Python/E2E @smoke verdes nos PRs #138/#139.
 
 ---
 
