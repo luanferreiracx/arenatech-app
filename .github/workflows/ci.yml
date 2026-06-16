@@ -150,6 +150,14 @@ jobs:
       - name: Install deps (fallback se cache miss)
         run: pnpm install --frozen-lockfile
 
+      # Regenera o client a partir do schema versionado. Sem isto, quando o
+      # schema muda o cache restaura um client stale (e o pnpm install nao
+      # regenera) -> typecheck quebra com "PrismaClient has no exported member".
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -210,6 +218,13 @@ jobs:
 
       - name: Install deps (fallback se cache miss)
         run: pnpm install --frozen-lockfile
+
+      # Regenera o client (ver nota no job typecheck) — cache stale de schema
+      # novo deixaria o client sem os tipos atualizados.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+        env:
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
 
       - name: Unit tests
         run: pnpm vitest run --exclude="**/integration/**"
@@ -370,6 +385,13 @@ jobs:
 
       - name: Install deps (fallback se cache miss)
         run: pnpm install --frozen-lockfile
+
+      # Regenera o client (ver nota no job typecheck) antes do migrate/seed/build,
+      # que importam @prisma/client — cache stale de schema novo quebraria o seed.
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+        env:
+          DATABASE_URL: ${{ env.DB_URL }}
 
       - name: Migrate + seed (banco de teste E2E)
         run: |
