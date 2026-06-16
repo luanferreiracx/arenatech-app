@@ -24,6 +24,7 @@ import {
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
+import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 import {
   createPixPayment,
   createDepixWithdraw,
@@ -207,9 +208,43 @@ export async function createDeposit(args: CreateDepositArgs) {
     });
   });
 
-  // ETAPA 2: gera endereco LWK dedicado pra este deposito.
+  // ETAPA 2: decide a carteira que RECEBE o DePix (ADR 0052).
+  // Tenant non-custodial nao consegue assinar a cobranca da taxa no webhook
+  // (sem passphrase). Por isso o deposito cai na CARTEIRA DE TAXAS custodial,
+  // que retem a taxa e repassa o liquido. Custodial mantem o fluxo atual
+  // (recebe na propria carteira). A tx continua pertencendo ao TENANT REAL.
+  const depositWallet = await withTenant(args.tenantId, async (tx) =>
+    tx.tenantDepixWallet.findUnique({
+      where: { tenantId: args.tenantId },
+      select: { custodyModel: true },
+    }),
+  );
+  const isNonCustodial = depositWallet?.custodyModel === "non_custodial";
+
+  let receivingTenantId = args.tenantId;
+  if (isNonCustodial) {
+    const feeWalletTenantId = await getFeeWalletTenantId();
+    // Fail-closed: sem carteira de taxas provisionada, NAO cai no fluxo antigo
+    // (que deixaria a taxa pendente). Bloqueia ate provisionar (ADR 0052).
+    if (!feeWalletTenantId) {
+      await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: created.id },
+          data: { status: "FAILED", errorMessage: "Carteira de taxas nao provisionada" },
+        }),
+      );
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Carteira de taxas da Arena Tech ainda nao foi configurada. Contate o suporte.",
+      });
+    }
+    receivingTenantId = feeWalletTenantId;
+  }
+
+  // Gera endereco LWK dedicado pra este deposito NA carteira de recebimento.
   // label = transactionId -> match exato no webhook do monitor.
-  const addr = await lwk.generateAddress(args.tenantId, created.id);
+  const addr = await lwk.generateAddress(receivingTenantId, created.id);
   if (!addr.success || !addr.address) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
@@ -225,6 +260,8 @@ export async function createDeposit(args: CreateDepositArgs) {
 
   logger.info("Deposito DePix wallet usando endereco LWK dedicado", {
     tenantId: args.tenantId,
+    receivingTenantId,
+    nonCustodial: isNonCustodial,
     transactionId: created.id,
     sourceType: args.sourceType ?? "WALLET",
     sourceId: args.sourceId ?? null,
@@ -266,6 +303,9 @@ export async function createDeposit(args: CreateDepositArgs) {
         // que NUNCA bate com o que o webhook envia → deposito travava em
         // PROCESSING/PENDING sem nunca confirmar.
         depositLabel: created.id,
+        // Carteira que recebe o DePix: a de taxas (non-custodial) ou a propria
+        // (custodial). O settle usa isto p/ rotear sem reconsultar custodyModel.
+        depositReceivingTenantId: receivingTenantId,
         pixpayDepixId: pix.transactionId,
         qrCode: pix.qrCode ?? null,
         qrCodeBase64: pix.qrCodeBase64 ?? null,
