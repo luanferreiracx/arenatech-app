@@ -4,7 +4,6 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
-import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
 import { modulesFromPlanFeatures } from "@/lib/modules";
 
 /**
@@ -992,13 +991,9 @@ export const adminRouter = createTRPCRouter({
         return { tenantId: tenant.id, userId: user.id, tempPassword: existingUser ? null : tempPassword };
       }));
 
-      // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK).
-      await provisionDepixWallet(approved.tenantId).catch((err) =>
-        logger.error("Falha ao provisionar carteira DePix (approvePreRegistration)", {
-          tenantId: approved.tenantId,
-          err: String(err),
-        }),
-      );
+      // Carteira DePix nasce non-custodial no 1o acesso (ADR 0051): o tenant
+      // escolhe criar/importar e define a passphrase via depixWallet.setupWallet.
+      // Nenhuma carteira e provisionada aqui.
 
       return approved;
     }),
@@ -1120,14 +1115,9 @@ export const adminRouter = createTRPCRouter({
         return { tenantId: tenant.id, userId, tempPassword: existingUser ? null : tempPassword };
       }));
 
-      // Provisiona carteira DePix FORA da tx (chamada HTTP ao LWK). Falha
-      // nao reverte o tenant — carteira recuperavel via depixWallet.provision.
-      await provisionDepixWallet(created.tenantId).catch((err) =>
-        logger.error("Falha ao provisionar carteira DePix (createTenant)", {
-          tenantId: created.tenantId,
-          err: String(err),
-        }),
-      );
+      // Carteira DePix nasce non-custodial no 1o acesso (ADR 0051): o tenant
+      // escolhe criar/importar e define a passphrase via depixWallet.setupWallet.
+      // Nenhuma carteira e provisionada aqui.
 
       return created;
     }),

@@ -183,6 +183,40 @@ export default function DepixWithdrawPage() {
 
   if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
 
+  // ADR 0051: sem carteira configurada nao ha como sacar. Direciona ao setup.
+  if (walletInfoQuery.data?.provisioned === false) {
+    const canConfigure = walletInfoQuery.data.canWithdraw === true;
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title={
+            <div className="flex items-center gap-2">
+              <Button asChild variant="ghost" size="icon">
+                <Link href="/depix-wallet" aria-label="Voltar">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <span>Sacar via PIX</span>
+            </div>
+          }
+          subtitle="Configure sua carteira antes de sacar."
+        />
+        <Card className="max-w-xl mx-auto p-6 border-amber-500/30 bg-amber-500/5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {canConfigure
+              ? "Sua carteira DePix ainda nao foi configurada. Crie ou importe uma carteira para liberar saques."
+              : "A carteira DePix deste tenant ainda nao foi configurada. Solicite a um usuario admin do tenant."}
+          </p>
+          {canConfigure && (
+            <Button asChild>
+              <Link href="/depix-wallet/setup">Configurar carteira</Link>
+            </Button>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   if (walletInfoQuery.data?.canWithdraw === false) {
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
