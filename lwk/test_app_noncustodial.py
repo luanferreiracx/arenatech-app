@@ -315,5 +315,45 @@ class TestSetupNonCustodial(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class TestReadEndpointsNeverAutoCreate(unittest.TestCase):
+    """Regressao: endpoints de LEITURA (balance/master-address/address/transactions)
+    NUNCA podem auto-criar uma carteira custodial. Consultar um tenant sem
+    carteira provisionada deve devolver 404 e NAO gravar mnemonic.txt — senao
+    gera uma carteira fantasma que bloqueia o setup non-custodial (guard 409)."""
+
+    def setUp(self):
+        app.app.config["TESTING"] = True
+        self.client = app.app.test_client()
+        self.tenant = str(_uuid.uuid4())
+
+    def tearDown(self):
+        d = os.path.join(os.environ["WALLET_DATA_DIR"], self.tenant)
+        shutil.rmtree(d, ignore_errors=True)
+
+    def _no_wallet_on_disk(self):
+        p = app.WalletPaths(self.tenant)
+        return not os.path.exists(p.descriptor) and not os.path.exists(p.mnemonic)
+
+    def test_balance_unprovisioned_returns_404_and_creates_nothing(self):
+        r = self.client.get(f"/wallet/{self.tenant}/balance?sync=false", headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_master_address_unprovisioned_returns_404(self):
+        r = self.client.get(f"/wallet/{self.tenant}/master-address", headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_new_address_unprovisioned_returns_404(self):
+        r = self.client.post(f"/wallet/{self.tenant}/address/new", json={}, headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_transactions_unprovisioned_returns_404(self):
+        r = self.client.get(f"/wallet/{self.tenant}/transactions", headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(self._no_wallet_on_disk())
+
+
 if __name__ == "__main__":
     unittest.main()
