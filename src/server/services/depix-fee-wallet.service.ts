@@ -42,6 +42,30 @@ export async function getFeeWalletMasterAddress(): Promise<string | null> {
   return wallet?.masterAddress ?? null;
 }
 
+/**
+ * Garante L-BTC (fee de rede Liquid) na carteira de taxas antes de um repasse.
+ *
+ * O auto-refill pos-saque NUNCA abastece a carteira de taxas (ela nao saca —
+ * so repassa), entao sem isto o 1o repasse falharia com "insufficient_lbtc".
+ * Chamado antes de cada transfer de repasse. Reusa o ensureLbtcFor generico
+ * (o central abastece): a carteira de taxas tem masterAddress e nao e o central,
+ * logo e elegivel. Best-effort: se falhar, o transfer pode cair no retry.
+ */
+export async function ensureFeeWalletLbtc(): Promise<void> {
+  const feeTenantId = await getFeeWalletTenantId();
+  if (!feeTenantId) return;
+  // import dinamico evita ciclo (refill -> transaction -> fee-wallet).
+  const { ensureLbtcFor } = await import("./depix-lbtc-refill.service");
+  try {
+    await ensureLbtcFor(feeTenantId, { source: "auto" });
+  } catch (err) {
+    logger.warn("ensureFeeWalletLbtc: refill falhou (repasse vai tentar mesmo assim)", {
+      feeTenantId,
+      err: String(err),
+    });
+  }
+}
+
 export interface ProvisionFeeWalletResult {
   success: boolean;
   tenantId?: string;
