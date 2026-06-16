@@ -524,13 +524,20 @@ export function ValuationsList() {
               </Select>
             </div>
             <div>
-              <Label>Valor do Ajuste</Label>
-              <MoneyInput
-                value={adjustFixedAmount}
-                onChange={setAdjustFixedAmount}
+              <Label>Valor do Ajuste (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Ex: -100 ou 50"
+                className="font-mono"
+                value={adjustFixedAmount === 0 ? "" : (adjustFixedAmount / 100).toString()}
+                onChange={(e) => {
+                  const reais = parseFloat(e.target.value);
+                  setAdjustFixedAmount(isNaN(reais) ? 0 : Math.round(reais * 100));
+                }}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Positivo = aumento, negativo = reducao. Use multiplos de R$ 100.
+                Positivo = aumento, negativo = reducao. Ex: -100 reduz R$ 100,00.
               </p>
             </div>
           </div>
