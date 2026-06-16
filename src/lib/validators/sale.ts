@@ -37,6 +37,14 @@ export const paymentDetailSchema = z.object({
   /** Id da PaymentMethod (opcional — quando informado, calcula taxas/politica). */
   paymentMethodId: z.string().uuid().optional().nullable(),
   /**
+   * Recebimento por cartão (opcional). Quando informado junto de `cardBrandId`
+   * e `cardKind`, gera CardReceivable(s) com taxa/líquido/prazo D+N da
+   * AcquirerRate. Sem isso, a venda no cartão segue como hoje (sem recebível).
+   */
+  acquirerId: z.string().uuid().optional().nullable(),
+  cardBrandId: z.string().uuid().optional().nullable(),
+  cardKind: z.enum(["CREDIT", "DEBIT"]).optional().nullable(),
+  /**
    * Valor da mercadoria desta forma de pagamento (centavos). Ex: numa venda
    * de R$ 1.000 pagando 30% pix + 70% cartao, o pix tem amount=30000 e o
    * cartao amount=70000.
