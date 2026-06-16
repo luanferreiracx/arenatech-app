@@ -13,6 +13,9 @@ on:
     # NÃO roda aqui — precisa de granularidade de 1 min, então roda por systemd
     # timer no VPS (ver deploy/talison-waiting-sweep.{service,timer}).
     - cron: "*/10 * * * *"
+    # A cada 5 min: process-deposit-repayments (ADR 0052). Reprocessa repasses
+    # PENDING da carteira de taxas (depósito non-custodial cujo repasse falhou).
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       job:
@@ -27,6 +30,7 @@ on:
           - resolve-stale-conversations
           - process-pending-talison
           - release-stale-reservations
+          - process-deposit-repayments
 
 jobs:
   mark-overdue:
@@ -104,6 +108,21 @@ jobs:
       - name: Invoca cron release-stale-reservations
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/release-stale-reservations" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            | tee /tmp/response.json
+
+  process-deposit-repayments:
+    # Roda a cada 5 min (schedule */5) ou manualmente. Reprocessa repasses
+    # PENDING da carteira de taxas (ADR 0052): depósito non-custodial cujo
+    # repasse do líquido ao tenant falhou (LWK fora, fee L-BTC). Idempotente.
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *') || inputs.job == 'process-deposit-repayments' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron process-deposit-repayments
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/process-deposit-repayments" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 120 \
