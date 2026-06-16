@@ -52,3 +52,54 @@ export function addCalendarDays(date: Date, days: number): Date {
   result.setDate(result.getDate() + days);
   return result;
 }
+
+export interface CardReceivableInstallment {
+  installmentNumber: number;
+  installmentsTotal: number;
+  grossCents: number;
+  feeCents: number;
+  netCents: number;
+  settlementDate: Date;
+}
+
+/**
+ * Divide o valor bruto de um pagamento no cartão em N recebíveis (1 por parcela
+ * da operadora). Cada parcela:
+ * - bruto = total / N (a última absorve o resto, soma fecha)
+ * - taxa/líquido = computeCardSettlement sobre o bruto da parcela
+ * - liquida em D+N + 30×(parcela−1) dias (parcela 1 em D+N, parcela 2 em D+N+30…)
+ *
+ * Convenção de mercado: a taxa total é cobrada distribuída entre as parcelas e
+ * cada parcela cai mês a mês. Mantém soma de bruto/líquido fiel ao total.
+ */
+export function splitCardReceivable(
+  rate: CardSettlementRate,
+  totalGrossCents: number,
+  installments: number,
+  saleDate: Date,
+): CardReceivableInstallment[] {
+  if (totalGrossCents < 0) throw new Error("totalGrossCents não pode ser negativo");
+  const n = Math.max(1, Math.floor(installments));
+  const perInstallment = Math.floor(totalGrossCents / n);
+  const remainder = totalGrossCents - perInstallment * n;
+
+  const result: CardReceivableInstallment[] = [];
+  for (let i = 1; i <= n; i++) {
+    // Última parcela absorve o resto da divisão (dízima).
+    const grossCents = i === n ? perInstallment + remainder : perInstallment;
+    const settlement = computeCardSettlement(
+      { ...rate, settlementDays: rate.settlementDays + 30 * (i - 1) },
+      grossCents,
+      saleDate,
+    );
+    result.push({
+      installmentNumber: i,
+      installmentsTotal: n,
+      grossCents: settlement.grossCents,
+      feeCents: settlement.feeCents,
+      netCents: settlement.netCents,
+      settlementDate: settlement.settlementDate,
+    });
+  }
+  return result;
+}

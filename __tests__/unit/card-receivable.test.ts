@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   computeCardSettlement,
   addCalendarDays,
+  splitCardReceivable,
 } from "@/server/services/card-receivable.service"
 
 describe("computeCardSettlement", () => {
@@ -105,5 +106,56 @@ describe("addCalendarDays", () => {
     const original = new Date("2026-06-16T00:00:00.000Z")
     addCalendarDays(original, 10)
     expect(original.toISOString().slice(0, 10)).toBe("2026-06-16")
+  })
+})
+
+describe("splitCardReceivable", () => {
+  const saleDate = new Date("2026-06-16T10:00:00.000Z")
+  const rate = { feePercent: 3, feeFixed: 0, settlementDays: 30 }
+
+  it("1x: um único recebível com o total", () => {
+    const r = splitCardReceivable(rate, 10000, 1, saleDate)
+    expect(r).toHaveLength(1)
+    expect(r[0]!.installmentNumber).toBe(1)
+    expect(r[0]!.grossCents).toBe(10000)
+    expect(r[0]!.feeCents).toBe(300)
+    expect(r[0]!.netCents).toBe(9700)
+    expect(r[0]!.settlementDate.toISOString().slice(0, 10)).toBe("2026-07-16")
+  })
+
+  it("3x de R$ 100: soma de bruto fecha (33.33+33.33+33.34)", () => {
+    const r = splitCardReceivable(rate, 10000, 3, saleDate)
+    expect(r).toHaveLength(3)
+    const sumGross = r.reduce((s, x) => s + x.grossCents, 0)
+    expect(sumGross).toBe(10000)
+    expect(r[0]!.grossCents).toBe(3333)
+    expect(r[1]!.grossCents).toBe(3333)
+    expect(r[2]!.grossCents).toBe(3334) // última absorve o resto
+  })
+
+  it("3x: cada parcela liquida mês a mês (D+30, D+60, D+90)", () => {
+    const r = splitCardReceivable(rate, 30000, 3, saleDate)
+    expect(r[0]!.settlementDate.toISOString().slice(0, 10)).toBe("2026-07-16")
+    expect(r[1]!.settlementDate.toISOString().slice(0, 10)).toBe("2026-08-15")
+    expect(r[2]!.settlementDate.toISOString().slice(0, 10)).toBe("2026-09-14")
+  })
+
+  it("soma de líquido + soma de taxa = bruto total", () => {
+    const r = splitCardReceivable({ feePercent: 2.99, feeFixed: 50, settlementDays: 1 }, 9999, 4, saleDate)
+    const sumNet = r.reduce((s, x) => s + x.netCents, 0)
+    const sumFee = r.reduce((s, x) => s + x.feeCents, 0)
+    const sumGross = r.reduce((s, x) => s + x.grossCents, 0)
+    expect(sumGross).toBe(9999)
+    expect(sumNet + sumFee).toBe(9999)
+  })
+
+  it("installments < 1 vira 1", () => {
+    const r = splitCardReceivable(rate, 5000, 0, saleDate)
+    expect(r).toHaveLength(1)
+    expect(r[0]!.grossCents).toBe(5000)
+  })
+
+  it("total negativo lança", () => {
+    expect(() => splitCardReceivable(rate, -1, 2, saleDate)).toThrow()
   })
 })

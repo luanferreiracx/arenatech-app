@@ -1076,12 +1076,42 @@ export const saleRouter = createTRPCRouter({
               amount: centsToPrisma(payment.amount),
               nature: "INCOME" as const,
               paymentMethod: payment.method,
+              // Liga o movimento à PaymentMethod cadastrada (coluna existia mas
+              // nunca era populada). Habilita relatórios por forma com taxa real.
+              paymentMethodId: payment.paymentMethodId ?? null,
               description: `Venda ${saleNumber}`,
               referenceId: sale.id,
               referenceType: "SALE",
               createdByUserId: ctx.session.user.id,
             })),
           });
+        }
+
+        // Gera recebíveis de cartão (adquirente + bandeira informados). Cada
+        // pagamento no cartão vira N CardReceivable (1 por parcela), com taxa,
+        // líquido e D+N da AcquirerRate. Fallback: sem adquirente/taxa, não gera
+        // nada e a venda segue como hoje (não bloqueia a finalização).
+        if (refundDueCents === 0) {
+          const { generateCardReceivables } = await import(
+            "@/server/services/card-receivable-writer.service"
+          );
+          for (const payment of payments) {
+            if (!payment.acquirerId || !payment.cardBrandId || !payment.cardKind) {
+              continue;
+            }
+            await generateCardReceivables(tx, {
+              tenantId: ctx.tenantId,
+              saleId: sale.id,
+              payment: {
+                acquirerId: payment.acquirerId,
+                cardBrandId: payment.cardBrandId,
+                cardKind: payment.cardKind,
+                grossCents: payment.amount,
+                installments: payment.installments ?? 1,
+              },
+              createdByUserId: ctx.session.user.id,
+            });
+          }
         }
 
         // Downgrade em DINHEIRO: saida do caixa. Paridade Laravel
@@ -1776,6 +1806,13 @@ export const saleRouter = createTRPCRouter({
               },
             });
             cancelledReceivables = allTx.length;
+
+            // Cancela também os recebíveis de cartão pendentes desta venda
+            // (estorno total). SETTLED não muda — já liquidou na conta.
+            await tx.cardReceivable.updateMany({
+              where: { saleId: input.saleId, status: "PENDING" },
+              data: { status: "CANCELLED" },
+            });
           } else {
             // Parcial: cancela installments PENDING/OVERDUE comecando pelas
             // ultimas (data mais distante) ate cobrir refundedCents.
