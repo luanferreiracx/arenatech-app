@@ -3,7 +3,8 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Pencil, Trash2, Eye, AlertTriangle, Package } from "lucide-react";
+import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
@@ -47,6 +48,7 @@ function formatCurrency(value: ProductRow["salePrice"]): string {
 
 export function ProductsTable() {
   const trpc = useTRPC();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const isAdmin = useIsTenantAdmin();
   const [search, setSearch] = useState("");
@@ -79,6 +81,18 @@ export function ProductsTable() {
         toast.success("Produto excluido com sucesso!");
         queryClient.invalidateQueries({ queryKey: [["stock"]] });
         setDeleteTarget(null);
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  const duplicateMutation = useMutation(
+    trpc.stock.duplicateProduct.mutationOptions({
+      onSuccess: (created) => {
+        toast.success("Produto duplicado — edite a copia.");
+        queryClient.invalidateQueries({ queryKey: [["stock"]] });
+        // Leva direto para editar a copia (ajustar SKU/preco/etc).
+        router.push(`/stock/${(created as { id: string }).id}/edit`);
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -204,6 +218,18 @@ export function ProductsTable() {
               <Link href={`/stock/${row.original.id}/edit`}>
                 <Pencil className="h-4 w-4" />
               </Link>
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Duplicar ${row.original.name}`}
+              disabled={duplicateMutation.isPending}
+              onClick={() => duplicateMutation.mutate({ productId: row.original.id })}
+            >
+              <Copy className="h-4 w-4" />
             </Button>
           )}
           {isAdmin && (

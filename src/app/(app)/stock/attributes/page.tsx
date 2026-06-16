@@ -41,6 +41,8 @@ export default function AttributesPage() {
   // exclusoes destrutivas de atributo/valor.
   const [deleteAttrTarget, setDeleteAttrTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteValueTarget, setDeleteValueTarget] = useState<{ id: string; label: string } | null>(null);
+  const [editAttrTarget, setEditAttrTarget] = useState<{ id: string; name: string } | null>(null);
+  const [editValueTarget, setEditValueTarget] = useState<{ id: string; value: string } | null>(null);
 
   const { data: attributes } = useQuery(
     trpc.stock.listAttributes.queryOptions({ active: undefined })
@@ -63,6 +65,28 @@ export default function AttributesPage() {
       onSuccess: () => {
         toast.success("Atributo removido");
         queryClient.invalidateQueries({ queryKey: [["stock", "listAttributes"]] });
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateAttr = useMutation(
+    trpc.stock.updateAttribute.mutationOptions({
+      onSuccess: () => {
+        toast.success("Atributo atualizado");
+        queryClient.invalidateQueries({ queryKey: [["stock", "listAttributes"]] });
+        setEditAttrTarget(null);
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateValue = useMutation(
+    trpc.stock.updateAttributeValue.mutationOptions({
+      onSuccess: () => {
+        toast.success("Valor atualizado");
+        queryClient.invalidateQueries({ queryKey: [["stock", "listAttributes"]] });
+        setEditValueTarget(null);
       },
       onError: (e) => toast.error(e.message),
     })
@@ -166,6 +190,18 @@ export default function AttributesPage() {
                   </TableCell>
                   <TableCell>
                     {isAdmin && (
+                    <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Editar atributo ${attr.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditAttrTarget({ id: attr.id, name: attr.name });
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -177,6 +213,7 @@ export default function AttributesPage() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    </div>
                     )}
                   </TableCell>
                 </TableRow>
@@ -193,6 +230,16 @@ export default function AttributesPage() {
                               className="flex items-center gap-1"
                             >
                               {val.displayValue || val.value}
+                              {isAdmin && (
+                                <button
+                                  aria-label={`Editar valor ${val.displayValue || val.value}`}
+                                  onClick={() => setEditValueTarget({ id: val.id, value: val.value })}
+                                  className="ml-1 text-muted-foreground hover:text-foreground"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                              {isAdmin && (
                               <button
                                 aria-label={`Remover valor ${val.displayValue || val.value}`}
                                 onClick={() =>
@@ -202,6 +249,7 @@ export default function AttributesPage() {
                               >
                                 ×
                               </button>
+                              )}
                             </Badge>
                           ))}
                         </div>
@@ -254,6 +302,66 @@ export default function AttributesPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Editar atributo — Dialog global controlado por estado (nao um por linha). */}
+      <Dialog open={!!editAttrTarget} onOpenChange={(o) => !o && setEditAttrTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar atributo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              aria-label="Nome do atributo"
+              value={editAttrTarget?.name ?? ""}
+              onChange={(e) =>
+                setEditAttrTarget((t) => (t ? { ...t, name: e.target.value } : t))
+              }
+              placeholder="Nome do atributo"
+            />
+            <Button
+              className="w-full"
+              disabled={!editAttrTarget?.name.trim() || updateAttr.isPending}
+              onClick={() => {
+                if (editAttrTarget?.name.trim()) {
+                  updateAttr.mutate({ id: editAttrTarget.id, name: editAttrTarget.name.trim() });
+                }
+              }}
+            >
+              Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar valor de atributo. */}
+      <Dialog open={!!editValueTarget} onOpenChange={(o) => !o && setEditValueTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar valor</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              aria-label="Valor"
+              value={editValueTarget?.value ?? ""}
+              onChange={(e) =>
+                setEditValueTarget((t) => (t ? { ...t, value: e.target.value } : t))
+              }
+              placeholder="Valor (ex: Preto, 128GB)"
+            />
+            <Button
+              className="w-full"
+              disabled={!editValueTarget?.value.trim() || updateValue.isPending}
+              onClick={() => {
+                if (editValueTarget?.value.trim()) {
+                  updateValue.mutate({ id: editValueTarget.id, value: editValueTarget.value.trim() });
+                }
+              }}
+            >
+              Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={!!deleteAttrTarget}
