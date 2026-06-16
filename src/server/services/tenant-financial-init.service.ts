@@ -96,8 +96,8 @@ export async function tenantFinancialInit(
   }
 
   // Seed config de taxa DePix (entrada R$0,99+1,5% / saida R$0,99+1,7%).
-  // Idempotente. So o seed LOCAL aqui — a carteira LWK e provisionada FORA
-  // desta transacao (chamada HTTP), via provisionDepixWallet().
+  // Idempotente. So o seed LOCAL aqui — a carteira LWK nasce non-custodial no
+  // 1o acesso do tenant (ADR 0051), via depixWallet.setupWallet.
   //
   // Tenant central (Arena Tech): seedado com taxa ZERO. Ele eh quem RECEBE
   // as taxas dos demais tenants; nao paga taxa pra si mesmo. O loadFeeConfig

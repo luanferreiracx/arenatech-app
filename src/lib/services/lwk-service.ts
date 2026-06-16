@@ -23,14 +23,6 @@ interface LwkConfig {
   apiKey: string;
 }
 
-export interface EnsureWalletResult {
-  success: boolean;
-  descriptor?: string;
-  masterAddress?: string;
-  network?: string;
-  error?: string;
-}
-
 export interface BalanceResult {
   success: boolean;
   depixBalance?: number;
@@ -130,43 +122,6 @@ async function lwkFetch(
     return { ok: resp.ok, status: resp.status, body };
   } finally {
     clearTimeout(timeout);
-  }
-}
-
-/**
- * Cria (ou carrega, se ja existe) a carteira do tenant no LWK. Idempotente.
- * Retorna o descriptor publico + endereco mestre.
- */
-export async function ensureWallet(tenantId: string): Promise<EnsureWalletResult> {
-  const { config, error: cfgErr } = safeGetConfig();
-  if (cfgErr) return { success: false, error: cfgErr };
-  if (!config) {
-    logger.warn("LWK: mock mode (LWK_MOCK=true)", { tenantId });
-    return {
-      success: true,
-      descriptor: `ct(mock-${tenantId})`,
-      masterAddress: `lq1mock${tenantId.replace(/-/g, "").slice(0, 20)}`,
-      network: "mainnet",
-    };
-  }
-  try {
-    const { ok, status, body } = await lwkFetch(config, "POST", `/wallet/${tenantId}/create`);
-    if (!ok) {
-      logger.error("LWK ensureWallet falhou", { tenantId, status, error: body.error });
-      return { success: false, error: String(body.error ?? `HTTP ${status}`) };
-    }
-    return {
-      success: true,
-      descriptor: body.descriptor as string | undefined,
-      masterAddress: body.master_address as string | undefined,
-      network: body.network as string | undefined,
-    };
-  } catch (error) {
-    logger.error("LWK ensureWallet erro", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { success: false, error: "LWK indisponivel" };
   }
 }
 

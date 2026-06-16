@@ -8,6 +8,7 @@ import { BalanceHero } from "./_components/balance-hero";
 import { RecentTransactions } from "./_components/recent-transactions";
 import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
 import { WalletManagementCard } from "./_components/wallet-management-card";
+import { WalletSetupGate } from "./_components/wallet-setup-gate";
 
 /**
  * /depix-wallet — Overview da carteira DePix do tenant.
@@ -32,6 +33,20 @@ export default function DepixWalletPage() {
   if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
   const o = overviewQuery.data;
   const walletInfo = walletInfoQuery.data;
+
+  // ADR 0051: carteira nasce non-custodial no 1o acesso. Sem provisionamento,
+  // a overview vira um CTA de configuracao (criar/importar).
+  if (walletInfo?.provisioned === false) {
+    return (
+      <div className="space-y-5 sm:space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title="DePix Wallet"
+          subtitle="Carteira Liquid propria — depositos e saques com rateio de taxa automatico"
+        />
+        <WalletSetupGate canConfigure={walletInfo.canRevealMnemonic === true} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6 animate-in fade-in duration-300">

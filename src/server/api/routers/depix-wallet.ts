@@ -13,7 +13,6 @@ import {
   updateDepixFeeConfigSchema,
   DEFAULT_DEPIX_FEE,
 } from "@/lib/validators/depix-wallet";
-import { provisionDepixWallet } from "@/server/services/depix-wallet-provision.service";
 import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
 import { logger } from "@/lib/logger";
 import * as lwk from "@/lib/services/lwk-service";
@@ -338,17 +337,6 @@ export const depixWalletRouter = createTRPCRouter({
     return {
       success: res.success,
       depixBalance: res.depixBalance ?? 0,
-      error: res.error ?? null,
-    };
-  }),
-
-  /** (Re)provisiona a carteira no LWK. Idempotente — recuperacao de falha. */
-  provision: tenantProcedure.mutation(async ({ ctx }) => {
-    const res = await provisionDepixWallet(ctx.tenantId);
-    return {
-      success: res.success,
-      masterAddress: res.masterAddress ?? null,
-      alreadyProvisioned: res.alreadyProvisioned ?? false,
       error: res.error ?? null,
     };
   }),
