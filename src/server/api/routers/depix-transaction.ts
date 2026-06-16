@@ -295,17 +295,25 @@ export const depixTransactionRouter = createTRPCRouter({
 
   /** Breakdown de taxas + saldo + master address pra UI. */
   getOverview: tenantProcedure.query(async ({ ctx }) => {
-    const [wallet, feeCfg, balance] = await Promise.all([
+    const [wallet, feeCfg] = await Promise.all([
       ctx.withTenant(async (db) =>
         db.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
       ),
       // Usa o loadFeeConfig do service: aplica guard de tenant central (taxa=0).
       ctx.withTenant(async (db) => loadFeeConfig(db, ctx.tenantId)),
-      lwk.getBalance(ctx.tenantId),
     ]);
     // Tenant central nao paga taxa pra si mesmo (eh quem RECEBE).
     const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
     const isCentralTenant = activeTenant?.slug === CENTRAL_TENANT_SLUG;
+
+    // So consulta o LWK quando a carteira ja foi provisionada. Consultar o
+    // saldo de um tenant sem carteira faria o LWK AUTO-CRIAR uma carteira
+    // custodial (load_or_create_wallet grava mnemonic.txt), gerando uma
+    // carteira fantasma que depois bloqueia o setup non-custodial (guard 409).
+    const provisioned = !!wallet?.provisionedAt;
+    const balance = provisioned
+      ? await lwk.getBalance(ctx.tenantId)
+      : { success: true as const, depixBalance: 0, error: null };
 
     if (!balance.success) {
       logger.warn("Overview: lwk getBalance falhou", {
@@ -317,7 +325,7 @@ export const depixTransactionRouter = createTRPCRouter({
     return {
       wallet: wallet
         ? {
-            provisioned: !!wallet.provisionedAt,
+            provisioned,
             masterAddress: wallet.masterAddress,
             network: wallet.network,
           }

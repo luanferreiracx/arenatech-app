@@ -699,7 +699,11 @@ def wallet_master_address(tenant_id):
         return bad
     try:
         with wallet_lock(tenant_id):
-            wollet, _, _, _ = load_or_create_wallet(tenant_id)
+            # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
+            try:
+                wollet, _ = load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
             master_address = str(wollet.address(0).address())
         return jsonify({"tenant_id": tenant_id, "master_address": master_address, "network": NETWORK_NAME})
     except Exception as e:
@@ -953,7 +957,13 @@ def wallet_balance(tenant_id):
         # interno (nao toca rede), entao acesso concorrente eh seguro.
         acquired = lock.acquire(timeout=15 if do_sync else 1)
         try:
-            wollet, _, _, _ = load_or_create_wallet(tenant_id)
+            # Watch-only (so descriptor): NUNCA auto-cria carteira. Consultar o
+            # saldo de um tenant sem carteira deve falhar (404), nao provisionar
+            # uma carteira custodial fantasma. Funciona p/ custodial e non-custodial.
+            try:
+                wollet, _ = load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
             if do_sync and acquired:
                 sync_wallet(wollet, silent=True)
             bal = wollet.balance()
@@ -1001,7 +1011,11 @@ def new_address(tenant_id):
 
         p = WalletPaths(tenant_id)
         with wallet_lock(tenant_id):
-            wollet, _, _, _ = load_or_create_wallet(tenant_id)
+            # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
+            try:
+                wollet, _ = load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
             sync_wallet(wollet, silent=True)
             addr_info = wollet.address(index)
 
@@ -1187,7 +1201,11 @@ def transactions(tenant_id):
         limit = max(1, min(limit, 100))
 
         with wallet_lock(tenant_id):
-            wollet, _, _, _ = load_or_create_wallet(tenant_id)
+            # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
+            try:
+                wollet, _ = load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
             sync_wallet(wollet, silent=True)
             txs = wollet.transactions()
         tip_height = get_tip_height()
