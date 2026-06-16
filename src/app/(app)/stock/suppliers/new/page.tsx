@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PageHeader } from "@/components/domain/page-header";
@@ -30,6 +31,8 @@ import { ArrowLeft } from "lucide-react";
 export default function NewSupplierPage() {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [lookingUp, setLookingUp] = useState(false);
 
   const form = useForm<CreateSupplierInput>({
     resolver: zodResolver(createSupplierSchema),
@@ -81,6 +84,57 @@ export default function NewSupplierPage() {
   });
   const duplicate = dupQuery.data?.duplicate ? dupQuery.data : null;
 
+  // Busca dados na Receita (CNPJ via BrasilAPI) ou base de CPF e preenche o
+  // formulario. So preenche campos vazios — nao sobrescreve o que o operador ja
+  // digitou. Disparado por botao (nao automatico) para previsibilidade.
+  const setIfEmpty = (field: keyof CreateSupplierInput, value: string | null | undefined) => {
+    if (!value) return;
+    const current = form.getValues(field);
+    if (!current || (typeof current === "string" && current.trim() === "")) {
+      form.setValue(field, value, { shouldDirty: true });
+    }
+  };
+
+  const handleLookup = async () => {
+    setLookingUp(true);
+    try {
+      if (watchType === "PJ") {
+        const data = await queryClient.fetchQuery(
+          trpc.stock.lookupCnpj.queryOptions({ cnpj: cnpjDigits }),
+        );
+        if (!data) {
+          toast.error("Nao foi possivel buscar este CNPJ na Receita.");
+          return;
+        }
+        // Razao social e o dado-chave: sempre preenche se o campo nome estiver vazio.
+        setIfEmpty("name", data.razaoSocial);
+        setIfEmpty("tradeName", data.nomeFantasia);
+        setIfEmpty("phone", data.telefone);
+        setIfEmpty("email", data.email);
+        setIfEmpty("zipCode", data.cep);
+        setIfEmpty("street", data.logradouro);
+        setIfEmpty("neighborhood", data.bairro);
+        setIfEmpty("city", data.municipio);
+        setIfEmpty("state", data.uf);
+        toast.success("Dados do CNPJ preenchidos.");
+      } else {
+        const data = await queryClient.fetchQuery(
+          trpc.stock.lookupCpf.queryOptions({ cpf: cpfDigits }),
+        );
+        if (!data?.name) {
+          toast.error("Nao foi possivel buscar este CPF.");
+          return;
+        }
+        setIfEmpty("name", data.name);
+        toast.success("Nome preenchido a partir do CPF.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha na busca.");
+    } finally {
+      setLookingUp(false);
+    }
+  };
+
   const onSubmit = form.handleSubmit(
     (data) => {
       if (duplicate) {
@@ -127,7 +181,21 @@ export default function NewSupplierPage() {
             </div>
             <div className="space-y-2">
               <Label>CPF/CNPJ</Label>
-              <Input {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")} placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"} />
+              <div className="flex gap-2">
+                <Input
+                  {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")}
+                  placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!docComplete || lookingUp}
+                  onClick={handleLookup}
+                  title={watchType === "PJ" ? "Buscar dados na Receita pelo CNPJ" : "Buscar nome pelo CPF"}
+                >
+                  {lookingUp ? "Buscando..." : "Buscar dados"}
+                </Button>
+              </div>
               {duplicate && (
                 <p className="text-xs text-destructive">
                   Documento ja cadastrado em outro fornecedor:{" "}
