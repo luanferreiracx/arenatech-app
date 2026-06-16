@@ -673,6 +673,78 @@ export async function completeFeeWalletRepayment(args: {
   await applyDepositBusinessEffects(args.realTenantId, args.transactionId);
 }
 
+/**
+ * Reprocessa UM repasse PENDING da carteira de taxas (ADR 0052, cron de retry).
+ * Idempotente: usa a MESMA idempotencyKey (repay:{id}) do 1o attempt — se o
+ * broadcast foi pra rede mas o registro nao atualizou (crash), o LWK devolve o
+ * mesmo txid e concluimos sem duplicar on-chain. Chamado pelo cron e pelo painel.
+ */
+export async function retryRepayment(repaymentId: string): Promise<{
+  status: "completed" | "pending" | "skipped";
+  reason?: string;
+}> {
+  const repayment = await withAdmin(async (tx) =>
+    tx.depixDepositRepayment.findUnique({
+      where: { id: repaymentId },
+      select: {
+        id: true,
+        status: true,
+        tenantId: true,
+        transactionId: true,
+        destinationAddress: true,
+        netAmountCents: true,
+      },
+    }),
+  );
+  if (!repayment) return { status: "skipped", reason: "not_found" };
+  if (repayment.status === "COMPLETED") return { status: "skipped", reason: "already_completed" };
+
+  const feeWalletTenantId = await getFeeWalletTenantId();
+  if (!feeWalletTenantId) return { status: "skipped", reason: "fee_wallet_missing" };
+
+  // Dados da tx p/ concluir (taxa retida + txid do deposito p/ o ledger).
+  const txRow = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findUnique({
+      where: { id: repayment.transactionId },
+      select: { feeArenaTechCents: true, depositTxId: true },
+    }),
+  );
+  if (!txRow) return { status: "skipped", reason: "tx_not_found" };
+
+  const transfer = await lwk.transfer(
+    feeWalletTenantId,
+    [{ to: repayment.destinationAddress, amountBrl: repayment.netAmountCents / 100 }],
+    { idempotencyKey: `repay:${repayment.id}` },
+  );
+  if (!transfer.success || !transfer.txid) {
+    await withAdmin(async (tx) =>
+      tx.depixDepositRepayment.update({
+        where: { id: repayment.id },
+        data: { attempts: { increment: 1 }, lastError: transfer.error ?? "transfer falhou" },
+      }),
+    );
+    logger.warn("retryRepayment: repasse ainda falha", {
+      repaymentId: repayment.id,
+      error: transfer.error,
+    });
+    return { status: "pending", reason: transfer.error ?? "transfer_failed" };
+  }
+
+  await completeFeeWalletRepayment({
+    repaymentId: repayment.id,
+    realTenantId: repayment.tenantId,
+    transactionId: repayment.transactionId,
+    feeArenaTechCents: txRow.feeArenaTechCents ?? 0,
+    depositTxId: txRow.depositTxId ?? "",
+    repaymentTxId: transfer.txid,
+  });
+  logger.info("retryRepayment: repasse concluido", {
+    repaymentId: repayment.id,
+    repaymentTxId: transfer.txid,
+  });
+  return { status: "completed" };
+}
+
 export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {
   const row = await withTenant(tenantId, async (tx) =>
     tx.tenantDepixTransaction.findUnique({
