@@ -355,5 +355,52 @@ class TestReadEndpointsNeverAutoCreate(unittest.TestCase):
         self.assertTrue(self._no_wallet_on_disk())
 
 
+class TestMonitorNeverRewritesNonCustodial(unittest.TestCase):
+    """Regressao critica: o monitor NAO pode recriar/sobrescrever uma carteira
+    non-custodial. load_or_create_wallet via a ausencia de mnemonic.txt e gerava
+    uma carteira custodial NOVA por cima (descriptor trocado, mnemonic.txt em
+    claro) — corrompendo a carteira do tenant. O monitor deve ler watch-only."""
+
+    def setUp(self):
+        app.app.config["TESTING"] = True
+        self.client = app.app.test_client()
+        self.tenant = str(_uuid.uuid4())
+
+    def tearDown(self):
+        d = os.path.join(os.environ["WALLET_DATA_DIR"], self.tenant)
+        shutil.rmtree(d, ignore_errors=True)
+
+    def test_monitor_does_not_rewrite_noncustodial_wallet(self):
+        # Provisiona uma carteira non-custodial (so descriptor.txt, sem mnemonic).
+        r = self.client.post(
+            f"/wallet/{self.tenant}/setup-noncustodial",
+            json={"mode": "create", "passphrase": PASSPHRASE},
+            headers=HEADERS,
+        )
+        self.assertEqual(r.status_code, 200)
+        p = app.WalletPaths(self.tenant)
+        with open(p.descriptor) as f:
+            descriptor_before = f.read()
+        self.assertFalse(os.path.exists(p.mnemonic))
+
+        # Roda o monitor com load_watch_only REAL (le o descriptor do disco).
+        # O Wollet (stub) devolve transactions() vazio (sem blockchain no teste).
+        # Se o monitor chamar load_or_create_wallet, o teste falha na hora —
+        # e exatamente a regressao que queremos impedir.
+        def _boom(_tid):
+            raise AssertionError("monitor chamou load_or_create_wallet (regressao!)")
+
+        _lwk_stub.Wollet.return_value.transactions.return_value = []
+        with mock.patch.object(app, "load_or_create_wallet", side_effect=_boom), \
+             mock.patch.object(app, "sync_wallet", return_value=True), \
+             mock.patch.object(app, "get_tip_height", return_value=0):
+            app.monitor_tenant(self.tenant)
+
+        with open(p.descriptor) as f:
+            descriptor_after = f.read()
+        self.assertEqual(descriptor_before, descriptor_after)
+        self.assertFalse(os.path.exists(p.mnemonic))
+
+
 if __name__ == "__main__":
     unittest.main()
