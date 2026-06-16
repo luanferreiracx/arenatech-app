@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText } from "lucide-react";
+import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
@@ -19,6 +19,12 @@ export function StockPageActions() {
         <Link href="/stock/reports">
           <BarChart3 className="mr-2 h-4 w-4" />
           Relatorios
+        </Link>
+      </Button>
+      <Button variant="outline" asChild>
+        <Link href="/stock/low-stock">
+          <TriangleAlert className="mr-2 h-4 w-4" />
+          Estoque baixo
         </Link>
       </Button>
       {isAdmin && (
