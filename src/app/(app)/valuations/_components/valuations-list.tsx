@@ -38,6 +38,7 @@ export function ValuationsList() {
   const [valor, setValor] = useState(0);
   const [validadeDias, setValidadeDias] = useState<number | undefined>(undefined);
   const [adjustPercent, setAdjustPercent] = useState(0);
+  const [adjustPercentRaw, setAdjustPercentRaw] = useState("0");
   const [adjustModelo, setAdjustModelo] = useState("");
   const [dupSource, setDupSource] = useState("");
   const [dupTarget, setDupTarget] = useState("");
@@ -48,6 +49,7 @@ export function ValuationsList() {
   const [showAdjustFixedDialog, setShowAdjustFixedDialog] = useState(false);
   const [adjustFixedModelo, setAdjustFixedModelo] = useState("");
   const [adjustFixedAmount, setAdjustFixedAmount] = useState(0); // centavos
+  const [adjustFixedRaw, setAdjustFixedRaw] = useState("");
 
   const modelsQuery = useQuery(trpc.valuation.listModels.queryOptions());
   const listQuery = useQuery(
@@ -153,6 +155,7 @@ export function ValuationsList() {
           toast.success(`${data.updated} precos ajustados`);
           setShowAdjustDialog(false);
           setAdjustPercent(0);
+          setAdjustPercentRaw("0");
           invalidate();
         },
         onError: (err) => toast.error(err.message),
@@ -176,6 +179,7 @@ export function ValuationsList() {
           toast.success(`${data.updated} precos ajustados`);
           setShowAdjustFixedDialog(false);
           setAdjustFixedAmount(0);
+          setAdjustFixedRaw("");
           invalidate();
         },
         onError: (err) => toast.error(err.message),
@@ -448,9 +452,15 @@ export function ValuationsList() {
             <div>
               <Label>Percentual de Ajuste (%)</Label>
               <Input
-                type="number"
-                value={adjustPercent}
-                onChange={(e) => setAdjustPercent(Number(e.target.value))}
+                type="text"
+                inputMode="decimal"
+                value={adjustPercentRaw}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setAdjustPercentRaw(raw);
+                  const parsed = parseFloat(raw);
+                  if (!isNaN(parsed)) setAdjustPercent(parsed);
+                }}
                 placeholder="Ex: 10 para +10%, -5 para -5%"
               />
               <p className="text-xs text-muted-foreground mt-1">
@@ -526,13 +536,15 @@ export function ValuationsList() {
             <div>
               <Label>Valor do Ajuste (R$)</Label>
               <Input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 placeholder="Ex: -100 ou 50"
                 className="font-mono"
-                value={adjustFixedAmount === 0 ? "" : (adjustFixedAmount / 100).toString()}
+                value={adjustFixedRaw}
                 onChange={(e) => {
-                  const reais = parseFloat(e.target.value);
+                  const raw = e.target.value;
+                  setAdjustFixedRaw(raw);
+                  const reais = parseFloat(raw.replace(",", "."));
                   setAdjustFixedAmount(isNaN(reais) ? 0 : Math.round(reais * 100));
                 }}
               />
