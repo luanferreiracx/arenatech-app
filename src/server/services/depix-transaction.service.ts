@@ -471,6 +471,208 @@ export async function settleDepositConfirmed(args: {
   return { matched: true, completed: true };
 }
 
+/**
+ * Settle de deposito que caiu na CARTEIRA DE TAXAS custodial (ADR 0052).
+ *
+ * Tenant non-custodial nao assina a cobranca da taxa no webhook. Em vez disso,
+ * o DePix cai na carteira de taxas (custodial), que RETEM a taxa e REPASSA o
+ * liquido (bruto - taxa) ao tenant real. Por ser custodial, ela assina sem
+ * passphrase.
+ *
+ * O webhook chega com tenant_id = arena-fees (quem recebeu on-chain). A tx,
+ * porem, pertence ao TENANT REAL — achamos pelo label (UUID global) via
+ * withAdmin (cross-tenant). Os efeitos de negocio (liberar venda) so sao
+ * aplicados APOS o repasse confirmar — o cliente so "tem" o dinheiro quando o
+ * liquido chega na carteira dele. Se o repasse falhar, fica na fila
+ * (DepixDepositRepayment PENDING) e o cron reprocessa (idempotente).
+ */
+export async function settleDepositViaFeeWallet(args: {
+  feeWalletTenantId: string;
+  depositLabel: string;
+  depositTxId: string;
+  depixAmount: number; // em DePix (= reais)
+  confirmations: number;
+}) {
+  const grossActualCents = Math.round(args.depixAmount * 100);
+
+  // A tx pertence ao TENANT REAL — busca cross-tenant pelo label (UUID global).
+  const txRow = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: {
+        kind: "DEPOSIT",
+        depositLabel: args.depositLabel,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      select: { id: true, tenantId: true },
+    }),
+  );
+  if (!txRow) {
+    logger.warn("settleDepositViaFeeWallet: nao achou tx PENDING/PROCESSING para o label", {
+      depositLabel: args.depositLabel,
+      depositTxId: args.depositTxId,
+    });
+    return { matched: false };
+  }
+  const realTenantId = txRow.tenantId;
+
+  // Taxa sobre o valor REAL recebido on-chain.
+  const cfg = await withTenant(realTenantId, async (tx) => loadFeeConfig(tx, realTenantId));
+  const breakdown = calcDepositFee(grossActualCents, cfg);
+
+  // Transicao atomica PENDING/PROCESSING -> PROCESSING_FEE (guard anti-race).
+  const transitioned = await withTenant(realTenantId, async (tx) =>
+    tx.tenantDepixTransaction.updateMany({
+      where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
+      data: {
+        status: "PROCESSING_FEE",
+        depositTxId: args.depositTxId,
+        confirmations: args.confirmations,
+        feeArenaTechCents: breakdown.feeArenaTechCents,
+        netAmountCents: breakdown.netCents,
+        grossAmountCents: grossActualCents,
+      },
+    }),
+  );
+  if (transitioned.count === 0) {
+    logger.info("settleDepositViaFeeWallet: race detectada, ja processado", { txId: txRow.id });
+    return { matched: true, alreadyCompleted: true };
+  }
+
+  // Resolve o endereco de destino (master do TENANT REAL).
+  const realWallet = await withTenant(realTenantId, async (tx) =>
+    tx.tenantDepixWallet.findUnique({
+      where: { tenantId: realTenantId },
+      select: { masterAddress: true },
+    }),
+  );
+  if (!realWallet?.masterAddress) {
+    logger.error("settleDepositViaFeeWallet: tenant sem masterAddress — nao da p/ repassar", {
+      txId: txRow.id,
+      realTenantId,
+    });
+    // Deixa em PROCESSING_FEE; sem destino nao ha como enfileirar.
+    return { matched: true, repayPending: true };
+  }
+
+  // Liquido a repassar = valor RECEBIDO on-chain - taxa Arena Tech. O DePix que
+  // caiu na carteira de taxas (grossActualCents) JA e o liquido do PixPay (a
+  // taxa do off-ramp foi descontada antes de virar DePix), entao aqui so a taxa
+  // Arena Tech e retida — NAO subtrair feePixPay de novo (breakdown.netCents
+  // ja desconta o PixPay e levaria a repassar a menos).
+  const netCents = Math.max(0, grossActualCents - breakdown.feeArenaTechCents);
+
+  // Enfileira o repasse ANTES de chamar o LWK (persiste PENDING -> retry seguro).
+  // transactionId @unique = 1 repasse por deposito (defesa anti-duplo).
+  const repayment = await withAdmin(async (tx) =>
+    tx.depixDepositRepayment.upsert({
+      where: { transactionId: txRow.id },
+      create: {
+        tenantId: realTenantId,
+        transactionId: txRow.id,
+        destinationAddress: realWallet.masterAddress,
+        netAmountCents: netCents,
+        status: "PENDING",
+      },
+      update: {}, // ja enfileirado (retry de webhook) — nao recria
+      select: { id: true, status: true },
+    }),
+  );
+  if (repayment.status === "COMPLETED") {
+    logger.info("settleDepositViaFeeWallet: repasse ja concluido", { txId: txRow.id });
+    return { matched: true, completed: true };
+  }
+
+  // Repassa o liquido da CARTEIRA DE TAXAS (custodial) -> tenant real.
+  const transfer = await lwk.transfer(
+    args.feeWalletTenantId,
+    [{ to: realWallet.masterAddress, amountBrl: netCents / 100 }],
+    { idempotencyKey: `repay:${repayment.id}` },
+  );
+  if (!transfer.success || !transfer.txid) {
+    // Falha: repayment fica PENDING (cron reprocessa). A tx NAO completa e os
+    // efeitos de negocio NAO sao aplicados — o liquido ainda nao chegou.
+    await withAdmin(async (tx) =>
+      tx.depixDepositRepayment.update({
+        where: { id: repayment.id },
+        data: { attempts: { increment: 1 }, lastError: transfer.error ?? "transfer falhou" },
+      }),
+    );
+    logger.error("settleDepositViaFeeWallet: repasse falhou — fila p/ retry", {
+      txId: txRow.id,
+      repaymentId: repayment.id,
+      error: transfer.error,
+    });
+    return { matched: true, repayPending: true };
+  }
+
+  await completeFeeWalletRepayment({
+    repaymentId: repayment.id,
+    realTenantId,
+    transactionId: txRow.id,
+    feeArenaTechCents: breakdown.feeArenaTechCents,
+    depositTxId: args.depositTxId,
+    repaymentTxId: transfer.txid,
+  });
+  logger.info("Deposito DePix (fee wallet) concluido", {
+    txId: txRow.id,
+    realTenantId,
+    grossCents: grossActualCents,
+    netCents,
+    feeArenaTechCents: breakdown.feeArenaTechCents,
+    repaymentTxId: transfer.txid,
+  });
+  return { matched: true, completed: true };
+}
+
+/**
+ * Conclui um repasse bem-sucedido da carteira de taxas: marca o repayment e a
+ * tx COMPLETED, registra a taxa retida no ledger (SETTLED) e libera os efeitos
+ * de negocio. Reusado pelo settle (PR4) e pelo cron de retry (PR5).
+ *
+ * settlementTxId no ledger = depositTxId: a taxa foi RETIDA na carteira de
+ * taxas (nao houve tx propria de cobranca); o txid do deposito representa a
+ * operacao que trouxe o valor do qual a taxa foi retida.
+ */
+export async function completeFeeWalletRepayment(args: {
+  repaymentId: string;
+  realTenantId: string;
+  transactionId: string;
+  feeArenaTechCents: number;
+  depositTxId: string;
+  repaymentTxId: string;
+}) {
+  await withAdmin(async (tx) => {
+    await tx.depixDepositRepayment.updateMany({
+      where: { id: args.repaymentId, status: { in: ["PENDING", "FAILED"] } },
+      data: { status: "COMPLETED", repaymentTxId: args.repaymentTxId, completedAt: new Date() },
+    });
+    await tx.tenantDepixTransaction.updateMany({
+      where: { id: args.transactionId, status: "PROCESSING_FEE" },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    await tx.tenantDepixFeeLedger.upsert({
+      where: { transactionId_kind: { transactionId: args.transactionId, kind: "DEPOSIT" } },
+      create: {
+        tenantId: args.realTenantId,
+        transactionId: args.transactionId,
+        kind: "DEPOSIT",
+        amountCents: args.feeArenaTechCents,
+        status: "SETTLED",
+        settlementTxId: args.depositTxId,
+        settledAt: new Date(),
+      },
+      update: {
+        amountCents: args.feeArenaTechCents,
+        status: "SETTLED",
+        settlementTxId: args.depositTxId,
+        settledAt: new Date(),
+      },
+    });
+  });
+  // Libera venda/saldo SO agora (o liquido chegou na carteira do tenant).
+  await applyDepositBusinessEffects(args.realTenantId, args.transactionId);
+}
+
 export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {
   const row = await withTenant(tenantId, async (tx) =>
     tx.tenantDepixTransaction.findUnique({
