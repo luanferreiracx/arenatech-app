@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { NcmInput } from "@/components/inputs/ncm-input";
 import { VariationsEditor } from "./variations-editor";
 import { ProductPhotoManager } from "./product-photo-manager";
 
@@ -225,12 +226,10 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                 <FormItem>
                   <FormLabel>NCM</FormLabel>
                   <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value || null)}
-                      placeholder="8 digitos (ex: 85171200)"
-                      maxLength={8}
+                    <NcmInput
+                      value={field.value}
+                      onChange={field.onChange}
+                      suggestText={form.watch("name")}
                     />
                   </FormControl>
                   <FormMessage />
