@@ -548,43 +548,6 @@ export interface LwkEncryptedSeedResult {
   error?: string;
 }
 
-/**
- * MIGRACAO custodial -> non-custodial: o LWK le o mnemonic.txt atual e o cifra
- * com a passphrase do usuario, devolvendo o blob. NAO apaga o txt (a purga
- * ocorre depois, com carencia). A passphrase NUNCA e logada/persistida aqui.
- */
-export async function encryptSeed(
-  tenantId: string,
-  passphrase: string,
-): Promise<LwkEncryptedSeedResult> {
-  const { config, error: cfgErr } = safeGetConfig();
-  if (cfgErr) return { success: false, error: cfgErr };
-  if (!config) {
-    return { success: true, encryptedSeed: { v: 1, mock: true }, network: "mainnet" };
-  }
-  try {
-    const { ok, status, body } = await lwkFetch(config, "POST", `/wallet/${tenantId}/encrypt-seed`, {
-      body: { passphrase },
-    });
-    if (!ok) {
-      logger.error("LWK encryptSeed falhou", { tenantId, status, error: body.error });
-      return { success: false, error: String(body.error ?? `HTTP ${status}`) };
-    }
-    return {
-      success: true,
-      encryptedSeed: body.encrypted_seed,
-      descriptor: body.descriptor as string | undefined,
-      network: body.network as string | undefined,
-    };
-  } catch (error) {
-    logger.error("LWK encryptSeed erro", {
-      tenantId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { success: false, error: "LWK indisponivel" };
-  }
-}
-
 /** Troca a passphrase (rewrap): decifra com a antiga, recifra com a nova. Nao
  *  toca on-chain. Passphrase antiga errada -> "Senha da carteira incorreta". */
 export async function rewrapSeed(
@@ -656,6 +619,75 @@ export async function recoverWallet(
     return { success: true, encryptedSeed: body.encrypted_seed, network: body.network as string | undefined };
   } catch (error) {
     logger.error("LWK recoverWallet erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+export interface LwkSetupWalletResult {
+  success: boolean;
+  encryptedSeed?: unknown;
+  descriptor?: string;
+  masterAddress?: string;
+  network?: string;
+  /** Mnemonico de 24 palavras — SO no modo "create" (backup unico do usuario). */
+  mnemonic?: string;
+  error?: string;
+}
+
+/**
+ * Provisiona uma carteira NON-CUSTODIAL no primeiro acesso (ADR 0051).
+ * mode "create": gera mnemonico novo (devolve p/ backup unico).
+ * mode "import": usa as 24 palavras do usuario (NAO devolve o mnemonico).
+ * Em ambos, a seed e cifrada com a passphrase e so o descriptor (watch-only)
+ * fica no volume — o mnemonic.txt NUNCA e gravado.
+ */
+export async function setupWallet(
+  tenantId: string,
+  args: { mode: "create" | "import"; passphrase: string; mnemonic?: string },
+): Promise<LwkSetupWalletResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) {
+    return {
+      success: true,
+      encryptedSeed: { v: 1, mock: true },
+      descriptor: `ct(mock-${tenantId})`,
+      masterAddress: `lq1mock${tenantId.replace(/-/g, "").slice(0, 20)}`,
+      network: "mainnet",
+      mnemonic:
+        args.mode === "create"
+          ? "mock seed phrase only for tests do not use outside development wallet backup sideswap import fake words liquid depix tenant recovery reveal sample secret"
+          : undefined,
+    };
+  }
+  try {
+    const { ok, status, body } = await lwkFetch(config, "POST", `/wallet/${tenantId}/setup-noncustodial`, {
+      body: { mode: args.mode, passphrase: args.passphrase, mnemonic: args.mnemonic },
+    });
+    if (!ok) {
+      logger.error("LWK setupWallet falhou", { tenantId, status, error: body.error, mode: args.mode });
+      const code = String(body.error ?? "");
+      if (code.includes("mnemonic invalido")) {
+        return { success: false, error: "Frase de recuperacao invalida (use 24 palavras)." };
+      }
+      if (status === 409 || code.includes("ja provisionada")) {
+        return { success: false, error: "Carteira ja provisionada." };
+      }
+      return { success: false, error: code || `HTTP ${status}` };
+    }
+    return {
+      success: true,
+      encryptedSeed: body.encrypted_seed,
+      descriptor: body.descriptor as string | undefined,
+      masterAddress: body.master_address as string | undefined,
+      network: body.network as string | undefined,
+      mnemonic: body.mnemonic as string | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK setupWallet erro", {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     });

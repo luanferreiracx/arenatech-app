@@ -78,18 +78,49 @@ describe("lwk-service.transfer — non-custodial", () => {
 });
 
 describe("lwk-service helpers non-custodial", () => {
-  it("encryptSeed envia passphrase e retorna o blob", async () => {
+  it("setupWallet (create) envia mode+passphrase e retorna blob+mnemonico", async () => {
     const fetchMock = mockFetchOnce(200, {
       encrypted_seed: { v: 1, ciphertext: "x" },
       descriptor: "ct(d)",
+      master_address: "lq1abc",
+      mnemonic: "word ".repeat(24).trim(),
     });
-    const { encryptSeed } = await importService();
+    const { setupWallet } = await importService();
 
-    const res = await encryptSeed("11111111-1111-1111-1111-111111111111", "senha");
+    const res = await setupWallet("11111111-1111-1111-1111-111111111111", {
+      mode: "create",
+      passphrase: "senha",
+    });
     expect(res.success).toBe(true);
     expect(res.encryptedSeed).toEqual({ v: 1, ciphertext: "x" });
+    expect(res.masterAddress).toBe("lq1abc");
+    expect(res.mnemonic).toContain("word");
     const sentBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(sentBody.mode).toBe("create");
     expect(sentBody.passphrase).toBe("senha");
+  });
+
+  it("setupWallet traduz 409 (ja provisionada)", async () => {
+    mockFetchOnce(409, { error: "carteira ja provisionada" });
+    const { setupWallet } = await importService();
+    const res = await setupWallet("11111111-1111-1111-1111-111111111111", {
+      mode: "create",
+      passphrase: "senha",
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Carteira ja provisionada.");
+  });
+
+  it("setupWallet (import) traduz mnemonic invalido", async () => {
+    mockFetchOnce(400, { error: "mnemonic invalido (deve ter 24 palavras)" });
+    const { setupWallet } = await importService();
+    const res = await setupWallet("11111111-1111-1111-1111-111111111111", {
+      mode: "import",
+      passphrase: "senha",
+      mnemonic: "x",
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Frase de recuperacao invalida (use 24 palavras).");
   });
 
   it("rewrapSeed traduz invalid_passphrase", async () => {

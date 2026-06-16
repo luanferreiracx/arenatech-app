@@ -178,50 +178,86 @@ export const depixWalletRouter = createTRPCRouter({
     }),
 
   /**
-   * MIGRACAO custodial -> non-custodial (ADR 0051 Etapa 5). O operador define
-   * uma passphrase; o LWK cifra a seed atual com ela e devolve o blob, que
-   * gravamos + setamos custodyModel=non_custodial. NAO apaga a seed em claro do
-   * volume (a purga ocorre depois, com carencia). Idempotente-safe: rejeita se
-   * ja for non_custodial.
+   * Provisiona a carteira NON-CUSTODIAL no PRIMEIRO ACESSO (ADR 0051).
+   * mode "create": gera carteira nova (devolve o mnemonico UMA vez p/ backup).
+   * mode "import": importa por 24 palavras (nao devolve o mnemonico).
+   * A carteira nasce cifrada com a passphrase do usuario; o servidor nunca ve
+   * a seed em claro. Rejeita se ja provisionada ou se for o tenant central.
    */
-  setupNonCustodial: tenantAdminProcedure
-    .input(z.object({ passphrase: passphraseSchema }))
+  setupWallet: tenantAdminProcedure
+    .input(
+      z
+        .object({
+          mode: z.enum(["create", "import"]),
+          passphrase: passphraseSchema,
+          mnemonic: z.string().min(1).max(1000).optional(),
+        })
+        .refine((v) => v.mode !== "import" || !!v.mnemonic, {
+          message: "Informe as 24 palavras para importar.",
+          path: ["mnemonic"],
+        }),
+    )
     .mutation(async ({ ctx, input }) => {
-      await rlSensitiveWallet(ctx, "depixWallet.setupNonCustodial");
+      await rlSensitiveWallet(ctx, "depixWallet.setupWallet");
 
-      const wallet = await ctx.withTenant(async (tx) =>
-        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
-      );
-      if (!wallet?.provisionedAt) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira ainda nao provisionada." });
-      }
-      if (wallet.custodyModel === "non_custodial") {
+      // Tenant central usa custodia gerenciada (assina refill L-BTC sem usuario).
+      const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+      if (activeTenant?.slug === CENTRAL_TENANT_SLUG) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Esta carteira ja esta protegida por senha (non-custodial).",
+          message: "Tenant central usa custodia gerenciada.",
         });
       }
 
-      const res = await lwk.encryptSeed(ctx.tenantId, input.passphrase);
-      if (!res.success || !res.encryptedSeed) {
+      const existing = await ctx.withTenant(async (tx) =>
+        tx.tenantDepixWallet.findUnique({ where: { tenantId: ctx.tenantId } }),
+      );
+      if (existing?.provisionedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira ja provisionada." });
+      }
+
+      const res = await lwk.setupWallet(ctx.tenantId, {
+        mode: input.mode,
+        passphrase: input.passphrase,
+        mnemonic: input.mnemonic,
+      });
+      if (!res.success || !res.encryptedSeed || !res.descriptor || !res.masterAddress) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: res.error ?? "Falha ao proteger a carteira.",
+          code: res.error === "Carteira ja provisionada." ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR",
+          message: res.error ?? "Falha ao configurar a carteira.",
         });
       }
 
       await ctx.withTenant(async (tx) =>
-        tx.tenantDepixWallet.update({
+        tx.tenantDepixWallet.upsert({
           where: { tenantId: ctx.tenantId },
-          data: {
-            encryptedSeed: res.encryptedSeed as never,
+          create: {
+            tenantId: ctx.tenantId,
+            liquidDescriptor: res.descriptor!,
+            masterAddress: res.masterAddress!,
+            network: res.network ?? "mainnet",
+            provisionedAt: new Date(),
             custodyModel: "non_custodial",
+            encryptedSeed: res.encryptedSeed as never,
+            seedKdfVersion: 1,
+          },
+          update: {
+            liquidDescriptor: res.descriptor!,
+            masterAddress: res.masterAddress!,
+            network: res.network ?? "mainnet",
+            provisionedAt: new Date(),
+            custodyModel: "non_custodial",
+            encryptedSeed: res.encryptedSeed as never,
             seedKdfVersion: 1,
           },
         }),
       );
-      logger.info("DePix wallet migrada para non-custodial", { tenantId: ctx.tenantId });
-      return { success: true };
+      logger.info("DePix wallet provisionada non-custodial", {
+        tenantId: ctx.tenantId,
+        mode: input.mode,
+      });
+      // mnemonico SO no create (backup unico) — nunca persistido.
+      return { success: true, masterAddress: res.masterAddress, mnemonic: res.mnemonic ?? null };
     }),
 
   /** Troca a passphrase da carteira non-custodial (ADR 0051). */
