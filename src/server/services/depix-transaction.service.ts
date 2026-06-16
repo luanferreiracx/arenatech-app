@@ -24,7 +24,10 @@ import {
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
-import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
+import {
+  getFeeWalletTenantId,
+  ensureFeeWalletLbtc,
+} from "@/server/services/depix-fee-wallet.service";
 import {
   createPixPayment,
   createDepixWithdraw,
@@ -582,6 +585,11 @@ export async function settleDepositViaFeeWallet(args: {
     return { matched: true, completed: true };
   }
 
+  // Garante L-BTC (fee de rede) na carteira de taxas antes do repasse — ela nao
+  // saca, entao o auto-refill pos-saque nunca a abastece. Best-effort: se faltar,
+  // o transfer falha e cai no retry.
+  await ensureFeeWalletLbtc();
+
   // Repassa o liquido da CARTEIRA DE TAXAS (custodial) -> tenant real.
   const transfer = await lwk.transfer(
     args.feeWalletTenantId,
@@ -710,6 +718,9 @@ export async function retryRepayment(repaymentId: string): Promise<{
     }),
   );
   if (!txRow) return { status: "skipped", reason: "tx_not_found" };
+
+  // Garante L-BTC na carteira de taxas antes do repasse (ver settleDepositViaFeeWallet).
+  await ensureFeeWalletLbtc();
 
   const transfer = await lwk.transfer(
     feeWalletTenantId,

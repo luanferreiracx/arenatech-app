@@ -36,6 +36,7 @@ vi.mock("@/lib/services/lwk-service", () => ({
 
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: (...a: unknown[]) => getFeeWalletTenantId(...a),
+  ensureFeeWalletLbtc: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { retryRepayment } from "@/server/services/depix-transaction.service";
