@@ -86,6 +86,11 @@ model TenantDepixTransaction {
   depositLabel          String?                 @map("deposit_label")
   /// txid on-chain do deposito recebido (PixPay -> tenant via LWK).
   depositTxId           String?                 @map("deposit_tx_id")
+  /// Carteira LWK que RECEBE o DePix deste deposito (ADR 0052). Para tenant
+  /// non-custodial, e a carteira de taxas (arena-fees), que retem a taxa e
+  /// repassa o liquido. null = legado/custodial (recebe na propria carteira do
+  /// tenant). Explicito p/ o settle rotear sem reconsultar custodyModel.
+  depositReceivingTenantId String?              @map("deposit_receiving_tenant_id") @db.Uuid
   confirmations         Int?                    @default(0)
   /// Sinal INTERMEDIARIO: PixPay confirmou o PIX (status approved/paid) — o
   /// DePix esta a caminho on-chain. NAO credita saldo: o credito real so
@@ -146,4 +151,35 @@ model TenantDepixFeeLedger {
   /// service. Usado tambem pelo upsert no settleDepositConfirmed.
   @@unique([transactionId, kind])
   @@map("tenant_depix_fee_ledger")
+}
+
+/// Fila idempotente do repasse do LIQUIDO (bruto - taxa) da carteira de taxas
+/// custodial (arena-fees) -> carteira do tenant non-custodial real (ADR 0052).
+/// Criado quando um deposito non-custodial cai na carteira de taxas; o liquido
+/// precisa ser enviado ao tenant. status PENDING ate o transfer LWK confirmar;
+/// reprocessado pelo cron com idempotencyKey estavel (repay:{id}).
+model DepixDepositRepayment {
+  id                 String    @id @default(uuid()) @db.Uuid
+  /// Tenant DESTINO real (o non-custodial que originou o deposito). Usado em RLS.
+  tenantId           String    @map("tenant_id") @db.Uuid
+  /// 1 repasse por deposito — defesa estrutural anti-duplo (alem do guard de
+  /// status no service e do idempotencyKey no LWK).
+  transactionId      String    @unique @map("transaction_id") @db.Uuid
+  /// master_address do tenant (snapshot no enqueue) — destino do repasse.
+  destinationAddress String    @map("destination_address")
+  /// Liquido a repassar (centavos) = grossActual - feeArenaTech (congelado).
+  netAmountCents     Int       @map("net_amount_cents")
+  /// PENDING | COMPLETED | FAILED
+  status             String    @default("PENDING")
+  /// txid LWK do repasse (preenchido em COMPLETED).
+  repaymentTxId      String?   @map("repayment_tx_id")
+  attempts           Int       @default(0)
+  lastError          String?   @map("last_error") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  completedAt        DateTime? @map("completed_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("depix_deposit_repayments")
 }
