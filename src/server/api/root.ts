@@ -33,6 +33,7 @@ import { rewardRouter } from "@/server/api/routers/reward";
 import { chatbotRouter } from "@/server/api/routers/chatbot";
 import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
 import { noKycRouter } from "@/server/api/routers/no-kyc";
+import { receivingRouter } from "@/server/api/routers/receiving";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
@@ -68,6 +69,7 @@ export const appRouter = createTRPCRouter({
   stock: stockRouter,
   settings: settingsRouter,
   report: reportRouter,
+  receiving: receivingRouter,
   valuation: valuationRouter,
 });
 
