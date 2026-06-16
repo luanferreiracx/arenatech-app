@@ -11,9 +11,23 @@
 **Ultima atualizacao:** 2026-06-16
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `docs/depix-watchonly-fixes`
+**Branch atual:** `docs/etapa7-done`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
-**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`).
+**DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
+
+---
+
+### 2026-06-16 — DePix ETAPA 7: taxa de depósito non-custodial via carteira de taxas (ADR 0052)
+Tenant non-custodial não assina a cobrança da taxa de depósito no webhook (sem passphrase). Solução (Opção A refinada, B/C descartadas pelo dono — incentivo perverso / privacidade): **carteira custodial dedicada** (`arena-fees`) recebe o depósito non-custodial, retém a taxa Arena Tech e **repassa o líquido** ao tenant. Implementada em 6 PRs:
+- **PR1 #145:** `lwk.createCustodialWallet` (wrapper `/create`); serviço `depix-fee-wallet` (`getFeeWalletTenantId` cache, `ensureFeeWalletProvisioned` idempotente); `FEE_WALLET_TENANT_SLUG="arena-fees"`. ADR 0052 → Aceito.
+- **PR2 #147:** migration `depix_deposit_repayments` (fila de repasse, `transaction_id @unique`, RLS) + coluna `deposit_receiving_tenant_id` em `tenant_depix_transactions`.
+- **PR3 #149:** `createDeposit` roteia o `depixAddress` p/ a carteira de taxas quando non-custodial; **fail-closed** se `arena-fees` ausente.
+- **PR4 #150 (núcleo):** `settleDepositViaFeeWallet` (webhook `tenant_id=arena-fees` → acha a tx pelo label via `withAdmin` → enfileira repasse → carteira de taxas repassa o líquido = recebido on-chain − taxa Arena Tech, `repay:{id}`; efeitos de negócio liberados **só após** o repasse). Bug pego em teste: não subtrair feePixPay de novo (já descontado pelo PixPay).
+- **PR5 #151:** `retryRepayment` idempotente + cron `/api/cron/process-deposit-repayments`.
+- **PR6 #153:** painel superadmin `/admin/depix-fees` (provisionar, saldo=taxas, repasses pendentes + reprocessar).
+- Escopo: só non-custodial passa pela carteira de taxas; central/custodial inalterados. **ETAPA 8 futura:** migrar o central p/ non-custodial (única custodial vira `arena-fees`, que assume o L-BTC refill).
+- Validação: typecheck/lint/unit (1045)/LWK Python/E2E @smoke verdes em todas as PRs.
+- **Pendente p/ ligar em prod (operação):** (1) provisionar `arena-fees` pelo painel (LWK no ar, sem rebuild); (2) agendar o cron de repasses (~2-5min); (3) incluir `arena-fees` no refill de L-BTC (paga fee de rede por repasse). Hoje há zero depósito non-custodial → ativação tranquila.
 
 ---
 
