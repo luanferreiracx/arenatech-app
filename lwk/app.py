@@ -491,10 +491,20 @@ def _list_provisioned_tenants():
 
 
 def monitor_tenant(tenant_id):
-    """Processa depositos de UM tenant. Serializado pelo lock daquele tenant."""
+    """Processa depositos de UM tenant. Serializado pelo lock daquele tenant.
+
+    Usa WATCH-ONLY (so descriptor): o monitor so LE transacoes, nunca assina.
+    Crucial p/ non-custodial: load_or_create_wallet veria a ausencia de
+    mnemonic.txt e RECRIARIA uma carteira custodial nova, sobrescrevendo o
+    descriptor da carteira non-custodial (corrompendo-a). Watch-only funciona
+    igual p/ custodial e non-custodial (ambos tem descriptor.txt)."""
     paths = WalletPaths(tenant_id)
     with wallet_lock(tenant_id):
-        wollet, _, _, _ = load_or_create_wallet(tenant_id)
+        try:
+            wollet, _ = load_watch_only(tenant_id)
+        except FileNotFoundError:
+            # Carteira sumiu do disco entre o list e o lock — ignora este ciclo.
+            return
         sync_wallet(wollet, silent=True)
         tip_height = get_tip_height()
         txs        = wollet.transactions()
