@@ -95,39 +95,29 @@ export default function NewSupplierPage() {
     }
   };
 
+  // Busca dados na Receita pelo CNPJ (BrasilAPI). So PJ — nao usamos mais base
+  // de CPF (DirectD removido).
   const handleLookup = async () => {
     setLookingUp(true);
     try {
-      if (watchType === "PJ") {
-        const data = await queryClient.fetchQuery(
-          trpc.stock.lookupCnpj.queryOptions({ cnpj: cnpjDigits }),
-        );
-        if (!data) {
-          toast.error("Nao foi possivel buscar este CNPJ na Receita.");
-          return;
-        }
-        // Razao social e o dado-chave: sempre preenche se o campo nome estiver vazio.
-        setIfEmpty("name", data.razaoSocial);
-        setIfEmpty("tradeName", data.nomeFantasia);
-        setIfEmpty("phone", data.telefone);
-        setIfEmpty("email", data.email);
-        setIfEmpty("zipCode", data.cep);
-        setIfEmpty("street", data.logradouro);
-        setIfEmpty("neighborhood", data.bairro);
-        setIfEmpty("city", data.municipio);
-        setIfEmpty("state", data.uf);
-        toast.success("Dados do CNPJ preenchidos.");
-      } else {
-        const data = await queryClient.fetchQuery(
-          trpc.stock.lookupCpf.queryOptions({ cpf: cpfDigits }),
-        );
-        if (!data?.name) {
-          toast.error("Nao foi possivel buscar este CPF.");
-          return;
-        }
-        setIfEmpty("name", data.name);
-        toast.success("Nome preenchido a partir do CPF.");
+      const data = await queryClient.fetchQuery(
+        trpc.stock.lookupCnpj.queryOptions({ cnpj: cnpjDigits }),
+      );
+      if (!data) {
+        toast.error("Nao foi possivel buscar este CNPJ na Receita.");
+        return;
       }
+      // Razao social e o dado-chave: sempre preenche se o campo nome estiver vazio.
+      setIfEmpty("name", data.razaoSocial);
+      setIfEmpty("tradeName", data.nomeFantasia);
+      setIfEmpty("phone", data.telefone);
+      setIfEmpty("email", data.email);
+      setIfEmpty("zipCode", data.cep);
+      setIfEmpty("street", data.logradouro);
+      setIfEmpty("neighborhood", data.bairro);
+      setIfEmpty("city", data.municipio);
+      setIfEmpty("state", data.uf);
+      toast.success("Dados do CNPJ preenchidos.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha na busca.");
     } finally {
@@ -186,15 +176,18 @@ export default function NewSupplierPage() {
                   {...form.register(form.watch("type") === "PF" ? "cpf" : "cnpj")}
                   placeholder={form.watch("type") === "PF" ? "000.000.000-00" : "00.000.000/0000-00"}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!docComplete || lookingUp}
-                  onClick={handleLookup}
-                  title={watchType === "PJ" ? "Buscar dados na Receita pelo CNPJ" : "Buscar nome pelo CPF"}
-                >
-                  {lookingUp ? "Buscando..." : "Buscar dados"}
-                </Button>
+                {/* Busca de dados so para PJ (CNPJ na Receita). PF nao tem mais lookup. */}
+                {watchType === "PJ" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!docComplete || lookingUp}
+                    onClick={handleLookup}
+                    title="Buscar dados na Receita pelo CNPJ"
+                  >
+                    {lookingUp ? "Buscando..." : "Buscar dados"}
+                  </Button>
+                )}
               </div>
               {duplicate && (
                 <p className="text-xs text-destructive">
