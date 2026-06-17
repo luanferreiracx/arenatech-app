@@ -83,6 +83,7 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("iniciar_avaliacao");
     expect(prompt).toContain("calcular_avaliacao");
     expect(prompt).toContain("NUNCA invente nem assuma");
+    expect(prompt).toContain("VARIANTE EXATA");
   });
 
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
