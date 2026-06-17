@@ -134,6 +134,12 @@ model CardReceivable {
   receivingAccountId    String?              @map("receiving_account_id") @db.Uuid
   status                CardReceivableStatus @default(PENDING)
   settledAt             DateTime?            @map("settled_at")
+  // Conciliação manual (operador bate contra o extrato da adquirente).
+  settledNetAmount      Decimal?             @map("settled_net_amount") @db.Decimal(10, 2)
+  settledDifference     Decimal?             @map("settled_difference") @db.Decimal(10, 2)
+  settledAccountId      String?              @map("settled_account_id") @db.Uuid
+  settledByUserId       String?              @map("settled_by_user_id") @db.Uuid
+  settlementNote        String?              @map("settlement_note")
   createdByUserId       String?              @map("created_by_user_id") @db.Uuid
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
@@ -143,6 +149,7 @@ model CardReceivable {
   receivingAccount ReceivingAccount? @relation(fields: [receivingAccountId], references: [id])
 
   @@index([tenantId, status, expectedSettlementDate])
+  @@index([tenantId, status, settledAt])
   @@index([tenantId, saleId])
   @@index([tenantId, serviceOrderId])
   @@index([tenantId, acquirerId])
