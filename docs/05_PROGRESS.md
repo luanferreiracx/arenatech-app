@@ -17,6 +17,17 @@
 
 ---
 
+### 2026-06-17 — Controle financeiro: conciliação manual de recebíveis de cartão
+Sequência da fundação. Dono pediu conciliação **sem nenhuma integração com API de adquirente** — 100% manual: o operador baixa o extrato da própria maquininha e bate na tela. Decisões (dono): conferência **linha a linha + lote**; ao liquidar **informa o líquido real** → sistema **detecta divergência**; divergência **marca SETTLED + registra a diferença** num relatório.
+- **Entregue em 3 PRs mergeadas:**
+  - **PR1 #174 (db):** 5 colunas nullable em `card_receivables` (`settled_net_amount`, `settled_difference`, `settled_account_id`, `settled_by_user_id`, `settlement_note`) + índice `(tenant_id, status, settled_at)`. Migration `20260616235246_card_receivable_reconciliation`. Aditivo.
+  - **PR2 #175 (backend):** `cardReceivables.settle` (lote, `tenantProcedure`: grava líquido real + diferença por item, só toca PENDING, idempotente, conta default = da adquirente, retorna resumo, logAudit) + `cardReceivables.unsettle` (`tenantAdminProcedure`: SETTLED→PENDING, limpa campos) + `list` ganhou `onlyDivergent` e emite campos de conciliação. `reconciliationDifference` (pura, 3 testes).
+  - **PR3 #176 (UI):** `/financial/card-receivables` ganhou 3 visões (A receber | Conciliados | Divergências); seleção múltipla + dialog de conciliação (líquido real por item, diferença ao vivo, totais); colunas Recebido/Diferença; "Desfazer" só para admin (role via `auth.me`).
+- **Decisões não óbvias:** `settle` é do operador, `unsettle` do gestor (espelha conferência de caixa); idempotente por filtrar PENDING; cada parcela mantém sua própria liquidação. **Sem API de adquirente — explícito.**
+- **Ciclo completo:** configurar (`/settings/card-acquirers`) → vender (PDV captura adquirente/bandeira) → recebível D+N → conciliar contra extrato → relatório de divergências.
+- Validação: migrate limpo do zero, typecheck/lint/build/unit (1069) + E2E @smoke verdes nas 3 PRs.
+- **Fora de escopo (futuro):** import de extrato (CSV/OFX), antecipação de recebíveis.
+
 ### 2026-06-16 — Controle financeiro: fundação de meios, contas e recebíveis de cartão
 Pedido do dono: controle financeiro robusto "como nos melhores PDVs" (conferência de caixa, meios de recebimento com cartão/bandeiras/adquirentes, contas de recebimento, recebíveis). Investigação (`/investigate`) achou caixa + financeiro (AP/AR, DRE, fluxo) já maduros e `PaymentMethod`+rates já existentes; 4 lacunas reais: meio como string solta (FK `payment_method_id` nunca populada), sem bandeira/adquirente, sem recebível de cartão D+N, sem conta bancária. Laravel antigo também não tinha — feature nova guiada por mercado (Stone/Omie/ContaAzul).
 - **Decisões (dono):** escopo = Fundação (sem conciliação ainda); arquitetura = modelo dedicado Acquirer+CardBrand+AcquirerRate (taxa por adquirente×bandeira×tipo×parcela); público = só KYC.
