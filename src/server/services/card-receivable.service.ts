@@ -103,3 +103,16 @@ export function splitCardReceivable(
   }
   return result;
 }
+
+/**
+ * Diferença de conciliação: líquido REAL recebido − líquido esperado (centavos).
+ * Positivo = recebeu mais que o esperado; negativo = recebeu menos (taxa a mais
+ * da adquirente, p.ex.); zero = bateu certo. `divergent` quando ≠ 0.
+ */
+export function reconciliationDifference(
+  expectedNetCents: number,
+  settledNetCents: number,
+): { differenceCents: number; divergent: boolean } {
+  const differenceCents = settledNetCents - expectedNetCents;
+  return { differenceCents, divergent: differenceCents !== 0 };
+}

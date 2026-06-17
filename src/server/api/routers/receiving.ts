@@ -13,8 +13,13 @@ import {
   upsertAcquirerRatesSchema,
   previewCardSettlementSchema,
   listCardReceivablesSchema,
+  settleCardReceivablesSchema,
+  unsettleCardReceivablesSchema,
 } from "@/lib/validators/receiving";
-import { computeCardSettlement } from "@/server/services/card-receivable.service";
+import {
+  computeCardSettlement,
+  reconciliationDifference,
+} from "@/server/services/card-receivable.service";
 
 /** Decimal(10,2) em reais -> centavos inteiros. */
 function reaisToCents(v: Prisma.Decimal | null | undefined): number {
@@ -365,6 +370,10 @@ export const receivingRouter = createTRPCRouter({
             }
             where.expectedSettlementDate = range;
           }
+          // Relatório de divergências: só liquidados com diferença != 0.
+          if (input.onlyDivergent) {
+            where.settledDifference = { not: 0 };
+          }
 
           const [items, total, totals, byAcquirerRaw, acquirers, brands] = await Promise.all([
             tx.cardReceivable.findMany({
@@ -376,7 +385,13 @@ export const receivingRouter = createTRPCRouter({
             tx.cardReceivable.count({ where }),
             tx.cardReceivable.aggregate({
               where,
-              _sum: { grossAmount: true, feeAmount: true, netAmount: true },
+              _sum: {
+                grossAmount: true,
+                feeAmount: true,
+                netAmount: true,
+                settledNetAmount: true,
+                settledDifference: true,
+              },
             }),
             tx.cardReceivable.groupBy({
               by: ["acquirerId"],
@@ -414,6 +429,10 @@ export const receivingRouter = createTRPCRouter({
               netCents: reaisToCents(r.netAmount),
               expectedSettlementDate: r.expectedSettlementDate,
               status: r.status,
+              settledAt: r.settledAt,
+              settledNetCents: r.settledNetAmount != null ? reaisToCents(r.settledNetAmount) : null,
+              settledDifferenceCents:
+                r.settledDifference != null ? reaisToCents(r.settledDifference) : null,
             })),
             total,
             pageCount: Math.ceil(total / input.pageSize),
@@ -421,6 +440,8 @@ export const receivingRouter = createTRPCRouter({
               grossCents: reaisToCents(totals._sum.grossAmount),
               feeCents: reaisToCents(totals._sum.feeAmount),
               netCents: reaisToCents(totals._sum.netAmount),
+              settledNetCents: reaisToCents(totals._sum.settledNetAmount),
+              settledDifferenceCents: reaisToCents(totals._sum.settledDifference),
             },
             byAcquirer: byAcquirerRaw.map((g) => ({
               acquirerId: g.acquirerId,
@@ -429,6 +450,105 @@ export const receivingRouter = createTRPCRouter({
               netCents: reaisToCents(g._sum.netAmount),
             })),
           };
+        });
+      }),
+
+    /**
+     * Concilia (settle) um ou mais recebíveis PENDING contra o extrato da
+     * adquirente. Para cada item, grava o líquido REAL recebido e a diferença
+     * vs. o esperado (settledNet − netAmount). Idempotente: só toca PENDING.
+     * Operador concilia (tenantProcedure); audit registra a ação.
+     */
+    settle: tenantProcedure
+      .input(settleCardReceivablesSchema)
+      .mutation(async ({ ctx, input }) => {
+        return ctx.withTenant(async (tx) => {
+          const settledAt = input.settledDate ? new Date(input.settledDate) : new Date();
+          const ids = input.items.map((i) => i.id);
+
+          // Carrega só os PENDING do tenant entre os ids pedidos (defesa em
+          // profundidade além do RLS; ignora os que já não estão PENDING).
+          const pending = await tx.cardReceivable.findMany({
+            where: { id: { in: ids }, tenantId: ctx.tenantId, status: "PENDING" },
+            select: { id: true, netAmount: true, receivingAccountId: true },
+          });
+          const pendingById = new Map(pending.map((p) => [p.id, p]));
+
+          let settledCount = 0;
+          let divergentCount = 0;
+          let totalNetCents = 0;
+          let totalDifferenceCents = 0;
+
+          for (const item of input.items) {
+            const row = pendingById.get(item.id);
+            if (!row) continue; // não-PENDING ou de outro tenant — pula
+            const expectedNetCents = reaisToCents(row.netAmount);
+            const { differenceCents } = reconciliationDifference(
+              expectedNetCents,
+              item.settledNetCents,
+            );
+            await tx.cardReceivable.update({
+              where: { id: item.id },
+              data: {
+                status: "SETTLED",
+                settledAt,
+                settledNetAmount: centsToReais(item.settledNetCents),
+                settledDifference: centsToReais(differenceCents),
+                settledAccountId: input.accountId ?? row.receivingAccountId,
+                settledByUserId: ctx.session.user.id,
+                settlementNote: input.note ?? null,
+              },
+            });
+            settledCount++;
+            totalNetCents += item.settledNetCents;
+            totalDifferenceCents += differenceCents;
+            if (differenceCents !== 0) divergentCount++;
+          }
+
+          const { logAudit } = await import("@/server/services/audit-log.service");
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "card_receivable_settle",
+            entity: "card_receivable",
+            payload: { settledCount, divergentCount, totalNetCents, totalDifferenceCents, ids },
+          });
+
+          return { settledCount, divergentCount, totalNetCents, totalDifferenceCents };
+        });
+      }),
+
+    /**
+     * Desfaz a conciliação (volta SETTLED → PENDING e limpa os campos).
+     * Só gestor (tenantAdminProcedure) — corrige engano de conciliação.
+     */
+    unsettle: tenantAdminProcedure
+      .input(unsettleCardReceivablesSchema)
+      .mutation(async ({ ctx, input }) => {
+        return ctx.withTenant(async (tx) => {
+          const result = await tx.cardReceivable.updateMany({
+            where: { id: { in: input.ids }, tenantId: ctx.tenantId, status: "SETTLED" },
+            data: {
+              status: "PENDING",
+              settledAt: null,
+              settledNetAmount: null,
+              settledDifference: null,
+              settledAccountId: null,
+              settledByUserId: null,
+              settlementNote: null,
+            },
+          });
+
+          const { logAudit } = await import("@/server/services/audit-log.service");
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "card_receivable_unsettle",
+            entity: "card_receivable",
+            payload: { count: result.count, ids: input.ids },
+          });
+
+          return { unsettledCount: result.count };
         });
       }),
   }),
