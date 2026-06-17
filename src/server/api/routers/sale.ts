@@ -6,6 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
+import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -780,6 +781,21 @@ export const saleRouter = createTRPCRouter({
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
+        // R6: DePix "recebido manualmente" pula a validação de liquidação na
+        // wallet (operador assume que recebeu por outro app). Para reduzir risco
+        // de finalizar venda sem o dinheiro ter entrado, exige justificativa e
+        // registra audit log — espelha o caixa, que exige nota acima do limite.
+        const hasManualDepix = payments.some(
+          (p) => p.method === "depix" && isManualDepixPayment(p),
+        );
+        if (hasManualDepix && !input.observations?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "DePix recebido manualmente exige uma observação (ex.: comprovante/origem do pagamento).",
+          });
+        }
+
         // DePix via QR so pode finalizar depois de liquidado na wallet. O
         // frontend auto-finaliza quando recebe SSE/polling, mas o servidor
         // revalida para impedir tampering ou corrida com status ainda pendente.
@@ -1301,6 +1317,26 @@ export const saleRouter = createTRPCRouter({
           },
           include: { items: true },
         });
+
+        // R6: rastreabilidade do DePix manual — quem finalizou venda assumindo
+        // recebimento manual, com a justificativa. Auditável depois.
+        if (hasManualDepix) {
+          const { logAudit } = await import("@/server/services/audit-log.service");
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "sale_depix_manual",
+            entity: "sale",
+            entityId: sale.id,
+            payload: {
+              number: saleNumber,
+              note: input.observations?.trim() ?? null,
+              depixAmountCents: payments
+                .filter((p) => p.method === "depix" && isManualDepixPayment(p))
+                .reduce((s, p) => s + p.amount, 0),
+            },
+          });
+        }
 
         // Se a Sale e um pagamento de OS (isOSPayment), avancar a OS para PAID
         // e propagar pagamento + reciveis (paridade com Laravel `gerarRecebiveisOS`).
@@ -1824,24 +1860,113 @@ export const saleRouter = createTRPCRouter({
               orderBy: { dueDate: "desc" },
               select: { id: true, amount: true, paidAmount: true },
             });
-            let remainingToCancel = refundedCents;
-            const idsToCancel: string[] = [];
-            for (const inst of installments) {
-              if (remainingToCancel <= 0) break;
-              const installmentDueCents =
-                decimalToCents(inst.amount) - decimalToCents(inst.paidAmount);
-              if (installmentDueCents <= 0) continue;
-              idsToCancel.push(inst.id);
-              remainingToCancel -= installmentDueCents;
-            }
+            // R3: o cancelamento é por parcela INTEIRA (não fraciona parcela).
+            // Se o valor estornado não casa exato com as parcelas, pode cancelar
+            // um pouco a mais — mas o totalAmount é recalculado pelas parcelas
+            // vivas logo abaixo (R2), então a transação fica coerente com o que
+            // sobrou. Fracionar parcela exigiria reescrever o valor dela (mudança
+            // de modelo maior) — fora do escopo desta correção.
+            const idsToCancel = selectIdsToCover(
+              installments.map((inst) => ({
+                id: inst.id,
+                amountCents:
+                  decimalToCents(inst.amount) - decimalToCents(inst.paidAmount),
+              })),
+              refundedCents,
+            );
             if (idsToCancel.length > 0) {
               await tx.installment.updateMany({
                 where: { id: { in: idsToCancel } },
                 data: { status: "CANCELLED" },
               });
               cancelledReceivables = idsToCancel.length;
+
+              // R2: sincroniza totalAmount/status de cada FinancialTransaction
+              // afetada com as parcelas restantes. Sem isto a transação fica com
+              // totalAmount cheio + parcelas canceladas → "a receber" inflado.
+              const affected = await tx.installment.findMany({
+                where: { id: { in: idsToCancel } },
+                select: { transactionId: true },
+              });
+              const affectedTxIds = [...new Set(affected.map((i) => i.transactionId))];
+              for (const txId of affectedTxIds) {
+                const live = await tx.installment.aggregate({
+                  where: { transactionId: txId, status: { not: "CANCELLED" } },
+                  _sum: { amount: true },
+                });
+                const newTotalCents = decimalToCents(
+                  live._sum.amount ?? new Prisma.Decimal(0),
+                );
+                await tx.financialTransaction.update({
+                  where: { id: txId },
+                  data:
+                    newTotalCents === 0
+                      ? {
+                          totalAmount: centsToPrisma(0),
+                          status: "CANCELLED",
+                          cancelledAt: new Date(),
+                          cancelledByUserId: ctx.session.user.id,
+                          cancelReason: input.reason,
+                        }
+                      : { totalAmount: centsToPrisma(newTotalCents) },
+                });
+              }
+            }
+
+            // R1: cancela recebíveis de cartão PENDING proporcionais ao estornado.
+            // CardReceivable é por saleId (não por item) — cancela do prazo mais
+            // distante até cobrir o valor estornado, mesma lógica das parcelas.
+            // SETTLED não muda (já liquidou na conta).
+            const cardPending = await tx.cardReceivable.findMany({
+              where: { saleId: input.saleId, status: "PENDING" },
+              orderBy: { expectedSettlementDate: "desc" },
+              select: { id: true, netAmount: true },
+            });
+            const cardIdsToCancel = selectIdsToCover(
+              cardPending.map((cr) => ({
+                id: cr.id,
+                amountCents: decimalToCents(cr.netAmount),
+              })),
+              refundedCents,
+            );
+            if (cardIdsToCancel.length > 0) {
+              await tx.cardReceivable.updateMany({
+                where: { id: { in: cardIdsToCancel } },
+                data: { status: "CANCELLED" },
+              });
             }
           }
+        }
+
+        // R4: estorno TOTAL cancela a comissão de venda já gerada (PENDING/
+        // APPROVED) — o vendedor não fica com comissão de venda que não ocorreu.
+        // PAID não é tocada (já paga; reversão financeira é decisão à parte —
+        // logada p/ o gestor). No estorno PARCIAL a comissão segue o saldo via
+        // batch de geração (usa o totalAmount já reduzido), então não mexemos.
+        if (!isPartial) {
+          const paidCommissions = await tx.commission.findMany({
+            where: {
+              referenceType: "SALE",
+              referenceId: sale.id,
+              status: "PAID",
+            },
+            select: { id: true },
+          });
+          if (paidCommissions.length > 0) {
+            logger.warn("Estorno de venda com comissão JÁ PAGA — não revertida automaticamente", {
+              saleId: sale.id,
+              number: sale.number,
+              commissionIds: paidCommissions.map((c) => c.id),
+            });
+          }
+          await tx.commission.updateMany({
+            where: {
+              referenceType: "SALE",
+              referenceId: sale.id,
+              status: { in: ["PENDING", "APPROVED"] },
+            },
+            data: { status: "CANCELLED" },
+          });
         }
 
         // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total.
