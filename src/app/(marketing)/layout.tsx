@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
+import { unstable_noStore as noStore } from "next/cache";
+import { headers } from "next/headers";
 import { Bricolage_Grotesque, Outfit, JetBrains_Mono } from "next/font/google";
+import { normalizeHost } from "@/lib/brand-host";
 
-/**
- * Fontes da landing — escolhas distintivas (skill frontend-design):
- * - Bricolage Grotesque: display caracteristico (titulos)
- * - Outfit: corpo limpo, sem cair no Inter/system
- * - JetBrains Mono: numeros/valores, reforca o tom "terminal de pagamentos"
- * Escopadas via classe no wrapper — nao afetam a intranet.
- */
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-display",
@@ -24,17 +20,35 @@ const mono = JetBrains_Mono({
   weight: ["400", "500", "700"],
 });
 
-export const metadata: Metadata = {
-  title: "pdvdepix — Receba em PIX vendendo com DePix",
-  description:
-    "Aceite DePix no balcão e receba em PIX na hora, com taxa baixa e sem maquininha. O PDV cripto que fala a língua do seu caixa.",
-  openGraph: {
+const PDVCRIPTO_HOSTS = new Set(["pdvcripto.app", "www.pdvcripto.app"]);
+
+export async function generateMetadata(): Promise<Metadata> {
+  noStore();
+  const headerStore = await headers();
+  const host = normalizeHost(headerStore.get("x-forwarded-host") ?? headerStore.get("host"));
+  if (PDVCRIPTO_HOSTS.has(host)) {
+    return {
+      title: "pdvcripto — Receba em PIX vendendo com Cripto",
+      description:
+        "Aceite Cripto no balcão e receba em PIX na hora, sem maquininha. O PDV cripto que fala a língua do seu caixa.",
+      openGraph: {
+        title: "pdvcripto — Receba em PIX vendendo com Cripto",
+        description: "Aceite Cripto no balcão e receba em PIX na hora, sem maquininha.",
+        type: "website",
+      },
+    };
+  }
+  return {
     title: "pdvdepix — Receba em PIX vendendo com DePix",
     description:
-      "Aceite DePix no balcão e receba em PIX na hora, com taxa baixa e sem maquininha.",
-    type: "website",
-  },
-};
+      "Aceite DePix no balcão e receba em PIX na hora, com taxa baixa e sem maquininha. O PDV cripto que fala a língua do seu caixa.",
+    openGraph: {
+      title: "pdvdepix — Receba em PIX vendendo com DePix",
+      description: "Aceite DePix no balcão e receba em PIX na hora, com taxa baixa e sem maquininha.",
+      type: "website",
+    },
+  };
+}
 
 export default function MarketingLayout({
   children,
