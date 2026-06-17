@@ -34,6 +34,9 @@ interface ProductFormProps {
   isEdit?: boolean;
 }
 
+/** Valor-sentinela do <select> para entrar no modo "criar nova categoria". */
+const NEW_CATEGORY_OPTION = "__new__";
+
 export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -62,6 +65,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       active: true,
       categoryId: null,
       categoryIds: [],
+      newCategoryName: null,
     },
   });
 
@@ -184,26 +188,60 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
             <FormField
               control={form.control}
               name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Categoria</FormLabel>
-                  <FormControl>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={field.value ?? ""}
-                      onChange={(e) => field.onChange(e.target.value || null)}
-                    >
-                      <option value="">Sem categoria</option>
-                      {categories?.data?.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={({ field }) => {
+                const creatingNew = form.watch("newCategoryName") != null;
+                return (
+                  <FormItem>
+                    <FormLabel>Categoria</FormLabel>
+                    <FormControl>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={creatingNew ? NEW_CATEGORY_OPTION : field.value ?? ""}
+                        onChange={(e) => {
+                          if (e.target.value === NEW_CATEGORY_OPTION) {
+                            // Entra no modo "criar": limpa a seleção e habilita o input.
+                            field.onChange(null);
+                            form.setValue("newCategoryName", "");
+                          } else {
+                            field.onChange(e.target.value || null);
+                            form.setValue("newCategoryName", null);
+                          }
+                        }}
+                      >
+                        <option value="">Sem categoria</option>
+                        {categories?.data?.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                        {!isEdit && (
+                          <option value={NEW_CATEGORY_OPTION}>+ Nova categoria…</option>
+                        )}
+                      </select>
+                    </FormControl>
+                    {creatingNew && (
+                      <FormField
+                        control={form.control}
+                        name="newCategoryName"
+                        render={({ field: nameField }) => (
+                          <FormItem className="mt-2">
+                            <FormControl>
+                              <Input
+                                autoFocus
+                                placeholder="Nome da nova categoria"
+                                value={nameField.value ?? ""}
+                                onChange={(e) => nameField.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
           </div>
         </FormSection>
