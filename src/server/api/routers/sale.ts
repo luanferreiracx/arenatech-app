@@ -781,6 +781,21 @@ export const saleRouter = createTRPCRouter({
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
+        // R6: DePix "recebido manualmente" pula a validação de liquidação na
+        // wallet (operador assume que recebeu por outro app). Para reduzir risco
+        // de finalizar venda sem o dinheiro ter entrado, exige justificativa e
+        // registra audit log — espelha o caixa, que exige nota acima do limite.
+        const hasManualDepix = payments.some(
+          (p) => p.method === "depix" && isManualDepixPayment(p),
+        );
+        if (hasManualDepix && !input.observations?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "DePix recebido manualmente exige uma observação (ex.: comprovante/origem do pagamento).",
+          });
+        }
+
         // DePix via QR so pode finalizar depois de liquidado na wallet. O
         // frontend auto-finaliza quando recebe SSE/polling, mas o servidor
         // revalida para impedir tampering ou corrida com status ainda pendente.
@@ -1302,6 +1317,26 @@ export const saleRouter = createTRPCRouter({
           },
           include: { items: true },
         });
+
+        // R6: rastreabilidade do DePix manual — quem finalizou venda assumindo
+        // recebimento manual, com a justificativa. Auditável depois.
+        if (hasManualDepix) {
+          const { logAudit } = await import("@/server/services/audit-log.service");
+          await logAudit(tx as never, {
+            tenantId: ctx.tenantId,
+            userId: ctx.session.user.id,
+            action: "sale_depix_manual",
+            entity: "sale",
+            entityId: sale.id,
+            payload: {
+              number: saleNumber,
+              note: input.observations?.trim() ?? null,
+              depixAmountCents: payments
+                .filter((p) => p.method === "depix" && isManualDepixPayment(p))
+                .reduce((s, p) => s + p.amount, 0),
+            },
+          });
+        }
 
         // Se a Sale e um pagamento de OS (isOSPayment), avancar a OS para PAID
         // e propagar pagamento + reciveis (paridade com Laravel `gerarRecebiveisOS`).
@@ -1901,6 +1936,37 @@ export const saleRouter = createTRPCRouter({
               });
             }
           }
+        }
+
+        // R4: estorno TOTAL cancela a comissão de venda já gerada (PENDING/
+        // APPROVED) — o vendedor não fica com comissão de venda que não ocorreu.
+        // PAID não é tocada (já paga; reversão financeira é decisão à parte —
+        // logada p/ o gestor). No estorno PARCIAL a comissão segue o saldo via
+        // batch de geração (usa o totalAmount já reduzido), então não mexemos.
+        if (!isPartial) {
+          const paidCommissions = await tx.commission.findMany({
+            where: {
+              referenceType: "SALE",
+              referenceId: sale.id,
+              status: "PAID",
+            },
+            select: { id: true },
+          });
+          if (paidCommissions.length > 0) {
+            logger.warn("Estorno de venda com comissão JÁ PAGA — não revertida automaticamente", {
+              saleId: sale.id,
+              number: sale.number,
+              commissionIds: paidCommissions.map((c) => c.id),
+            });
+          }
+          await tx.commission.updateMany({
+            where: {
+              referenceType: "SALE",
+              referenceId: sale.id,
+              status: { in: ["PENDING", "APPROVED"] },
+            },
+            data: { status: "CANCELLED" },
+          });
         }
 
         // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total.
