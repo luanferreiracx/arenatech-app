@@ -86,6 +86,14 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("VARIANTE EXATA");
   });
 
+  it("trata story do Instagram: identificar ou perguntar o produto, nunca enrolar", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("STORY/ANÚNCIO DO INSTAGRAM");
+    expect(prompt).toContain("qual produto do nosso anúncio");
+    expect(prompt).toContain("buscar_aparelho");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
