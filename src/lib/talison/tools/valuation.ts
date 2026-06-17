@@ -107,6 +107,48 @@ function mapearBateriaFaixa(percent: number | undefined, categoria: ValuationCat
 const NO_BOX_DISCOUNT_RATE = 0.1;
 const LIGHT_MARKS_DISCOUNT = 100;
 
+/** Normaliza pra comparar termo do cliente x nome cadastrado (sem acento/caixa/espaço extra). */
+function normalizeModel(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type ModelCandidate = {
+  modelo: string;
+  armazenamento: string | null;
+  saudeBateria: string | null;
+  valor: { toString(): string };
+  validadeDias: number;
+};
+
+/**
+ * Resolve qual MODELO dos candidatos corresponde ao termo do cliente.
+ *  - match exato (normalizado) → usa esse modelo (ex.: "iPhone 16" casa só o base,
+ *    "iPhone 16 Pro Max" casa o Pro Max);
+ *  - se o termo é prefixo de vários modelos distintos (ex.: "iPhone 16" sem variante,
+ *    mas a tabela tem 16/16 Plus/16 Pro/16 Pro Max) → AMBÍGUO, devolve as opções pra
+ *    o bot confirmar — nunca chuta a variante mais cara.
+ */
+function selecionarModelo(
+  candidates: ModelCandidate[],
+  termo: string,
+): { kind: "resolved"; modelo: string } | { kind: "ambiguous"; modelos: string[] } | { kind: "none" } {
+  if (candidates.length === 0) return { kind: "none" };
+  const termoNorm = normalizeModel(termo);
+  const distinctModels = [...new Set(candidates.map((c) => c.modelo))];
+
+  const exact = distinctModels.find((m) => normalizeModel(m) === termoNorm);
+  if (exact) return { kind: "resolved", modelo: exact };
+
+  if (distinctModels.length === 1) return { kind: "resolved", modelo: distinctModels[0]! };
+
+  return { kind: "ambiguous", modelos: distinctModels };
+}
+
 const calcularAvaliacaoSchema = z.object({
   categoria: z.enum(VALUATION_CATEGORIES).describe("Tipo do aparelho."),
   modelo: z.string().describe("Modelo do aparelho — ex: 'iPhone 13 Pro Max'."),
@@ -177,7 +219,9 @@ export const calcularAvaliacao: TalisonTool<typeof calcularAvaliacaoSchema> = {
     // 4. Faixa de bateria + 5. busca na tabela.
     const faixa = mapearBateriaFaixa(args.saude_bateria_percent, args.categoria);
     return ctx.withTenant(async (tx) => {
-      const valuation = await tx.deviceValuation.findFirst({
+      // Busca CANDIDATOS (não só o mais caro). "iPhone 16" via contains casa também
+      // "16 Pro/Pro Max/Plus" — escolher o de maior valor daria a variante errada.
+      const candidates = await tx.deviceValuation.findMany({
         where: {
           tenantId: ctx.tenantId,
           deletedAt: null,
@@ -188,10 +232,13 @@ export const calcularAvaliacao: TalisonTool<typeof calcularAvaliacaoSchema> = {
           ...(faixa !== NO_BATTERY_BAND ? { saudeBateria: faixa } : {}),
         },
         orderBy: { valor: "desc" },
+        take: 12,
         select: { modelo: true, armazenamento: true, saudeBateria: true, valor: true, validadeDias: true },
       });
 
-      if (!valuation) {
+      const selecao = selecionarModelo(candidates, args.modelo);
+
+      if (selecao.kind === "none") {
         return {
           ok: false as const,
           reason:
@@ -200,6 +247,20 @@ export const calcularAvaliacao: TalisonTool<typeof calcularAvaliacaoSchema> = {
             "transfira pra um atendente humano confirmar se aceitamos e qual o valor.",
         };
       }
+
+      if (selecao.kind === "ambiguous") {
+        return {
+          ok: false as const,
+          reason:
+            `O modelo "${args.modelo}" tem variações e NÃO dá pra avaliar sem saber qual é exatamente. ` +
+            `Pergunte ao cliente qual destes é o aparelho dele: ${selecao.modelos.join(", ")}. ` +
+            "Só chame calcular_avaliacao de novo com o modelo exato confirmado — NÃO escolha a variante por conta própria.",
+        };
+      }
+
+      // Modelo resolvido: usa o registro daquele modelo (o de maior valor já é o 1º,
+      // mas filtramos pelo modelo exato pra não pegar variante).
+      const valuation = candidates.find((c) => c.modelo === selecao.modelo)!;
 
       // 6. Ajustes (fiel ao Laravel).
       const valorBase = Number(valuation.valor);

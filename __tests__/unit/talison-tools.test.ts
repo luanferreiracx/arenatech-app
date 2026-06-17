@@ -201,9 +201,10 @@ describe("iniciar_avaliacao", () => {
 
 describe("calcular_avaliacao", () => {
   // valuation que casa iPhone 13 Pro Max 128GB > 90% = 2600 (valores reais da tabela).
-  function valuationTx(row: Record<string, unknown> | null) {
-    const findFirst = vi.fn().mockResolvedValue(row);
-    return { tx: { deviceValuation: { findFirst } } as unknown as Partial<TalisonTx>, findFirst };
+  // A tool busca CANDIDATOS via findMany; passa-se a lista (ou [] / null→[]).
+  function valuationTx(rows: Record<string, unknown>[] | null) {
+    const findMany = vi.fn().mockResolvedValue(rows ?? []);
+    return { tx: { deviceValuation: { findMany } } as unknown as Partial<TalisonTx>, findMany };
   }
   const row13 = {
     modelo: "iPhone 13 Pro Max",
@@ -250,12 +251,12 @@ describe("calcular_avaliacao", () => {
   });
 
   it("mapeia a faixa de bateria e devolve o valor de tabela", async () => {
-    const { tx, findFirst } = valuationTx(row13);
+    const { tx, findMany } = valuationTx([row13]);
     const result = await calcularAvaliacao.execute(
       { categoria: "iphone", modelo: "iPhone 13 Pro Max", armazenamento: "128GB", saude_bateria_percent: 92, tem_caixa: true },
       makeCtx(tx),
     );
-    expect(findFirst.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("> 90%");
+    expect(findMany.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("> 90%");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.valor_final).toBe("R$ 2.600,00");
@@ -264,16 +265,16 @@ describe("calcular_avaliacao", () => {
   });
 
   it("81% cai na faixa 80% - 85%", async () => {
-    const { findFirst } = valuationTx(null);
+    const { findMany } = valuationTx([]);
     await calcularAvaliacao.execute(
       { categoria: "iphone", modelo: "iPhone 15 Pro", saude_bateria_percent: 81, tem_caixa: true },
-      makeCtx({ deviceValuation: { findFirst } } as unknown as Partial<TalisonTx>),
+      makeCtx({ deviceValuation: { findMany } } as unknown as Partial<TalisonTx>),
     );
-    expect(findFirst.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("80% - 85%");
+    expect(findMany.mock.calls[0]?.[0]?.where?.saudeBateria).toBe("80% - 85%");
   });
 
   it("aplica -10% sem caixa (iPhone) e -R$100 marcas leves", async () => {
-    const { tx } = valuationTx(row13);
+    const { tx } = valuationTx([row13]);
     const result = await calcularAvaliacao.execute(
       { categoria: "iphone", modelo: "iPhone 13 Pro Max", armazenamento: "128GB", saude_bateria_percent: 92, tem_caixa: false, marcas_uso: "leves" },
       makeCtx(tx),
@@ -283,8 +284,42 @@ describe("calcular_avaliacao", () => {
     if (result.ok) expect(result.data.valor_final).toBe("R$ 2.240,00");
   });
 
+  it("pede confirmação quando o termo casa só variantes (sem match exato)", async () => {
+    // Bug real (Kaique): "iPhone 16" via contains casa as variantes; sem um registro
+    // EXATO "iPhone 16", a tool NÃO pode escolher a mais cara — devolve as opções.
+    const { tx } = valuationTx([
+      { modelo: "iPhone 16 Pro Max", armazenamento: "512GB", saudeBateria: "> 90%", valor: { toString: () => "5100.00" }, validadeDias: 1 },
+      { modelo: "iPhone 16 Pro", armazenamento: "256GB", saudeBateria: "> 90%", valor: { toString: () => "4500.00" }, validadeDias: 1 },
+      { modelo: "iPhone 16 Plus", armazenamento: "128GB", saudeBateria: "> 90%", valor: { toString: () => "3600.00" }, validadeDias: 1 },
+    ]);
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 16", saude_bateria_percent: 100, tem_caixa: true },
+      makeCtx(tx),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/variaç|qual/i);
+      expect(result.reason).toContain("iPhone 16 Pro Max");
+      expect(result.reason).not.toMatch(/5\.100/); // não vaza valor da variante errada
+    }
+  });
+
+  it("match EXATO do termo seleciona o modelo base mesmo com variantes na lista", async () => {
+    const { tx } = valuationTx([
+      { modelo: "iPhone 16 Pro Max", armazenamento: "512GB", saudeBateria: "> 90%", valor: { toString: () => "5100.00" }, validadeDias: 1 },
+      { modelo: "iPhone 16", armazenamento: "128GB", saudeBateria: "> 90%", valor: { toString: () => "3300.00" }, validadeDias: 1 },
+    ]);
+    // O cliente confirmou "iPhone 16" exato → deve usar o base (3300), não o Pro Max.
+    const result = await calcularAvaliacao.execute(
+      { categoria: "iphone", modelo: "iPhone 16", armazenamento: "128GB", saude_bateria_percent: 100, tem_caixa: true },
+      makeCtx(tx),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.valor_final).toBe("R$ 3.300,00");
+  });
+
   it("transfere quando o modelo não tem avaliação cadastrada", async () => {
-    const { tx } = valuationTx(null);
+    const { tx } = valuationTx([]);
     const result = await calcularAvaliacao.execute(
       { categoria: "iphone", modelo: "iPhone XPTO", tem_caixa: true },
       makeCtx(tx),
