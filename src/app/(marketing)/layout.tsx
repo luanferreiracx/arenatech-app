@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { unstable_noStore as noStore } from "next/cache";
 import { headers } from "next/headers";
 import { Bricolage_Grotesque, Outfit, JetBrains_Mono } from "next/font/google";
 import { normalizeHost } from "@/lib/brand-host";
@@ -22,6 +23,7 @@ const mono = JetBrains_Mono({
 const PDVCRIPTO_HOSTS = new Set(["pdvcripto.app", "www.pdvcripto.app"]);
 
 export async function generateMetadata(): Promise<Metadata> {
+  noStore();
   const headerStore = await headers();
   const host = normalizeHost(headerStore.get("x-forwarded-host") ?? headerStore.get("host"));
   if (PDVCRIPTO_HOSTS.has(host)) {

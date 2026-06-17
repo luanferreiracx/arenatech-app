@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { headers } from "next/headers";
 import Link from "next/link";
 import {
@@ -80,6 +81,7 @@ function Faq({ q, a }: { q: string; a: string }) {
 }
 
 export default async function LandingPage() {
+  noStore();
   const headerStore = await headers();
   const host = normalizeHost(headerStore.get("x-forwarded-host") ?? headerStore.get("host"));
   if (PDVCRIPTO_HOSTS.has(host)) return <PdvCriptoLandingPage />;
