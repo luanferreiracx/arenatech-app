@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Clock,
   AlertTriangle,
@@ -22,14 +22,29 @@ function formatCents(cents: number): string {
   });
 }
 
+function tabFromParam(value: string | null): "RECEIVABLE" | "PAYABLE" {
+  return value === "PAYABLE" ? "PAYABLE" : "RECEIVABLE";
+}
+
 export function FinancialDashboard() {
-  const [activeTab, setActiveTab] = useState<"RECEIVABLE" | "PAYABLE">("RECEIVABLE");
+  const searchParams = useSearchParams();
+  // Respeita o ?type= da URL (menu "Contas a Pagar" → ?type=PAYABLE). Sincroniza
+  // quando a URL muda sem desmontar o componente (key derivada do param).
+  const urlTab = tabFromParam(searchParams.get("type"));
+  const [overrideTab, setOverrideTab] = useState<"RECEIVABLE" | "PAYABLE" | null>(null);
+  const [lastUrlTab, setLastUrlTab] = useState(urlTab);
+  if (urlTab !== lastUrlTab) {
+    // URL mudou (navegou pelo menu) → segue a URL e descarta o override manual.
+    setLastUrlTab(urlTab);
+    setOverrideTab(null);
+  }
+  const activeTab = overrideTab ?? urlTab;
 
   return (
     <div className="space-y-6">
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as "RECEIVABLE" | "PAYABLE")}
+        onValueChange={(v) => setOverrideTab(v as "RECEIVABLE" | "PAYABLE")}
       >
         <TabsList className="mb-4">
           <TabsTrigger value="RECEIVABLE">A Receber</TabsTrigger>
