@@ -6,6 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
+import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -1824,22 +1825,80 @@ export const saleRouter = createTRPCRouter({
               orderBy: { dueDate: "desc" },
               select: { id: true, amount: true, paidAmount: true },
             });
-            let remainingToCancel = refundedCents;
-            const idsToCancel: string[] = [];
-            for (const inst of installments) {
-              if (remainingToCancel <= 0) break;
-              const installmentDueCents =
-                decimalToCents(inst.amount) - decimalToCents(inst.paidAmount);
-              if (installmentDueCents <= 0) continue;
-              idsToCancel.push(inst.id);
-              remainingToCancel -= installmentDueCents;
-            }
+            // R3: o cancelamento é por parcela INTEIRA (não fraciona parcela).
+            // Se o valor estornado não casa exato com as parcelas, pode cancelar
+            // um pouco a mais — mas o totalAmount é recalculado pelas parcelas
+            // vivas logo abaixo (R2), então a transação fica coerente com o que
+            // sobrou. Fracionar parcela exigiria reescrever o valor dela (mudança
+            // de modelo maior) — fora do escopo desta correção.
+            const idsToCancel = selectIdsToCover(
+              installments.map((inst) => ({
+                id: inst.id,
+                amountCents:
+                  decimalToCents(inst.amount) - decimalToCents(inst.paidAmount),
+              })),
+              refundedCents,
+            );
             if (idsToCancel.length > 0) {
               await tx.installment.updateMany({
                 where: { id: { in: idsToCancel } },
                 data: { status: "CANCELLED" },
               });
               cancelledReceivables = idsToCancel.length;
+
+              // R2: sincroniza totalAmount/status de cada FinancialTransaction
+              // afetada com as parcelas restantes. Sem isto a transação fica com
+              // totalAmount cheio + parcelas canceladas → "a receber" inflado.
+              const affected = await tx.installment.findMany({
+                where: { id: { in: idsToCancel } },
+                select: { transactionId: true },
+              });
+              const affectedTxIds = [...new Set(affected.map((i) => i.transactionId))];
+              for (const txId of affectedTxIds) {
+                const live = await tx.installment.aggregate({
+                  where: { transactionId: txId, status: { not: "CANCELLED" } },
+                  _sum: { amount: true },
+                });
+                const newTotalCents = decimalToCents(
+                  live._sum.amount ?? new Prisma.Decimal(0),
+                );
+                await tx.financialTransaction.update({
+                  where: { id: txId },
+                  data:
+                    newTotalCents === 0
+                      ? {
+                          totalAmount: centsToPrisma(0),
+                          status: "CANCELLED",
+                          cancelledAt: new Date(),
+                          cancelledByUserId: ctx.session.user.id,
+                          cancelReason: input.reason,
+                        }
+                      : { totalAmount: centsToPrisma(newTotalCents) },
+                });
+              }
+            }
+
+            // R1: cancela recebíveis de cartão PENDING proporcionais ao estornado.
+            // CardReceivable é por saleId (não por item) — cancela do prazo mais
+            // distante até cobrir o valor estornado, mesma lógica das parcelas.
+            // SETTLED não muda (já liquidou na conta).
+            const cardPending = await tx.cardReceivable.findMany({
+              where: { saleId: input.saleId, status: "PENDING" },
+              orderBy: { expectedSettlementDate: "desc" },
+              select: { id: true, netAmount: true },
+            });
+            const cardIdsToCancel = selectIdsToCover(
+              cardPending.map((cr) => ({
+                id: cr.id,
+                amountCents: decimalToCents(cr.netAmount),
+              })),
+              refundedCents,
+            );
+            if (cardIdsToCancel.length > 0) {
+              await tx.cardReceivable.updateMany({
+                where: { id: { in: cardIdsToCancel } },
+                data: { status: "CANCELLED" },
+              });
             }
           }
         }
