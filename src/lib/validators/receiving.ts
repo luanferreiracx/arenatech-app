@@ -107,6 +107,32 @@ export const listCardReceivablesSchema = z.object({
   acquirerId: z.string().uuid().optional(),
   dateFrom: z.string().optional(), // ISO date (expectedSettlementDate)
   dateTo: z.string().optional(),
+  /** Só recebíveis liquidados com diferença ≠ 0 (relatório de divergências). */
+  onlyDivergent: z.boolean().optional(),
   page: z.number().int().min(0).default(0),
   pageSize: z.number().int().min(1).max(200).default(50),
+});
+
+// ── Conciliação (settle / unsettle) ──
+
+export const settleCardReceivablesSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        /** Líquido REAL recebido (centavos). */
+        settledNetCents: z.number().int().min(0),
+      }),
+    )
+    .min(1)
+    .max(200),
+  /** Data em que o dinheiro caiu (ISO). Default = agora. */
+  settledDate: z.string().optional(),
+  /** Conta onde caiu. Default = a conta de depósito da adquirente. */
+  accountId: z.string().uuid().optional().nullable(),
+  note: z.string().max(500).optional(),
+});
+
+export const unsettleCardReceivablesSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
 });

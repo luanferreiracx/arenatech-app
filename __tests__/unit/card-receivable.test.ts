@@ -3,6 +3,7 @@ import {
   computeCardSettlement,
   addCalendarDays,
   splitCardReceivable,
+  reconciliationDifference,
 } from "@/server/services/card-receivable.service"
 
 describe("computeCardSettlement", () => {
@@ -157,5 +158,25 @@ describe("splitCardReceivable", () => {
 
   it("total negativo lança", () => {
     expect(() => splitCardReceivable(rate, -1, 2, saleDate)).toThrow()
+  })
+})
+
+describe("reconciliationDifference", () => {
+  it("recebeu exatamente o esperado: diferença 0, não divergente", () => {
+    const r = reconciliationDifference(9701, 9701)
+    expect(r.differenceCents).toBe(0)
+    expect(r.divergent).toBe(false)
+  })
+
+  it("recebeu a menos (taxa cobrada a mais): diferença negativa, divergente", () => {
+    const r = reconciliationDifference(9701, 9650)
+    expect(r.differenceCents).toBe(-51)
+    expect(r.divergent).toBe(true)
+  })
+
+  it("recebeu a mais: diferença positiva, divergente", () => {
+    const r = reconciliationDifference(9701, 9750)
+    expect(r.differenceCents).toBe(49)
+    expect(r.divergent).toBe(true)
   })
 })
