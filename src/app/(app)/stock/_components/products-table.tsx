@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
-import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy } from "lucide-react";
+import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
+import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import { DataTableToolbar } from "@/components/domain/data-table/data-table-tool
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { StockStatsCards } from "./stock-stats-cards";
@@ -46,6 +47,11 @@ function formatCurrency(value: ProductRow["salePrice"]): string {
   });
 }
 
+/** URL de download das etiquetas Niimbot para os produtos selecionados. */
+function buildLabelsUrl(ids: string[]): string {
+  return `/api/stock/labels?ids=${ids.join(",")}`;
+}
+
 export function ProductsTable() {
   const trpc = useTRPC();
   const router = useRouter();
@@ -57,6 +63,13 @@ export function ProductsTable() {
   const [pageSize, setPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; currentStock: number } | null>(null);
+  // Seleção keyed por id do produto (getRowId) — persiste ao trocar de página.
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+
+  const selectedIds = useMemo(
+    () => Object.keys(rowSelection).filter((id) => rowSelection[id]),
+    [rowSelection],
+  );
 
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
@@ -99,6 +112,27 @@ export function ProductsTable() {
   );
 
   const columns: ColumnDef<ProductRow>[] = [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Selecionar todos nesta pagina"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label={`Selecionar ${row.original.name}`}
+        />
+      ),
+      enableSorting: false,
+    },
     {
       accessorKey: "name",
       header: "Produto",
@@ -265,11 +299,35 @@ export function ProductsTable() {
         }}
         isLoading={isLoading}
         emptyMessage="Nenhum produto encontrado."
+        enableRowSelection
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
+        getRowId={(row) => row.id}
         toolbar={
           <DataTableToolbar
             searchValue={search}
             onSearchChange={handleSearchChange}
             searchPlaceholder="Buscar por nome, SKU ou codigo de barras..."
+            actions={
+              selectedIds.length > 0 ? (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+                    Limpar selecao
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    title="Baixa etiquetas .xlsx (Niimbot) dos produtos selecionados"
+                  >
+                    <a href={buildLabelsUrl(selectedIds)}>
+                      <Tag className="mr-2 h-4 w-4" />
+                      Etiquetas ({selectedIds.length})
+                    </a>
+                  </Button>
+                </>
+              ) : undefined
+            }
           />
         }
       />
