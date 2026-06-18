@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
-import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy, Tag } from "lucide-react";
+import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import { toast } from "@/lib/toast";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
+import { LabelsExportMenu } from "./labels-export-menu";
 
 interface ProductRow {
   id: string;
@@ -45,11 +46,6 @@ function formatCurrency(value: ProductRow["salePrice"]): string {
     currency: "BRL",
     minimumFractionDigits: 2,
   });
-}
-
-/** URL de download das etiquetas Niimbot para os produtos selecionados. */
-function buildLabelsUrl(ids: string[]): string {
-  return `/api/stock/labels?ids=${ids.join(",")}`;
 }
 
 export function ProductsTable() {
@@ -314,17 +310,11 @@ export function ProductsTable() {
                   <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
                     Limpar selecao
                   </Button>
-                  <Button
-                    variant="outline"
+                  <LabelsExportMenu
+                    ids={selectedIds}
+                    buttonLabel={`Etiquetas (${selectedIds.length})`}
                     size="sm"
-                    asChild
-                    title="Baixa etiquetas .xlsx (Niimbot) dos produtos selecionados"
-                  >
-                    <a href={buildLabelsUrl(selectedIds)}>
-                      <Tag className="mr-2 h-4 w-4" />
-                      Etiquetas ({selectedIds.length})
-                    </a>
-                  </Button>
+                  />
                 </>
               ) : undefined
             }

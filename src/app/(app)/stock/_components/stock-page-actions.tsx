@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert, Tag } from "lucide-react";
+import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { LabelsExportMenu } from "./labels-export-menu";
 
 /**
  * Acoes do cabecalho da tela de Estoque. As acoes que mutam catalogo/saldo
@@ -43,17 +44,9 @@ export function StockPageActions() {
           </Link>
         </Button>
       )}
-      <Button
-        variant="outline"
-        asChild
-        title="Baixa planilha .xlsx (nome, preço, código de barras) para impressão em série no app Niimbot"
-      >
-        {/* Download direto da API — produtos ativos. Coluna Quantidade = cópias. */}
-        <a href="/api/stock/labels">
-          <Tag className="mr-2 h-4 w-4" />
-          Etiquetas Niimbot
-        </a>
-      </Button>
+      {/* Exporta produtos ativos (.xlsx p/ app Niimbot). Menu permite escolher
+          1 etiqueta por produto ou repetir conforme o saldo em estoque. */}
+      <LabelsExportMenu buttonLabel="Etiquetas Niimbot" />
       <Button variant="outline" asChild>
         <Link href="/stock/nfe">
           <FileText className="mr-2 h-4 w-4" />
