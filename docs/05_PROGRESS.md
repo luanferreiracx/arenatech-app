@@ -11,11 +11,18 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/os-signed-lock-banner`
+**Branch atual:** `feat/os-rewire-nfse-quote`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: religar detachNfse + checkQuoteStatus na UI (PR 3/N)
+Religadas 2 das procedures órfãs (backend existia, UI não usava):
+- **detachNfse:** botão "Remover" (admin-only) na seção NF-e da página de edição, quando há anexo — antes só dava pra anexar, não desfazer.
+- **checkQuoteStatus:** botão "Verificar resposta do cliente" no bloco de orçamento pendente (aparece quando o orçamento foi enviado). Query disparada sob demanda via `queryClient.fetchQuery` → avisa se o cliente aprovou/rejeitou/segue pendente e atualiza a OS.
+- Validação: typecheck + lint (0 erros). Restam órfãs: `generatePix`/`cancelPix` (DePix na OS, religar depois), `saveSignaturePad` (decidido não religar), `adminRespondQuote` (avaliar redundância com `approveQuoteManually`).
+- **Próximo:** DePix na OS, refactor do `detail`, fechar auditoria periférica.
 
 ### 2026-06-18 — OS: aviso de edição restrita em OS assinada/concluída (PR 2/N)
 P1 da auditoria. A página de edição **já** travava os campos de entrada (readonly/disabled + defesa no submit), e o `isSigned` da UI bate com o `isEntrySigned` do servidor (mesmos 3 campos). Faltava o **aviso claro**: agora há um banner âmbar no topo do formulário quando a OS está assinada/concluída, explicando o que está bloqueado e por quê ("campos com 🔒 não são salvos"). Decisão do dono: travar + banner (não bloquear a tela inteira). Validação: typecheck + lint (0 erros).
