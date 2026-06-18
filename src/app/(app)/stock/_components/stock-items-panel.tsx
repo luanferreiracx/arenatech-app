@@ -29,7 +29,7 @@ import {
   stockItemStatusLabels,
   stockItemConditionLabels,
 } from "@/lib/validators/stock-item";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 
 type StockItemRow = {
   id: string;
@@ -50,7 +50,9 @@ const statusVariant: Record<string, "success" | "destructive" | "warning" | "def
 
 export function StockItemsPanel({ productId }: { productId: string }) {
   const trpc = useTRPC();
-  const isAdmin = useIsTenantAdmin();
+  // ADR 0053: marcar defeito/reativar é movimento do operador; dar baixa (perda) é admin.
+  const canMoveStock = useCan("moveStock");
+  const canDispose = useCan("disposeStock");
   const queryClient = useQueryClient();
   const [disposeTarget, setDisposeTarget] = useState<StockItemRow | null>(null);
   const [disposeReason, setDisposeReason] = useState("");
@@ -108,7 +110,7 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                 <TableHead>IMEI / Serie</TableHead>
                 <TableHead>Condicao</TableHead>
                 <TableHead>Status</TableHead>
-                {isAdmin && <TableHead className="text-right">Acoes</TableHead>}
+                {canMoveStock && <TableHead className="text-right">Acoes</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -129,7 +131,7 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                         {stockItemStatusLabels[item.status] ?? item.status}
                       </StatusBadge>
                     </TableCell>
-                    {isAdmin && (
+                    {canMoveStock && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {item.status === "AVAILABLE" && (
@@ -164,8 +166,8 @@ export function StockItemsPanel({ productId }: { productId: string }) {
                             Reativar
                           </Button>
                         )}
-                        {/* Baixa/descarte: disponivel para itens ainda no estoque. */}
-                        {["AVAILABLE", "DEFECTIVE", "BLOCKED", "RETURNED"].includes(item.status) && (
+                        {/* Baixa/descarte (perda de patrimônio): admin (ADR 0053). */}
+                        {canDispose && ["AVAILABLE", "DEFECTIVE", "BLOCKED", "RETURNED"].includes(item.status) && (
                           <Button
                             variant="ghost"
                             size="sm"
