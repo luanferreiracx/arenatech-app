@@ -138,6 +138,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [otherCostEdit, setOtherCostEdit] = useState(0);
   // Revisao de orcamento (autorizacao pos-assinatura)
   const [budgetReason, setBudgetReason] = useState("");
+  // Verificacao sob demanda da resposta do cliente ao orcamento (checkQuoteStatus).
+  const [checkQuotePending, setCheckQuotePending] = useState(false);
   // Edicao inline de item
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [editItemDesc, setEditItemDesc] = useState("");
@@ -334,6 +336,27 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       onError: (e) => toast.error(e.message),
     })
   );
+
+  // checkQuoteStatus e uma query — disparada sob demanda para saber se o cliente
+  // ja respondeu pelo link publico (respondToQuote aplica no servidor). Refaz a
+  // OS depois para refletir o novo status.
+  const handleCheckQuote = async () => {
+    setCheckQuotePending(true);
+    try {
+      const res = await queryClient.fetchQuery(
+        trpc.serviceOrder.checkQuoteStatus.queryOptions({ orderId: id }),
+      );
+      if (res.approved) toast.success("Cliente aprovou o orcamento!");
+      else if (res.rejected) toast.info("Cliente rejeitou o orcamento.");
+      else if (res.pending) toast.info("Orcamento ainda aguardando resposta do cliente.");
+      else toast.info("Orcamento resolvido — atualizando a OS.");
+      invalidateOrder();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao verificar o orcamento.");
+    } finally {
+      setCheckQuotePending(false);
+    }
+  };
 
   // Sprint 1A mutations
   const sendTrackingMut = useMutation(
@@ -906,6 +929,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               >
                 <MessageCircle className="mr-1 h-3 w-3" />{sent ? "Reenviar ao cliente" : "Enviar para autorizacao"}
               </Button>
+              {sent && (
+                <Button size="sm" variant="outline" onClick={handleCheckQuote} disabled={checkQuotePending}>
+                  <RefreshCw className={`mr-1 h-3 w-3 ${checkQuotePending ? "animate-spin" : ""}`} />Verificar resposta do cliente
+                </Button>
+              )}
               {order.viewerCanAuthorize && (
                 <Button size="sm" variant="outline" onClick={() => approveQuoteMut.mutate({ orderId: id })} disabled={approveQuoteMut.isPending}>
                   <Check className="mr-1 h-3 w-3" />Autorizar agora (gerente)

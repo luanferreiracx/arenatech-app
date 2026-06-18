@@ -21,7 +21,8 @@ import {
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, Save, Lock } from "lucide-react";
+import { ArrowLeft, Save, Lock, Trash2 } from "lucide-react";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import Link from "next/link";
 import {
   deviceTypeEnum,
@@ -71,6 +72,16 @@ export default function EditServiceOrderPage({
     }),
   );
 
+  const detachNfseMutation = useMutation(
+    trpc.serviceOrder.detachNfse.mutationOptions({
+      onSuccess: () => {
+        toast.success("Anexo da NFS-e removido.");
+        void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
   if (isLoading || !order) {
     return <LoadingState />;
   }
@@ -81,6 +92,8 @@ export default function EditServiceOrderPage({
       onSubmit={(data) => updateMutation.mutate(data)}
       onAttachNfse={(payload) => attachNfseMutation.mutate(payload)}
       attachNfsePending={attachNfseMutation.isPending}
+      onDetachNfse={() => detachNfseMutation.mutate({ orderId: id })}
+      detachNfsePending={detachNfseMutation.isPending}
       isPending={updateMutation.isPending}
       id={id}
     />
@@ -96,7 +109,9 @@ interface AttachNfsePayload {
   contentType: string;
 }
 
-function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; onAttachNfse: (p: AttachNfsePayload) => void; attachNfsePending: boolean; isPending: boolean; id: string }) {
+function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNfse, detachNfsePending, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; onAttachNfse: (p: AttachNfsePayload) => void; attachNfsePending: boolean; onDetachNfse: () => void; detachNfsePending: boolean; isPending: boolean; id: string }) {
+  // detachNfse exige admin no backend — esconde o botao para operador.
+  const isAdmin = useIsTenantAdmin();
   // Paridade Laravel:
   // - $osAssinada (entrada confirmada) → bloqueia equipamento, IMEI, problema
   //   relatado, checklist entrada e info adicionais
@@ -398,9 +413,23 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
               }}
             />
             {order.nfseAttachmentPath && (
-              <p className="text-xs text-muted-foreground">
-                Anexo atual: <span className="font-mono">{String(order.nfseAttachmentPath).split("/").pop()}</span>
-              </p>
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+                <p className="text-xs text-muted-foreground truncate">
+                  Anexo atual: <span className="font-mono">{String(order.nfseAttachmentPath).split("/").pop()}</span>
+                </p>
+                {isAdmin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive shrink-0"
+                    disabled={detachNfsePending}
+                    onClick={() => onDetachNfse()}
+                  >
+                    <Trash2 className="mr-1 h-3.5 w-3.5" />Remover
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </div>
