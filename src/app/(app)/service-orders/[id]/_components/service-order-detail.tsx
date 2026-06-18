@@ -53,7 +53,6 @@ import {
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
-import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { WhatsAppSendDialog } from "@/components/domain/whatsapp-send-dialog";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { toast } from "@/lib/toast";
@@ -75,6 +74,7 @@ import {
 } from "@/lib/validators/service-order";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 import { StatusStepper } from "./status-stepper";
+import { ConcludeOsDialog } from "./conclude-os-dialog";
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
@@ -167,8 +167,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [notifyDeliveryContext, setNotifyDeliveryContext] = useState<"retirada" | "envio" | "generico">("retirada");
   const [notifyDeliveryMessage, setNotifyDeliveryMessage] = useState("");
   const [deleteDialog, setDeleteDialog] = useState(false);
-  // Confirmacao ao pular etapas direto para Concluida (item 3).
-  const [skipCompleteDialog, setSkipCompleteDialog] = useState(false);
+  // Conclusao da OS: dialogo unico (avancar normal OU pular etapas) que
+  // pergunta se avisa o cliente por WhatsApp. `concludeSkipping` muda a copy/nota.
+  const [concludeDialog, setConcludeDialog] = useState(false);
+  const [concludeSkipping, setConcludeSkipping] = useState(false);
+  // Reenvio manual da notificacao de conclusao (escolhe/digita telefone).
+  const [notifyCompletedDialog, setNotifyCompletedDialog] = useState(false);
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
@@ -693,8 +697,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Communication — so apos OS concluida (paridade com Laravel). */}
-      {!isCancelled && !isRefunded && order.customer?.phone && ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+      {/* Communication — so apos OS concluida (paridade com Laravel). Aparece
+          mesmo sem telefone cadastrado: o operador pode digitar um no envio. */}
+      {!isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
         <div className="rounded-lg border-2 border-blue-500 bg-blue-500/10 p-4 mb-6">
           <h3 className="font-semibold text-blue-400 flex items-center gap-2">
             <MessageCircle className="h-5 w-5" />Comunicacao
@@ -704,7 +709,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               size="sm"
               variant="outline"
               disabled={notifyCompletedMut.isPending}
-              onClick={() => notifyCompletedMut.mutate({ serviceOrderId: id })}
+              onClick={() => setNotifyCompletedDialog(true)}
             >
               <MessageCircle className="mr-1 h-3 w-3" />Enviar Conclusao por WhatsApp
             </Button>
@@ -1376,7 +1381,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     <Button
                       key={s}
                       size="sm"
-                      onClick={() => updateStatusMut.mutate({ id, status: s, notes: null })}
+                      onClick={() => {
+                        // Conclusao passa pelo dialogo (pergunta WhatsApp); demais
+                        // transicoes seguem diretas.
+                        if (s === "COMPLETED") {
+                          setConcludeSkipping(false);
+                          setConcludeDialog(true);
+                        } else {
+                          updateStatusMut.mutate({ id, status: s, notes: null });
+                        }
+                      }}
                       disabled={updateStatusMut.isPending}
                     >
                       Avancar para: {SERVICE_ORDER_STATUS_LABELS[s]}
@@ -1394,7 +1408,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSkipCompleteDialog(true)}
+                      onClick={() => {
+                        setConcludeSkipping(true);
+                        setConcludeDialog(true);
+                      }}
                       disabled={updateStatusMut.isPending}
                     >
                       <CheckCheck className="mr-1 h-3 w-3" />Concluir agora (pular etapas)
@@ -1579,6 +1596,23 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </div>
 
       {/* ── Dialogs ── */}
+
+      {/* Reenvio manual da notificacao de conclusao (escolhe/digita telefone) */}
+      <WhatsAppSendDialog
+        open={notifyCompletedDialog}
+        onOpenChange={setNotifyCompletedDialog}
+        title="Enviar Conclusao por WhatsApp"
+        description="Selecione um numero ou digite outro para avisar que o aparelho esta pronto."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={notifyCompletedMut.isPending}
+        confirmLabel="Enviar"
+        onConfirm={async (phone) => {
+          await notifyCompletedMut.mutateAsync({ serviceOrderId: id, phone });
+          setNotifyCompletedDialog(false);
+        }}
+      />
 
       {/* Signature WhatsApp Dialog */}
       <WhatsAppSendDialog
@@ -1781,18 +1815,27 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Pular etapas: concluir direto (item 3) */}
-      <ConfirmDialog
-        open={skipCompleteDialog}
-        onOpenChange={setSkipCompleteDialog}
-        title="Concluir OS pulando etapas?"
-        description={`A OS sera marcada como Concluida, pulando as etapas intermediarias do fluxo (diagnostico, aprovacao, execucao). Confirme que o servico foi de fato finalizado.`}
-        confirmLabel="Concluir OS"
-        onConfirm={() => {
-          setSkipCompleteDialog(false);
-          updateStatusMut.mutate({ id, status: "COMPLETED", notes: "Concluida pulando etapas" });
-        }}
+      {/* Conclusao da OS (com opcao de avisar o cliente por WhatsApp) */}
+      <ConcludeOsDialog
+        open={concludeDialog}
+        onOpenChange={setConcludeDialog}
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        skipping={concludeSkipping}
         isLoading={updateStatusMut.isPending}
+        onConfirm={({ notifyWhatsapp, notifyPhone }) => {
+          updateStatusMut.mutate(
+            {
+              id,
+              status: "COMPLETED",
+              notes: concludeSkipping ? "Concluida pulando etapas" : null,
+              notifyWhatsapp,
+              notifyPhone,
+            },
+            { onSuccess: () => setConcludeDialog(false) },
+          );
+        }}
       />
 
       {/* Cancel Dialog */}
