@@ -2,6 +2,8 @@
 
 import {
   type ColumnDef,
+  type OnChangeFn,
+  type RowSelectionState,
   flexRender,
   getCoreRowModel,
   useReactTable,
@@ -28,7 +30,13 @@ export interface DataTableProps<TData, TValue> {
   isLoading?: boolean;
   emptyMessage?: string;
   toolbar?: React.ReactNode;
-  rowSelection?: boolean;
+  /** Habilita seleção de linhas. Requer `getRowId`, `rowSelection` e `onRowSelectionChange`. */
+  enableRowSelection?: boolean;
+  /** Estado de seleção controlado (mapa id→boolean). Persiste entre páginas. */
+  rowSelection?: RowSelectionState;
+  onRowSelectionChange?: OnChangeFn<RowSelectionState>;
+  /** Identificador estável da linha — necessário p/ a seleção sobreviver à paginação. */
+  getRowId?: (row: TData) => string;
 }
 
 export function DataTable<TData, TValue>({
@@ -42,6 +50,10 @@ export function DataTable<TData, TValue>({
   isLoading = false,
   emptyMessage = "Nenhum resultado encontrado.",
   toolbar,
+  enableRowSelection = false,
+  rowSelection,
+  onRowSelectionChange,
+  getRowId,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -49,6 +61,7 @@ export function DataTable<TData, TValue>({
     pageCount: pageCount ?? -1,
     state: {
       pagination: { pageIndex, pageSize },
+      rowSelection: rowSelection ?? {},
     },
     onPaginationChange: (updater) => {
       if (typeof updater === "function") {
@@ -57,6 +70,9 @@ export function DataTable<TData, TValue>({
         if (next.pageSize !== pageSize) onPageSizeChange?.(next.pageSize);
       }
     },
+    onRowSelectionChange,
+    enableRowSelection,
+    getRowId,
     manualPagination: true,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -99,7 +115,11 @@ export function DataTable<TData, TValue>({
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="py-4">
+                <TableRow
+                  key={row.id}
+                  className="py-4"
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} className="py-4">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
