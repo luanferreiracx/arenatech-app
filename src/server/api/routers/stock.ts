@@ -718,9 +718,7 @@ export const stockRouter = createTRPCRouter({
   adjustStock: tenantProcedure
     .input(adjustStockSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem ajustar o estoque." });
-      }
+      // ADR 0053: operador (membro do tenant) ajusta estoque — fluxo do dia a dia.
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findUnique({ where: { id: input.productId } });
         if (!product || product.deletedAt) {
@@ -921,9 +919,7 @@ export const stockRouter = createTRPCRouter({
   createPurchase: tenantProcedure
     .input(createDevicePurchaseSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem registrar compra de aparelhos." });
-      }
+      // ADR 0053: operador (membro do tenant) registra compra de aparelho — dia a dia.
       return ctx.withTenant(async (tx) => {
         // Product OBRIGATORIO. Operador escolhe via combobox (Estoque ->
         // Produtos cadastrados como aparelho serializado). Sem digitacao
@@ -1979,9 +1975,7 @@ export const stockRouter = createTRPCRouter({
   createSupplier: tenantProcedure
     .input(createSupplierSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem cadastrar fornecedores." });
-      }
+      // ADR 0053: operador (membro do tenant) cadastra fornecedor — dia a dia.
       return ctx.withTenant(async (tx) => {
         return tx.supplier.create({
           data: {
@@ -2010,9 +2004,7 @@ export const stockRouter = createTRPCRouter({
   updateSupplier: tenantProcedure
     .input(updateSupplierSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar fornecedores." });
-      }
+      // ADR 0053: operador (membro do tenant) edita fornecedor — dia a dia.
       return ctx.withTenant(async (tx) => {
         const existing = await tx.supplier.findFirst({
           where: { id: input.id, deletedAt: null },
@@ -2218,9 +2210,7 @@ export const stockRouter = createTRPCRouter({
   stockEntry: tenantProcedure
     .input(stockEntrySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
-      }
+      // ADR 0053: operador (membro do tenant) dá entrada no estoque — dia a dia.
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findFirst({
           where: { id: input.productId, deletedAt: null },
@@ -2291,9 +2281,7 @@ export const stockRouter = createTRPCRouter({
   stockEntryBatch: tenantProcedure
     .input(stockEntryBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para entrada de estoque" });
-      }
+      // ADR 0053: operador (membro do tenant) dá entrada em lote — dia a dia.
       return ctx.withTenant(async (tx) => {
         // Pre-carrega todos os produtos do lote (1 findMany em vez de N).
         const productIds = [...new Set(input.items.map((it) => it.productId))];
@@ -2380,9 +2368,7 @@ export const stockRouter = createTRPCRouter({
   stockExit: tenantProcedure
     .input(stockExitSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para baixa de estoque" });
-      }
+      // ADR 0053: operador (membro do tenant) dá saída avulsa — dia a dia.
       return ctx.withTenant(async (tx) => {
         const product = await tx.product.findFirst({
           where: { id: input.productId, deletedAt: null },
@@ -3380,9 +3366,7 @@ export const stockRouter = createTRPCRouter({
   importCsv: tenantProcedure
     .input(csvImportSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem importar produtos via CSV." });
-      }
+      // ADR 0053: operador (membro do tenant) importa produtos via CSV — dia a dia.
       return ctx.withTenant(async (tx) => {
         let productsCreated = 0;
         let stockEntries = 0;
@@ -4168,9 +4152,7 @@ export const stockRouter = createTRPCRouter({
   entrySerializedItems: tenantProcedure
     .input(createStockItemBatchSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
+      // ADR 0053: operador (membro do tenant) dá entrada de itens serializados — dia a dia.
       return ctx.withTenant(async (tx) => {
         return entrySerializedItems(tx as any, ctx.tenantId, ctx.session.user.id, {
           productId: input.productId,
@@ -4190,9 +4172,7 @@ export const stockRouter = createTRPCRouter({
   entryQuantity: tenantProcedure
     .input(stockEntryQuantitySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
+      // ADR 0053: operador (membro do tenant) dá entrada por quantidade — dia a dia.
       return ctx.withTenant(async (tx) => {
         await entryNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
           productId: input.productId,
@@ -4249,9 +4229,7 @@ export const stockRouter = createTRPCRouter({
   adjustInventory: tenantProcedure
     .input(stockAdjustmentSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
+      // ADR 0053: operador (membro do tenant) ajusta inventário — dia a dia.
       return ctx.withTenant(async (tx) => {
         await adjustInventory(tx as any, ctx.tenantId, ctx.session.user.id, {
           productId: input.productId,
@@ -4266,9 +4244,7 @@ export const stockRouter = createTRPCRouter({
   bulkAdjust: tenantProcedure
     .input(bulkAdjustStockSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
+      // ADR 0053: operador (membro do tenant) faz ajuste em massa — dia a dia.
       // Ajusta cada produto sequencialmente, dentro de UMA transacao — falha
       // num item aborta todos (atomicidade vs Laravel que rodava em DB::transaction).
       const result = await ctx.withTenant(async (tx) => {
@@ -4294,13 +4270,10 @@ export const stockRouter = createTRPCRouter({
   changeItemStatus: tenantProcedure
     .input(changeStockItemStatusSchema)
     .mutation(async ({ ctx, input }) => {
-      const tenantAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
-      // RBAC: bloquear item e marcar defeito/devolucao sao acoes de admin do tenant.
-      if (input.newStatus === "BLOCKED" && !tenantAdmin) {
+      // ADR 0053: operador pode marcar defeito/devolução (movimento do dia a dia).
+      // Bloquear item é perda/segurança — continua exigindo admin do tenant.
+      if (input.newStatus === "BLOCKED" && !isTenantAdmin(ctx.session, ctx.tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores do tenant podem bloquear" });
-      }
-      if (["DEFECTIVE", "RETURNED"].includes(input.newStatus) && !tenantAdmin) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
 
       return ctx.withTenant(async (tx) => {

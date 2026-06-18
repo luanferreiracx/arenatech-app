@@ -21,7 +21,7 @@ import {
 import { stockMovementTypeLabels } from "@/lib/validators/stock";
 import { AdjustStockDialog } from "../_components/adjust-stock-dialog";
 import { StockItemsPanel } from "../_components/stock-items-panel";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 import { useState } from "react";
 
 function formatCurrency(value: unknown): string {
@@ -51,7 +51,9 @@ function formatDate(date: string | Date): string {
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const trpc = useTRPC();
-  const isAdmin = useIsTenantAdmin();
+  // ADR 0053: ajustar saldo é do operador; editar produto/variações (catálogo) é admin.
+  const canMoveStock = useCan("moveStock");
+  const canManageCatalog = useCan("manageCatalog");
   const [showAdjust, setShowAdjust] = useState(false);
 
   const { data: product, isLoading } = useQuery(
@@ -92,19 +94,19 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 Voltar
               </Link>
             </Button>
-            {/* Ajustar/Editar mutam o produto — admin-only no backend. Ajuste
-                tambem nao se aplica a serializado (saldo deriva dos StockItems). */}
-            {isAdmin && !product.isSerialized && (
+            {/* Ajustar saldo: operador (ADR 0053) — não se aplica a serializado
+                (saldo deriva dos StockItems). Editar produto/variações: admin. */}
+            {canMoveStock && !product.isSerialized && (
               <Button variant="outline" onClick={() => setShowAdjust(true)}>
                 Ajustar Estoque
               </Button>
             )}
-            {isAdmin && product.hasVariations && (
+            {canManageCatalog && product.hasVariations && (
               <Button variant="outline" asChild>
                 <Link href={`/stock/${id}/variations`}>Variacoes</Link>
               </Button>
             )}
-            {isAdmin && (
+            {canManageCatalog && (
               <Button asChild>
                 <Link href={`/stock/${id}/edit`}>
                   <Pencil className="mr-2 h-4 w-4" />

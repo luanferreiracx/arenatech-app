@@ -3,16 +3,19 @@
 import Link from "next/link";
 import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 import { LabelsExportMenu } from "./labels-export-menu";
 
 /**
- * Acoes do cabecalho da tela de Estoque. As acoes que mutam catalogo/saldo
- * (baixa, ajuste em massa, importar CSV, novo produto) exigem admin no backend —
- * escondidas para operador. Relatorios e NF-e ficam visiveis para todos.
+ * Acoes do cabecalho da tela de Estoque (ADR 0053). Movimento de saldo (baixa,
+ * ajuste em massa) e importar CSV sao do dia a dia — visiveis para o operador.
+ * Criar/editar catalogo (Novo Produto) continua so para admin. Relatorios e
+ * NF-e ficam visiveis para todos.
  */
 export function StockPageActions() {
-  const isAdmin = useIsTenantAdmin();
+  const canMoveStock = useCan("moveStock");
+  const canImportCsv = useCan("importCatalogCsv");
+  const canManageCatalog = useCan("manageCatalog");
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -28,7 +31,7 @@ export function StockPageActions() {
           Estoque baixo
         </Link>
       </Button>
-      {isAdmin && (
+      {canMoveStock && (
         <Button variant="outline" asChild>
           <Link href="/stock/bulk-adjust">
             <ListChecks className="mr-2 h-4 w-4" />
@@ -36,7 +39,7 @@ export function StockPageActions() {
           </Link>
         </Button>
       )}
-      {isAdmin && (
+      {canMoveStock && (
         <Button variant="outline" asChild>
           <Link href="/stock/exit">
             <MinusCircle className="mr-2 h-4 w-4" />
@@ -53,7 +56,7 @@ export function StockPageActions() {
           NF-e
         </Link>
       </Button>
-      {isAdmin && (
+      {canImportCsv && (
         <Button variant="outline" asChild>
           <Link href="/stock/import">
             <Download className="mr-2 h-4 w-4" />
@@ -61,7 +64,7 @@ export function StockPageActions() {
           </Link>
         </Button>
       )}
-      {isAdmin && (
+      {canManageCatalog && (
         <Button asChild>
           <Link href="/stock/new">
             <Plus className="mr-2 h-4 w-4" />

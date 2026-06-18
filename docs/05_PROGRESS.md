@@ -8,14 +8,22 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-16
+**Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `docs/etapa7-done`
+**Branch atual:** `feat/rbac-operador-autonomia`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — RBAC: autonomia do operador (redesenho da linha admin/operator)
+Dono apontou que o funcionário comum tinha autonomia de menos para a loja funcionar. Análise (varredura dos gates + ADRs 0020/0024/0031) achou a raiz: a consolidação 4→2 papéis de 13/jun (#89/#90) jogou TODO o poder de "gerente de balcão" para `admin`, deixando o operador preso no nível "vendedor read-only". Decisão (dono): **afrouxar o operador no modelo binário** (sem reintroduzir tier `manager`).
+- **Liberado para operador (ADR 0053):** entrada/saída/ajuste/ajuste em massa, entrada serializada/por quantidade, marcar defeito/devolvido/reativar item, registrar compra de aparelho, importar CSV, cadastrar/editar fornecedor.
+- **Continua admin:** criar/editar/excluir produto·categoria·atributo·variação·foto (catálogo), baixa/descarte/bloqueio de item (perda de patrimônio), excluir fornecedor, cancelar compra / alterar data da compra, e todo o financeiro/sensível (avaliação, aprovar despesa, categorias financeiras, estorno de parcela, alterar venda finalizada, forçar fechamento de caixa, excluir/restaurar cliente, comissões, settings).
+- **Como:** fonte única `src/lib/auth/capabilities.ts` (`can()`) + hook client `use-capabilities` (`useCan`). Servidor: removidos os gates de admin das procedures liberadas em `stock.ts` (mantida a `tenantProcedure`); UI de estoque (`stock-page-actions`, `products-table`, `stock-items-panel`, `stock/[id]`, `suppliers`, `new-purchase-action`) passou a gating por capacidade em vez de `isAdmin` único. `changeItemStatus`: só `BLOCKED` segue admin.
+- **Decisão não óbvia:** movimento de estoque (auditado por `userId`) ≠ perda de patrimônio (irreversível) — perda fica com o dono. Compra/CSV podem criar produto como efeito colateral mesmo com catálogo admin-only (fluxos liberados explicitamente).
+- Validação: typecheck, lint (0 erros), unit (1109 + 6 de `capabilities.test`). ADR 0053 (revisa parcialmente 0020/0024).
 
 ### 2026-06-17 — Controle financeiro: conciliação manual de recebíveis de cartão
 Sequência da fundação. Dono pediu conciliação **sem nenhuma integração com API de adquirente** — 100% manual: o operador baixa o extrato da própria maquininha e bate na tela. Decisões (dono): conferência **linha a linha + lote**; ao liquidar **informa o líquido real** → sistema **detecta divergência**; divergência **marca SETTLED + registra a diferença** num relatório.
