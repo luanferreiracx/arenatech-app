@@ -7,6 +7,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
+import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -750,7 +751,53 @@ export const saleRouter = createTRPCRouter({
           include: { items: true },
         });
 
-        if (!sale || sale.status !== "DRAFT") {
+        if (!sale) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Venda nao encontrada ou nao esta em rascunho",
+          });
+        }
+
+        // R5: idempotência em duplo-submit. Em rede lenta o operador pode
+        // reenviar o mesmo finalize; a 1ª chamada já marcou COMPLETED. Em vez
+        // de um erro feio (que faz o operador achar que falhou e refazer a
+        // venda), devolvemos a venda já finalizada quando o request é o mesmo
+        // (mesmos pagamentos + forma de devolução). O update DRAFT→COMPLETED
+        // serializa no lock de linha, então não há dupla venda — isto só
+        // melhora o retorno do retry. Request diferente contra venda já
+        // finalizada continua sendo erro.
+        if (sale.status === "COMPLETED") {
+          const sameRequest = isSameFinalizeRequest(
+            {
+              paymentDetails: sale.paymentDetails,
+              refundDueMethod: sale.refundDueMethod,
+            },
+            {
+              payments: input.payments ?? [],
+              refundDueMethod: input.refundDueMethod ?? null,
+            },
+          );
+          if (sameRequest) {
+            logger.info("Sale finalize idempotent replay", {
+              saleId: sale.id,
+              number: sale.number,
+              userId: ctx.session.user.id,
+            });
+            return {
+              updated: sale,
+              saleNumber: sale.number ?? "",
+              shouldTriggerDepixWithdraw: false,
+              refundDueCents: 0,
+              customerName: null,
+            };
+          }
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Esta venda já foi finalizada.",
+          });
+        }
+
+        if (sale.status !== "DRAFT") {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Venda nao encontrada ou nao esta em rascunho",

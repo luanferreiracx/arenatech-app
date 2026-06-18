@@ -71,7 +71,12 @@ Tratar **R1 (crítico)** já, e **R2+R3 juntos** num refactor do estorno parcial
 - ✅ **R6** — DePix manual exige observação + grava audit log (`sale_depix_manual`).
 - Helper `selectIdsToCover` (`refund-coverage.service`) com 7 testes.
 
+**Corrigido depois (2026-06-18):**
+- ✅ **R5** — `finalize` idempotente em duplo-submit: venda já `COMPLETED` com o
+  mesmo request (mesmos pagamentos + forma de devolução) retorna a venda
+  existente em vez de erro; request diferente continua dando `CONFLICT`. Helper
+  puro `isSameFinalizeRequest` (`finalize-idempotency.service`) com 10 testes.
+
 **Pendentes (decisão do dono — não priorizados agora):**
-- **R5** — tornar `finalize` idempotente em duplo-submit (hoje dá erro feio, mas é seguro).
 - **R7** — integrar/obrigar NF-e ao fluxo de venda (escopo fiscal maior; dono optou por deixar).
 - Gap secundário achado durante R4: o batch de geração de comissão filtra só `status="COMPLETED"`, então venda `PARTIALLY_REFUNDED` **não gera comissão** sobre o saldo. Avaliar no módulo de comissão se for relevante.
