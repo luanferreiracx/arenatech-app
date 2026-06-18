@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { isTenantAdmin } from "@/lib/auth/roles";
+import { can } from "@/lib/auth/capabilities";
 import {
   createProductSchema,
   updateProductSchema,
@@ -327,7 +327,7 @@ export const stockRouter = createTRPCRouter({
   create: tenantProcedure
     .input(createProductSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -499,7 +499,7 @@ export const stockRouter = createTRPCRouter({
   update: tenantProcedure
     .input(updateProductSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -693,7 +693,7 @@ export const stockRouter = createTRPCRouter({
   delete: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir produtos." });
       }
       return ctx.withTenant(async (tx) => {
@@ -1354,7 +1354,7 @@ export const stockRouter = createTRPCRouter({
       reason: z.string().min(3).max(300),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "cancelPurchase")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem cancelar compras." });
       }
       return ctx.withTenant(async (tx) => {
@@ -1483,7 +1483,7 @@ export const stockRouter = createTRPCRouter({
       purchaseDate: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "changePurchaseDate")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem alterar a data da compra." });
       }
       const newDate = new Date(input.purchaseDate);
@@ -2039,7 +2039,7 @@ export const stockRouter = createTRPCRouter({
   deleteSupplier: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "deleteSupplier")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir fornecedores." });
       }
       return ctx.withTenant(async (tx) => {
@@ -2142,7 +2142,7 @@ export const stockRouter = createTRPCRouter({
   createCategory: tenantProcedure
     .input(createCategorySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar categorias." });
       }
       return ctx.withTenant(async (tx) => {
@@ -2158,7 +2158,7 @@ export const stockRouter = createTRPCRouter({
   updateCategory: tenantProcedure
     .input(updateCategorySchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar categorias." });
       }
       return ctx.withTenant(async (tx) => {
@@ -2178,7 +2178,7 @@ export const stockRouter = createTRPCRouter({
   deleteCategory: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir categorias." });
       }
       return ctx.withTenant(async (tx) => {
@@ -3551,7 +3551,7 @@ export const stockRouter = createTRPCRouter({
   createAttribute: tenantProcedure
     .input(createAttributeSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3576,7 +3576,7 @@ export const stockRouter = createTRPCRouter({
   updateAttribute: tenantProcedure
     .input(updateAttributeSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3594,7 +3594,7 @@ export const stockRouter = createTRPCRouter({
   deleteAttribute: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3612,7 +3612,7 @@ export const stockRouter = createTRPCRouter({
   createAttributeValue: tenantProcedure
     .input(createAttributeValueSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3633,7 +3633,7 @@ export const stockRouter = createTRPCRouter({
   updateAttributeValue: tenantProcedure
     .input(updateAttributeValueSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3645,7 +3645,7 @@ export const stockRouter = createTRPCRouter({
   deleteAttributeValue: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3694,7 +3694,7 @@ export const stockRouter = createTRPCRouter({
   createVariation: tenantProcedure
     .input(createVariationSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3726,7 +3726,7 @@ export const stockRouter = createTRPCRouter({
   updateVariation: tenantProcedure
     .input(updateVariationSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3760,7 +3760,7 @@ export const stockRouter = createTRPCRouter({
   deleteVariation: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3792,7 +3792,7 @@ export const stockRouter = createTRPCRouter({
       imageProviderPublicId: z.string().max(500).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3811,7 +3811,7 @@ export const stockRouter = createTRPCRouter({
   removeVariationImage: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3849,7 +3849,7 @@ export const stockRouter = createTRPCRouter({
   createPhoto: tenantProcedure
     .input(createPhotoSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3889,7 +3889,7 @@ export const stockRouter = createTRPCRouter({
   deletePhoto: tenantProcedure
     .input(z.object({ id: z.string().uuid(), productId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3928,7 +3928,7 @@ export const stockRouter = createTRPCRouter({
   setPrimaryPhoto: tenantProcedure
     .input(setPrimaryPhotoSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -3989,7 +3989,7 @@ export const stockRouter = createTRPCRouter({
   duplicateProduct: tenantProcedure
     .input(duplicateProductSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4189,7 +4189,7 @@ export const stockRouter = createTRPCRouter({
   writeOff: tenantProcedure
     .input(stockWriteOffSchema)
     .mutation(async ({ ctx, input }) => {
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "disposeStock")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
@@ -4272,7 +4272,7 @@ export const stockRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // ADR 0053: operador pode marcar defeito/devolução (movimento do dia a dia).
       // Bloquear item é perda/segurança — continua exigindo admin do tenant.
-      if (input.newStatus === "BLOCKED" && !isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (input.newStatus === "BLOCKED" && !can(ctx.session, ctx.tenantId, "disposeStock")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores do tenant podem bloquear" });
       }
 
@@ -4293,7 +4293,7 @@ export const stockRouter = createTRPCRouter({
     .input(disposeStockItemSchema)
     .mutation(async ({ ctx, input }) => {
       // Baixa de patrimonio (perda) exige admin do tenant.
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      if (!can(ctx.session, ctx.tenantId, "disposeStock")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para dar baixa em itens." });
       }
       return ctx.withTenant(async (tx) => {
