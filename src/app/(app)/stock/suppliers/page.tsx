@@ -29,12 +29,14 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 
 export default function SuppliersPage() {
   const router = useRouter();
   const trpc = useTRPC();
-  const isAdmin = useIsTenantAdmin();
+  // ADR 0053: cadastrar/editar fornecedor é do operador; excluir é admin.
+  const canManageSuppliers = useCan("manageSuppliers");
+  const canDeleteSupplier = useCan("deleteSupplier");
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
@@ -67,7 +69,7 @@ export default function SuppliersPage() {
         title="Fornecedores"
         subtitle="Gerencie seus fornecedores"
         actions={
-          isAdmin ? (
+          canManageSuppliers ? (
             <Button asChild>
               <Link href="/stock/suppliers/new">
                 <Plus className="mr-2 h-4 w-4" />
@@ -160,7 +162,7 @@ export default function SuppliersPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {isAdmin && (
+                          {canManageSuppliers && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -171,7 +173,7 @@ export default function SuppliersPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                           )}
-                          {isAdmin && (
+                          {canDeleteSupplier && (
                           <Button
                             variant="ghost"
                             size="icon"

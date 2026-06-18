@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 
 /**
- * Botao "Nova Compra" — createPurchase exige admin no backend, entao escondido
- * para operador.
+ * Botao "Nova Compra" — registrar compra de aparelho é do dia a dia do operador
+ * (ADR 0053).
  */
 export function NewPurchaseAction() {
-  const isAdmin = useIsTenantAdmin();
-  if (!isAdmin) return null;
+  const canRegisterPurchase = useCan("registerPurchase");
+  if (!canRegisterPurchase) return null;
   return (
     <Button asChild>
       <Link href="/stock/purchases/new">

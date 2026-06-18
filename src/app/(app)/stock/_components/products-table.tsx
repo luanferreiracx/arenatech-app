@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
-import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { useCan } from "@/lib/auth/use-capabilities";
 import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
 
@@ -56,7 +56,9 @@ export function ProductsTable() {
   const trpc = useTRPC();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const isAdmin = useIsTenantAdmin();
+  // ADR 0053: ajustar saldo é do operador; editar/duplicar/excluir produto (catálogo) é admin.
+  const canMoveStock = useCan("moveStock");
+  const canManageCatalog = useCan("manageCatalog");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -223,10 +225,10 @@ export function ProductsTable() {
               <Eye className="h-4 w-4" />
             </Link>
           </Button>
-          {/* Ajustar/Editar/Excluir mutam catalogo/saldo — admin-only no backend.
-              Escondidos para operador (ajuste tambem nao se aplica a serializado,
-              cujo saldo deriva dos StockItems). */}
-          {isAdmin && !row.original.isSerialized && (
+          {/* Ajustar saldo: operador (ADR 0053) — não se aplica a serializado,
+              cujo saldo deriva dos StockItems. Editar/Duplicar/Excluir produto
+              mexem no catálogo e seguem admin-only. */}
+          {canMoveStock && !row.original.isSerialized && (
             <Button
               variant="ghost"
               size="icon"
@@ -241,7 +243,7 @@ export function ProductsTable() {
               <span className="text-xs font-medium">+/-</span>
             </Button>
           )}
-          {isAdmin && (
+          {canManageCatalog && (
             <Button
               variant="ghost"
               size="icon"
@@ -254,7 +256,7 @@ export function ProductsTable() {
               </Link>
             </Button>
           )}
-          {isAdmin && (
+          {canManageCatalog && (
             <Button
               variant="ghost"
               size="icon"
@@ -266,7 +268,7 @@ export function ProductsTable() {
               <Copy className="h-4 w-4" />
             </Button>
           )}
-          {isAdmin && (
+          {canManageCatalog && (
           <Button
             variant="ghost"
             size="icon"
