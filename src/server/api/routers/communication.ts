@@ -266,7 +266,9 @@ export const communicationRouter = createTRPCRouter({
 
   /** Notify customer that OS is completed — WhatsApp fora da tx. */
   notifyOsCompleted: tenantProcedure
-    .input(z.object({ serviceOrderId: z.string().uuid() }))
+    // `phone` opcional: permite digitar/escolher um número quando o cliente não
+    // tem telefone cadastrado (antes a notificação era impossível nesse caso).
+    .input(z.object({ serviceOrderId: z.string().uuid(), phone: z.string().max(30).optional() }))
     .mutation(async ({ ctx, input }) => {
       const prep = await ctx.withTenant(async (tx) => {
         const so = await tx.serviceOrder.findUnique({
@@ -280,21 +282,23 @@ export const communicationRouter = createTRPCRouter({
           where: { id: so.customerId },
           select: { name: true, phone: true },
         });
-        if (!customer?.phone) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado" });
+        const phone = input.phone?.trim() || customer?.phone || null;
+        if (!phone) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe um telefone para enviar a notificacao." });
         }
 
         const template = await tx.messageTemplate.findUnique({
           where: { tenantId_slug: { tenantId: ctx.tenantId, slug: "os-completed" } },
         });
 
+        const customerName = customer?.name ?? "Cliente";
         const body = template
           ? template.body
-              .replace(/\{\{customer_name\}\}/g, customer.name)
+              .replace(/\{\{customer_name\}\}/g, customerName)
               .replace(/\{\{os_number\}\}/g, so.number)
-          : `Ola ${customer.name}! Sua ordem de servico ${so.number} foi concluida. Entre em contato para retirada.`;
+          : `Ola ${customerName}! Sua ordem de servico ${so.number} foi concluida. Entre em contato para retirada.`;
 
-        return { customerPhone: customer.phone, customerName: customer.name, body };
+        return { customerPhone: phone, customerName, body };
       });
 
       const result = await sendTextMessage(prep.customerPhone, prep.body);

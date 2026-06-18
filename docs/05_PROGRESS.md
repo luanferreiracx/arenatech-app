@@ -11,11 +11,23 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/rbac-operador-autonomia`
+**Branch atual:** `feat/os-whatsapp-conclusao`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: auditoria de fidelidade ao Laravel + correção do WhatsApp na conclusão (PR 1/N)
+Iniciada auditoria profunda do módulo de OS (Laravel `OrdemServicoController` ~46 métodos × router novo ~52 procedures). Núcleo auditado linha-a-linha: ciclo de vida/status, edição, pagamento, cancelamento/estorno, RBAC, notificações, itens/estoque. **Cobertura ampla e em geral fiel/mais robusta** (matriz de transição, regime de revisão de orçamento). Achados:
+- **7 procedures órfãs** (backend existe, UI não usa): `notifyCompletion` (morta/duplicada), `generatePix`/`cancelPix` (DePix da OS inacessível na UI), `detachNfse`, `saveSignaturePad`, `checkQuoteStatus`, `adminRespondQuote`.
+- **Bug P0 — WhatsApp na conclusão não disparava pela UI:** `updateStatus` aceita `notifyWhatsapp`/`notifyPhone`, mas o stepper nunca passava o flag; botão manual em router paralelo (`communication.notifyOsCompleted`) e só aparecia com telefone cadastrado.
+- **Decisões do dono:** OS assinada = travar campos + aviso claro; WhatsApp = **perguntar ao concluir**; refatorar `detail` (2113 linhas) junto; religar DePix/detachNfse/checkQuoteStatus; auditar tudo antes de corrigir.
+
+**Corrigido nesta PR (P0 WhatsApp + consolidação):**
+- Conclusão pela UI abre `ConcludeOsDialog` (novo componente): pergunta "avisar cliente por WhatsApp?" + escolhe/digita telefone → passa `notifyWhatsapp`/`notifyPhone` ao `updateStatus` (paridade Laravel `notificar_whatsapp`). Unifica "avançar p/ Concluída" e "concluir pulando etapas".
+- `communication.notifyOsCompleted` ganhou override de telefone (envia mesmo sem telefone cadastrado); botão manual passa pelo `WhatsAppSendDialog`.
+- Removida a procedure órfã `serviceOrder.notifyCompletion` (código morto).
+- **Próximo:** P1 (OS assinada: travar + banner) e refactor do `detail`; depois religar DePix/detachNfse/checkQuoteStatus; fechar auditoria das periféricas (termos/lab/nfse/orçamento/PDFs).
 
 ### 2026-06-18 — RBAC: autonomia do operador (redesenho da linha admin/operator)
 Dono apontou que o funcionário comum tinha autonomia de menos para a loja funcionar. Análise (varredura dos gates + ADRs 0020/0024/0031) achou a raiz: a consolidação 4→2 papéis de 13/jun (#89/#90) jogou TODO o poder de "gerente de balcão" para `admin`, deixando o operador preso no nível "vendedor read-only". Decisão (dono): **afrouxar o operador no modelo binário** (sem reintroduzir tier `manager`).
