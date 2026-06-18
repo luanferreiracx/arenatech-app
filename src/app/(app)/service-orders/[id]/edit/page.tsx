@@ -21,7 +21,7 @@ import {
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Lock } from "lucide-react";
 import Link from "next/link";
 import {
   deviceTypeEnum,
@@ -192,6 +192,35 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, isPending,
       />
 
       <form onSubmit={doSubmit} className="space-y-6">
+        {/* Aviso de edição restrita — torna explícito o lock (que ja existe por
+            campo) para o operador nao achar que "salvou" algo bloqueado. */}
+        {(isSigned || isCompleted) && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+            <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-600 dark:text-amber-400">
+                {isCompleted ? "OS concluída — edição restrita" : "OS assinada pelo cliente — edição restrita"}
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {isSigned && (
+                  <>
+                    Os dados de entrada (equipamento, serial/IMEI, senha, acessórios, problema
+                    relatado e informações adicionais) estão <strong>bloqueados</strong> — o
+                    aparelho já está sob responsabilidade da loja.{" "}
+                  </>
+                )}
+                {isCompleted && (
+                  <>
+                    Após a conclusão, diagnóstico, observações internas e prazo de garantia
+                    também ficam bloqueados.{" "}
+                  </>
+                )}
+                Campos com 🔒 não são salvos, mesmo que pareçam editáveis.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Equipment */}
         <div className="rounded-lg border border-border p-6">
           <div className="flex items-center justify-between mb-4">
