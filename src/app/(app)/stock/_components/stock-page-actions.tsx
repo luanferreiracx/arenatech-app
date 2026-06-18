@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert } from "lucide-react";
+import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
@@ -43,6 +43,17 @@ export function StockPageActions() {
           </Link>
         </Button>
       )}
+      <Button
+        variant="outline"
+        asChild
+        title="Baixa planilha .xlsx (nome, preço, código de barras) para impressão em série no app Niimbot"
+      >
+        {/* Download direto da API — produtos ativos. Coluna Quantidade = cópias. */}
+        <a href="/api/stock/labels">
+          <Tag className="mr-2 h-4 w-4" />
+          Etiquetas Niimbot
+        </a>
+      </Button>
       <Button variant="outline" asChild>
         <Link href="/stock/nfe">
           <FileText className="mr-2 h-4 w-4" />

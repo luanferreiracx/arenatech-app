@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
+import {
+  abbreviateName,
+  buildNiimbotWorkbook,
+  expandByQuantity,
+  formatBRL,
+  type LabelRow,
+} from "@/lib/labels/niimbot-export";
+
+describe("abbreviateName", () => {
+  it("mantém nomes curtos inalterados", () => {
+    expect(abbreviateName("Capa iPhone 13")).toBe("Capa iPhone 13");
+  });
+
+  it("colapsa espaços múltiplos", () => {
+    expect(abbreviateName("Capa   iPhone   13")).toBe("Capa iPhone 13");
+  });
+
+  it("corta nomes longos em fronteira de palavra com reticências", () => {
+    const result = abbreviateName("Película de Vidro 3D Premium para iPhone 15 Pro Max");
+    expect(result.length).toBeLessThanOrEqual(22);
+    expect(result.endsWith("…")).toBe(true);
+    // Não corta no meio de palavra.
+    expect(result).toBe("Película de Vidro 3D…");
+  });
+
+  it("corta no meio quando a primeira palavra estoura o limite", () => {
+    const result = abbreviateName("Supercalifragilisticexpialidocious", 10);
+    expect(result).toBe("Supercali…");
+    expect(result.length).toBe(10);
+  });
+});
+
+describe("formatBRL", () => {
+  it("formata números simples", () => {
+    expect(formatBRL(99.9)).toBe("R$ 99,90");
+  });
+
+  it("formata milhares com separador", () => {
+    expect(formatBRL(1234.5)).toBe("R$ 1.234,50");
+  });
+
+  it("aceita valores tipo Decimal (toString)", () => {
+    expect(formatBRL({ toString: () => "49.99" })).toBe("R$ 49,99");
+  });
+
+  it("trata valores inválidos como zero", () => {
+    expect(formatBRL({ toString: () => "abc" })).toBe("R$ 0,00");
+  });
+});
+
+describe("expandByQuantity", () => {
+  const base: LabelRow = { nome: "X", preco: "R$ 1,00", barcode: "123", quantidade: 1 };
+
+  it("repete a linha conforme a quantidade", () => {
+    const out = expandByQuantity([{ ...base, quantidade: 3 }]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toEqual({ nome: "X", preco: "R$ 1,00", barcode: "123" });
+  });
+
+  it("garante ao menos 1 cópia para quantidade 0 ou negativa", () => {
+    expect(expandByQuantity([{ ...base, quantidade: 0 }])).toHaveLength(1);
+    expect(expandByQuantity([{ ...base, quantidade: -5 }])).toHaveLength(1);
+  });
+
+  it("remove a coluna quantidade do resultado", () => {
+    const [row] = expandByQuantity([base]);
+    expect(row).not.toHaveProperty("quantidade");
+  });
+});
+
+describe("buildNiimbotWorkbook", () => {
+  const rows: LabelRow[] = [
+    { nome: "Capa A", preco: "R$ 10,00", barcode: "111", quantidade: 2 },
+    { nome: "Capa B", preco: "R$ 20,00", barcode: "222", quantidade: 1 },
+  ];
+
+  async function readSheet(buffer: Buffer) {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+    const sheet = wb.worksheets[0];
+    if (!sheet) throw new Error("planilha não encontrada");
+    const header = (sheet.getRow(1).values as unknown[]).slice(1).map(String);
+    return { sheet, header, dataRows: sheet.rowCount - 1 };
+  }
+
+  it("usa coluna Quantidade no modo padrão", async () => {
+    const buffer = await buildNiimbotWorkbook(rows);
+    const { header, dataRows } = await readSheet(buffer);
+    expect(header).toEqual(["Nome", "Preço", "Código de barras", "Quantidade"]);
+    expect(dataRows).toBe(2);
+  });
+
+  it("expande linhas e omite Quantidade no modo expand", async () => {
+    const buffer = await buildNiimbotWorkbook(rows, { expand: true });
+    const { header, dataRows } = await readSheet(buffer);
+    expect(header).toEqual(["Nome", "Preço", "Código de barras"]);
+    // 2 + 1 cópias = 3 linhas.
+    expect(dataRows).toBe(3);
+  });
+});
