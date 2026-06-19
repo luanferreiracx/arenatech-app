@@ -27,7 +27,6 @@ import {
   listServiceOrdersSchema,
   requestBudgetApprovalSchema,
   respondQuoteSchema,
-  adminRespondQuoteSchema,
   attachNfseSchema,
   detachNfseSchema,
   saveSignaturePadSchema,
@@ -2233,61 +2232,10 @@ export const serviceOrderRouter = createTRPCRouter({
       return txResult;
     }),
 
-  // ── ADMIN: respond quote without public link ──
-  /**
-   * Permite gestor/admin/operador aprovar ou rejeitar o orcamento diretamente
-   * (sem precisar enviar o link publico ao cliente). Paridade Laravel
-   * `aprovarOrcamentoManual`. Util quando cliente aprovou por telefone/loja.
-   */
-  adminRespondQuote: tenantProcedure
-    .input(adminRespondQuoteSchema)
-    .mutation(async ({ ctx, input }) => {
-      // RBAC: só admin do tenant (ou super admin) autoriza/rejeita manualmente.
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para responder orcamento manualmente" });
-      }
-      const userName = ctx.session.user.name ?? "Operador";
-      const txResult = await ctx.withTenant(async (tx) => {
-        const quote = await tx.serviceOrderQuote.findUnique({
-          where: { id: input.quoteId },
-        });
-        if (!quote) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Orcamento nao encontrado" });
-        }
-        if (quote.status !== "pending") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Este orcamento ja foi processado." });
-        }
-
-        const order = await tx.serviceOrder.findUnique({ where: { id: quote.orderId } });
-        if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
-
-        const obs = input.notes ? ". Obs: " + input.notes : "";
-        if (input.action === "approve") {
-          await applyQuoteApproval(
-            tx,
-            order,
-            quote,
-            ctx.session.user.id,
-            ctx.tenantId,
-            `Orcamento aprovado manualmente por ${userName}${obs}`,
-            input.notes ?? `Aprovado manualmente por ${userName}`,
-          );
-        } else {
-          await applyQuoteRejection(
-            tx,
-            order,
-            quote,
-            ctx.session.user.id,
-            ctx.tenantId,
-            `Orcamento rejeitado manualmente por ${userName}${obs}`,
-            input.notes ?? `Rejeitado manualmente por ${userName}`,
-          );
-        }
-        return { success: true, action: input.action };
-      });
-
-      return txResult;
-    }),
+  // NOTA: aprovar/rejeitar orcamento manualmente (sem link publico) já é coberto
+  // por `approveQuoteManually` (aprovar) e `cancelQuote` (rejeitar/reverter,
+  // restaurando o status anterior). A antiga `adminRespondQuote` (redundante) foi
+  // removida.
 
   // ── ATTACH NFS-e (upload de PDF/imagem) ──
   /**

@@ -543,14 +543,6 @@ export const respondQuoteSchema = z.object({
 
 export type RespondQuoteInput = z.infer<typeof respondQuoteSchema>;
 
-/** Admin responde orcamento sem link publico — gestor aprova direto. */
-export const adminRespondQuoteSchema = z.object({
-  quoteId: z.string().uuid(),
-  action: z.enum(["approve", "reject"]),
-  notes: z.string().max(500).optional().nullable(),
-});
-export type AdminRespondQuoteInput = z.infer<typeof adminRespondQuoteSchema>;
-
 /** Anexa PDF/imagem da NFS-e emitida manualmente (upload direto base64). */
 export const attachNfseSchema = z.object({
   orderId: z.string().uuid(),

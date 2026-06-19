@@ -11,11 +11,15 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `chore/os-remove-direct-depix`
+**Branch atual:** `chore/os-prune-orphans`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: triagem de procedures órfãs — remover adminRespondQuote (PR 5/N)
+Fechando o thread das órfãs. `adminRespondQuote` (aprovar/rejeitar orçamento sem link público) é **redundante**: aprovar já é `approveQuoteManually` (usado na UI) e rejeitar/reverter é `cancelQuote` (usado, e melhor — restaura o status anterior real, não força IN_DIAGNOSIS). Removido (procedure + schema + import). `saveSignaturePad` (assinatura na tela) foi **mantido**: é uma feature coerente só não plugada, e removê-la implicaria dropar `entrySignatureAt` (usado por `isEntrySigned`) — decisão de produto, não removo unilateralmente. Validação: typecheck (0), unit (1108).
+- **Pendente:** decidir destino do `saveSignaturePad` (plugar assinatura-na-tela vs remover de vez). Refactor do `detail`. Auditoria periférica (termos/lab/NF-e/orçamento/PDFs).
 
 ### 2026-06-18 — OS: remover DePix direto na OS (pagamento via PDV, ADR 0042) (PR 4/N)
 Investigando para "religar" o DePix da OS (procedures órfãs `generatePix`/`cancelPix`), descobri que **não era regressão** — o caminho direto na OS foi **superado** pela integração PDV-OS (ADR 0042) e era **financeiramente incompleto**: o webhook/settle marcava a OS `PAID` mas **não criava `cashMovement` nem `financialTransaction`** (dinheiro não entrava no caixa/financeiro). Decisão do dono: **remover** — OS paga via PDV, que faz caixa + recebível certo (DePix incluso, onde habilitado).
