@@ -14,7 +14,6 @@ import { Prisma } from "@prisma/client";
 const state = vi.hoisted(() => ({
   recordWebhookEvent: vi.fn().mockResolvedValue(true),
   markWebhookProcessed: vi.fn().mockResolvedValue(undefined),
-  cancelPixPayment: vi.fn().mockResolvedValue(undefined),
   quote: null as Record<string, unknown> | null,
   order: null as Record<string, unknown> | null,
   entryOrder: null as Record<string, unknown> | null,
@@ -55,10 +54,6 @@ vi.mock("@/lib/webhooks/replay-guard", () => ({
   recordWebhookEvent: (args: unknown) => state.recordWebhookEvent(args),
   markWebhookProcessed: (...args: unknown[]) => state.markWebhookProcessed(...args),
   extractSourceIp: vi.fn().mockReturnValue("127.0.0.1"),
-}));
-
-vi.mock("@/lib/services/depix-service", () => ({
-  cancelPixPayment: (id: string) => state.cancelPixPayment(id),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -130,30 +125,6 @@ describe("POST /api/webhooks/autentique — assinatura de orcamento", () => {
     );
     // Nao deve cair no fluxo de OS de entrada.
     expect(state.tx.serviceOrder.findFirst).not.toHaveBeenCalled();
-  });
-
-  it("cancela o PIX quando o valor do orcamento mudou e havia deposito pendente", async () => {
-    state.tx.serviceOrderQuote.findFirst.mockResolvedValue({
-      id: "quote-2",
-      orderId: "order-2",
-      status: "pending",
-      newTotal: new Prisma.Decimal(800),
-      previousTotal: new Prisma.Decimal(300),
-    });
-    state.tx.serviceOrder.findUnique.mockResolvedValue({
-      id: "order-2",
-      tenantId: "tenant-1",
-      createdById: "user-1",
-      deletedAt: null,
-      depixStatus: "pending",
-      walletTransactionId: null,
-      depixTransactionId: "pix-tx-1",
-    });
-
-    const res = await POST(makeRequest(signaturePayload("doc-quote-2")));
-
-    expect(res.status).toBe(200);
-    expect(state.cancelPixPayment).toHaveBeenCalledWith("pix-tx-1");
   });
 
   it("e idempotente: nao reaplica se o quote ja foi aprovado", async () => {

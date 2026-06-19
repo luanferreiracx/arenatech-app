@@ -799,51 +799,8 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
     return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
   }
 
-  if (row.sourceType === "SERVICE_ORDER" && row.sourceId) {
-    await withTenant(tenantId, async (tx) => {
-      const order = await tx.serviceOrder.findFirst({
-        where: { id: row.sourceId!, depixStatus: "pending" },
-        select: {
-          id: true,
-          tenantId: true,
-          status: true,
-          number: true,
-          totalAmount: true,
-          createdById: true,
-        },
-      });
-      if (!order) return;
-
-      await tx.serviceOrder.update({
-        where: { id: order.id },
-        data: {
-          status: "PAID",
-          paidAmount: order.totalAmount,
-          paymentMethod: "pix_depix",
-          paymentDate: new Date(),
-          depixStatus: "confirmed",
-        },
-      });
-      await tx.serviceOrderHistory.create({
-        data: {
-          tenantId: order.tenantId,
-          orderId: order.id,
-          userId: order.createdById,
-          previousStatus: order.status,
-          newStatus: "PAID",
-          notes: `Pagamento Pix DePix confirmado pela wallet (${row.id})`,
-        },
-      });
-      const notifyPayload = JSON.stringify({
-        kind: "order",
-        id: order.id,
-        transactionId: row.id,
-        walletTransactionId: row.id,
-      });
-      await tx.$executeRaw`SELECT pg_notify('depix_paid', ${notifyPayload})`;
-    });
-    return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
-  }
+  // OS paga DePix pelo PDV (ADR 0042) → a venda (SALE) é a fonte conciliada;
+  // não há mais sourceType "SERVICE_ORDER" de PIX direto de OS.
 
   if (row.sourceType === "SALE" && row.sourceId) {
     await withTenant(tenantId, async (tx) => {
