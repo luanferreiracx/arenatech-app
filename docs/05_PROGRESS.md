@@ -11,11 +11,19 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/os-rewire-nfse-quote`
+**Branch atual:** `chore/os-remove-direct-depix`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: remover DePix direto na OS (pagamento via PDV, ADR 0042) (PR 4/N)
+Investigando para "religar" o DePix da OS (procedures órfãs `generatePix`/`cancelPix`), descobri que **não era regressão** — o caminho direto na OS foi **superado** pela integração PDV-OS (ADR 0042) e era **financeiramente incompleto**: o webhook/settle marcava a OS `PAID` mas **não criava `cashMovement` nem `financialTransaction`** (dinheiro não entrava no caixa/financeiro). Decisão do dono: **remover** — OS paga via PDV, que faz caixa + recebível certo (DePix incluso, onde habilitado).
+- **Removido:** `generatePix`/`cancelPix` (service-order); branch OS-direto no webhook DePix (pago, não-pago, já-pago); branch `SERVICE_ORDER` no `depix-transaction.service` (settle); lógica `pixToCancel` em cancelar/estornar/orçamento (3 procedures + helper `applyQuoteApproval`); cancelamento de PIX em `quote-signature-approval`; imports órfãos.
+- **Schema:** migration `20260618231659_remove_os_direct_depix` dropa colunas `wallet_transaction_id`/`depix_transaction_id`/`depix_status`/`depix_paid_at` + índices de service_orders.
+- **Teste:** removido caso obsoleto em `autentique-webhook.test.ts` (cancelava PIX da OS na aprovação do orçamento).
+- Validação: typecheck (0), lint (0 erros), unit (1108), prisma validate OK. Restam órfãs: `saveSignaturePad` (não religar), `adminRespondQuote` (avaliar).
+- **Próximo:** refactor do `detail`; fechar auditoria periférica.
 
 ### 2026-06-18 — OS: religar detachNfse + checkQuoteStatus na UI (PR 3/N)
 Religadas 2 das procedures órfãs (backend existia, UI não usava):

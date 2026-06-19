@@ -1,7 +1,6 @@
 import { Prisma, type ServiceOrderStatus } from "@prisma/client";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
-import { cancelPixPayment } from "@/lib/services/depix-service";
 
 /**
  * Aprova uma revisao de orcamento (ServiceOrderQuote) quando o cliente assina
@@ -10,8 +9,7 @@ import { cancelPixPayment } from "@/lib/services/depix-service";
  *
  * Espelha applyQuoteApproval do service-order router: os itens ja sao a fonte
  * da verdade (totais ja refletem a alteracao), entao aqui apenas registra o
- * snapshot aprovado, limpa a pendencia, restaura o status anterior e cancela
- * PIX que nao bate mais.
+ * snapshot aprovado, limpa a pendencia e restaura o status anterior.
  *
  * Idempotente: se o quote ja nao estiver `pending`, nao faz nada.
  *
@@ -22,11 +20,11 @@ export async function approveQuoteBySignature(
   documentId: string,
   signedAt: Date,
 ): Promise<{ orderId: string } | null> {
-  const pixToCancel = await withAdmin(async (tx) => {
+  return withAdmin(async (tx) => {
     const quote = await tx.serviceOrderQuote.findFirst({
       where: { signatureDocumentId: documentId },
     });
-    if (!quote) return undefined; // nao e um quote — pode ser OS de entrada
+    if (!quote) return null; // nao e um quote — pode ser OS de entrada
 
     if (quote.status !== "pending") {
       logger.info("Quote ja processado — webhook Autentique idempotente", {
@@ -74,38 +72,8 @@ export async function approveQuoteBySignature(
       },
     });
 
-    // PIX foi gerado contra o total anterior; se o orcamento mudou, cancela.
-    const valueChanged = !quote.newTotal.equals(quote.previousTotal);
-    if (
-      valueChanged &&
-      order.depixStatus === "pending" &&
-      (order.walletTransactionId || order.depixTransactionId)
-    ) {
-      await tx.serviceOrder.update({
-        where: { id: order.id },
-        data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
-      });
-      return { orderId: order.id, pixTransactionId: order.depixTransactionId };
-    }
-
-    return { orderId: order.id, pixTransactionId: null };
+    return { orderId: order.id };
   });
-
-  if (pixToCancel === undefined) return null; // nao era quote
-  if (pixToCancel === null) return null; // ja processado / OS invalida
-
-  // Cancela PIX best-effort apos commit.
-  if (pixToCancel.pixTransactionId) {
-    cancelPixPayment(pixToCancel.pixTransactionId).catch((err) => {
-      logger.warn("Falha ao cancelar PIX apos aprovar orcamento via Autentique", {
-        orderId: pixToCancel.orderId,
-        transactionId: pixToCancel.pixTransactionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return { orderId: pixToCancel.orderId };
 }
 
 type QuoteItem = {

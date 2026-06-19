@@ -229,38 +229,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Status de cancelamento/expiracao: marca QuickSale + tambem zera o
-  // depixStatus da OS vinculada (antes ficava "pending" para sempre na UI
-  // do operador, mesmo apos o PIX ter expirado/falhado).
+  // Status de cancelamento/expiracao: marca QuickSale (DePix avulso). OS paga
+  // DePix pelo PDV (ADR 0042), entao nao ha PIX direto de OS a propagar aqui.
   if (isExpired || isFailed) {
-    const { quickSale, order } = await withAdmin(async (tx) => {
-      const [qs, os] = await Promise.all([
-        tx.quickSale.updateMany({
-          where: { depixTransactionId: transactionId, status: "AWAITING_PAYMENT" },
-          data: {
-            status: isExpired ? "EXPIRED" : "CANCELLED",
-            depixStatus: isExpired ? "expired" : "failed",
-          },
-        }),
-        tx.serviceOrder.updateMany({
-          where: { depixTransactionId: transactionId, depixStatus: "pending" },
-          data: {
-            depixStatus: isExpired ? "expired" : "failed",
-            depixTransactionId: null,
-          },
-        }),
-      ]);
-      return { quickSale: qs, order: os };
-    });
+    const quickSale = await withAdmin(async (tx) =>
+      tx.quickSale.updateMany({
+        where: { depixTransactionId: transactionId, status: "AWAITING_PAYMENT" },
+        data: {
+          status: isExpired ? "EXPIRED" : "CANCELLED",
+          depixStatus: isExpired ? "expired" : "failed",
+        },
+      }),
+    );
     logger.info("Depix-payment webhook: PIX nao-pago propagado", {
       transactionId,
       rawStatus,
       quickSaleAffected: quickSale.count,
-      orderAffected: order.count,
     });
     return NextResponse.json({
       received: true, finalized: true,
-      quickSaleCount: quickSale.count, orderCount: order.count,
+      quickSaleCount: quickSale.count,
     });
   }
 
@@ -333,46 +321,8 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    const order = await tx.serviceOrder.findFirst({
-      where: { depixTransactionId: transactionId, status: { not: "PAID" } },
-      select: {
-        id: true,
-        tenantId: true,
-        status: true,
-        number: true,
-        totalAmount: true,
-        createdById: true,
-      },
-    });
-    if (order) {
-      await tx.serviceOrder.update({
-        where: { id: order.id },
-        data: {
-          status: "PAID",
-          paidAmount: order.totalAmount,
-          paymentMethod: "pix_depix",
-          paymentDate: paidAt,
-          depixStatus: "confirmed",
-        },
-      });
-      await tx.serviceOrderHistory.create({
-        data: {
-          tenantId: order.tenantId,
-          orderId: order.id,
-          userId: order.createdById,
-          previousStatus: order.status,
-          newStatus: "PAID",
-          notes: `Pagamento Pix Depix confirmado (transaction ${transactionId})`,
-        },
-      });
-      return {
-        kind: "order",
-        id: order.id,
-        number: order.number,
-        tenantId: order.tenantId,
-        amount: Number(order.totalAmount),
-      };
-    }
+    // OS paga DePix pelo PDV (ADR 0042) — venda (sales) é o registro que o
+    // webhook concilia. Não há mais PIX direto de OS aqui.
 
     // Venda avulsa (QuickSale) — DePix isolado, sem PDV nem OS.
     const quickSale = await tx.quickSale.findFirst({
@@ -420,13 +370,6 @@ export async function POST(req: NextRequest) {
     const existingSale = existingSales[0];
     if (existingSale) {
       return { kind: "sale_already_paid", id: existingSale.id, number: existingSale.number };
-    }
-    const existingOrder = await tx.serviceOrder.findFirst({
-      where: { depixTransactionId: transactionId },
-      select: { id: true, number: true, status: true },
-    });
-    if (existingOrder) {
-      return { kind: "order_already_paid", id: existingOrder.id, number: existingOrder.number };
     }
     const existingQuickSale = await tx.quickSale.findFirst({
       where: { depixTransactionId: transactionId },

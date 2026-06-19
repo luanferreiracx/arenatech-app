@@ -55,9 +55,7 @@ import {
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
-import { cancelPixPayment } from "@/lib/services/depix-service";
 import { statusAfterQuote, lastRealOriginWhere } from "@/lib/services/quote-status";
-import { createDeposit } from "@/server/services/depix-transaction.service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -1055,19 +1053,6 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Cancela PIX pendente (depix_status="pending") para evitar que
-        // cliente pague e webhook reactive uma OS cancelada.
-        const pixToCancel =
-          (order.walletTransactionId || order.depixTransactionId) && order.depixStatus === "pending"
-            ? order.depixTransactionId
-            : null;
-        if (order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
-          await tx.serviceOrder.update({
-            where: { id: input.id },
-            data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
-          });
-        }
-
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -1083,7 +1068,6 @@ export const serviceOrderRouter = createTRPCRouter({
         if (pendingTransactions.length > 0) {
           noteParts.push(`(${pendingTransactions.length} recebivel(is) cancelado(s))`);
         }
-        if (pixToCancel) noteParts.push("(PIX pendente cancelado)");
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -1096,21 +1080,10 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        return { success: true, pixToCancel };
+        return { success: true };
       });
 
-      // Apos commit: dispara cancel HTTP best-effort (fora da tx).
-      if (txResult.pixToCancel) {
-        cancelPixPayment(txResult.pixToCancel).catch((err) => {
-          logger.warn("Falha ao cancelar PIX apos cancelar OS", {
-            orderId: input.id,
-            transactionId: txResult.pixToCancel,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-
-      return { success: true };
+      return txResult;
     }),
 
   // ── UNCANCEL (admin only) ──
@@ -2069,7 +2042,7 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Orcamento nao encontrado ou ja processado." });
         }
 
-        const pixToCancel = await applyQuoteApproval(
+        await applyQuoteApproval(
           tx,
           order,
           quote,
@@ -2079,21 +2052,10 @@ export const serviceOrderRouter = createTRPCRouter({
           `Aprovado manualmente por ${userName}`,
         );
 
-        return { success: true, pixToCancel };
+        return { success: true };
       });
 
-      // Apos commit: dispara cancel HTTP best-effort
-      if (txResult.pixToCancel) {
-        cancelPixPayment(txResult.pixToCancel).catch((err) => {
-          logger.warn("Falha ao cancelar PIX apos aprovar orcamento", {
-            orderId: input.orderId,
-            transactionId: txResult.pixToCancel,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-
-      return { success: true };
+      return txResult;
     }),
 
   // ── PUBLIC: get by public link ──
@@ -2243,9 +2205,8 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
 
         const obs = input.customerNotes ? ". Obs: " + input.customerNotes : "";
-        let pixToCancel: string | null = null;
         if (input.action === "approve") {
-          pixToCancel = await applyQuoteApproval(
+          await applyQuoteApproval(
             tx,
             order,
             quote,
@@ -2266,18 +2227,10 @@ export const serviceOrderRouter = createTRPCRouter({
           );
         }
 
-        return { success: true, action: input.action, pixToCancel };
+        return { success: true, action: input.action };
       });
 
-      if (txResult.pixToCancel) {
-        cancelPixPayment(txResult.pixToCancel).catch((err) => {
-          logger.warn("Falha ao cancelar PIX apos cliente aprovar orcamento", {
-            transactionId: txResult.pixToCancel,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-      return { success: true, action: txResult.action };
+      return txResult;
     }),
 
   // ── ADMIN: respond quote without public link ──
@@ -2309,9 +2262,8 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
 
         const obs = input.notes ? ". Obs: " + input.notes : "";
-        let pixToCancel: string | null = null;
         if (input.action === "approve") {
-          pixToCancel = await applyQuoteApproval(
+          await applyQuoteApproval(
             tx,
             order,
             quote,
@@ -2331,18 +2283,10 @@ export const serviceOrderRouter = createTRPCRouter({
             input.notes ?? `Rejeitado manualmente por ${userName}`,
           );
         }
-        return { success: true, action: input.action, pixToCancel };
+        return { success: true, action: input.action };
       });
 
-      if (txResult.pixToCancel) {
-        cancelPixPayment(txResult.pixToCancel).catch((err) => {
-          logger.warn("Falha ao cancelar PIX apos admin aprovar orcamento", {
-            transactionId: txResult.pixToCancel,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-      return { success: true, action: txResult.action };
+      return txResult;
     }),
 
   // ── ATTACH NFS-e (upload de PDF/imagem) ──
@@ -3723,149 +3667,6 @@ export const serviceOrderRouter = createTRPCRouter({
   // Message). A notificacao automatica ocorre no updateStatus -> COMPLETED.
   // A antiga `serviceOrder.notifyCompletion` (orfa) foi removida.
 
-  // ═══════════════════════════════════════
-  // DEPIX / PIX INTEGRATION
-  // ═══════════════════════════════════════
-
-  /** Generate PIX QR code for OS payment (faithful to Laravel gerarPixDepix) */
-  generatePix: tenantProcedure
-    .input(
-      z.object({
-        orderId: z.string().uuid(),
-        /** CPF/CNPJ do pagador. Obrigatorio quando totalAmount >= R$ 500. */
-        taxId: z.string().max(20).optional().nullable(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      // tx1: validar + ler customer/limites.
-      const prep = await ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
-        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
-
-        if (!["COMPLETED"].includes(order.status)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "PIX so pode ser gerado para OS concluida" });
-        }
-
-        // H6: idempotencia — se ja existe um PIX pendente, reaproveita (evita
-        // criar 2 transacoes PixPay em duplo-click; segundo PIX ficaria orfao
-        // porque o primeiro depixTransactionId seria sobrescrito).
-        if (order.depixTransactionId && order.depixStatus === "pending") {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Ja existe um PIX pendente para esta OS. Cancele o atual antes de gerar outro.",
-          });
-        }
-
-        const totalAmount = Number(order.totalAmount);
-        if (totalAmount <= 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da OS deve ser maior que zero" });
-        }
-
-        let customerCpf: string | null = null;
-        let customerCnpj: string | null = null;
-        if (order.customerId) {
-          const c = await tx.customer.findUnique({
-            where: { id: order.customerId },
-            select: { cpf: true, cnpj: true },
-          });
-          customerCpf = c?.cpf ?? null;
-          customerCnpj = c?.cnpj ?? null;
-        }
-
-        const taxIdRaw = (input.taxId ?? customerCpf ?? customerCnpj ?? "").replace(/\D/g, "");
-        if (totalAmount >= 500 && taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
-          });
-        }
-
-        if (taxIdRaw && (taxIdRaw.length === 11 || taxIdRaw.length === 14)) {
-          const { validateDepixLimit } = await import("@/lib/services/depix-limit-service");
-          const limit = await validateDepixLimit(tx, ctx.tenantId, taxIdRaw, totalAmount);
-          if (!limit.allowed) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: limit.reason ?? "Limite DePix excedido.",
-            });
-          }
-        }
-
-        return { order, totalAmount, taxIdRaw };
-      });
-
-      // Deposito wallet DePix FORA da tx.
-      const result = await createDeposit({
-        tenantId: ctx.tenantId,
-        userId: ctx.session.user.id,
-        userName: ctx.session.user.name ?? null,
-        grossAmountCents: Math.round(prep.totalAmount * 100),
-        sourceType: "SERVICE_ORDER",
-        sourceId: prep.order.id,
-        sourceDescription: `OS ${prep.order.number}`,
-        payerTaxId: prep.taxIdRaw || null,
-      });
-
-      // tx2: persistir DePix transaction info.
-      await ctx.withTenant(async (tx) => {
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: {
-            walletTransactionId: result.id,
-            depixTransactionId: result.pixpayDepixId ?? null,
-            depixStatus: "pending",
-          },
-        });
-
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: prep.order.status,
-            newStatus: prep.order.status,
-            notes: "PIX gerado para pagamento",
-          },
-        });
-      });
-
-      return {
-        transactionId: result.pixpayDepixId,
-        walletTransactionId: result.id,
-        qrCode: result.qrCode,
-        qrCodeBase64: result.qrCodeBase64,
-        pixKey: result.depositAddress,
-      };
-    }),
-
-  /** Cancel pending PIX for OS */
-  cancelPix: tenantProcedure
-    .input(z.object({ orderId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
-        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
-
-        if (!order.walletTransactionId && !order.depixTransactionId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum PIX pendente para esta OS" });
-        }
-
-        const result = order.depixTransactionId
-          ? await cancelPixPayment(order.depixTransactionId)
-          : { success: true };
-
-        // H2: limpar ids do PIX tambem — antes ficava setado e um webhook
-        // racing (cliente paga segundos antes do cancel chegar na PixPay) ainda
-        // casava via findFirst e marcava a OS como PAID apos o cancel.
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
-        });
-
-        return { success: result.success };
-      });
-    }),
 });
 
 // ── Helper: Recalculate order totals from items ──
@@ -4200,7 +4001,7 @@ async function applyQuoteApproval(
   tenantId: string,
   noteText: string,
   customerNotes: string | null,
-): Promise<string | null> {
+): Promise<void> {
   assertOrderAcceptsQuote(order);
   const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
   await tx.serviceOrderQuote.update({
@@ -4229,17 +4030,6 @@ async function applyQuoteApproval(
       notes: noteText,
     },
   });
-
-  // PIX foi gerado contra o total anterior; se o orcamento mudou, cancela.
-  const valueChanged = !quote.newTotal.equals(quote.previousTotal);
-  if (valueChanged && order.depixStatus === "pending" && (order.walletTransactionId || order.depixTransactionId)) {
-    await tx.serviceOrder.update({
-      where: { id: order.id },
-      data: { walletTransactionId: null, depixTransactionId: null, depixStatus: "cancelled" },
-    });
-    return order.depixTransactionId;
-  }
-  return null;
 }
 
 /**
