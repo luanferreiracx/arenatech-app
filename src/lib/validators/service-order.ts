@@ -170,6 +170,40 @@ export const ALLOWED_TRANSITIONS: Record<string, ServiceOrderStatus[]> = {
 };
 
 /**
+ * Estados em que a OS já teve o pagamento registrado. Desfazer uma OS nesses
+ * estados é ESTORNO (refund) — reverte dinheiro (caixa + recebíveis + comissão
+ * via Sale vinculada). Cancelamento simples deixaria o pagamento registrado
+ * (bug: dinheiro recebido numa OS "cancelada", sem trilha de devolução).
+ */
+export const REFUNDABLE_OS_STATUSES: ServiceOrderStatus[] = [
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+];
+
+export function isRefundableOsStatus(status: string): boolean {
+  return (REFUNDABLE_OS_STATUSES as string[]).includes(status);
+}
+
+/**
+ * Cancelamento só faz sentido ANTES do pagamento e da conclusão: libera estoque
+ * reservado e cancela recebíveis pendentes. OS concluída/paga/finalizada não é
+ * cancelável — usa estorno (refund) quando paga, ou já é estado final.
+ */
+const NON_CANCELLABLE_OS_STATUSES: string[] = [
+  "COMPLETED",
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+  "REFUNDED",
+  "CANCELLED",
+];
+
+export function isCancellableOsStatus(status: string): boolean {
+  return !NON_CANCELLABLE_OS_STATUSES.includes(status);
+}
+
+/**
  * True se a transicao "pula" etapas do fluxo principal (ex.: OPEN→COMPLETED).
  * Usado pelo front para exibir alerta de confirmacao antes de avancar.
  */

@@ -11,11 +11,17 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `chore/os-prune-orphans`
+**Branch atual:** `fix/os-cancel-refund-paid`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: corrigir cancelar/estornar de OS paga (bug financeiro nos 2 sistemas) (PR 6/N)
+Auditoria periférica (lente "Laravel também tem bugs"). **Bug real em ambos:** `cancel` bloqueava só COMPLETED/DELIVERED, deixando **PAID e READY_FOR_PICKUP** passarem — e nesses casos cancelava só recebíveis PENDING, **sem reverter o dinheiro já pago** (OS "cancelada" com pagamento registrado, sem trilha de devolução). E `refund` (que reverte tudo: caixa + recebíveis + comissão da Sale vinculada) só aceitava **DELIVERED** — então OS paga-mas-não-entregue não tinha caminho correto pra ser desfeita.
+- **Correção:** predicados `isCancellableOsStatus` / `isRefundableOsStatus` (testáveis, fonte única). `cancel` agora bloqueia COMPLETED/PAID/READY_FOR_PICKUP/DELIVERED/REFUNDED/CANCELLED (com mensagem que direciona pro estorno quando paga); `refund` aceita PAID/READY_FOR_PICKUP/DELIVERED. UI mostra o botão certo por status (Cancelar antes de pagar; Estornar quando paga). Estorno segue admin-only.
+- Melhora além do Laravel (que tem o mesmo furo). 8 testes de status. Validação: typecheck (0), lint (0 erros), unit (1113).
+- **Próximo:** guardas de status em lab/termos (sendToLab etc. sem guarda em ambos); refactor do `detail`; `saveSignaturePad`.
 
 ### 2026-06-18 — OS: triagem de procedures órfãs — remover adminRespondQuote (PR 5/N)
 Fechando o thread das órfãs. `adminRespondQuote` (aprovar/rejeitar orçamento sem link público) é **redundante**: aprovar já é `approveQuoteManually` (usado na UI) e rejeitar/reverter é `cancelQuote` (usado, e melhor — restaura o status anterior real, não força IN_DIAGNOSIS). Removido (procedure + schema + import). `saveSignaturePad` (assinatura na tela) foi **mantido**: é uma feature coerente só não plugada, e removê-la implicaria dropar `entrySignatureAt` (usado por `isEntrySigned`) — decisão de produto, não removo unilateralmente. Validação: typecheck (0), unit (1108).
