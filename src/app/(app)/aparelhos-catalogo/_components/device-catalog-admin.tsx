@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,28 +10,49 @@ import {
   Copy,
   Folder,
   Smartphone,
-  Loader2,
+  Search,
+  MoreHorizontal,
+  Star,
+  ImageOff,
+  Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { EmptyState } from "@/components/domain/empty-state";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
-function formatCurrency(v: unknown): string {
-  return Number(v ?? 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
+function fmt(v: unknown): string {
+  return Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 type CatalogCategory = {
@@ -56,37 +77,247 @@ type CatalogDevice = {
   order: number;
 };
 
+// ── Category Sidebar ──────────────────────────────────────────────────────────
+
+function CategorySidebar({
+  categories,
+  selected,
+  onSelect,
+  onNew,
+  onEdit,
+  onDuplicate,
+  onDelete,
+  isLoading,
+}: {
+  categories: CatalogCategory[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onNew: () => void;
+  onEdit: (cat: CatalogCategory) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (cat: CatalogCategory) => void;
+  isLoading: boolean;
+}) {
+  const total = categories.reduce((s, c) => s + (c._count?.devices ?? 0), 0);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between px-1 pb-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Categorias
+        </span>
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onNew} title="Nova categoria">
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-1.5 px-1">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full rounded-md" />)}
+        </div>
+      ) : (
+        <>
+          {/* "Todos" item */}
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className={cn(
+              "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
+              selected === null
+                ? "bg-primary/10 font-semibold text-primary"
+                : "text-foreground hover:bg-muted",
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <Folder className="h-3.5 w-3.5" />
+              Todos
+            </span>
+            <Badge variant="secondary" className="font-mono text-[10px]">{total}</Badge>
+          </button>
+
+          {categories.map((cat) => (
+            <div key={cat.id} className="group relative">
+              <button
+                type="button"
+                onClick={() => onSelect(cat.id)}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors pr-8",
+                  selected === cat.id
+                    ? "bg-primary/10 font-semibold text-primary"
+                    : "text-foreground hover:bg-muted",
+                )}
+              >
+                <span className="truncate">{cat.name}</span>
+                {cat._count?.devices != null && (
+                  <Badge variant="secondary" className="font-mono text-[10px]">
+                    {cat._count.devices}
+                  </Badge>
+                )}
+              </button>
+
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={() => onEdit(cat)}>
+                      <Pencil className="mr-2 h-3.5 w-3.5" /> Renomear
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onDuplicate(cat.id)}>
+                      <Copy className="mr-2 h-3.5 w-3.5" /> Duplicar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => onDelete(cat)}
+                    >
+                      <Trash2 className="mr-2 h-3.5 w-3.5" /> Excluir
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Device Row ────────────────────────────────────────────────────────────────
+
+function DeviceRow({
+  device,
+  onEdit,
+  onDuplicate,
+  onDelete,
+  onToggleAvailable,
+}: {
+  device: CatalogDevice;
+  onEdit: (d: CatalogDevice) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (d: CatalogDevice) => void;
+  onToggleAvailable: (id: string, v: boolean) => void;
+}) {
+  const hasPromo = device.promotionalPrice != null && Number(device.promotionalPrice) > 0;
+  const pixPrice = hasPromo ? device.promotionalPrice : device.price;
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/30">
+      {/* Thumbnail */}
+      <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-border bg-muted flex items-center justify-center">
+        {device.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={device.imageUrl} alt={device.name} className="h-full w-full object-cover" />
+        ) : (
+          <ImageOff className="h-4 w-4 text-muted-foreground/40" />
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm truncate">{device.name}</span>
+          {device.featured && (
+            <Badge variant="secondary" className="gap-1 text-[10px] px-1.5 py-0.5 text-amber-500 border-amber-500/30 bg-amber-500/10">
+              <Star className="h-2.5 w-2.5" /> Destaque
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+          {device.condition && (
+            <span className="text-xs text-muted-foreground">{device.condition}</span>
+          )}
+          <span className="flex items-center gap-1 text-xs">
+            {hasPromo ? (
+              <>
+                <span className="text-muted-foreground line-through">{fmt(device.price)}</span>
+                <span className="font-semibold text-primary">PIX {fmt(pixPrice)}</span>
+              </>
+            ) : (
+              <span className="font-semibold font-mono">{fmt(device.price)}</span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Disponível toggle */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Switch
+          checked={device.available}
+          onCheckedChange={(v) => onToggleAvailable(device.id, v)}
+          className="scale-90"
+        />
+        <span className={cn("text-xs hidden sm:inline", device.available ? "text-muted-foreground" : "text-muted-foreground/50")}>
+          {device.available ? "Disponível" : "Oculto"}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuItem onClick={() => onEdit(device)}>
+            <Pencil className="mr-2 h-3.5 w-3.5" /> Editar
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onDuplicate(device.id)}>
+            <Copy className="mr-2 h-3.5 w-3.5" /> Duplicar
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => onDelete(device)}
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" /> Excluir
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
 export function DeviceCatalogAdmin() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  // Categorias
+  // Data
   const categoriesQuery = useQuery(trpc.catalog.listCatalogCategories.queryOptions());
   const categories = (categoriesQuery.data ?? []) as CatalogCategory[];
 
-  // Aparelhos da categoria selecionada (ou todos se nao houver selecao)
   const devicesQuery = useQuery(
-    trpc.catalog.listCatalogDevices.queryOptions({
-      categoryId: selectedCategoryId ?? undefined,
-      pageSize: 100,
-    } as never),
+    trpc.catalog.listCatalogDevices.queryOptions({ categoryId: selectedCategoryId ?? undefined, pageSize: 200 } as never),
   );
-  const devicesData = devicesQuery.data as { data?: CatalogDevice[] } | undefined;
-  const devices = devicesData?.data ?? [];
+  const devices = ((devicesQuery.data as { data?: CatalogDevice[] } | undefined)?.data ?? []) as CatalogDevice[];
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return devices;
+    const q = search.toLowerCase();
+    return devices.filter((d) => d.name.toLowerCase().includes(q) || d.condition?.toLowerCase().includes(q));
+  }, [devices, search]);
 
   // Dialogs
   const [categoryDialog, setCategoryDialog] = useState<{ id?: string; name: string } | null>(null);
   const [deviceDialog, setDeviceDialog] = useState<Partial<CatalogDevice> | null>(null);
-  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<{ id: string; name: string } | null>(null);
-  const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
+  const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<CatalogDevice | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: trpc.catalog.listCatalogCategories.queryKey() });
     queryClient.invalidateQueries({ queryKey: trpc.catalog.listCatalogDevices.queryKey() });
   };
 
-  // Categoria mutations
+  // Mutations — categorias
   const createCategoryMut = useMutation(trpc.catalog.createCatalogCategory.mutationOptions({
     onSuccess: () => { invalidate(); toast.success("Categoria criada"); setCategoryDialog(null); },
     onError: (e) => toast.error(e.message),
@@ -104,7 +335,7 @@ export function DeviceCatalogAdmin() {
     onError: (e) => toast.error(e.message),
   }));
 
-  // Device mutations
+  // Mutations — aparelhos
   const createDeviceMut = useMutation(trpc.catalog.createCatalogDevice.mutationOptions({
     onSuccess: () => { invalidate(); toast.success("Aparelho criado"); setDeviceDialog(null); },
     onError: (e) => toast.error(e.message),
@@ -114,7 +345,7 @@ export function DeviceCatalogAdmin() {
     onError: (e) => toast.error(e.message),
   }));
   const deleteDeviceMut = useMutation(trpc.catalog.deleteCatalogDevice.mutationOptions({
-    onSuccess: () => { invalidate(); toast.success("Aparelho removido"); },
+    onSuccess: () => { invalidate(); toast.success("Aparelho removido"); setConfirmDeleteDevice(null); },
     onError: (e) => toast.error(e.message),
   }));
   const duplicateDeviceMut = useMutation(trpc.catalog.duplicateCatalogDevice.mutationOptions({
@@ -157,204 +388,114 @@ export function DeviceCatalogAdmin() {
     }
   };
 
+  const handleToggleAvailable = (id: string, available: boolean) => {
+    const device = devices.find((d) => d.id === id);
+    if (!device) return;
+    updateDeviceMut.mutate({
+      id,
+      name: device.name,
+      categoryId: device.categoryId,
+      condition: device.condition,
+      description: device.description,
+      price: device.price != null ? Number(device.price) : null,
+      promotionalPrice: device.promotionalPrice != null ? Number(device.promotionalPrice) : null,
+      imageUrl: device.imageUrl,
+      available,
+      featured: device.featured,
+    } as never);
+  };
+
+  const activeCategoryName = categories.find((c) => c.id === selectedCategoryId)?.name;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
-      {/* Coluna categorias */}
+    <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6">
+      {/* Sidebar */}
       <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-sm flex items-center gap-1">
-              <Folder className="h-4 w-4" /> Categorias
-            </h2>
-            <Button size="sm" variant="outline" onClick={() => setCategoryDialog({ name: "" })}>
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          {categoriesQuery.isLoading && (
-            <div className="text-sm text-muted-foreground text-center py-4">
-              <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryId(null)}
-              className={`w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors ${
-                selectedCategoryId === null ? "bg-primary/10 font-medium" : "hover:bg-muted"
-              }`}
-            >
-              Todas
-            </button>
-            {categories.map((cat) => (
-              <div
-                key={cat.id}
-                className={`group flex items-center gap-1 rounded-md ${
-                  selectedCategoryId === cat.id ? "bg-primary/10" : "hover:bg-muted"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setSelectedCategoryId(cat.id)}
-                  className="flex-1 text-left px-2 py-1.5 text-sm"
-                >
-                  {cat.name}
-                  {cat._count?.devices != null && (
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      ({cat._count.devices})
-                    </span>
-                  )}
-                </button>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex">
-                  <button
-                    type="button"
-                    onClick={() => setCategoryDialog({ id: cat.id, name: cat.name })}
-                    className="p-1 hover:text-primary"
-                    title="Editar"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => duplicateCategoryMut.mutate({ id: cat.id })}
-                    className="p-1 hover:text-primary"
-                    title="Duplicar"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteCategory({ id: cat.id, name: cat.name })}
-                    className="p-1 hover:text-destructive"
-                    title="Excluir"
-                    aria-label={`Excluir categoria ${cat.name}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+        <CardContent className="p-3">
+          <CategorySidebar
+            categories={categories}
+            selected={selectedCategoryId}
+            onSelect={setSelectedCategoryId}
+            onNew={() => setCategoryDialog({ name: "" })}
+            onEdit={(cat) => setCategoryDialog({ id: cat.id, name: cat.name })}
+            onDuplicate={(id) => duplicateCategoryMut.mutate({ id })}
+            onDelete={setConfirmDeleteCategory}
+            isLoading={categoriesQuery.isLoading}
+          />
         </CardContent>
       </Card>
 
-      {/* Coluna aparelhos */}
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-sm flex items-center gap-1">
-              <Smartphone className="h-4 w-4" /> Aparelhos
-              {selectedCategoryId && (
-                <span className="ml-2 text-xs text-muted-foreground">
-                  ({categories.find((c) => c.id === selectedCategoryId)?.name})
-                </span>
-              )}
-            </h2>
-            <Button
-              size="sm"
-              onClick={() => setDeviceDialog({
-                categoryId: selectedCategoryId,
-                name: "",
-                available: true,
-              })}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" /> Novo aparelho
-            </Button>
+      {/* Device list */}
+      <div className="flex flex-col gap-3">
+        {/* Toolbar */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar aparelho..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
-
-          {devicesQuery.isLoading && (
-            <div className="text-sm text-muted-foreground text-center py-8">
-              <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...
-            </div>
+          {activeCategoryName && (
+            <Badge variant="outline" className="gap-1 whitespace-nowrap">
+              <Tag className="h-3 w-3" /> {activeCategoryName}
+            </Badge>
           )}
+          <Button
+            onClick={() => setDeviceDialog({ categoryId: selectedCategoryId, name: "", available: true })}
+          >
+            <Plus className="mr-2 h-4 w-4" /> Novo aparelho
+          </Button>
+        </div>
 
-          {!devicesQuery.isLoading && devices.length === 0 && (
-            <div className="text-sm text-muted-foreground text-center py-8">
-              Nenhum aparelho nesta categoria.
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {devices.map((d) => (
-              <Card key={d.id} className="overflow-hidden">
-                <CardContent className="p-3 space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-medium text-sm flex-1">{d.name}</div>
-                    <div className="flex gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setDeviceDialog(d)}
-                        className="p-1 hover:text-primary"
-                        title="Editar"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => duplicateDeviceMut.mutate({ id: d.id })}
-                        className="p-1 hover:text-primary"
-                        title="Duplicar"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteDevice({ id: d.id, name: d.name })}
-                        className="p-1 hover:text-destructive"
-                        title="Excluir"
-                        aria-label={`Excluir aparelho ${d.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  {d.condition && (
-                    <div className="text-xs text-muted-foreground">{d.condition}</div>
-                  )}
-                  <div className="text-sm">
-                    {d.promotionalPrice != null && Number(d.promotionalPrice) > 0 ? (
-                      <>
-                        <span className="text-muted-foreground line-through mr-2">
-                          {formatCurrency(d.price)}
-                        </span>
-                        <span className="text-green-600 font-semibold">
-                          {formatCurrency(d.promotionalPrice)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="font-semibold">{formatCurrency(d.price)}</span>
-                    )}
-                  </div>
-                  <div className="flex gap-2 text-xs">
-                    {!d.available && <span className="px-1.5 py-0.5 bg-muted rounded">Indisponível</span>}
-                    {d.featured && <span className="px-1.5 py-0.5 bg-primary/10 text-primary rounded">Destaque</span>}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+        {/* List */}
+        {devicesQuery.isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Dialog Categoria */}
-      <Dialog open={!!categoryDialog} onOpenChange={(o) => !o && setCategoryDialog(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {categoryDialog?.id ? "Editar Categoria" : "Nova Categoria"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Nome</Label>
-              <Input
-                autoFocus
-                value={categoryDialog?.name ?? ""}
-                onChange={(e) => setCategoryDialog((d) => d ? { ...d, name: e.target.value } : d)}
-                placeholder="Ex: iPhones"
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={Smartphone}
+            title={search ? "Nenhum aparelho encontrado" : "Nenhum aparelho nesta categoria"}
+            description={search ? `Nada corresponde a "${search}"` : "Adicione o primeiro aparelho clicando em \"Novo aparelho\""}
+          />
+        ) : (
+          <div className="space-y-1.5">
+            {filtered.map((d) => (
+              <DeviceRow
+                key={d.id}
+                device={d}
+                onEdit={setDeviceDialog}
+                onDuplicate={(id) => duplicateDeviceMut.mutate({ id })}
+                onDelete={setConfirmDeleteDevice}
+                onToggleAvailable={handleToggleAvailable}
               />
-            </div>
+            ))}
+            <p className="text-right text-xs text-muted-foreground pt-1">
+              {filtered.length} {filtered.length === 1 ? "aparelho" : "aparelhos"}
+              {search && ` de ${devices.length}`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Dialog: Categoria ── */}
+      <Dialog open={!!categoryDialog} onOpenChange={(o) => !o && setCategoryDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{categoryDialog?.id ? "Renomear categoria" : "Nova categoria"}</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label>Nome</Label>
+            <Input
+              autoFocus
+              value={categoryDialog?.name ?? ""}
+              onChange={(e) => setCategoryDialog((d) => d ? { ...d, name: e.target.value } : d)}
+              placeholder="Ex: iPhones"
+              onKeyDown={(e) => e.key === "Enter" && handleSaveCategory()}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCategoryDialog(null)}>Cancelar</Button>
@@ -365,17 +506,19 @@ export function DeviceCatalogAdmin() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Aparelho */}
+      {/* ── Dialog: Aparelho ── */}
       <Dialog open={!!deviceDialog} onOpenChange={(o) => !o && setDeviceDialog(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {deviceDialog?.id ? "Editar Aparelho" : "Novo Aparelho"}
-            </DialogTitle>
+            <DialogTitle>{deviceDialog?.id ? "Editar aparelho" : "Novo aparelho"}</DialogTitle>
+            <DialogDescription className="text-xs">
+              O preço PIX é o valor que o bot exibe ao cliente. Deixe em branco se não houver desconto.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+
+          <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
             <div>
-              <Label>Nome do aparelho *</Label>
+              <Label>Nome do aparelho <span className="text-destructive">*</span></Label>
               <Input
                 autoFocus
                 value={deviceDialog?.name ?? ""}
@@ -386,35 +529,45 @@ export function DeviceCatalogAdmin() {
 
             <div>
               <Label>Categoria</Label>
-              <select
-                className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
-                value={deviceDialog?.categoryId ?? ""}
-                onChange={(e) => setDeviceDialog((d) => d ? { ...d, categoryId: e.target.value || null } : d)}
+              <Select
+                value={deviceDialog?.categoryId ?? "__none__"}
+                onValueChange={(v) => setDeviceDialog((d) => d ? { ...d, categoryId: v === "__none__" ? null : v } : d)}
               >
-                <option value="">— sem categoria —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="— sem categoria —" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— sem categoria —</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Preço (R$)</Label>
+                <Label>Preço cartão (R$)</Label>
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={deviceDialog?.price != null ? String(deviceDialog.price) : ""}
                   onChange={(e) => setDeviceDialog((d) => d ? { ...d, price: e.target.value === "" ? null : Number(e.target.value) } : d)}
+                  placeholder="0,00"
+                  className="font-mono"
                 />
               </div>
               <div>
-                <Label>Preço promocional (R$)</Label>
+                <Label>Preço PIX <span className="text-xs text-primary">(bot usa este)</span></Label>
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={deviceDialog?.promotionalPrice != null ? String(deviceDialog.promotionalPrice) : ""}
                   onChange={(e) => setDeviceDialog((d) => d ? { ...d, promotionalPrice: e.target.value === "" ? null : Number(e.target.value) } : d)}
+                  placeholder="opcional"
+                  className="font-mono"
                 />
               </div>
             </div>
@@ -430,10 +583,11 @@ export function DeviceCatalogAdmin() {
 
             <div>
               <Label>Descrição</Label>
-              <Input
+              <Textarea
                 value={deviceDialog?.description ?? ""}
                 onChange={(e) => setDeviceDialog((d) => d ? { ...d, description: e.target.value } : d)}
-                placeholder="Detalhes opcionais"
+                placeholder="Detalhes que o bot pode usar ao responder"
+                rows={3}
               />
             </div>
 
@@ -446,24 +600,40 @@ export function DeviceCatalogAdmin() {
               />
             </div>
 
-            <div className="flex gap-6 pt-2">
+            <div className="flex gap-6 pt-1">
               <div className="flex items-center gap-2">
                 <Switch
                   checked={deviceDialog?.available ?? true}
                   onCheckedChange={(v) => setDeviceDialog((d) => d ? { ...d, available: v } : d)}
                 />
-                <Label>Disponível</Label>
+                <Label className="cursor-pointer">Disponível para venda</Label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={deviceDialog?.featured ?? false}
                   onCheckedChange={(v) => setDeviceDialog((d) => d ? { ...d, featured: v } : d)}
                 />
-                <Label>Destaque</Label>
+                <Label className="cursor-pointer">Destaque</Label>
               </div>
             </div>
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="flex-row items-center">
+            {deviceDialog?.id && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="mr-auto"
+                onClick={() => {
+                  if (deviceDialog.id && deviceDialog.name) {
+                    setConfirmDeleteDevice({ id: deviceDialog.id, name: deviceDialog.name } as CatalogDevice);
+                    setDeviceDialog(null);
+                  }
+                }}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Excluir
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDeviceDialog(null)}>Cancelar</Button>
             <Button onClick={handleSaveDevice} disabled={createDeviceMut.isPending || updateDeviceMut.isPending}>
               Salvar
@@ -472,11 +642,12 @@ export function DeviceCatalogAdmin() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Confirms ── */}
       <ConfirmDialog
         open={confirmDeleteCategory !== null}
         onOpenChange={(open) => { if (!open) setConfirmDeleteCategory(null); }}
         title={confirmDeleteCategory ? `Remover categoria "${confirmDeleteCategory.name}"?` : ""}
-        description="Os aparelhos vinculados ficarao sem categoria."
+        description="Os aparelhos vinculados ficarão sem categoria."
         confirmLabel="Remover"
         variant="destructive"
         onConfirm={() => {
@@ -492,14 +663,11 @@ export function DeviceCatalogAdmin() {
         open={confirmDeleteDevice !== null}
         onOpenChange={(open) => { if (!open) setConfirmDeleteDevice(null); }}
         title={confirmDeleteDevice ? `Remover "${confirmDeleteDevice.name}"?` : ""}
-        description="O aparelho sera removido do catalogo."
+        description="O aparelho será removido do catálogo e o bot não poderá mais encontrá-lo."
         confirmLabel="Remover"
         variant="destructive"
         onConfirm={() => {
-          if (confirmDeleteDevice) {
-            deleteDeviceMut.mutate({ id: confirmDeleteDevice.id });
-            setConfirmDeleteDevice(null);
-          }
+          if (confirmDeleteDevice) deleteDeviceMut.mutate({ id: confirmDeleteDevice.id });
         }}
         isLoading={deleteDeviceMut.isPending}
       />
