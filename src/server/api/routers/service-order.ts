@@ -52,6 +52,7 @@ import {
   STATUS_GROUPS,
   isCancellableOsStatus,
   isRefundableOsStatus,
+  isLabEligibleStatus,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
@@ -1842,9 +1843,21 @@ export const serviceOrderRouter = createTRPCRouter({
       const prep = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
-          select: { status: true },
+          select: { status: true, sentToLab: true, labReceived: true },
         });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!isLabEligibleStatus(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nao e possivel enviar ao laboratorio uma OS paga, entregue, cancelada ou estornada.",
+          });
+        }
+        if (order.sentToLab && !order.labReceived) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Este aparelho ja esta no laboratorio externo. Confirme o recebimento antes de reenviar.",
+          });
+        }
 
         await tx.serviceOrder.update({
           where: { id: input.orderId },
@@ -1918,9 +1931,15 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
-          select: { status: true },
+          select: { status: true, sentToLab: true, labReceived: true },
         });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!order.sentToLab || order.labReceived) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhum aparelho aguardando retorno do laboratorio.",
+          });
+        }
 
         await tx.serviceOrder.update({
           where: { id: input.orderId },
@@ -1949,9 +1968,15 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
-          select: { status: true },
+          select: { status: true, sentToLab: true },
         });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!order.sentToLab) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhum envio ao laboratorio para cancelar.",
+          });
+        }
 
         await tx.serviceOrder.update({
           where: { id: input.orderId },

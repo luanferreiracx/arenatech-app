@@ -70,6 +70,7 @@ import {
   isSkippingSteps,
   isCancellableOsStatus,
   isRefundableOsStatus,
+  isLabEligibleStatus,
   type ServiceOrderStatus,
   type ChecklistData,
   type DeviceInfoData,
@@ -957,7 +958,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       {/* Lab External — paridade Laravel: 4 acoes (enviar, receber, cancelar, notificar entregador).
           Mostra card de envio quando OS esta em andamento (nao iniciada, nao cancelada).
           Aparece tambem para registrar/cancelar envio sem assistencia externa concreta. */}
-      {!isCancelled && !isRefunded && !isDelivered && !["PAID", "READY_FOR_PICKUP"].includes(status) && (
+      {isLabEligibleStatus(status) && (
         <div className={`rounded-lg border-2 p-4 mb-6 ${order.sentToLab && !order.labReceived ? "border-warning bg-warning/10" : "border-border bg-muted/30"}`}>
           <h3 className={`font-semibold flex items-center gap-2 ${order.sentToLab && !order.labReceived ? "text-warning" : "text-muted-foreground"}`}>
             <FlaskConical className="h-5 w-5" />
