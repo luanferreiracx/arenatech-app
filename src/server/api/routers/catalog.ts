@@ -766,7 +766,9 @@ export const catalogRouter = createTRPCRouter({
       featured: z.boolean().optional(),
       search: z.string().optional(),
       page: z.number().int().min(0).optional(),
-      pageSize: z.number().int().min(1).max(100).optional(),
+      // O admin de catálogo lista todos os aparelhos de uma vez (pede 200). Teto
+      // generoso pra acomodar o pedido com folga e não rejeitar a query inteira.
+      pageSize: z.number().int().min(1).max(500).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       const page = input?.page ?? 0;
