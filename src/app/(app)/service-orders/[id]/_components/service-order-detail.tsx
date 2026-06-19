@@ -68,6 +68,8 @@ import {
   WARRANTY_TYPE_LABELS,
   getNextStatusOptions,
   isSkippingSteps,
+  isCancellableOsStatus,
+  isRefundableOsStatus,
   type ServiceOrderStatus,
   type ChecklistData,
   type DeviceInfoData,
@@ -627,7 +629,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 </Link>
               </Button>
             )}
-            {!isCancelled && !isRefunded && !isDelivered && (
+            {isCancellableOsStatus(status) && (
               <Button variant="destructive" size="sm" onClick={() => setCancelDialog(true)}>
                 <Ban className="mr-2 h-4 w-4" />Cancelar
               </Button>
@@ -643,7 +645,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Trash2 className="mr-2 h-4 w-4" />Excluir
               </Button>
             )}
-            {isDelivered && !isRefunded && (
+            {isRefundableOsStatus(status) && !isRefunded && (
               <Button variant="destructive" size="sm" onClick={() => setRefundDialog(true)}>
                 <Undo2 className="mr-2 h-4 w-4" />Estornar
               </Button>

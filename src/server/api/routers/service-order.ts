@@ -50,6 +50,8 @@ import {
   sendReceiptSchema,
   ALLOWED_TRANSITIONS,
   STATUS_GROUPS,
+  isCancellableOsStatus,
+  isRefundableOsStatus,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
 import { technicianReportSchema } from "@/lib/validators/subscription";
@@ -991,11 +993,13 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
         }
 
-        if (["COMPLETED", "DELIVERED"].includes(order.status)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Nao e possivel cancelar uma OS concluida ou entregue.",
-          });
+        if (!isCancellableOsStatus(order.status)) {
+          // OS paga → desfazer é estorno (reverte o dinheiro). Cancelar deixaria
+          // o pagamento registrado. Concluída/finalizada não é cancelável.
+          const message = isRefundableOsStatus(order.status)
+            ? "Esta OS já foi paga. Use 'Estornar' para reverter o pagamento."
+            : "Nao e possivel cancelar uma OS concluida ou finalizada.";
+          throw new TRPCError({ code: "BAD_REQUEST", message });
         }
 
         // Paridade Laravel (`OrdemServicoController::cancelar`): TODA OS tem
@@ -1205,8 +1209,11 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (order.status !== "DELIVERED") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas OS entregues podem ser estornadas." });
+        if (!isRefundableOsStatus(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Apenas OS pagas (paga, aguardando retirada ou entregue) podem ser estornadas.",
+          });
         }
 
         await tx.serviceOrder.update({
