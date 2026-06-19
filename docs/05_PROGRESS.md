@@ -11,11 +11,19 @@
 **Ultima atualizacao:** 2026-06-18
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-cancel-refund-paid`
+**Branch atual:** `fix/os-lab-status-guards`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-18 — OS: guardas de status no laboratório externo (PR 7/N)
+Auditoria periférica. Lab não tinha guarda de status em nenhum dos sistemas: dava pra `sendToLab`/`receiveFromLab`/`cancelLab` numa OS paga/entregue/cancelada/estornada (via tRPC direto; a UI já escondia). Adiciona `isLabEligibleStatus` (espelha o card de lab da UI) + guardas:
+- `sendToLab`: bloqueia status não-elegível + "já está no laboratório".
+- `receiveFromLab`: exige `sentToLab && !labReceived` ("nada aguardando retorno").
+- `cancelLab`: exige `sentToLab` ("nada a cancelar").
+- UI passa a usar `isLabEligibleStatus` (fonte única). 2 testes. Validação: typecheck (0), lint (0 erros), unit (1115).
+- **Próximo:** guardas/auditoria de termos (entrega/devolução), orçamento, PDFs; refactor do `detail`; `saveSignaturePad`.
 
 ### 2026-06-18 — OS: corrigir cancelar/estornar de OS paga (bug financeiro nos 2 sistemas) (PR 6/N)
 Auditoria periférica (lente "Laravel também tem bugs"). **Bug real em ambos:** `cancel` bloqueava só COMPLETED/DELIVERED, deixando **PAID e READY_FOR_PICKUP** passarem — e nesses casos cancelava só recebíveis PENDING, **sem reverter o dinheiro já pago** (OS "cancelada" com pagamento registrado, sem trilha de devolução). E `refund` (que reverte tudo: caixa + recebíveis + comissão da Sale vinculada) só aceitava **DELIVERED** — então OS paga-mas-não-entregue não tinha caminho correto pra ser desfeita.

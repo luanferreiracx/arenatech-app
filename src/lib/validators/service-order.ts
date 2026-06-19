@@ -204,6 +204,23 @@ export function isCancellableOsStatus(status: string): boolean {
 }
 
 /**
+ * Laboratório externo faz parte do serviço (antes de concluir o pagamento e a
+ * entrega): enviar/receber/cancelar lab numa OS paga, entregue, cancelada ou
+ * estornada é incoerente. Espelha a condição do card de lab na UI.
+ */
+const LAB_INELIGIBLE_OS_STATUSES: string[] = [
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+  "CANCELLED",
+  "REFUNDED",
+];
+
+export function isLabEligibleStatus(status: string): boolean {
+  return !LAB_INELIGIBLE_OS_STATUSES.includes(status);
+}
+
+/**
  * True se a transicao "pula" etapas do fluxo principal (ex.: OPEN→COMPLETED).
  * Usado pelo front para exibir alerta de confirmacao antes de avancar.
  */
