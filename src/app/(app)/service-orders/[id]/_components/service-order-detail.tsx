@@ -15,7 +15,6 @@ import {
   Trash2,
   Check,
   X,
-  Minus,
   Plus,
   DollarSign,
   Clock,
@@ -63,16 +62,12 @@ import {
   OPTIONAL_STATUSES,
   SPECIAL_STATUSES,
   ALLOWED_TRANSITIONS,
-  CHECKLIST_ITEMS,
-  DEVICE_INFO_ITEMS,
   getNextStatusOptions,
   isSkippingSteps,
   isCancellableOsStatus,
   isRefundableOsStatus,
   isLabEligibleStatus,
   type ServiceOrderStatus,
-  type ChecklistData,
-  type DeviceInfoData,
 } from "@/lib/validators/service-order";
 import { StatusStepper } from "./status-stepper";
 import { ConcludeOsDialog } from "./conclude-os-dialog";
@@ -82,6 +77,10 @@ import {
   OrderDatesCard,
   OrderWarrantyCard,
   OrderTermsCard,
+  OrderCustomerCard,
+  OrderEquipmentCard,
+  OrderEntryChecklistCard,
+  OrderDeviceInfoCard,
 } from "./detail-sections";
 
 function formatMoney(centavos: number): string {
@@ -525,8 +524,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // Itens so podem ser alterados fora dos estados finalizados (paridade com o
   // guard do servidor em add/update/removeItem).
   const canEditItems = !isCancelled && !isRefunded && !["PAID", "DELIVERED"].includes(status);
-  const checklist = (order.entryChecklist ?? {}) as ChecklistData;
-  const deviceInfo = (order.deviceInfo ?? {}) as DeviceInfoData;
   const pendingQuote = order.quotes?.find((q: { status: string }) => q.status === "pending");
   const deliveryTermSigned = !!order.deliveryTermSigned || !!order.deliveryTermPhysical;
   const returnTermSigned = !!order.returnTermSigned || !!order.returnTermPhysical;
@@ -1012,30 +1009,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column (2/3) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Customer */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Cliente</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div><p className="text-muted-foreground text-xs">Nome</p><p className="font-medium">{order.customer?.name ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">CPF</p><p>{order.customer?.cpf ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">Telefone</p><p>{order.customer?.phone ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">Email</p><p>{order.customer?.email ?? "—"}</p></div>
-            </div>
-          </div>
+          <OrderCustomerCard customer={order.customer} />
 
-          {/* Equipment */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Equipamento</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div><p className="text-muted-foreground text-xs">Tipo</p><p>{order.deviceType ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">Modelo</p><p>{order.deviceModel ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">IMEI / Serial</p><p className="font-mono text-xs">{order.imei ?? order.serialNumber ?? "—"}</p></div>
-              <div><p className="text-muted-foreground text-xs">Senha</p><p>{order.devicePassword ?? "—"}</p></div>
-            </div>
-            {order.accessories && (
-              <div className="mt-3"><p className="text-muted-foreground text-xs">Acessorios</p><p className="text-sm">{order.accessories}</p></div>
-            )}
-          </div>
+          <OrderEquipmentCard {...order} />
 
           {/* Problem & Diagnostics */}
           <div className="rounded-lg border border-border p-4">
@@ -1054,45 +1030,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
 
-          {/* Checklist */}
-          {Object.keys(checklist).length > 0 && (
-            <div className="rounded-lg border border-border p-4">
-              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Checklist de Entrada</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
-                {/* Renderiza TODOS os itens (espelha o wizard). Nao-tocado/null = N/A
-                    — antes itens undefined eram ocultados e o checklist parecia
-                    incompleto vs o que foi preenchido. */}
-                {CHECKLIST_ITEMS.map((item) => {
-                  const val = checklist[item.key];
-                  const isOk = val === true;
-                  const isNok = val === false;
-                  return (
-                    <div key={item.key} className="flex items-center gap-2 py-1">
-                      {isOk && <Check className="w-4 h-4 text-success" />}
-                      {isNok && <X className="w-4 h-4 text-destructive" />}
-                      {!isOk && !isNok && <Minus className="w-4 h-4 text-muted-foreground" />}
-                      <span>{item.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <OrderEntryChecklistCard {...order} />
 
-          {/* Device Info */}
-          {Object.values(deviceInfo).some(Boolean) && (
-            <div className="rounded-lg border border-border p-4">
-              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Informacoes Adicionais</h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {DEVICE_INFO_ITEMS.filter((item) => deviceInfo[item.key]).map((item) => (
-                  <div key={item.key} className="flex items-center gap-2 text-warning">
-                    <Check className="w-4 h-4" />
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <OrderDeviceInfoCard {...order} />
 
           {/* Items */}
           <div className="rounded-lg border border-border p-4">

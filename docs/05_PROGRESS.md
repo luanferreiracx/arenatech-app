@@ -11,11 +11,15 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `refactor/os-detail-sections`
+**Branch atual:** `refactor/os-detail-left-cards`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-20 — OS: refactor do detail — cards read-only da coluna esquerda (PR 9/N, parte 2)
+Continuação do refactor (behavior-neutral). Extraídos para `detail-sections.tsx` os cards de exibição da coluna esquerda: `OrderCustomerCard`, `OrderEquipmentCard`, `OrderEntryChecklistCard`, `OrderDeviceInfoCard` (o de Problema ficou no parent por ter botão de edição). Detail: ~2008 → 1948 linhas (−239 acumulado desde 2187). Removidos imports/derivados orfanados (Minus, CHECKLIST_ITEMS, DEVICE_INFO_ITEMS, checklist/deviceInfo). Validação: typecheck (0), lint (0 erros), unit (1116), **build OK**.
+- **Próximo (parte 3, se desejado):** Items (stateful) e os dialogs — mais acoplados a estado/mutations. Decisão pendente: `saveSignaturePad`.
 
 ### 2026-06-20 — OS: refactor do detail — extrair seções read-only (PR 8/N, parte 1)
 `service-order-detail.tsx` tinha 2187 linhas (estado + mutations + JSX + dialogs num componente só). Início do refactor (behavior-neutral): extraídas as seções **read-only** para `detail-sections.tsx` (tipadas, sem `any`, sem estado): `OrderHistoryTimeline`, `OrderPaymentCard`, `OrderDatesCard`, `OrderWarrantyCard`, `OrderTermsCard`. Detail: 2187 → ~2008 linhas. Validação: typecheck (0), lint (0 erros), unit, **build OK**. Sem mudança de comportamento.
