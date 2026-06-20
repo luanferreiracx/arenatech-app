@@ -93,13 +93,15 @@ export function LabelsDialog({
   );
 
   const productsQuery = useQuery(
-    trpc.stock.list.queryOptions({
-      search: deferredSearch.trim() || undefined,
-      categoryId: categoryId !== "__all__" ? categoryId : undefined,
-      active: true,
-      pageSize: 40,
-    }),
-    { enabled: open },
+    trpc.stock.list.queryOptions(
+      {
+        search: deferredSearch.trim() || undefined,
+        categoryId: categoryId !== "__all__" ? categoryId : undefined,
+        active: true,
+        pageSize: 40,
+      },
+      { enabled: open },
+    ),
   );
 
   const products = productsQuery.data?.data ?? [];
