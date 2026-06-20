@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { format } from "date-fns";
+import { Check, X, Minus } from "lucide-react";
 import {
   SERVICE_ORDER_STATUS_LABELS,
   WARRANTY_TYPE_LABELS,
+  CHECKLIST_ITEMS,
+  DEVICE_INFO_ITEMS,
   type ServiceOrderStatus,
+  type ChecklistData,
+  type DeviceInfoData,
 } from "@/lib/validators/service-order";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 
@@ -272,6 +277,115 @@ export function OrderTermsCard(order: OrderTermsCardProps) {
             <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.warrantyPolicy}</p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Cliente ──
+
+interface OrderCustomerCardProps {
+  customer?: {
+    name?: string | null;
+    cpf?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+export function OrderCustomerCard({ customer }: OrderCustomerCardProps) {
+  return (
+    <div className={SECTION_CARD}>
+      <h3 className={SECTION_TITLE}>Cliente</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div><p className="text-muted-foreground text-xs">Nome</p><p className="font-medium">{customer?.name ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">CPF</p><p>{customer?.cpf ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">Telefone</p><p>{customer?.phone ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">Email</p><p>{customer?.email ?? "—"}</p></div>
+      </div>
+    </div>
+  );
+}
+
+// ── Equipamento (exibição) ──
+
+interface OrderEquipmentCardProps {
+  deviceType?: string | null;
+  deviceModel?: string | null;
+  imei?: string | null;
+  serialNumber?: string | null;
+  devicePassword?: string | null;
+  accessories?: string | null;
+}
+
+export function OrderEquipmentCard(order: OrderEquipmentCardProps) {
+  return (
+    <div className={SECTION_CARD}>
+      <h3 className={SECTION_TITLE}>Equipamento</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div><p className="text-muted-foreground text-xs">Tipo</p><p>{order.deviceType ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">Modelo</p><p>{order.deviceModel ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">IMEI / Serial</p><p className="font-mono text-xs">{order.imei ?? order.serialNumber ?? "—"}</p></div>
+        <div><p className="text-muted-foreground text-xs">Senha</p><p>{order.devicePassword ?? "—"}</p></div>
+      </div>
+      {order.accessories && (
+        <div className="mt-3"><p className="text-muted-foreground text-xs">Acessorios</p><p className="text-sm">{order.accessories}</p></div>
+      )}
+    </div>
+  );
+}
+
+// ── Checklist de entrada (exibição) ──
+
+interface OrderEntryChecklistCardProps {
+  entryChecklist?: ChecklistData | null;
+}
+
+export function OrderEntryChecklistCard({ entryChecklist }: OrderEntryChecklistCardProps) {
+  const checklist = (entryChecklist ?? {}) as ChecklistData;
+  if (Object.keys(checklist).length === 0) return null;
+  return (
+    <div className={SECTION_CARD}>
+      <h3 className={SECTION_TITLE}>Checklist de Entrada</h3>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+        {/* Renderiza TODOS os itens (espelha o wizard). Nao-tocado/null = N/A. */}
+        {CHECKLIST_ITEMS.map((item) => {
+          const val = checklist[item.key];
+          const isOk = val === true;
+          const isNok = val === false;
+          return (
+            <div key={item.key} className="flex items-center gap-2 py-1">
+              {isOk && <Check className="w-4 h-4 text-success" />}
+              {isNok && <X className="w-4 h-4 text-destructive" />}
+              {!isOk && !isNok && <Minus className="w-4 h-4 text-muted-foreground" />}
+              <span>{item.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Informações adicionais do aparelho (exibição) ──
+
+interface OrderDeviceInfoCardProps {
+  deviceInfo?: DeviceInfoData | null;
+}
+
+export function OrderDeviceInfoCard({ deviceInfo }: OrderDeviceInfoCardProps) {
+  const info = (deviceInfo ?? {}) as DeviceInfoData;
+  if (!Object.values(info).some(Boolean)) return null;
+  return (
+    <div className={SECTION_CARD}>
+      <h3 className={SECTION_TITLE}>Informacoes Adicionais</h3>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        {DEVICE_INFO_ITEMS.filter((item) => info[item.key]).map((item) => (
+          <div key={item.key} className="flex items-center gap-2 text-warning">
+            <Check className="w-4 h-4" />
+            <span>{item.label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
