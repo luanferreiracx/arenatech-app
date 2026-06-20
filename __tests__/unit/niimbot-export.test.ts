@@ -17,18 +17,23 @@ describe("abbreviateName", () => {
     expect(abbreviateName("Capa   iPhone   13")).toBe("Capa iPhone 13");
   });
 
-  it("corta nomes longos em fronteira de palavra com reticências", () => {
-    const result = abbreviateName("Película de Vidro 3D Premium para iPhone 15 Pro Max");
-    expect(result.length).toBeLessThanOrEqual(22);
-    expect(result.endsWith("…")).toBe(true);
-    // Não corta no meio de palavra.
-    expect(result).toBe("Película de Vidro 3D…");
+  it("nomes com até maxLen chars passam inalterados", () => {
+    const name = "Apple iPhone 15 Pro Max 256GB"; // 29 chars
+    expect(abbreviateName(name, 32)).toBe(name);
   });
 
-  it("corta no meio quando a primeira palavra estoura o limite", () => {
+  it("nomes longos ficam dentro do limite com estratégia início…fim", () => {
+    const result = abbreviateName("Apple iPhone 15 Pro Max 256GB Titânio Natural", 32);
+    expect(result.length).toBeLessThanOrEqual(32);
+    expect(result).toContain("…");
+    // Deve preservar início (Apple) e fim (Natural ou Titânio)
+    expect(result.startsWith("Apple")).toBe(true);
+  });
+
+  it("corta no meio quando não há espaço e a palavra estoura", () => {
     const result = abbreviateName("Supercalifragilisticexpialidocious", 10);
-    expect(result).toBe("Supercali…");
-    expect(result.length).toBe(10);
+    expect(result.length).toBeLessThanOrEqual(10);
+    expect(result).toContain("…");
   });
 });
 

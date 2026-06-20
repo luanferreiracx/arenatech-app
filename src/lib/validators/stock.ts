@@ -88,6 +88,7 @@ export const listProductsSchema = z.object({
   search: z.string().optional(),
   active: z.boolean().optional(),
   lowStock: z.boolean().optional(),
+  categoryId: z.string().uuid().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["name", "salePrice", "createdAt"]).optional(),

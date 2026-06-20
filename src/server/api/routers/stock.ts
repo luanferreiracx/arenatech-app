@@ -192,6 +192,10 @@ export const stockRouter = createTRPCRouter({
           ];
         }
 
+        if (input.categoryId) {
+          where.categoryId = input.categoryId;
+        }
+
         if (input.lowStock) {
           where.minStock = { gt: 0 };
           // TODO: Estoque-B will handle stock tracking via StockItem

@@ -4,7 +4,6 @@ import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant } from "@/server/db";
 import {
-  abbreviateName,
   buildNiimbotWorkbook,
   formatBRL,
   type LabelRow,
@@ -35,10 +34,15 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const ids = url.searchParams.get("ids")?.split(",").map((s) => s.trim()).filter(Boolean);
+  const qtysRaw = url.searchParams.get("qtys")?.split(",").map((s) => Math.max(1, parseInt(s, 10) || 1));
   const search = url.searchParams.get("search")?.trim();
   const activeParam = url.searchParams.get("active");
   const qty = url.searchParams.get("qty") === "stock" ? "stock" : "one";
   const expand = url.searchParams.get("expand") === "true";
+  // Mapa id→qty customizada (quando o dialog passa qtys individuais por produto)
+  const perProductQty = ids && qtysRaw && ids.length === qtysRaw.length
+    ? new Map(ids.map((id, i) => [id, qtysRaw[i]!]))
+    : null;
 
   try {
     const products = await withTenant(tenantId, async (tx) => {
@@ -75,21 +79,23 @@ export async function GET(req: NextRequest) {
     for (const product of products) {
       const activeVariations = product.hasVariations ? product.variations : [];
 
+      const customQty = perProductQty?.get(product.id);
+
       if (activeVariations.length > 0) {
         for (const variation of activeVariations) {
           rows.push({
-            nome: abbreviateName(product.name),
+            nome: product.name,
             preco: formatBRL(variation.salePrice ?? product.salePrice),
             barcode: variation.barcode ?? variation.sku ?? product.barcode ?? product.sku ?? "",
-            quantidade: qty === "stock" ? Math.max(1, variation.currentStock) : 1,
+            quantidade: customQty ?? (qty === "stock" ? Math.max(1, variation.currentStock) : 1),
           });
         }
       } else {
         rows.push({
-          nome: abbreviateName(product.name),
+          nome: product.name,
           preco: formatBRL(product.salePrice),
           barcode: product.barcode ?? product.sku ?? "",
-          quantidade: qty === "stock" ? Math.max(1, product.currentStock) : 1,
+          quantidade: customQty ?? (qty === "stock" ? Math.max(1, product.currentStock) : 1),
         });
       }
     }
