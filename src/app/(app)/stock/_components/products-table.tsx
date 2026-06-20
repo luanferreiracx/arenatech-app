@@ -17,7 +17,7 @@ import { toast } from "@/lib/toast";
 import { useCan } from "@/lib/auth/use-capabilities";
 import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
-import { LabelsExportMenu } from "./labels-export-menu";
+import { LabelsDialog } from "./labels-dialog";
 
 interface ProductRow {
   id: string;
@@ -312,8 +312,8 @@ export function ProductsTable() {
                   <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
                     Limpar selecao
                   </Button>
-                  <LabelsExportMenu
-                    ids={selectedIds}
+                  <LabelsDialog
+                    initialIds={selectedIds}
                     buttonLabel={`Etiquetas (${selectedIds.length})`}
                     size="sm"
                   />

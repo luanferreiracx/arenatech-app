@@ -24,25 +24,48 @@ export type LabelRow = {
   quantidade: number;
 };
 
-const SHORT_NAME_MAX_LEN = 22;
+const SHORT_NAME_MAX_LEN = 32;
 
 /** Caractere de reticências (1 char, economiza espaço na etiqueta). */
 const ELLIPSIS = "…";
 
 /**
- * Reduz o nome do produto para caber na etiqueta, cortando em fronteira de palavra
- * quando possível e adicionando reticências. Não corta no meio de palavra a menos que
- * a primeira palavra já estoure o limite.
+ * Reduz o nome do produto para caber na etiqueta usando estratégia início…fim.
+ *
+ * Mantém o começo (marca/família) e o fim (modelo/capacidade/variante) para que
+ * produtos com nomes longos ainda sejam identificáveis. Ex.:
+ *   "ASUS TUF Gaming F16 FX607JV-N3017W RTX 4060" (44 chars)
+ *   → "ASUS TUF Gaming F16…N3017W RTX 4060" (36 chars com maxLen=36)
+ *
+ * Só corta em fronteira de palavra para não gerar fragmentos ilegíveis.
  */
 export function abbreviateName(name: string, maxLen: number = SHORT_NAME_MAX_LEN): string {
   const clean = name.trim().replace(/\s+/g, " ");
   if (clean.length <= maxLen) return clean;
 
-  const slice = clean.slice(0, maxLen - 1);
-  const lastSpace = slice.lastIndexOf(" ");
-  // Só corta na palavra se sobrar pelo menos metade do limite — evita reduzir demais.
-  const base = lastSpace > maxLen / 2 ? slice.slice(0, lastSpace) : slice;
-  return base.trimEnd() + ELLIPSIS;
+  // Slots disponíveis para conteúdo (descontando o ELLIPSIS).
+  const budget = maxLen - 1;
+  // Divide aproximadamente 55% no início e 45% no fim, favorecendo o início
+  // (onde ficam marca e família) mas reservando espaço suficiente para o fim
+  // (onde ficam número de modelo, capacidade, variante).
+  const startBudget = Math.ceil(budget * 0.55);
+  const endBudget = budget - startBudget;
+
+  // Parte do início — corta na última fronteira de palavra dentro de startBudget.
+  const startSlice = clean.slice(0, startBudget);
+  const startSpace = startSlice.lastIndexOf(" ");
+  const startPart = startSpace > startBudget * 0.5
+    ? startSlice.slice(0, startSpace)
+    : startSlice.trimEnd();
+
+  // Parte do fim — corta na primeira fronteira de palavra dentro de endBudget.
+  const endSlice = clean.slice(-endBudget);
+  const endSpace = endSlice.indexOf(" ");
+  const endPart = endSpace !== -1 && endSpace < endBudget * 0.5
+    ? endSlice.slice(endSpace + 1)
+    : endSlice.trimStart();
+
+  return `${startPart}${ELLIPSIS}${endPart}`;
 }
 
 /** Formata um valor numérico como moeda BRL, ex.: 1234.5 → "R$ 1.234,50". */

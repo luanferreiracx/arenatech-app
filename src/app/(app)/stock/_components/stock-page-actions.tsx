@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Plus, BarChart3, Download, MinusCircle, ListChecks, FileText, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCan } from "@/lib/auth/use-capabilities";
-import { LabelsExportMenu } from "./labels-export-menu";
+import { LabelsDialog } from "./labels-dialog";
 
 /**
  * Acoes do cabecalho da tela de Estoque (ADR 0053). Movimento de saldo (baixa,
@@ -49,7 +49,7 @@ export function StockPageActions() {
       )}
       {/* Exporta produtos ativos (.xlsx p/ app Niimbot). Menu permite escolher
           1 etiqueta por produto ou repetir conforme o saldo em estoque. */}
-      <LabelsExportMenu buttonLabel="Etiquetas Niimbot" />
+      <LabelsDialog buttonLabel="Etiquetas Niimbot" />
       <Button variant="outline" asChild>
         <Link href="/stock/nfe">
           <FileText className="mr-2 h-4 w-4" />
