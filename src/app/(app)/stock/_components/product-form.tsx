@@ -52,6 +52,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       brand: "",
       ncm: null,
       cest: null,
+      isDevice: false,
       isSerialized: false,
       isPremium: false,
       hasVariations: false,
@@ -459,6 +460,31 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
 
         <FormSection title="Configuracoes">
           <div className="space-y-4">
+            <FormField
+              control={form.control}
+              name="isDevice"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">É Aparelho</FormLabel>
+                    <p className="text-sm text-muted-foreground">
+                      Celular, notebook, tablet, console ou similar. Necessário para aparecer em Compra de Aparelhos e PDV de upgrade.
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value ?? false}
+                      onCheckedChange={(v) => {
+                        field.onChange(v);
+                        // Aparelhos quase sempre são serializados — ativa automaticamente
+                        if (v) form.setValue("isSerialized", true);
+                      }}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="isSerialized"
