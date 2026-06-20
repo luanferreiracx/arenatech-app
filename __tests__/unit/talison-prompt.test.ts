@@ -94,6 +94,18 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("buscar_aparelho");
   });
 
+  it("é objetivo: não reconfirma dado já informado e manda simulação completa", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("SEJA OBJETIVO");
+    expect(prompt).toContain("APROVEITE TUDO que o cliente já disse");
+    expect(prompt).toContain("DE UMA VEZ");
+    // Parcelamento: tabela completa, sem perguntar "em quantas vezes".
+    expect(prompt).toContain("SIMULAÇÃO COMPLETA");
+    // Avaliação direta: não reenviar questionário quando o cliente já mandou os dados.
+    expect(prompt).toContain("NÃO reenvie o questionário");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
