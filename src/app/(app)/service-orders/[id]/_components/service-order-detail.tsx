@@ -65,7 +65,6 @@ import {
   ALLOWED_TRANSITIONS,
   CHECKLIST_ITEMS,
   DEVICE_INFO_ITEMS,
-  WARRANTY_TYPE_LABELS,
   getNextStatusOptions,
   isSkippingSteps,
   isCancellableOsStatus,
@@ -75,9 +74,15 @@ import {
   type ChecklistData,
   type DeviceInfoData,
 } from "@/lib/validators/service-order";
-import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 import { StatusStepper } from "./status-stepper";
 import { ConcludeOsDialog } from "./conclude-os-dialog";
+import {
+  OrderHistoryTimeline,
+  OrderPaymentCard,
+  OrderDatesCard,
+  OrderWarrantyCard,
+  OrderTermsCard,
+} from "./detail-sections";
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
@@ -1185,97 +1190,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* History Timeline (mescla mudancas de status com eventos de assinatura,
-              paridade Laravel show.blade.php:1353-1413) */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Historico</h3>
-            <div className="relative pl-6 space-y-4">
-              <div className="absolute left-2 top-0 bottom-0 w-0.5 bg-border" />
-              {(() => {
-                type TimelineEvent = {
-                  id: string;
-                  label: string;
-                  detail: string | null;
-                  date: Date;
-                  kind: "status" | "signature";
-                };
-                const events: (TimelineEvent & { author?: string | null; notes?: string | null })[] = [];
-                // Status changes
-                for (const h of order.history as Array<{ id: string; newStatus: string; notes: string | null; userName: string; createdAt: Date }>) {
-                  events.push({
-                    id: h.id,
-                    label: SERVICE_ORDER_STATUS_LABELS[h.newStatus as ServiceOrderStatus] ?? h.newStatus,
-                    detail: h.userName || null,
-                    author: h.userName || null,
-                    notes: h.notes || null,
-                    date: new Date(h.createdAt),
-                    kind: "status",
-                  });
-                }
-                // Eventos de assinatura — exibidos quando datados.
-                if (order.signatureSignedAt) {
-                  events.push({
-                    id: "sig-entry",
-                    label: "Assinatura de Entrada",
-                    detail: order.physicalSignature ? "Assinatura fisica confirmada" : "Assinatura digital (Autentique)",
-                    date: new Date(order.signatureSignedAt),
-                    kind: "signature",
-                  });
-                }
-                if (order.deliveryTermSignedAt) {
-                  events.push({
-                    id: "sig-delivery",
-                    label: "Termo de Entrega Assinado",
-                    detail: order.deliveryTermPhysical ? "Assinatura fisica" : "Assinatura digital (Autentique)",
-                    date: new Date(order.deliveryTermSignedAt),
-                    kind: "signature",
-                  });
-                }
-                if (order.returnTermSignedAt) {
-                  events.push({
-                    id: "sig-return",
-                    label: "Termo de Devolucao Assinado",
-                    detail: order.returnTermPhysical ? "Assinatura fisica" : "Assinatura digital (Autentique)",
-                    date: new Date(order.returnTermSignedAt),
-                    kind: "signature",
-                  });
-                }
-                // Ordem cronologica decrescente (mais recente primeiro)
-                events.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-                return events.map((e) => (
-                  <div key={e.id} className="relative">
-                    <div
-                      className={`absolute -left-4 top-1 w-3 h-3 rounded-full border-2 bg-card ${
-                        e.kind === "signature" ? "border-amber-500" : "border-primary"
-                      }`}
-                    />
-                    <div className="text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{e.label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {format(e.date, "dd/MM/yyyy HH:mm")}
-                        </span>
-                      </div>
-                      {(e as { author?: string | null }).author && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          por {(e as { author: string }).author}
-                        </p>
-                      )}
-                      {(e as { notes?: string | null }).notes && (
-                        <p className="text-xs italic mt-1 px-2 py-1 rounded bg-muted/40 border-l-2 border-primary/40">
-                          “{(e as { notes: string }).notes}”
-                        </p>
-                      )}
-                      {e.kind === "signature" && e.detail && (
-                        <p className="text-xs text-muted-foreground italic mt-1">{e.detail}</p>
-                      )}
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
-          </div>
+          <OrderHistoryTimeline {...order} />
         </div>
 
         {/* Right Column (1/3) */}
@@ -1457,75 +1372,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* Payment Card */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Pagamento</h3>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Valor Total</span><span className="font-bold text-primary font-mono">{formatMoney(order.totalAmount)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Valor Pago</span><span className="font-mono text-success">{formatMoney(order.paidAmount)}</span></div>
-              {(() => {
-                const pending = Math.max(0, order.totalAmount - order.paidAmount - order.paymentDiscount);
-                if (pending > 0) {
-                  return (
-                    <div className="flex justify-between rounded bg-warning/10 px-2 py-1">
-                      <span className="text-warning font-semibold">Pendente</span>
-                      <span className="text-warning font-mono font-bold">{formatMoney(pending)}</span>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-              {order.paymentDiscount > 0 && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Desconto</span><span className="text-warning font-mono">{formatMoney(order.paymentDiscount)}</span></div>
-              )}
-              {order.paymentMethod && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Forma</span><span>{PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod}</span></div>
-              )}
-              {order.paymentDate && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Data</span><span>{format(new Date(order.paymentDate), "dd/MM/yyyy")}</span></div>
-              )}
-              {order.linkedSale && (
-                <div className="flex justify-between border-t border-border pt-2 mt-2">
-                  <span className="text-muted-foreground">Venda PDV</span>
-                  <Link
-                    href={`/pdv/${order.linkedSale.id}`}
-                    className="text-primary hover:underline font-mono text-xs"
-                  >
-                    #{order.linkedSale.number}
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
+          <OrderPaymentCard {...order} />
 
-          {/* Card Datas — paridade Laravel show.blade.php:1666-1691 */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Datas</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Entrada</span>
-                <span>{format(new Date(order.entryDate), "dd/MM/yyyy HH:mm")}</span>
-              </div>
-              {order.estimatedDate && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Previsao</span>
-                  <span>{format(new Date(order.estimatedDate), "dd/MM/yyyy")}</span>
-                </div>
-              )}
-              {order.completedDate && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Conclusao</span>
-                  <span>{format(new Date(order.completedDate), "dd/MM/yyyy HH:mm")}</span>
-                </div>
-              )}
-              {order.deliveredDate && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Entrega</span>
-                  <span>{format(new Date(order.deliveredDate), "dd/MM/yyyy HH:mm")}</span>
-                </div>
-              )}
-            </div>
-          </div>
+          <OrderDatesCard {...order} />
 
           {/* Costs & Profit */}
           <div className="rounded-lg border border-border p-4">
@@ -1559,37 +1408,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             )}
           </div>
 
-          {/* Warranty */}
-          <div className="rounded-lg border border-border p-4">
-            <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Garantia</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Garantia</span><span>{order.isWarranty ? "Sim" : "Nao"}</span></div>
-              {order.warrantyType && <div className="flex justify-between"><span className="text-muted-foreground">Tipo</span><span>{WARRANTY_TYPE_LABELS[order.warrantyType] ?? order.warrantyType}</span></div>}
-              <div className="flex justify-between"><span className="text-muted-foreground">Prazo</span><span>{order.warrantyMonths} meses</span></div>
-            </div>
-          </div>
+          <OrderWarrantyCard {...order} />
 
-          {/* Termos e Garantia (texto configurado em Configuracoes > Assistencia,
-              tambem impresso no PDF da OS). Paridade Laravel: termo dentro da OS. */}
-          {(order.termsOfService || order.warrantyPolicy) && (
-            <div className="rounded-lg border border-border p-4">
-              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Termos</h3>
-              <div className="space-y-3 text-sm">
-                {order.termsOfService && (
-                  <div>
-                    <p className="text-muted-foreground text-xs mb-1">Termos de servico</p>
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.termsOfService}</p>
-                  </div>
-                )}
-                {order.warrantyPolicy && (
-                  <div>
-                    <p className="text-muted-foreground text-xs mb-1">Politica de garantia</p>
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.warrantyPolicy}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <OrderTermsCard {...order} />
 
           {/* Responsible */}
           <div className="rounded-lg border border-border p-4">
