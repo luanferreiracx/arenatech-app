@@ -8,14 +8,18 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-18
+**Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-lab-status-guards`
+**Branch atual:** `refactor/os-detail-sections`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-20 — OS: refactor do detail — extrair seções read-only (PR 8/N, parte 1)
+`service-order-detail.tsx` tinha 2187 linhas (estado + mutations + JSX + dialogs num componente só). Início do refactor (behavior-neutral): extraídas as seções **read-only** para `detail-sections.tsx` (tipadas, sem `any`, sem estado): `OrderHistoryTimeline`, `OrderPaymentCard`, `OrderDatesCard`, `OrderWarrantyCard`, `OrderTermsCard`. Detail: 2187 → ~2008 linhas. Validação: typecheck (0), lint (0 erros), unit, **build OK**. Sem mudança de comportamento.
+- **Próximo (parte 2, se desejado):** extrair cards de equipamento/cliente/checklist e os dialogs (mais acoplados a estado). Decisão pendente: `saveSignaturePad`.
 
 ### 2026-06-18 — OS: guardas de status no laboratório externo (PR 7/N)
 Auditoria periférica. Lab não tinha guarda de status em nenhum dos sistemas: dava pra `sendToLab`/`receiveFromLab`/`cancelLab` numa OS paga/entregue/cancelada/estornada (via tRPC direto; a UI já escondia). Adiciona `isLabEligibleStatus` (espelha o card de lab da UI) + guardas:
