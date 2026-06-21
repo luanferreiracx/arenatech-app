@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
         }
       } else {
         rows.push({
-          nome: product.name,
+          nome: abbreviateName(product.name),
           preco: formatBRL(product.salePrice),
           barcode: product.barcode ?? product.sku ?? "",
           quantidade: customQty ?? (qty === "stock" ? Math.max(1, product.currentStock) : 1),
