@@ -76,7 +76,6 @@ import {
   OrderPaymentCard,
   OrderDatesCard,
   OrderWarrantyCard,
-  OrderTermsCard,
   OrderCustomerCard,
   OrderEquipmentCard,
   OrderEntryChecklistCard,
@@ -123,6 +122,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [newItemPrice, setNewItemPrice] = useState(0);
   const [newItemProductId, setNewItemProductId] = useState<string | null>(null);
   const [newItemVariationId, setNewItemVariationId] = useState<string | null>(null);
+  const [newItemServiceId, setNewItemServiceId] = useState<string | null>(null);
   const [newItemCostPrice, setNewItemCostPrice] = useState(0);
   // Produto com variacoes selecionado e aguardando escolha da variacao.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,6 +138,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     trpc.serviceOrder.searchParts.queryOptions(
       { query: partsDebounced || undefined, limit: 10 },
       { enabled: newItemType === "PRODUCT" && partsDebounced.length >= 2 },
+    ),
+  );
+  // Busca de servicos no catalogo (paridade com a criacao da OS — antes a
+  // edicao so aceitava texto livre).
+  const servicesQuery = useQuery(
+    trpc.catalog.listServices.queryOptions(
+      { search: partsDebounced || undefined, active: true, pageSize: 10 },
+      { enabled: newItemType === "SERVICE" && partsDebounced.length >= 2 },
     ),
   );
   const [costsEditing, setCostsEditing] = useState(false);
@@ -179,6 +187,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [concludeSkipping, setConcludeSkipping] = useState(false);
   // Reenvio manual da notificacao de conclusao (escolhe/digita telefone).
   const [notifyCompletedDialog, setNotifyCompletedDialog] = useState(false);
+  // Envio do recibo por WhatsApp (escolhe/digita telefone — padrão do sistema).
+  const [receiptDialog, setReceiptDialog] = useState(false);
 
   const invalidateOrder = () => {
     void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
@@ -603,17 +613,15 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     <FileText className="mr-2 h-4 w-4" />Recibo
                   </Link>
                 </Button>
-                {order.customer?.phone && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={sendReceiptMut.isPending}
-                    onClick={() => sendReceiptMut.mutate({ orderId: id })}
-                  >
-                    <MessageCircle className="mr-2 h-4 w-4" />
-                    {order.receiptSent ? "Reenviar Recibo" : "Enviar Recibo"}
-                  </Button>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sendReceiptMut.isPending}
+                  onClick={() => setReceiptDialog(true)}
+                >
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  {order.receiptSent ? "Reenviar Recibo" : "Enviar Recibo"}
+                </Button>
               </>
             )}
             {!isCancelled && !isRefunded && (
@@ -716,9 +724,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Communication — so apos OS concluida (paridade com Laravel). Aparece
-          mesmo sem telefone cadastrado: o operador pode digitar um no envio. */}
-      {!isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
+      {/* Communication — para avisar o cliente a retirar o aparelho. Some após
+          ENTREGUE (aparelho já entregue → nada a comunicar). Aparece mesmo sem
+          telefone cadastrado: o operador pode digitar um no envio. */}
+      {!isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(status) && (
         <div className="rounded-lg border-2 border-blue-500 bg-blue-500/10 p-4 mb-6">
           <h3 className="font-semibold text-blue-400 flex items-center gap-2">
             <MessageCircle className="h-5 w-5" />Comunicacao
@@ -1325,8 +1334,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
           <OrderWarrantyCard {...order} />
 
-          <OrderTermsCard {...order} />
-
           {/* Responsible */}
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1381,6 +1388,23 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         }}
       />
 
+      {/* Envio do recibo por WhatsApp (escolhe/digita telefone) */}
+      <WhatsAppSendDialog
+        open={receiptDialog}
+        onOpenChange={setReceiptDialog}
+        title="Enviar Recibo por WhatsApp"
+        description="Selecione um numero ou digite outro para enviar o recibo da OS."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={sendReceiptMut.isPending}
+        confirmLabel="Enviar Recibo"
+        onConfirm={async (phone) => {
+          await sendReceiptMut.mutateAsync({ orderId: id, phone });
+          setReceiptDialog(false);
+        }}
+      />
+
       {/* Signature WhatsApp Dialog */}
       <WhatsAppSendDialog
         open={signatureDialog}
@@ -1403,6 +1427,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         if (!open) {
           setNewItemProductId(null);
           setNewItemVariationId(null);
+          setNewItemServiceId(null);
           setPendingVariationProduct(null);
           setNewItemCostPrice(0);
           setPartsSearch("");
@@ -1417,6 +1442,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 setNewItemType(v as "SERVICE" | "PRODUCT");
                 setNewItemProductId(null);
                 setNewItemVariationId(null);
+                setNewItemServiceId(null);
+                setNewItemDesc("");
+                setNewItemPrice(0);
                 setPendingVariationProduct(null);
                 setNewItemCostPrice(0);
                 setPartsSearch("");
@@ -1546,12 +1574,74 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </div>
             )}
 
+            {/* Busca de serviço no catálogo (paridade com a criação da OS). */}
+            {newItemType === "SERVICE" && !newItemServiceId && (
+              <div className="space-y-2">
+                <Label>Buscar servico no catalogo</Label>
+                <Input
+                  value={partsSearch}
+                  onChange={(e) => setPartsSearch(e.target.value)}
+                  placeholder="Nome, tipo ou modelo..."
+                  autoComplete="off"
+                />
+                {partsDebounced.length >= 2 && (
+                  <div className="border border-border rounded-md max-h-48 overflow-y-auto bg-background">
+                    {servicesQuery.isFetching ? (
+                      <p className="p-3 text-sm text-muted-foreground">Buscando...</p>
+                    ) : (servicesQuery.data?.data ?? []).length === 0 ? (
+                      <p className="p-3 text-sm text-muted-foreground">Nenhum servico encontrado.</p>
+                    ) : (
+                      (servicesQuery.data?.data ?? []).map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setNewItemServiceId(s.id);
+                            setNewItemDesc(s.name);
+                            setNewItemPrice(s.basePrice);
+                            setPartsSearch("");
+                            setPartsDebounced("");
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-muted border-b border-border/40 last:border-b-0 transition-colors"
+                        >
+                          <div className="text-sm font-medium">{s.name}</div>
+                          <div className="text-xs text-muted-foreground flex justify-between">
+                            <span>{s.serviceType}{s.deviceModel ? ` • ${s.deviceModel}` : ""}</span>
+                            <span>{(s.basePrice / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Selecione um servico acima ou digite a descricao manualmente abaixo.
+                </p>
+              </div>
+            )}
+
+            {newItemType === "SERVICE" && newItemServiceId && (
+              <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                <div className="text-sm">
+                  <p className="font-medium">{newItemDesc}</p>
+                  <p className="text-xs text-muted-foreground">Servico do catalogo</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setNewItemServiceId(null); setNewItemDesc(""); setNewItemPrice(0); }}
+                >
+                  Trocar
+                </Button>
+              </div>
+            )}
+
             <div>
               <Label>Descricao</Label>
               <Input
                 value={newItemDesc}
                 onChange={(e) => setNewItemDesc(e.target.value)}
-                disabled={!!newItemProductId}
+                disabled={!!newItemProductId || !!newItemServiceId}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -1573,6 +1663,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   ...(newItemProductId
                     ? { productId: newItemProductId, costPrice: newItemCostPrice, variationId: newItemVariationId }
                     : {}),
+                  ...(newItemServiceId ? { serviceId: newItemServiceId } : {}),
                 })
               }
             >
