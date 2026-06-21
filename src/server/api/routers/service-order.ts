@@ -1381,11 +1381,15 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Regime B (OS ja assinada): abre/garante revisao de orcamento ANTES de
-        // mutar, capturando o estado autorizado anterior para revert na rejeicao.
-        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
-
         const itemTotal = input.unitPrice * input.quantity;
+
+        // Regime B (OS assinada): só exige autorização do cliente quando a
+        // alteração AUMENTA o valor. Acréscimo de item (itemTotal > 0) dispara
+        // revisão; itens sem valor aplicam direto (decisão do dono — reduções
+        // nunca dependem de autorização).
+        if (itemTotal > 0) {
+          await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+        }
 
         // Reserve stock for product items
         if (input.type === "PRODUCT" && input.productId) {
@@ -1452,12 +1456,15 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Regime B: garante revisao de orcamento antes de mutar.
-        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
-
         const quantity = input.quantity ?? Number(item.quantity);
         const unitPrice = input.unitPrice !== undefined ? input.unitPrice : decimalToCents(item.unitPrice);
         const total = unitPrice * quantity;
+
+        // Regime B: só exige autorização quando o item AUMENTA de valor.
+        // Reduções (preço/qtd menor) aplicam direto (decisão do dono).
+        if (total > decimalToCents(item.total)) {
+          await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+        }
 
         // Reconcilia estoque quando a quantidade de um item-produto muda.
         if (item.type === "PRODUCT" && item.productId && input.quantity !== undefined) {
@@ -1517,8 +1524,9 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // Regime B: garante revisao de orcamento (snapshot inclui o item removido).
-        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
+        // Remover item REDUZ o valor — aplica direto, sem exigir autorização
+        // (decisão do dono). `syncBudgetRevision` abaixo atualiza uma revisão já
+        // pendente (se houver); remoção sozinha não abre revisão.
 
         // Release stock for product items
         if (item.type === "PRODUCT" && item.productId) {

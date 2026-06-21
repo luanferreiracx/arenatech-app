@@ -11,11 +11,14 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-gross-total-pdv`
+**Branch atual:** `fix/os-budget-revision-on-increase`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-21 — OS: autorização de orçamento só no aumento (PR 11/N)
+Dono: alterações de orçamento que REDUZEM o valor não devem depender de autorização. `ensureBudgetRevision` (regime pós-assinatura) abria revisão/`WAITING_APPROVAL` em QUALQUER alteração. Agora só abre quando AUMENTA: `addItem` (item com valor > 0), `updateItem` (novo total > anterior); `removeItem` nunca abre (é redução). Reduções aplicam direto; `syncBudgetRevision` ainda atualiza uma revisão já pendente. Validação: typecheck (0), lint (0 erros), unit (1116).
 
 ### 2026-06-21 — OS: total bruto pro PDV + remover desconto na OS + fix draft stale (PR 10/N)
 Dono: descontos devem ser dados no **PDV**, não na OS; e relatou OS encolhendo ao ir pro PDV (OS202600256). Duas causas: (1) `createFromOS` reaproveitava um DRAFT existente **sem ressincronizar o total** — se a OS mudou depois, o PDV mostrava o total antigo; (2) a OS tinha desconto próprio que ia líquido (menor) pro PDV.
