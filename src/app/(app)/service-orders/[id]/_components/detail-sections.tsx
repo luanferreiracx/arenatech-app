@@ -252,36 +252,6 @@ export function OrderWarrantyCard(order: OrderWarrantyCardProps) {
   );
 }
 
-// ── Termos (texto configurado em Configurações > Assistência) ──
-
-interface OrderTermsCardProps {
-  termsOfService?: string | null;
-  warrantyPolicy?: string | null;
-}
-
-export function OrderTermsCard(order: OrderTermsCardProps) {
-  if (!order.termsOfService && !order.warrantyPolicy) return null;
-  return (
-    <div className={SECTION_CARD}>
-      <h3 className={SECTION_TITLE}>Termos</h3>
-      <div className="space-y-3 text-sm">
-        {order.termsOfService && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">Termos de servico</p>
-            <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.termsOfService}</p>
-          </div>
-        )}
-        {order.warrantyPolicy && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">Politica de garantia</p>
-            <p className="whitespace-pre-wrap text-xs leading-relaxed">{order.warrantyPolicy}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Cliente ──
 
 interface OrderCustomerCardProps {

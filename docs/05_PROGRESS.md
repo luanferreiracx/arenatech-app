@@ -11,11 +11,14 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-budget-revision-on-increase`
+**Branch atual:** `fix/os-detail-ux`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-21 — OS: limpeza da tela de detalhe (PR 12/N)
+Pedidos do dono + melhorias: (1a) removido o card "Termos" do detalhe (config global, redundante — já no PDF); (1b) bloco "Comunicação" some após ENTREGUE (só Concluída/Paga/Aguardando Retirada); (1c) "Adicionar Item" ganhou **busca de serviço** no catálogo (`catalog.listServices`), igual à criação da OS — antes serviço era só texto livre; (1d) "Enviar Recibo" agora abre o `WhatsAppSendDialog` (escolher/digitar número), coerente com o resto do sistema. Validação: typecheck (0), lint (0 erros), build OK.
 
 ### 2026-06-21 — OS: autorização de orçamento só no aumento (PR 11/N)
 Dono: alterações de orçamento que REDUZEM o valor não devem depender de autorização. `ensureBudgetRevision` (regime pós-assinatura) abria revisão/`WAITING_APPROVAL` em QUALQUER alteração. Agora só abre quando AUMENTA: `addItem` (item com valor > 0), `updateItem` (novo total > anterior); `removeItem` nunca abre (é redução). Reduções aplicam direto; `syncBudgetRevision` ainda atualiza uma revisão já pendente. Validação: typecheck (0), lint (0 erros), unit (1116).
