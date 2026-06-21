@@ -11,11 +11,17 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `refactor/os-detail-left-cards`
+**Branch atual:** `fix/os-gross-total-pdv`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-21 — OS: total bruto pro PDV + remover desconto na OS + fix draft stale (PR 10/N)
+Dono: descontos devem ser dados no **PDV**, não na OS; e relatou OS encolhendo ao ir pro PDV (OS202600256). Duas causas: (1) `createFromOS` reaproveitava um DRAFT existente **sem ressincronizar o total** — se a OS mudou depois, o PDV mostrava o total antigo; (2) a OS tinha desconto próprio que ia líquido (menor) pro PDV.
+- **Correção:** `recalculateOrderTotals` passa a computar **total bruto** (serviço + peças, sem desconto); removida a edição de desconto na OS (UI + procedure `updateDiscount` + schema); `createFromOS` ressincroniza o draft reaproveitado com `order.totalAmount` atual. Desconto agora só no PDV (`applyDiscount` da venda).
+- Validação: typecheck (0), lint (0 erros), unit (1115), build OK.
+- **Próximo (mesma leva):** autorização de orçamento só no aumento (2a); limpeza da UI do detail (Termos, Comunicação até entrega, busca de serviço no add-item, recibo via modal).
 
 ### 2026-06-20 — OS: refactor do detail — cards read-only da coluna esquerda (PR 9/N, parte 2)
 Continuação do refactor (behavior-neutral). Extraídos para `detail-sections.tsx` os cards de exibição da coluna esquerda: `OrderCustomerCard`, `OrderEquipmentCard`, `OrderEntryChecklistCard`, `OrderDeviceInfoCard` (o de Problema ficou no parent por ter botão de edição). Detail: ~2008 → 1948 linhas (−239 acumulado desde 2187). Removidos imports/derivados orfanados (Minus, CHECKLIST_ITEMS, DEVICE_INFO_ITEMS, checklist/deviceInfo). Validação: typecheck (0), lint (0 erros), unit (1116), **build OK**.

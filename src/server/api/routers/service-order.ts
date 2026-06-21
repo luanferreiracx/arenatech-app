@@ -23,7 +23,6 @@ import {
   uncancelOrderSchema,
   refundOrderSchema,
   updateCostsSchema,
-  updateDiscountSchema,
   listServiceOrdersSchema,
   requestBudgetApprovalSchema,
   respondQuoteSchema,
@@ -1741,33 +1740,8 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
-  // ── UPDATE DISCOUNT (inline) ──
-  // Desconto e parte do total do cliente — em regime pos-assinatura dispara
-  // revisao de orcamento como qualquer alteracao de valor.
-  updateDiscount: tenantProcedure
-    .input(updateDiscountSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
-        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
-        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Desconto nao pode ser alterado no status atual.",
-          });
-        }
-
-        await ensureBudgetRevision(tx, order, ctx.session.user.id, ctx.tenantId);
-
-        await tx.serviceOrder.update({
-          where: { id: input.id },
-          data: { discount: centsToPrisma(input.discount) },
-        });
-        await recalculateOrderTotals(tx, input.id, ctx.tenantId);
-        await syncBudgetRevision(tx, input.id);
-        return { success: true };
-      });
-    }),
+  // NOTA: desconto não é mais dado na OS — a OS leva o valor BRUTO e o desconto
+  // é aplicado no PDV (decisão do dono). A antiga `updateDiscount` foi removida.
 
   // ── CONFIRM PHYSICAL SIGNATURE ──
   confirmPhysicalSignature: tenantProcedure
@@ -3666,13 +3640,8 @@ async function recalculateOrderTotals(tx: any, orderId: string, _tenantId: strin
     else partsAmount += total;
   }
 
-  const order = await tx.serviceOrder.findUnique({
-    where: { id: orderId },
-    select: { discount: true },
-  });
-
-  const discount = Number(order?.discount ?? 0);
-  const totalAmount = serviceAmount + partsAmount - discount;
+  // Total BRUTO (serviço + peças). Desconto não é mais dado na OS — vai pro PDV.
+  const totalAmount = serviceAmount + partsAmount;
 
   await tx.serviceOrder.update({
     where: { id: orderId },
