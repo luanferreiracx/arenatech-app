@@ -34,11 +34,13 @@ type SelectedItem = { id: string; name: string; barcode: string; qty: number };
 
 function buildLabelsUrl(items: SelectedItem[], mode: "one" | "stock"): string {
   const ids = items.map((i) => i.id).join(",");
-  const qtys = items.map((i) => i.qty).join(",");
-  const params = new URLSearchParams({ ids, qtys });
+  const params = new URLSearchParams({ ids });
   if (mode === "stock") {
+    // Não passa qtys — a rota usa currentStock de cada produto.
     params.set("qty", "stock");
     params.set("expand", "true");
+  } else {
+    params.set("qtys", items.map((i) => i.qty).join(","));
   }
   return `/api/stock/labels?${params.toString()}`;
 }
@@ -137,6 +139,25 @@ export function LabelsDialog({
     });
   }, []);
 
+  const allVisibleSelected =
+    products.length > 0 && products.every((p) => selected.has(p.id));
+
+  const toggleAll = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (products.every((p) => next.has(p.id))) {
+        products.forEach((p) => next.delete(p.id));
+      } else {
+        products.forEach((p) => {
+          if (!next.has(p.id)) {
+            next.set(p.id, { id: p.id, name: p.name, barcode: p.barcode ?? p.sku ?? "", qty: 1 });
+          }
+        });
+      }
+      return next;
+    });
+  }, [products]);
+
   const handleOpen = (v: boolean) => {
     setOpen(v);
     if (v && initialIds?.length) {
@@ -207,9 +228,20 @@ export function LabelsDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-h-0 flex-1">
             {/* Lista de produtos */}
             <div className="flex flex-col gap-1 min-h-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">
-                Produtos {products.length > 0 && `(${products.length})`}
-              </p>
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Produtos {products.length > 0 && `(${products.length})`}
+                </p>
+                {products.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAll}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {allVisibleSelected ? "Desselecionar todos" : "Selecionar todos"}
+                  </button>
+                )}
+              </div>
               <div className="overflow-y-auto flex-1 border rounded-lg divide-y">
                 {productsQuery.isLoading ? (
                   <div className="p-2 space-y-2">

@@ -19,15 +19,22 @@ describe("abbreviateName", () => {
 
   it("nomes com até maxLen chars passam inalterados", () => {
     const name = "Apple iPhone 15 Pro Max 256GB"; // 29 chars
-    expect(abbreviateName(name, 32)).toBe(name);
+    expect(abbreviateName(name, 30)).toBe(name);
   });
 
   it("nomes longos ficam dentro do limite com estratégia início…fim", () => {
-    const result = abbreviateName("Apple iPhone 15 Pro Max 256GB Titânio Natural", 32);
-    expect(result.length).toBeLessThanOrEqual(32);
+    const result = abbreviateName("Apple iPhone 15 Pro Max 256GB Titânio Natural", 30);
+    expect(result.length).toBeLessThanOrEqual(30);
     expect(result).toContain("…");
-    // Deve preservar início (Apple) e fim (Natural ou Titânio)
     expect(result.startsWith("Apple")).toBe(true);
+  });
+
+  it("preserva sufixo completo (número de modelo não é descartado)", () => {
+    // "N3017W RTX 4060" deve aparecer no resultado — não deve ser cortado pelo algoritmo
+    const result = abbreviateName("ASUS TUF Gaming F16 FX607JV-N3017W RTX 4060", 30);
+    expect(result).toContain("…");
+    expect(result.startsWith("ASUS")).toBe(true);
+    expect(result).toMatch(/N3017W|RTX 4060/);
   });
 
   it("corta no meio quando não há espaço e a palavra estoura", () => {

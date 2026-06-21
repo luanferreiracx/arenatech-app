@@ -24,46 +24,41 @@ export type LabelRow = {
   quantidade: number;
 };
 
-const SHORT_NAME_MAX_LEN = 32;
+// Niimbot B1: etiqueta 50x30 mm — acima de ~30 chars a fonte fica ilegível.
+const SHORT_NAME_MAX_LEN = 30;
 
 /** Caractere de reticências (1 char, economiza espaço na etiqueta). */
 const ELLIPSIS = "…";
 
 /**
- * Reduz o nome do produto para caber na etiqueta usando estratégia início…fim.
+ * Reduz o nome do produto para caber na etiqueta Niimbot B1 usando estratégia início…fim.
  *
- * Mantém o começo (marca/família) e o fim (modelo/capacidade/variante) para que
- * produtos com nomes longos ainda sejam identificáveis. Ex.:
- *   "ASUS TUF Gaming F16 FX607JV-N3017W RTX 4060" (44 chars)
- *   → "ASUS TUF Gaming F16…N3017W RTX 4060" (36 chars com maxLen=36)
+ * Preserva início (marca/série) e fim (modelo/capacidade), descartando o meio.
+ * O sufixo é mantido integralmente (sem pular palavras) — apenas espaços iniciais
+ * são removidos. Isso garante que números de modelo como "N3017W RTX 4060" apareçam
+ * completos, mesmo que o corte caia no meio de um token composto (ex.: "FX607JV-N3017W").
  *
- * Só corta em fronteira de palavra para não gerar fragmentos ilegíveis.
+ * Exemplo: "ASUS TUF Gaming F16 FX607JV-N3017W RTX 4060" (43 chars, maxLen=30)
+ *   → "ASUS TUF Gaming…N3017W RTX 4060" (31 chars)
  */
 export function abbreviateName(name: string, maxLen: number = SHORT_NAME_MAX_LEN): string {
   const clean = name.trim().replace(/\s+/g, " ");
   if (clean.length <= maxLen) return clean;
 
-  // Slots disponíveis para conteúdo (descontando o ELLIPSIS).
   const budget = maxLen - 1;
-  // Divide aproximadamente 55% no início e 45% no fim, favorecendo o início
-  // (onde ficam marca e família) mas reservando espaço suficiente para o fim
-  // (onde ficam número de modelo, capacidade, variante).
-  const startBudget = Math.ceil(budget * 0.55);
+  // 45% início (marca/série) + 55% fim (modelo/variante) — o fim importa mais para identificação.
+  const startBudget = Math.ceil(budget * 0.45);
   const endBudget = budget - startBudget;
 
-  // Parte do início — corta na última fronteira de palavra dentro de startBudget.
+  // Início: corta na última fronteira de palavra dentro de startBudget.
   const startSlice = clean.slice(0, startBudget);
   const startSpace = startSlice.lastIndexOf(" ");
-  const startPart = startSpace > startBudget * 0.5
-    ? startSlice.slice(0, startSpace)
-    : startSlice.trimEnd();
+  const startPart =
+    startSpace > startBudget * 0.5 ? startSlice.slice(0, startSpace) : startSlice.trimEnd();
 
-  // Parte do fim — corta na primeira fronteira de palavra dentro de endBudget.
-  const endSlice = clean.slice(-endBudget);
-  const endSpace = endSlice.indexOf(" ");
-  const endPart = endSpace !== -1 && endSpace < endBudget * 0.5
-    ? endSlice.slice(endSpace + 1)
-    : endSlice.trimStart();
+  // Fim: pega os últimos N chars e remove apenas espaços iniciais.
+  // Não pula a primeira palavra — preserva o sufixo completo (ex.: "N3017W RTX 4060").
+  const endPart = clean.slice(-endBudget).trimStart();
 
   return `${startPart}${ELLIPSIS}${endPart}`;
 }

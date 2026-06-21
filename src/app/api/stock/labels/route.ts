@@ -4,6 +4,7 @@ import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant } from "@/server/db";
 import {
+  abbreviateName,
   buildNiimbotWorkbook,
   formatBRL,
   type LabelRow,
@@ -84,7 +85,7 @@ export async function GET(req: NextRequest) {
       if (activeVariations.length > 0) {
         for (const variation of activeVariations) {
           rows.push({
-            nome: product.name,
+            nome: abbreviateName(product.name),
             preco: formatBRL(variation.salePrice ?? product.salePrice),
             barcode: variation.barcode ?? variation.sku ?? product.barcode ?? product.sku ?? "",
             quantidade: customQty ?? (qty === "stock" ? Math.max(1, variation.currentStock) : 1),
