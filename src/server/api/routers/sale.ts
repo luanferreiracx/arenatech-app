@@ -2682,7 +2682,13 @@ export const saleRouter = createTRPCRouter({
 
         if (existingSale) {
           if (existingSale.status === "DRAFT") {
-            // Reuse existing draft
+            // Reaproveita o draft, mas RESSINCRONIZA o total com o da OS atual:
+            // se a OS mudou depois que o draft foi criado, o draft ficava com o
+            // total antigo (bug: valor "encolhia"/divergia ao reabrir o PDV).
+            await tx.sale.update({
+              where: { id: existingSale.id },
+              data: { subtotal: order.totalAmount, totalAmount: order.totalAmount },
+            });
             const sale = await tx.sale.findUnique({
               where: { id: existingSale.id },
               include: { items: true },

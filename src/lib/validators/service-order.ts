@@ -557,19 +557,6 @@ export const listServiceOrdersSchema = z.object({
 export type ListServiceOrdersInput = z.infer<typeof listServiceOrdersSchema>;
 
 /**
- * Editar desconto da OS inline (centavos).
- *
- * O desconto continua um campo da OS (nao um item). Em regime pos-assinatura
- * dispara revisao de orcamento como qualquer alteracao de valor.
- */
-export const updateDiscountSchema = z.object({
-  id: z.string().uuid(),
-  discount: z.number().int().min(0), // centavos
-});
-
-export type UpdateDiscountInput = z.infer<typeof updateDiscountSchema>;
-
-/**
  * Solicitar autorizacao do orcamento revisado (envio manual ao cliente).
  *
  * Substitui o antigo `createQuote` flat: o orcamento e derivado dos itens atuais

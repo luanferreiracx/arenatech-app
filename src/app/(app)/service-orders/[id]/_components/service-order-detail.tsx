@@ -152,9 +152,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [editItemDesc, setEditItemDesc] = useState("");
   const [editItemQty, setEditItemQty] = useState(1);
   const [editItemPrice, setEditItemPrice] = useState(0);
-  // Edicao inline de desconto
-  const [discountEditing, setDiscountEditing] = useState(false);
-  const [discountEdit, setDiscountEdit] = useState(0);
   // New dialogs — Sprint 1A
   const [signatureDialog, setSignatureDialog] = useState(false);
   const [trackingDialog, setTrackingDialog] = useState(false);
@@ -323,12 +320,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
-  const updateDiscountMut = useMutation(
-    trpc.serviceOrder.updateDiscount.mutationOptions({
-      onSuccess: () => { toast.success("Desconto atualizado!"); setDiscountEditing(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   const cancelQuoteMut = useMutation(
     trpc.serviceOrder.cancelQuote.mutationOptions({
@@ -1100,27 +1091,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                     </div>
                   )
                 ))}
-                {/* Breakdown: servico + pecas - desconto = total */}
+                {/* Breakdown: servico + pecas = total (BRUTO). Desconto é dado
+                    no PDV, não na OS (decisão do dono). */}
                 <div className="pt-2 border-t-2 border-primary space-y-1 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Subtotal servicos</span><span className="font-mono">{formatMoney(order.serviceAmount)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Subtotal pecas</span><span className="font-mono">{formatMoney(order.partsAmount)}</span></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Desconto</span>
-                    {discountEditing ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-28"><MoneyInput value={discountEdit} onChange={setDiscountEdit} /></div>
-                        <Button size="icon" className="h-7 w-7" disabled={updateDiscountMut.isPending} onClick={() => updateDiscountMut.mutate({ id, discount: discountEdit })}><Check className="h-3 w-3" /></Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDiscountEditing(false)}><X className="h-3 w-3" /></Button>
-                      </div>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <span className="font-mono text-warning">-{formatMoney(order.discount)}</span>
-                        {canEditItems && (
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setDiscountEdit(order.discount); setDiscountEditing(true); }}><Pencil className="h-3 w-3" /></Button>
-                        )}
-                      </span>
-                    )}
-                  </div>
                   <div className="flex justify-between pt-1 border-t border-border">
                     <span className="font-bold text-primary">Total</span>
                     <span className="font-bold text-primary font-mono text-lg">{formatMoney(order.totalAmount)}</span>

@@ -10,7 +10,6 @@ import {
   uncancelOrderSchema,
   refundOrderSchema,
   updateCostsSchema,
-  updateDiscountSchema,
   listServiceOrdersSchema,
   requestBudgetApprovalSchema,
   respondQuoteSchema,
@@ -312,25 +311,6 @@ describe("requestBudgetApprovalSchema", () => {
       requestBudgetApprovalSchema.parse({
         orderId: "550e8400-e29b-41d4-a716-446655440000",
         reason: "",
-      }),
-    ).toThrow();
-  });
-});
-
-describe("updateDiscountSchema", () => {
-  it("accepts a discount in cents", () => {
-    const result = updateDiscountSchema.parse({
-      id: "550e8400-e29b-41d4-a716-446655440000",
-      discount: 1500,
-    });
-    expect(result.discount).toBe(1500);
-  });
-
-  it("rejects negative discount", () => {
-    expect(() =>
-      updateDiscountSchema.parse({
-        id: "550e8400-e29b-41d4-a716-446655440000",
-        discount: -1,
       }),
     ).toThrow();
   });
