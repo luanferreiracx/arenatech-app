@@ -11,11 +11,14 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-technician-include-providers`
+**Branch atual:** `fix/os-technician-provider-validation`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-22 — OS: aceitar prestador-técnico sem vínculo user_tenants (PR 16/N)
+Após o #212, vincular um prestador-técnico dava "Tecnico nao pertence a este tenant": a validação de `updateTechnician` exigia vínculo em `user_tenants`, mas um `Provider` (Comissões) pode ser um contratado externo — usuário só com User + Provider (sem user_tenants), ou Provider legado criado antes do filtro de segurança do `listAvailableUsers`. Agora a validação aceita o usuário se tiver vínculo em user_tenants OU um registro `Provider` no tenant (tenant-scoped por RLS). Validação: typecheck (0), lint (0 erros), unit (1116).
 
 ### 2026-06-22 — OS: incluir prestadores-técnicos (módulo Comissões) no seletor (PR 15/N)
 Correção do #211: "nada mudou" porque há DOIS modelos de prestador — `ServiceProvider` (Operação, que o #211 alterou) e `Provider` (Comissões → Prestadores, vinculado a um User via `userId`, com `profile` SELLER/TECHNICIAN). Os prestadores reais do dono estão no `Provider`. Como cada `Provider` é um User, mapeia direto para `technicianId`.
