@@ -3606,12 +3606,20 @@ export const serviceOrderRouter = createTRPCRouter({
         };
 
         if (input.assigneeId && input.kind === "user") {
-          // Isolamento cross-tenant: o usuário precisa ter vínculo no tenant.
-          const techLink = await tx.userTenant.findUnique({
-            where: { userId_tenantId: { userId: input.assigneeId, tenantId: ctx.tenantId } },
-            select: { userId: true },
-          });
-          if (!techLink) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
+          // Isolamento cross-tenant: o usuário precisa pertencer ao tenant —
+          // como membro (user_tenants) OU como prestador do módulo de Comissões
+          // (`providers.userId`, tenant-scoped por RLS). Prestadores técnicos
+          // podem ser contratados externos sem vínculo em user_tenants.
+          const [techLink, providerLink] = await Promise.all([
+            tx.userTenant.findUnique({
+              where: { userId_tenantId: { userId: input.assigneeId, tenantId: ctx.tenantId } },
+              select: { userId: true },
+            }),
+            tx.provider.findFirst({ where: { userId: input.assigneeId }, select: { id: true } }),
+          ]);
+          if (!techLink && !providerLink) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
+          }
           const newTech = await withAdmin(async (adminTx) =>
             adminTx.user.findUnique({ where: { id: input.assigneeId! }, select: { name: true } }),
           );
