@@ -113,14 +113,15 @@ export default function IntegrationsPage() {
   const getEnabled = (provider: IntegrationProvider): boolean =>
     getRecord(provider)?.enabled ?? false;
 
-  const getHandle = (provider: IntegrationProvider): string => {
+  const getConfigString = (provider: IntegrationProvider, key: string): string => {
     const config = getRecord(provider)?.config;
-    if (config && typeof config === "object" && "handle" in config) {
-      const h = (config as { handle?: unknown }).handle;
-      return typeof h === "string" ? h : "";
+    if (config && typeof config === "object" && key in config) {
+      const v = (config as Record<string, unknown>)[key];
+      return typeof v === "string" ? v : "";
     }
     return "";
   };
+  const getHandle = (provider: IntegrationProvider): string => getConfigString(provider, "handle");
 
   const handleToggle = (provider: IntegrationProvider, enabled: boolean) => {
     // Preserva o config existente ao ligar/desligar (ex.: nao perde o handle).
@@ -191,16 +192,17 @@ export default function IntegrationsPage() {
                     </p>
                     {provider === "INFINITEPAY" && (
                       <InfinitepayConfig
-                        // Remonta (reseta o input) quando o handle salvo muda.
-                        key={getHandle("INFINITEPAY")}
+                        // Remonta (reseta os inputs) quando o config salvo muda.
+                        key={`${getHandle("INFINITEPAY")}|${getConfigString("INFINITEPAY", "defaultEmail")}`}
                         enabled={enabled}
                         initialHandle={getHandle("INFINITEPAY")}
+                        initialEmail={getConfigString("INFINITEPAY", "defaultEmail")}
                         saving={mutation.isPending}
-                        onSave={(handle) =>
+                        onSave={(handle, defaultEmail) =>
                           mutation.mutate({
                             provider: "INFINITEPAY",
                             enabled: true,
-                            config: { handle },
+                            config: { handle, defaultEmail },
                           })
                         }
                       />
@@ -219,22 +221,27 @@ export default function IntegrationsPage() {
 function InfinitepayConfig({
   enabled,
   initialHandle,
+  initialEmail,
   saving,
   onSave,
 }: {
   enabled: boolean;
   initialHandle: string;
+  initialEmail: string;
   saving: boolean;
-  onSave: (handle: string) => void;
+  onSave: (handle: string, defaultEmail: string) => void;
 }) {
   const [handle, setHandle] = useState(initialHandle);
+  const [email, setEmail] = useState(initialEmail);
+
+  const dirty = handle.trim() !== initialHandle.trim() || email.trim() !== initialEmail.trim();
 
   return (
-    <div className="mt-3 space-y-2 border-t pt-3">
-      <Label htmlFor="infinitepay-handle" className="text-xs">
-        InfiniteTag (handle)
-      </Label>
-      <div className="flex gap-2">
+    <div className="mt-3 space-y-3 border-t pt-3">
+      <div className="space-y-1">
+        <Label htmlFor="infinitepay-handle" className="text-xs">
+          InfiniteTag (handle)
+        </Label>
         <Input
           id="infinitepay-handle"
           value={handle}
@@ -242,16 +249,33 @@ function InfinitepayConfig({
           placeholder="sua-tag (sem o $)"
           disabled={!enabled}
         />
-        <Button
-          size="sm"
-          disabled={!enabled || saving || handle.trim() === initialHandle.trim()}
-          onClick={() => onSave(handle.trim())}
-        >
-          Salvar
-        </Button>
       </div>
+      <div className="space-y-1">
+        <Label htmlFor="infinitepay-email" className="text-xs">
+          Email padrao do checkout
+        </Label>
+        <Input
+          id="infinitepay-email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="vendas@sualoja.com.br"
+          disabled={!enabled}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Usado para pre-preencher o checkout em vendas de balcao (sem cliente).
+          O email do cliente cadastrado tem prioridade quando houver.
+        </p>
+      </div>
+      <Button
+        size="sm"
+        disabled={!enabled || saving || !dirty}
+        onClick={() => onSave(handle.trim(), email.trim())}
+      >
+        Salvar
+      </Button>
       <p className="text-[11px] text-muted-foreground">
-        Seu nome de usuario no app InfinitePay, sem o simbolo <code>$</code>. O
+        InfiniteTag = seu usuario no app InfinitePay, sem o <code>$</code>. O
         checkout aceita PIX e cartao; no PDV aparece como forma &quot;InfinitePay&quot;.
       </p>
     </div>

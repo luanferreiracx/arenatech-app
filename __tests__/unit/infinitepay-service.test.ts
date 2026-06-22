@@ -187,6 +187,8 @@ describe("buildInfinitepayPrefill", () => {
     streetNumber: "100",
     complement: "Loja 1",
     neighborhood: "Centro",
+    city: "Teresina",
+    state: "PI",
   };
 
   it("usa dados da loja como padrao quando nao ha cliente", () => {
@@ -202,7 +204,22 @@ describe("buildInfinitepayPrefill", () => {
       neighborhood: "Centro",
       number: "100",
       complement: "Loja 1",
+      city: "Teresina",
+      state: "PI",
     });
+  });
+
+  it("usa defaultEmail quando loja e cliente nao tem email", () => {
+    const out = buildInfinitepayPrefill({
+      store: { ...store, email: null },
+      defaultEmail: "vendas@arenatech.com.br",
+    });
+    expect(out.customer?.email).toBe("vendas@arenatech.com.br");
+  });
+
+  it("email da loja tem prioridade sobre o defaultEmail", () => {
+    const out = buildInfinitepayPrefill({ store, defaultEmail: "outro@x.com" });
+    expect(out.customer?.email).toBe("loja@arenatech.com.br");
   });
 
   it("prioriza dados do cliente, completando lacunas com a loja", () => {

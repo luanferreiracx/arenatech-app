@@ -3355,6 +3355,7 @@ export const saleRouter = createTRPCRouter({
           select: {
             tradeName: true, legalName: true, email: true, phone: true,
             zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
+            city: true, state: true,
           },
         });
         const cust = s.customerId
@@ -3363,6 +3364,7 @@ export const saleRouter = createTRPCRouter({
               select: {
                 name: true, email: true, phone: true,
                 zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
+                city: true, state: true,
               },
             })
           : null;
@@ -3400,8 +3402,11 @@ export const saleRouter = createTRPCRouter({
               streetNumber: store.streetNumber,
               complement: store.complement,
               neighborhood: store.neighborhood,
+              city: store.city,
+              state: store.state,
             }
           : null,
+        defaultEmail: config.defaultEmail,
       });
 
       const { url } = await createInfinitepayCheckout({
