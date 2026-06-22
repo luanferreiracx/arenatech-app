@@ -11,11 +11,19 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-detail-ux`
+**Branch atual:** `fix/os-whatsapp-consistency`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-21 — OS: padronizar envios de WhatsApp ao cliente + remover botão Status (PR 13/N)
+Dono pediu remover o "Enviar Status Atual" (redundante/não-acionável onde aparecia) e padronizar os botões que enviam WhatsApp ao cliente no modal de número (números cadastrados + digitar).
+- **Removido:** botão "Enviar Status Atual por WhatsApp" + mutation + procedure órfã `communication.notifyOsStatusChanged`.
+- **Padronizados no `WhatsAppSendDialog`:** rastreamento, termo de entrega, termo de devolução (antes Dialog custom com `<Input>` de telefone) e envio de orçamento (antes mandava direto pro telefone cadastrado). Conclusão/recibo/assinatura já usavam.
+- **`WhatsAppSendDialog`** ganhou prop `children` (conteúdo extra acima do seletor) — usada pelo termo de devolução (motivo) sem perder o modelo de números.
+- Envios ao **entregador** (lab) usam seletor de entregador (recipiente diferente) — fora do escopo.
+- Validação: typecheck (0), lint (0 erros), unit (1116), build OK.
 
 ### 2026-06-21 — OS: limpeza da tela de detalhe (PR 12/N)
 Pedidos do dono + melhorias: (1a) removido o card "Termos" do detalhe (config global, redundante — já no PDF); (1b) bloco "Comunicação" some após ENTREGUE (só Concluída/Paga/Aguardando Retirada); (1c) "Adicionar Item" ganhou **busca de serviço** no catálogo (`catalog.listServices`), igual à criação da OS — antes serviço era só texto livre; (1d) "Enviar Recibo" agora abre o `WhatsAppSendDialog` (escolher/digitar número), coerente com o resto do sistema. Validação: typecheck (0), lint (0 erros), build OK.

@@ -37,6 +37,8 @@ export interface WhatsAppSendDialogProps {
   isLoading?: boolean;
   /** Texto do botao de confirmacao. Default: "Enviar" */
   confirmLabel?: string;
+  /** Conteúdo extra (ex.: motivo) renderizado acima do seletor de número. */
+  children?: React.ReactNode;
 }
 
 type Selection = "primary" | "secondary" | "custom";
@@ -70,6 +72,7 @@ function WhatsAppSendDialogInner({
   onConfirm,
   isLoading = false,
   confirmLabel = "Enviar",
+  children,
 }: WhatsAppSendDialogProps) {
   // Normaliza: se alternativo == principal, ignora
   const altPhone = secondaryPhone && secondaryPhone !== primaryPhone ? secondaryPhone : null;
@@ -110,6 +113,7 @@ function WhatsAppSendDialogInner({
         </DialogHeader>
 
         <div className="space-y-3">
+          {children}
           {customerName && (
             <div className="text-sm text-muted-foreground">
               Cliente: <span className="font-medium text-foreground">{customerName}</span>

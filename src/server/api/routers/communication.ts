@@ -327,51 +327,9 @@ export const communicationRouter = createTRPCRouter({
       return { success: result.success };
     }),
 
-  /** Notify customer of OS status change — WhatsApp fora da tx. */
-  notifyOsStatusChanged: tenantProcedure
-    .input(z.object({ serviceOrderId: z.string().uuid(), newStatus: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const prep = await ctx.withTenant(async (tx) => {
-        const so = await tx.serviceOrder.findUnique({
-          where: { id: input.serviceOrderId },
-        });
-        if (!so || !so.customerId) return null;
-
-        const customer = await tx.customer.findUnique({
-          where: { id: so.customerId },
-          select: { name: true, phone: true },
-        });
-        if (!customer?.phone) return null;
-
-        const body = `Ola ${customer.name}! O status da sua OS ${so.number} foi atualizado para: ${input.newStatus}.`;
-        return { customerPhone: customer.phone, customerName: customer.name, body };
-      });
-
-      if (!prep) return { success: false };
-
-      const result = await sendTextMessage(prep.customerPhone, prep.body);
-
-      await ctx.withTenant(async (tx) => {
-        await tx.message.create({
-          data: {
-            tenantId: ctx.tenantId,
-            channel: "WHATSAPP",
-            direction: "OUTBOUND",
-            status: result.success ? "SENT" : "FAILED",
-            recipientPhone: prep.customerPhone,
-            recipientName: prep.customerName,
-            body: prep.body,
-            referenceId: input.serviceOrderId,
-            referenceType: "SERVICE_ORDER",
-            providerMessageId: result.messageId ?? null,
-            sentAt: result.success ? new Date() : null,
-            createdById: ctx.session.user.id,
-          },
-        });
-      });
-
-      return { success: result.success };
-    }),
+  // NOTA: `notifyOsStatusChanged` (enviar status atual ao cliente) foi removida
+  // — só aparecia pós-conclusão, onde duplicava a notificação de conclusão ou
+  // mandava status não-acionável ("Paga"). Sem uso na UI.
 
   // ═══════════════════════════════════════
   // TEMPLATES
