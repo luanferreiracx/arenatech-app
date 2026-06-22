@@ -495,7 +495,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
   // Query for technicians list (for change technician dialog)
   const techniciansQuery = useQuery(
-    trpc.serviceOrder.listTechnicians.queryOptions()
+    trpc.serviceOrder.listTechnicianAssignees.queryOptions()
   );
 
   if (isLoading || !order) {
@@ -1313,13 +1313,22 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Responsaveis</h3>
               {!isCancelled && !isRefunded && (
-                <Button size="sm" variant="ghost" onClick={() => { setSelectedTechId(order.technicianId ?? ""); setChangeTechDialog(true); }}>
+                <Button size="sm" variant="ghost" onClick={() => {
+                  setSelectedTechId(
+                    order.technicianId
+                      ? `user:${order.technicianId}`
+                      : order.serviceProviderId
+                        ? `provider:${order.serviceProviderId}`
+                        : "",
+                  );
+                  setChangeTechDialog(true);
+                }}>
                   <UserCog className="h-3 w-3" />
                 </Button>
               )}
             </div>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Tecnico</span><span>{order.technicianName ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tecnico</span><span>{order.technicianName ?? (order.serviceProviderName ? `${order.serviceProviderName} (prestador)` : "—")}</span></div>
               {order.vendorName && <div className="flex justify-between"><span className="text-muted-foreground">Vendedor</span><span>{order.vendorName}</span></div>}
               <div className="flex justify-between"><span className="text-muted-foreground">Criado por</span><span>{order.createdByName}</span></div>
             </div>
@@ -2002,8 +2011,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Select value={selectedTechId} onValueChange={setSelectedTechId}>
                 <SelectTrigger><SelectValue placeholder="Selecione um tecnico" /></SelectTrigger>
                 <SelectContent>
-                  {(techniciansQuery.data ?? []).map((t: { id: string; name: string; role: string }) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name} ({t.role})</SelectItem>
+                  {(techniciansQuery.data ?? []).map((t: { id: string; name: string; role: string | null; kind: "user" | "provider" }) => (
+                    <SelectItem key={`${t.kind}:${t.id}`} value={`${t.kind}:${t.id}`}>
+                      {t.name}{t.kind === "provider" ? " (prestador)" : t.role ? ` (${t.role})` : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -2011,7 +2022,17 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setChangeTechDialog(false)}>Cancelar</Button>
-            <Button disabled={!selectedTechId || updateTechnicianMut.isPending} onClick={() => updateTechnicianMut.mutate({ orderId: id, technicianId: selectedTechId })}>Alterar Tecnico</Button>
+            <Button
+              disabled={!selectedTechId || updateTechnicianMut.isPending}
+              onClick={() => {
+                const sep = selectedTechId.indexOf(":");
+                const kind = selectedTechId.slice(0, sep) as "user" | "provider";
+                const assigneeId = selectedTechId.slice(sep + 1);
+                updateTechnicianMut.mutate({ orderId: id, kind, assigneeId });
+              }}
+            >
+              Alterar Tecnico
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -11,11 +11,19 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `fix/os-whatsapp-consistency`
+**Branch atual:** `feat/os-provider-technician`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-21 — OS: prestador externo como técnico responsável (PR 14/N)
+Dono: o seletor de técnico da OS só listava usuários internos com `isTechnician`; prestadores que são técnicos não apareciam. Agora o técnico responsável pode ser **usuário interno OU prestador externo** (exclusivo).
+- **Schema:** `service_providers.is_technician` (migration) + checkbox "É técnico" no cadastro de prestador (Operação → Prestadores) + badge na lista.
+- **Backend:** nova query `serviceOrder.listTechnicianAssignees` (usuários `isTechnician` + prestadores `isTechnician`, com `kind`); `updateTechnician` aceita `kind`+`assigneeId` e grava `technicianId` OU `serviceProviderId` (limpa o outro); `getById` resolve/expõe `serviceProviderName`. `listTechnicians` (filtro/relatório) segue só usuários.
+- **UI:** seletor "Alterar técnico" lista os dois (prestadores marcados "(prestador)"); o card Responsáveis mostra o prestador quando atribuído.
+- **Gap conhecido (fora do escopo):** o pagamento da OS não gera comissão de prestador a partir de `serviceProviderId` (nunca gerou) — anotado para depois.
+- Validação: typecheck (0), lint (0 erros), unit (1116), build OK, prisma validate OK.
 
 ### 2026-06-21 — OS: padronizar envios de WhatsApp ao cliente + remover botão Status (PR 13/N)
 Dono pediu remover o "Enviar Status Atual" (redundante/não-acionável onde aparecia) e padronizar os botões que enviam WhatsApp ao cliente no modal de número (números cadastrados + digitar).

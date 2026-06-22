@@ -121,6 +121,7 @@ export const createServiceProviderSchema = z.object({
   email: z.string().email("Email invalido").max(200).optional().nullable(),
   commissionRate: z.number().min(0).max(100).optional().nullable(),
   contractDetails: z.record(z.string(), z.unknown()).optional().nullable(),
+  isTechnician: z.boolean().optional(),
   notes: z.string().max(1000).optional().nullable(),
 });
 export type CreateServiceProviderInput = z.infer<typeof createServiceProviderSchema>;
@@ -135,6 +136,7 @@ export const updateServiceProviderSchema = z.object({
   commissionRate: z.number().min(0).max(100).optional().nullable(),
   contractDetails: z.record(z.string(), z.unknown()).optional().nullable(),
   active: z.boolean().optional(),
+  isTechnician: z.boolean().optional(),
   notes: z.string().max(1000).optional().nullable(),
 });
 export type UpdateServiceProviderInput = z.infer<typeof updateServiceProviderSchema>;

@@ -30,7 +30,7 @@ export function ServiceProvidersTab() {
 
   const form = useForm<CreateServiceProviderInput>({
     resolver: zodResolver(createServiceProviderSchema),
-    defaultValues: { name: "", type: "", phone: "", email: "" },
+    defaultValues: { name: "", type: "", phone: "", email: "", isTechnician: false },
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.operation.listServiceProviders.queryKey() });
@@ -49,9 +49,9 @@ export function ServiceProvidersTab() {
     }
   };
 
-  const handleEdit = (item: { id: string; name: string; type: string; phone: string | null; email: string | null }) => {
+  const handleEdit = (item: { id: string; name: string; type: string; phone: string | null; email: string | null; isTechnician?: boolean }) => {
     setEditingId(item.id);
-    form.reset({ name: item.name, type: item.type, phone: item.phone ?? "", email: item.email ?? "" });
+    form.reset({ name: item.name, type: item.type, phone: item.phone ?? "", email: item.email ?? "", isTechnician: item.isTechnician ?? false });
     setShowForm(true);
   };
 
@@ -71,7 +71,12 @@ export function ServiceProvidersTab() {
             <Card key={item.id}>
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
-                  <p className="font-medium">{item.name}</p>
+                  <p className="font-medium">
+                    {item.name}
+                    {item.isTechnician && (
+                      <span className="ml-2 rounded bg-cyan-500/10 px-1.5 py-0.5 text-xs text-cyan-600 border border-cyan-500/20">Técnico</span>
+                    )}
+                  </p>
                   <p className="text-sm text-muted-foreground">{item.type} {item.phone ? `| ${item.phone}` : ""}</p>
                 </div>
                 <div className="flex gap-1">
@@ -110,6 +115,10 @@ export function ServiceProvidersTab() {
             <div><Label>Tipo</Label><Input {...form.register("type")} placeholder="Ex: Tecnico, Eletricista..." /></div>
             <div><Label>Telefone</Label><Input {...form.register("phone")} /></div>
             <div><Label>Email</Label><Input {...form.register("email")} /></div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" {...form.register("isTechnician")} className="accent-primary" />
+              É técnico (aparece no seletor de técnico responsável da OS)
+            </label>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>
               <Button type="submit">Salvar</Button>
