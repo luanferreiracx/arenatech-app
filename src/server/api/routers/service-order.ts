@@ -2638,25 +2638,63 @@ export const serviceOrderRouter = createTRPCRouter({
    * serviceProviderId).
    */
   listTechnicianAssignees: tenantProcedure.query(async ({ ctx }) => {
-    const userTenants = await withAdmin(async (adminTx) => {
-      return adminTx.userTenant.findMany({
-        where: { tenantId: ctx.tenantId, isTechnician: true },
-        select: { user: { select: { id: true, name: true } }, role: true },
-        orderBy: { user: { name: "asc" } },
-      });
-    });
+    // Técnico responsável da OS pode ser:
+    //  (a) usuário interno com `user_tenants.is_technician`;
+    //  (b) usuário que é PRESTADOR técnico no módulo de Comissões
+    //      (`providers.profile = TECHNICIAN`) — também é um User, então mapeia
+    //      para `technicianId`;
+    //  (c) prestador do registro de Operação (`service_providers.is_technician`)
+    //      — entidade própria, mapeia para `serviceProviderId`.
+    const [userTenants, providerTechs, serviceProviders] = await Promise.all([
+      withAdmin(async (adminTx) =>
+        adminTx.userTenant.findMany({
+          where: { tenantId: ctx.tenantId, isTechnician: true },
+          select: { user: { select: { id: true, name: true } }, role: true },
+          orderBy: { user: { name: "asc" } },
+        }),
+      ),
+      ctx.withTenant(async (tx) =>
+        tx.provider.findMany({
+          where: { profile: "TECHNICIAN", active: true },
+          select: { userId: true },
+        }),
+      ),
+      ctx.withTenant(async (tx) =>
+        tx.serviceProvider.findMany({
+          where: { isTechnician: true, active: true, deletedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+      ),
+    ]);
 
-    const providers = await ctx.withTenant(async (tx) => {
-      return tx.serviceProvider.findMany({
-        where: { isTechnician: true, active: true, deletedAt: null },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      });
-    });
+    // Nome dos usuários-prestador (Provider.userId → User).
+    const providerUserIds = providerTechs.map((p) => p.userId);
+    const providerUserNames = providerUserIds.length
+      ? await withAdmin(async (adminTx) =>
+          adminTx.user.findMany({ where: { id: { in: providerUserIds } }, select: { id: true, name: true } }),
+        )
+      : [];
+    const providerNameMap = new Map(providerUserNames.map((u) => [u.id, u.name]));
+
+    // Usuários (a)+(b) → kind "user" (technicianId). Dedup por id.
+    const seen = new Set<string>();
+    const users: { id: string; name: string; role: string | null; kind: "user" | "provider" }[] = [];
+    for (const ut of userTenants) {
+      if (seen.has(ut.user.id)) continue;
+      seen.add(ut.user.id);
+      users.push({ id: ut.user.id, name: ut.user.name, role: ut.role, kind: "user" });
+    }
+    for (const pt of providerTechs) {
+      if (seen.has(pt.userId)) continue;
+      seen.add(pt.userId);
+      users.push({ id: pt.userId, name: providerNameMap.get(pt.userId) ?? "Prestador", role: "prestador", kind: "user" });
+    }
+    users.sort((a, b) => a.name.localeCompare(b.name));
 
     return [
-      ...userTenants.map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role, kind: "user" as const })),
-      ...providers.map((p) => ({ id: p.id, name: p.name, role: null as string | null, kind: "provider" as const })),
+      ...users,
+      ...serviceProviders.map((p) => ({ id: p.id, name: p.name, role: null as string | null, kind: "provider" as const })),
     ];
   }),
 
