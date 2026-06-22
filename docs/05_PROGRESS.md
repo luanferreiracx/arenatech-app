@@ -11,11 +11,16 @@
 **Ultima atualizacao:** 2026-06-20
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
-**Branch atual:** `feat/os-provider-technician`
+**Branch atual:** `fix/os-technician-include-providers`
 **Em produção:** ✅ contabo (194.34.232.81) — Postgres prod + MinIO + app rodando
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-06-22 — OS: incluir prestadores-técnicos (módulo Comissões) no seletor (PR 15/N)
+Correção do #211: "nada mudou" porque há DOIS modelos de prestador — `ServiceProvider` (Operação, que o #211 alterou) e `Provider` (Comissões → Prestadores, vinculado a um User via `userId`, com `profile` SELLER/TECHNICIAN). Os prestadores reais do dono estão no `Provider`. Como cada `Provider` é um User, mapeia direto para `technicianId`.
+- `listTechnicianAssignees` agora une: usuários `is_technician` (a) + usuários que são `Provider` com `profile=TECHNICIAN` (b, kind "user" → technicianId) + `ServiceProvider` técnicos (c, kind "provider"). Dedup por id de usuário.
+- Sem mudança de schema (só lógica de query). Validação: typecheck (0), lint (0 erros), unit (1116).
 
 ### 2026-06-21 — OS: prestador externo como técnico responsável (PR 14/N)
 Dono: o seletor de técnico da OS só listava usuários internos com `isTechnician`; prestadores que são técnicos não apareciam. Agora o técnico responsável pode ser **usuário interno OU prestador externo** (exclusivo).
