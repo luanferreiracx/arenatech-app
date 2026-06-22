@@ -45,6 +45,8 @@ export type InfinitepayAddress = {
   neighborhood?: string;
   number?: string;
   complement?: string;
+  city?: string;
+  state?: string;
 };
 
 export type CreateInfinitepayCheckoutInput = {
@@ -173,6 +175,8 @@ export async function createInfinitepayCheckout(
             ...(input.address.neighborhood ? { neighborhood: input.address.neighborhood } : {}),
             ...(input.address.number ? { number: input.address.number } : {}),
             ...(input.address.complement ? { complement: input.address.complement } : {}),
+            ...(input.address.city ? { city: input.address.city } : {}),
+            ...(input.address.state ? { state: input.address.state } : {}),
           },
         }
       : {}),
@@ -241,6 +245,8 @@ type PrefillParty = {
   streetNumber?: string | null;
   complement?: string | null;
   neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
 };
 
 const firstNonEmpty = (...vals: (string | null | undefined)[]): string | undefined => {
@@ -260,12 +266,14 @@ const firstNonEmpty = (...vals: (string | null | undefined)[]): string | undefin
 export function buildInfinitepayPrefill(input: {
   customer?: PrefillParty | null;
   store?: PrefillParty | null;
+  /** Email padrao configurado na integracao — cobre a loja sem email cadastrado. */
+  defaultEmail?: string | null;
 }): { customer?: InfinitepayCustomer; address?: InfinitepayAddress } {
   const c = input.customer ?? null;
   const s = input.store ?? null;
 
   const name = firstNonEmpty(c?.name, s?.name);
-  const email = firstNonEmpty(c?.email, s?.email);
+  const email = firstNonEmpty(c?.email, s?.email, input.defaultEmail);
   const phone = formatBrPhone(firstNonEmpty(c?.phone, s?.phone));
 
   const customer: InfinitepayCustomer = {
@@ -279,6 +287,8 @@ export function buildInfinitepayPrefill(input: {
   const neighborhood = firstNonEmpty(c?.neighborhood, s?.neighborhood);
   const number = firstNonEmpty(c?.streetNumber, s?.streetNumber);
   const complement = firstNonEmpty(c?.complement, s?.complement);
+  const city = firstNonEmpty(c?.city, s?.city);
+  const state = firstNonEmpty(c?.state, s?.state);
 
   const hasUsableAddress = !!cep && !!street;
   const address: InfinitepayAddress | undefined = hasUsableAddress
@@ -288,6 +298,8 @@ export function buildInfinitepayPrefill(input: {
         ...(neighborhood ? { neighborhood } : {}),
         ...(number ? { number } : {}),
         ...(complement ? { complement } : {}),
+        ...(city ? { city } : {}),
+        ...(state ? { state } : {}),
       }
     : undefined;
 

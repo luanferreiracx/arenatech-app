@@ -6,6 +6,8 @@ type Db = PrismaClient | Prisma.TransactionClient;
 export type InfinitepayConfig = {
   enabled: boolean;
   handle: string;
+  /** Email padrao do checkout (fallback p/ loja sem email cadastrado). */
+  defaultEmail: string | null;
 };
 
 /**
@@ -34,5 +36,11 @@ export async function getInfinitepayConfig(
   const handle = normalizeInfinitepayHandle(rawHandle);
   if (!handle) return null;
 
-  return { enabled: true, handle };
+  const rawEmail =
+    config && typeof config === "object" && "defaultEmail" in config
+      ? (config as { defaultEmail?: unknown }).defaultEmail
+      : null;
+  const defaultEmail = typeof rawEmail === "string" && rawEmail.trim() ? rawEmail.trim() : null;
+
+  return { enabled: true, handle, defaultEmail };
 }
