@@ -37,6 +37,8 @@ import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
+import { createInfinitepayCheckout } from "@/lib/services/infinitepay-service";
+import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -872,6 +874,27 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
+        // InfinitePay: o leg so finaliza depois que o webhook (revalidado via
+        // payment_check) marcou o pagamento como pago em paymentDetails. O
+        // frontend auto-finaliza ao receber SSE, mas o servidor revalida contra
+        // o estado persistido para impedir tampering ou corrida com pagamento
+        // ainda pendente — espelha a guarda wallet-first do DePix.
+        const hasInfinitepayLeg = payments.some((p) => p.method === "infinitepay");
+        if (hasInfinitepayLeg) {
+          const storedPd = Array.isArray(sale.paymentDetails)
+            ? (sale.paymentDetails as Array<Record<string, unknown>>)
+            : [];
+          const paidInfinitepay = storedPd.some(
+            (p) => p?.method === "infinitepay" && p?.infinitepayStatus === "paid",
+          );
+          if (!paidInfinitepay) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Pagamento InfinitePay ainda nao confirmado. Aguarde a confirmacao.",
+            });
+          }
+        }
+
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
         // Determina tipo da venda: se TODOS os itens sao aparelhos -> APARELHO;
         // se NENHUM -> NAO_APARELHO; misto -> AMBOS.
@@ -1323,6 +1346,14 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Dados de confirmacao InfinitePay chegam pelo webhook (gravados no leg
+        // do rascunho), nao pelo cliente — recupera para preservar no paymentDetails
+        // definitivo (conciliacao + relatorio por capture_method).
+        const storedInfinitepay = (Array.isArray(sale.paymentDetails)
+          ? (sale.paymentDetails as Array<Record<string, unknown>>)
+          : []
+        ).find((p) => p?.method === "infinitepay" && p?.infinitepayStatus === "paid");
+
         // Build paymentDetails JSON. Preserva ids DePix para conciliacao
         // wallet-first e compatibilidade com webhook PixPay legado.
         const paymentDetails = payments.map((p) => ({
@@ -1334,6 +1365,25 @@ export const saleRouter = createTRPCRouter({
             : {}),
           ...(p.depixTransactionId
             ? { depixTransactionId: p.depixTransactionId }
+            : {}),
+          ...(p.method === "infinitepay" && storedInfinitepay
+            ? {
+                infinitepayStatus: "paid",
+                infinitepaySlug:
+                  typeof storedInfinitepay.infinitepaySlug === "string" ? storedInfinitepay.infinitepaySlug : null,
+                infinitepayTransactionNsu:
+                  typeof storedInfinitepay.infinitepayTransactionNsu === "string"
+                    ? storedInfinitepay.infinitepayTransactionNsu
+                    : null,
+                infinitepayCaptureMethod:
+                  typeof storedInfinitepay.infinitepayCaptureMethod === "string"
+                    ? storedInfinitepay.infinitepayCaptureMethod
+                    : null,
+                infinitepayPaidAmount:
+                  typeof storedInfinitepay.infinitepayPaidAmount === "number"
+                    ? storedInfinitepay.infinitepayPaidAmount
+                    : null,
+              }
             : {}),
         }));
 
@@ -3255,6 +3305,158 @@ export const saleRouter = createTRPCRouter({
         code: "BAD_REQUEST",
         message: "Venda sem transacao wallet DePix vinculada.",
       });
+    }),
+
+  // ═══════════════════════════════════════
+  // INFINITEPAY INTEGRATION
+  // ═══════════════════════════════════════
+
+  /**
+   * Cria um link de checkout InfinitePay para a venda e persiste um leg
+   * pendente em paymentDetails (order_nsu = id da venda). O QR e gerado no
+   * frontend a partir da URL. A confirmacao chega pelo webhook (revalidado via
+   * payment_check) -> SSE. Espelha conceitualmente `generatePix`.
+   */
+  createInfinitepayLink: tenantProcedure
+    .input(
+      z.object({
+        saleId: z.string().uuid(),
+        /** Valor em centavos (split). Default: total restante da venda. */
+        amountCents: z.number().int().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const config = await ctx.withTenant((tx) => getInfinitepayConfig(tx, ctx.tenantId));
+      if (!config) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "InfinitePay nao esta configurada. Ative em Configuracoes > Integracoes e informe a InfiniteTag.",
+        });
+      }
+
+      const sale = await ctx.withTenant((tx) =>
+        tx.sale.findUnique({
+          where: { id: input.saleId },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            totalAmount: true,
+            customerName: true,
+            customerPhone: true,
+          },
+        }),
+      );
+      if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber InfinitePay neste status." });
+      }
+
+      const saleTotalCents = decimalToCents(sale.totalAmount);
+      const amountCents = input.amountCents ?? saleTotalCents;
+      if (amountCents <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da cobranca deve ser maior que zero." });
+      }
+      if (amountCents > saleTotalCents + 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da cobranca nao pode exceder o total da venda." });
+      }
+
+      const { url } = await createInfinitepayCheckout({
+        handle: config.handle,
+        // order_nsu = id da venda — o webhook acha a venda direto por PK.
+        orderNsu: sale.id,
+        items: [{ quantity: 1, price: amountCents, description: `Venda ${sale.number}` }],
+        webhookUrl: `${getAppBaseUrl()}/api/webhooks/infinitepay`,
+        ...(sale.customerName || sale.customerPhone
+          ? {
+              customer: {
+                ...(sale.customerName ? { name: sale.customerName } : {}),
+                ...(sale.customerPhone ? { phoneNumber: sale.customerPhone } : {}),
+              },
+            }
+          : {}),
+      });
+
+      // Persiste o leg pendente ja agora (antes do finalize) — sem isso, se o
+      // cliente paga antes do operador clicar Finalizar, o webhook chega e nao
+      // acha o leg para marcar pago (mesma corrida resolvida no DePix).
+      await ctx.withTenant(async (tx) => {
+        const current = (await tx.sale.findUnique({
+          where: { id: sale.id },
+          select: { paymentDetails: true },
+        }))?.paymentDetails;
+        const arr = Array.isArray(current) ? (current as Array<Record<string, unknown>>) : [];
+        const idx = arr.findIndex((p) => p?.method === "infinitepay");
+        const entry: Record<string, unknown> = {
+          method: "infinitepay",
+          amount: amountCents,
+          infinitepayOrderNsu: sale.id,
+          infinitepayStatus: "pending",
+          infinitepayUrl: url,
+          installments: 1,
+        };
+        if (idx >= 0) arr[idx] = entry;
+        else arr.push(entry);
+        await tx.sale.update({
+          where: { id: sale.id },
+          data: { paymentDetails: arr as unknown as Prisma.InputJsonValue },
+        });
+      });
+
+      // QR gerado server-side a partir da URL hospedada — o cliente escaneia e
+      // paga (PIX ou cartao na pagina da InfinitePay). Evita bundlar qrcode no
+      // client e espelha o qrCodeBase64 do DePix.
+      const QRCode = (await import("qrcode")).default;
+      const qrCodeBase64 = await QRCode.toDataURL(url, { width: 256, margin: 1 });
+
+      return { url, qrCodeBase64, orderNsu: sale.id, amountCents };
+    }),
+
+  /**
+   * Consulta o status do leg InfinitePay (advisory, read-only). Fallback de
+   * polling do dialog — a fonte de verdade e o leg gravado pelo webhook (que
+   * revalida via payment_check). NAO chama a InfinitePay aqui (precisaria de
+   * slug/transaction_nsu, que so existem apos o pagamento).
+   */
+  checkInfinitepayStatus: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const sale = await ctx.withTenant((tx) =>
+        tx.sale.findUnique({ where: { id: input.saleId }, select: { paymentDetails: true } }),
+      );
+      if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
+      const pd = Array.isArray(sale.paymentDetails)
+        ? (sale.paymentDetails as Array<Record<string, unknown>>)
+        : [];
+      const leg = pd.find((p) => p?.method === "infinitepay");
+      const status = leg?.infinitepayStatus === "paid" ? "paid" : "pending";
+      return {
+        status: status as "pending" | "paid",
+        captureMethod: (leg?.infinitepayCaptureMethod as string | undefined) ?? null,
+      };
+    }),
+
+  /** Cancela o leg InfinitePay pendente do rascunho (operador fechou o QR). */
+  cancelInfinitepay: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({
+          where: { id: input.saleId },
+          select: { status: true, paymentDetails: true },
+        });
+        if (!sale || sale.status !== "DRAFT" || !Array.isArray(sale.paymentDetails)) return;
+        // So remove se ainda estiver pendente — nao apaga um pagamento ja
+        // confirmado pelo webhook (corrida fechar-dialog vs. webhook).
+        const arr = (sale.paymentDetails as Array<Record<string, unknown>>).filter(
+          (p) => !(p?.method === "infinitepay" && p?.infinitepayStatus !== "paid"),
+        );
+        await tx.sale.update({
+          where: { id: input.saleId },
+          data: { paymentDetails: arr as unknown as Prisma.InputJsonValue },
+        });
+      });
+      return { success: true };
     }),
 
   // ═══════════════════════════════════════

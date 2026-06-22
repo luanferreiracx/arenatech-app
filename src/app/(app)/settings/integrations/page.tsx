@@ -1,17 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/domain/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type IntegrationProvider =
   | "AUTENTIQUE"
   | "DEPIX"
+  | "INFINITEPAY"
   | "EVOLUTION_WHATSAPP"
   | "CHATWOOT"
   | "NUVEM_FISCAL"
@@ -33,6 +38,11 @@ const INTEGRATION_META: Record<IntegrationProvider, IntegrationMeta> = {
   DEPIX: {
     label: "DePix",
     description: "Pagamentos via PIX com QR Code automatico",
+    category: "Pagamentos",
+  },
+  INFINITEPAY: {
+    label: "InfinitePay",
+    description: "Checkout PIX/cartao via link — confirmacao automatica no PDV",
     category: "Pagamentos",
   },
   EVOLUTION_WHATSAPP: {
@@ -66,11 +76,18 @@ const ALL_PROVIDERS: IntegrationProvider[] = [
   "NUVEM_FISCAL",
   "FOCUS_NFE",
   "DEPIX",
+  "INFINITEPAY",
   "EVOLUTION_WHATSAPP",
   "CHATWOOT",
   "AUTENTIQUE",
   "IMEI_CHECK",
 ];
+
+type IntegrationRecord = {
+  provider: string;
+  enabled: boolean;
+  config: unknown;
+};
 
 export default function IntegrationsPage() {
   const trpc = useTRPC();
@@ -90,12 +107,24 @@ export default function IntegrationsPage() {
     })
   );
 
-  const getEnabled = (provider: IntegrationProvider): boolean => {
-    return integrations?.find((i) => i.provider === provider)?.enabled ?? false;
+  const getRecord = (provider: IntegrationProvider): IntegrationRecord | undefined =>
+    (integrations as IntegrationRecord[] | undefined)?.find((i) => i.provider === provider);
+
+  const getEnabled = (provider: IntegrationProvider): boolean =>
+    getRecord(provider)?.enabled ?? false;
+
+  const getHandle = (provider: IntegrationProvider): string => {
+    const config = getRecord(provider)?.config;
+    if (config && typeof config === "object" && "handle" in config) {
+      const h = (config as { handle?: unknown }).handle;
+      return typeof h === "string" ? h : "";
+    }
+    return "";
   };
 
   const handleToggle = (provider: IntegrationProvider, enabled: boolean) => {
-    mutation.mutate({ provider, enabled });
+    // Preserva o config existente ao ligar/desligar (ex.: nao perde o handle).
+    mutation.mutate({ provider, enabled, config: getRecord(provider)?.config as Record<string, unknown> | undefined ?? undefined });
   };
 
   if (isLoading) {
@@ -160,6 +189,22 @@ export default function IntegrationsPage() {
                     <p className="text-sm text-muted-foreground">
                       {meta.description}
                     </p>
+                    {provider === "INFINITEPAY" && (
+                      <InfinitepayConfig
+                        // Remonta (reseta o input) quando o handle salvo muda.
+                        key={getHandle("INFINITEPAY")}
+                        enabled={enabled}
+                        initialHandle={getHandle("INFINITEPAY")}
+                        saving={mutation.isPending}
+                        onSave={(handle) =>
+                          mutation.mutate({
+                            provider: "INFINITEPAY",
+                            enabled: true,
+                            config: { handle },
+                          })
+                        }
+                      />
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -167,6 +212,48 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function InfinitepayConfig({
+  enabled,
+  initialHandle,
+  saving,
+  onSave,
+}: {
+  enabled: boolean;
+  initialHandle: string;
+  saving: boolean;
+  onSave: (handle: string) => void;
+}) {
+  const [handle, setHandle] = useState(initialHandle);
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <Label htmlFor="infinitepay-handle" className="text-xs">
+        InfiniteTag (handle)
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id="infinitepay-handle"
+          value={handle}
+          onChange={(e) => setHandle(e.target.value)}
+          placeholder="sua-tag (sem o $)"
+          disabled={!enabled}
+        />
+        <Button
+          size="sm"
+          disabled={!enabled || saving || handle.trim() === initialHandle.trim()}
+          onClick={() => onSave(handle.trim())}
+        >
+          Salvar
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Seu nome de usuario no app InfinitePay, sem o simbolo <code>$</code>. O
+        checkout aceita PIX e cartao; no PDV aparece como forma &quot;InfinitePay&quot;.
+      </p>
     </div>
   );
 }
