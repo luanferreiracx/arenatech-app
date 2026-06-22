@@ -5,6 +5,7 @@ import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
 import { DepixQrDialog } from "./depix-qr-dialog";
+import { InfinitepayCheckoutDialog } from "./infinitepay-checkout-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +54,16 @@ interface PaymentEntry {
   cardBrandId?: string | null;
   cardKind?: "CREDIT" | "DEBIT" | null;
 }
+
+/** Opcao de forma de pagamento exibida no seletor do PDV. */
+type MethodOption = {
+  id: string | null;
+  key: string;
+  label: string;
+  type: string;
+  acceptsInstallments: boolean;
+  installmentsMax: number;
+};
 
 /** Tipo da forma de pagamento (PaymentMethodType) a partir do code de fallback. */
 function fallbackType(key: string): string {
@@ -123,12 +134,16 @@ export function PaymentDialog({
   const [selectedAcquirerId, setSelectedAcquirerId] = useState<string | null>(null);
   const [selectedCardBrandId, setSelectedCardBrandId] = useState<string | null>(null);
   const [showDepixQr, setShowDepixQr] = useState(false);
+  const [showInfinitepay, setShowInfinitepay] = useState(false);
   const [isAutoFinalizing, setIsAutoFinalizing] = useState(false);
   const autoFinalizeAttemptedRef = useRef(false);
   // Leg DePix aguardando confirmacao do QR. So entra em `payments` quando o
   // pagamento e confirmado (onPaid). Paridade Laravel: QR ao adicionar o leg,
   // conclusao manual depois.
   const [pendingDepix, setPendingDepix] = useState<PaymentEntry | null>(null);
+  // Leg InfinitePay aguardando confirmacao do checkout. Mesmo padrao do DePix:
+  // so entra em `payments` quando o pagamento e confirmado (onPaid).
+  const [pendingInfinitepay, setPendingInfinitepay] = useState<PaymentEntry | null>(null);
   const isDowngrade = refundDueAmount > 0;
 
   // Carrega formas cadastradas (com taxas+politica). Se nao houver,
@@ -156,16 +171,39 @@ export function PaymentDialog({
     : undefined;
   const depixEnabled = tenantSlug === "arena-tech";
 
-  const baseOptions = dbMethods.length > 0
+  // InfinitePay: disponivel quando a integracao esta ativa E tem handle.
+  const integrationsQuery = useQuery(
+    trpc.settings.listIntegrations.queryOptions(undefined, { enabled: open }),
+  );
+  const infinitepayEnabled = (integrationsQuery.data ?? []).some(
+    (i) =>
+      i.provider === "INFINITEPAY" &&
+      i.enabled &&
+      !!(
+        i.config &&
+        typeof i.config === "object" &&
+        "handle" in i.config &&
+        typeof (i.config as { handle?: unknown }).handle === "string" &&
+        (i.config as { handle: string }).handle.trim().length > 0
+      ),
+  );
+
+  const baseOptions: MethodOption[] = dbMethods.length > 0
     ? dbMethods.map((m) => ({ id: m.id, key: m.code ?? m.id, label: m.name, type: m.type, acceptsInstallments: m.acceptsInstallments, installmentsMax: m.installmentsMax }))
-    : FALLBACK_METHODS.map((m) => ({ id: null as string | null, key: m.key, label: m.label, type: fallbackType(m.key), acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
+    : FALLBACK_METHODS.map((m) => ({ id: null, key: m.key, label: m.label, type: fallbackType(m.key), acceptsInstallments: m.key === "cartao_credito" || m.key === "crediario", installmentsMax: MAX_INSTALLMENTS }));
 
   // Garante DePix disponivel no tenant arena-tech, mesmo se nao cadastrado
   // como PaymentMethod (fluxo PIX gera transacao via PixPay direto).
-  const hasDepix = baseOptions.some((m) => m.key === "depix");
-  const methodOptions = depixEnabled && !hasDepix
-    ? [...baseOptions, { id: null as string | null, key: "depix", label: "DePix", type: "PIX", acceptsInstallments: false, installmentsMax: 1 }]
-    : baseOptions;
+  // InfinitePay entra como forma extra quando a integracao esta configurada
+  // (checkout hospedado PIX/cartao com confirmacao automatica).
+  const extraMethods: MethodOption[] = [];
+  if (depixEnabled && !baseOptions.some((m) => m.key === "depix")) {
+    extraMethods.push({ id: null, key: "depix", label: "DePix", type: "PIX", acceptsInstallments: false, installmentsMax: 1 });
+  }
+  if (infinitepayEnabled && !baseOptions.some((m) => m.key === "infinitepay")) {
+    extraMethods.push({ id: null, key: "infinitepay", label: "InfinitePay", type: "PIX", acceptsInstallments: false, installmentsMax: 1 });
+  }
+  const methodOptions = extraMethods.length > 0 ? [...baseOptions, ...extraMethods] : baseOptions;
 
   // Recebíveis de cartão: tipo da forma selecionada (CREDIT_CARD/DEBIT_CARD)
   // habilita a captura de adquirente+bandeira p/ gerar CardReceivable.
@@ -223,6 +261,15 @@ export function PaymentDialog({
       return;
     }
 
+    // InfinitePay tambem deve ser o ULTIMO pagamento (gera um checkout para o
+    // valor restante completo). Mesma regra do DePix.
+    if (selectedMethod === "infinitepay" && Math.abs(valorPagoCents - remaining) > 1) {
+      toast.error(
+        `O InfinitePay deve cobrir o valor restante completo (${formatCurrency(remaining)}). Adicione as outras formas primeiro e use o InfinitePay por ultimo.`,
+      );
+      return;
+    }
+
     const amountMercadoria = Math.min(valorPagoCents, remaining);
     const totalPaidByCustomer = valorPagoCents;
     const installments = parseInt(formInstallments, 10) || 1;
@@ -263,6 +310,15 @@ export function PaymentDialog({
       autoFinalizeAttemptedRef.current = false;
       setPendingDepix(leg);
       setShowDepixQr(true);
+      return;
+    }
+
+    // InfinitePay: abre o checkout AGORA. O leg entra em `payments` quando o
+    // pagamento e confirmado (webhook -> SSE) e dispara finalizacao automatica.
+    if (leg.method === "infinitepay") {
+      autoFinalizeAttemptedRef.current = false;
+      setPendingInfinitepay(leg);
+      setShowInfinitepay(true);
       return;
     }
 
@@ -311,9 +367,10 @@ export function PaymentDialog({
     runFinalize();
   };
 
-  const runFinalize = (paymentsToFinalize = payments, options?: { autoDepix?: boolean }) => {
+  const runFinalize = (paymentsToFinalize = payments, options?: { auto?: boolean; label?: string }) => {
     if (finalizeMutation.isPending || isAutoFinalizing) return;
-    if (options?.autoDepix) setIsAutoFinalizing(true);
+    if (options?.auto) setIsAutoFinalizing(true);
+    const autoLabel = options?.label ?? "Pagamento";
     finalizeMutation.mutate(
       {
         saleId,
@@ -337,18 +394,18 @@ export function PaymentDialog({
       },
       {
         onSuccess: (data) => {
-          toast.success(options?.autoDepix ? "DePix confirmado. Venda finalizada!" : "Venda finalizada com sucesso!");
+          toast.success(options?.auto ? `${autoLabel} confirmado. Venda finalizada!` : "Venda finalizada com sucesso!");
           onSuccess((data as unknown as { id: string }).id);
         },
         onError: (err) => {
           toast.error(
-            options?.autoDepix
-              ? `DePix confirmado, mas a finalizacao falhou: ${err.message}. Tente confirmar novamente.`
+            options?.auto
+              ? `${autoLabel} confirmado, mas a finalizacao falhou: ${err.message}. Tente confirmar novamente.`
               : err.message,
           );
         },
         onSettled: () => {
-          if (options?.autoDepix) setIsAutoFinalizing(false);
+          if (options?.auto) setIsAutoFinalizing(false);
         },
       },
     );
@@ -439,9 +496,10 @@ export function PaymentDialog({
 
   return (
     <>
-    {/* Oculta o payment-dialog enquanto o QR DePix esta aberto (sem desmontar,
-        pra preservar o state). Evita Radix Dialogs aninhados. */}
-    <Dialog open={open && !showDepixQr} onOpenChange={onOpenChange}>
+    {/* Oculta o payment-dialog enquanto o QR DePix / checkout InfinitePay esta
+        aberto (sem desmontar, pra preservar o state). Evita Radix Dialogs
+        aninhados. */}
+    <Dialog open={open && !showDepixQr && !showInfinitepay} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Finalizar Venda</DialogTitle>
@@ -739,7 +797,31 @@ export function PaymentDialog({
           setPayments(nextPayments);
           setPendingDepix(null);
           setShowDepixQr(false);
-          runFinalize(nextPayments, { autoDepix: true });
+          runFinalize(nextPayments, { auto: true, label: "DePix" });
+        }}
+      />
+    )}
+
+    {/* Checkout InfinitePay — fora do Dialog do payment (evita aninhar Radix
+        Dialogs). O payment-dialog ja foi ocultado quando este abre. */}
+    {showInfinitepay && (
+      <InfinitepayCheckoutDialog
+        open={showInfinitepay}
+        saleId={saleId}
+        totalCents={pendingInfinitepay?.amount ?? remaining}
+        onClose={() => {
+          // Cancelou o checkout (cliente nao pagou) — descarta o leg pendente.
+          setShowInfinitepay(false);
+          setPendingInfinitepay(null);
+        }}
+        onPaid={() => {
+          if (!pendingInfinitepay || autoFinalizeAttemptedRef.current) return;
+          autoFinalizeAttemptedRef.current = true;
+          const nextPayments = [...payments, pendingInfinitepay];
+          setPayments(nextPayments);
+          setPendingInfinitepay(null);
+          setShowInfinitepay(false);
+          runFinalize(nextPayments, { auto: true, label: "InfinitePay" });
         }}
       />
     )}

@@ -17,6 +17,15 @@
 
 ---
 
+### 2026-06-22 — PDV: pagamento via InfinitePay (ADR 0054)
+Nova forma "InfinitePay" no PDV (PIX manual continua). Substitui a confirmação manual por checkout real com confirmação automática. Espelha o fluxo de QR do DePix.
+- **Config:** handle por tenant em `TenantIntegration` (provider `INFINITEPAY`, `config.handle`), editável em Configurações → Integrações. A forma só aparece no PDV quando ativa + com handle.
+- **Serviço** `infinitepay-service.ts`: `createInfinitepayCheckout` (`POST /links` → `{ url }`) + `checkInfinitepayPayment` (`POST /payment_check`). Sem auth além do handle (confirmado contra a API real).
+- **PDV:** `createInfinitepayLink` gera o link + QR (server-side, `qrcode`) e grava leg `infinitepay` pendente em `paymentDetails` (`order_nsu = id da venda`). `InfinitepayCheckoutDialog` mostra QR/link, escuta SSE + polling 30s, auto-finaliza.
+- **Webhook** `/api/webhooks/infinitepay`: sem assinatura → **revalida cada pagamento via `payment_check`** antes de marcar pago; `pg_notify('depix_paid')` (canal genérico "venda paga") → SSE. `finalize` revalida server-side que o leg está `paid` (guarda anti-tampering, espelha wallet-first do DePix).
+- **Limitações:** checkout hospedado aceita PIX **e cartão** (registramos pelo `capture_method`); webhook exige URL pública (igual DePix). Escopo: PDV (cobre OS via PDV).
+- Migration: `add_infinitepay_integration_provider` (enum value). Validação: typecheck (0), testes do serviço 10/10.
+
 ### 2026-06-22 — OS: aceitar prestador-técnico sem vínculo user_tenants (PR 16/N)
 Após o #212, vincular um prestador-técnico dava "Tecnico nao pertence a este tenant": a validação de `updateTechnician` exigia vínculo em `user_tenants`, mas um `Provider` (Comissões) pode ser um contratado externo — usuário só com User + Provider (sem user_tenants), ou Provider legado criado antes do filtro de segurança do `listAvailableUsers`. Agora a validação aceita o usuário se tiver vínculo em user_tenants OU um registro `Provider` no tenant (tenant-scoped por RLS). Validação: typecheck (0), lint (0 erros), unit (1116).
 

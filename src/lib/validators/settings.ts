@@ -108,6 +108,7 @@ export const updateIntegrationSchema = z.object({
   provider: z.enum([
     "AUTENTIQUE",
     "DEPIX",
+    "INFINITEPAY",
     "EVOLUTION_WHATSAPP",
     "CHATWOOT",
     "NUVEM_FISCAL",

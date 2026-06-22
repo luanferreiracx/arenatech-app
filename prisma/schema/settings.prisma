@@ -264,6 +264,7 @@ enum IntegrationProvider {
   NUVEM_FISCAL
   FOCUS_NFE
   IMEI_CHECK
+  INFINITEPAY
 }
 
 model UserRole {
