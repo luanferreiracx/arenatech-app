@@ -155,6 +155,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [budgetReason, setBudgetReason] = useState("");
   // Verificacao sob demanda da resposta do cliente ao orcamento (checkQuoteStatus).
   const [checkQuotePending, setCheckQuotePending] = useState(false);
+  // Envio do orçamento ao cliente — modal de número (padrão do sistema).
+  const [budgetApprovalDialog, setBudgetApprovalDialog] = useState(false);
   // Edicao inline de item
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [editItemDesc, setEditItemDesc] = useState("");
@@ -163,11 +165,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // New dialogs — Sprint 1A
   const [signatureDialog, setSignatureDialog] = useState(false);
   const [trackingDialog, setTrackingDialog] = useState(false);
-  const [trackingPhone, setTrackingPhone] = useState("");
   const [deliveryTermDialog, setDeliveryTermDialog] = useState(false);
-  const [deliveryTermPhone, setDeliveryTermPhone] = useState("");
   const [returnTermDialog, setReturnTermDialog] = useState(false);
-  const [returnTermPhone, setReturnTermPhone] = useState("");
   const [returnTermReason, setReturnTermReason] = useState("Equipamento devolvido ao cliente");
   const [techInfoDialog, setTechInfoDialog] = useState(false);
   const [techDiagnosed, setTechDiagnosed] = useState("");
@@ -313,15 +312,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     })
   );
 
-  const notifyStatusMut = useMutation(
-    trpc.communication.notifyOsStatusChanged.mutationOptions({
-      onSuccess: (data) => {
-        if (data.success) toast.success("Atualizacao de status enviada por WhatsApp!");
-        else toast.error("Falha ao enviar notificacao");
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   const updateItemMut = useMutation(
     trpc.serviceOrder.updateItem.mutationOptions({
@@ -744,18 +734,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <Button
               size="sm"
               variant="outline"
-              disabled={notifyStatusMut.isPending}
-              onClick={() => notifyStatusMut.mutate({
-                serviceOrderId: id,
-                newStatus: SERVICE_ORDER_STATUS_LABELS[status] ?? status,
-              })}
-            >
-              <Send className="mr-1 h-3 w-3" />Enviar Status Atual por WhatsApp
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => { setTrackingPhone(order.customer?.phone ?? ""); setTrackingDialog(true); }}
+              onClick={() => setTrackingDialog(true)}
             >
               <Navigation className="mr-1 h-3 w-3" />Enviar Rastreamento
             </Button>
@@ -780,7 +759,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setDeliveryTermPhone(order.customer?.phone ?? ""); setDeliveryTermDialog(true); }}
+                onClick={() => setDeliveryTermDialog(true)}
               >
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Entrega
               </Button>
@@ -843,7 +822,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setReturnTermPhone(order.customer?.phone ?? ""); setReturnTermReason("Equipamento devolvido ao cliente"); setReturnTermDialog(true); }}
+                onClick={() => { setReturnTermReason("Equipamento devolvido ao cliente"); setReturnTermDialog(true); }}
               >
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Devolucao
               </Button>
@@ -925,12 +904,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 disabled={!budgetReason.trim() || requestBudgetApprovalMut.isPending}
-                onClick={() => requestBudgetApprovalMut.mutate({
-                  orderId: id,
-                  reason: budgetReason.trim(),
-                  additionalServices: null,
-                  phone: order.customer?.phone ?? null,
-                })}
+                onClick={() => setBudgetApprovalDialog(true)}
               >
                 <MessageCircle className="mr-1 h-3 w-3" />{sent ? "Reenviar ao cliente" : "Enviar para autorizacao"}
               </Button>
@@ -1167,7 +1141,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                           {blocker.key === "delivery-term" && (
                             <>
                               {!order.deliveryTermAutentiqueId && (
-                                <Button size="sm" variant="outline" onClick={() => { setDeliveryTermPhone(order.customer?.phone ?? ""); setDeliveryTermDialog(true); }} disabled={sendDeliveryTermMut.isPending}>
+                                <Button size="sm" variant="outline" onClick={() => setDeliveryTermDialog(true)} disabled={sendDeliveryTermMut.isPending}>
                                   <Send className="mr-1 h-3 w-3" />Enviar termo
                                 </Button>
                               )}
@@ -1718,7 +1692,6 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        setReturnTermPhone(order.customer?.phone ?? "");
                         setReturnTermReason(cancelReason || "Equipamento devolvido ao cliente");
                         setReturnTermDialog(true);
                       }}
@@ -1926,50 +1899,83 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Tracking Dialog */}
-      <Dialog open={trackingDialog} onOpenChange={setTrackingDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Enviar Rastreamento via WhatsApp</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Telefone</Label><Input value={trackingPhone} onChange={(e) => setTrackingPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTrackingDialog(false)}>Cancelar</Button>
-            <Button disabled={!trackingPhone || sendTrackingMut.isPending} onClick={() => sendTrackingMut.mutate({ orderId: id, phone: trackingPhone })}>Enviar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Tracking — modal padrão de número (números cadastrados + digitar) */}
+      <WhatsAppSendDialog
+        open={trackingDialog}
+        onOpenChange={setTrackingDialog}
+        title="Enviar Rastreamento por WhatsApp"
+        description="Selecione um numero ou digite outro para enviar o link de acompanhamento."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={sendTrackingMut.isPending}
+        confirmLabel="Enviar"
+        onConfirm={async (phone) => {
+          await sendTrackingMut.mutateAsync({ orderId: id, phone });
+          setTrackingDialog(false);
+        }}
+      />
 
-      {/* Delivery Term Dialog */}
-      <Dialog open={deliveryTermDialog} onOpenChange={setDeliveryTermDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Enviar Termo de Entrega</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">O termo sera enviado para assinatura digital via Autentique e notificado por WhatsApp.</p>
-            <div><Label>Telefone do Cliente</Label><Input value={deliveryTermPhone} onChange={(e) => setDeliveryTermPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeliveryTermDialog(false)}>Cancelar</Button>
-            <Button disabled={sendDeliveryTermMut.isPending} onClick={() => sendDeliveryTermMut.mutate({ orderId: id, phone: deliveryTermPhone || null })}>Enviar Termo</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Termo de Entrega — modal padrão de número */}
+      <WhatsAppSendDialog
+        open={deliveryTermDialog}
+        onOpenChange={setDeliveryTermDialog}
+        title="Enviar Termo de Entrega"
+        description="O termo vai para assinatura digital (Autentique) e é notificado por WhatsApp."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={sendDeliveryTermMut.isPending}
+        confirmLabel="Enviar Termo"
+        onConfirm={async (phone) => {
+          await sendDeliveryTermMut.mutateAsync({ orderId: id, phone });
+          setDeliveryTermDialog(false);
+        }}
+      />
 
-      {/* Return Term Dialog */}
-      <Dialog open={returnTermDialog} onOpenChange={setReturnTermDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Enviar Termo de Devolucao</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">O termo sera enviado para assinatura digital. Apos assinado, a OS sera cancelada automaticamente.</p>
-            <div><Label>Telefone do Cliente</Label><Input value={returnTermPhone} onChange={(e) => setReturnTermPhone(e.target.value)} placeholder="(11) 99999-9999" /></div>
-            <div><Label>Motivo da Devolucao</Label><Textarea value={returnTermReason} onChange={(e) => setReturnTermReason(e.target.value)} rows={2} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReturnTermDialog(false)}>Cancelar</Button>
-            <Button disabled={sendReturnTermMut.isPending} onClick={() => sendReturnTermMut.mutate({ orderId: id, phone: returnTermPhone || null, reason: returnTermReason || null })}>Enviar Termo</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Envio do orçamento ao cliente — modal padrão de número */}
+      <WhatsAppSendDialog
+        open={budgetApprovalDialog}
+        onOpenChange={setBudgetApprovalDialog}
+        title="Enviar orcamento ao cliente"
+        description="Selecione um numero ou digite outro para enviar o orcamento para autorizacao."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={requestBudgetApprovalMut.isPending}
+        confirmLabel="Enviar"
+        onConfirm={async (phone) => {
+          await requestBudgetApprovalMut.mutateAsync({
+            orderId: id,
+            reason: budgetReason.trim(),
+            additionalServices: null,
+            phone,
+          });
+          setBudgetApprovalDialog(false);
+        }}
+      />
+
+      {/* Termo de Devolução — modal padrão de número + motivo (children) */}
+      <WhatsAppSendDialog
+        open={returnTermDialog}
+        onOpenChange={setReturnTermDialog}
+        title="Enviar Termo de Devolucao"
+        description="O termo vai para assinatura digital. Após assinado, a OS é cancelada automaticamente."
+        customerName={order.customer?.name ?? null}
+        primaryPhone={order.customer?.phone ?? null}
+        secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
+        isLoading={sendReturnTermMut.isPending}
+        confirmLabel="Enviar Termo"
+        onConfirm={async (phone) => {
+          await sendReturnTermMut.mutateAsync({ orderId: id, phone, reason: returnTermReason || null });
+          setReturnTermDialog(false);
+        }}
+      >
+        <div>
+          <Label>Motivo da Devolucao</Label>
+          <Textarea value={returnTermReason} onChange={(e) => setReturnTermReason(e.target.value)} rows={2} />
+        </div>
+      </WhatsAppSendDialog>
 
       {/* Technical Info Dialog */}
       <Dialog open={techInfoDialog} onOpenChange={setTechInfoDialog}>
