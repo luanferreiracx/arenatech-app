@@ -358,6 +358,7 @@ export const operationRouter = createTRPCRouter({
             email: input.email ?? null,
             commissionRate: input.commissionRate != null ? new Prisma.Decimal(input.commissionRate) : null,
             contractDetails: (input.contractDetails as Prisma.InputJsonValue) ?? Prisma.DbNull,
+            isTechnician: input.isTechnician ?? false,
             notes: input.notes ?? null,
           },
         });
@@ -386,6 +387,7 @@ export const operationRouter = createTRPCRouter({
             commissionRate: input.commissionRate != null ? new Prisma.Decimal(input.commissionRate) : null,
             contractDetails: (input.contractDetails as Prisma.InputJsonValue) ?? Prisma.DbNull,
             active: input.active,
+            isTechnician: input.isTechnician ?? false,
             notes: input.notes ?? null,
           },
         });

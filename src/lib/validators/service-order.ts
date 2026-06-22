@@ -712,7 +712,10 @@ export const updateTechnicalInfoSchema = z.object({
 /** Update technician (admin) */
 export const updateTechnicianSchema = z.object({
   orderId: z.string().uuid(),
-  technicianId: z.string().uuid(),
+  // Técnico responsável: usuário interno ("user") ou prestador externo
+  // ("provider"). `assigneeId` null remove o técnico responsável.
+  kind: z.enum(["user", "provider"]),
+  assigneeId: z.string().uuid().nullable(),
 });
 
 /** Get OS by customer (for warranty check) */

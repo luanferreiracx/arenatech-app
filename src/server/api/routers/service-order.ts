@@ -383,6 +383,14 @@ export const serviceOrderRouter = createTRPCRouter({
           select: { termsOfService: true, warrantyPolicy: true },
         });
 
+        // Técnico responsável pode ser um prestador externo (serviceProviderId).
+        const serviceProvider = order.serviceProviderId
+          ? await tx.serviceProvider.findUnique({
+              where: { id: order.serviceProviderId },
+              select: { id: true, name: true },
+            })
+          : null;
+
         // Load users (technician, created by, vendor) via withAdmin
         const userIds = [order.createdById, order.technicianId, order.vendorId, order.refundedById].filter(Boolean) as string[];
         const historyUserIds = order.history.map((h) => h.userId);
@@ -415,6 +423,8 @@ export const serviceOrderRouter = createTRPCRouter({
           customer,
           createdByName: userMap.get(order.createdById) ?? "Sistema",
           technicianName: order.technicianId ? (userMap.get(order.technicianId) ?? null) : null,
+          // Técnico responsável externo (prestador), quando atribuído.
+          serviceProviderName: serviceProvider?.name ?? null,
           vendorName: order.vendorId ? (userMap.get(order.vendorId) ?? null) : null,
           refundedByName: order.refundedById ? (userMap.get(order.refundedById) ?? null) : null,
           linkedSale,
@@ -2603,11 +2613,9 @@ export const serviceOrderRouter = createTRPCRouter({
 
   // ── LIST TECHNICIANS ──
   listTechnicians: tenantProcedure.query(async ({ ctx }) => {
-    // Quem pode ser o tecnico responsavel pela OS — filtra por `isTechnician`
-    // (paridade Laravel `usuarios.eh_tecnico`). A flag e independente do
-    // papel de login: um owner/admin/manager pode atuar como tecnico, e um
-    // operator pode estar no balcao sem trabalhar em bancada. O dropdown
-    // de tecnicos da OS so deve listar quem efetivamente faz o reparo.
+    // Técnicos INTERNOS (user_tenants.is_technician) — usado por filtros/relatório
+    // de técnicos (que são por usuário). Para o seletor de técnico responsável da
+    // OS, que também aceita prestadores externos, ver `listTechnicianAssignees`.
     const userTenants = await withAdmin(async (adminTx) => {
       return adminTx.userTenant.findMany({
         where: { tenantId: ctx.tenantId, isTechnician: true },
@@ -2619,8 +2627,37 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     });
 
-    // Todos aqui têm a flag isTechnician; ordena por nome (já vem ordenado).
     return userTenants.map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role }));
+  }),
+
+  // ── LIST TECHNICIAN ASSIGNEES (usuários internos + prestadores-técnicos) ──
+  /**
+   * Quem pode ser o técnico RESPONSÁVEL da OS: usuários internos com
+   * `is_technician` + prestadores externos marcados como técnico. `kind`
+   * distingue para o `updateTechnician` gravar o FK certo (technicianId vs
+   * serviceProviderId).
+   */
+  listTechnicianAssignees: tenantProcedure.query(async ({ ctx }) => {
+    const userTenants = await withAdmin(async (adminTx) => {
+      return adminTx.userTenant.findMany({
+        where: { tenantId: ctx.tenantId, isTechnician: true },
+        select: { user: { select: { id: true, name: true } }, role: true },
+        orderBy: { user: { name: "asc" } },
+      });
+    });
+
+    const providers = await ctx.withTenant(async (tx) => {
+      return tx.serviceProvider.findMany({
+        where: { isTechnician: true, active: true, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+    });
+
+    return [
+      ...userTenants.map((ut) => ({ id: ut.user.id, name: ut.user.name, role: ut.role, kind: "user" as const })),
+      ...providers.map((p) => ({ id: p.id, name: p.name, role: null as string | null, kind: "provider" as const })),
+    ];
   }),
 
   // ── LIST VENDORS ──
@@ -3507,34 +3544,57 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.orderId } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // Get previous technician name
+        // Nome do técnico anterior (usuário OU prestador).
         let previousName = "Nenhum";
         if (order.technicianId) {
           const prev = await withAdmin(async (adminTx) =>
             adminTx.user.findUnique({ where: { id: order.technicianId! }, select: { name: true } }),
           );
           previousName = prev?.name ?? "Nenhum";
+        } else if (order.serviceProviderId) {
+          const prev = await tx.serviceProvider.findUnique({
+            where: { id: order.serviceProviderId },
+            select: { name: true },
+          });
+          previousName = prev?.name ? `${prev.name} (prestador)` : "Nenhum";
         }
 
-        // SEGURANCA (isolamento cross-tenant): o tecnico precisa pertencer ao
-        // tenant ativo. `tx` roda escopado (withTenant); a PK composta de
-        // user_tenants filtra por tenantId, entao so casa se houver vinculo.
-        const techLink = await tx.userTenant.findUnique({
-          where: { userId_tenantId: { userId: input.technicianId, tenantId: ctx.tenantId } },
-          select: { userId: true },
-        });
-        if (!techLink) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
+        // Técnico responsável é exclusivo: usuário OU prestador. Sempre limpa o
+        // outro campo ao gravar.
+        let newName = "Nenhum";
+        const data: { technicianId: string | null; serviceProviderId: string | null } = {
+          technicianId: null,
+          serviceProviderId: null,
+        };
 
-        // Get new technician name
-        const newTech = await withAdmin(async (adminTx) =>
-          adminTx.user.findUnique({ where: { id: input.technicianId }, select: { name: true } }),
-        );
-        if (!newTech) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao encontrado" });
+        if (input.assigneeId && input.kind === "user") {
+          // Isolamento cross-tenant: o usuário precisa ter vínculo no tenant.
+          const techLink = await tx.userTenant.findUnique({
+            where: { userId_tenantId: { userId: input.assigneeId, tenantId: ctx.tenantId } },
+            select: { userId: true },
+          });
+          if (!techLink) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
+          const newTech = await withAdmin(async (adminTx) =>
+            adminTx.user.findUnique({ where: { id: input.assigneeId! }, select: { name: true } }),
+          );
+          if (!newTech) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao encontrado" });
+          data.technicianId = input.assigneeId;
+          newName = newTech.name;
+        } else if (input.assigneeId && input.kind === "provider") {
+          // `tx` é escopado por tenant (RLS) — só casa prestador do tenant ativo.
+          const provider = await tx.serviceProvider.findFirst({
+            where: { id: input.assigneeId, deletedAt: null },
+            select: { name: true, isTechnician: true },
+          });
+          if (!provider) throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
+          if (!provider.isTechnician) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Prestador nao esta marcado como tecnico." });
+          }
+          data.serviceProviderId = input.assigneeId;
+          newName = `${provider.name} (prestador)`;
+        }
 
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: { technicianId: input.technicianId },
-        });
+        await tx.serviceOrder.update({ where: { id: input.orderId }, data });
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -3543,7 +3603,7 @@ export const serviceOrderRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             previousStatus: order.status,
             newStatus: order.status,
-            notes: `Tecnico responsavel alterado de "${previousName}" para "${newTech.name}"`,
+            notes: `Tecnico responsavel alterado de "${previousName}" para "${newName}"`,
           },
         });
 

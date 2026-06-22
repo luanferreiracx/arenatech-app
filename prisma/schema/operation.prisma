@@ -138,6 +138,9 @@ model ServiceProvider {
   commissionRate  Decimal?  @map("commission_rate") @db.Decimal(5, 2)
   contractDetails Json?     @map("contract_details")
   active          Boolean   @default(true)
+  // Prestador que atua como técnico — aparece no seletor de técnico responsável
+  // da OS (paralelo ao `user_tenants.is_technician` dos usuários internos).
+  isTechnician    Boolean   @default(false) @map("is_technician")
   notes           String?
   deletedAt       DateTime? @map("deleted_at")
   createdAt       DateTime  @default(now()) @map("created_at")
