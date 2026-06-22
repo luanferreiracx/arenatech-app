@@ -33,6 +33,20 @@ export type InfinitepayCheckoutItem = {
   description: string;
 };
 
+export type InfinitepayCustomer = {
+  name?: string;
+  email?: string;
+  phoneNumber?: string;
+};
+
+export type InfinitepayAddress = {
+  cep?: string;
+  street?: string;
+  neighborhood?: string;
+  number?: string;
+  complement?: string;
+};
+
 export type CreateInfinitepayCheckoutInput = {
   /** InfiniteTag do lojista, sem o `$`. */
   handle: string;
@@ -43,11 +57,13 @@ export type CreateInfinitepayCheckoutInput = {
   webhookUrl: string;
   /** URL de sucesso (para onde o cliente volta apos pagar). Opcional. */
   redirectUrl?: string;
-  customer?: {
-    name?: string;
-    email?: string;
-    phoneNumber?: string;
-  };
+  /**
+   * Dados do comprador pre-preenchidos no checkout. Enviar isso evita que a
+   * pagina hospedada peca nome/email/telefone antes do PIX (gargalo no balcao).
+   */
+  customer?: InfinitepayCustomer;
+  /** Endereco pre-preenchido — idem: evita o formulario de endereco no checkout. */
+  address?: InfinitepayAddress;
 };
 
 const createLinkResponseSchema = z.object({
@@ -149,6 +165,17 @@ export async function createInfinitepayCheckout(
           },
         }
       : {}),
+    ...(input.address
+      ? {
+          address: {
+            ...(input.address.cep ? { cep: input.address.cep } : {}),
+            ...(input.address.street ? { street: input.address.street } : {}),
+            ...(input.address.neighborhood ? { neighborhood: input.address.neighborhood } : {}),
+            ...(input.address.number ? { number: input.address.number } : {}),
+            ...(input.address.complement ? { complement: input.address.complement } : {}),
+          },
+        }
+      : {}),
   };
 
   const raw = await postJson("/links", payload);
@@ -187,6 +214,86 @@ export async function checkInfinitepayPayment(
     paidAmountCents: parsed.data.paid_amount,
     installments: parsed.data.installments,
     captureMethod: parsed.data.capture_method,
+  };
+}
+
+/** Normaliza telefone BR para o formato +55DDDNUMERO esperado pela InfinitePay. */
+export function formatBrPhone(raw: string | null | undefined): string | undefined {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  if (digits.length < 10) return undefined;
+  // Ja veio com 55 na frente (12-13 digitos)? Usa como esta. Senao prefixa.
+  const withCountry = digits.startsWith("55") && digits.length >= 12 ? digits : `55${digits}`;
+  return `+${withCountry}`;
+}
+
+/** So digitos do CEP (InfinitePay usa 8 digitos sem mascara). */
+export function formatCep(raw: string | null | undefined): string | undefined {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  return digits.length === 8 ? digits : undefined;
+}
+
+type PrefillParty = {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  zipCode?: string | null;
+  street?: string | null;
+  streetNumber?: string | null;
+  complement?: string | null;
+  neighborhood?: string | null;
+};
+
+const firstNonEmpty = (...vals: (string | null | undefined)[]): string | undefined => {
+  for (const v of vals) {
+    const t = (v ?? "").trim();
+    if (t) return t;
+  }
+  return undefined;
+};
+
+/**
+ * Monta `customer` + `address` pre-preenchidos para o checkout, com fallback:
+ * cliente da venda > dados da loja. Objetivo: o cliente de balcao nao precisar
+ * digitar email/endereco para pagar PIX. So inclui `address` quando ha CEP +
+ * rua (parcial nao adianta — a pagina pediria o resto).
+ */
+export function buildInfinitepayPrefill(input: {
+  customer?: PrefillParty | null;
+  store?: PrefillParty | null;
+}): { customer?: InfinitepayCustomer; address?: InfinitepayAddress } {
+  const c = input.customer ?? null;
+  const s = input.store ?? null;
+
+  const name = firstNonEmpty(c?.name, s?.name);
+  const email = firstNonEmpty(c?.email, s?.email);
+  const phone = formatBrPhone(firstNonEmpty(c?.phone, s?.phone));
+
+  const customer: InfinitepayCustomer = {
+    ...(name ? { name } : {}),
+    ...(email ? { email } : {}),
+    ...(phone ? { phoneNumber: phone } : {}),
+  };
+
+  const cep = formatCep(firstNonEmpty(c?.zipCode, s?.zipCode));
+  const street = firstNonEmpty(c?.street, s?.street);
+  const neighborhood = firstNonEmpty(c?.neighborhood, s?.neighborhood);
+  const number = firstNonEmpty(c?.streetNumber, s?.streetNumber);
+  const complement = firstNonEmpty(c?.complement, s?.complement);
+
+  const hasUsableAddress = !!cep && !!street;
+  const address: InfinitepayAddress | undefined = hasUsableAddress
+    ? {
+        cep,
+        street,
+        ...(neighborhood ? { neighborhood } : {}),
+        ...(number ? { number } : {}),
+        ...(complement ? { complement } : {}),
+      }
+    : undefined;
+
+  return {
+    ...(Object.keys(customer).length > 0 ? { customer } : {}),
+    ...(address ? { address } : {}),
   };
 }
 

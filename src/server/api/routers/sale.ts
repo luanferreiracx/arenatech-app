@@ -37,7 +37,7 @@ import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
-import { createInfinitepayCheckout } from "@/lib/services/infinitepay-service";
+import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
 import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
@@ -3334,19 +3334,40 @@ export const saleRouter = createTRPCRouter({
         });
       }
 
-      const sale = await ctx.withTenant((tx) =>
-        tx.sale.findUnique({
+      const { sale, store, customer } = await ctx.withTenant(async (tx) => {
+        const s = await tx.sale.findUnique({
           where: { id: input.saleId },
           select: {
             id: true,
             number: true,
             status: true,
             totalAmount: true,
+            customerId: true,
             customerName: true,
             customerPhone: true,
           },
-        }),
-      );
+        });
+        if (!s) return { sale: null, store: null, customer: null };
+        // Dados da loja (default do checkout) + do cliente (se cadastrado) para
+        // pre-preencher e evitar o formulario de cadastro no PIX.
+        const st = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: {
+            tradeName: true, legalName: true, email: true, phone: true,
+            zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
+          },
+        });
+        const cust = s.customerId
+          ? await tx.customer.findUnique({
+              where: { id: s.customerId },
+              select: {
+                name: true, email: true, phone: true,
+                zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
+              },
+            })
+          : null;
+        return { sale: s, store: st, customer: cust };
+      });
       if (!sale) throw new TRPCError({ code: "NOT_FOUND" });
       if (!["DRAFT", "COMPLETED"].includes(sale.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao pode receber InfinitePay neste status." });
@@ -3361,20 +3382,35 @@ export const saleRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da cobranca nao pode exceder o total da venda." });
       }
 
+      // Pre-preenche o checkout (cliente da venda > dados da loja) para o
+      // pagador de balcao nao precisar digitar email/endereco antes do PIX.
+      const prefill = buildInfinitepayPrefill({
+        customer: customer
+          ? customer
+          : sale.customerName || sale.customerPhone
+            ? { name: sale.customerName, phone: sale.customerPhone }
+            : null,
+        store: store
+          ? {
+              name: store.tradeName ?? store.legalName,
+              email: store.email,
+              phone: store.phone,
+              zipCode: store.zipCode,
+              street: store.street,
+              streetNumber: store.streetNumber,
+              complement: store.complement,
+              neighborhood: store.neighborhood,
+            }
+          : null,
+      });
+
       const { url } = await createInfinitepayCheckout({
         handle: config.handle,
         // order_nsu = id da venda — o webhook acha a venda direto por PK.
         orderNsu: sale.id,
         items: [{ quantity: 1, price: amountCents, description: `Venda ${sale.number}` }],
         webhookUrl: `${getAppBaseUrl()}/api/webhooks/infinitepay`,
-        ...(sale.customerName || sale.customerPhone
-          ? {
-              customer: {
-                ...(sale.customerName ? { name: sale.customerName } : {}),
-                ...(sale.customerPhone ? { phoneNumber: sale.customerPhone } : {}),
-              },
-            }
-          : {}),
+        ...prefill,
       });
 
       // Persiste o leg pendente ja agora (antes do finalize) — sem isso, se o
