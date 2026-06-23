@@ -858,7 +858,20 @@ export const serviceOrderRouter = createTRPCRouter({
           updateData.warrantyMonths = input.warrantyMonths;
         }
 
-        await tx.serviceOrder.update({ where: { id: input.id }, data: updateData });
+        // CAS de status: a transição só aplica se o status atual ainda for o que
+        // lemos. Dois updateStatus concorrentes (ex.: force-PAID em 2 abas) — o
+        // segundo vê count=0 e a tx faz rollback ANTES de criar cashMovement/
+        // recebível em dobro. Espelha o CAS do registerPayment.
+        const statusCas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, status: currentStatus },
+          data: updateData,
+        });
+        if (statusCas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "O status da OS mudou em outra operacao. Atualize a tela e tente novamente.",
+          });
+        }
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -961,6 +974,11 @@ export const serviceOrderRouter = createTRPCRouter({
               });
             }
           }
+
+          // Comissão do técnico também no pagamento forçado/garantia (paridade
+          // com registerPayment, que já gera). Idempotente; base 0
+          // (cortesia/garantia gratuita) → no-op.
+          await createOsTechnicianCommission(tx, ctx.tenantId, order, paidCents);
         }
 
         // C8: Notificar conclusao via WhatsApp Cloud (best-effort, nao bloqueia).
