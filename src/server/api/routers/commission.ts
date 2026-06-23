@@ -170,14 +170,12 @@ export const commissionRouter = createTRPCRouter({
     .input(calculateCommissionsSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        // Delete existing PENDING commissions for this period
-        await tx.commission.deleteMany({
-          where: {
-            periodMonth: input.month,
-            periodYear: input.year,
-            status: "PENDING",
-          },
-        });
+        // Idempotente: NÃO apaga comissões existentes. O antigo apaga-e-recria por
+        // período wipava as comissões geradas em tempo real no pagamento da OS
+        // (createOsTechnicianCommission) e podia duplicá-las quando o mês do
+        // pagamento ≠ mês do updatedAt. Agora o calculate só PREENCHE o que falta:
+        // pula vendas/OS que já têm comissão não-cancelada (dedup por referência,
+        // espelha a idempotência do real-time). Rodar N vezes é seguro.
 
         // Get active rules
         const rules = await tx.commissionRule.findMany({
@@ -206,6 +204,12 @@ export const commissionRouter = createTRPCRouter({
           });
 
           for (const sale of sales) {
+            // Dedup: pula vendas que já têm comissão não-cancelada (idempotência).
+            const existing = await tx.commission.findFirst({
+              where: { referenceType: "SALE", referenceId: sale.id, status: { not: "CANCELLED" } },
+              select: { id: true },
+            });
+            if (existing) continue;
             for (const rule of saleRules) {
               if (rule.role === "seller" && sale.sellerId) {
                 const baseAmount = decimalToCents(sale.totalAmount);
@@ -251,6 +255,14 @@ export const commissionRouter = createTRPCRouter({
           });
 
           for (const so of serviceOrders) {
+            // Dedup: pula OS que já têm comissão não-cancelada — inclui as criadas
+            // em tempo real no pagamento (createOsTechnicianCommission). Evita o
+            // double-count entre o batch e o real-time.
+            const existing = await tx.commission.findFirst({
+              where: { referenceType: "SERVICE_ORDER", referenceId: so.id, status: { not: "CANCELLED" } },
+              select: { id: true },
+            });
+            if (existing) continue;
             for (const rule of soRules) {
               if (rule.role === "technician" && so.technicianId) {
                 const baseAmount = decimalToCents(so.totalAmount);
