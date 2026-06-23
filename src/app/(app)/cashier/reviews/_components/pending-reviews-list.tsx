@@ -28,6 +28,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
 import { Eye, CheckCircle } from "lucide-react";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -49,6 +50,8 @@ function formatDateTime(date: Date | string): string {
 export function PendingReviewsList() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // Conferência é ação de gestor (espelha o gate do servidor em cashier.review).
+  const isAdmin = useIsTenantAdmin();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reportedBalance, setReportedBalance] = useState(0);
@@ -140,13 +143,19 @@ export function PendingReviewsList() {
                       : "-"}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="sm"
-                      onClick={() => handleOpenReview(r)}
-                    >
-                      <Eye className="mr-1 h-4 w-4" />
-                      Conferir
-                    </Button>
+                    {isAdmin ? (
+                      <Button
+                        size="sm"
+                        onClick={() => handleOpenReview(r)}
+                      >
+                        <Eye className="mr-1 h-4 w-4" />
+                        Conferir
+                      </Button>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        Conferência: admin
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

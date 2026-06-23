@@ -13,8 +13,8 @@
 
 | # | Módulo | Status |
 |---|--------|--------|
-| 1 | PDV / Vendas | ✅ auditado + corrigido (PR aberto) |
-| 2 | Caixa | ⬜ |
+| 1 | PDV / Vendas | ✅ auditado + corrigido (PR #223 MERGED) |
+| 2 | Caixa | ✅ auditado + corrigido (PR aberto) |
 | 3 | Financeiro | ⬜ |
 | 4 | Recebíveis de cartão | ⬜ |
 | 5 | Ordens de Serviço | ⬜ |
@@ -62,9 +62,40 @@ de borda. **Paridade confirmada com `PdvService.php`** (Laravel) — o sistema n
 
 ---
 
+## Módulo 2 — Caixa ✅ (2026-06-23)
+
+**Veredito: sólido.** `forceClose`/`manualAdjustment` admin-gated + audit; `close` exige nota quando
+divergência > R$5/1%; `withdrawal` valida saldo; auto-close (cron) idempotente; `pendingReviews`
+resolve nomes via `UserTenant` (evita leak da tabela global `users`). Paridade com `CaixaService.php`
+mapeada método a método.
+
+**Corrigido (aprovado pelo dono):**
+- **P1 — Índice único não impedia 2 caixas abertos:** `@@unique([tenantId,userId,closedAt])` é inútil
+  (NULLs distintos no Postgres → dois `closed_at NULL` passam). Defesa era só o `findFirst` (racy).
+  Fix: migration `20260623140000_cash_session_single_open_partial_unique` (índice único **parcial**
+  `WHERE closed_at IS NULL` + dedupe defensivo dos abertos duplicados) + schema atualizado + `open`
+  traduz P2002 → CONFLICT amigável.
+- **P2 — Conferência (`review`) admin-only:** era `tenantProcedure` sem filtro por userId → operador
+  podia auto-conferir o próprio caixa, furando segregação de funções. Agora exige `isTenantAdmin`
+  (servidor) + botão "Conferir" escondido para não-admin (UI).
+- **Cleanup — 3 órfãs removidas:** `recordSale`, `recordServiceOrderPayment`, `recordReversal`
+  (sem chamadores; PDV/OS registram `cashMovement` inline). −158 linhas.
+
+**Pendência registrada (decisão do dono):**
+- **Sangria automática (paridade Laravel `verificarSangriaAutomatica`):** alerta quando o dinheiro em
+  caixa passa de um limite. Ausente no novo. → implementar depois, com **limite por tenant**
+  (TenantSettings). Não inflar o M2.
+- P3: `cash-session.service` usa float (arredonda a centavos) — cosmético, adiado.
+
+**Verificação:** prisma validate OK · typecheck 0 · lint 0 · unit 1159. Migration + E2E: CI do PR
+(docker indisponível local). 
+
+---
+
 ## Decisões de produto pendentes (próximos módulos)
 - **#3 — Comissão de prestador externo na OS** (Módulo 5/7): quando o técnico é `serviceProviderId`,
   o pagamento da OS não gera comissão. Confirmar escopo no gate do módulo de Comissões.
+- **Sangria automática** (do M2): implementar o alerta de limite (config por tenant) — gate próprio.
 
 ---
 
