@@ -5,7 +5,7 @@ import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
-import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
+import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
@@ -1463,13 +1463,18 @@ export const saleRouter = createTRPCRouter({
                 notes: `Pagamento via PDV - venda ${saleNumber}`,
               },
             });
-            // P4: comissao do tecnico tambem no pagamento via PDV (antes so o
-            // registerPayment criava — caminho comum da UI ficava sem comissao).
-            await createOsTechnicianCommission(
+            // PAYABLE da comissao do prestador externo tambem no pagamento via
+            // PDV (paridade com registerPayment — service compartilhado, ADR 0056).
+            await createOsServiceProviderPayable(
               tx,
               ctx.tenantId,
-              { id: order.id, number: order.number, technicianId: order.technicianId },
+              {
+                id: order.id,
+                number: order.number,
+                serviceProviderId: order.serviceProviderId,
+              },
               totalCents,
+              ctx.session.user.id,
             );
           }
         }
@@ -2044,37 +2049,6 @@ export const saleRouter = createTRPCRouter({
               });
             }
           }
-        }
-
-        // R4: estorno TOTAL cancela a comissão de venda já gerada (PENDING/
-        // APPROVED) — o vendedor não fica com comissão de venda que não ocorreu.
-        // PAID não é tocada (já paga; reversão financeira é decisão à parte —
-        // logada p/ o gestor). No estorno PARCIAL a comissão segue o saldo via
-        // batch de geração (usa o totalAmount já reduzido), então não mexemos.
-        if (!isPartial) {
-          const paidCommissions = await tx.commission.findMany({
-            where: {
-              referenceType: "SALE",
-              referenceId: sale.id,
-              status: "PAID",
-            },
-            select: { id: true },
-          });
-          if (paidCommissions.length > 0) {
-            logger.warn("Estorno de venda com comissão JÁ PAGA — não revertida automaticamente", {
-              saleId: sale.id,
-              number: sale.number,
-              commissionIds: paidCommissions.map((c) => c.id),
-            });
-          }
-          await tx.commission.updateMany({
-            where: {
-              referenceType: "SALE",
-              referenceId: sale.id,
-              status: { in: ["PENDING", "APPROVED"] },
-            },
-            data: { status: "CANCELLED" },
-          });
         }
 
         // Atualiza venda: PARTIALLY_REFUNDED ou REFUNDED + recalcula total.

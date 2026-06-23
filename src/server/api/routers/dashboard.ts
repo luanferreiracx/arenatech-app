@@ -487,8 +487,6 @@ export const dashboardRouter = createTRPCRouter({
         pendingVerification,
         lateOrdersCount,
         lowStockCount,
-        pendingCommissionsCount,
-        approvedCommissionsCount,
       ] = await Promise.all([
         // Financial: overdue receivables
         tx.installment.count({
@@ -515,14 +513,6 @@ export const dashboardRouter = createTRPCRouter({
             currentStock: 0,
           },
         }),
-        // Comissoes pendentes de aprovacao
-        tx.commission.count({
-          where: { status: "PENDING" },
-        }),
-        // Comissoes aprovadas aguardando pagamento
-        tx.commission.count({
-          where: { status: "APPROVED" },
-        }),
       ]);
 
       return {
@@ -530,9 +520,7 @@ export const dashboardRouter = createTRPCRouter({
         pendingCashierVerification: pendingVerification,
         lateServiceOrders: lateOrdersCount,
         outOfStockProducts: lowStockCount,
-        pendingCommissions: pendingCommissionsCount,
-        approvedCommissions: approvedCommissionsCount,
-        totalAlerts: overdueCount + pendingVerification + lateOrdersCount + lowStockCount + pendingCommissionsCount,
+        totalAlerts: overdueCount + pendingVerification + lateOrdersCount + lowStockCount,
       };
     });
   }),

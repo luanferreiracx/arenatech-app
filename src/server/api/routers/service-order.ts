@@ -65,7 +65,7 @@ import {
   releaseStockForOsItem,
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
-import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
+import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
@@ -973,12 +973,18 @@ export const serviceOrderRouter = createTRPCRouter({
                 },
               });
             }
-          }
 
-          // Comissão do técnico também no pagamento forçado/garantia (paridade
-          // com registerPayment, que já gera). Idempotente; base 0
-          // (cortesia/garantia gratuita) → no-op.
-          await createOsTechnicianCommission(tx, ctx.tenantId, order, paidCents);
+            // PAYABLE da comissao do prestador externo tambem no pagamento
+            // forcado/garantia (paridade com registerPayment — ADR 0056).
+            // Idempotente; sem ServiceProvider na OS → no-op.
+            await createOsServiceProviderPayable(
+              tx,
+              ctx.tenantId,
+              order,
+              paidCents,
+              userId,
+            );
+          }
         }
 
         // C8: Notificar conclusao via WhatsApp Cloud (best-effort, nao bloqueia).
@@ -1254,17 +1260,39 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // P5: cancela comissao ainda nao paga do tecnico — nao se paga comissao
-        // por uma OS estornada. Comissoes ja PAGAS nao sao mexidas (clawback
-        // exige fluxo financeiro proprio).
-        const cancelledCommissions = await tx.commission.updateMany({
+        // P5: cancela a conta a pagar da comissao do prestador ainda nao quitada —
+        // nao se paga comissao por uma OS estornada. PAYABLE ja paga nao e mexida
+        // (clawback exige fluxo financeiro proprio) (ADR 0056).
+        const commissionPayables = await tx.financialTransaction.findMany({
           where: {
-            referenceType: "SERVICE_ORDER",
+            tenantId: ctx.tenantId,
+            type: "PAYABLE",
+            referenceType: "service_order_commission",
             referenceId: input.id,
-            status: { in: ["PENDING", "APPROVED"] },
+            status: { in: ["PENDING", "OVERDUE"] },
+            deletedAt: null,
           },
-          data: { status: "CANCELLED" },
+          select: { id: true },
         });
+        if (commissionPayables.length > 0) {
+          const commissionIds = commissionPayables.map((t) => t.id);
+          await tx.installment.updateMany({
+            where: {
+              transactionId: { in: commissionIds },
+              status: { in: ["PENDING", "OVERDUE"] },
+            },
+            data: { status: "CANCELLED" },
+          });
+          await tx.financialTransaction.updateMany({
+            where: { id: { in: commissionIds } },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: `Estorno OS ${order.number}: ${input.reason}`,
+            },
+          });
+        }
 
         // P5b: se a OS foi paga via PDV, estorna a Sale vinculada (sem itens —
         // pagamento puro): saida de caixa + cancela recebiveis + status REFUNDED.
@@ -1338,8 +1366,8 @@ export const serviceOrderRouter = createTRPCRouter({
             newStatus: "REFUNDED",
             notes:
               `[ESTORNO] ${input.reason}` +
-              (cancelledCommissions.count > 0
-                ? ` (${cancelledCommissions.count} comissao(oes) cancelada(s))`
+              (commissionPayables.length > 0
+                ? ` (${commissionPayables.length} comissao(oes) cancelada(s))`
                 : "") +
               (saleRefunded ? ` (venda ${linkedSale!.number} estornada)` : ""),
           },
@@ -1749,10 +1777,17 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        // ── Trigger automatico de comissao do tecnico ao finalizar OS ──
-        // Mesma logica usada pelo finalize do PDV (service compartilhado). Base =
-        // valor liquido recebido (cortesia/garantia gratuita = 0 → sem comissao).
-        await createOsTechnicianCommission(tx, ctx.tenantId, order, collectedCents);
+        // ── Conta a pagar da comissao do prestador externo (ADR 0056) ──
+        // Se a OS tem um ServiceProvider atribuido, gera PAYABLE com a comissao
+        // (mesma logica no finalize do PDV — service compartilhado, idempotente).
+        // Base = valor liquido recebido (cortesia/garantia gratuita = 0 → no-op).
+        await createOsServiceProviderPayable(
+          tx,
+          ctx.tenantId,
+          order,
+          collectedCents,
+          userId,
+        );
 
         return { success: true };
       });

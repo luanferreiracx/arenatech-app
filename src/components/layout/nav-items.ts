@@ -151,9 +151,7 @@ export const appNavGroups: NavGroup[] = [
   {
     title: "Comissoes",
     items: [
-      { label: "Comissoes", href: "/commissions", icon: Percent, module: "commissions" },
-      { label: "Minha Comissao", href: "/commissions/my", icon: Percent, module: "commissions" },
-      { label: "Prestadores", href: "/commissions/providers", icon: Truck, module: "commissions" },
+      { label: "Comissoes", href: "/commissions/providers", icon: Percent, module: "commissions" },
     ],
   },
   {
