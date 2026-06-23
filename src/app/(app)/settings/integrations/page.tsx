@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +93,9 @@ type IntegrationRecord = {
 export default function IntegrationsPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // RBAC: editar credenciais de integração é admin (espelha o gate de
+  // settings.updateIntegration no servidor). Operador não vê o form.
+  const isAdmin = useIsTenantAdmin();
 
   const { data: integrations, isLoading } = useQuery(
     trpc.settings.listIntegrations.queryOptions()
@@ -127,6 +131,19 @@ export default function IntegrationsPage() {
     // Preserva o config existente ao ligar/desligar (ex.: nao perde o handle).
     mutation.mutate({ provider, enabled, config: getRecord(provider)?.config as Record<string, unknown> | undefined ?? undefined });
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Integracoes" />
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Apenas administradores do tenant podem alterar as integracoes.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

@@ -7,6 +7,7 @@ import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { PageHeader } from "@/components/domain/page-header";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -26,6 +27,8 @@ type AssistanceInput = z.infer<typeof assistanceSchema>;
 export default function AssistanceSettingsPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // RBAC: configurações da assistência são admin (espelha o servidor).
+  const isAdmin = useIsTenantAdmin();
 
   const { data, isLoading } = useQuery(trpc.settings.getAssistance.queryOptions());
 
@@ -50,6 +53,17 @@ export default function AssistanceSettingsPage() {
       onError: (err) => toast.error(err.message),
     }),
   );
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Assistência" subtitle="Termos, garantia e políticas" />
+        <p className="py-8 text-center text-muted-foreground">
+          Apenas administradores do tenant podem alterar estas configurações.
+        </p>
+      </div>
+    );
+  }
 
   if (isLoading) return <LoadingState />;
 
