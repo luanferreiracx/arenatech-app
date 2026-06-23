@@ -234,6 +234,14 @@ export const catalogRouter = createTRPCRouter({
   deleteService: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // RBAC: excluir serviço do catálogo é admin (alinha com tipos/aparelhos/
+      // categorias, que já são admin). Criar/editar segue operacional.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem excluir serviços.",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.service.findUnique({ where: { id: input.id } });
         if (!existing) {
