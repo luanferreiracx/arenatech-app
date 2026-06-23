@@ -8,6 +8,7 @@ import { withAdmin } from "@/server/db";
 import { createOsTechnicianCommission } from "@/server/services/os-commission.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
+import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -694,25 +695,26 @@ export const saleRouter = createTRPCRouter({
           ? decimalToCents(sale.subtotal)
           : sale.items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
 
-        let discountAmountCents: number;
-        if (input.discountType === "percentage") {
-          if (input.discountValue > 100) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Percentual de desconto nao pode ser maior que 100%",
-            });
-          }
-          discountAmountCents = Math.round(subtotalCents * (input.discountValue / 100));
-        } else {
-          // Fixed discount in centavos
-          discountAmountCents = Math.round(input.discountValue);
-          if (discountAmountCents > subtotalCents) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Desconto nao pode ser maior que o subtotal",
-            });
-          }
+        // Validação de UX: rejeita input inválido no momento da aplicação.
+        if (input.discountType === "percentage" && input.discountValue > 100) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Percentual de desconto nao pode ser maior que 100%",
+          });
         }
+        if (input.discountType !== "percentage" && Math.round(input.discountValue) > subtotalCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Desconto nao pode ser maior que o subtotal",
+          });
+        }
+        // Valor efetivo pela fonte única (mesma do recalculateSale).
+        const discountAmountCents = effectiveDiscountCents({
+          discountType: input.discountType,
+          percentValue: input.discountValue,
+          fixedNominalCents: Math.round(input.discountValue),
+          subtotalCents,
+        });
 
         const totalCents = subtotalCents - discountAmountCents;
 
@@ -1739,6 +1741,15 @@ export const saleRouter = createTRPCRouter({
   refund: tenantProcedure
     .input(refundSaleSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: estorno de venda finalizada é reversão financeira (saída de caixa +
+      // cancela recebíveis/comissão) — restringe a admin do tenant, em coerência
+      // com o estorno de OS (já admin-only) e com o ADR 0053.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem estornar vendas.",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.saleId },
@@ -3793,12 +3804,16 @@ async function recalculateSale(
     0,
   );
 
-  // Recalculate discount if percentage
-  let discountAmountCents = decimalToCents(sale.discountAmount);
-  if (sale.discountType === "percentage") {
-    const pct = Number(sale.discountValue);
-    discountAmountCents = Math.round(subtotalCents * (pct / 100));
-  }
+  // Recalcula o desconto efetivo a cada mudança de carrinho. Percentual segue o
+  // subtotal vivo; desconto FIXO é clampado ao subtotal (ver effectiveDiscountCents):
+  // remover itens pode derrubar o subtotal abaixo do fixo gravado, e sem o clamp
+  // o líquido ficaria negativo, virando "downgrade" fantasma.
+  const discountAmountCents = effectiveDiscountCents({
+    discountType: sale.discountType,
+    percentValue: Number(sale.discountValue),
+    fixedNominalCents: decimalToCents(sale.discountAmount),
+    subtotalCents,
+  });
 
   // Paridade Laravel PdvService::registrarVenda (linhas 85-87, 186):
   //   $liquido = subtotal - desconto - upgradesAbatido

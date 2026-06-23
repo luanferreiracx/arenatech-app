@@ -427,18 +427,22 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                   <XCircle className="mr-2 h-4 w-4" />
                   Cancelar
                 </Button>
-                <Button
-                  variant="outline"
-                  className="text-yellow-500 border-yellow-500/30"
-                  onClick={() => {
-                    setRefundReason("");
-                    setReturnStock(true);
-                    setShowRefundDialog(true);
-                  }}
-                >
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Estornar
-                </Button>
+                {/* Estorno de venda finalizada é reversão financeira — só admin
+                    (espelha o gate do servidor em sale.refund e o estorno de OS). */}
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    className="text-yellow-500 border-yellow-500/30"
+                    onClick={() => {
+                      setRefundReason("");
+                      setReturnStock(true);
+                      setShowRefundDialog(true);
+                    }}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Estornar
+                  </Button>
+                )}
               </>
             )}
           </div>
