@@ -18,7 +18,8 @@
 | 3 | Financeiro | ✅ auditado + corrigido (PR #225 MERGED) |
 | 4 | Recebíveis de cartão | ✅ auditado — limpo (sem mudanças) |
 | 5 | Ordens de Serviço | ✅ auditado + corrigido (PR #226 MERGED) |
-| 6 | Estoque | ✅ auditado + corrigido (PR aberto) |
+| 6 | Estoque | ✅ auditado + corrigido (PR #227 MERGED) |
+| 7 | Comissões | ✅ auditado + corrigido (PR aberto) · arquitetura a rever |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
@@ -161,9 +162,29 @@ com `EstoqueService.php`.
 
 ---
 
+## Módulo 7 — Comissões ✅ parcial (2026-06-23)
+
+**Veredito: bug latente corrigido; arquitetura a rever.** Existem DOIS sistemas de comissão:
+o **legado `Commission`** (`commission.ts`, regras por papel, batch `calculate` + real-time
+`createOsTechnicianCommission`) e o **Provider/sócio** (`provider-commission.ts`, contrato MEI/CLT,
+apuração própria com lock CAS OPEN→CLOSING).
+
+**Corrigido (aprovado pelo dono):**
+- **P1 (latente) — double-count/perda no legado:** `calculate` apagava PENDING do período e
+  regenerava, o que **wipava** as comissões real-time da OS (ou as **duplicava** quando o mês do
+  pagamento ≠ mês do `updatedAt`). Agora `calculate` é **idempotente**: não apaga; só preenche o que
+  falta, pulando vendas/OS que já têm comissão não-cancelada (dedup por referência). Rodar N vezes é seguro.
+
+**Pendente (decisão do dono):**
+- **Rever a arquitetura de comissões** (os dois sistemas) — o dono respondeu "precisamos rever isso".
+  A **decisão #3** (comissão de prestador externo `serviceProviderId` na OS) depende disso. Não mexi
+  no desenho nem no provider-commission; só blindei o double-count.
+
+---
+
 ## Decisões de produto pendentes (próximos módulos)
-- **#3 — Comissão de prestador externo na OS** (Módulo 5/7): quando o técnico é `serviceProviderId`,
-  o pagamento da OS não gera comissão. Confirmar escopo no gate do módulo de Comissões.
+- **Arquitetura de comissões** (M7): rever os 2 sistemas (legado vs Provider) + decidir #3
+  (comissão de prestador externo na OS). Esforço próprio.
 - **Sangria automática** (do M2): implementar o alerta de limite (config por tenant) — gate próprio.
 
 ---
