@@ -27,8 +27,8 @@
 | 15-17 | Operação/Avaliação/Recompensas | ✅ auditado + CAS de resgate de recompensa (PR #233 MERGED) |
 | 18-21 | DePix | ⏭️ PULADO (robusto; mudanças em breve — decisão do dono) |
 | 22-23 | Comunicação/Chatbot/Talison | ✅ auditado — limpo · feature bot editável → ADR 0055 (proposta) |
-| 24-25 | IMEI/Simulador | ✅ auditado + quota IMEI enforçada (PR aberto) |
-| 26-28 | SaaS/NO-KYC/Dashboard | ⬜ |
+| 24-25 | IMEI/Simulador | ✅ auditado + quota IMEI enforçada (PR #235 MERGED) |
+| 26-28 | SaaS/NO-KYC/Dashboard | ✅ auditado — limpo (RBAC super-admin, NO-KYC rate-limited, reports read-only) |
 | S1-S6 | Segurança (+ cifrar credenciais) | ⬜ |
 | — | Webhooks & Crons · Observabilidade · Infra · Frontend · Limpeza | ⬜ |
 
@@ -252,6 +252,18 @@ custo corrigido.**
   consultas extras = feature futura.
 
 **Verificação:** typecheck 0 · lint 0 · unit 1173. Enforcement é DB-level → CI E2E.
+
+---
+
+## Módulo 26-28 — SaaS / NO-KYC / Dashboard ✅ auditado (2026-06-23) — limpo
+
+**Veredito: robusto, sem bug.** `admin.ts` (SaaS): 20 mutations todas `adminProcedure` (super-admin);
+`publicPlans` é query pública (ok). `no-kyc.ts`: as 4 mutations públicas (startRegistration,
+verifyEmail, verifyPhone, resendCode) têm **rate-limit** (anti-abuso); construído/testado por ADR 0050.
+`dashboard.ts`/`report.ts`: read-only (DRE já validado no M3). Nenhuma mudança necessária.
+
+> **Fim da varredura módulo a módulo do backend** (M1–M28; DePix pulado a pedido do dono).
+> Próximo: fases transversais — Segurança (S1-S6), Webhooks/Crons, Observabilidade, Infra — e Frontend.
 
 ---
 
