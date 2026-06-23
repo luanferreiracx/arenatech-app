@@ -27,7 +27,7 @@
 | 15-17 | Operação/Avaliação/Recompensas | ✅ auditado + CAS de resgate de recompensa (PR #233 MERGED) |
 | 18-21 | DePix | ⏭️ PULADO (robusto; mudanças em breve — decisão do dono) |
 | 22-23 | Comunicação/Chatbot/Talison | ✅ auditado — limpo · feature bot editável → ADR 0055 (proposta) |
-| 24-25 | IMEI/Simulador | ⬜ |
+| 24-25 | IMEI/Simulador | ✅ auditado + quota IMEI enforçada (PR aberto) |
 | 26-28 | SaaS/NO-KYC/Dashboard | ⬜ |
 | S1-S6 | Segurança (+ cifrar credenciais) | ⬜ |
 | — | Webhooks & Crons · Observabilidade · Infra · Frontend · Limpeza | ⬜ |
@@ -235,6 +235,23 @@ transacional de OS (provável isento), templates CRUD a admin.
 **Feature levantada → ADR 0055 (proposta):** tornar as instruções/conhecimento do bot **editáveis por
 admin** no sistema (injetadas como bloco de conhecimento no prompt, sem tocar no esqueleto fixo de
 segurança/escopo/tools). Dono pediu **só planejar agora** → `docs/decisions/0055-talison-bot-config-editavel.md`.
+
+---
+
+## Módulo 24-25 — IMEI / Simulador ✅ (2026-06-23)
+
+**Veredito: simulador sólido** (RBAC: `updateConfig` superAdmin = receita Arena Tech). **IMEI: gap de
+custo corrigido.**
+
+**Corrigido (aprovado pelo dono):**
+- **P2 (custo) — quota de IMEI não enforçada:** `ImeiQuota` (limite mensal) + `plan.maxImeiQueries`
+  estavam modelados/configuráveis mas o `query` ignorava → consultas ilimitadas (cada uma custa no
+  provedor externo). Agora `query` consome a cota de forma **atômica** antes da chamada (upsert da
+  linha do período + `UPDATE ... used_count+1 WHERE used_count < monthly_limit`); bloqueia ao exceder;
+  estorna em erro de rede ("não encontrado" conta). Limite semeado do plano (fallback 50). Addon de
+  consultas extras = feature futura.
+
+**Verificação:** typecheck 0 · lint 0 · unit 1173. Enforcement é DB-level → CI E2E.
 
 ---
 
