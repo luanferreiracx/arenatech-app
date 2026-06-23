@@ -4046,10 +4046,15 @@ async function applyRewardActionToOrder(
   const discountCents = Math.max(discountFromPercent, discountFromValue);
   const note = ` | Desconto recompensa: ${percent > 0 ? `${percent}%` : `R$ ${value.toFixed(2)}`}`;
 
-  await tx.rewardAction.update({
-    where: { id: action.id },
+  // CAS: claim APPROVED→USED. Impede resgate duplo da mesma recompensa em dois
+  // pedidos concorrentes (o segundo vê count=0 e aborta a tx).
+  const claimed = await tx.rewardAction.updateMany({
+    where: { id: action.id, status: "APPROVED" },
     data: { status: "USED", usedAt: new Date(), usedInOsId: order.id },
   });
+  if (claimed.count !== 1) {
+    throw new TRPCError({ code: "CONFLICT", message: "Recompensa ja utilizada em outro pedido." });
+  }
   return { discountCents, note };
 }
 

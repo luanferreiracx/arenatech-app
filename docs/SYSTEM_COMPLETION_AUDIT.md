@@ -23,7 +23,8 @@
 | 8 | Fiscal | ✅ auditado + corrigido (PR #229 MERGED) |
 | 9 | Métodos de pagamento & taxas | ✅ auditado — correto + suíte de testes (PR #230 MERGED) |
 | 10-12 | Configurações | ✅ auditado + RBAC corrigido (PR #231 MERGED) · cripto credenciais → S6 |
-| 13-14 | Catálogo + Clientes | ✅ auditado — limpo + deleteService admin + trgm cliente (PR aberto) |
+| 13-14 | Catálogo + Clientes | ✅ auditado + deleteService admin + trgm cliente (PR #232 MERGED) |
+| 15-17 | Operação/Avaliação/Recompensas | ✅ auditado + CAS de resgate de recompensa (PR aberto) |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
