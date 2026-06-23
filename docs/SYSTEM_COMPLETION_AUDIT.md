@@ -24,16 +24,12 @@
 | 9 | Métodos de pagamento & taxas | ✅ auditado — correto + suíte de testes (PR #230 MERGED) |
 | 10-12 | Configurações | ✅ auditado + RBAC corrigido (PR #231 MERGED) · cripto credenciais → S6 |
 | 13-14 | Catálogo + Clientes | ✅ auditado + deleteService admin + trgm cliente (PR #232 MERGED) |
-| 15-17 | Operação/Avaliação/Recompensas | ✅ auditado + CAS de resgate de recompensa (PR aberto) |
-| 7 | Comissões | ⬜ |
-| 8 | Fiscal | ⬜ |
-| 9 | Métodos de pagamento & taxas | ⬜ |
-| 10–12 | Configurações | ⬜ |
-| 13–17 | Catálogo/Clientes/Operação/Avaliação/Recompensas | ⬜ |
-| 18–21 | DePix | ⬜ |
-| 22–25 | Comunicação/Chatbot/IMEI/Simulador | ⬜ |
-| 26–28 | SaaS/NO-KYC/Dashboard | ⬜ |
-| S1–S6 | Segurança | ⬜ |
+| 15-17 | Operação/Avaliação/Recompensas | ✅ auditado + CAS de resgate de recompensa (PR #233 MERGED) |
+| 18-21 | DePix | ⏭️ PULADO (robusto; mudanças em breve — decisão do dono) |
+| 22-23 | Comunicação/Chatbot/Talison | ✅ auditado — limpo · feature bot editável → ADR 0055 (proposta) |
+| 24-25 | IMEI/Simulador | ⬜ |
+| 26-28 | SaaS/NO-KYC/Dashboard | ⬜ |
+| S1-S6 | Segurança (+ cifrar credenciais) | ⬜ |
 | — | Webhooks & Crons · Observabilidade · Infra · Frontend · Limpeza | ⬜ |
 
 ---
@@ -229,10 +225,25 @@ PFX cifrado. Achados:
 
 ---
 
+## Módulo 22-23 — Comunicação/Chatbot/Talison ✅ auditado (2026-06-23) — limpo
+
+**Veredito: sólido.** `sendToCustomer` respeita o opt-out LGPD (`customer.unsubscribed`); padrão
+HTTP-fora-da-tx; status de mensagem rastreado; chatbot/conversas operacionais; Talison recém-endurecido.
+Sem bug. Itens adiados (decisão do dono no gate): rate-limit nos envios (P3), opt-out em notificação
+transacional de OS (provável isento), templates CRUD a admin.
+
+**Feature levantada → ADR 0055 (proposta):** tornar as instruções/conhecimento do bot **editáveis por
+admin** no sistema (injetadas como bloco de conhecimento no prompt, sem tocar no esqueleto fixo de
+segurança/escopo/tools). Dono pediu **só planejar agora** → `docs/decisions/0055-talison-bot-config-editavel.md`.
+
+---
+
 ## Decisões de produto pendentes (próximos módulos)
+- **Bot Talison editável por admin** (M22-23): ADR 0055 proposta — implementar quando o dono aprovar.
 - **Arquitetura de comissões** (M7): rever os 2 sistemas (legado vs Provider) + decidir #3
   (comissão de prestador externo na OS). Esforço próprio.
 - **Sangria automática** (do M2): implementar o alerta de limite (config por tenant) — gate próprio.
+- **DePix** (M18-21): pulado a pedido do dono (robusto, mudanças em breve) — re-auditar após as mudanças.
 
 ---
 
