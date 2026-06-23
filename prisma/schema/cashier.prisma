@@ -38,8 +38,10 @@ model CashSession {
 
   movements CashMovement[]
 
-  // K5: only 1 open session per user per tenant
-  @@unique([tenantId, userId, closedAt])
+  // K5: no máximo 1 sessão ABERTA por usuário/tenant. Enforçado por índice único
+  // PARCIAL `cash_sessions_one_open_per_user` (WHERE closed_at IS NULL) criado em
+  // migration — um @@unique([tenantId, userId, closedAt]) NÃO funciona aqui porque
+  // o Postgres trata NULLs como distintos (dois closed_at NULL passariam).
   @@index([tenantId, userId, openedAt])
   @@index([tenantId, closedAt])
   @@index([tenantId, verified, closeType])

@@ -91,14 +91,29 @@ export const cashierRouter = createTRPCRouter({
 
         const initialDecimal = centsToPrismaDecimal(input.initialBalance);
 
-        const session = await tx.cashSession.create({
-          data: {
-            tenantId: ctx.tenantId,
-            userId,
-            initialBalance: initialDecimal,
-            openingNote: input.openingNote ?? null,
-          },
-        });
+        // O pré-check acima é fast-path/UX; a garantia real é o índice único
+        // parcial `cash_sessions_one_open_per_user` (WHERE closed_at IS NULL).
+        // Duas aberturas concorrentes que passem do findFirst colidem no índice —
+        // traduz a violação (P2002) na mesma mensagem amigável, não num 500.
+        let session;
+        try {
+          session = await tx.cashSession.create({
+            data: {
+              tenantId: ctx.tenantId,
+              userId,
+              initialBalance: initialDecimal,
+              openingNote: input.openingNote ?? null,
+            },
+          });
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Voce ja possui um caixa aberto",
+            });
+          }
+          throw e;
+        }
 
         // Create opening deposit movement
         await tx.cashMovement.create({
@@ -438,6 +453,15 @@ export const cashierRouter = createTRPCRouter({
   review: tenantProcedure
     .input(reviewCashRegisterSchema)
     .mutation(async ({ ctx, input }) => {
+      // RBAC: a conferência é o passo de auditoria do gestor sobre o caixa fechado
+      // do operador. Restringe a admin do tenant para preservar a segregação de
+      // funções (o operador não confere o próprio caixa).
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem conferir caixas.",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         const session = await tx.cashSession.findFirst({
           where: { id: input.cashSessionId, tenantId: ctx.tenantId },
@@ -563,92 +587,6 @@ export const cashierRouter = createTRPCRouter({
       });
     }),
 
-  /**
-   * @public-api Consumed by PDV module.
-   * Records a sale with split payments (K7: one movement per payment method).
-   * TODO: substituir por chamada real do PDV módulo quando implementado.
-   */
-  recordSale: tenantProcedure
-    .input(z.object({
-      saleId: z.string().uuid(),
-      payments: z.array(z.object({
-        method: z.string(),
-        amount: z.number().int().min(1), // centavos
-      })).min(1),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findFirst({
-          where: { userId: ctx.session.user.id, closedAt: null },
-        });
-        if (!session) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
-        }
-
-        for (const payment of input.payments) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: session.id,
-              type: "SALE",
-              nature: "INCOME",
-              amount: new Prisma.Decimal(payment.amount).div(100),
-              paymentMethod: payment.method,
-              description: `Venda`,
-              referenceType: "sale",
-              referenceId: input.saleId,
-              createdByUserId: ctx.session.user.id,
-            },
-          });
-        }
-
-        return { success: true };
-      });
-    }),
-
-  /**
-   * @public-api Consumed by OS module.
-   * Records a service order payment.
-   * TODO: substituir por chamada real do OS módulo quando implementado.
-   */
-  recordServiceOrderPayment: tenantProcedure
-    .input(z.object({
-      serviceOrderId: z.string().uuid(),
-      payments: z.array(z.object({
-        method: z.string(),
-        amount: z.number().int().min(1),
-      })).min(1),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findFirst({
-          where: { userId: ctx.session.user.id, closedAt: null },
-        });
-        if (!session) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
-        }
-
-        for (const payment of input.payments) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: session.id,
-              type: "SALE",
-              nature: "INCOME",
-              amount: new Prisma.Decimal(payment.amount).div(100),
-              paymentMethod: payment.method,
-              description: `Pagamento OS`,
-              referenceType: "service_order",
-              referenceId: input.serviceOrderId,
-              createdByUserId: ctx.session.user.id,
-            },
-          });
-        }
-
-        return { success: true };
-      });
-    }),
-
   /** Register expense (despesa avulsa) */
   expense: tenantProcedure
     .input(z.object({
@@ -733,61 +671,6 @@ export const cashierRouter = createTRPCRouter({
             calculatedBalance,
             originalUserId: session.userId,
             reason: input.reason,
-          },
-        });
-
-        return { success: true };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // SALE REVERSAL (estorno de venda)
-  // ═══════════════════════════════════════
-
-  /** Record sale reversal in open cash session (faithful to Laravel registrarEstorno) */
-  recordReversal: tenantProcedure
-    .input(z.object({
-      saleId: z.string().uuid(),
-      amount: z.number().int().min(1), // centavos
-      description: z.string().max(300).optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findFirst({
-          where: { userId: ctx.session.user.id, closedAt: null },
-        });
-
-        if (!session) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
-        }
-
-        const movement = await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "SALE",
-            amount: new Prisma.Decimal(input.amount / 100),
-            nature: "OUTCOME",
-            paymentMethod: "estorno",
-            description: input.description ?? `Estorno venda ${input.saleId.slice(0, 8)}`,
-            referenceType: "sale_reversal",
-            referenceId: input.saleId,
-            createdByUserId: ctx.session.user.id,
-          },
-        });
-
-        const { logAudit } = await import("@/server/services/audit-log.service");
-        await logAudit(tx as never, {
-          tenantId: ctx.tenantId,
-          userId: ctx.session.user.id,
-          action: "cash_reversal",
-          entity: "cash_movement",
-          entityId: movement.id,
-          payload: {
-            sessionId: session.id,
-            saleId: input.saleId,
-            amountCents: input.amount,
-            description: input.description,
           },
         });
 
