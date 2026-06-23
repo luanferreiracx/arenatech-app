@@ -242,6 +242,16 @@ describe("buildInfinitepayPrefill", () => {
     expect(out.address).toBeUndefined();
     expect(out.customer?.name).toBe("Maria");
   });
+
+  it("limita o complemento longo para nao travar o checkout", () => {
+    const out = buildInfinitepayPrefill({
+      store: {
+        ...store,
+        complement: "x".repeat(500), // lixo de migracao
+      },
+    });
+    expect((out.address?.complement ?? "").length).toBeLessThanOrEqual(40);
+  });
 });
 
 describe("infinitepayWebhookSchema", () => {
