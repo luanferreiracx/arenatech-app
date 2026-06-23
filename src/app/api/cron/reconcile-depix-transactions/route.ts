@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * expirou). Sem isto, um saque concluido fica reservando saldo pra sempre
  * (saldo disponivel = on-chain - saques pendentes) e bloqueia novos saques.
  *
- * Poll do provedor (LiquidX/PixPay) por transacao, reusando checkTransactionStatus.
+ * Poll do provedor (PixPay) por transacao, reusando checkTransactionStatus.
  * Sugerido a cada ~10 min. Sem auth de tenant — roda via withAdmin (cross-tenant).
  */
 export async function POST(request: NextRequest) {

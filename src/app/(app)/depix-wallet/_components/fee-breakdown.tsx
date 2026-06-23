@@ -24,7 +24,7 @@ function fmt(cents: number): string {
  * Card de breakdown visual das taxas. Para SAQUE:
  *   Destinatario recebe   R$ X
  *   + Taxa Arena Tech     R$ Y
- *   + Taxa LiquidX (est.) R$ Z
+ *   + Taxa PixPay (est.) R$ Z
  *   ────
  *   Voce paga             R$ X+Y+Z
  *   Saldo disponivel      R$ ...
@@ -45,9 +45,9 @@ export function FeeBreakdown({
   className,
 }: FeeBreakdownProps) {
   const isWithdraw = kind === "WITHDRAW";
-  const providerLabel = isWithdraw ? "Taxa LiquidX" : "Taxa PixPay";
+  const providerLabel = "Taxa PixPay";
   const providerTitle = isWithdraw
-    ? "Estimativa LiquidX. Valor real eh confirmado ao iniciar a operacao."
+    ? "Estimativa PixPay. Valor real eh confirmado ao iniciar a operacao."
     : "Estimativa PixPay para deposito. Valor real eh confirmado ao iniciar a operacao.";
   const grossCents = netCents + feeArenaCents + feeProviderCents;
   const totalCents = grossCents;

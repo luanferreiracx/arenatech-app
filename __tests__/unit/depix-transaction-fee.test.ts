@@ -1,6 +1,6 @@
 /**
  * Trava as estimativas locais de taxas DePix.
- * Saque usa preview LiquidX Pro; deposito segue PixPay.
+ * Saque e deposito usam preview PixPay.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -25,11 +25,31 @@ const cfgCentral = {
   exitFeePercent: 0,
 };
 
-describe("estimatePixPayWithdrawFee — preview LiquidX Pro", () => {
-  it("estima 1% reverso sobre o payout", () => {
-    expect(estimatePixPayWithdrawFee(1000)).toBe(11); // R$ 10,00 -> gross R$ 10,11
-    expect(estimatePixPayWithdrawFee(10000)).toBe(102); // R$ 100,00 -> gross R$ 101,02
-    expect(estimatePixPayWithdrawFee(100000)).toBe(1011); // R$ 1000,00 -> gross R$ 1010,11
+describe("estimatePixPayWithdrawFee — dados reais de prod (2026-05-31)", () => {
+  // (valor em REAIS, fee real cobrada pela PixPay em REAIS)
+  const samples: Array<[number, number]> = [
+    [100, 1.99],
+    [250, 4.25],
+    [400, 6.96],
+    [800, 13.5],
+    [999, 15.49],
+    [1000, 15.5],
+    [2000, 25.5],
+    [5000, 55.5],
+  ];
+
+  for (const [reais, feeReal] of samples) {
+    it(`R$ ${reais} -> R$ ${feeReal.toFixed(2)} (tolerancia R$ 0,25)`, () => {
+      const got = estimatePixPayWithdrawFee(reais * 100);
+      const expectedCents = Math.round(feeReal * 100);
+      expect(Math.abs(got - expectedCents)).toBeLessThanOrEqual(25);
+    });
+  }
+
+  it("piso de R$ 1,99 ate R$ 100", () => {
+    expect(estimatePixPayWithdrawFee(1000)).toBe(199); // R$ 10
+    expect(estimatePixPayWithdrawFee(5000)).toBe(199); // R$ 50
+    expect(estimatePixPayWithdrawFee(10000)).toBe(199); // R$ 100
   });
 
   it("retorna zero para valores invalidos ou zerados", () => {
@@ -51,26 +71,26 @@ describe("estimatePixPayDepositFee", () => {
 });
 
 describe("calcWithdrawFromNet — inversa (input = liquido)", () => {
-  it("tenant central: gross = net + taxa LiquidX (Arena=0)", () => {
+  it("tenant central: gross = net + taxa PixPay (Arena=0)", () => {
     const r = calcWithdrawFromNet(10000, cfgCentral); // R$ 100 net
     expect(r.feeArenaTechCents).toBe(0);
-    expect(r.feePixPayEstimatedCents).toBe(102);
-    expect(r.grossCents).toBe(10102);
+    expect(r.feePixPayEstimatedCents).toBe(199);
+    expect(r.grossCents).toBe(10199);
     expect(r.netCents).toBe(10000);
   });
 
   it("tenant normal R$ 100 net: empilha taxas", () => {
     const r = calcWithdrawFromNet(10000, cfgNormal);
     expect(r.netCents).toBe(10000);
-    expect(r.feePixPayEstimatedCents).toBe(102);
+    expect(r.feePixPayEstimatedCents).toBe(199);
     expect(r.feeArenaTechCents).toBeGreaterThan(99);
     expect(r.grossCents - r.feeArenaTechCents - r.feePixPayEstimatedCents).toBe(10000);
   });
 
-  it("R$ 1000 net (tenant central): gross = 1010.11", () => {
+  it("R$ 1000 net (tenant central) bate na faixa > R$ 800: gross = 1015.50", () => {
     const r = calcWithdrawFromNet(100000, cfgCentral);
-    expect(r.feePixPayEstimatedCents).toBe(1011);
-    expect(r.grossCents).toBe(101011);
+    expect(r.feePixPayEstimatedCents).toBe(1550); // R$ 15,50
+    expect(r.grossCents).toBe(101550);
   });
 });
 

@@ -137,7 +137,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
     ? `https://blockstream.info/liquid/tx/${explorerTxid}`
     : null;
   const usesProviderReceipt = !isDeposit && Boolean(t.pixpayReceiptUrl);
-  const providerLabel = isDeposit ? "PixPay" : "LiquidX";
+  const providerLabel = "PixPay";
 
   const handleShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -281,7 +281,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                 }
               >
                 <Printer className="h-3.5 w-3.5 mr-1.5" />
-                {usesProviderReceipt ? "Comprovante LiquidX" : "Comprovante PDF"}
+                {usesProviderReceipt ? "Comprovante PixPay" : "Comprovante PDF"}
               </Button>
               <Button variant="outline" size="sm" onClick={handleShare}>
                 <Share2 className="h-3.5 w-3.5 mr-1.5" />
