@@ -10,7 +10,6 @@ import { withTenant, withAdmin } from "@/server/db";
  * Cliente abre em nova aba e usa Ctrl+P para gerar PDF.
  *
  * Tipos suportados:
- *   - commission           — Comissoes do mes
  *   - stock-position       — Posicao de estoque
  *   - nf                   — Auditoria NF (vendas + OS)
  *   - technician           — Desempenho por tecnico
@@ -43,10 +42,6 @@ export async function GET(
 
   try {
     switch (type) {
-      case "commission":
-        title = "Relatorio de Comissoes";
-        body = await renderCommissionReport(tenantId, dateFrom, dateTo);
-        break;
       case "stock-position":
         title = "Relatorio de Posicao de Estoque";
         body = await renderStockPositionReport(tenantId);
@@ -116,59 +111,6 @@ function layout(title: string, tenant: string, from: Date, to: Date, body: strin
   <div class="footer">Arena Tech — relatorio gerado automaticamente</div>
 </body>
 </html>`;
-}
-
-async function renderCommissionReport(tenantId: string, from: Date, to: Date): Promise<string> {
-  const year = from.getFullYear();
-  const month = from.getMonth() + 1;
-  const commissions = await withTenant(tenantId, async (tx) => {
-    return tx.commission.findMany({
-      where: { periodYear: year, periodMonth: month },
-      orderBy: [{ userId: "asc" }, { createdAt: "asc" }],
-    });
-  });
-
-  if (commissions.length === 0) {
-    return `<p>Nenhuma comissao encontrada no periodo.</p>`;
-  }
-
-  const userIds = Array.from(new Set(commissions.map((c) => c.userId)));
-  const users = await withAdmin(async (tx) =>
-    tx.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
-  );
-  const userName = new Map(users.map((u) => [u.id, u.name]));
-
-  type Row = { user: string; type: string; ref: string; base: number; rate: number; amount: number };
-  const rows: Row[] = commissions.map((c) => ({
-    user: userName.get(c.userId) ?? c.userId.slice(0, 8),
-    type: c.type,
-    ref: `${c.referenceType}#${c.referenceNumber}`,
-    base: Number(c.baseAmount),
-    rate: Number(c.ratePercent),
-    amount: Number(c.commissionAmount),
-  }));
-
-  const totalCommission = rows.reduce((sum, r) => sum + r.amount, 0);
-
-  let html = `<table>
-    <thead><tr>
-      <th>Usuario</th><th>Tipo</th><th>Referencia</th>
-      <th class="right">Base</th><th class="right">Taxa %</th><th class="right">Comissao</th>
-    </tr></thead>
-    <tbody>`;
-  for (const r of rows) {
-    html += `<tr>
-      <td>${escape(r.user)}</td>
-      <td>${escape(r.type)}</td>
-      <td>${escape(r.ref)}</td>
-      <td class="right">${formatBrl(r.base)}</td>
-      <td class="right">${r.rate.toFixed(2)}%</td>
-      <td class="right">${formatBrl(r.amount)}</td>
-    </tr>`;
-  }
-  html += `<tr class="total"><td colspan="5">Total Geral</td><td class="right">${formatBrl(totalCommission)}</td></tr>
-    </tbody></table>`;
-  return html;
 }
 
 async function renderStockPositionReport(tenantId: string): Promise<string> {

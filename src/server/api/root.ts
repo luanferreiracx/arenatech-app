@@ -3,7 +3,6 @@ import { authRouter } from "@/server/api/routers/auth";
 import { twoFactorRouter } from "@/server/api/routers/two-factor";
 import { cashierRouter } from "@/server/api/routers/cashier";
 import { catalogRouter } from "@/server/api/routers/catalog";
-import { commissionRouter } from "@/server/api/routers/commission";
 import { communicationRouter } from "@/server/api/routers/communication";
 import { customerRouter } from "@/server/api/routers/customer";
 import { dashboardRouter } from "@/server/api/routers/dashboard";
@@ -51,7 +50,6 @@ export const appRouter = createTRPCRouter({
   twoFactor: twoFactorRouter,
   cashier: cashierRouter,
   catalog: catalogRouter,
-  commission: commissionRouter,
   communication: communicationRouter,
   customer: customerRouter,
   dashboard: dashboardRouter,
