@@ -897,7 +897,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   // Custodia (ADR 0051): carrega o modelo da carteira. Se non_custodial, o
   // saque EXIGE a passphrase do usuario (o LWK assina decifrando a seed em
   // memoria). Fail-fast aqui, antes de criar a intencao de saque / chamar a
-  // LiquidX — assim passphrase ausente nao gera registro orfao.
+  // PixPay — assim passphrase ausente nao gera registro orfao.
   const wallet = await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixWallet.findUnique({
       where: { tenantId: args.tenantId },
@@ -941,7 +941,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   // netAmountCents, sistema debita gross do saldo (cobrindo taxa Arena
   // Tech + taxa do provedor estimada).
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  // A estimativa local pode divergir da LiquidX; apos criar a intencao de
+  // A estimativa local pode divergir do PixPay; apos criar a intencao de
   // saque, o gross real e revalidado contra o saldo disponivel.
   const breakdown = calcWithdrawFromNet(args.netAmountCents, cfg);
   const grossAmountCents = breakdown.grossCents;
@@ -996,11 +996,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         kind: "WITHDRAW",
         status: "PENDING",
         // grossAmountCents aqui guarda a ESTIMATIVA inicial — sera ajustado
-        // apos a LiquidX retornar o depositAmountInCents real (etapa 3).
+        // apos a PixPay retornar o depositAmountInCents real (etapa 3).
         grossAmountCents,
         feeArenaTechCents: breakdown.feeArenaTechCents,
         // O netAmountCents do registro eh o que o destinatario recebe — eh
-        // o input do usuario, valor pretendido. LiquidX confirma o valor real.
+        // o input do usuario, valor pretendido. PixPay confirma o valor real.
         netAmountCents: args.netAmountCents,
         sourceType: args.sourceType ?? "WALLET",
         sourceId: args.sourceId ?? null,
@@ -1016,7 +1016,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   });
 
-  // ETAPA 2: chama LiquidX Pro createDepixWithdraw passando o valor LIQUIDO
+  // ETAPA 2: chama PixPay createDepixWithdraw passando o valor LIQUIDO
   // (o que o destinatario recebe).
   const withdrawResult = await createDepixWithdraw(
     pixKey,
@@ -1025,14 +1025,14 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     taxId,
   );
   if (!withdrawResult.success || !withdrawResult.id || !withdrawResult.depositAddress) {
-    logger.error("createWithdraw: LiquidX falhou", {
+    logger.error("createWithdraw: PixPay falhou", {
       tenantId: args.tenantId,
       error: withdrawResult.error,
     });
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: withdrawResult.error ?? "LiquidX falhou" },
+        data: { status: "FAILED", errorMessage: withdrawResult.error ?? "PixPay falhou" },
       }),
     );
     throw new TRPCError({
@@ -1060,7 +1060,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     );
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `Saldo disponivel insuficiente apos cotacao LiquidX. Necessario R$ ${(finalGrossCents / 100).toFixed(2)}; disponivel R$ ${(availableCents / 100).toFixed(2)}`,
+      message: `Saldo disponivel insuficiente apos cotacao PixPay. Necessario R$ ${(finalGrossCents / 100).toFixed(2)}; disponivel R$ ${(availableCents / 100).toFixed(2)}`,
     });
   }
 
@@ -1238,18 +1238,21 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
       }
     }
   } else if (txRow.kind === "WITHDRAW") {
-    // Confere status do saque na LiquidX Pro.
+    // Confere status do saque na PixPay.
     if (txRow.pixpayDepixId) {
       const ws = await getDepixWithdrawStatus(txRow.pixpayDepixId);
       if (ws.success && ws.status) {
         const raw = ws.status.toLowerCase();
         const receiptUrl = extractDepixWithdrawReceiptUrl(ws.raw);
         let newStatus: typeof txRow.status | null = null;
-        if (["sent", "send", "paid", "completed"].includes(raw)) newStatus = "COMPLETED";
-        else if (["failed", "error", "rejected"].includes(raw)) newStatus = "FAILED";
+        // PixPay (off-ramp) usa depix_sent/paid/under_review/expired/refunded/unsent.
+        if (["sent", "send", "paid", "completed", "depix_sent", "success"].includes(raw))
+          newStatus = "COMPLETED";
+        else if (["failed", "error", "rejected", "refunded"].includes(raw)) newStatus = "FAILED";
         else if (["expired"].includes(raw)) newStatus = "EXPIRED";
         else if (["cancelled", "canceled"].includes(raw)) newStatus = "CANCELLED";
-        else if (["pending", "processing", "sending"].includes(raw)) newStatus = "PROCESSING";
+        else if (["pending", "processing", "sending", "under_review", "unsent"].includes(raw))
+          newStatus = "PROCESSING";
         else newStatus = null;
         if (newStatus === "PROCESSING" && txRow.status === "PROCESSING") {
           newStatus = null;
@@ -1284,7 +1287,7 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
  * Reconcilia em lote transacoes DePix PENDING/PROCESSING "antigas" (cron).
  *
  * Problema: `checkTransactionStatus` so roda sob demanda (UI fazendo polling).
- * Um saque que JA completou no provedor (LiquidX "sent") mas cuja tela nunca
+ * Um saque que JA completou no provedor (PixPay "depix_sent") mas cuja tela nunca
  * foi aberta fica preso em PROCESSING — e a reserva contabil (saldo disponivel
  * = on-chain - saques pendentes) conta esse valor pra sempre, mesmo o DePix ja
  * tendo saido on-chain (dupla contagem) -> bloqueia novos saques. Depositos
@@ -1304,7 +1307,7 @@ export async function reconcileStaleDepixTransactions(opts?: {
     tx.tenantDepixTransaction.findMany({
       where: {
         status: { in: ["PENDING", "PROCESSING"] },
-        // So da pra reconciliar quem tem id do provedor (LiquidX/PixPay) pra consultar.
+        // So da pra reconciliar quem tem id do provedor (PixPay) pra consultar.
         pixpayDepixId: { not: null },
         createdAt: { lt: olderThan },
       },

@@ -11,10 +11,10 @@
  * DEPOSITO: PixPay cobra R$ 0,99 fixo + 0,5% sobre o valor pago pelo cliente.
  * Linear.
  *
- * SAQUE: LiquidX Pro retorna o valor real ao criar a intencao
+ * SAQUE: PixPay retorna o valor real ao criar a intencao
  * (depositAmountInCents - payoutAmountInCents). A estimativa local usa a regra
  * observada na documentacao: payout = deposit - 1%. Ela existe so pra UI antes
- * da confirmacao; o backend revalida saldo com o retorno real da LiquidX.
+ * da confirmacao; o backend revalida saldo com o retorno real do PixPay.
  *
  * --- LIMITES DE OPERACAO ---
  *   Min  R$ 10,00  (deposito e saque) — abaixo nao compensa as taxas
@@ -41,7 +41,7 @@ export interface DepositFeeBreakdown {
 export interface WithdrawFeeBreakdown {
   grossCents: number;
   feeArenaTechCents: number;
-  /** Estimativa da taxa do provedor no saque (valor real vem da LiquidX:
+  /** Estimativa da taxa do provedor no saque (valor real vem do PixPay:
    *  depositAmountInCents - payoutAmountInCents). */
   feePixPayEstimatedCents: number;
   /** Estimativa do que o destinatario recebe via PIX. */
@@ -66,16 +66,24 @@ function pct(amountCents: number, percent: number): number {
 }
 
 /**
- * Estimativa da taxa LiquidX Pro no SAQUE em centavos.
+ * Estimativa da taxa do provedor (PixPay) no SAQUE em centavos.
  *
- * A LiquidX confirma o valor real no create withdraw. Para preview, usamos a
- * relacao documentada: R$ 100,00 em DePix gera R$ 99,00 de payout PIX.
+ * O PixPay confirma o valor real no create withdraw (depositAmount - payout);
+ * o backend revalida o saldo com o retorno real. Esta e so a estimativa do
+ * preview, conforme a tabela documentada do PixPay.
  * Recebe `requestedReaisCents` = valor LIQUIDO pretendido pelo destinatario.
  */
 export function estimatePixPayWithdrawFee(requestedReaisCents: number): number {
   if (requestedReaisCents <= 0) return 0;
-  const grossCents = Math.ceil(requestedReaisCents / 0.99);
-  return grossCents - requestedReaisCents;
+  if (requestedReaisCents <= 10000) {
+    return 199; // R$ 1,99 ate R$ 100
+  }
+  if (requestedReaisCents <= 80000) {
+    // R$ 1,99 + 1,65% sobre o excedente acima de R$ 100
+    return 199 + roundCents(((requestedReaisCents - 10000) * 1.65) / 100);
+  }
+  // > R$ 800: R$ 5,50 + 1% sobre o valor todo
+  return 550 + roundCents((requestedReaisCents * 1.0) / 100);
 }
 
 /** Estimativa da taxa PixPay no DEPOSITO em centavos: R$ 0,99 + 0,5% linear. */
@@ -103,7 +111,7 @@ export function calcDepositFee(
 
 /**
  * Taxa do SAQUE, calculada A PARTIR DO BRUTO (forward).
- * LiquidX Pro: taxa estimada sobre o payout PIX.
+ * PixPay: taxa estimada sobre o payout PIX.
  *
  * No saque, o net (PIX entregue ao destinatario) eh o payout pretendido.
  */
@@ -136,7 +144,7 @@ export function calcWithdrawFee(
  * Inversa do saque: usuario informa o LIQUIDO (destinatario recebe X) e
  * calculamos o bruto a sair da carteira do tenant (com taxas empilhadas).
  *
- * Como a taxa LiquidX depende do payout, calculamos a estimativa a partir do
+ * Como a taxa PixPay depende do payout, calculamos a estimativa a partir do
  * `net` pretendido. Entao o bruto eh:
  *
  *   gross = net + feeArena(gross) + feeProvider(net)
