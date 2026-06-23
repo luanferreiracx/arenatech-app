@@ -20,7 +20,8 @@
 | 5 | Ordens de Serviço | ✅ auditado + corrigido (PR #226 MERGED) |
 | 6 | Estoque | ✅ auditado + corrigido (PR #227 MERGED) |
 | 7 | Comissões | ✅ auditado + corrigido (PR #228 MERGED) · arquitetura a rever |
-| 8 | Fiscal | ✅ auditado + corrigido (PR aberto) |
+| 8 | Fiscal | ✅ auditado + corrigido (PR #229 MERGED) |
+| 9 | Métodos de pagamento & taxas | ✅ auditado — correto + suíte de testes (PR aberto) |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
