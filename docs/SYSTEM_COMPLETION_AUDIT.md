@@ -267,8 +267,26 @@ verifyEmail, verifyPhone, resendCode) têm **rate-limit** (anti-abuso); constru�
 
 ---
 
+## Fases transversais 6-9 ✅ verificadas (2026-06-23) — posture forte
+
+- **S1-S6 Segurança:** posture forte, **nenhum achado crítico**. RLS **completo** (114/119 tabelas com
+  policy; as sem RLS são globais ou FK-scoped, sem `tenantId` direto — verificado). Webhooks de dinheiro
+  com HMAC SHA-256 + `timingSafeEqual` (InfinitePay compensado por revalidação, ADR 0054). CSP
+  `frame-ancestors 'none'` + X-Frame + nosniff. Auth via ADRs 0049/0050/0051. RBAC endurecido na varredura.
+  Cripto do `TenantIntegration.config` reavaliada como **baixa prioridade** (config tem settings
+  não-secretos; chaves reais em ENV) — dono optou por seguir.
+- **Fase 7 Webhooks & Crons:** os 9 crons autenticados por `CRON_SECRET`; idempotência nos sensíveis.
+- **Fase 8 Observabilidade:** logger estruturado (72 arquivos). **Gap P3:** sem Sentry/monitoramento
+  de erro (hardening futuro, não bug).
+- **Fase 9 Infra:** `output: standalone` + healthchecks no compose prod.
+
+**Resta:** Fase 10 (Frontend — UI inteira) + limpeza final + decisões pendentes.
+
+---
+
 ## Decisões de produto pendentes (próximos módulos)
 - **Bot Talison editável por admin** (M22-23): ADR 0055 proposta — implementar quando o dono aprovar.
+- **Observabilidade:** integrar Sentry (monitoramento de erro) — hardening P3.
 - **Arquitetura de comissões** (M7): rever os 2 sistemas (legado vs Provider) + decidir #3
   (comissão de prestador externo na OS). Esforço próprio.
 - **Sangria automática** (do M2): implementar o alerta de limite (config por tenant) — gate próprio.
