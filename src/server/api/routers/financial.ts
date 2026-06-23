@@ -14,12 +14,6 @@ function getUserRole(ctx: {
   return isTenantAdmin(ctx.session, ctx.tenantId) ? "admin" : "operator";
 }
 
-function applyTypeFilter(role: string, where: any): any {
-  if (role === "operator") {
-    return { ...where, type: "RECEIVABLE" };
-  }
-  return where;
-}
 import {
   createTransactionSchema,
   updateTransactionSchema,
@@ -685,8 +679,16 @@ export const financialRouter = createTRPCRouter({
         const isFullReversal = newPaidCents === 0;
         const originalPaymentMethod = installment.paymentMethod;
 
-        await tx.installment.update({
-          where: { id: input.installmentId },
+        // CAS otimista: trava em (status pagável + paidAmount igual ao lido). Se
+        // outro estorno concorrente já mexeu na parcela, count=0 → CONFLICT e a
+        // tx faz rollback (sem CashMovement de estorno duplicado). Espelha o
+        // padrão do payInstallment.
+        const reverseResult = await tx.installment.updateMany({
+          where: {
+            id: input.installmentId,
+            status: { in: ["PAID", "PARTIALLY_PAID"] },
+            paidAmount: installment.paidAmount,
+          },
           data: {
             paidAmount: centsToPrismaDecimal(newPaidCents),
             paidAt: isFullReversal ? null : installment.paidAt,
@@ -695,6 +697,12 @@ export const financialRouter = createTRPCRouter({
             notes: `${installment.notes ?? ""} | Estorno ${isFullReversal ? "total" : "parcial"} R$ ${(reversedAmount / 100).toFixed(2)}: ${input.reason}`.trim(),
           },
         });
+        if (reverseResult.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Parcela alterada por outra operacao. Atualize a tela e tente novamente.",
+          });
+        }
 
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
@@ -981,7 +989,7 @@ export const financialRouter = createTRPCRouter({
         ]);
 
         // Marca como "OVERDUE" so na resposta (status virtual). A persistencia
-        // do status fica para a mutation `markOverdue` (chamada por cron/job).
+        // do status fica para o cron `/api/cron/mark-overdue` (SQL direto, cross-tenant).
         // Antes este endpoint, embora `query`, fazia updateMany + loop de
         // recalculate — risco real de race condition e cache invalidation
         // silenciosa no front.
@@ -1004,41 +1012,6 @@ export const financialRouter = createTRPCRouter({
         };
       });
     }),
-
-  /**
-   * Marca installments vencidas (PENDING + dueDate < now) como OVERDUE e
-   * recalcula o status das transactions afetadas. Operacao idempotente, sem
-   * efeito visivel para o cliente alem da mudanca de status.
-   *
-   * Chamar via cron diario (ex: GET /api/cron/mark-overdue) ou como acao
-   * manual em pagina de admin.
-   */
-  markOverdue: tenantProcedure.mutation(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      const now = new Date();
-      const candidates = await tx.installment.findMany({
-        where: {
-          status: "PENDING",
-          dueDate: { lt: now },
-          transaction: { deletedAt: null },
-        },
-        select: { id: true, transactionId: true },
-      });
-      if (candidates.length === 0) return { marked: 0, transactionsRecalculated: 0 };
-
-      const candidateIds = candidates.map((c) => c.id);
-      await tx.installment.updateMany({
-        where: { id: { in: candidateIds } },
-        data: { status: "OVERDUE" },
-      });
-
-      const transactionIds = [...new Set(candidates.map((c) => c.transactionId))];
-      for (const tid of transactionIds) {
-        await recalculateTransactionStatus(tx as never, tid);
-      }
-      return { marked: candidates.length, transactionsRecalculated: transactionIds.length };
-    });
-  }),
 
   /** DRE - Demonstrativo de Resultados do Exercicio */
   dre: tenantProcedure
@@ -1068,11 +1041,27 @@ export const financialRouter = createTRPCRouter({
       // Uma unica transacao com 3 queries serializadas — antes 3 transacoes
       // paralelas (3 conexoes DB abertas). Reduz pressao no pool.
       const { revenueRows, expenseRows, partsCostRows } = await ctx.withTenant(async (tx) => {
+        // Inclui vendas PARTIALLY_REFUNDED (antes eram excluídas inteiras, o que
+        // subestimava a receita dos itens mantidos). Escala receita pela FRAÇÃO
+        // MANTIDA = soma dos sale_items vivos / subtotal (estorno parcial zera o
+        // total dos itens devolvidos). COMPLETED tem fração 1 (inalterado);
+        // is_os_payment não tem itens (não pode ser parcialmente estornada) →
+        // fração 1. Preserva a margem ao escalar receita e custo pela mesma fração.
         const rev = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
           SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                 COALESCE(SUM(GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount), 0)::float AS total
+                 COALESCE(SUM(
+                   (GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount)
+                   * CASE
+                       WHEN s.is_os_payment THEN 1
+                       WHEN s.subtotal > 0 THEN LEAST(COALESCE(li.live_total, 0) / s.subtotal, 1)
+                       ELSE 1
+                     END
+                 ), 0)::float AS total
           FROM sales s
-          WHERE s.status = 'COMPLETED'
+          LEFT JOIN (
+            SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+          ) li ON li.sale_id = s.id
+          WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
             AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
           GROUP BY 1
@@ -1088,12 +1077,24 @@ export const financialRouter = createTRPCRouter({
             AND t.deleted_at IS NULL
           GROUP BY 1
         `;
+        // Custo das mercadorias escalado pela mesma fração mantida (margem
+        // preservada): numa venda parcialmente estornada, conta só a parte do
+        // custo proporcional ao que ficou. COMPLETED → fração 1 (inalterado).
         const parts = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
           SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                 COALESCE(SUM(si.cost_price * si.quantity), 0)::float AS total
+                 COALESCE(SUM(
+                   si.cost_price * si.quantity
+                   * CASE
+                       WHEN s.subtotal > 0 THEN LEAST(COALESCE(li.live_total, 0) / s.subtotal, 1)
+                       ELSE 1
+                     END
+                 ), 0)::float AS total
           FROM sale_items si
           JOIN sales s ON s.id = si.sale_id
-          WHERE s.status = 'COMPLETED'
+          LEFT JOIN (
+            SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+          ) li ON li.sale_id = s.id
+          WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
             AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
           GROUP BY 1
@@ -1460,282 +1461,6 @@ export const financialRouter = createTRPCRouter({
     }),
 
   // ═══════════════════════════════════════
-  // PUBLIC API — Consumed by PDV/OS (F4)
-  // ═══════════════════════════════════════
-
-  /**
-   * @public-api Consumed by PDV module.
-   * Creates receivables from a completed sale with installment generation.
-   * TODO: substituir por chamada real do PDV módulo quando implementado.
-   */
-  createReceivablesFromSale: tenantProcedure
-    .input(z.object({
-      saleId: z.string().uuid(),
-      customerId: z.string().uuid(),
-      totalAmount: z.number().int().min(1), // centavos
-      paymentMethod: z.string(),
-      installments: z.number().int().min(1).max(36),
-      firstDueDate: z.string(), // ISO date
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        // Valida que saleId pertence ao tenant (RLS protege escrita, mas
-        // sem este findFirst, FK cross-tenant criaria recebivel orfao).
-        const saleExists = await tx.sale.findFirst({
-          where: { id: input.saleId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!saleExists) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
-        }
-
-        const { generateInstallments } = await import("@/server/services/installment-generator.service");
-        const totalDecimal = input.totalAmount / 100;
-        const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
-
-        const transaction = await tx.financialTransaction.create({
-          data: {
-            tenantId: ctx.tenantId,
-            type: "RECEIVABLE",
-            status: input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod) ? "PAID" : "PENDING",
-            description: `Venda`,
-            totalAmount: totalDecimal,
-            paidAmount: input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod) ? totalDecimal : 0,
-            installmentsTotal: input.installments,
-            dueDate: new Date(input.firstDueDate),
-            paymentMethod: input.paymentMethod,
-            customerId: input.customerId,
-            saleId: input.saleId,
-            isManual: false,
-            createdByUserId: ctx.session.user.id,
-          },
-        });
-
-        for (const p of parcelas) {
-          const isPaidImmediate = input.installments === 1 && ["dinheiro", "pix", "depix", "cartao_debito", "transferencia"].includes(input.paymentMethod);
-          await tx.installment.create({
-            data: {
-              tenantId: ctx.tenantId,
-              transactionId: transaction.id,
-              number: p.number,
-              amount: p.amount,
-              dueDate: p.dueDate,
-              status: isPaidImmediate ? "PAID" : "PENDING",
-              paidAmount: isPaidImmediate ? p.amount : 0,
-              paidAt: isPaidImmediate ? new Date() : null,
-              paymentMethod: input.paymentMethod,
-            },
-          });
-        }
-
-        return { transactionId: transaction.id };
-      });
-    }),
-
-  /**
-   * @public-api Consumed by OS module.
-   * TODO: substituir por chamada real do OS módulo quando implementado.
-   */
-  createReceivablesFromServiceOrder: tenantProcedure
-    .input(z.object({
-      serviceOrderId: z.string().uuid(),
-      customerId: z.string().uuid(),
-      totalAmount: z.number().int().min(1),
-      paymentMethod: z.string(),
-      installments: z.number().int().min(1).max(36),
-      firstDueDate: z.string(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        // Valida que serviceOrderId pertence ao tenant antes de criar receivable
-        const orderExists = await tx.serviceOrder.findFirst({
-          where: { id: input.serviceOrderId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!orderExists) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
-        }
-
-        const { generateInstallments } = await import("@/server/services/installment-generator.service");
-        const totalDecimal = input.totalAmount / 100;
-        const parcelas = generateInstallments(totalDecimal, input.installments, new Date(input.firstDueDate));
-
-        const transaction = await tx.financialTransaction.create({
-          data: {
-            tenantId: ctx.tenantId,
-            type: "RECEIVABLE",
-            status: "PENDING",
-            description: `Ordem de Serviço`,
-            totalAmount: totalDecimal,
-            installmentsTotal: input.installments,
-            dueDate: new Date(input.firstDueDate),
-            paymentMethod: input.paymentMethod,
-            customerId: input.customerId,
-            serviceOrderId: input.serviceOrderId,
-            isManual: false,
-            createdByUserId: ctx.session.user.id,
-          },
-        });
-
-        for (const p of parcelas) {
-          await tx.installment.create({
-            data: {
-              tenantId: ctx.tenantId,
-              transactionId: transaction.id,
-              number: p.number,
-              amount: p.amount,
-              dueDate: p.dueDate,
-              status: "PENDING",
-            },
-          });
-        }
-
-        return { transactionId: transaction.id };
-      });
-    }),
-
-  /**
-   * @public-api Consumed by PDV module (cancel sale → cancel receivables).
-   */
-  cancelReceivablesFromSale: tenantProcedure
-    .input(z.object({ saleId: z.string().uuid(), reason: z.string().min(3).max(200) }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const transactions = await tx.financialTransaction.findMany({
-          where: { saleId: input.saleId, status: { not: "CANCELLED" } },
-        });
-
-        for (const t of transactions) {
-          // Cancela PENDING e OVERDUE — antes so PENDING deixava OVERDUE
-          // pendurado como vencido eternamente apos cancelamento da venda.
-          await tx.installment.updateMany({
-            where: { transactionId: t.id, status: { in: ["PENDING", "OVERDUE"] } },
-            data: { status: "CANCELLED" },
-          });
-          await tx.financialTransaction.update({
-            where: { id: t.id },
-            data: {
-              status: "CANCELLED",
-              cancelledAt: new Date(),
-              cancelledByUserId: ctx.session.user.id,
-              cancelReason: input.reason,
-            },
-          });
-        }
-
-        return { cancelledCount: transactions.length };
-      });
-    }),
-
-  /** Get customer open balance (useful for PDV) */
-  getCustomerOpenBalance: tenantProcedure
-    .input(z.object({ customerId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const result = await tx.financialTransaction.aggregate({
-          where: {
-            customerId: input.customerId,
-            type: "RECEIVABLE",
-            status: { in: ["PENDING", "PARTIALLY_PAID"] },
-          },
-          _sum: { totalAmount: true, paidAmount: true },
-        });
-        // Subtrair em Decimal para evitar erro de float; converter para centavos no final.
-        const total = result._sum.totalAmount ?? new Prisma.Decimal(0);
-        const paid = result._sum.paidAmount ?? new Prisma.Decimal(0);
-        const openCents = total.minus(paid).times(100).round().toNumber();
-        return { openBalance: openCents };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // BATCH PAYMENT (baixa em lote)
-  // ═══════════════════════════════════════
-
-  /** Pay multiple installments at once (baixa em lote) */
-  payMultipleInstallments: tenantProcedure
-    .input(z.object({
-      installmentIds: z.array(z.string().uuid()).min(1).max(50),
-      paymentMethod: z.string().min(1).optional(),
-      notes: z.string().max(500).optional().nullable(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const installments = await tx.installment.findMany({
-          where: { id: { in: input.installmentIds } },
-          include: { transaction: true },
-        });
-
-        if (installments.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma parcela encontrada" });
-        }
-
-        const payable = installments.filter((i) =>
-          ["PENDING", "OVERDUE"].includes(i.status)
-        );
-
-        if (payable.length === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma parcela pendente selecionada" });
-        }
-
-        // Get open cash session
-        const userId = ctx.session.user.id;
-        const openSession = await tx.cashSession.findFirst({
-          where: { userId, closedAt: null },
-        });
-
-        let totalPaid = 0;
-        let paidCount = 0;
-
-        for (const installment of payable) {
-          const amountDue = Number(installment.amount) - Number(installment.paidAmount);
-          const amountCents = Math.round(amountDue * 100);
-
-          // compare-and-set: so baixa se a parcela AINDA esta PENDING/OVERDUE.
-          // Sem isso, duas baixas-em-lote concorrentes (ou duplo-clique) pagavam
-          // a mesma parcela duas vezes e criavam CashMovement duplicado — caixa
-          // superestimado. Espelha o guard do payInstallment.
-          const upd = await tx.installment.updateMany({
-            where: { id: installment.id, status: { in: ["PENDING", "OVERDUE"] } },
-            data: {
-              paidAmount: installment.amount,
-              paidAt: new Date(),
-              paymentMethod: input.paymentMethod ?? null,
-              notes: input.notes ?? null,
-              status: "PAID",
-            },
-          });
-          if (upd.count !== 1) continue; // ja foi paga por outra chamada — pula
-
-          await recalculateTransactionStatus(tx as never, installment.transactionId);
-
-          if (openSession) {
-            const isReceivable = installment.transaction.type === "RECEIVABLE";
-            await tx.cashMovement.create({
-              data: {
-                tenantId: ctx.tenantId,
-                cashSessionId: openSession.id,
-                type: isReceivable ? "SALE" : "EXPENSE",
-                amount: new Prisma.Decimal(amountDue),
-                nature: isReceivable ? "INCOME" : "OUTCOME",
-                paymentMethod: input.paymentMethod ?? "outros",
-                description: `Baixa lote - parcela #${installment.number}`,
-                referenceType: "installment",
-                referenceId: installment.id,
-                createdByUserId: userId,
-              },
-            });
-          }
-
-          totalPaid += amountCents;
-          paidCount += 1;
-        }
-
-        return { success: true, paidCount, totalPaidCents: totalPaid };
-      });
-    }),
-
-  // ═══════════════════════════════════════
   // DASHBOARD COMPARISON (comparativo período)
   // ═══════════════════════════════════════
 
@@ -1815,122 +1540,6 @@ export const financialRouter = createTRPCRouter({
             profitChange: pctChange(current.profit, previous.profit),
           },
         };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // DOWNGRADE PAYABLE (conta a pagar para downgrade)
-  // ═══════════════════════════════════════
-
-  /** Create a payable account for a downgrade refund (faithful to Laravel gerarPagavelDowngrade) */
-  createPayableDowngrade: tenantProcedure
-    .input(z.object({
-      saleId: z.string().uuid(),
-      customerId: z.string().uuid(),
-      amount: z.number().int().min(1), // centavos
-      reason: z.string().min(1).max(500),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const transaction = await tx.financialTransaction.create({
-          data: {
-            tenantId: ctx.tenantId,
-            type: "PAYABLE",
-            status: "PENDING",
-            customerId: input.customerId,
-            description: `Devolucao downgrade - Venda ${input.saleId.slice(0, 8)}`,
-            notes: input.reason,
-            totalAmount: centsToPrismaDecimal(input.amount),
-            paidAmount: new Prisma.Decimal(0),
-            dueDate: new Date(),
-            saleId: input.saleId,
-            referenceType: "sale",
-            referenceId: input.saleId,
-            createdByUserId: ctx.session.user.id,
-          },
-        });
-
-        await tx.installment.create({
-          data: {
-            tenantId: ctx.tenantId,
-            transactionId: transaction.id,
-            number: 1,
-            amount: centsToPrismaDecimal(input.amount),
-            paidAmount: new Prisma.Decimal(0),
-            dueDate: new Date(),
-            status: "PENDING",
-          },
-        });
-
-        return { id: transaction.id };
-      });
-    }),
-
-  // ═══════════════════════════════════════
-  // PURCHASE PAYABLE (conta a pagar por compra de aparelho)
-  // ═══════════════════════════════════════
-
-  /**
-   * @public-api Consumed by Stock module (createPurchase).
-   * Creates a PAYABLE transaction from a device purchase with optional installments.
-   * Used when admin records a purchase that will be paid to the seller (customer or supplier).
-   */
-  createPayableFromPurchase: tenantProcedure
-    .input(z.object({
-      purchaseId: z.string().uuid(),
-      supplierId: z.string().uuid().optional().nullable(),
-      customerId: z.string().uuid().optional().nullable(),
-      sellerName: z.string().min(1).max(200),
-      description: z.string().min(1).max(300),
-      totalAmount: z.number().int().min(1), // centavos
-      installments: z.number().int().min(1).max(36).default(1),
-      firstDueDate: z.string(), // ISO date
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const totalDecimal = centsToPrismaDecimal(input.totalAmount);
-        const installmentAmount = Math.round(input.totalAmount / input.installments);
-        const remainder = input.totalAmount - installmentAmount * input.installments;
-        const firstDate = new Date(input.firstDueDate);
-
-        const transaction = await tx.financialTransaction.create({
-          data: {
-            tenantId: ctx.tenantId,
-            type: "PAYABLE",
-            status: "PENDING",
-            description: input.description,
-            supplierId: input.supplierId ?? undefined,
-            supplier: input.sellerName,
-            customerId: input.customerId ?? undefined,
-            totalAmount: totalDecimal,
-            paidAmount: new Prisma.Decimal(0),
-            installmentsTotal: input.installments,
-            dueDate: firstDate,
-            emissionDate: new Date(),
-            referenceType: "device_purchase",
-            referenceId: input.purchaseId,
-            createdByUserId: ctx.session.user.id,
-          },
-        });
-
-        const installments = Array.from({ length: input.installments }, (_, i) => {
-          const dueDate = addMonthsSafe(firstDate, i);
-          // Adiciona o resto na última parcela para fechar o total
-          const amount = i === input.installments - 1 ? installmentAmount + remainder : installmentAmount;
-          return {
-            tenantId: ctx.tenantId,
-            transactionId: transaction.id,
-            number: i + 1,
-            amount: centsToPrismaDecimal(amount),
-            paidAmount: new Prisma.Decimal(0),
-            dueDate,
-            status: "PENDING" as const,
-          };
-        });
-
-        await tx.installment.createMany({ data: installments });
-
-        return { id: transaction.id, installments: installments.length };
       });
     }),
 });
