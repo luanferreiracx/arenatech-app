@@ -17,8 +17,8 @@
 | 2 | Caixa | ✅ auditado + corrigido (PR #224 MERGED) |
 | 3 | Financeiro | ✅ auditado + corrigido (PR #225 MERGED) |
 | 4 | Recebíveis de cartão | ✅ auditado — limpo (sem mudanças) |
-| 5 | Ordens de Serviço | ✅ auditado + corrigido (PR aberto) |
-| 6 | Estoque | ⬜ |
+| 5 | Ordens de Serviço | ✅ auditado + corrigido (PR #226 MERGED) |
+| 6 | Estoque | ✅ auditado + corrigido (PR aberto) |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
@@ -137,6 +137,27 @@ sólidos e gated. Paridade com `OrdemServicoController` já estabelecida.
   branch PAID (idempotente; base 0 em garantia/cortesia → no-op).
 
 **Não implementado:** P3 `updateData: any` (2×) → Fase Final de type-safety.
+
+---
+
+## Módulo 6 — Estoque ✅ (2026-06-23)
+
+**Veredito: robusto.** RBAC exemplar (ADR 0053); reserva no carrinho PDV com CAS; compra→financeiro
+atômica; `stockEntry` rejeita serializado; dualidade currentStock/StockItem consistente. Paridade
+com `EstoqueService.php`.
+
+**Corrigido (aprovado pelo dono):**
+- **P2 — `writeOff` de serializado:** soft-delete sem guardar SOLD/RESERVED (podia orfanar venda).
+  Agora lê o item antes, bloqueia SOLD/RESERVED, usa `item.productId` no movimento (remove lint warning).
+- **P3 — IMEI na entrada bulk:** `entrySerializedItems` pré-valida IMEIs (Luhn + duplicado no lote +
+  já-em-estoque não-deletado) antes do `createManyAndReturn`, trocando o P2002 cru por mensagem
+  amigável; normaliza o IMEI (só dígitos) no insert.
+- **P3 — `changeItemStatus` CAS:** `update` → `updateMany` com guard de status atual + count (blinda
+  mudanças de status concorrentes).
+- Bônus: removido import órfão `isValidTransition` (lint).
+
+**Verificação:** typecheck 0 · lint 0 (stock.ts + service limpos) · unit 1159. CAS/IMEI são DB-level
+→ regressão no CI E2E.
 
 ---
 

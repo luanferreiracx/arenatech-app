@@ -62,7 +62,6 @@ import {
   disposeStockItemSchema,
   listStockItemsSchema,
   searchImeiSchema,
-  isValidTransition,
   isRepurchasableStatus,
   PURCHASE_REVERSIBLE_STATUSES,
 } from "@/lib/validators/stock-item";
@@ -4207,16 +4206,31 @@ export const stockRouter = createTRPCRouter({
       }
       return ctx.withTenant(async (tx) => {
         if (input.stockItemId) {
-          // Serialized: soft delete the StockItem
+          // Serialized: soft delete the StockItem. Lê ANTES para validar o status —
+          // dar baixa num item vendido/reservado quebraria o vínculo da venda/reserva
+          // (paridade com a guarda de disposeStockItem). SOLD/RESERVED têm fluxo
+          // próprio (estorno/liberação) e não podem ser baixados por write-off.
+          const item = await tx.stockItem.findUnique({ where: { id: input.stockItemId } });
+          if (!item || item.deletedAt) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado ou ja baixado." });
+          }
+          if (item.status === "SOLD" || item.status === "RESERVED") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                item.status === "SOLD"
+                  ? "Item vendido: a baixa e feita por estorno da venda, nao por write-off."
+                  : "Item reservado: libere a reserva antes de dar baixa.",
+            });
+          }
           await tx.stockItem.update({
             where: { id: input.stockItemId },
             data: { deletedAt: new Date() },
           });
-          const item = await tx.stockItem.findUnique({ where: { id: input.stockItemId } });
           await tx.stockMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              productId: input.productId,
+              productId: item.productId,
               stockItemId: input.stockItemId,
               type: "EXIT",
               quantity: 1,

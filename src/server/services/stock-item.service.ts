@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { TRPCError } from "@trpc/server"
 import { isValidTransition } from "@/lib/validators/stock-item"
+import { isValidLuhn } from "@/lib/validators/imei"
 
 /**
  * Entry of serialized items (creates StockItem + StockMovement per item).
@@ -28,6 +29,41 @@ export async function entrySerializedItems(
     }>
   }
 ): Promise<string[]> {
+  // Pré-valida IMEIs ANTES do bulk insert: Luhn + duplicado no próprio lote +
+  // já-cadastrado em estoque (não-deletado). Sem isto, um IMEI repetido estouraria
+  // o índice único parcial `stock_items_tenant_imei_unique` com um P2002 cru. O
+  // índice só considera `imei IS NOT NULL AND deleted_at IS NULL` — checamos isso.
+  const normalizedImeis = params.items
+    .map((item) => (item.imei ? item.imei.replace(/\D/g, "") : null))
+    .filter((v): v is string => !!v)
+  if (normalizedImeis.length > 0) {
+    for (const imei of normalizedImeis) {
+      if (imei.length !== 15 || !isValidLuhn(imei)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `IMEI invalido: ${imei} (precisa de 15 digitos e passar Luhn).`,
+        })
+      }
+    }
+    const seen = new Set<string>()
+    for (const imei of normalizedImeis) {
+      if (seen.has(imei)) {
+        throw new TRPCError({ code: "CONFLICT", message: `IMEI repetido no lote: ${imei}.` })
+      }
+      seen.add(imei)
+    }
+    const existing = await tx.stockItem.findFirst({
+      where: { tenantId, imei: { in: normalizedImeis }, deletedAt: null },
+      select: { imei: true, status: true },
+    })
+    if (existing) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `IMEI ja cadastrado no estoque: ${existing.imei} (status ${existing.status}).`,
+      })
+    }
+  }
+
   // Bulk insert: createManyAndReturn evita N round-trips no DB.
   // Ganho real em imports grandes (50+ aparelhos).
   const costDecimal = new Prisma.Decimal(params.costPrice).div(100)
@@ -41,7 +77,7 @@ export async function entrySerializedItems(
       productId: params.productId,
       variationId: params.variationId || null,
       supplierId: params.supplierId || null,
-      imei: item.imei || null,
+      imei: item.imei ? item.imei.replace(/\D/g, "") : null,
       serialNumber: item.serialNumber || null,
       condition: params.condition as never,
       conservationGrade: params.conservationGrade || null,
@@ -252,10 +288,19 @@ export async function changeItemStatus(
     updateData.soldAt = new Date()
   }
 
-  await tx.stockItem.update({
-    where: { id: params.stockItemId },
+  // CAS de status: só aplica se o status ainda for o que validamos a transição.
+  // Duas mudanças de status concorrentes do mesmo item — a segunda vê count=0 e
+  // aborta, em vez de sobrescrever (ex.: reservar um item que já virou SOLD).
+  const casResult = await tx.stockItem.updateMany({
+    where: { id: params.stockItemId, status: item.status },
     data: updateData,
   })
+  if (casResult.count !== 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "O status do item mudou em outra operacao. Atualize e tente novamente.",
+    })
+  }
 
   // Determine movement type
   let movementType: string
