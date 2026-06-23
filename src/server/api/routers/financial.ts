@@ -1054,9 +1054,12 @@ export const financialRouter = createTRPCRouter({
       ];
 
       // DRE contabil correto (regime de competencia):
-      // - Receita LIQUIDA = Sales.netRevenueAmount (totalAmount - taxa operadora
-      //   absorvida pela loja). Quando a venda nao tem calculadora aplicada,
-      //   netRevenueAmount = totalAmount.
+      // - Receita LIQUIDA = (subtotal - desconto) - taxa operadora absorvida.
+      //   NAO usamos netRevenueAmount/totalAmount aqui: ambos sao LIQUIDOS do
+      //   upgrade (trade-in), o que zera/inverte o lucro em vendas com aparelho
+      //   de entrada (e fica negativo em downgrade, onde totalAmount=0). O
+      //   trade-in vira ativo de estoque (DevicePurchase) — nao reduz receita.
+      //   Ver lib/sales/sale-revenue.
       // - Custo das mercadorias: sum(saleItem.cost * qty) das vendas COMPLETED.
       // - Lucro bruto = receita liquida - custo das mercadorias
       // - Despesas operacionais: Installments PAYABLE.PAID (regime de caixa,
@@ -1067,7 +1070,7 @@ export const financialRouter = createTRPCRouter({
       const { revenueRows, expenseRows, partsCostRows } = await ctx.withTenant(async (tx) => {
         const rev = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
           SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
-                 COALESCE(SUM(CASE WHEN s.net_revenue_amount > 0 THEN s.net_revenue_amount ELSE s.total_amount END), 0)::float AS total
+                 COALESCE(SUM(GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount), 0)::float AS total
           FROM sales s
           WHERE s.status = 'COMPLETED'
             AND s.deleted_at IS NULL
