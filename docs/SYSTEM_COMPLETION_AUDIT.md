@@ -21,7 +21,8 @@
 | 6 | Estoque | ✅ auditado + corrigido (PR #227 MERGED) |
 | 7 | Comissões | ✅ auditado + corrigido (PR #228 MERGED) · arquitetura a rever |
 | 8 | Fiscal | ✅ auditado + corrigido (PR #229 MERGED) |
-| 9 | Métodos de pagamento & taxas | ✅ auditado — correto + suíte de testes (PR aberto) |
+| 9 | Métodos de pagamento & taxas | ✅ auditado — correto + suíte de testes (PR #230 MERGED) |
+| 10-12 | Configurações | ✅ auditado + RBAC corrigido (PR aberto) · cripto de credenciais → S6 |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
@@ -198,6 +199,31 @@ NF-e completo (create/authorize/cancel/correctionLetter/inutilizar/import XML). 
   cancelada; o SEFAZ já serializa o cancelamento real).
 
 **Verificação:** typecheck 0 · lint 0 (1 warning pré-existente, linha 618) · unit 1159. CAS é DB-level → CI E2E.
+
+---
+
+## Módulo 10-12 — Configurações ✅ parcial (2026-06-23)
+
+**Veredito: sólido, com furos de RBAC corrigidos.** users CRUD já admin-gated; taxas superAdmin;
+PFX cifrado. Achados:
+
+**Corrigido (aprovado pelo dono):**
+- **P2 (RBAC) — config sensível operador-acessível:** `updateIntegration` (credenciais de API),
+  `updateSecurity`, `updateGeneral` e `updateAssistance` (dados da loja/CNPJ/IE) eram
+  `tenantProcedure` → gateados para `tenantAdminProcedure`.
+
+**Pendente → Fase S6 (Segurança):**
+- **Credenciais de integração em texto plano:** `TenantIntegration.config` (Json) guarda tokens/chaves
+  sem cifrar (o PFX é cifrado — inconsistente). Cifrar com AES-256-GCM (padrão do PFX) + não devolver
+  segredo ao client. **Prioritário na S6.**
+
+**Verificação:** typecheck 0 · lint 0 (1 warning pré-existente, linha 952) · unit 1173.
+
+---
+
+## Backlog de Segurança (Fase S6)
+- **Cifrar credenciais de integração** (`TenantIntegration.config`) — AES-256-GCM como o PFX; não
+  expor segredos ao client em `listIntegrations`.
 
 ---
 

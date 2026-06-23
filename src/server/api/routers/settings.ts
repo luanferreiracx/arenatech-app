@@ -45,7 +45,8 @@ export const settingsRouter = createTRPCRouter({
     });
   }),
 
-  updateGeneral: tenantProcedure
+  // RBAC: dados da loja (nome/CNPJ/IE/logo) afetam fiscal — admin do tenant.
+  updateGeneral: tenantAdminProcedure
     .input(updateGeneralSettingsSchema)
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
@@ -356,7 +357,9 @@ export const settingsRouter = createTRPCRouter({
     });
   }),
 
-  updateIntegration: tenantProcedure
+  // RBAC: edita credenciais de API (Autentique/DePix/Chatwoot/Nuvem Fiscal/
+  // InfinitePay) — operação sensível, restrita a admin do tenant.
+  updateIntegration: tenantAdminProcedure
     .input(updateIntegrationSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -809,7 +812,8 @@ export const settingsRouter = createTRPCRouter({
     });
   }),
 
-  updateAssistance: tenantProcedure
+  // RBAC: dados da assistência (endereço/contato/fiscal) — admin do tenant.
+  updateAssistance: tenantAdminProcedure
     .input(z.object({
       // Identidade (paridade Laravel configuracoes_assistencia)
       assistanceName: z.string().max(150).nullable().optional(),
@@ -1067,7 +1071,8 @@ export const settingsRouter = createTRPCRouter({
     });
   }),
 
-  updateSecurity: tenantProcedure
+  // RBAC: configurações de segurança do tenant — admin do tenant.
+  updateSecurity: tenantAdminProcedure
     .input(z.object({
       minPasswordLength: z.number().int().min(6).max(64).optional(),
       requireUppercase: z.boolean().optional(),
