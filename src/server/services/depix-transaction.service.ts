@@ -1279,3 +1279,64 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
     tx.tenantDepixTransaction.findUnique({ where: { id: transactionId } }),
   );
 }
+
+/**
+ * Reconcilia em lote transacoes DePix PENDING/PROCESSING "antigas" (cron).
+ *
+ * Problema: `checkTransactionStatus` so roda sob demanda (UI fazendo polling).
+ * Um saque que JA completou no provedor (LiquidX "sent") mas cuja tela nunca
+ * foi aberta fica preso em PROCESSING — e a reserva contabil (saldo disponivel
+ * = on-chain - saques pendentes) conta esse valor pra sempre, mesmo o DePix ja
+ * tendo saido on-chain (dupla contagem) -> bloqueia novos saques. Depositos
+ * PENDING cujo PIX nunca foi pago tambem acumulam (deveriam expirar).
+ *
+ * Este job varre as transacoes presas (com id do provedor, criadas ha mais de
+ * `olderThanMinutes`) e chama o MESMO `checkTransactionStatus` de cada uma —
+ * reusando toda a logica de reconciliacao (poll do provedor, transicao de
+ * status, side-effects). Cross-tenant (withAdmin). Idempotente.
+ */
+export async function reconcileStaleDepixTransactions(opts?: {
+  olderThanMinutes?: number;
+  limit?: number;
+}): Promise<{ scanned: number; reconciled: number; unchanged: number; errors: number }> {
+  const olderThan = new Date(Date.now() - (opts?.olderThanMinutes ?? 10) * 60_000);
+  const stale = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findMany({
+      where: {
+        status: { in: ["PENDING", "PROCESSING"] },
+        // So da pra reconciliar quem tem id do provedor (LiquidX/PixPay) pra consultar.
+        pixpayDepixId: { not: null },
+        createdAt: { lt: olderThan },
+      },
+      orderBy: { createdAt: "asc" },
+      take: opts?.limit ?? 50,
+      select: { id: true, tenantId: true, status: true },
+    }),
+  );
+
+  let reconciled = 0;
+  let unchanged = 0;
+  let errors = 0;
+  for (const t of stale) {
+    try {
+      const after = await checkTransactionStatus(t.tenantId, t.id);
+      if (after && after.status !== t.status) reconciled += 1;
+      else unchanged += 1;
+    } catch (err) {
+      errors += 1;
+      logger.warn("reconcileStaleDepixTransactions: erro ao reconciliar", {
+        txId: t.id,
+        tenantId: t.tenantId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  logger.info("reconcileStaleDepixTransactions: lote processado", {
+    scanned: stale.length,
+    reconciled,
+    unchanged,
+    errors,
+  });
+  return { scanned: stale.length, reconciled, unchanged, errors };
+}
