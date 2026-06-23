@@ -290,16 +290,21 @@ export function buildInfinitepayPrefill(input: {
   const city = firstNonEmpty(c?.city, s?.city);
   const state = firstNonEmpty(c?.state, s?.state);
 
+  // Limita o tamanho de cada campo — o checkout da InfinitePay rejeita valores
+  // longos demais (ex.: complemento com lixo de migracao trava o pagamento).
+  const clamp = (v: string | undefined, max: number): string | undefined =>
+    v ? v.slice(0, max) : v;
+
   const hasUsableAddress = !!cep && !!street;
   const address: InfinitepayAddress | undefined = hasUsableAddress
     ? {
         cep,
-        street,
-        ...(neighborhood ? { neighborhood } : {}),
-        ...(number ? { number } : {}),
-        ...(complement ? { complement } : {}),
-        ...(city ? { city } : {}),
-        ...(state ? { state } : {}),
+        street: clamp(street, 100)!,
+        ...(neighborhood ? { neighborhood: clamp(neighborhood, 60) } : {}),
+        ...(number ? { number: clamp(number, 15) } : {}),
+        ...(complement ? { complement: clamp(complement, 40) } : {}),
+        ...(city ? { city: clamp(city, 60) } : {}),
+        ...(state ? { state: clamp(state, 2) } : {}),
       }
     : undefined;
 

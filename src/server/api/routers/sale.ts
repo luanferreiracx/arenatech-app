@@ -3350,13 +3350,13 @@ export const saleRouter = createTRPCRouter({
         if (!s) return { sale: null, store: null, customer: null };
         // Dados da loja (default do checkout) + do cliente (se cadastrado) para
         // pre-preencher e evitar o formulario de cadastro no PIX.
+        // O endereco da loja mora no JSON `address` (chaves PT: cep/logradouro/
+        // numero/complemento/bairro/cidade/uf — ver updateGeneralSettingsSchema),
+        // NAO nas colunas estruturadas (street/complement/...), que so tem lixo
+        // de migracao. email/phone/tradeName sao colunas top-level (corretas).
         const st = await tx.tenantSettings.findUnique({
           where: { tenantId: ctx.tenantId },
-          select: {
-            tradeName: true, legalName: true, email: true, phone: true,
-            zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
-            city: true, state: true,
-          },
+          select: { tradeName: true, legalName: true, email: true, phone: true, address: true },
         });
         // So a identidade do cliente (nome/email/telefone) — o ENDERECO vem
         // sempre das Configuracoes da loja (endereco do cliente nao importa
@@ -3383,6 +3383,13 @@ export const saleRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da cobranca nao pode exceder o total da venda." });
       }
 
+      // Endereco da loja a partir do JSON `address` (Configuracoes > Geral).
+      const addr = (store?.address && typeof store.address === "object" && !Array.isArray(store.address)
+        ? (store.address as Record<string, unknown>)
+        : {});
+      const addrStr = (v: unknown): string | null =>
+        typeof v === "string" && v.trim() ? v.trim() : null;
+
       // Pre-preenche o checkout para o pagador de balcao nao precisar digitar
       // dados antes do PIX. Identidade: cliente da venda > loja. Endereco:
       // sempre a loja (Configuracoes) — ver buildInfinitepayPrefill.
@@ -3397,13 +3404,13 @@ export const saleRouter = createTRPCRouter({
               name: store.tradeName ?? store.legalName,
               email: store.email,
               phone: store.phone,
-              zipCode: store.zipCode,
-              street: store.street,
-              streetNumber: store.streetNumber,
-              complement: store.complement,
-              neighborhood: store.neighborhood,
-              city: store.city,
-              state: store.state,
+              zipCode: addrStr(addr.cep),
+              street: addrStr(addr.logradouro),
+              streetNumber: addrStr(addr.numero),
+              complement: addrStr(addr.complemento),
+              neighborhood: addrStr(addr.bairro),
+              city: addrStr(addr.cidade),
+              state: addrStr(addr.uf),
             }
           : null,
         defaultEmail: config.defaultEmail,
