@@ -78,6 +78,7 @@ import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
+import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
 
 type StockSourceProduct = {
   id: string;
@@ -2544,7 +2545,9 @@ export const stockRouter = createTRPCRouter({
             status: "COMPLETED",
             saleDate: { gte: todayStart, lte: todayEnd },
           },
-          select: { totalAmount: true },
+          // Receita de mercadoria = subtotal - desconto (nao o totalAmount, que
+          // e liquido do trade-in). Mantem coerencia com o lucro (item-based).
+          select: { subtotal: true, discountAmount: true },
         }),
         tx.saleItem.findMany({
           where: {
@@ -2555,7 +2558,10 @@ export const stockRouter = createTRPCRouter({
       ]);
 
       const vendasHojeQtd = salesToday.length;
-      const vendasHojeValor = salesToday.reduce((s, v) => s + Number(v.totalAmount), 0);
+      const vendasHojeValor = salesToday.reduce(
+        (s, v) => s + Math.max(0, Number(v.subtotal) - Number(v.discountAmount)),
+        0,
+      );
       const ticketMedio = vendasHojeQtd > 0 ? vendasHojeValor / vendasHojeQtd : 0;
 
       // Lucro bruto hoje = soma(total - custo*qtd) dos sale_items.
@@ -2895,11 +2901,13 @@ export const stockRouter = createTRPCRouter({
             id: true,
             number: true,
             saleDate: true,
-            totalAmount: true,
+            // Receita de mercadoria = subtotal - desconto. NAO usamos totalAmount
+            // (liquido do trade-in) — senao o "valor" vira so a diferenca e o
+            // lucro fica negativo em vendas com upgrade. Ver lib/sales/sale-revenue.
+            subtotal: true,
             discountAmount: true,
             sellerId: true,
             customerId: true,
-            paymentDetails: true,
             items: {
               select: {
                 costPrice: true,
@@ -2909,29 +2917,30 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        let totalVendido = 0;
-        let totalDesconto = 0;
-        let totalCusto = 0;
+        let totalVendidoCents = 0;
+        let totalDescontoCents = 0;
+        let totalCustoCents = 0;
 
         const salesData = sales.map((s) => {
-          const valor = Number(s.totalAmount);
-          const desconto = Number(s.discountAmount);
-          const custo = s.items.reduce(
-            (sum, i) => sum + Number(i.costPrice) * i.quantity,
+          const subtotalCents = Math.round(Number(s.subtotal) * 100);
+          const descontoCents = Math.round(Number(s.discountAmount) * 100);
+          const custoCents = s.items.reduce(
+            (sum, i) => sum + Math.round(Number(i.costPrice) * 100) * i.quantity,
             0,
           );
-          totalVendido += valor;
-          totalDesconto += desconto;
-          totalCusto += custo;
+          const valorCents = saleGoodsRevenueCents(subtotalCents, descontoCents);
+          totalVendidoCents += valorCents;
+          totalDescontoCents += descontoCents;
+          totalCustoCents += custoCents;
 
           return {
             id: s.id,
             number: s.number,
             saleDate: s.saleDate,
-            totalAmount: Math.round(valor * 100),
-            discountAmount: Math.round(desconto * 100),
-            costTotal: Math.round(custo * 100),
-            profit: Math.round((valor - custo) * 100),
+            totalAmount: valorCents,
+            discountAmount: descontoCents,
+            costTotal: custoCents,
+            profit: valorCents - custoCents,
             sellerId: s.sellerId,
             customerId: s.customerId,
           };
@@ -2942,10 +2951,10 @@ export const stockRouter = createTRPCRouter({
           sales: salesData,
           totals: {
             quantity: qtd,
-            totalVendido: Math.round(totalVendido * 100),
-            totalDesconto: Math.round(totalDesconto * 100),
-            lucroBruto: Math.round((totalVendido - totalCusto) * 100),
-            ticketMedio: qtd > 0 ? Math.round((totalVendido / qtd) * 100) : 0,
+            totalVendido: totalVendidoCents,
+            totalDesconto: totalDescontoCents,
+            lucroBruto: totalVendidoCents - totalCustoCents,
+            ticketMedio: qtd > 0 ? Math.round(totalVendidoCents / qtd) : 0,
           },
         };
       });
