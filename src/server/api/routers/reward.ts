@@ -517,8 +517,11 @@ export const rewardRouter = createTRPCRouter({
         }
         // GIFT: discountCents permanece 0
 
-        await tx.rewardAction.update({
-          where: { id: input.actionId },
+        // CAS: claim APPROVED→USED. Dois resgates concorrentes da MESMA recompensa
+        // (2 pedidos) — só um vence; o outro vê count=0 e aborta, impedindo o mesmo
+        // desconto ser aplicado em dois pedidos.
+        const claimed = await tx.rewardAction.updateMany({
+          where: { id: input.actionId, status: "APPROVED" },
           data: {
             status: "USED",
             usedAt: new Date(),
@@ -526,6 +529,9 @@ export const rewardRouter = createTRPCRouter({
             usedInOsId: input.osId ?? null,
           },
         })
+        if (claimed.count !== 1) {
+          throw new TRPCError({ code: "CONFLICT", message: "Recompensa ja utilizada em outro pedido." })
+        }
 
         return { success: true, discountCents, rewardType: action.rewardType }
       })
