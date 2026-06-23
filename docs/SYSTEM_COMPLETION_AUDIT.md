@@ -280,7 +280,21 @@ verifyEmail, verifyPhone, resendCode) têm **rate-limit** (anti-abuso); constru�
   de erro (hardening futuro, não bug).
 - **Fase 9 Infra:** `output: standalone` + healthchecks no compose prod.
 
-**Resta:** Fase 10 (Frontend — UI inteira) + limpeza final + decisões pendentes.
+## Fase 10 — Frontend ⏳ parcial (2026-06-23)
+
+**Core verificado saudável:** data-fetching via tRPC/TanStack Query (os `useEffect` são state-sync/SSE
+legítimos, não fetch); shadcn/Radix dão a11y; split Server/Client. Dívida menor: 18 `any`, `isLoading`
+(estilístico). Escala: 153 páginas + 199 client components → varredura página-a-página é sessão dedicada.
+
+**Corrigido (aprovado pelo dono) — consistência de RBAC na UI:**
+- Páginas de settings admin-only no servidor (M10-12) apareciam para operador (nav gateado por plano,
+  não por role) → form que dá FORBIDDEN. Agora `settings/integrations`, `settings/general` e
+  `settings/assistance` gateiam por `useIsTenantAdmin` (mostram "apenas admin" ao operador).
+
+**Adiado → sessão dedicada de Frontend:** varredura página-a-página (PDV, OS, Estoque, Financeiro,
+Caixa, Dashboard, Admin…) com `react`/`frontend-design`; zerar os 18 `any`; avaliar Suspense vs isLoading.
+
+**Resta:** Frontend completo (dedicado) + limpeza final + decisões pendentes.
 
 ---
 

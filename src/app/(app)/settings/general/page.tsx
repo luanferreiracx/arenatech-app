@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/domain/page-header";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { CnpjInput } from "@/components/inputs/cnpj-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
@@ -44,6 +45,8 @@ const UF_OPTIONS = [
 export default function GeneralSettingsPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // RBAC: dados da loja (CNPJ/IE afetam fiscal) são admin (espelha o servidor).
+  const isAdmin = useIsTenantAdmin();
 
   const { data: settings, isLoading } = useQuery(
     trpc.settings.getGeneral.queryOptions()
@@ -93,6 +96,19 @@ export default function GeneralSettingsPage() {
     form.setValue("address.cidade", addr.cidade);
     form.setValue("address.uf", addr.estado);
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Configuracoes Gerais" subtitle="Personalize as informacoes da sua loja" />
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Apenas administradores do tenant podem alterar as configuracoes da loja.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
