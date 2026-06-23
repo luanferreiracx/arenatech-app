@@ -33,6 +33,14 @@ on:
           - process-deposit-repayments
           - reconcile-depix-transactions
 
+# `shell: bash` usa `-eo pipefail` — sem isto o default e `bash -e` (sem
+# pipefail), e o `curl ... | tee` mascara a falha do curl (o pipeline retorna
+# o exit do tee=0) -> job verde falso mesmo o curl falhando (ex.: APP_URL vazio
+# -> "no host"). Com pipefail, a falha do curl propaga e o job fica vermelho.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   mark-overdue:
     # Roda no schedule 03:00 BRT (06:00 UTC) ou manualmente.
