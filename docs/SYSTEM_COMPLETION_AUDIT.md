@@ -14,8 +14,8 @@
 | # | Módulo | Status |
 |---|--------|--------|
 | 1 | PDV / Vendas | ✅ auditado + corrigido (PR #223 MERGED) |
-| 2 | Caixa | ✅ auditado + corrigido (PR aberto) |
-| 3 | Financeiro | ⬜ |
+| 2 | Caixa | ✅ auditado + corrigido (PR #224 MERGED) |
+| 3 | Financeiro | ✅ auditado + corrigido (PR aberto) |
 | 4 | Recebíveis de cartão | ⬜ |
 | 5 | Ordens de Serviço | ⬜ |
 | 6 | Estoque | ⬜ |
@@ -89,6 +89,28 @@ mapeada método a método.
 
 **Verificação:** prisma validate OK · typecheck 0 · lint 0 · unit 1159. Migration + E2E: CI do PR
 (docker indisponível local). 
+
+---
+
+## Módulo 3 — Financeiro ✅ (2026-06-23)
+
+**Veredito: sólido.** `create` (admin-only, `addMonthsSafe` evita bug fev/mar); `update` (guarda
+PAID/CANCELLED + impede divergência em tx vinculada); `cancel` (bloqueia PAID); `payInstallment`
+(CAS); `receiving.ts` bem gated. Paridade com `FinanceiroService.php` (métodos viraram lógica inline).
+
+**Corrigido (aprovado pelo dono):**
+- **P2 — `reverseInstallment` CAS:** trocado `update` por `updateMany` com guard otimista
+  (status pagável + `paidAmount` igual ao lido) + checa count → blinda estornos concorrentes.
+- **DRE — vendas parcialmente estornadas:** o filtro `status='COMPLETED'` excluía PARTIALLY_REFUNDED
+  por inteiro (subestimava receita dos itens mantidos). Agora inclui PARTIALLY_REFUNDED escalando
+  **receita e custo** pela **fração mantida** (`SUM(sale_items.total) / subtotal`) — preserva a margem;
+  COMPLETED e `is_os_payment` têm fração 1 (comportamento inalterado). Colunas verificadas.
+- **Cleanup — 8 órfãs removidas** (−391 linhas líquidas): `createReceivablesFromSale/FromServiceOrder`,
+  `cancelReceivablesFromSale`, `payMultipleInstallments`, `createPayableDowngrade/FromPurchase`,
+  `getCustomerOpenBalance`, `markOverdue` + helper `applyTypeFilter` órfão + comentário stale corrigido.
+
+**Verificação:** typecheck 0 · lint 0 · unit 1159. CAS/DRE são DB-level → regressão coberta pelo
+CI E2E (docker indisponível local).
 
 ---
 
