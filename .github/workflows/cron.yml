@@ -31,6 +31,7 @@ on:
           - process-pending-talison
           - release-stale-reservations
           - process-deposit-repayments
+          - reconcile-depix-transactions
 
 jobs:
   mark-overdue:
@@ -126,4 +127,19 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 120 \
+            | tee /tmp/response.json
+
+  reconcile-depix-transactions:
+    # Roda a cada 10 min (schedule */10) ou manualmente. Reconcilia transacoes
+    # DePix presas em PENDING/PROCESSING (saque concluido no provedor cuja tela
+    # nunca foi aberta -> reserva o saldo pra sempre; deposito com PIX expirado).
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'reconcile-depix-transactions' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron reconcile-depix-transactions
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/reconcile-depix-transactions" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 180 \
             | tee /tmp/response.json
