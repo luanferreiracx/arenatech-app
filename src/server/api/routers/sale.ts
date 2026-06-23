@@ -3358,14 +3358,13 @@ export const saleRouter = createTRPCRouter({
             city: true, state: true,
           },
         });
+        // So a identidade do cliente (nome/email/telefone) — o ENDERECO vem
+        // sempre das Configuracoes da loja (endereco do cliente nao importa
+        // para o PIX e costuma ficar longo/incompleto).
         const cust = s.customerId
           ? await tx.customer.findUnique({
               where: { id: s.customerId },
-              select: {
-                name: true, email: true, phone: true,
-                zipCode: true, street: true, streetNumber: true, complement: true, neighborhood: true,
-                city: true, state: true,
-              },
+              select: { name: true, email: true, phone: true },
             })
           : null;
         return { sale: s, store: st, customer: cust };
@@ -3384,8 +3383,9 @@ export const saleRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Valor da cobranca nao pode exceder o total da venda." });
       }
 
-      // Pre-preenche o checkout (cliente da venda > dados da loja) para o
-      // pagador de balcao nao precisar digitar email/endereco antes do PIX.
+      // Pre-preenche o checkout para o pagador de balcao nao precisar digitar
+      // dados antes do PIX. Identidade: cliente da venda > loja. Endereco:
+      // sempre a loja (Configuracoes) — ver buildInfinitepayPrefill.
       const prefill = buildInfinitepayPrefill({
         customer: customer
           ? customer
