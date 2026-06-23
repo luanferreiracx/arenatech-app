@@ -161,38 +161,47 @@ export function InfinitepayCheckoutDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            {qrImageUrl && (
-              <div className="flex justify-center bg-white p-4 rounded-md">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={qrImageUrl}
-                  alt="QR Code de pagamento InfinitePay"
-                  style={{ maxWidth: 256, maxHeight: 256 }}
-                />
-              </div>
-            )}
+            {/* Primario: o atendente abre o checkout no balcao, seleciona PIX e
+                mostra o QR do PIX ao cliente (a pagina da InfinitePay nao pode
+                ser embutida em iframe — x-frame-options/CSP). */}
+            <Button asChild size="lg" className="w-full">
+              <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" /> Abrir pagamento PIX
+              </a>
+            </Button>
             <p className="text-center text-xs text-muted-foreground">
-              O cliente escaneia o QR e paga via PIX ou cartao na pagina da
-              InfinitePay.
+              Abra no balcao, selecione <strong>PIX</strong> e mostre o QR ao
+              cliente para ele escanear.
             </p>
-            <div className="flex gap-2">
-              <Button asChild variant="outline" size="sm" className="flex-1">
-                <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="mr-1 h-3 w-3" /> Abrir link
-                </a>
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={copy}>
-                <Copy className="h-3 w-3" />
+
+            {/* Secundario: cliente paga pelo proprio celular escaneando o link. */}
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <p className="text-center text-xs font-medium text-muted-foreground">
+                Ou o cliente escaneia para pagar no proprio celular
+              </p>
+              {qrImageUrl && (
+                <div className="flex justify-center bg-white p-3 rounded-md">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={qrImageUrl}
+                    alt="QR Code do checkout InfinitePay"
+                    style={{ maxWidth: 180, maxHeight: 180 }}
+                  />
+                </div>
+              )}
+              <Button type="button" variant="outline" size="sm" className="w-full" onClick={copy}>
+                <Copy className="mr-1 h-3 w-3" /> Copiar link
               </Button>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
               </span>
               Aguardando confirmacao do pagamento...
             </div>
-            <Button variant="outline" className="w-full" onClick={handleCancel}>
+            <Button variant="ghost" className="w-full" onClick={handleCancel}>
               Cancelar
             </Button>
           </div>
