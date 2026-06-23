@@ -19,7 +19,8 @@
 | 4 | Recebíveis de cartão | ✅ auditado — limpo (sem mudanças) |
 | 5 | Ordens de Serviço | ✅ auditado + corrigido (PR #226 MERGED) |
 | 6 | Estoque | ✅ auditado + corrigido (PR #227 MERGED) |
-| 7 | Comissões | ✅ auditado + corrigido (PR aberto) · arquitetura a rever |
+| 7 | Comissões | ✅ auditado + corrigido (PR #228 MERGED) · arquitetura a rever |
+| 8 | Fiscal | ✅ auditado + corrigido (PR aberto) |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
 | 9 | Métodos de pagamento & taxas | ⬜ |
@@ -179,6 +180,23 @@ apuração própria com lock CAS OPEN→CLOSING).
 - **Rever a arquitetura de comissões** (os dois sistemas) — o dono respondeu "precisamos rever isso".
   A **decisão #3** (comissão de prestador externo `serviceProviderId` na OS) depende disso. Não mexi
   no desenho nem no provider-commission; só blindei o double-count.
+
+---
+
+## Módulo 8 — Fiscal ✅ (2026-06-23)
+
+**Veredito: sólido.** Padrão correto de chamada externa (HTTP fora da tx: valida+PENDING → HTTP →
+aplica resultado); **certificado PFX cifrado com AES-256-GCM** (chave de env, IV + auth tag); ciclo
+NF-e completo (create/authorize/cancel/correctionLetter/inutilizar/import XML). Paridade com o fiscal Laravel.
+
+**Corrigido (aprovado pelo dono):**
+- **P2 — `authorize` sem CAS:** o tx1 fazia `findFirst`(DRAFT) + `update` PENDING sem guard → dois
+  cliques concorrentes emitiam a MESMA NF-e em dobro (NF-e duplicada = problema fiscal). Agora o tx1
+  faz `updateMany WHERE status IN (DRAFT,REJECTED)` + count → claim atômico antes do HTTP.
+- **P3 — `cancel` idempotente:** tx2 vira `updateMany WHERE status=AUTHORIZED` (não re-carimba se já
+  cancelada; o SEFAZ já serializa o cancelamento real).
+
+**Verificação:** typecheck 0 · lint 0 (1 warning pré-existente, linha 618) · unit 1159. CAS é DB-level → CI E2E.
 
 ---
 

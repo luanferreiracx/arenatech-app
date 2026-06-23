@@ -315,10 +315,19 @@ export const fiscalRouter = createTRPCRouter({
           })),
         };
 
-        await tx.invoice.update({
-          where: { id: input.invoiceId },
+        // CAS: claim atômico DRAFT/REJECTED → PENDING. Dois authorize concorrentes
+        // (duplo-clique) — só um passa; o outro vê count=0 e aborta ANTES do HTTP,
+        // impedindo emissão da MESMA NF-e em dobro (NF-e duplicada = problema fiscal).
+        const claimed = await tx.invoice.updateMany({
+          where: { id: input.invoiceId, status: { in: ["DRAFT", "REJECTED"] } },
           data: { status: "PENDING", payload },
         });
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Emissao ja em andamento ou nota nao esta mais em rascunho.",
+          });
+        }
 
         return { payload };
       });
@@ -390,11 +399,15 @@ export const fiscalRouter = createTRPCRouter({
       }
 
       return await ctx.withTenant(async (tx) => {
-        await tx.invoice.update({
-          where: { id: input.invoiceId },
+        // CAS idempotente: só carimba CANCELLED se ainda estava AUTHORIZED. Em
+        // corrida (dois cancel concorrentes — o SEFAZ já serializa o cancelamento
+        // real), o segundo vê count=0: a nota já está cancelada (estado desejado),
+        // então não re-carimba nem lança erro espúrio.
+        const cancelled = await tx.invoice.updateMany({
+          where: { id: input.invoiceId, status: "AUTHORIZED" },
           data: { status: "CANCELLED", cancelledAt: new Date() },
         });
-        logger.info("Invoice cancelled", { invoiceId: input.invoiceId });
+        logger.info("Invoice cancelled", { invoiceId: input.invoiceId, applied: cancelled.count });
         return { success: true };
       });
     }),
