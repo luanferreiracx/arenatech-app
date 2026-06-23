@@ -15,9 +15,9 @@
 |---|--------|--------|
 | 1 | PDV / Vendas | ✅ auditado + corrigido (PR #223 MERGED) |
 | 2 | Caixa | ✅ auditado + corrigido (PR #224 MERGED) |
-| 3 | Financeiro | ✅ auditado + corrigido (PR aberto) |
-| 4 | Recebíveis de cartão | ⬜ |
-| 5 | Ordens de Serviço | ⬜ |
+| 3 | Financeiro | ✅ auditado + corrigido (PR #225 MERGED) |
+| 4 | Recebíveis de cartão | ✅ auditado — limpo (sem mudanças) |
+| 5 | Ordens de Serviço | ✅ auditado + corrigido (PR aberto) |
 | 6 | Estoque | ⬜ |
 | 7 | Comissões | ⬜ |
 | 8 | Fiscal | ⬜ |
@@ -111,6 +111,32 @@ PAID/CANCELLED + impede divergência em tx vinculada); `cancel` (bloqueia PAID);
 
 **Verificação:** typecheck 0 · lint 0 · unit 1159. CAS/DRE são DB-level → regressão coberta pelo
 CI E2E (docker indisponível local).
+
+---
+
+## Módulo 4 — Recebíveis de cartão ✅ (2026-06-23) — limpo
+
+**Veredito: excelente, nenhum bug.** Feature recém-construída e testada (`card-receivable.test.ts`):
+`computeCardSettlement` (taxa = bruto×%+fixo clampado, líquido ≥ 0, D+N) e `splitCardReceivable`
+(parcela em D+N+30×(n−1)) em integer-cents; `settle` (operador, idempotente, calcula divergência,
+audita) / `unsettle` (admin); `assertOwned` = defense-in-depth além do RLS. Sem paridade Laravel
+(feature nova). Único achado P3 (settle sem CAS — risco baixíssimo) **não corrigido por decisão do dono**.
+
+## Módulo 5 — Ordens de Serviço ✅ (2026-06-23)
+
+**Veredito: excelente** (módulo mais auditado — 16 PRs). `updateStatus` é máquina de estados rigorosa
+(ALLOWED_TRANSITIONS, assinatura de entrada, guardas de lab/orçamento, PAID via PDV-only exceto
+force-admin, CANCELLED via `cancel`, DELIVERED com termo); `registerPayment`/`refund`/`cancel`
+sólidos e gated. Paridade com `OrdemServicoController` já estabelecida.
+
+**Corrigido (aprovado pelo dono):**
+- **P2 — `updateStatus`→PAID (force-admin) divergia do `registerPayment`:** o `serviceOrder.update`
+  não tinha CAS de status (force-PAID concorrente podia duplicar cashMovement) e o branch não
+  chamava `createOsTechnicianCommission` (OS paga via "force" não creditava comissão do técnico).
+  Fix: transição agora é `updateMany` com CAS de status (count check) + chamada da comissão no
+  branch PAID (idempotente; base 0 em garantia/cortesia → no-op).
+
+**Não implementado:** P3 `updateData: any` (2×) → Fase Final de type-safety.
 
 ---
 
