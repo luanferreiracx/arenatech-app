@@ -303,7 +303,12 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => checkStatus.mutate({ id })}
+                onClick={() =>
+                  checkStatus.mutate(
+                    { id },
+                    { onError: (err) => toast.error(err.message) },
+                  )
+                }
                 disabled={checkStatus.isPending}
               >
                 <RefreshCw

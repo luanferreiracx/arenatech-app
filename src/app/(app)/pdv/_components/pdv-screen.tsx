@@ -436,6 +436,7 @@ export function PdvScreen() {
         onSuccess: () => {
           setShowCustomerDialog(false);
         },
+        onError: (err) => toast.error(err.message),
       },
     );
   };
