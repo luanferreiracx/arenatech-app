@@ -221,15 +221,6 @@ export async function checkInfinitepayPayment(
   };
 }
 
-/** Normaliza telefone BR para o formato +55DDDNUMERO esperado pela InfinitePay. */
-export function formatBrPhone(raw: string | null | undefined): string | undefined {
-  const digits = (raw ?? "").replace(/\D/g, "");
-  if (digits.length < 10) return undefined;
-  // Ja veio com 55 na frente (12-13 digitos)? Usa como esta. Senao prefixa.
-  const withCountry = digits.startsWith("55") && digits.length >= 12 ? digits : `55${digits}`;
-  return `+${withCountry}`;
-}
-
 /** So digitos do CEP (InfinitePay usa 8 digitos sem mascara). */
 export function formatCep(raw: string | null | undefined): string | undefined {
   const digits = (raw ?? "").replace(/\D/g, "");
@@ -239,7 +230,6 @@ export function formatCep(raw: string | null | undefined): string | undefined {
 type PrefillParty = {
   name?: string | null;
   email?: string | null;
-  phone?: string | null;
   zipCode?: string | null;
   street?: string | null;
   streetNumber?: string | null;
@@ -262,6 +252,11 @@ const firstNonEmpty = (...vals: (string | null | undefined)[]): string | undefin
  * cliente da venda > dados da loja. Objetivo: o cliente de balcao nao precisar
  * digitar email/endereco para pagar PIX. So inclui `address` quando ha CEP +
  * rua (parcial nao adianta — a pagina pediria o resto).
+ *
+ * NAO enviamos `phone_number`: a InfinitePay reconhece um numero ligado a uma
+ * conta dela e dispara um codigo de login/confirmacao para esse numero (a
+ * InfiniteTag da loja sempre bate; o do cliente pode bater), travando o PIX no
+ * balcao. O telefone e opcional na API — sem ele, a pagina gera o QR direto.
  */
 export function buildInfinitepayPrefill(input: {
   customer?: PrefillParty | null;
@@ -274,12 +269,10 @@ export function buildInfinitepayPrefill(input: {
 
   const name = firstNonEmpty(c?.name, s?.name);
   const email = firstNonEmpty(c?.email, s?.email, input.defaultEmail);
-  const phone = formatBrPhone(firstNonEmpty(c?.phone, s?.phone));
 
   const customer: InfinitepayCustomer = {
     ...(name ? { name } : {}),
     ...(email ? { email } : {}),
-    ...(phone ? { phoneNumber: phone } : {}),
   };
 
   const cep = formatCep(firstNonEmpty(c?.zipCode, s?.zipCode));

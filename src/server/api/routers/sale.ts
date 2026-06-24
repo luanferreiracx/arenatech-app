@@ -3329,7 +3329,6 @@ export const saleRouter = createTRPCRouter({
             totalAmount: true,
             customerId: true,
             customerName: true,
-            customerPhone: true,
           },
         });
         if (!s) return { sale: null, store: null, customer: null };
@@ -3343,13 +3342,14 @@ export const saleRouter = createTRPCRouter({
           where: { tenantId: ctx.tenantId },
           select: { tradeName: true, legalName: true, email: true, phone: true, address: true },
         });
-        // So a identidade do cliente (nome/email/telefone) — o ENDERECO vem
-        // sempre das Configuracoes da loja (endereco do cliente nao importa
-        // para o PIX e costuma ficar longo/incompleto).
+        // So a identidade do cliente (nome/email — telefone nunca, ver
+        // buildInfinitepayPrefill) — o ENDERECO vem sempre das Configuracoes da
+        // loja (endereco do cliente nao importa para o PIX e costuma ficar
+        // longo/incompleto).
         const cust = s.customerId
           ? await tx.customer.findUnique({
               where: { id: s.customerId },
-              select: { name: true, email: true, phone: true },
+              select: { name: true, email: true },
             })
           : null;
         return { sale: s, store: st, customer: cust };
@@ -3381,14 +3381,13 @@ export const saleRouter = createTRPCRouter({
       const prefill = buildInfinitepayPrefill({
         customer: customer
           ? customer
-          : sale.customerName || sale.customerPhone
-            ? { name: sale.customerName, phone: sale.customerPhone }
+          : sale.customerName
+            ? { name: sale.customerName }
             : null,
         store: store
           ? {
               name: store.tradeName ?? store.legalName,
               email: store.email,
-              phone: store.phone,
               zipCode: addrStr(addr.cep),
               street: addrStr(addr.logradouro),
               streetNumber: addrStr(addr.numero),

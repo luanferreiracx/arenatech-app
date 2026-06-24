@@ -5,7 +5,6 @@ import {
   normalizeInfinitepayHandle,
   infinitepayWebhookSchema,
   buildInfinitepayPrefill,
-  formatBrPhone,
   formatCep,
 } from "@/lib/services/infinitepay-service";
 
@@ -152,21 +151,6 @@ describe("checkInfinitepayPayment", () => {
   });
 });
 
-describe("formatBrPhone", () => {
-  it("prefixa +55 em telefone BR", () => {
-    expect(formatBrPhone("86999998888")).toBe("+5586999998888");
-    expect(formatBrPhone("(86) 99999-8888")).toBe("+5586999998888");
-  });
-  it("mantem 55 quando ja presente", () => {
-    expect(formatBrPhone("5586999998888")).toBe("+5586999998888");
-  });
-  it("retorna undefined para vazio/curto", () => {
-    expect(formatBrPhone("")).toBeUndefined();
-    expect(formatBrPhone("123")).toBeUndefined();
-    expect(formatBrPhone(null)).toBeUndefined();
-  });
-});
-
 describe("formatCep", () => {
   it("retorna 8 digitos sem mascara", () => {
     expect(formatCep("64000-000")).toBe("64000000");
@@ -196,7 +180,6 @@ describe("buildInfinitepayPrefill", () => {
     expect(out.customer).toEqual({
       name: "Arena Tech",
       email: "loja@arenatech.com.br",
-      phoneNumber: "+558632000000",
     });
     expect(out.address).toEqual({
       cep: "64000000",
@@ -224,19 +207,21 @@ describe("buildInfinitepayPrefill", () => {
 
   it("prioriza dados do cliente, completando lacunas com a loja", () => {
     const out = buildInfinitepayPrefill({
-      customer: { name: "Joao", phone: "86999998888", email: null, zipCode: null, street: null },
+      customer: { name: "Joao", email: null, zipCode: null, street: null },
       store,
     });
     expect(out.customer?.name).toBe("Joao");
-    expect(out.customer?.phoneNumber).toBe("+5586999998888");
     // email/endereco caem para a loja
     expect(out.customer?.email).toBe("loja@arenatech.com.br");
     expect(out.address?.cep).toBe("64000000");
+    // Telefone nunca e enviado (o tipo PrefillParty nem aceita): a InfinitePay
+    // dispara codigo de login quando o numero bate com uma conta dela.
+    expect(out.customer).not.toHaveProperty("phoneNumber");
   });
 
   it("omite address quando nao ha CEP+rua em lugar nenhum", () => {
     const out = buildInfinitepayPrefill({
-      customer: { name: "Maria", phone: "86988887777" },
+      customer: { name: "Maria" },
       store: { name: "Loja", email: "x@y.com" },
     });
     expect(out.address).toBeUndefined();
