@@ -78,7 +78,7 @@ export default function QuickSaleDetailPage() {
   if (isLoading) return <LoadingState />;
   if (!sale) return <div className="text-center py-12 text-muted-foreground">Venda nao encontrada</div>;
 
-  const s = sale as any;
+  const s = sale;
   const status = s.status as string;
   const isAwaiting = status === "AWAITING_PAYMENT";
   const isPaid = status === "PAID";
@@ -215,12 +215,12 @@ export default function QuickSaleDetailPage() {
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Criado em</span>
-              <span>{new Date(s.createdAt as string).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+              <span>{new Date(s.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
             </div>
             {s.paidAt && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pago em</span>
-                <span>{new Date(s.paidAt as string).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                <span>{new Date(s.paidAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
               </div>
             )}
           </CardContent>

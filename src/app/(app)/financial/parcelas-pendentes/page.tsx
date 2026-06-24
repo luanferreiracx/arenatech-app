@@ -47,7 +47,15 @@ export default function PendingInstallmentsPage() {
     trpc.financial.pending.queryOptions({})
   );
 
-  const installments = data?.data ?? [];
+  // `pending` retorna TRANSACOES com as parcelas aninhadas. A pagina mostra
+  // parcela a parcela, entao achatamos para linhas de parcela ainda em aberto
+  // (PENDING/OVERDUE) — cada uma carrega a transacao p/ descricao/total.
+  const installments = (data?.data ?? []).flatMap((t) => {
+    const all = t.installments ?? [];
+    return all
+      .filter((i) => i.status === "PENDING" || i.status === "OVERDUE")
+      .map((i) => ({ ...i, transaction: t, installmentsTotal: all.length }));
+  });
 
   // Computed stats
   const now = new Date();
@@ -55,15 +63,15 @@ export default function PendingInstallmentsPage() {
   const endOfWeek = new Date(now);
   endOfWeek.setDate(endOfWeek.getDate() + 7);
 
-  const overdue = installments.filter((i: any) => new Date(i.dueDate) < now);
-  const thisWeek = installments.filter((i: any) => {
+  const overdue = installments.filter((i) => new Date(i.dueDate) < now);
+  const thisWeek = installments.filter((i) => {
     const d = new Date(i.dueDate);
     return d >= now && d <= endOfWeek;
   });
 
-  const overdueTotal = overdue.reduce((s: number, i: any) => s + Number(i.amount) * 100, 0);
-  const weekTotal = thisWeek.reduce((s: number, i: any) => s + Number(i.amount) * 100, 0);
-  const allTotal = installments.reduce((s: number, i: any) => s + Number(i.amount) * 100, 0);
+  const overdueTotal = overdue.reduce((s, i) => s + Number(i.amount) * 100, 0);
+  const weekTotal = thisWeek.reduce((s, i) => s + Number(i.amount) * 100, 0);
+  const allTotal = installments.reduce((s, i) => s + Number(i.amount) * 100, 0);
 
   // Filter
   let filtered = installments;
@@ -133,13 +141,13 @@ export default function PendingInstallmentsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((inst: any) => {
+            {filtered.map((inst) => {
               const days = daysDiff(inst.dueDate);
               const isOverdue = days < 0;
               return (
                 <TableRow key={inst.id}>
                   <TableCell>{inst.transaction?.description ?? "—"}</TableCell>
-                  <TableCell>{inst.number}/{inst.transaction?.installmentsTotal ?? "?"}</TableCell>
+                  <TableCell>{inst.number}/{inst.installmentsTotal}</TableCell>
                   <TableCell className="font-medium">
                     {formatCurrency(Number(inst.amount) * 100)}
                   </TableCell>
