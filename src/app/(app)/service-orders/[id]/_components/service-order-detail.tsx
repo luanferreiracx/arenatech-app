@@ -69,7 +69,11 @@ import {
   isLabEligibleStatus,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
+import { type RouterOutputs } from "@/trpc/types";
 import { StatusStepper } from "./status-stepper";
+
+type ServiceOrderDetail = NonNullable<RouterOutputs["serviceOrder"]["getById"]>;
+type PartProduct = RouterOutputs["serviceOrder"]["searchParts"][number];
 import { ConcludeOsDialog } from "./conclude-os-dialog";
 import {
   OrderHistoryTimeline,
@@ -101,8 +105,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   );
   const isLoading = orderQuery.isLoading;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const order = orderQuery.data as any;
+  const order: ServiceOrderDetail | undefined = orderQuery.data;
 
   // Dialogs
   const [cancelDialog, setCancelDialog] = useState(false);
@@ -126,7 +129,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const [newItemCostPrice, setNewItemCostPrice] = useState(0);
   // Produto com variacoes selecionado e aguardando escolha da variacao.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [pendingVariationProduct, setPendingVariationProduct] = useState<any | null>(null);
+  const [pendingVariationProduct, setPendingVariationProduct] = useState<PartProduct | null>(null);
   const [partsSearch, setPartsSearch] = useState("");
   const [partsDebounced, setPartsDebounced] = useState("");
   useEffect(() => {
@@ -255,8 +258,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // O retorno tipado pelo tRPC e a Sale completa; extraimos `id`.
   const createFromOSMut = useMutation(
     trpc.sale.createFromOS.mutationOptions({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      onSuccess: (sale: any) => {
+      onSuccess: (sale) => {
         if (sale?.id) router.push(`/pdv?saleId=${sale.id}`);
       },
       onError: (e: { message: string }) => toast.error(e.message),
@@ -405,8 +407,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   const deliveryPersonsQuery = useQuery(
     trpc.operation.listDeliveryPersons.queryOptions({ active: true }),
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const deliveryPersons = (deliveryPersonsQuery.data as any[] | undefined) ?? [];
+  const deliveryPersons = deliveryPersonsQuery.data ?? [];
 
   const sendDeliveryTermMut = useMutation(
     trpc.serviceOrder.sendDeliveryTerm.mutationOptions({
@@ -1508,8 +1509,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   <Button variant="ghost" size="sm" onClick={() => setPendingVariationProduct(null)}>Voltar</Button>
                 </div>
                 <div className="border border-border rounded-md max-h-48 overflow-y-auto bg-background">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                  {pendingVariationProduct.variations.map((v: any) => (
+                  {pendingVariationProduct.variations.map((v) => (
                     <button
                       key={v.id}
                       type="button"

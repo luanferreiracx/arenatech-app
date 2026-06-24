@@ -12,8 +12,7 @@ import {
 export function ServiceOrderStats() {
   const trpc = useTRPC();
   const statsQuery = useQuery(trpc.serviceOrder.stats.queryOptions());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stats = statsQuery.data as any;
+  const stats = statsQuery.data;
 
   if (!stats) return null;
 

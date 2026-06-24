@@ -31,8 +31,7 @@ export default function QuoteApprovalPage({
   );
   const isLoading = quoteQuery.isLoading;
   const error = quoteQuery.error;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const quote = quoteQuery.data as any;
+  const quote = quoteQuery.data;
 
   const respondMut = useMutation(
     trpc.serviceOrder.respondToQuote.mutationOptions({
