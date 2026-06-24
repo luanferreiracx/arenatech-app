@@ -25,12 +25,21 @@ function isCompletedDepixStatus(status: string): boolean {
   return status === "COMPLETED" || status === "COMPLETED_FEE_PENDING";
 }
 
-function serializeQuickSale(qs: Record<string, unknown>) {
+// Generico: preserva todas as chaves da entrada (id, number, status, buyerName,
+// etc.) e converte so os 3 campos Decimal para centavos. Tipar a entrada como
+// `Record<string, unknown>` apagava o contrato — o cliente perdia todos os campos.
+function serializeQuickSale<
+  T extends {
+    unitPrice: Prisma.Decimal;
+    discount: Prisma.Decimal;
+    totalAmount: Prisma.Decimal;
+  },
+>(qs: T) {
   return {
     ...qs,
-    unitPrice: decimalToCents(qs.unitPrice as Prisma.Decimal),
-    discount: decimalToCents(qs.discount as Prisma.Decimal),
-    totalAmount: decimalToCents(qs.totalAmount as Prisma.Decimal),
+    unitPrice: decimalToCents(qs.unitPrice),
+    discount: decimalToCents(qs.discount),
+    totalAmount: decimalToCents(qs.totalAmount),
   };
 }
 
@@ -83,7 +92,7 @@ export const quickSaleRouter = createTRPCRouter({
         ]);
 
         return {
-          data: data.map((d) => serializeQuickSale(d as unknown as Record<string, unknown>)),
+          data: data.map((d) => serializeQuickSale(d)),
           total,
           pageCount: Math.ceil(total / pageSize),
         };
@@ -103,7 +112,7 @@ export const quickSaleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda avulsa nao encontrada" });
         }
 
-        return serializeQuickSale(qs as unknown as Record<string, unknown>);
+        return serializeQuickSale(qs);
       });
     }),
 
@@ -209,7 +218,7 @@ export const quickSaleRouter = createTRPCRouter({
         amount: totalReaisPre,
       });
 
-      return serializeQuickSale(updated as unknown as Record<string, unknown>);
+      return serializeQuickSale(updated);
     }),
 
   /** Update quick sale (only if AWAITING_PAYMENT) */
@@ -249,7 +258,7 @@ export const quickSaleRouter = createTRPCRouter({
           data,
         });
 
-        return serializeQuickSale(updated as unknown as Record<string, unknown>);
+        return serializeQuickSale(updated);
       });
     }),
 
@@ -297,7 +306,7 @@ export const quickSaleRouter = createTRPCRouter({
           data: { status: "PAID", paidAt: new Date() },
         });
 
-        return serializeQuickSale(updated as unknown as Record<string, unknown>);
+        return serializeQuickSale(updated);
       });
     }),
 
@@ -321,7 +330,7 @@ export const quickSaleRouter = createTRPCRouter({
           data: { status: "CANCELLED" },
         });
 
-        return serializeQuickSale(updated as unknown as Record<string, unknown>);
+        return serializeQuickSale(updated);
       });
     }),
 
