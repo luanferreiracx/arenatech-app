@@ -82,42 +82,76 @@ function generatePublicLink(): string {
   return generatePublicToken(12);
 }
 
-function serializeSale(sale: Record<string, unknown>) {
-  const s = sale as Record<string, unknown>;
-  return {
-    ...s,
-    subtotal: decimalToCents(s.subtotal as Prisma.Decimal),
-    discountValue: decimalToCents(s.discountValue as Prisma.Decimal),
-    discountAmount: decimalToCents(s.discountAmount as Prisma.Decimal),
-    totalAmount: decimalToCents(s.totalAmount as Prisma.Decimal),
-    refundDueAmount: decimalToCents(s.refundDueAmount as Prisma.Decimal),
-    surchargeAmount: decimalToCents(s.surchargeAmount as Prisma.Decimal),
-    operatorFeeAmount: decimalToCents(s.operatorFeeAmount as Prisma.Decimal),
-    netRevenueAmount: decimalToCents(s.netRevenueAmount as Prisma.Decimal),
-    paidAmount: decimalToCents(s.paidAmount as Prisma.Decimal),
-    changeAmount: decimalToCents(s.changeAmount as Prisma.Decimal),
-    items: Array.isArray(s.items) ? (s.items as Record<string, unknown>[]).map(serializeItem) : [],
-    upgrades: Array.isArray(s.upgrades)
-      ? (s.upgrades as Record<string, unknown>[]).map(serializeUpgrade)
-      : [],
-  };
-}
+// Genericos: preservam TODAS as chaves de entrada (id, number, status, etc.) e
+// convertem so os campos Decimal para centavos. Tipar como `Record<string,unknown>`
+// apagava o contrato — o cliente perdia todos os campos (precisava de `as any`).
+// Os elementos de items/upgrades sao inferidos (TItem/TUpgrade), entao mantem o
+// tipo completo do Prisma em cada nivel.
 
-function serializeUpgrade(u: Record<string, unknown>) {
-  return {
-    ...u,
-    appraisedValue: decimalToCents(u.appraisedValue as Prisma.Decimal),
-    abatedValue: decimalToCents(u.abatedValue as Prisma.Decimal),
-  };
-}
-
-function serializeItem(item: Record<string, unknown>) {
+function serializeItem<
+  T extends {
+    unitPrice: Prisma.Decimal;
+    costPrice: Prisma.Decimal;
+    discount: Prisma.Decimal;
+    total: Prisma.Decimal;
+  },
+>(item: T) {
   return {
     ...item,
-    unitPrice: decimalToCents(item.unitPrice as Prisma.Decimal),
-    costPrice: decimalToCents(item.costPrice as Prisma.Decimal),
-    discount: decimalToCents(item.discount as Prisma.Decimal),
-    total: decimalToCents(item.total as Prisma.Decimal),
+    unitPrice: decimalToCents(item.unitPrice),
+    costPrice: decimalToCents(item.costPrice),
+    discount: decimalToCents(item.discount),
+    total: decimalToCents(item.total),
+  };
+}
+
+function serializeUpgrade<
+  T extends { appraisedValue: Prisma.Decimal; abatedValue: Prisma.Decimal },
+>(u: T) {
+  return {
+    ...u,
+    appraisedValue: decimalToCents(u.appraisedValue),
+    abatedValue: decimalToCents(u.abatedValue),
+  };
+}
+
+function serializeSale<
+  TItem extends {
+    unitPrice: Prisma.Decimal;
+    costPrice: Prisma.Decimal;
+    discount: Prisma.Decimal;
+    total: Prisma.Decimal;
+  },
+  TUpgrade extends { appraisedValue: Prisma.Decimal; abatedValue: Prisma.Decimal },
+  T extends {
+    subtotal: Prisma.Decimal;
+    discountValue: Prisma.Decimal;
+    discountAmount: Prisma.Decimal;
+    totalAmount: Prisma.Decimal;
+    refundDueAmount: Prisma.Decimal;
+    surchargeAmount: Prisma.Decimal;
+    operatorFeeAmount: Prisma.Decimal;
+    netRevenueAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    changeAmount: Prisma.Decimal;
+    items?: TItem[] | null;
+    upgrades?: TUpgrade[] | null;
+  },
+>(sale: T) {
+  return {
+    ...sale,
+    subtotal: decimalToCents(sale.subtotal),
+    discountValue: decimalToCents(sale.discountValue),
+    discountAmount: decimalToCents(sale.discountAmount),
+    totalAmount: decimalToCents(sale.totalAmount),
+    refundDueAmount: decimalToCents(sale.refundDueAmount),
+    surchargeAmount: decimalToCents(sale.surchargeAmount),
+    operatorFeeAmount: decimalToCents(sale.operatorFeeAmount),
+    netRevenueAmount: decimalToCents(sale.netRevenueAmount),
+    paidAmount: decimalToCents(sale.paidAmount),
+    changeAmount: decimalToCents(sale.changeAmount),
+    items: Array.isArray(sale.items) ? sale.items.map(serializeItem) : [],
+    upgrades: Array.isArray(sale.upgrades) ? sale.upgrades.map(serializeUpgrade) : [],
   };
 }
 
@@ -176,7 +210,7 @@ export const saleRouter = createTRPCRouter({
       });
 
       if (existing) {
-        return serializeSale(existing as unknown as Record<string, unknown>);
+        return serializeSale(existing);
       }
 
       // Use a unique draft number per seller to avoid unique([tenantId, number]) conflict
@@ -192,7 +226,7 @@ export const saleRouter = createTRPCRouter({
         },
         include: { items: true },
       });
-      return serializeSale(sale as unknown as Record<string, unknown>);
+      return serializeSale(sale);
     });
   }),
 
@@ -304,7 +338,7 @@ export const saleRouter = createTRPCRouter({
           ...serializeSale({
             ...sale,
             items: itemsWithDevice,
-          } as unknown as Record<string, unknown>),
+          }),
           ...customerSummary,
           osItems,
         };
@@ -733,11 +767,11 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
-        const updated = await tx.sale.findUnique({
+        const updated = await tx.sale.findUniqueOrThrow({
           where: { id: input.saleId },
           include: { items: true },
         });
-        return serializeSale(updated as unknown as Record<string, unknown>);
+        return serializeSale(updated);
       });
     }),
 
@@ -1675,7 +1709,7 @@ export const saleRouter = createTRPCRouter({
         }
       }
 
-      return serializeSale(txResult.updated as unknown as Record<string, unknown>);
+      return serializeSale(txResult.updated);
     }),
 
   // ═══════════════════════════════════════
@@ -2209,7 +2243,7 @@ export const saleRouter = createTRPCRouter({
 
         return {
           data: data.map((sale) => ({
-            ...serializeSale(sale as unknown as Record<string, unknown>),
+            ...serializeSale(sale),
             sellerName: sellers[sale.sellerId] ?? "Desconhecido",
             customerName: sale.customerId ? (customers[sale.customerId] ?? null) : null,
             itemCount: sale.items.length,
@@ -2226,8 +2260,10 @@ export const saleRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
+          // upgrades completo: serializeSale serializa os valores (appraised/abated);
+          // selecionar so `id` gerava NaN nesses campos no retorno.
+          include: { items: true, upgrades: true },
           where: { id: input.id },
-          include: { items: true, upgrades: { select: { id: true } } },
         });
         if (!sale) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada" });
@@ -2298,7 +2334,7 @@ export const saleRouter = createTRPCRouter({
         }
 
         return {
-          ...serializeSale(sale as unknown as Record<string, unknown>),
+          ...serializeSale(sale),
           sellerName,
           customerName,
           customerPhone,
@@ -2724,14 +2760,13 @@ export const saleRouter = createTRPCRouter({
               where: { id: existingSale.id },
               data: { subtotal: order.totalAmount, totalAmount: order.totalAmount },
             });
-            const sale = await tx.sale.findUnique({
+            const sale = await tx.sale.findUniqueOrThrow({
               where: { id: existingSale.id },
               include: { items: true },
             });
-            // id explicito: serializeSale tipa a entrada como Record<string,unknown>
-            // e o spread apaga as chaves conhecidas. O cliente precisa de `id`
-            // para redirecionar ao PDV (/pdv?saleId=...).
-            return { ...serializeSale(sale as unknown as Record<string, unknown>), id: existingSale.id };
+            // id explicito: o serializer mantem as chaves, mas o `id` desta venda
+            // e o que o cliente usa para redirecionar ao PDV (/pdv?saleId=...).
+            return { ...serializeSale(sale), id: existingSale.id };
           }
           throw new TRPCError({ code: "CONFLICT", message: "Esta OS ja possui uma venda finalizada" });
         }
@@ -2761,7 +2796,7 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
-        return { ...serializeSale(sale as unknown as Record<string, unknown>), id: sale.id };
+        return { ...serializeSale(sale), id: sale.id };
       });
     }),
 
@@ -3818,5 +3853,5 @@ async function recalculateSale(
     include: { items: true },
   });
 
-  return serializeSale(updated as unknown as Record<string, unknown>);
+  return serializeSale(updated);
 }
