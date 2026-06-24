@@ -158,7 +158,7 @@ function CategorySidebar({
               <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Acoes da categoria">
                       <MoreHorizontal className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -259,7 +259,7 @@ function DeviceRow({
       {/* Actions */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Acoes do aparelho">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>

@@ -54,6 +54,7 @@ function QtyControl({ value, onChange }: { value: number; onChange: (v: number) 
         size="icon"
         className="h-6 w-6"
         onClick={() => onChange(Math.max(1, value - 1))}
+        aria-label="Diminuir quantidade"
       >
         <Minus className="h-3 w-3" />
       </Button>
@@ -64,6 +65,7 @@ function QtyControl({ value, onChange }: { value: number; onChange: (v: number) 
         size="icon"
         className="h-6 w-6"
         onClick={() => onChange(value + 1)}
+        aria-label="Aumentar quantidade"
       >
         <Plus className="h-3 w-3" />
       </Button>

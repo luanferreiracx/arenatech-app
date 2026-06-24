@@ -1063,10 +1063,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                         <span className="font-mono font-medium w-24 text-right">{formatMoney(item.total)}</span>
                         {canEditItems && (
                           <>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Editar item" onClick={() => { setEditItemId(item.id); setEditItemDesc(item.description); setEditItemQty(item.quantity); setEditItemPrice(item.unitPrice); }}>
                               <Pencil className="h-3 w-3" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItemMut.mutate({ id: item.id })}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Remover item" onClick={() => removeItemMut.mutate({ id: item.id })}>
                               <Trash2 className="h-3 w-3" />
                             </Button>
                           </>
