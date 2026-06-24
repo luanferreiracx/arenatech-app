@@ -24,23 +24,10 @@ import {
   SERVICE_ORDER_STATUS_VARIANT,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
+import { type RouterOutputs } from "@/trpc/types";
 
-interface OrderRow {
-  id: string;
-  number: string;
-  status: ServiceOrderStatus;
-  customerName: string;
-  customerCpf: string | null;
-  customerPhone: string | null;
-  customerPhoneSecondary: string | null;
-  deviceType: string | null;
-  deviceModel: string | null;
-  technicianName: string | null;
-  totalAmount: number;
-  isWarranty: boolean;
-  entryDate: Date;
-  imei: string | null;
-}
+// Derivado da saida do procedure — UI e servidor nunca divergem.
+type OrderRow = RouterOutputs["serviceOrder"]["list"]["items"][number];
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
@@ -208,8 +195,7 @@ export function ServiceOrdersTable() {
   const techQuery = useQuery(
     trpc.serviceOrder.listTechnicians.queryOptions()
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const technicians = techQuery.data as any[] | undefined;
+  const technicians = techQuery.data;
 
   const listQuery = useQuery(
     trpc.serviceOrder.list.queryOptions({
@@ -223,8 +209,7 @@ export function ServiceOrdersTable() {
     })
   );
   const isLoading = listQuery.isLoading;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = listQuery.data as any;
+  const data = listQuery.data;
 
   return (
     <div className="space-y-4">

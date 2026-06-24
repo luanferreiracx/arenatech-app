@@ -33,6 +33,9 @@ import {
   type UpdateServiceOrderInput,
 } from "@/lib/validators/service-order";
 import { Check, X, Minus } from "lucide-react";
+import { type RouterOutputs } from "@/trpc/types";
+
+type ServiceOrderDetail = NonNullable<RouterOutputs["serviceOrder"]["getById"]>;
 
 export default function EditServiceOrderPage({
   params,
@@ -48,8 +51,7 @@ export default function EditServiceOrderPage({
     trpc.serviceOrder.getById.queryOptions({ id })
   );
   const isLoading = orderQuery.isLoading;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const order = orderQuery.data as any;
+  const order = orderQuery.data;
 
   const updateMutation = useMutation(
     trpc.serviceOrder.update.mutationOptions({
@@ -100,7 +102,6 @@ export default function EditServiceOrderPage({
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface AttachNfsePayload {
   orderId: string;
   nfseNumber?: string | null;
@@ -109,7 +110,7 @@ interface AttachNfsePayload {
   contentType: string;
 }
 
-function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNfse, detachNfsePending, isPending, id }: { order: any; onSubmit: (data: UpdateServiceOrderInput) => void; onAttachNfse: (p: AttachNfsePayload) => void; attachNfsePending: boolean; onDetachNfse: () => void; detachNfsePending: boolean; isPending: boolean; id: string }) {
+function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNfse, detachNfsePending, isPending, id }: { order: ServiceOrderDetail; onSubmit: (data: UpdateServiceOrderInput) => void; onAttachNfse: (p: AttachNfsePayload) => void; attachNfsePending: boolean; onDetachNfse: () => void; detachNfsePending: boolean; isPending: boolean; id: string }) {
   // detachNfse exige admin no backend — esconde o botao para operador.
   const isAdmin = useIsTenantAdmin();
   // Paridade Laravel:

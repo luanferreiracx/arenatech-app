@@ -2728,7 +2728,10 @@ export const saleRouter = createTRPCRouter({
               where: { id: existingSale.id },
               include: { items: true },
             });
-            return serializeSale(sale as unknown as Record<string, unknown>);
+            // id explicito: serializeSale tipa a entrada como Record<string,unknown>
+            // e o spread apaga as chaves conhecidas. O cliente precisa de `id`
+            // para redirecionar ao PDV (/pdv?saleId=...).
+            return { ...serializeSale(sale as unknown as Record<string, unknown>), id: existingSale.id };
           }
           throw new TRPCError({ code: "CONFLICT", message: "Esta OS ja possui uma venda finalizada" });
         }
@@ -2758,7 +2761,7 @@ export const saleRouter = createTRPCRouter({
           },
         });
 
-        return serializeSale(sale as unknown as Record<string, unknown>);
+        return { ...serializeSale(sale as unknown as Record<string, unknown>), id: sale.id };
       });
     }),
 

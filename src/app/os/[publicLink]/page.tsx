@@ -33,8 +33,7 @@ export default function PublicOrderPage({
   );
   const isLoading = orderQuery.isLoading;
   const error = orderQuery.error;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const order = orderQuery.data as any;
+  const order = orderQuery.data;
 
   if (isLoading) {
     return (
