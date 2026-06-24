@@ -248,27 +248,27 @@ const firstNonEmpty = (...vals: (string | null | undefined)[]): string | undefin
 };
 
 /**
- * Monta `customer` + `address` pre-preenchidos para o checkout, com fallback:
- * cliente da venda > dados da loja. Objetivo: o cliente de balcao nao precisar
- * digitar email/endereco para pagar PIX. So inclui `address` quando ha CEP +
- * rua (parcial nao adianta — a pagina pediria o resto).
+ * Monta `customer` + `address` pre-preenchidos para o checkout. So inclui
+ * `address` quando ha CEP + rua (parcial nao adianta — a pagina pediria o
+ * resto); o endereco vem da loja so para evitar o formulario de endereco.
  *
- * NAO enviamos `phone_number`: a InfinitePay reconhece um numero ligado a uma
- * conta dela e dispara um codigo de login/confirmacao para esse numero (a
- * InfiniteTag da loja sempre bate; o do cliente pode bater), travando o PIX no
- * balcao. O telefone e opcional na API — sem ele, a pagina gera o QR direto.
+ * IDENTIDADE (name/email/phone) so e enviada quando vem de um CLIENTE REAL da
+ * venda — NUNCA a da loja. Motivo: a InfinitePay reconhece um dado ligado a uma
+ * conta dela e dispara um codigo de login/confirmacao, travando o PIX no balcao.
+ * O email/telefone da LOJA sao exatamente os da conta InfiniteTag, entao sempre
+ * batem; alem disso, o comprador nao e a loja. Todos esses campos sao opcionais
+ * na API — sem eles, a pagina gera o QR PIX direto.
  */
 export function buildInfinitepayPrefill(input: {
   customer?: PrefillParty | null;
   store?: PrefillParty | null;
-  /** Email padrao configurado na integracao — cobre a loja sem email cadastrado. */
-  defaultEmail?: string | null;
 }): { customer?: InfinitepayCustomer; address?: InfinitepayAddress } {
   const c = input.customer ?? null;
   const s = input.store ?? null;
 
-  const name = firstNonEmpty(c?.name, s?.name);
-  const email = firstNonEmpty(c?.email, s?.email, input.defaultEmail);
+  // Identidade so do cliente real — ver doc acima (nunca a da loja).
+  const name = firstNonEmpty(c?.name);
+  const email = firstNonEmpty(c?.email);
 
   const customer: InfinitepayCustomer = {
     ...(name ? { name } : {}),

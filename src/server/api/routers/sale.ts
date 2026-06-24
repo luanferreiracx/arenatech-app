@@ -3333,19 +3333,19 @@ export const saleRouter = createTRPCRouter({
         });
         if (!s) return { sale: null, store: null, customer: null };
         // Dados da loja (default do checkout) + do cliente (se cadastrado) para
-        // pre-preencher e evitar o formulario de cadastro no PIX.
+        // pre-preencher e evitar o formulario de endereco no PIX.
         // O endereco da loja mora no JSON `address` (chaves PT: cep/logradouro/
         // numero/complemento/bairro/cidade/uf — ver updateGeneralSettingsSchema),
         // NAO nas colunas estruturadas (street/complement/...), que so tem lixo
-        // de migracao. email/phone/tradeName sao colunas top-level (corretas).
+        // de migracao. So o endereco da loja entra no prefill — identidade
+        // (nome/email/telefone) da loja NUNCA (dispara codigo de login da
+        // InfinitePay — ver buildInfinitepayPrefill).
         const st = await tx.tenantSettings.findUnique({
           where: { tenantId: ctx.tenantId },
-          select: { tradeName: true, legalName: true, email: true, phone: true, address: true },
+          select: { address: true },
         });
-        // So a identidade do cliente (nome/email — telefone nunca, ver
-        // buildInfinitepayPrefill) — o ENDERECO vem sempre das Configuracoes da
-        // loja (endereco do cliente nao importa para o PIX e costuma ficar
-        // longo/incompleto).
+        // So a identidade do cliente real (nome/email — telefone nunca, ver
+        // buildInfinitepayPrefill).
         const cust = s.customerId
           ? await tx.customer.findUnique({
               where: { id: s.customerId },
@@ -3376,7 +3376,8 @@ export const saleRouter = createTRPCRouter({
         typeof v === "string" && v.trim() ? v.trim() : null;
 
       // Pre-preenche o checkout para o pagador de balcao nao precisar digitar
-      // dados antes do PIX. Identidade: cliente da venda > loja. Endereco:
+      // dados antes do PIX. Identidade (nome/email): SO do cliente real da venda
+      // — nunca a da loja (dispara codigo de login da InfinitePay). Endereco:
       // sempre a loja (Configuracoes) — ver buildInfinitepayPrefill.
       const prefill = buildInfinitepayPrefill({
         customer: customer
@@ -3386,8 +3387,6 @@ export const saleRouter = createTRPCRouter({
             : null,
         store: store
           ? {
-              name: store.tradeName ?? store.legalName,
-              email: store.email,
               zipCode: addrStr(addr.cep),
               street: addrStr(addr.logradouro),
               streetNumber: addrStr(addr.numero),
@@ -3397,7 +3396,6 @@ export const saleRouter = createTRPCRouter({
               state: addrStr(addr.uf),
             }
           : null,
-        defaultEmail: config.defaultEmail,
       });
 
       const { url } = await createInfinitepayCheckout({
