@@ -175,12 +175,10 @@ describe("buildInfinitepayPrefill", () => {
     state: "PI",
   };
 
-  it("usa dados da loja como padrao quando nao ha cliente", () => {
+  it("usa SO o endereco da loja quando nao ha cliente (identidade da loja nunca)", () => {
     const out = buildInfinitepayPrefill({ store });
-    expect(out.customer).toEqual({
-      name: "Arena Tech",
-      email: "loja@arenatech.com.br",
-    });
+    // Sem cliente real, nao ha identidade: a da loja dispara codigo de login.
+    expect(out.customer).toBeUndefined();
     expect(out.address).toEqual({
       cep: "64000000",
       street: "Av. Principal",
@@ -192,31 +190,26 @@ describe("buildInfinitepayPrefill", () => {
     });
   });
 
-  it("usa defaultEmail quando loja e cliente nao tem email", () => {
+  it("nunca usa nome/email da loja como identidade do comprador", () => {
     const out = buildInfinitepayPrefill({
-      store: { ...store, email: null },
-      defaultEmail: "vendas@arenatech.com.br",
-    });
-    expect(out.customer?.email).toBe("vendas@arenatech.com.br");
-  });
-
-  it("email da loja tem prioridade sobre o defaultEmail", () => {
-    const out = buildInfinitepayPrefill({ store, defaultEmail: "outro@x.com" });
-    expect(out.customer?.email).toBe("loja@arenatech.com.br");
-  });
-
-  it("prioriza dados do cliente, completando lacunas com a loja", () => {
-    const out = buildInfinitepayPrefill({
-      customer: { name: "Joao", email: null, zipCode: null, street: null },
+      customer: { name: "Joao", email: null },
       store,
     });
     expect(out.customer?.name).toBe("Joao");
-    // email/endereco caem para a loja
-    expect(out.customer?.email).toBe("loja@arenatech.com.br");
-    expect(out.address?.cep).toBe("64000000");
-    // Telefone nunca e enviado (o tipo PrefillParty nem aceita): a InfinitePay
-    // dispara codigo de login quando o numero bate com uma conta dela.
+    // email NAO cai para a loja — fica vazio em vez de vazar o email da conta.
+    expect(out.customer).not.toHaveProperty("email");
+    // Telefone nunca e enviado (o tipo PrefillParty nem aceita).
     expect(out.customer).not.toHaveProperty("phoneNumber");
+    // Endereco continua vindo da loja.
+    expect(out.address?.cep).toBe("64000000");
+  });
+
+  it("envia identidade completa quando o cliente real tem nome+email", () => {
+    const out = buildInfinitepayPrefill({
+      customer: { name: "Joao", email: "joao@cliente.com" },
+      store,
+    });
+    expect(out.customer).toEqual({ name: "Joao", email: "joao@cliente.com" });
   });
 
   it("omite address quando nao ha CEP+rua em lugar nenhum", () => {
