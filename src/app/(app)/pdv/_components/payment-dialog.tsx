@@ -348,7 +348,7 @@ export function PaymentDialog({
         {
           onSuccess: (data) => {
             toast.success("Venda finalizada — devolucao registrada.");
-            onSuccess((data as unknown as { id: string }).id);
+            onSuccess(data.id);
           },
           onError: (err) => toast.error(err.message),
         },
