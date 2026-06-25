@@ -91,6 +91,10 @@ export default function NewServiceOrderPage() {
       toast.error("Preencha os campos obrigatorios");
       return;
     }
+    if (!data.technicianId && !data.serviceProviderId) {
+      toast.error("Selecione o tecnico responsavel");
+      return;
+    }
 
     createMutation.mutate({
       customerId: data.customerId,
@@ -106,6 +110,7 @@ export default function NewServiceOrderPage() {
       deviceInfo: data.deviceInfo,
       items: data.items ?? [],
       technicianId: data.technicianId ?? null,
+      serviceProviderId: data.serviceProviderId ?? null,
       vendorId: data.vendorId ?? null,
       isWarranty: data.isWarranty ?? false,
       warrantyType: data.warrantyType ?? null,
@@ -184,7 +189,7 @@ export default function NewServiceOrderPage() {
         ) : (
           <Button
             onClick={handleSubmit}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || (!data.technicianId && !data.serviceProviderId)}
           >
             {createMutation.isPending ? "Criando..." : "Criar OS"}
             <Check className="ml-2 h-4 w-4" />

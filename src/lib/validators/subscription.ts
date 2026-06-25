@@ -202,6 +202,8 @@ export type CreateTenantInput = z.infer<typeof createTenantSchema>;
 export const technicianReportSchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
+  // Filtro de responsável é exclusivo: técnico interno (user) OU prestador externo.
   technicianId: z.string().uuid().optional(),
+  serviceProviderId: z.string().uuid().optional(),
 });
 export type TechnicianReportInput = z.infer<typeof technicianReportSchema>;

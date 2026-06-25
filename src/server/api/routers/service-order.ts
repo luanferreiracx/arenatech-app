@@ -66,6 +66,7 @@ import {
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
+import { resolveOsAssignee } from "@/server/services/os-assignee.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
@@ -469,15 +470,22 @@ export const serviceOrderRouter = createTRPCRouter({
         }
         const totalAmount = serviceAmount + partsAmount;
 
+        // Técnico responsável é obrigatório (schema garante exatamente um) — valida
+        // pertencimento ao tenant + (prestador) flag de técnico antes de gravar.
+        const assignee = await resolveOsAssignee(tx, ctx.tenantId, {
+          kind: input.serviceProviderId ? "provider" : "user",
+          assigneeId: input.serviceProviderId ?? input.technicianId!,
+        });
+
         const order = await tx.serviceOrder.create({
           data: {
             tenantId: ctx.tenantId,
             number,
             customerId: input.customerId,
             createdById: ctx.session.user.id,
-            technicianId: input.technicianId ?? null,
+            technicianId: assignee.technicianId,
             vendorId: input.vendorId ?? null,
-            serviceProviderId: input.serviceProviderId ?? null,
+            serviceProviderId: assignee.serviceProviderId,
             status: "OPEN",
             publicLink: generatePublicLink(),
             deviceType: input.deviceType ?? null,
@@ -546,12 +554,13 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // Carrega dados pra notificacao WhatsApp do tecnico (fora da tx).
+        // Carrega dados pra notificacao WhatsApp do tecnico (fora da tx). Só
+        // técnicos internos têm telefone de usuário; prestador externo não dispara.
         let technicianPhone: string | null = null;
         let technicianName: string | null = null;
-        if (input.technicianId) {
+        if (assignee.technicianId) {
           const tech = await tx.user.findUnique({
-            where: { id: input.technicianId },
+            where: { id: assignee.technicianId },
             select: { name: true, phone: true },
           });
           technicianPhone = tech?.phone ?? null;
@@ -3650,50 +3659,18 @@ export const serviceOrderRouter = createTRPCRouter({
           previousName = prev?.name ? `${prev.name} (prestador)` : "Nenhum";
         }
 
-        // Técnico responsável é exclusivo: usuário OU prestador. Sempre limpa o
-        // outro campo ao gravar.
-        let newName = "Nenhum";
-        const data: { technicianId: string | null; serviceProviderId: string | null } = {
-          technicianId: null,
-          serviceProviderId: null,
-        };
+        // Técnico responsável é obrigatório (toda OS tem um responsável) e
+        // exclusivo: usuário OU prestador. Resolve+valida via helper compartilhado.
+        const resolved = await resolveOsAssignee(tx, ctx.tenantId, {
+          kind: input.kind,
+          assigneeId: input.assigneeId,
+        });
 
-        if (input.assigneeId && input.kind === "user") {
-          // Isolamento cross-tenant: o usuário precisa pertencer ao tenant —
-          // como membro (user_tenants) OU como prestador do módulo de Comissões
-          // (`providers.userId`, tenant-scoped por RLS). Prestadores técnicos
-          // podem ser contratados externos sem vínculo em user_tenants.
-          const [techLink, providerLink] = await Promise.all([
-            tx.userTenant.findUnique({
-              where: { userId_tenantId: { userId: input.assigneeId, tenantId: ctx.tenantId } },
-              select: { userId: true },
-            }),
-            tx.provider.findFirst({ where: { userId: input.assigneeId }, select: { id: true } }),
-          ]);
-          if (!techLink && !providerLink) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao pertence a este tenant" });
-          }
-          const newTech = await withAdmin(async (adminTx) =>
-            adminTx.user.findUnique({ where: { id: input.assigneeId! }, select: { name: true } }),
-          );
-          if (!newTech) throw new TRPCError({ code: "NOT_FOUND", message: "Tecnico nao encontrado" });
-          data.technicianId = input.assigneeId;
-          newName = newTech.name;
-        } else if (input.assigneeId && input.kind === "provider") {
-          // `tx` é escopado por tenant (RLS) — só casa prestador do tenant ativo.
-          const provider = await tx.serviceProvider.findFirst({
-            where: { id: input.assigneeId, deletedAt: null },
-            select: { name: true, isTechnician: true },
-          });
-          if (!provider) throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
-          if (!provider.isTechnician) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Prestador nao esta marcado como tecnico." });
-          }
-          data.serviceProviderId = input.assigneeId;
-          newName = `${provider.name} (prestador)`;
-        }
-
-        await tx.serviceOrder.update({ where: { id: input.orderId }, data });
+        await tx.serviceOrder.update({
+          where: { id: input.orderId },
+          data: { technicianId: resolved.technicianId, serviceProviderId: resolved.serviceProviderId },
+        });
+        const newName = resolved.name;
 
         await tx.serviceOrderHistory.create({
           data: {
