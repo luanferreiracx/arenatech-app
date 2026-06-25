@@ -40,7 +40,11 @@ interface AutentiqueConfig {
 function getConfig(): AutentiqueConfig | null {
   const apiKey = process.env.AUTENTIQUE_API_KEY;
   if (!apiKey) {
-    if (process.env.NODE_ENV === "production") {
+    // AUTENTIQUE_MOCK=1: roda em modo mock mesmo com NODE_ENV=production — usado
+    // pelo E2E (que sobe via `next start`, i.e. production) sem credenciais reais.
+    // Mesmo padrão do WHATSAPP_MOCK. Em prod de verdade a flag não é setada, então
+    // a ausência da chave continua sendo erro (fail-closed).
+    if (process.env.NODE_ENV === "production" && process.env.AUTENTIQUE_MOCK !== "1") {
       throw new Error(
         "Autentique: AUTENTIQUE_API_KEY ausente em prod. Configure a env ou desabilite assinatura digital.",
       );
