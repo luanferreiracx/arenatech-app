@@ -87,6 +87,17 @@ export const proxy = auth((req) => {
     }
   }
 
+  // 0b. Rota legada de rastreamento de OS: o Laravel usava /rastreamento/<link>;
+  //  o Next serve em /os/<link>. Links antigos (salvos pelo cliente, ou enviados
+  //  antes de corrigir a URL do botao no template do WhatsApp) caem aqui em vez
+  //  de 404. Redireciona preservando o publicLink. Rota publica, sem auth.
+  {
+    const trackingMatch = pathname.match(/^\/rastreamento\/(.+)$/);
+    if (trackingMatch) {
+      return NextResponse.redirect(selfUrl(`/os/${trackingMatch[1]}`), { status: 301 });
+    }
+  }
+
   // 0. Raiz "/" por host:
   //  - host de landing (pdvdepix.app): SEMPRE mostra a landing publica
   //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
