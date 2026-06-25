@@ -88,6 +88,24 @@ async function main() {
     create: { userId: operadorArena.id, tenantId: tenantArena.id, role: "operator" },
   });
 
+  // --- Tenant admin (role admin) — exercita fluxos admin-gated (settings da
+  //     loja/assistência, criar serviço/produto/categoria). Sem ele, o E2E só
+  //     tinha operadores e nenhum teste conseguia ver os forms/botões admin. ---
+  const adminCpf = process.env.ADMIN_ARENA_CPF ?? "39053344705";
+  const adminPassword = process.env.ADMIN_ARENA_PASSWORD ?? "Admin@2026";
+  const adminArena = await upsertUserByCpf(adminCpf, {
+    name: "Admin Arena",
+    email: "admin.tenant@arenatechpi.com.br",
+    passwordHash: hashSync(adminPassword, BCRYPT_ROUNDS),
+    isSuperAdmin: false,
+  });
+  await prisma.userTenant.upsert({
+    where: { userId_tenantId: { userId: adminArena.id, tenantId: tenantArena.id } },
+    update: { role: "admin" },
+    create: { userId: adminArena.id, tenantId: tenantArena.id, role: "admin" },
+  });
+  console.log(`User: ${adminArena.name} (${adminArena.id}) [tenant admin]`);
+
   // --- Multi-tenant operator (arena-tech + loja-teste) ---
   const multiCpf = process.env.OPERADOR_MULTI_CPF ?? "11144477735";
   const multiPassword = process.env.OPERADOR_MULTI_PASSWORD ?? "Multi@2026";

@@ -380,7 +380,10 @@ async function addServiceItem(page: Page, description: string) {
   await page.locator("button:has-text('Adicionar')").first().click({ force: true });
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Adicionar Item")).toBeVisible({ timeout: 10000 });
-  await dialog.locator("input").first().fill(description);
+  // O dialog ganhou um campo "Buscar servico no catalogo" (primeiro input). A
+  // descricao manual fica no input adjacente ao label "Descricao" — é ele que
+  // habilita o botao "Adicionar" (disabled enquanto a descricao estiver vazia).
+  await dialog.locator('label:has-text("Descricao") + input').fill(description);
   await dialog.getByRole("button", { name: "Adicionar" }).click({ force: true });
   await expect(dialog).toBeHidden({ timeout: 15000 });
 }

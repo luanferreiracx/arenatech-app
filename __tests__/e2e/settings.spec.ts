@@ -19,9 +19,27 @@ async function login(page: Page) {
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 }
 
+/**
+ * Login como ADMIN do tenant (seed "Admin Arena"). Necessário para páginas
+ * admin-gated (config da loja/assistência, criar catálogo) — o operador padrão
+ * vê só a mensagem "Apenas administradores", sem form.
+ */
+async function loginAsAdmin(page: Page) {
+  await page.context().clearCookies();
+  await page.goto("/login");
+  await page.waitForLoadState("domcontentloaded");
+  const cpfInput = page.getByLabel("CPF");
+  await cpfInput.waitFor({ state: "visible", timeout: 15000 });
+  await cpfInput.click();
+  await cpfInput.fill("39053344705");
+  await page.getByLabel("Senha").fill("Admin@2026");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.waitForLoadState("networkidle", { timeout: 15000 });
+}
+
 test.describe("Settings — Tab Geral", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-1 tab Geral preenche nome da loja", async ({ page }) => {
@@ -43,7 +61,7 @@ test.describe("Settings — Tab Geral", () => {
 
 test.describe("Settings — Tab Assistência", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-3 tab Assistência tem form com submit", async ({ page }) => {
