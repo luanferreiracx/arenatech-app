@@ -75,6 +75,17 @@ código dispara o CI normalmente.
 O "deploy demorava 10min" reportado era um **PR de documentação rodando E2E full
 desnecessariamente** — corrigido pelo paths-ignore, não era o deploy em si.
 
+## Addendum (2026-06-25): full cresceu, timeout ajustado
+
+A estimativa de "~7min" para o full ficou desatualizada. A suíte cresceu para
+~126 testes e roda **serial** (workers=1 em CI, ADR 0039), levando hoje ~25min
+(setup ~9min + testes ~16min). O job `e2e` tinha `timeout-minutes: 18` e o full
+era **cancelado no meio toda run da main** — ou seja, o "só avisa" não avisava
+nada há dias (sinal zero; na prática só o @smoke validava). Ajustado para
+`timeout-minutes: 35` para o full completar e voltar a avisar. Continua advisory
+(deploy não tem `needs: e2e`). Se o full crescer muito mais, considerar shard
+(matrix `--shard`, workers=1 por shard) em vez de subir timeout indefinidamente.
+
 ## Relacionado
 ADR 0045 (deploy serializado + E2E paralelo) — este ADR move o gatilho do deploy
 de "push na main" para "merge na main" e adiciona o escopo smoke/full por evento.
