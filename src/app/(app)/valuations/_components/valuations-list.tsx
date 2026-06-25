@@ -280,7 +280,9 @@ export function ValuationsList() {
   const [deleteModelConfirm, setDeleteModelConfirm] = useState<string | null>(null);
 
   // Data
-  const listQuery = useQuery(trpc.valuation.list.queryOptions({ pageSize: 100 }));
+  // Matriz completa por modelo: precisa de TODAS as linhas (o agrupamento e no
+  // cliente). Paginar aqui escondia modelos inteiros depois da 100a linha.
+  const listQuery = useQuery(trpc.valuation.list.queryOptions({ all: true }));
   const modelsQuery = useQuery(trpc.valuation.listModels.queryOptions());
 
   // Mutations

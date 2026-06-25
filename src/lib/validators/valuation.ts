@@ -30,6 +30,11 @@ export const listValuationsSchema = z.object({
   armazenamento: z.string().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
+  // A tela de Avaliacoes e uma matriz completa por modelo (sem paginacao na UI):
+  // ela agrupa todas as linhas no cliente. Com 30+ modelos x 8 precos a tabela
+  // passa de 100 linhas e o corte por pageSize escondia modelos inteiros. `all`
+  // ignora a paginacao e devolve a tabela inteira do tenant (que e pequena).
+  all: z.boolean().optional(),
 });
 export type ListValuationsInput = z.infer<typeof listValuationsSchema>;
 
