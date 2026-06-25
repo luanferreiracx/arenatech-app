@@ -423,6 +423,12 @@ test.describe("OS — Orçamento e Autorização", () => {
     await page.getByPlaceholder(/Diagnostico identificou/i).fill("Troca de bateria alem da tela");
     await page.getByRole("button", { name: /Enviar para autoriza/i }).click({ force: true });
 
+    // "Enviar para autorizacao" abre o WhatsAppSendDialog (numero ja vem com o
+    // telefone do cliente pre-selecionado) — confirma o envio clicando "Enviar".
+    const sendDialog = page.getByRole("dialog");
+    await expect(sendDialog).toBeVisible({ timeout: 10000 });
+    await sendDialog.getByRole("button", { name: /^Enviar$/ }).click({ force: true });
+
     // Apos enviar, o painel passa a oferecer "Reenviar ao cliente".
     await expect(page.getByRole("button", { name: /Reenviar ao cliente/i })).toBeVisible({ timeout: 15000 });
     await expect(pendingPanel).toBeVisible();
