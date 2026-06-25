@@ -30,7 +30,7 @@ async function loginAsAdmin(page: Page) {
   const cpfInput = page.getByLabel("CPF");
   await cpfInput.waitFor({ state: "visible", timeout: 15000 });
   await cpfInput.click();
-  await cpfInput.fill("39053344705");
+  await cpfInput.fill("86288366757");
   await page.getByLabel("Senha").fill("Admin@2026");
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForLoadState("networkidle", { timeout: 15000 });
@@ -40,8 +40,9 @@ async function loginAsAdmin(page: Page) {
 async function fillNcm(page: Page, code: string) {
   await fillByPlaceholder(page, /8 digitos|busque por nome/i, code);
   // O NcmInput mostra o termo de busca enquanto focado e só exibe o código ao
-  // fechar o dropdown (fecha em mousedown fora). Clica no título p/ fechar.
-  await page.getByRole("heading", { name: /Novo Produto/i }).click({ force: true });
+  // fechar o dropdown (fecha em mousedown FORA do container). Clica no título da
+  // seção fiscal (texto estável, ao lado do campo) p/ disparar esse mousedown.
+  await page.getByText(/Classificacao Fiscal/i).first().click({ force: true });
 }
 
 /** Create a product via UI and return to listing. Only name is required. */

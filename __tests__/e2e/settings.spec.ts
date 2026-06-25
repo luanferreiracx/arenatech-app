@@ -31,7 +31,7 @@ async function loginAsAdmin(page: Page) {
   const cpfInput = page.getByLabel("CPF");
   await cpfInput.waitFor({ state: "visible", timeout: 15000 });
   await cpfInput.click();
-  await cpfInput.fill("39053344705");
+  await cpfInput.fill("86288366757");
   await page.getByLabel("Senha").fill("Admin@2026");
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForLoadState("networkidle", { timeout: 15000 });

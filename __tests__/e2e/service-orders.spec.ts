@@ -375,7 +375,7 @@ async function createOsAndOpenDetail(page: Page, problem: string) {
   await expect(page.locator("main")).toContainText(/OS\d+/, { timeout: 15000 });
 }
 
-/** Adiciona um item de servico (so descricao; valor 0 e suficiente p/ o fluxo). */
+/** Adiciona um item de servico COM valor (R$ 50). */
 async function addServiceItem(page: Page, description: string) {
   await page.locator("button:has-text('Adicionar')").first().click({ force: true });
   const dialog = page.getByRole("dialog");
@@ -384,6 +384,10 @@ async function addServiceItem(page: Page, description: string) {
   // descricao manual fica no input adjacente ao label "Descricao" — é ele que
   // habilita o botao "Adicionar" (disabled enquanto a descricao estiver vazia).
   await dialog.locator('label:has-text("Descricao") + input').fill(description);
+  // Valor > 0 é OBRIGATÓRIO p/ o fluxo de autorização pós-assinatura: só
+  // alterações que AUMENTAM o valor disparam a revisão de orçamento (item sem
+  // valor aplica direto — regra do servidor em addItem). MoneyInput = digitos→centavos.
+  await dialog.locator('input[inputmode="numeric"]').fill("5000"); // R$ 50,00
   await dialog.getByRole("button", { name: "Adicionar" }).click({ force: true });
   await expect(dialog).toBeHidden({ timeout: 15000 });
 }
