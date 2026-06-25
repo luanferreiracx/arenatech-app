@@ -337,6 +337,10 @@ jobs:
       SUPERADMIN_PASSWORD: "Ar3naTech2026Super"
       CRON_SECRET: dev_cron_secret_not_for_production
       WHATSAPP_MOCK: "1"
+      # Sem credenciais reais de Autentique no CI — roda em modo mock (getConfig
+      # devolve null) mesmo com NODE_ENV=production do `next start`. Necessário
+      # para fluxos que assinam digitalmente (ex.: revisão de orçamento da OS).
+      AUTENTIQUE_MOCK: "1"
     services:
       postgres:
         image: postgres:16
@@ -431,6 +435,7 @@ jobs:
           NEXTAUTH_URL: ${{ env.NEXTAUTH_URL }}
           CRON_SECRET: ${{ env.CRON_SECRET }}
           WHATSAPP_MOCK: "1"
+          AUTENTIQUE_MOCK: "1"
           PORT: "3000"
 
       - name: Rodar E2E (${{ steps.scope.outputs.label }})
