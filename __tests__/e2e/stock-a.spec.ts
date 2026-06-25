@@ -19,6 +19,31 @@ async function login(page: Page) {
   await page.waitForLoadState("networkidle", { timeout: 15000 });
 }
 
+/**
+ * Login como ADMIN do tenant (seed "Admin Arena"). Criar atributo/categoria e o
+ * link "Novo Produto" na listagem são admin-only; o operador não os vê.
+ */
+async function loginAsAdmin(page: Page) {
+  await page.context().clearCookies();
+  await page.goto("/login");
+  await page.waitForLoadState("domcontentloaded");
+  const cpfInput = page.getByLabel("CPF");
+  await cpfInput.waitFor({ state: "visible", timeout: 15000 });
+  await cpfInput.click();
+  await cpfInput.fill("39053344705");
+  await page.getByLabel("Senha").fill("Admin@2026");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.waitForLoadState("networkidle", { timeout: 15000 });
+}
+
+/** Preenche o NcmInput (custom — sem name="ncm", busca por placeholder). */
+async function fillNcm(page: Page, code: string) {
+  await fillByPlaceholder(page, /8 digitos|busque por nome/i, code);
+  // O NcmInput mostra o termo de busca enquanto focado e só exibe o código ao
+  // fechar o dropdown (fecha em mousedown fora). Clica no título p/ fechar.
+  await page.getByRole("heading", { name: /Novo Produto/i }).click({ force: true });
+}
+
 /** Create a product via UI and return to listing. Only name is required. */
 async function createProduct(page: Page, name: string, sku?: string) {
   await gotoAndWait(page, "/stock/new");
@@ -101,6 +126,7 @@ test.describe("Estoque-A — Atributos", () => {
   });
 
   test("@business T-07 página de atributos tem botão criar", async ({ page }) => {
+    await loginAsAdmin(page); // "Novo Atributo" é admin-only
     await gotoAndWait(page, "/stock/attributes");
     const createBtn = page.locator("button").filter({ hasText: /[Nn]ov|[Cc]riar|[Aa]dicionar/ });
     await expect(createBtn.first()).toBeVisible({ timeout: 10000 });
@@ -128,6 +154,7 @@ test.describe("Estoque-A — Categorias", () => {
   });
 
   test("@business T-10 CRUD categoria tem botão criar", async ({ page }) => {
+    await loginAsAdmin(page); // "Nova Categoria" é admin-only
     await gotoAndWait(page, "/stock/categories");
     const createBtn = page.locator("button").filter({ hasText: /[Nn]ov|[Cc]riar/ });
     await expect(createBtn.first()).toBeVisible({ timeout: 10000 });
@@ -173,7 +200,7 @@ test.describe("Estoque-A — NCM/CEST Nível 2", () => {
     const name = `ProdNCM-${Date.now()}`;
     await gotoAndWait(page, "/stock/new");
     await fillField(page, "name", name);
-    await fillField(page, "ncm", "85171200");
+    await fillNcm(page, "85171200");
     await page.locator("button[type='submit']").click({ force: true, timeout: 15000 });
     await page.waitForLoadState("networkidle", { timeout: 15000 });
     await gotoAndWait(page, "/stock");
@@ -184,10 +211,10 @@ test.describe("Estoque-A — NCM/CEST Nível 2", () => {
 
   test("@business T-15 form preenche CEST junto com NCM", async ({ page }) => {
     await gotoAndWait(page, "/stock/new");
-    await fillField(page, "ncm", "85171200");
+    await fillNcm(page, "85171200"); // NcmInput (custom) — fecha o dropdown ao final
     await fillField(page, "cest", "2106300");
-    await expect(page.locator("input[name='ncm']")).not.toHaveValue("");
-    await expect(page.locator("input[name='cest']")).not.toHaveValue("");
+    await expect(page.getByPlaceholder(/8 digitos|busque por nome/i)).toHaveValue("85171200");
+    await expect(page.locator("input[name='cest']")).toHaveValue("2106300");
   });
 });
 
@@ -222,7 +249,7 @@ test.describe("Estoque-A — RLS + Navegação", () => {
   });
 
   test("@business T-19 link novo produto aponta para /stock/new", async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page); // o link "Novo Produto" na listagem é admin-only
     await gotoAndWait(page, "/stock");
     const link = page.locator("a[href='/stock/new']");
     await expect(link).toBeVisible({ timeout: 15000 });
