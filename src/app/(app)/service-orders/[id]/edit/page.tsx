@@ -170,7 +170,9 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
     onSubmit({
       id,
       deviceType: isSigned ? order.deviceType : (values.deviceType || null),
-      deviceBrand: isSigned ? order.deviceBrand : (values.deviceBrand || null),
+      // "Marca" nao e mais editavel (foi removida do form) — preserva o dado
+      // historico sempre, sem sobrescrever com vazio.
+      deviceBrand: order.deviceBrand,
       deviceModel: isSigned ? order.deviceModel : (values.deviceModel || null),
       serialNumber: isSigned ? order.serialNumber : (values.serialNumber || null),
       imei: isSigned ? order.imei : (values.imei || null),
@@ -255,8 +257,8 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
                 <SelectContent>{deviceTypeEnum.options.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2"><Label>Marca</Label><Input {...register("deviceBrand")} readOnly={isSigned} /></div>
-            <div className="space-y-2"><Label>Modelo</Label><Input {...register("deviceModel")} readOnly={isSigned} /></div>
+            {/* "Marca" removida — vai no proprio nome do item. Campo renomeado p/ "Item". */}
+            <div className="space-y-2 md:col-span-2"><Label>Item</Label><Input {...register("deviceModel")} readOnly={isSigned} /></div>
             <div className="space-y-2"><Label>Serial</Label><Input {...register("serialNumber")} readOnly={isSigned} /></div>
             <div className="space-y-2"><Label>IMEI</Label><Input {...register("imei")} readOnly={isSigned} /></div>
             <div className="space-y-2"><Label>Senha</Label><Input {...register("devicePassword")} readOnly={isSigned} /></div>

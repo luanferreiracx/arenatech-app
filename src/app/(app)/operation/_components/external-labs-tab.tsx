@@ -30,7 +30,7 @@ export function ExternalLabsTab() {
 
   const form = useForm<CreateExternalLabInput>({
     resolver: zodResolver(createExternalLabSchema),
-    defaultValues: { name: "", contact: "", phone: "", email: "" },
+    defaultValues: { name: "", contact: "", phone: "" },
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.operation.listExternalLabs.queryKey() });
@@ -49,9 +49,9 @@ export function ExternalLabsTab() {
     }
   };
 
-  const handleEdit = (item: { id: string; name: string; contact: string | null; phone: string | null; email: string | null }) => {
+  const handleEdit = (item: { id: string; name: string; contact: string | null; phone: string | null }) => {
     setEditingId(item.id);
-    form.reset({ name: item.name, contact: item.contact ?? "", phone: item.phone ?? "", email: item.email ?? "" });
+    form.reset({ name: item.name, contact: item.contact ?? "", phone: item.phone ?? "" });
     setShowForm(true);
   };
 
@@ -106,10 +106,9 @@ export function ExternalLabsTab() {
             <DialogDescription>Dados do laboratorio externo</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            <div><Label>Contato</Label><Input {...form.register("contact")} /></div>
-            <div><Label>Telefone</Label><Input {...form.register("phone")} /></div>
-            <div><Label>Email</Label><Input {...form.register("email")} /></div>
+            <div><Label>Local</Label><Input {...form.register("name")} placeholder="Nome do laboratorio" /></div>
+            <div><Label>Responsavel</Label><Input {...form.register("contact")} placeholder="Pessoa de contato" /></div>
+            <div><Label>WhatsApp</Label><Input {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>
               <Button type="submit">Salvar</Button>

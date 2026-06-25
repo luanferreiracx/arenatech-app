@@ -205,22 +205,14 @@ export function StepDevice({ data, onChange }: Props) {
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label>Marca</Label>
-            <Input
-              value={data.deviceBrand ?? ""}
-              onChange={(e) => onChange({ deviceBrand: e.target.value || null })}
-              placeholder="Ex: Apple, Samsung..."
-              readOnly={equipmentLocked}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Modelo</Label>
+          {/* "Marca" foi removida — a marca cabe no proprio nome do item
+              (ex.: "Apple iPhone 15 Pro"). Campo renomeado para "Item". */}
+          <div className="space-y-2 md:col-span-2">
+            <Label>Item</Label>
             <Input
               value={data.deviceModel ?? ""}
               onChange={(e) => onChange({ deviceModel: e.target.value || null })}
-              placeholder="Ex: iPhone 15 Pro"
+              placeholder="Ex: Apple iPhone 15 Pro, Samsung S23..."
               readOnly={equipmentLocked}
             />
           </div>
