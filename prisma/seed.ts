@@ -91,7 +91,9 @@ async function main() {
   // --- Tenant admin (role admin) — exercita fluxos admin-gated (settings da
   //     loja/assistência, criar serviço/produto/categoria). Sem ele, o E2E só
   //     tinha operadores e nenhum teste conseguia ver os forms/botões admin. ---
-  const adminCpf = process.env.ADMIN_ARENA_CPF ?? "39053344705";
+  // CPF 86288366757 — válido e único (NÃO usar 39053344705: é do Tecnico Arena,
+  // que roda depois e sobrescreveria este usuário via upsertUserByCpf).
+  const adminCpf = process.env.ADMIN_ARENA_CPF ?? "86288366757";
   const adminPassword = process.env.ADMIN_ARENA_PASSWORD ?? "Admin@2026";
   const adminArena = await upsertUserByCpf(adminCpf, {
     name: "Admin Arena",
