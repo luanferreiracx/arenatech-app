@@ -67,7 +67,11 @@ export const valuationRouter = createTRPCRouter({
         const all = await tx.deviceValuation.findMany({ where });
         all.sort(compareValuations);
         const total = all.length;
-        const pageItems = all.slice(page * pageSize, page * pageSize + pageSize);
+        // `input.all` (matriz da tela de Avaliacoes) devolve a tabela inteira; sem
+        // ele, pagina. O default antigo cortava em 100 e escondia modelos.
+        const pageItems = input.all
+          ? all
+          : all.slice(page * pageSize, page * pageSize + pageSize);
 
         return {
           data: pageItems.map((v) => ({
@@ -75,7 +79,7 @@ export const valuationRouter = createTRPCRouter({
             valor: decimalToCents(v.valor),
           })),
           total,
-          pageCount: Math.ceil(total / pageSize),
+          pageCount: input.all ? 1 : Math.ceil(total / pageSize),
         };
       });
     }),
