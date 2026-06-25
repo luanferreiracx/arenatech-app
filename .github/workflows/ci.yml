@@ -322,7 +322,12 @@ jobs:
     name: E2E
     needs: [lint, typecheck, test]
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    # @smoke (branch/PR) termina em ~3-4min. O FULL (push na main, ~126 testes
+    # serial — workers=1 por ADR 0039) leva ~25min (setup ~9min + testes ~16min).
+    # Era 18min e a suite FULL era cancelada no meio toda run da main (sinal zero
+    # desde que a suite cresceu). 35min dá folga p/ ela completar e voltar a AVISAR
+    # (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy e não bloqueia).
+    timeout-minutes: 35
     env:
       DB_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_e2e
       REDIS_URL: redis://localhost:6379
