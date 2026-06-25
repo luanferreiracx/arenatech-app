@@ -588,8 +588,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 </Link>
               </Button>
             )}
-            {/* Termo de Devolucao — usado no cancelamento (devolucao sem servico). */}
-            {!isCancelled && !isRefunded && !isDelivered && (
+            {/* Termo de Devolucao — so no fluxo de cancelamento (termo enviado ou
+                OS cancelada). No fluxo normal nao faz sentido oferecer o PDF. */}
+            {!isRefunded && !isDelivered && (order.returnTermSent || isCancelled || returnTermSigned) && (
               <Button variant="outline" asChild>
                 <Link href={`/api/service-orders/${order.id}/termo-devolucao`} target="_blank">
                   <FileText className="mr-2 h-4 w-4" />Termo Devolucao
@@ -766,23 +767,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </Button>
             )}
             {order.deliveryTermAutentiqueId && !deliveryTermSigned && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={checkDeliveryTermStatusMut.isPending}
-                  onClick={() => checkDeliveryTermStatusMut.mutate({ orderId: id })}
-                >
-                  <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
-                </Button>
-                {order.deliveryTermLink && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={order.deliveryTermLink as string} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="mr-1 h-3 w-3" />Ver Documento
-                    </a>
-                  </Button>
-                )}
-              </>
+              // Antes da assinatura, so a verificacao de status — visualizar o
+              // documento no Autentique fica disponivel apos o cliente assinar.
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={checkDeliveryTermStatusMut.isPending}
+                onClick={() => checkDeliveryTermStatusMut.mutate({ orderId: id })}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
+              </Button>
             )}
             {canConfirmDeliveryTerm && (
               <Button
@@ -829,23 +823,16 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </Button>
             )}
             {order.returnTermAutentiqueId && !returnTermSigned && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={checkReturnTermStatusMut.isPending}
-                  onClick={() => checkReturnTermStatusMut.mutate({ orderId: id })}
-                >
-                  <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
-                </Button>
-                {order.returnTermLink && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={order.returnTermLink as string} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="mr-1 h-3 w-3" />Ver Documento
-                    </a>
-                  </Button>
-                )}
-              </>
+              // Antes da assinatura, so a verificacao de status — visualizar o
+              // documento no Autentique fica disponivel apos o cliente assinar.
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={checkReturnTermStatusMut.isPending}
+                onClick={() => checkReturnTermStatusMut.mutate({ orderId: id })}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />Verificar Assinatura
+              </Button>
             )}
             {!returnTermSigned && !isCancelled && (
               <Button
@@ -1684,14 +1671,17 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar OS</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {!returnTermSigned && (
+            {/* Termo de devolucao so e exigido se a ENTRADA foi assinada (aparelho
+                sob custodia formal da loja). OS ainda nao assinada pelo cliente
+                cancela direto — espelha o guard do servidor. */}
+            {isSigned && !returnTermSigned && (
               <div className="rounded border border-warning bg-warning/10 p-3 text-sm space-y-3">
                 <div>
                   <strong className="text-warning">Termo de devolucao pendente.</strong>
                   <p className="text-muted-foreground mt-1">
-                    Toda OS exige termo de devolucao assinado antes do cancelamento — o aparelho
-                    esta sob responsabilidade da loja. Envie o termo para assinatura digital ou
-                    confirme a devolucao fisica antes de cancelar.
+                    Esta OS ja foi assinada na entrada — o aparelho esta sob responsabilidade
+                    da loja, entao exige termo de devolucao assinado antes do cancelamento.
+                    Envie o termo para assinatura digital ou confirme a devolucao fisica.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1754,7 +1744,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
             <Button
               variant="destructive"
-              disabled={!cancelReason || (!returnTermSigned && !cancelForce) || cancelMut.isPending}
+              disabled={
+                !cancelReason ||
+                // Termo so trava o cancelamento se a entrada foi assinada.
+                (isSigned && !returnTermSigned && !cancelForce) ||
+                cancelMut.isPending
+              }
               onClick={() => {
                 cancelMut.mutate({ id, reason: cancelReason, force: cancelForce });
                 setCancelDialog(false);

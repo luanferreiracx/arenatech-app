@@ -10,6 +10,7 @@ import {
   updateTemplateSchema,
 } from "@/lib/validators/communication";
 import { sendTextMessage, sendTemplateMessage } from "@/lib/services/whatsapp-service";
+import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { sendEmail } from "@/lib/services/email-service";
 import { logger } from "@/lib/logger";
 
@@ -298,10 +299,20 @@ export const communicationRouter = createTRPCRouter({
               .replace(/\{\{os_number\}\}/g, so.number)
           : `Ola ${customerName}! Sua ordem de servico ${so.number} foi concluida. Entre em contato para retirada.`;
 
-        return { customerPhone: phone, customerName, body };
+        return { customerPhone: phone, customerName, body, osNumber: so.number };
       });
 
-      const result = await sendTextMessage(prep.customerPhone, prep.body);
+      // Antes usava sendTextMessage (texto cru), que só entrega DENTRO da janela
+      // de 24h. Uma OS recém-concluída quase nunca está nessa janela → Meta
+      // rejeitava → "Falha ao enviar notificacao". Agora usa o fallback: texto
+      // livre na janela, template aprovado `os_conclusao` fora dela.
+      const result = await sendTextWithFallback({
+        phone: prep.customerPhone,
+        freeText: prep.body,
+        contexto: "os_conclusao",
+        params: [prep.customerName, prep.osNumber],
+        log: { tenantId: ctx.tenantId, originType: "service_order", originId: input.serviceOrderId },
+      });
 
       await ctx.withTenant(async (tx) => {
         await tx.message.create({

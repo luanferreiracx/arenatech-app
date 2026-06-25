@@ -1045,15 +1045,22 @@ export const serviceOrderRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message });
         }
 
-        // Paridade Laravel (`OrdemServicoController::cancelar`): TODA OS tem
-        // aparelho fisico do cliente — exige termo de devolucao assinado
-        // (Autentique OU fisico) antes do cancelamento. Admin/gerente pode
-        // forcar via input.force - registrado como '[FORCADO]' no historico.
+        // Termo de devolucao so faz sentido se a ENTRADA do aparelho foi
+        // formalizada (cliente assinou o termo de entrada). Numa OS recem-aberta
+        // que o cliente ainda nao assinou, nao ha documento de custodia a
+        // "devolver" — exigir assinatura de devolucao seria burocracia sem
+        // proposito. Nesse caso o cancelamento procede direto.
+        //
+        // Com entrada assinada, mantem a regra (paridade Laravel
+        // `OrdemServicoController::cancelar`): exige termo de devolucao assinado
+        // (Autentique OU fisico). Admin/gerente pode forcar via input.force —
+        // registrado como '[FORCADO]' no historico.
+        const entrySigned = isEntrySigned(order);
         const termSigned = order.returnTermSigned || order.returnTermPhysical;
         const canForce = canForceSignatureOps(ctx);
 
         let forced = false;
-        if (!termSigned) {
+        if (entrySigned && !termSigned) {
           if (!input.force) {
             throw new TRPCError({
               code: "BAD_REQUEST",

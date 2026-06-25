@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+// Email opcional que aceita string vazia. `z.string().email()` rejeita "" (o
+// default comum de inputs vazios), o que travava o submit em silencio — era o
+// bug que fazia o email "parecer" obrigatorio em labs/entregadores. Aqui o tipo
+// de entrada continua `string` (RHF infere certo) e o formato so e cobrado
+// quando ha conteudo.
+const optionalEmail = z
+  .string()
+  .max(200)
+  .optional()
+  .nullable()
+  .refine((v) => !v || z.string().email().safeParse(v).success, {
+    message: "Email invalido",
+  });
+
 // ── Enums ──
 
 export const labOrderStatusEnum = z.enum([
@@ -35,7 +49,7 @@ export const LAB_ORDER_STATUS_VARIANT: Record<string, "default" | "success" | "w
 export const createDeliveryPersonSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(200),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   notes: z.string().max(1000).optional().nullable(),
 });
 export type CreateDeliveryPersonInput = z.infer<typeof createDeliveryPersonSchema>;
@@ -44,7 +58,7 @@ export const updateDeliveryPersonSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1, "Nome obrigatorio").max(200),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   active: z.boolean().optional(),
   notes: z.string().max(1000).optional().nullable(),
 });
@@ -56,7 +70,7 @@ export const createExternalLabSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(200),
   contact: z.string().max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   address: z.object({
     street: z.string().optional(),
     number: z.string().optional(),
@@ -75,7 +89,7 @@ export const updateExternalLabSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(200),
   contact: z.string().max(200).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   address: z.object({
     street: z.string().optional(),
     number: z.string().optional(),
@@ -118,7 +132,7 @@ export const createServiceProviderSchema = z.object({
   type: z.string().min(1, "Tipo obrigatorio").max(50),
   cpfCnpj: z.string().max(18).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   commissionRate: z.number().min(0).max(100).optional().nullable(),
   contractDetails: z.record(z.string(), z.unknown()).optional().nullable(),
   isTechnician: z.boolean().optional(),
@@ -132,7 +146,7 @@ export const updateServiceProviderSchema = z.object({
   type: z.string().min(1, "Tipo obrigatorio").max(50),
   cpfCnpj: z.string().max(18).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
+  email: optionalEmail,
   commissionRate: z.number().min(0).max(100).optional().nullable(),
   contractDetails: z.record(z.string(), z.unknown()).optional().nullable(),
   active: z.boolean().optional(),

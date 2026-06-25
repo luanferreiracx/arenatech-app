@@ -31,6 +31,14 @@ describe("createDeliveryPersonSchema", () => {
   it("rejeita email invalido", () => {
     expect(createDeliveryPersonSchema.safeParse({ name: "Joao", email: "invalid" }).success).toBe(false);
   });
+  // Regressao: o form mandava email:"" por padrao e o schema rejeitava string
+  // vazia, travando o submit em silencio (email "parecia" obrigatorio).
+  it("aceita email vazio (campo opcional)", () => {
+    expect(createDeliveryPersonSchema.safeParse({ name: "Joao", email: "" }).success).toBe(true);
+  });
+  it("aceita sem email", () => {
+    expect(createDeliveryPersonSchema.safeParse({ name: "Joao", phone: "86999999999" }).success).toBe(true);
+  });
 });
 
 describe("updateDeliveryPersonSchema", () => {
@@ -45,6 +53,13 @@ describe("createExternalLabSchema", () => {
   });
   it("aceita com endereco", () => {
     expect(createExternalLabSchema.safeParse({ name: "Lab Central", address: { city: "Teresina", state: "PI" } }).success).toBe(true);
+  });
+  // Regressao: igual ao entregador — email vazio nao pode travar o cadastro.
+  it("aceita email vazio (campo opcional)", () => {
+    expect(createExternalLabSchema.safeParse({ name: "Lab Central", email: "" }).success).toBe(true);
+  });
+  it("rejeita email invalido quando preenchido", () => {
+    expect(createExternalLabSchema.safeParse({ name: "Lab Central", email: "nope" }).success).toBe(false);
   });
 });
 

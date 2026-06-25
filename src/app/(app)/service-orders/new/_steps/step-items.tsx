@@ -61,8 +61,23 @@ function ItemRow({
     !!item.description && !item.serviceId && !item.productId,
   );
 
-  const searchServices = useCallback(
+  const isProduct = item.type === "PRODUCT";
+
+  // Bug corrigido: a busca seguia no catalogo de SERVICOS mesmo com o tipo em
+  // "Produto/Peca". Agora a fonte segue o tipo — servicos via catalog.listServices,
+  // pecas/insumos via serviceOrder.searchParts (produtos nao-serializados do estoque).
+  const searchItems = useCallback(
     async (query: string): Promise<ServiceOption[]> => {
+      if (isProduct) {
+        const parts = await queryClient.fetchQuery(
+          trpc.serviceOrder.searchParts.queryOptions({ query, limit: 20 }),
+        );
+        return parts.map((p) => ({
+          id: p.id,
+          name: p.name,
+          basePrice: p.salePrice,
+        }));
+      }
       const result = await queryClient.fetchQuery(
         trpc.catalog.listServices.queryOptions({
           search: query,
@@ -76,7 +91,7 @@ function ItemRow({
         basePrice: s.basePrice,
       }));
     },
-    [trpc.catalog.listServices, queryClient]
+    [isProduct, trpc.serviceOrder.searchParts, trpc.catalog.listServices, queryClient]
   );
 
   return (
@@ -101,7 +116,17 @@ function ItemRow({
           <Label>Tipo</Label>
           <Select
             value={item.type}
-            onValueChange={(v) => onUpdate(index, { type: v as "SERVICE" | "PRODUCT" })}
+            onValueChange={(v) =>
+              // Trocar o tipo limpa a selecao anterior — um servico escolhido nao
+              // deve sobrar como "peca" (e vice-versa), com preco/descricao stale.
+              onUpdate(index, {
+                type: v as "SERVICE" | "PRODUCT",
+                serviceId: null,
+                productId: null,
+                description: "",
+                unitPrice: 0,
+              })
+            }
           >
             <SelectTrigger>
               <SelectValue />
@@ -117,7 +142,7 @@ function ItemRow({
           {!manualMode ? (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <Label>Servico/Produto</Label>
+                <Label>{isProduct ? "Peca/Produto" : "Servico"}</Label>
                 <button
                   type="button"
                   onClick={() => setManualMode(true)}
@@ -127,19 +152,25 @@ function ItemRow({
                 </button>
               </div>
               <EntitySelector<ServiceOption>
-                value={item.serviceId ?? undefined}
-                onChange={(val) => onUpdate(index, { serviceId: val })}
-                onSelect={(svc) => {
-                  onUpdate(index, {
-                    serviceId: svc.id,
-                    description: svc.name,
-                    unitPrice: svc.basePrice,
-                  });
+                // A chave forca remontagem ao trocar o tipo — limpa o valor
+                // selecionado de um catalogo ao alternar para o outro.
+                key={item.type}
+                value={(isProduct ? item.productId : item.serviceId) ?? undefined}
+                onChange={(val) =>
+                  onUpdate(index, isProduct ? { productId: val } : { serviceId: val })
+                }
+                onSelect={(opt) => {
+                  onUpdate(
+                    index,
+                    isProduct
+                      ? { productId: opt.id, serviceId: null, description: opt.name, unitPrice: opt.basePrice }
+                      : { serviceId: opt.id, productId: null, description: opt.name, unitPrice: opt.basePrice },
+                  );
                 }}
-                searchFn={searchServices}
+                searchFn={searchItems}
                 getOptionLabel={(s) => `${s.name} — ${formatMoney(s.basePrice)}`}
                 getOptionValue={(s) => s.id}
-                placeholder="Buscar servico ou produto..."
+                placeholder={isProduct ? "Buscar peca ou produto..." : "Buscar servico..."}
                 emptyMessage="Nenhum resultado."
               />
             </div>

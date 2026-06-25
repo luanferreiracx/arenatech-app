@@ -30,7 +30,7 @@ export function DeliveryPersonsTab() {
 
   const form = useForm<CreateDeliveryPersonInput>({
     resolver: zodResolver(createDeliveryPersonSchema),
-    defaultValues: { name: "", phone: "", email: "" },
+    defaultValues: { name: "", phone: "" },
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: trpc.operation.listDeliveryPersons.queryKey() });
@@ -50,9 +50,9 @@ export function DeliveryPersonsTab() {
 
   const close = () => { setShowForm(false); setEditingId(null); form.reset(); };
 
-  const handleEdit = (item: { id: string; name: string; phone: string | null; email: string | null }) => {
+  const handleEdit = (item: { id: string; name: string; phone: string | null }) => {
     setEditingId(item.id);
-    form.reset({ name: item.name, phone: item.phone ?? "", email: item.email ?? "" });
+    form.reset({ name: item.name, phone: item.phone ?? "" });
     setShowForm(true);
   };
 
@@ -73,7 +73,7 @@ export function DeliveryPersonsTab() {
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
                   <p className="font-medium">{item.name}</p>
-                  <p className="text-sm text-muted-foreground">{item.phone ?? ""} {item.email ? `| ${item.email}` : ""}</p>
+                  <p className="text-sm text-muted-foreground">{item.phone ?? ""}</p>
                 </div>
                 <div className="flex gap-1">
                   <Button
@@ -108,8 +108,7 @@ export function DeliveryPersonsTab() {
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div><Label>Nome</Label><Input {...form.register("name")} /></div>
-            <div><Label>Telefone</Label><Input {...form.register("phone")} /></div>
-            <div><Label>Email</Label><Input {...form.register("email")} /></div>
+            <div><Label>WhatsApp</Label><Input {...form.register("phone")} placeholder="(00) 00000-0000" inputMode="tel" /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={close}>Cancelar</Button>
               <Button type="submit">Salvar</Button>
