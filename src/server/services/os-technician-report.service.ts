@@ -8,11 +8,20 @@ type TxClient = any;
 export interface TechnicianReportInput {
   dateFrom?: string;
   dateTo?: string;
+  /** Filtro por técnico interno (user). Exclusivo com `serviceProviderId`. */
   technicianId?: string;
+  /** Filtro por prestador externo que atua como técnico. */
+  serviceProviderId?: string;
 }
 
 export interface TechnicianReportItem {
+  /**
+   * Chave única da linha. Para técnico interno é o `user.id`; para prestador é o
+   * `service_provider.id`; para OS sem responsável é `__unassigned__`. Use junto
+   * com `kind` para distinguir a origem.
+   */
   technicianId: string;
+  kind: "user" | "provider" | "none";
   technicianName: string;
   totalOs: number;
   completed: number;
@@ -53,7 +62,9 @@ const EXCLUDED_FROM_FINANCIALS = new Set(["CANCELLED", "REFUNDED"]);
  *  - filtra por `entryDate` (data de entrada da OS), nao `createdAt`;
  *  - `completed` count = COMPLETED + PAID + READY_FOR_PICKUP + DELIVERED;
  *  - valores financeiros (receita/custos/lucro/ticket) excluem CANCELLED e REFUNDED;
- *  - `__unassigned__` (OS sem tecnico) e mantida visivel, paridade com a UI atual.
+ *  - o técnico responsável da OS pode ser um usuário interno (`technicianId`) OU
+ *    um prestador externo (`serviceProviderId`) — ambos viram linhas próprias,
+ *    cada um com seu nome. OS sem nenhum responsável aparece como "Sem técnico".
  */
 export async function buildTechnicianReport(
   tx: TxClient,
@@ -67,13 +78,16 @@ export async function buildTechnicianReport(
     if (input.dateFrom) where.entryDate.gte = startOfDayBrt(input.dateFrom);
     if (input.dateTo) where.entryDate.lte = endOfDayBrt(input.dateTo);
   }
+  // Filtro de responsável é exclusivo: técnico interno OU prestador externo.
   if (input.technicianId) where.technicianId = input.technicianId;
+  else if (input.serviceProviderId) where.serviceProviderId = input.serviceProviderId;
 
   const orders = await tx.serviceOrder.findMany({
     where,
     select: {
       id: true,
       technicianId: true,
+      serviceProviderId: true,
       status: true,
       serviceAmount: true,
       partsAmount: true,
@@ -89,7 +103,9 @@ export async function buildTechnicianReport(
   });
 
   type Entry = {
-    technicianId: string;
+    // Id bruto da entidade (user.id ou service_provider.id), ou null se sem responsável.
+    entityId: string | null;
+    kind: "user" | "provider" | "none";
     totalOs: number;
     completed: number;
     cancelled: number;
@@ -101,21 +117,24 @@ export async function buildTechnicianReport(
     totalDays: number;
     completedCount: number;
   };
+  // Chave composta evita colisão entre user e prestador no mesmo Map.
   const byTech = new Map<string, Entry>();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const o of orders as any[]) {
-    const techId = o.technicianId ?? "__unassigned__";
-    let e = byTech.get(techId);
+    const kind: Entry["kind"] = o.technicianId ? "user" : o.serviceProviderId ? "provider" : "none";
+    const entityId: string | null = o.technicianId ?? o.serviceProviderId ?? null;
+    const key = entityId ? `${kind}:${entityId}` : "__unassigned__";
+    let e = byTech.get(key);
     if (!e) {
       e = {
-        technicianId: techId,
+        entityId, kind,
         totalOs: 0, completed: 0, cancelled: 0,
         serviceValue: 0, partsValue: 0, totalValue: 0,
         partsCost: 0, otherCost: 0,
         totalDays: 0, completedCount: 0,
       };
-      byTech.set(techId, e);
+      byTech.set(key, e);
     }
     e.totalOs++;
     if (COUNTED_AS_COMPLETED.has(o.status)) e.completed++;
@@ -135,18 +154,35 @@ export async function buildTechnicianReport(
     }
   }
 
-  const techIds = [...byTech.keys()].filter((id) => id !== "__unassigned__");
-  const users = techIds.length
-    ? await withAdmin(async (adminTx) =>
-        adminTx.user.findMany({
-          where: { id: { in: techIds } },
-          select: { id: true, name: true },
-        }),
-      )
-    : [];
-  const nameMap = new Map(users.map((u) => [u.id, u.name]));
+  const entries = [...byTech.values()];
+  const userIds = entries.filter((e) => e.kind === "user" && e.entityId).map((e) => e.entityId!);
+  const providerIds = entries.filter((e) => e.kind === "provider" && e.entityId).map((e) => e.entityId!);
 
-  const items: TechnicianReportItem[] = [...byTech.values()]
+  // Nomes de usuários internos (cross-tenant via admin) e prestadores (tenant-scoped).
+  // Inclui prestadores soft-deleted: OS antigas devem manter o nome de quem executou.
+  const [users, providers] = await Promise.all([
+    userIds.length
+      ? withAdmin(async (adminTx) =>
+          adminTx.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+        )
+      : Promise.resolve([] as { id: string; name: string }[]),
+    providerIds.length
+      ? tx.serviceProvider.findMany({ where: { id: { in: providerIds } }, select: { id: true, name: true } })
+      : Promise.resolve([] as { id: string; name: string }[]),
+  ]);
+  const userNames = new Map(users.map((u) => [u.id, u.name]));
+  const providerNames = new Map(providers.map((p: { id: string; name: string }) => [p.id, p.name]));
+
+  const resolveName = (e: { kind: "user" | "provider" | "none"; entityId: string | null }): string => {
+    if (e.kind === "none" || !e.entityId) return "Sem técnico";
+    if (e.kind === "provider") {
+      const name = providerNames.get(e.entityId);
+      return name ? `${name} (prestador)` : "Prestador removido";
+    }
+    return userNames.get(e.entityId) ?? "Usuário removido";
+  };
+
+  const items: TechnicianReportItem[] = entries
     .map((e) => {
       const profit = e.totalValue - e.partsCost - e.otherCost;
       const ticketMedio = e.completed > 0 ? e.totalValue / e.completed : 0;
@@ -154,8 +190,9 @@ export async function buildTechnicianReport(
         ? Math.round((e.totalDays / e.completedCount) * 10) / 10
         : null;
       return {
-        technicianId: e.technicianId,
-        technicianName: nameMap.get(e.technicianId) ?? "Nao identificado",
+        technicianId: e.entityId ?? "__unassigned__",
+        kind: e.kind,
+        technicianName: resolveName(e),
         totalOs: e.totalOs,
         completed: e.completed,
         cancelled: e.cancelled,

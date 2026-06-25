@@ -4,7 +4,6 @@ import { useCallback } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { DateInput } from "@/components/inputs/date-input";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EntitySelector } from "@/components/domain/entity-selector";
@@ -22,21 +21,35 @@ interface UserOption {
   role: string;
 }
 
+// Responsável da OS: técnico interno ("user") ou prestador externo ("provider").
+interface AssigneeOption {
+  id: string;
+  name: string;
+  role: string | null;
+  kind: "user" | "provider";
+}
+
 export function StepSummary({ data, onChange }: Props) {
   const trpc = useTRPC();
   const techQuery = useQuery(
-    trpc.serviceOrder.listTechnicians.queryOptions()
+    trpc.serviceOrder.listTechnicianAssignees.queryOptions()
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const technicians = techQuery.data as UserOption[] | undefined;
+  const technicians = techQuery.data;
   const vendorQuery = useQuery(
     trpc.serviceOrder.listVendors.queryOptions()
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vendors = vendorQuery.data as UserOption[] | undefined;
 
+  // Valor selecionado no formato "kind:id" — distingue user de prestador.
+  const selectedAssignee = data.serviceProviderId
+    ? `provider:${data.serviceProviderId}`
+    : data.technicianId
+      ? `user:${data.technicianId}`
+      : undefined;
+
   const searchTechnicians = useCallback(
-    async (query: string): Promise<UserOption[]> => {
+    async (query: string): Promise<AssigneeOption[]> => {
       if (!technicians) return [];
       const q = query.toLowerCase();
       return technicians.filter((t) => t.name.toLowerCase().includes(q));
@@ -63,18 +76,37 @@ export function StepSummary({ data, onChange }: Props) {
       <h3 className="text-lg font-semibold">Resumo e Responsaveis</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Technician */}
+        {/* Technician — obrigatório (técnico interno ou prestador externo) */}
         <div className="space-y-2">
-          <Label>Tecnico Responsavel</Label>
-          <EntitySelector<UserOption>
-            value={data.technicianId ?? undefined}
-            onChange={(val) => onChange({ technicianId: val })}
+          <Label>
+            Tecnico Responsavel <span className="text-destructive">*</span>
+          </Label>
+          <EntitySelector<AssigneeOption>
+            value={selectedAssignee}
+            onChange={(val) => {
+              if (!val) {
+                onChange({ technicianId: null, serviceProviderId: null });
+                return;
+              }
+              const sep = val.indexOf(":");
+              const kind = val.slice(0, sep);
+              const id = val.slice(sep + 1);
+              // FKs exclusivos: técnico interno limpa prestador e vice-versa.
+              onChange(
+                kind === "provider"
+                  ? { serviceProviderId: id, technicianId: null }
+                  : { technicianId: id, serviceProviderId: null },
+              );
+            }}
             searchFn={searchTechnicians}
-            getOptionLabel={(u) => u.name}
-            getOptionValue={(u) => u.id}
-            placeholder="Selecionar tecnico..."
-            emptyMessage="Nenhum tecnico disponivel. Cadastre um usuario com a funcao Tecnico em Configuracoes > Usuarios."
+            getOptionLabel={(u) => (u.kind === "provider" ? `${u.name} (prestador)` : u.name)}
+            getOptionValue={(u) => `${u.kind}:${u.id}`}
+            placeholder="Selecionar responsavel..."
+            emptyMessage="Nenhum tecnico disponivel. Cadastre um usuario com a funcao Tecnico em Configuracoes > Usuarios, ou um prestador-tecnico."
           />
+          <p className="text-xs text-muted-foreground">
+            Obrigatorio. Pode ser trocado depois na propria OS.
+          </p>
         </div>
 
         {/* Vendor */}

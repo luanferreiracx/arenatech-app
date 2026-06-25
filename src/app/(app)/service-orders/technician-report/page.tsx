@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -27,22 +26,29 @@ export default function TechnicianReportPage() {
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const today = now.toISOString().slice(0, 10);
 
+  // `assignee` guarda a seleção do filtro no formato "kind:id" (user|provider) —
+  // o responsável da OS pode ser técnico interno OU prestador externo.
   const [filters, setFilters] = useState({
     dateFrom: firstDay,
     dateTo: today,
-    technicianId: "",
+    assignee: "",
   });
+
+  const sep = filters.assignee.indexOf(":");
+  const assigneeKind = sep > 0 ? filters.assignee.slice(0, sep) : null;
+  const assigneeId = sep > 0 ? filters.assignee.slice(sep + 1) : "";
 
   const { data, isLoading } = useQuery(
     trpc.serviceOrder.technicianReport.queryOptions({
       dateFrom: filters.dateFrom || undefined,
       dateTo: filters.dateTo || undefined,
-      technicianId: filters.technicianId || undefined,
+      technicianId: assigneeKind === "user" ? assigneeId : undefined,
+      serviceProviderId: assigneeKind === "provider" ? assigneeId : undefined,
     })
   );
 
   const { data: technicians } = useQuery(
-    trpc.serviceOrder.listTechnicians.queryOptions(),
+    trpc.serviceOrder.listTechnicianAssignees.queryOptions(),
   );
 
   return (
@@ -58,7 +64,8 @@ export default function TechnicianReportPage() {
                 const params = new URLSearchParams();
                 if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
                 if (filters.dateTo) params.set("dateTo", filters.dateTo);
-                if (filters.technicianId) params.set("technicianId", filters.technicianId);
+                if (assigneeKind === "user") params.set("technicianId", assigneeId);
+                else if (assigneeKind === "provider") params.set("serviceProviderId", assigneeId);
                 window.open(`/api/service-orders/technician-report/pdf?${params.toString()}`, "_blank");
               }}
             >
@@ -93,9 +100,9 @@ export default function TechnicianReportPage() {
             <div>
               <Label className="text-xs uppercase text-muted-foreground">Tecnico</Label>
               <Select
-                value={filters.technicianId || "all"}
+                value={filters.assignee || "all"}
                 onValueChange={(v) =>
-                  setFilters((f) => ({ ...f, technicianId: v === "all" ? "" : v }))
+                  setFilters((f) => ({ ...f, assignee: v === "all" ? "" : v }))
                 }
               >
                 <SelectTrigger>
@@ -104,16 +111,16 @@ export default function TechnicianReportPage() {
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   {(technicians ?? []).map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
+                    <SelectItem key={`${t.kind}:${t.id}`} value={`${t.kind}:${t.id}`}>
+                      {t.name}{t.kind === "provider" ? " (prestador)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex gap-2">
-              {(filters.dateFrom !== firstDay || filters.dateTo !== today || filters.technicianId) && (
-                <Button variant="outline" size="sm" onClick={() => setFilters({ dateFrom: firstDay, dateTo: today, technicianId: "" })}>
+              {(filters.dateFrom !== firstDay || filters.dateTo !== today || filters.assignee) && (
+                <Button variant="outline" size="sm" onClick={() => setFilters({ dateFrom: firstDay, dateTo: today, assignee: "" })}>
                   Limpar
                 </Button>
               )}

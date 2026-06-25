@@ -148,9 +148,42 @@ describe("createServiceOrderSchema", () => {
       customerId: "550e8400-e29b-41d4-a716-446655440000",
       reportedProblem: "Tela quebrada",
       items: [],
+      technicianId: "550e8400-e29b-41d4-a716-446655440001",
     });
     expect(result.customerId).toBeDefined();
     expect(result.reportedProblem).toBe("Tela quebrada");
+  });
+
+  it("rejects without a responsible technician or provider", () => {
+    expect(() =>
+      createServiceOrderSchema.parse({
+        customerId: "550e8400-e29b-41d4-a716-446655440000",
+        reportedProblem: "Tela quebrada",
+        items: [],
+      })
+    ).toThrow();
+  });
+
+  it("accepts an external service provider as responsible", () => {
+    const result = createServiceOrderSchema.parse({
+      customerId: "550e8400-e29b-41d4-a716-446655440000",
+      reportedProblem: "Tela quebrada",
+      items: [],
+      serviceProviderId: "550e8400-e29b-41d4-a716-446655440002",
+    });
+    expect(result.serviceProviderId).toBe("550e8400-e29b-41d4-a716-446655440002");
+  });
+
+  it("rejects when both technician and provider are set", () => {
+    expect(() =>
+      createServiceOrderSchema.parse({
+        customerId: "550e8400-e29b-41d4-a716-446655440000",
+        reportedProblem: "Tela quebrada",
+        items: [],
+        technicianId: "550e8400-e29b-41d4-a716-446655440001",
+        serviceProviderId: "550e8400-e29b-41d4-a716-446655440002",
+      })
+    ).toThrow();
   });
 
   it("rejects without customer", () => {

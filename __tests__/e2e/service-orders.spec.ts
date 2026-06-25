@@ -96,6 +96,14 @@ async function wizardNext(page: Page) {
   await page.waitForTimeout(300);
 }
 
+/**
+ * Passo 5 (Resumo): seleciona o tecnico responsavel — obrigatorio desde que
+ * toda OS precisa de um responsavel. E o primeiro combobox do passo.
+ */
+async function selectResponsibleTechnician(page: Page) {
+  await selectEntityOption(page, "Tecnico");
+}
+
 /** Fill step 3 (problem) with required reportedProblem. */
 async function fillProblemStep(page: Page, problem: string) {
   const textarea = page.locator("textarea").first();
@@ -253,8 +261,9 @@ test.describe("OS — Wizard de Criação", () => {
     await page.waitForTimeout(300);
     await wizardNext(page);
 
-    // Step 5: Summary — click "Criar OS"
+    // Step 5: Summary — seleciona responsavel (obrigatorio) e clica "Criar OS"
     await expect(page.locator("main")).toContainText(/[Rr]esumo/, { timeout: 10000 });
+    await selectResponsibleTechnician(page);
     const submitBtn = page.locator("button:has-text('Criar OS')");
     await submitBtn.waitFor({ state: "visible", timeout: 10000 });
     await submitBtn.click({ force: true });
@@ -286,7 +295,8 @@ test.describe("OS — Wizard de Criação", () => {
     await page.waitForTimeout(300);
     await wizardNext(page);
 
-    // Step 5: Submit
+    // Step 5: seleciona responsavel (obrigatorio) e submete
+    await selectResponsibleTechnician(page);
     await page.locator("button:has-text('Criar OS')").click({ force: true });
     await dismissTrackingModal(page);
     await page.waitForURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
@@ -316,6 +326,7 @@ test.describe("OS — Detalhe e Edição", () => {
     await wizardNext(page);
     await page.waitForTimeout(300);
     await wizardNext(page);
+    await selectResponsibleTechnician(page);
     await page.locator("button:has-text('Criar OS')").click({ force: true });
     await dismissTrackingModal(page);
     await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });
@@ -357,6 +368,7 @@ async function createOsAndOpenDetail(page: Page, problem: string) {
   await wizardNext(page); // → step 4
   await page.waitForTimeout(300);
   await wizardNext(page); // → step 5
+  await selectResponsibleTechnician(page); // responsavel obrigatorio
   await page.locator("button:has-text('Criar OS')").click({ force: true });
   await dismissTrackingModal(page);
   await expect(page).toHaveURL(/\/service-orders\/[a-z0-9-]+$/, { timeout: 30000 });

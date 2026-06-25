@@ -396,6 +396,23 @@ export const createServiceOrderSchema = z.object({
       message: "OS original obrigatoria para garantia de retorno de servico",
     });
   }
+  // Técnico responsável obrigatório e exclusivo: técnico interno OU prestador.
+  // Garante que nenhuma OS nasça sem responsável (some o "Sem técnico").
+  const hasTechnician = !!data.technicianId;
+  const hasProvider = !!data.serviceProviderId;
+  if (!hasTechnician && !hasProvider) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["technicianId"],
+      message: "Selecione o tecnico responsavel",
+    });
+  } else if (hasTechnician && hasProvider) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["technicianId"],
+      message: "Informe tecnico interno OU prestador, nao ambos",
+    });
+  }
 });
 
 export type CreateServiceOrderInput = z.infer<typeof createServiceOrderSchema>;
@@ -418,9 +435,9 @@ export const updateServiceOrderSchema = z.object({
   entryChecklist: checklistSchema.optional(),
   exitChecklist: checklistSchema.optional(),
   deviceInfo: deviceInfoSchema.optional(),
-  technicianId: z.string().uuid().optional().nullable(),
+  // Técnico responsável NÃO é editado aqui — toda OS tem um responsável e ele só
+  // pode ser TROCADO (nunca removido) pela procedure dedicada `updateTechnician`.
   vendorId: z.string().uuid().optional().nullable(),
-  serviceProviderId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
   warrantyType: z.string().optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
@@ -713,9 +730,10 @@ export const updateTechnicalInfoSchema = z.object({
 export const updateTechnicianSchema = z.object({
   orderId: z.string().uuid(),
   // Técnico responsável: usuário interno ("user") ou prestador externo
-  // ("provider"). `assigneeId` null remove o técnico responsável.
+  // ("provider"). Obrigatório — toda OS tem um responsável; só é possível
+  // trocar, não remover.
   kind: z.enum(["user", "provider"]),
-  assigneeId: z.string().uuid().nullable(),
+  assigneeId: z.string().uuid(),
 });
 
 /** Get OS by customer (for warranty check) */

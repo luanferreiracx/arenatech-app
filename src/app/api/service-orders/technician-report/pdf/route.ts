@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
-import { withAdmin } from "@/server/db";
+import { withAdmin, withTenant } from "@/server/db";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 import { TechnicianReportPdfDocument } from "@/lib/pdf/technician-report-pdf";
@@ -16,7 +16,8 @@ export const runtime = "nodejs";
  * Query params:
  *   - dateFrom: YYYY-MM-DD
  *   - dateTo:   YYYY-MM-DD
- *   - technicianId: uuid (opcional)
+ *   - technicianId: uuid (opcional, técnico interno)
+ *   - serviceProviderId: uuid (opcional, prestador externo) — exclusivo com technicianId
  *
  * Renderiza o relatorio agregado por tecnico no mesmo formato visual da UI
  * de tela. Paridade Laravel `relatorioTecnicos?formato=pdf`.
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
   const dateFrom = url.searchParams.get("dateFrom") ?? "";
   const dateTo = url.searchParams.get("dateTo") ?? "";
   const technicianId = url.searchParams.get("technicianId") ?? "";
+  const serviceProviderId = url.searchParams.get("serviceProviderId") ?? "";
 
   try {
     // Mesma logica de agregacao do procedure technicianReport (service compartilhado)
@@ -44,19 +46,26 @@ export async function GET(req: NextRequest) {
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       technicianId: technicianId || undefined,
+      serviceProviderId: serviceProviderId || undefined,
     });
     const totalsAgg = {
       ...totals,
       ticketMedio: totals.completed > 0 ? Math.round(totals.totalValue / totals.completed) : 0,
     };
 
-    // Nome do tecnico filtrado (header do PDF) — busca cross-tenant via withAdmin.
+    // Nome do responsável filtrado (header do PDF): usuário interno (admin,
+    // cross-tenant) OU prestador externo (tenant-scoped).
     let technicianName: string | null = null;
     if (technicianId) {
       const u = await withAdmin(async (adminTx) =>
         adminTx.user.findUnique({ where: { id: technicianId }, select: { name: true } }),
       );
       technicianName = u?.name ?? null;
+    } else if (serviceProviderId) {
+      const p = await withTenant(tenantId, (tx) =>
+        tx.serviceProvider.findUnique({ where: { id: serviceProviderId }, select: { name: true } }),
+      );
+      technicianName = p?.name ? `${p.name} (prestador)` : null;
     }
 
     const header = await loadTenantHeader(tenantId);
