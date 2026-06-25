@@ -2,9 +2,9 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
-import { Settings, Copy, MessageCircle, Check } from "lucide-react";
+import { Settings, Copy, MessageCircle, Check, Loader2 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -24,33 +24,13 @@ function formatCurrency(centavos: number): string {
   });
 }
 
-function buildQuoteText(service: {
-  serviceType: string | null;
-  deviceModel: string | null;
-  basePrice: number;
-}): string {
-  const price = formatCurrency(service.basePrice);
-  const installmentValue = formatCurrency(Math.round(service.basePrice / 12));
-  const pixPrice = formatCurrency(Math.round((service.basePrice * 95) / 100));
-
-  return [
-    "\u{1F527} ORCAMENTO",
-    `\u{1F4F1} Servico: ${service.serviceType ?? "-"}`,
-    `\u{1F4F2} Aparelho: ${service.deviceModel ?? "-"}`,
-    `\u{1F4B0} Valor: ${price}`,
-    `\u{1F4B3} Parcelamento: ate 12x de ${installmentValue} sem juros`,
-    `\u{1F4B5} Desconto PIX: 5% = ${pixPrice}`,
-    `\u{2705} Valido por 48h`,
-    "",
-    "Arena Tech - Assistencia Tecnica",
-  ].join("\n");
-}
-
 export function ServicesCatalog() {
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [serviceType, setServiceType] = useState<string>("");
   const [deviceModel, setDeviceModel] = useState<string>("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
   const [whatsAppService, setWhatsAppService] = useState<{
     id: string;
     serviceType: string | null;
@@ -76,25 +56,27 @@ export function ServicesCatalog() {
   );
 
   const handleCopy = useCallback(
-    async (
-      id: string,
-      service: {
-        serviceType: string | null;
-        deviceModel: string | null;
-        basePrice: number;
-      },
-    ) => {
+    async (id: string) => {
+      setCopyingId(id);
       try {
-        const text = buildQuoteText(service);
+        // Texto montado no servidor: parcelas/desconto PIX configurados +
+        // observacoes aplicaveis — mesma fonte do envio por WhatsApp.
+        // staleTime 0: sempre reflete a config/observacoes atuais ao copiar.
+        const { text } = await queryClient.fetchQuery({
+          ...trpc.catalog.getServiceQuoteText.queryOptions({ serviceId: id }),
+          staleTime: 0,
+        });
         await navigator.clipboard.writeText(text);
         setCopiedId(id);
         toast.success("Orcamento copiado!");
         setTimeout(() => setCopiedId(null), 2000);
       } catch {
         toast.error("Erro ao copiar orcamento");
+      } finally {
+        setCopyingId(null);
       }
     },
-    [],
+    [queryClient, trpc],
   );
 
   const groupEntries = grouped ? Object.entries(grouped) : [];
@@ -183,9 +165,12 @@ export function ServicesCatalog() {
                       size="sm"
                       variant="default"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => handleCopy(s.id, s)}
+                      onClick={() => handleCopy(s.id)}
+                      disabled={copyingId === s.id}
                     >
-                      {copiedId === s.id ? (
+                      {copyingId === s.id ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : copiedId === s.id ? (
                         <Check className="mr-1 h-3.5 w-3.5" />
                       ) : (
                         <Copy className="mr-1 h-3.5 w-3.5" />

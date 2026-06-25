@@ -25,6 +25,104 @@ function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
   return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
 }
 
+// `any` para o tx tenant-scoped do withTenant — padrao do repo.
+type CatalogTx = any;
+
+/**
+ * Monta o texto do orcamento de servico e os dados do PDF. Fonte ÚNICA usada
+ * tanto pelo botao "Copiar" quanto pelo envio por WhatsApp — antes o "Copiar"
+ * fixava 12x/5% no client e ignorava observacoes, divergindo do envio.
+ *
+ * Paridade Laravel copiarOrcamento/enviarOrcamentoWhatsApp:
+ *  - parcelas sem juros e desconto PIX vêm de `TenantAssistanceSettings`;
+ *  - observacoes ativas aplicaveis por tipo de servico / modelo (escopo).
+ *
+ * NAO inclui a saudacao "Ola {cliente}!" (especifica do WhatsApp) — quem envia
+ * prefixa; o texto copiado é genérico (sem cliente).
+ */
+async function buildServiceQuote(
+  tx: CatalogTx,
+  tenantId: string,
+  serviceId: string,
+  opts?: { clientName?: string },
+): Promise<{ quoteText: string; storeName: string; pdfData: ServiceQuotePdfData }> {
+  const service = await tx.service.findUnique({ where: { id: serviceId } });
+  if (!service || service.deletedAt) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
+  }
+
+  const assistance = await tx.tenantAssistanceSettings.findUnique({ where: { tenantId } });
+  const maxInstallments = assistance?.installmentsNoInterest ?? 12;
+  const pixDiscount = Number(assistance?.pixDiscount ?? 5);
+
+  const observations = await tx.serviceObservation.findMany({
+    where: { tenantId, active: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const relevantObs = observations.filter((o: { serviceTypes: unknown; deviceModels: unknown }) => {
+    const types = (o.serviceTypes as string[] | null) ?? [];
+    const models = (o.deviceModels as string[] | null) ?? [];
+    if (types.length === 0 && models.length === 0) return true;
+    const typeMatch = service.serviceType && types.includes(service.serviceType);
+    const modelMatch = service.deviceModel && models.includes(service.deviceModel);
+    return typeMatch || modelMatch;
+  });
+
+  const settings = await tx.tenantSettings.findUnique({ where: { tenantId } });
+  const storeName = settings?.tradeName ?? "Arena Tech";
+
+  const brl = (cents: number) =>
+    (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const priceCents = serviceToCents(service);
+  const priceFormatted = brl(priceCents);
+  const installmentValue = brl(priceCents / maxInstallments);
+  const pixPriceCents = (priceCents * (100 - pixDiscount)) / 100;
+  const pixPrice = brl(pixPriceCents);
+  const serviceName = service.serviceType ?? service.name;
+  const deviceModel = service.deviceModel ?? "-";
+  const obsList: string[] = relevantObs.map((o: { observation: string }) => o.observation);
+
+  const lines = [
+    `\u{1F527} ORCAMENTO`,
+    `\u{1F4F1} Servico: ${serviceName}`,
+    `\u{1F4F2} Aparelho: ${deviceModel}`,
+    `\u{1F4B0} Valor: ${priceFormatted}`,
+  ];
+  if (maxInstallments > 1) {
+    lines.push(`\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`);
+  }
+  if (pixDiscount > 0) {
+    lines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
+  }
+  if (obsList.length > 0) {
+    lines.push("", "\u{1F4DD} Observacoes:");
+    for (const obs of obsList) lines.push(`\u{2022} ${obs}`);
+  }
+  lines.push("", "\u{2705} Valido por 48h", `${storeName} - Assistencia Tecnica`);
+
+  const generatedAt = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date());
+
+  const pdfData: ServiceQuotePdfData = {
+    storeName,
+    customerName: opts?.clientName ?? "Cliente",
+    serviceName,
+    deviceModel,
+    priceFormatted,
+    installments: maxInstallments,
+    installmentValueFormatted: installmentValue,
+    pixDiscountPercent: pixDiscount,
+    pixPriceFormatted: pixPrice,
+    observations: obsList,
+    generatedAt,
+  };
+
+  return { quoteText: lines.join("\n"), storeName, pdfData };
+}
+
 export const catalogRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // SERVICES
@@ -395,92 +493,34 @@ export const catalogRouter = createTRPCRouter({
    * `servico_orcamento_pdf` (HEADER DOCUMENT) fora dela. Paridade Laravel
    * ServicoController::enviarOrcamentoWhatsApp.
    */
+  /**
+   * Texto do orcamento de servico para copiar (WhatsApp/colar manual). Usa a
+   * MESMA logica do envio: parcelas/desconto PIX de `TenantAssistanceSettings`
+   * + observacoes aplicaveis por tipo/modelo. Paridade Laravel copiarOrcamento.
+   */
+  getServiceQuoteText: tenantProcedure
+    .input(z.object({ serviceId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const { quoteText } = await buildServiceQuote(tx, ctx.tenantId, input.serviceId);
+        return { text: quoteText };
+      });
+    }),
+
   sendServiceWhatsApp: tenantProcedure
     .input(sendServiceWhatsAppSchema)
     .mutation(async ({ ctx, input }) => {
-      // ETAPA 1 — fetch em tx curta (leituras, sem IO externo)
+      // ETAPA 1 — fetch em tx curta (leituras, sem IO externo). Mesma fonte do
+      // botao "Copiar" (buildServiceQuote) + saudacao especifica do WhatsApp.
       const built = await ctx.withTenant(async (tx) => {
-        const service = await tx.service.findUnique({ where: { id: input.serviceId } });
-        if (!service || service.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
-        }
-        const assistance = await tx.tenantAssistanceSettings.findUnique({
-          where: { tenantId: ctx.tenantId },
-        });
-        const maxInstallments = assistance?.installmentsNoInterest ?? 12;
-        const pixDiscount = Number(assistance?.pixDiscount ?? 5);
-
-        const observations = await tx.serviceObservation.findMany({
-          where: { tenantId: ctx.tenantId, active: true },
-          orderBy: { createdAt: "asc" },
-        });
-        const relevantObs = observations.filter((o) => {
-          const types = (o.serviceTypes as string[] | null) ?? [];
-          const models = (o.deviceModels as string[] | null) ?? [];
-          if (types.length === 0 && models.length === 0) return true;
-          const typeMatch = service.serviceType && types.includes(service.serviceType);
-          const modelMatch = service.deviceModel && models.includes(service.deviceModel);
-          return typeMatch || modelMatch;
-        });
-
-        const settings = await tx.tenantSettings.findUnique({
-          where: { tenantId: ctx.tenantId },
-        });
-        const nomeLoja = settings?.tradeName ?? "Arena Tech";
-
-        const brl = (cents: number) =>
-          (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const priceCents = serviceToCents(service);
-        const priceFormatted = brl(priceCents);
-        const installmentValue = brl(priceCents / maxInstallments);
-        const pixPriceCents = (priceCents * (100 - pixDiscount)) / 100;
-        const pixPrice = brl(pixPriceCents);
-        const serviceName = service.serviceType ?? service.name;
-        const deviceModel = service.deviceModel ?? "-";
-        const obsList = relevantObs.map((o) => o.observation);
-
-        // Texto (usado na janela 24h pelo fallback).
-        const lines = [
-          `Ola ${input.clientName}! Segue o orcamento da ${nomeLoja}:`,
-          "",
-          `\u{1F527} ORCAMENTO`,
-          `\u{1F4F1} Servico: ${serviceName}`,
-          `\u{1F4F2} Aparelho: ${deviceModel}`,
-          `\u{1F4B0} Valor: ${priceFormatted}`,
-        ];
-        if (maxInstallments > 1) {
-          lines.push(`\u{1F4B3} Parcelamento: ate ${maxInstallments}x de ${installmentValue} sem juros`);
-        }
-        if (pixDiscount > 0) {
-          lines.push(`\u{1F4B5} A vista (PIX): ${pixPrice} com ${pixDiscount}% de desconto`);
-        }
-        if (obsList.length > 0) {
-          lines.push("", "\u{1F4DD} Observacoes:");
-          for (const obs of obsList) lines.push(`\u{2022} ${obs}`);
-        }
-        lines.push("", "\u{2705} Valido por 48h", `${nomeLoja} - Assistencia Tecnica`);
-
-        const generatedAt = new Intl.DateTimeFormat("pt-BR", {
-          dateStyle: "short",
-          timeStyle: "short",
-          timeZone: "America/Sao_Paulo",
-        }).format(new Date());
-
-        const pdfData: ServiceQuotePdfData = {
-          storeName: nomeLoja,
-          customerName: input.clientName,
-          serviceName,
-          deviceModel,
-          priceFormatted,
-          installments: maxInstallments,
-          installmentValueFormatted: installmentValue,
-          pixDiscountPercent: pixDiscount,
-          pixPriceFormatted: pixPrice,
-          observations: obsList,
-          generatedAt,
-        };
-
-        return { message: lines.join("\n"), pdfData };
+        const { quoteText, storeName, pdfData } = await buildServiceQuote(
+          tx,
+          ctx.tenantId,
+          input.serviceId,
+          { clientName: input.clientName },
+        );
+        const message = `Ola ${input.clientName}! Segue o orcamento da ${storeName}:\n\n${quoteText}`;
+        return { message, pdfData };
       });
 
       // ETAPA 2 — token + WhatsApp Cloud (fora da tx).
