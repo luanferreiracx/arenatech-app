@@ -23,7 +23,7 @@ export const runtime = "nodejs";
  *
  * Ao confirmar: marca o leg `infinitepay` da venda como pago em paymentDetails
  * e dispara pg_notify('depix_paid') (canal compartilhado de "venda paga") para
- * o SSE -> o PDV auto-finaliza. Espelha o webhook depix-payment.
+ * o SSE -> o PDV auto-finaliza. Mesmo canal SSE do webhook da Eulen.
  *
  * HTTP codes:
  *   200 = processado / idempotente / nada a fazer (InfinitePay nao reenvia).

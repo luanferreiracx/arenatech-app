@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * DePix da venda for confirmado. Substitui o polling 4s do DepixQrDialog
  * (que vira fallback de 30s).
  *
- * Fluxo: PixPay webhook -> route depix-payment -> pg_notify('depix_paid', json)
+ * Fluxo: Eulen webhook/monitor -> settleDeposit* -> pg_notify('depix_paid', json)
  * -> fanout compartilhado (subscribeDepixPaid) -> filtra pelo saleId
  * -> emit 'paid' event no SSE.
  *
