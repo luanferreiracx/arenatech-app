@@ -1,15 +1,15 @@
 /**
- * Depix (PixPay) integration for PIX QR code generation.
+ * Integracao com a API oficial DePix (Eulen) — https://docs.eulen.app.
  *
- * Paridade Laravel app/Services/DepixService.php — usa Bearer token (`DEPIX_API_KEY`)
- * + endereco Liquid da loja (`DEPIX_ADDRESS`) para receber. Nao usa merchant_id.
+ * Auth: Bearer JWT (`DEPIX_API_KEY`), obtido via Bot do Telegram da Eulen
+ * (/apitoken, scope deposit/withdraw). Deposito entrega o DePix no
+ * `depixAddress` (carteira LWK do tenant). Sem merchant_id, sem senha.
  *
- * Endpoints (config via env):
- *   - DEPIX_API_URL          (default https://api.pixpay.space/v1/deposit) — POST cria pix
- *   - DEPIX_DEPOSIT_STATUS_URL (default https://api.pixpay.space/v1/deposit-status) — POST consulta
- *   - DEPIX_SAQUE_URL        (default https://api.pixpay.space/v1/withdraw) — POST cria saque
- *   - DEPIX_SAQUE_SENHA      (senha da conta PixPay — obrigatorio p/ saque)
- *   - DEPIX_SAQUE_STATUS_URL (default .../v1/withdraw-status) — GET consulta saque
+ * Endpoints (config via env, defaults = Eulen prod):
+ *   - DEPIX_API_URL            (default https://depix.eulen.app/api/deposit) — POST cria pix
+ *   - DEPIX_DEPOSIT_STATUS_URL (default .../api/deposit-status) — GET ?id= consulta
+ *   - DEPIX_SAQUE_URL          (default https://depix.eulen.app/api/withdraw) — POST cria saque
+ *   - DEPIX_SAQUE_STATUS_URL   (default .../api/withdraw-status) — GET ?id= consulta
  *
  * Quando DEPIX_API_KEY nao configurada, retorna mock para desenvolvimento.
  */
@@ -73,7 +73,7 @@ function getConfig(): DepixConfig | null {
 
   const depositUrl =
     process.env.DEPIX_API_URL?.replace(/\/$/, "") ??
-    "https://api.pixpay.space/v1/deposit";
+    "https://depix.eulen.app/api/deposit";
   const statusUrl =
     process.env.DEPIX_DEPOSIT_STATUS_URL?.replace(/\/$/, "") ??
     depositUrl.replace(/\/deposit$/, "/deposit-status");
@@ -297,10 +297,9 @@ export async function createDepixWithdraw(
   taxId: string,
 ): Promise<DepixWithdrawResult> {
   const apiKey = process.env.DEPIX_API_KEY;
-  const senha = process.env.DEPIX_SAQUE_SENHA;
 
-  if (!apiKey || !senha) {
-    logger.warn("Depix saque: mock mode (DEPIX_API_KEY ou DEPIX_SAQUE_SENHA ausente)");
+  if (!apiKey) {
+    logger.warn("Depix saque: mock mode (DEPIX_API_KEY ausente)");
     return {
       success: true,
       id: `mock-saque-${Date.now()}`,
@@ -312,7 +311,7 @@ export async function createDepixWithdraw(
 
   const saqueUrl =
     process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
-    "https://api.pixpay.space/v1/withdraw";
+    "https://depix.eulen.app/api/withdraw";
 
   const taxIdDigits = taxId.replace(/\D/g, "");
   let pixKeyFormatted: string;
@@ -325,18 +324,19 @@ export async function createDepixWithdraw(
     };
   }
 
+  // Eulen oficial: { pixKey, taxNumber, payoutAmountInCents } — passamos o valor
+  // LIQUIDO (o que o destinatario recebe); a Eulen deduz a taxa dela e devolve
+  // depositAmountInCents (quanto DePix mandar). Sem senha/tipoChave/valor.
   const payload = {
-    senha,
-    valor: valorReais.toFixed(2),
     pixKey: pixKeyFormatted,
-    tipoChave: pixKeyType,
-    tax_id: taxIdDigits,
+    taxNumber: taxIdDigits,
+    payoutAmountInCents: Math.round(valorReais * 100),
   };
 
   logger.info("Depix saque: chamando API", {
     url: saqueUrl,
     tipoChave: pixKeyType,
-    valor: payload.valor,
+    payoutAmountInCents: payload.payoutAmountInCents,
     taxIdMasked: maskTaxNumber(taxIdDigits),
   });
 
@@ -360,8 +360,12 @@ export async function createDepixWithdraw(
       });
       let msg = `HTTP ${response.status}`;
       try {
-        const parsed = JSON.parse(body) as { message?: string; error?: string };
-        msg = parsed.message ?? parsed.error ?? msg;
+        const parsed = JSON.parse(body) as {
+          message?: string;
+          error?: string;
+          errorMessage?: string;
+        };
+        msg = parsed.errorMessage ?? parsed.message ?? parsed.error ?? msg;
       } catch {
         msg = `${msg}: ${body.substring(0, 200)}`;
       }
@@ -369,23 +373,22 @@ export async function createDepixWithdraw(
     }
 
     const body = (await response.json()) as Record<string, unknown>;
-    // PixPay retorna `response` ou `[{response}]` ou objeto raiz.
-    let data: Record<string, unknown>;
-    if (Array.isArray(body) && body.length > 0) {
-      const first = body[0] as Record<string, unknown>;
-      data = (first.response as Record<string, unknown>) ?? first;
-    } else {
-      data = (body.response as Record<string, unknown>) ?? body;
-    }
+    const data = (body.response ?? body) as Record<string, unknown>;
 
-    const erroApi = (data.error as string | undefined) ?? (body.error as string | undefined);
+    // Eulen usa `errorMessage`; mantemos `error` por compatibilidade.
+    const erroApi =
+      (data.errorMessage as string | undefined) ??
+      (data.error as string | undefined) ??
+      (body.error as string | undefined);
     if (erroApi) {
       logger.error("Depix saque: erro da API", { erro: erroApi });
       return { success: false, error: `Erro da API: ${erroApi}` };
     }
 
-    if (!data.id) {
-      logger.error("Depix saque: sem id na resposta");
+    // Eulen retorna `withdrawalId`; aceitamos `id` como fallback.
+    const withdrawalId = (data.withdrawalId as string | undefined) ?? (data.id as string | undefined);
+    if (!withdrawalId) {
+      logger.error("Depix saque: sem withdrawalId na resposta");
       return { success: false, error: "Resposta invalida: sem id" };
     }
 
@@ -404,7 +407,7 @@ export async function createDepixWithdraw(
 
     return {
       success: true,
-      id: String(data.id),
+      id: String(withdrawalId),
       depositAddress,
       depositAddressQr,
       depositAmountInCents,
@@ -428,25 +431,23 @@ export async function createDepixWithdraw(
 
 /**
  * Consulta status de um saque pela API PixPay. Paridade Laravel
- * DepixService::consultarStatusSaque — GET com query `id` + `senha` (a base
- * `/withdraw` vira `/withdraw-status`).
+ * Eulen: GET /withdraw-status?id=... (sem auth, sem senha). Retorna o status
+ * cru (unsent/sending/sent/error/canceled/refunded) + receiptUrl/blockchainTxID.
  */
 export async function getDepixWithdrawStatus(
   depixId: string,
 ): Promise<{ success: boolean; status?: string; raw?: Record<string, unknown>; error?: string }> {
-  const senha = process.env.DEPIX_SAQUE_SENHA;
-  if (!senha) return { success: true, status: "pending" };
   if (depixId.startsWith("mock-saque-")) return { success: true, status: "pending" };
 
   const baseUrl =
     process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
-    "https://api.pixpay.space/v1/withdraw";
+    "https://depix.eulen.app/api/withdraw";
   const statusUrl =
     process.env.DEPIX_SAQUE_STATUS_URL?.replace(/\/$/, "") ??
     baseUrl.replace(/\/withdraw$/, "/withdraw-status");
 
   try {
-    const qs = new URLSearchParams({ id: depixId, senha });
+    const qs = new URLSearchParams({ id: depixId });
     const response = await fetch(`${statusUrl}?${qs.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -543,14 +544,15 @@ export async function getPixStatus(
   }
 
   try {
-    const response = await fetch(config.statusUrl, {
-      method: "POST",
+    // Eulen: GET /deposit-status?id=... (sem body). O Bearer e inofensivo
+    // (o endpoint nao exige auth, mas mantemos por consistencia).
+    const qs = new URLSearchParams({ id: transactionId });
+    const response = await fetch(`${config.statusUrl}?${qs.toString()}`, {
+      method: "GET",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ id: transactionId }),
       signal: AbortSignal.timeout(30_000),
     });
 
@@ -560,16 +562,17 @@ export async function getPixStatus(
 
     const body = (await response.json()) as Record<string, unknown>;
     const data = (body.response ?? body) as Record<string, unknown>;
-    // Normaliza status — PixPay retorna "depix_sent"/"paid"/"under_review"/"expired"/etc
+    // Normaliza status Eulen: pending/under_review/delayed/approved/depix_sent/
+    // refunded/will_refund/expired/canceled/error.
     const raw = String(data.status ?? "pending").toLowerCase();
     let normalized: DepixStatusResult["status"];
-    if (raw === "depix_sent" || raw === "paid" || raw === "completed" || raw === "success") {
+    if (["approved", "depix_sent", "paid", "completed", "success"].includes(raw)) {
       normalized = "paid";
     } else if (raw === "expired") {
       normalized = "expired";
-    } else if (raw === "failed" || raw === "cancelled" || raw === "canceled") {
+    } else if (["failed", "cancelled", "canceled", "error"].includes(raw)) {
       normalized = "failed";
-    } else if (raw === "refunded") {
+    } else if (["refunded", "will_refund"].includes(raw)) {
       normalized = "refunded";
     } else {
       normalized = "pending";
