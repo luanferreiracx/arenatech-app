@@ -15,16 +15,15 @@ O passivo real é **dívida operacional e de higiene**, não bugs que sangram di
 | Severidade | Qtd | Natureza |
 |---|---|---|
 | **P0** (perda de dado/dinheiro / furo explorável) | **0** | — |
-| **P1** (gap sério: estado preso, compliance, robustez crítica) | **4** | repasse DePix sem maxRetries; saque preso sem escalação; crons sem lock (multi-instância); secrets de integração em texto plano |
+| **P1** (gap sério: estado preso, compliance, robustez crítica) | **3** | repasse DePix sem maxRetries; saque preso sem escalação; crons sem lock (multi-instância). _(P1-3 "secrets em texto plano" foi descartado na verificação — ver FP-3.)_ |
 | **P2** (robustez / risco de design / bug menor) | **5** | estorno sem caixa aberto; mutations admin sem audit trail; FK CashMovement; classificação de erro HTTP; rate-limit webhook InfinitePay |
 | **P3** (melhoria / dívida técnica / limpeza) | **6** | ~21 procedures órfãs; 2 componentes mortos; logs de cron sem detalhe por ID; float em cash-session; onDelete implícito; doc de TTL/parcelas |
 
-**Top 5 que mais importam:**
-1. **[P1] Repasse de depósito DePix sem `maxRetries`/escalação** — depósito non-custodial confirmado on-chain pode ficar `PENDING` para sempre se o cron de repasse falhar repetidamente; tenant não recebe o líquido e ninguém é avisado.
-2. **[P1] Saque DePix preso em `PROCESSING` sem fallback** — se o PixPay falha na reconciliação, o saque trava sem alerta e o saldo fica reservado.
-3. **[P1] Secrets de integração em texto plano** (`TenantIntegration.config`) — dump do banco expõe todas as credenciais (DePix, Autentique, Chatwoot, InfinitePay) de todos os tenants.
-4. **[P1] Crons sem lock distribuído** — só vira problema **se** rodar em mais de uma instância; hoje (instância única) é latente. Importante antes de escalar horizontalmente.
-5. **[P2] Estorno sem caixa aberto não registra saída** — recebível é cancelado mas o caixa não é decrementado; gaveta fica desbalanceada sem o operador perceber.
+**Top que mais importam:**
+1. **[P1 — ✅ resolvido no PR #261] Repasse de depósito DePix sem `maxRetries`/escalação** — depósito non-custodial confirmado on-chain podia ficar `PENDING` para sempre se o cron de repasse falhasse repetidamente; tenant não recebia o líquido e ninguém era avisado.
+2. **[P1 — ✅ resolvido no PR #261] Saque DePix preso em `PROCESSING` sem fallback** — se o PixPay falha na reconciliação, o saque travava sem alerta e o saldo ficava reservado.
+3. **[P1] Crons sem lock distribuído** — só vira problema **se** rodar em mais de uma instância; hoje (instância única) é latente. Importante antes de escalar horizontalmente.
+4. **[P2] Estorno sem caixa aberto não registra saída** — recebível é cancelado mas o caixa não é decrementado; gaveta fica desbalanceada sem o operador perceber.
 
 ---
 
@@ -50,12 +49,10 @@ Nenhum P0 confirmado nesta rodada. (Dois achados marcados P0 pelos agentes foram
 - **Confiança:** Média-Alta (lógica de reconciliação existe; falta tratamento de falha persistente do provedor).
 - **Proposta:** Contador de falhas consecutivas por transação; após N (ex. 3) → estado `FAILED_PENDING_MANUAL_CHECK` + alerta para verificação humana no painel do PixPay. Não desbloquear saldo automaticamente (risco de duplo saque).
 
-### P1-3 · Secrets de integração em texto plano (`TenantIntegration.config`)
-- **Onde:** `prisma/schema/settings.prisma` (modelo `TenantIntegration`, campo `config` Json) · `src/server/api/routers/settings.ts` (upsert) · consumido em `src/lib/services/depix-service.ts` etc.
-- **O quê:** `config` guarda `apiKey`/`secret`/`token` de Autentique, DePix, Chatwoot, InfinitePay, Evolution **sem criptografia**. O PFX do certificado fiscal é cifrado — inconsistência. Dump/backup do banco expõe todas as credenciais de todos os tenants; `settings.listIntegrations` pode retorná-las em claro ao client.
-- **Impacto:** Segurança (confidencialidade); credencial vazada move dinheiro / acessa conversas.
-- **Confiança:** Alta (já era conhecido no baseline S6 — confirmado).
-- **Proposta:** Cifrar em repouso (AES-256-GCM com chave em env/KMS, mesmo padrão do PFX) ou vault externo. Nunca retornar o secret ao client — só máscara (`****1234`) + flag "configurado".
+### ~~P1-3 · Secrets de integração em texto plano (`TenantIntegration.config`)~~ → **FALSO-POSITIVO (FP-3), verificado 2026-06-26**
+- **O quê (afirmação do agente):** `TenantIntegration.config` guardaria `apiKey`/`secret`/`token` de Autentique/DePix/Chatwoot/InfinitePay/Evolution sem criptografia.
+- **Verificação manual (descartado):** os serviços de integração leem credenciais de **`process.env`** (`DEPIX_API_KEY`, `EVOLUTION_API_KEY`, `getWhatsappAiAccessConfig()`/`getClaudeConfig()` via env), **não** do banco. As referências `config.apiKey` apontam para objetos de config montados a partir de env (ex. `depix-service.ts:71`), não para `TenantIntegration.config`. O que de fato é persistido em `config` é **não-secreto**: o `handle` público InfinitePay + `defaultEmail` + flags de feature (a UI de Integrações nem tem campo de apiKey/token). O único secret per-tenant real (PFX fiscal) **já é cifrado** (`pfx-encryption.service.ts`). Varredura dos schemas: **nenhuma** coluna `token`/`secret`/`api_key`/`password` em texto plano (só `password_hash`, PFX cifrado, 2FA, `encryptedSeed` DePix).
+- **Conclusão:** Não há secret em claro no banco — a higiene de segredos do sistema está correta (env-vars no server). **Nada a cifrar.** Removido do backlog (PR-B cancelado). Risco residual genuíno = gestão dos próprios env-vars (rotação/escopo), fora deste escopo de código.
 
 ### P1-4 · Crons sem lock distribuído (latente — só com múltiplas instâncias)
 - **Onde:** `src/app/api/cron/process-deposit-repayments/route.ts`, `release-stale-reservations/route.ts`, `reconcile-depix-transactions/route.ts`
@@ -174,10 +171,11 @@ Itens já catalogados que continuam abertos — listados para não confundir com
 
 ## Falsos-positivos corrigidos (verificação manual)
 
-Dois achados que os agentes marcaram como **P0** foram rebaixados/descartados após eu ler o código:
+Três achados dos agentes foram rebaixados/descartados após leitura direta do código:
 
 - **FP-1 · "FKs sem `onDelete` → risco de orphan / `db push` perde RESTRICT" (Agente 3, marcado P0) → DESCARTADO.** O Prisma aplica `Restrict`/`SetNull` por padrão quando `onDelete` é omitido; as 6 migrations citadas mostram **exatamente** esses valores (`ON DELETE RESTRICT`/`SET NULL`) — **não há divergência**. Confirmado em `FinancialTransaction.financialCategory` (opcional → migration `SET NULL`, default Prisma `SetNull`). Além disso o projeto faz deploy via `migrate deploy`, não `db push`. `prisma validate` passa. Sobra apenas a melhoria de legibilidade (P3-5).
 - **FP-2 · "Crons sem lock perdem dinheiro no duplo disparo" (Agente 5, marcado P0) → REBAIXADO para P1-4.** O cron de repasse usa `idempotencyKey = repay:{id}`, então o duplo disparo **não duplica dinheiro on-chain** (confirmado no código). O risco real (corrida em `release-stale-reservations` / estado preso) é P1, condicionado a múltiplas instâncias — hoje instância única.
+- **FP-3 · "Secrets de integração em texto plano em `TenantIntegration.config`" (Agente 2, marcado P1) → DESCARTADO (verificado ao iniciar o PR-B).** Os serviços leem credenciais de **`process.env`**, não do banco; as referências `config.apiKey` são objetos montados a partir de env (ex. `depix-service.ts:71`), não `TenantIntegration.config`. O que `config` persiste é não-secreto (handle público InfinitePay + email + flags). O único secret per-tenant real (PFX) já é cifrado. Varredura de schemas: nenhuma coluna de secret em claro. **Nada a cifrar** → PR-B cancelado.
 
 Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em `finalize` (Postgres serializa no lock de linha + idempotência R5), double-spend em webhook (dedup por unique/`alreadyPaid`), N+1 em `getDraft` (batch `in:`), oversell em estoque (compare-and-set), crons sem auth (todos com `CRON_SECRET` Bearer), webhooks sem HMAC (todos assinados ou com revalidação), secrets em log (nenhum), Redis sem TTL (Talison usa `EX`).
 
@@ -185,8 +183,8 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 
 ## Sugestão de ordem de execução (PRs futuros)
 
-1. **PR-A (P1, dinheiro preso):** `maxRetries` + escalação em `DepixDepositRepayment` (P1-1) **e** estado/alerta de saque preso (P1-2). Casa com logs por ID (P3-3). *Maior impacto financeiro.*
-2. **PR-B (P1, segurança):** cifrar `TenantIntegration.config` em repouso + mascarar no client (P1-3). Mesmo padrão do PFX.
+1. **PR-A — ✅ FEITO (PR #261):** `maxRetries` + escalação em `DepixDepositRepayment` (P1-1) **e** alerta de saque preso (P1-2). Casou com logs por ID (P3-3).
+2. ~~**PR-B (segurança):** cifrar `TenantIntegration.config`~~ → **CANCELADO** (FP-3: não há secret em claro no banco).
 3. **PR-C (P1, escala):** `pg_advisory_xact_lock` nos 3 crons (P1-4). Pré-requisito para escala horizontal.
 4. **PR-D (P2, financeiro):** bloquear/avisar estorno sem caixa aberto (P2-1) + `logAudit` nas mutations admin (P2-2). *Decisão de produto em P2-1.*
 5. **PR-E (P2/P3, robustez):** classificação de erro HTTP `retryable` (P2-4) + rate-limit InfinitePay (P2-5).
