@@ -185,7 +185,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 
 1. **PR-A — ✅ FEITO (PR #261):** `maxRetries` + escalação em `DepixDepositRepayment` (P1-1) **e** alerta de saque preso (P1-2). Casou com logs por ID (P3-3).
 2. ~~**PR-B (segurança):** cifrar `TenantIntegration.config`~~ → **CANCELADO** (FP-3: não há secret em claro no banco).
-3. **PR-C (P1, escala):** `pg_advisory_xact_lock` nos 3 crons (P1-4). Pré-requisito para escala horizontal.
+3. **PR-C — ✅ FEITO (PR #263):** lock por job (tabela `cron_locks` + `withCronLock`, lease 15min, pool-safe) nos 3 crons (P1-4). Optou-se por lock por linha em vez de `pg_advisory_xact_lock` (pool de conexões + chamadas HTTP nos crons).
 4. **PR-D (P2, financeiro):** bloquear/avisar estorno sem caixa aberto (P2-1) + `logAudit` nas mutations admin (P2-2). *Decisão de produto em P2-1.*
 5. **PR-E (P2/P3, robustez):** classificação de erro HTTP `retryable` (P2-4) + rate-limit InfinitePay (P2-5).
 6. **PR-F (P3, limpeza):** triagem de procedures órfãs (P3-1) + remover componentes mortos (P3-2). *Após o dono decidir sobre os órfãos ligados a Admin SaaS/planos.*
