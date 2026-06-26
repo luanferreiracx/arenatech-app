@@ -19,6 +19,7 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
+import { searchWords, expandWord } from "@/lib/search/synonyms";
 
 const MAX_RESULTS = 8;
 const ACESSORIO_PIX_DISCOUNT = 0.05;
@@ -57,23 +58,18 @@ const productStockWhere: Prisma.ProductWhereInput = {
   ],
 };
 
-function searchWords(input: string): string[] {
-  return input
-    .trim()
-    .split(/\s+/)
-    .map((word) => word.toLowerCase())
-    .filter((word) => word.length >= 2);
-}
-
 function accessorySearchWhere(term: string): Prisma.ProductWhereInput[] {
+  // Cada palavra vira "palavra + sinonimos" (modulo compartilhado com o
+  // catalogo). Por palavra: casa QUALQUER sinonimo (OR); entre palavras: todas
+  // exigidas (AND, via o array que entra no AND externo da query).
   return searchWords(term).map((word) => ({
-    OR: [
-      { name: { contains: word, mode: "insensitive" } },
-      { brand: { contains: word, mode: "insensitive" } },
-      { sku: { contains: word, mode: "insensitive" } },
-      { barcode: { contains: word, mode: "insensitive" } },
-      { description: { contains: word, mode: "insensitive" } },
-    ],
+    OR: expandWord(word).flatMap((synonym): Prisma.ProductWhereInput[] => [
+      { name: { contains: synonym, mode: "insensitive" } },
+      { brand: { contains: synonym, mode: "insensitive" } },
+      { sku: { contains: synonym, mode: "insensitive" } },
+      { barcode: { contains: synonym, mode: "insensitive" } },
+      { description: { contains: synonym, mode: "insensitive" } },
+    ]),
   }));
 }
 
@@ -306,7 +302,13 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
                 tenantId: ctx.tenantId,
                 available: true,
                 deletedAt: null,
-                OR: words.map((word) => ({ name: { contains: word, mode: "insensitive" } })),
+                // Mesma expansao de sinonimos do acessorio (ex.: "relogio" acha
+                // "Apple Watch"). Casa qualquer sinonimo de qualquer palavra.
+                OR: words.flatMap((word) =>
+                  expandWord(word).map((synonym) => ({
+                    name: { contains: synonym, mode: "insensitive" as const },
+                  })),
+                ),
               },
               orderBy: [{ price: "asc" }],
               take: MAX_RESULTS,
