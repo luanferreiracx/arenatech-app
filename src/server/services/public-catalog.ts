@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { withAdmin } from "@/server/db";
+import { expandSearchWords } from "@/lib/search/synonyms";
 
 const DEFAULT_PAGE_SIZE = 24;
 const MAX_PAGE_SIZE = 48;
@@ -12,43 +13,6 @@ const LOW_STOCK_THRESHOLD = 3;
 // Fallback usado apenas se o tenant ainda nao configurou um telefone em
 // TenantSettings.phone. No futuro, cada tenant terá o seu proprio numero.
 const FALLBACK_WHATSAPP_NUMBER = "5586995647443";
-
-const SEARCH_SYNONYMS: Record<string, readonly string[]> = {
-  iphone: ["iphone", "lightning", "apple"],
-  ipad: ["ipad", "lightning", "apple"],
-  macbook: ["macbook", "thunderbolt", "usb-c", "type-c"],
-  samsung: ["samsung", "usb-c", "type-c", "galaxy"],
-  xiaomi: ["xiaomi", "usb-c", "type-c"],
-  android: ["android", "usb-c", "type-c", "micro"],
-  fonte: ["fonte", "carregador", "charger"],
-  carregador: ["carregador", "fonte", "charger"],
-  turbo: ["turbo", "rapido", "rápido", "fast", "20w", "25w", "30w", "40w", "65w"],
-  fast: ["fast", "turbo", "rapido", "rápido"],
-  rapido: ["rapido", "rápido", "turbo", "fast"],
-  rápido: ["rapido", "rápido", "turbo", "fast"],
-  pelicula: ["pelicula", "película", "vidro", "protetor"],
-  película: ["película", "pelicula", "vidro", "protetor"],
-  fone: ["fone", "headphone", "headset", "earphone", "earbuds"],
-  headphone: ["headphone", "fone", "headset"],
-  headset: ["headset", "fone", "headphone"],
-  bluetooth: ["bluetooth", "wireless", "sem fio"],
-  wireless: ["wireless", "bluetooth", "sem fio"],
-  mouse: ["mouse"],
-  pendrive: ["pendrive", "pen drive", "flash drive"],
-  hd: ["hd", "disco", "ssd", "armazenamento"],
-  ssd: ["ssd", "hd", "disco", "armazenamento"],
-  capa: ["capa", "case", "capinha", "cover"],
-  capinha: ["capinha", "capa", "case", "cover"],
-  case: ["case", "capa", "capinha"],
-  cabo: ["cabo", "cable"],
-  relogio: ["relogio", "relógio", "smartwatch", "watch"],
-  relógio: ["relógio", "relogio", "smartwatch", "watch"],
-  smartwatch: ["smartwatch", "relogio", "relógio", "watch"],
-  pulseira: ["pulseira", "bracelete"],
-  usb: ["usb", "usb-c", "usb-a", "type-c", "tipo-c"],
-  "tipo-c": ["tipo-c", "type-c", "usb-c"],
-  "type-c": ["type-c", "tipo-c", "usb-c"],
-};
 
 export type CatalogSort = "nome" | "preco_asc" | "preco_desc" | "recentes";
 
@@ -240,22 +204,17 @@ function buildCatalogWhere(input: { tenantId: string; search?: string; categoryI
 }
 
 function buildSearchGroups(search: string | undefined): Prisma.ProductWhereInput[] {
-  const words = (search ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length >= 2);
-
-  return words.map((word) => {
-    const synonyms = SEARCH_SYNONYMS[word.toLowerCase()] ?? [word];
-    return {
-      OR: synonyms.flatMap((synonym): Prisma.ProductWhereInput[] => [
-        { name: { contains: synonym, mode: "insensitive" } },
-        { brand: { contains: synonym, mode: "insensitive" } },
-        { sku: { contains: synonym, mode: "insensitive" } },
-        { barcode: { contains: synonym, mode: "insensitive" } },
-      ]),
-    };
-  });
+  // Cada palavra vira "palavra + sinonimos" (modulo compartilhado com o bot).
+  // Por palavra: casa QUALQUER sinonimo (OR). Entre palavras: todas exigidas
+  // (AND, ja que cada grupo entra no AND externo do buildCatalogWhere).
+  return expandSearchWords(search ?? "").map((synonyms) => ({
+    OR: synonyms.flatMap((synonym): Prisma.ProductWhereInput[] => [
+      { name: { contains: synonym, mode: "insensitive" } },
+      { brand: { contains: synonym, mode: "insensitive" } },
+      { sku: { contains: synonym, mode: "insensitive" } },
+      { barcode: { contains: synonym, mode: "insensitive" } },
+    ]),
+  }));
 }
 
 async function getCatalogCategories(tx: AdminTx, tenantId: string): Promise<CatalogCategory[]> {
