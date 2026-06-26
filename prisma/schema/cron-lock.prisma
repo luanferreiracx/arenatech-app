@@ -1,0 +1,20 @@
+/// Lock cooperativo por JOB para os crons cross-tenant (P1-4 da auditoria
+/// 2026-06-26). Evita execucao concorrente do mesmo job se o app rodar em
+/// mais de uma instancia (ou disparos sobrepostos). A prova de pool de
+/// conexoes (diferente de advisory lock de sessao, que pode soltar em outra
+/// conexao). `expiresAt` (lease) garante auto-liberacao se a instancia que
+/// segurava o lock cair sem liberar.
+///
+/// Tabela GLOBAL (sem tenant_id / sem RLS): acessada so via withAdmin. Veja
+/// withCronLock em src/server/cron-lock.ts.
+model CronLock {
+  /// Nome do job — chave logica do lock (ex.: "process-deposit-repayments").
+  jobName   String   @id @map("job_name")
+  /// Identificador da instancia/execucao que segura o lock (debug/observabilidade).
+  lockedBy  String   @map("locked_by")
+  lockedAt  DateTime @default(now()) @map("locked_at")
+  /// Ate quando o lock e considerado valido. Apos isso, outra instancia pode toma-lo.
+  expiresAt DateTime @map("expires_at")
+
+  @@map("cron_locks")
+}
