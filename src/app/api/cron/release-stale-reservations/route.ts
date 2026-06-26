@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { releaseStaleReservations } from "@/server/services/stock-item.service"
 import { withAdmin } from "@/server/db"
+import { withCronLock } from "@/server/cron-lock"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 
@@ -25,9 +26,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // withAdmin (BYPASSRLS): job global cross-tenant — o client runtime sujeito
-    // a RLS nao enxergaria reservas de nenhum tenant.
-    const result = await withAdmin((tx) => releaseStaleReservations(tx as never))
+    let result = { releasedCount: 0 }
+    // Lock por job: evita liberar a mesma reserva 2x em execucao concorrente
+    // (multi-instancia). withAdmin (BYPASSRLS): job global cross-tenant.
+    const ran = await withCronLock("release-stale-reservations", async () => {
+      result = await withAdmin((tx) => releaseStaleReservations(tx as never))
+    })
+    if (!ran) return NextResponse.json({ skipped: "locked" })
     logger.info(`[cron] Released ${result.releasedCount} stale stock reservations`)
     return NextResponse.json(result)
   } catch (error) {

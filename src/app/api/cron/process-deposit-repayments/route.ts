@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAdmin } from "@/server/db";
+import { withCronLock } from "@/server/cron-lock";
 import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 import { retryRepayment } from "@/server/services/depix-transaction.service";
@@ -34,42 +35,36 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pending = await withAdmin(async (tx) =>
-      tx.depixDepositRepayment.findMany({
-        where: { status: "PENDING" },
-        orderBy: { createdAt: "asc" },
-        take: BATCH_SIZE,
-        select: { id: true },
-      }),
-    );
+    let summary = { scanned: 0, completed: 0, stillPending: 0, failed: 0, skipped: 0 };
+    // Lock por job: idempotencyKey ja impede duplo repasse on-chain, mas o lock
+    // evita duas instancias varrendo o mesmo lote (contadores/lastError em corrida).
+    const ran = await withCronLock("process-deposit-repayments", async () => {
+      const pending = await withAdmin(async (tx) =>
+        tx.depixDepositRepayment.findMany({
+          where: { status: "PENDING" },
+          orderBy: { createdAt: "asc" },
+          take: BATCH_SIZE,
+          select: { id: true },
+        }),
+      );
 
-    let completed = 0;
-    let stillPending = 0;
-    let failed = 0;
-    let skipped = 0;
-    for (const { id } of pending) {
-      const res = await retryRepayment(id);
-      if (res.status === "completed") completed += 1;
-      else if (res.status === "pending") stillPending += 1;
-      else if (res.status === "failed") failed += 1;
-      else skipped += 1;
-    }
+      let completed = 0;
+      let stillPending = 0;
+      let failed = 0;
+      let skipped = 0;
+      for (const { id } of pending) {
+        const res = await retryRepayment(id);
+        if (res.status === "completed") completed += 1;
+        else if (res.status === "pending") stillPending += 1;
+        else if (res.status === "failed") failed += 1;
+        else skipped += 1;
+      }
+      summary = { scanned: pending.length, completed, stillPending, failed, skipped };
+    });
+    if (!ran) return NextResponse.json({ skipped: "locked" });
 
-    logger.info("[cron-deposit-repayments] processed", {
-      scanned: pending.length,
-      completed,
-      stillPending,
-      failed,
-      skipped,
-    });
-    return NextResponse.json({
-      success: true,
-      scanned: pending.length,
-      completed,
-      stillPending,
-      failed,
-      skipped,
-    });
+    logger.info("[cron-deposit-repayments] processed", summary);
+    return NextResponse.json({ success: true, ...summary });
   } catch (err) {
     logger.error("[cron-deposit-repayments] failed", {
       err: err instanceof Error ? err.message : String(err),

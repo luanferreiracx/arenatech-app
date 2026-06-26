@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
+import { withCronLock } from "@/server/cron-lock";
 import { reconcileStaleDepixTransactions } from "@/server/services/depix-transaction.service";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await reconcileStaleDepixTransactions();
+    const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
+    // Lock por job: evita duas instancias consultando/transicionando a mesma tx.
+    const ran = await withCronLock("reconcile-depix-transactions", async () => {
+      results.push(await reconcileStaleDepixTransactions());
+    });
+    const result = results[0];
+    if (!ran || !result) return NextResponse.json({ skipped: "locked" });
     logger.info("[cron-reconcile-depix] processed", result);
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
