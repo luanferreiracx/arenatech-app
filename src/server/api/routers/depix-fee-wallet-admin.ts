@@ -86,10 +86,13 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
       }));
     }),
 
-  /** Reprocessa um repasse on-demand (mesma idempotencyKey repay:{id}). */
+  /**
+   * Reprocessa um repasse on-demand (mesma idempotencyKey repay:{id}).
+   * `manual` reabre um repasse FAILED (esgotado no cron) — override do superadmin.
+   */
   retryRepaymentManual: adminProcedure
     .input(z.object({ repaymentId: z.string().uuid() }))
     .mutation(async ({ input }) => {
-      return retryRepayment(input.repaymentId);
+      return retryRepayment(input.repaymentId, { manual: true });
     }),
 });

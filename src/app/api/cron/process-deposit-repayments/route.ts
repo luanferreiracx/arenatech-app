@@ -45,11 +45,13 @@ export async function POST(request: NextRequest) {
 
     let completed = 0;
     let stillPending = 0;
+    let failed = 0;
     let skipped = 0;
     for (const { id } of pending) {
       const res = await retryRepayment(id);
       if (res.status === "completed") completed += 1;
       else if (res.status === "pending") stillPending += 1;
+      else if (res.status === "failed") failed += 1;
       else skipped += 1;
     }
 
@@ -57,9 +59,17 @@ export async function POST(request: NextRequest) {
       scanned: pending.length,
       completed,
       stillPending,
+      failed,
       skipped,
     });
-    return NextResponse.json({ success: true, scanned: pending.length, completed, stillPending, skipped });
+    return NextResponse.json({
+      success: true,
+      scanned: pending.length,
+      completed,
+      stillPending,
+      failed,
+      skipped,
+    });
   } catch (err) {
     logger.error("[cron-deposit-repayments] failed", {
       err: err instanceof Error ? err.message : String(err),
