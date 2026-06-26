@@ -222,7 +222,7 @@ export async function handleLwkDepositWebhook(
   }
 }
 
-interface CrossCheckResult {
+export interface CrossCheckResult {
   ok: boolean;
   reason?: string;
   onchainAmount: number;
@@ -239,7 +239,7 @@ interface CrossCheckResult {
  *   3. balance contem entrada DePix (is_depix=true)
  *   4. amount on-chain == amount do payload (com tolerancia de 1 centavo)
  */
-async function verifyDepositOnChain(args: {
+export async function verifyDepositOnChain(args: {
   tenantId: string;
   txid: string;
   expectedAmount: number;
