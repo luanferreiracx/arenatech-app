@@ -175,17 +175,11 @@ export async function createPixPayment(
     };
   }
 
+  // CPF/CNPJ do pagador: enviado quando disponivel (anti-fraude — evita
+  // pagamento por terceiros). NAO bloqueamos quando ausente: a API da Eulen em
+  // producao aceita deposito sem `endUserTaxNumber` (apesar de o schema marcar
+  // como required), e fluxos do PDV/wallet nem sempre coletam o CPF do pagador.
   const taxDigits = taxNumber?.replace(/\D/g, "") ?? "";
-  if (!taxDigits) {
-    logger.error("Depix: deposito sem CPF/CNPJ do pagador (endUserTaxNumber obrigatorio)", {
-      amount: amountReais,
-      description,
-    });
-    return {
-      success: false,
-      error: "CPF/CNPJ do pagador e obrigatorio para gerar o PIX",
-    };
-  }
 
   if (!config) {
     logger.warn("Depix: mock mode (DEPIX_API_KEY ausente)", { amount: amountReais, description });
@@ -198,10 +192,10 @@ export async function createPixPayment(
   }
 
   const amountInCents = Math.round(amountReais * 100);
-  const payload: Record<string, string | number> = {
-    amountInCents,
-    endUserTaxNumber: taxDigits,
-  };
+  const payload: Record<string, string | number> = { amountInCents };
+  if (taxDigits) {
+    payload.endUserTaxNumber = taxDigits;
+  }
   // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
   // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
   // (fluxo legacy do PDV/OS/QuickSale).
@@ -213,7 +207,7 @@ export async function createPixPayment(
   logger.info("Depix: criando deposit", {
     url: config.depositUrl,
     amountInCents,
-    taxIdMasked: maskTaxNumber(taxDigits),
+    taxIdMasked: taxDigits ? maskTaxNumber(taxDigits) : null,
     hasDepixAddr: !!payload.depixAddress,
     nonce,
   });

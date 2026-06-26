@@ -171,12 +171,20 @@ describe("Eulen DePix service — contrato oficial (docs.eulen.app)", () => {
     expect(body.amountInCents).toBe(5_000);
   });
 
-  it("recusa deposit sem CPF/CNPJ (endUserTaxNumber obrigatorio na Eulen)", async () => {
+  it("cria deposit SEM CPF — nao envia endUserTaxNumber (Eulen aceita)", async () => {
     const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => syncBody({ id: "dep_2", qrCopyPaste: "0002...", qrImageUrl: "https://q.png" }),
+    } as Response);
+
     const result = await createPixPayment(50, "desc", NONCE, null, { depixAddress: "lq1qq" });
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("CPF/CNPJ");
-    expect(fetchMock).not.toHaveBeenCalled();
+
+    expect(result.success).toBe(true);
+    expect(result.transactionId).toBe("dep_2");
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.endUserTaxNumber).toBeUndefined();
+    expect(body.amountInCents).toBe(5_000);
   });
 
   it("status approved -> pix_received (NAO creditavel, nao final)", async () => {
