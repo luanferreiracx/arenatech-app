@@ -98,8 +98,21 @@ export const APPROVED_TEMPLATES: Record<string, WhatsAppTemplate> = {
   },
 
   // ── Rastreamento (so botao URL, sem PDF) ──
+  // v1: URL do botao no Meta apontava para o dominio/rota do Laravel legado
+  //   (intranet.arenatechpi.com.br/rastreamento/{{1}}) → 404. A URL do botao e
+  //   imutavel em template aprovado, entao foi criado o v2 com a base correta
+  //   (pdvdepix.app/os/{{1}}). Mantido aqui apenas para nao quebrar a leitura de
+  //   envios historicos; o contexto `os_rastreamento` aponta para o v2.
   os_rastreamento_link: {
     name: "os_rastreamento_link",
+    language: "pt_BR",
+    category: "UTILITY",
+    params: 2,
+    hasUrlButton: true,
+    body: "Olá, {{1}}! Sua Ordem de Serviço {{2}} foi aberta. Acompanhe o status em tempo real pelo link abaixo.",
+  },
+  os_rastreamento_link_v2: {
+    name: "os_rastreamento_link_v2",
     language: "pt_BR",
     category: "UTILITY",
     params: 2,
@@ -226,7 +239,7 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   pdv_recibo_pdf: "pdv_recibo_pdf",
   pdv_termo_pdf_link: "pdv_termo_pdf_link",
   // Rastreamento
-  os_rastreamento: "os_rastreamento_link",
+  os_rastreamento: "os_rastreamento_link_v2",
   // Simulador
   simulacao_pdf: "simulacao_pdf",
   // Avaliacao
