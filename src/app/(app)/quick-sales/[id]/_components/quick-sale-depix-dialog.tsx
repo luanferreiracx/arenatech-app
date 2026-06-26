@@ -186,7 +186,7 @@ export function QuickSaleDepixDialog({
           <div className="space-y-3 py-2">
             <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm">
               Para PIX a partir de <strong>R$ 500,00</strong>, e obrigatorio
-              informar o CPF/CNPJ do pagador (exigencia anti-fraude da PixPay).
+              informar o CPF/CNPJ do pagador (exigencia anti-fraude da Eulen).
             </div>
             <div className="space-y-1">
               <Label>CPF ou CNPJ do pagador *</Label>

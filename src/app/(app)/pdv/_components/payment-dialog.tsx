@@ -719,7 +719,7 @@ export function PaymentDialog({
                   <div className="font-semibold">Ja recebi via DePix (sem gerar QR)</div>
                   <div className="text-muted-foreground">
                     Use quando o cliente ja pagou em outro app/dispositivo.
-                    A venda finaliza sem aguardar confirmacao da PixPay.
+                    A venda finaliza sem aguardar confirmacao do provedor.
                   </div>
                 </div>
               </label>

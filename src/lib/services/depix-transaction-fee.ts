@@ -8,17 +8,15 @@
  *
  * Empilha sobre a taxa do provedor. UI mostra breakdown transparente.
  *
- * DEPOSITO: PixPay cobra R$ 0,99 fixo + 0,5% sobre o valor pago pelo cliente.
- * Linear.
+ * DEPOSITO: Eulen cobra R$ 0,99 fixo sobre o valor pago pelo cliente.
  *
- * SAQUE: PixPay retorna o valor real ao criar a intencao
- * (depositAmountInCents - payoutAmountInCents). A estimativa local usa a regra
- * observada na documentacao: payout = deposit - 1%. Ela existe so pra UI antes
- * da confirmacao; o backend revalida saldo com o retorno real do PixPay.
+ * SAQUE: Eulen cobra 1% fixo. Ela retorna o valor real ao criar a intencao
+ * (depositAmountInCents - payoutAmountInCents); o backend revalida saldo com o
+ * retorno real. A estimativa local existe so pra UI antes da confirmacao.
  *
  * --- LIMITES DE OPERACAO ---
  *   Min  R$ 10,00  (deposito e saque) — abaixo nao compensa as taxas
- *   Max  R$ 5.000,00 (deposito e saque) — limite operacional PixPay
+ *   Max  R$ 5.000,00 (deposito e saque) — limite operacional
  */
 
 export interface DepixFeeConfig {
@@ -66,29 +64,20 @@ function pct(amountCents: number, percent: number): number {
 }
 
 /**
- * Estimativa da taxa do provedor (PixPay) no SAQUE em centavos.
+ * Estimativa da taxa do provedor (Eulen) no SAQUE em centavos: 1% fixo.
  *
- * O PixPay confirma o valor real no create withdraw (depositAmount - payout);
- * o backend revalida o saldo com o retorno real. Esta e so a estimativa do
- * preview, conforme a tabela documentada do PixPay.
- * Recebe `requestedReaisCents` = valor LIQUIDO pretendido pelo destinatario.
+ * A Eulen confirma o valor real no create withdraw (depositAmount - payout) e
+ * o backend revalida o saldo com o retorno real — esta e so a estimativa do
+ * preview. Recebe `requestedReaisCents` = valor LIQUIDO pretendido.
  */
 export function estimatePixPayWithdrawFee(requestedReaisCents: number): number {
   if (requestedReaisCents <= 0) return 0;
-  if (requestedReaisCents <= 10000) {
-    return 199; // R$ 1,99 ate R$ 100
-  }
-  if (requestedReaisCents <= 80000) {
-    // R$ 1,99 + 1,65% sobre o excedente acima de R$ 100
-    return 199 + roundCents(((requestedReaisCents - 10000) * 1.65) / 100);
-  }
-  // > R$ 800: R$ 5,50 + 1% sobre o valor todo
-  return 550 + roundCents((requestedReaisCents * 1.0) / 100);
+  return roundCents(requestedReaisCents * 0.01); // 1% fixo (Eulen)
 }
 
-/** Estimativa da taxa PixPay no DEPOSITO em centavos: R$ 0,99 + 0,5% linear. */
-export function estimatePixPayDepositFee(grossCents: number): number {
-  return 99 + pct(grossCents, 0.5);
+/** Estimativa da taxa Eulen no DEPOSITO em centavos: R$ 0,99 fixo. */
+export function estimatePixPayDepositFee(_grossCents: number): number {
+  return 99; // R$ 0,99 fixo (Eulen)
 }
 
 /**
