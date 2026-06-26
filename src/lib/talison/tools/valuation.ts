@@ -156,7 +156,7 @@ const calcularAvaliacaoSchema = z.object({
   saude_bateria_percent: z
     .number()
     .optional()
-    .describe("Saúde da bateria em % que o cliente INFORMOU (ex: 89). Não invente."),
+    .describe("Saúde da bateria em % que o cliente INFORMOU (ex: 89). Não invente. Só vale pra iPhone/iPad/Apple Watch — IGNORE (não peça) pra console e MacBook."),
   tem_caixa: z.boolean().optional().describe("O cliente informou que tem a caixa original?"),
   marcas_uso: z
     .enum(["nenhuma", "leves", "medias", "fortes"])

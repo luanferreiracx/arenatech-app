@@ -106,6 +106,18 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("NÃO reenvie o questionário");
   });
 
+  it("não pede bateria de console/MacBook; só usa link da tool; resolve quando cliente não vê o link", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    // Bug Vitor: bot pediu bateria de PS4 Pro.
+    expect(prompt).toContain("NUNCA pergunte saúde da bateria");
+    expect(prompt).toContain("CONSOLE ou MacBook");
+    // Bug Thaissa: bot inventou URL loja.arenatechpi.com.br/produtos.
+    expect(prompt).toContain("loja.arenatechpi.com.br/produtos");
+    // Atrito do catálogo: não reenviar link, descrever/transferir.
+    expect(prompt).toContain("NÃO CONSEGUE VER O LINK");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
