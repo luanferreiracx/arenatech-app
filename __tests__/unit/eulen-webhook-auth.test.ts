@@ -19,9 +19,18 @@ afterEach(() => {
 });
 
 describe("verifyEulenWebhookAuth", () => {
-  it("aceita Basic com a senha correta (qualquer username)", () => {
+  it("aceita Basic base64(username:secret) (qualquer username)", () => {
     expect(verifyEulenWebhookAuth(basic("partner", "s3cr3t-xyz")).ok).toBe(true);
     expect(verifyEulenWebhookAuth(basic("pdvdepixapp", "s3cr3t-xyz")).ok).toBe(true);
+  });
+
+  it("aceita Basic com o secret CRU (formato do exemplo principal da doc)", () => {
+    expect(verifyEulenWebhookAuth("Basic s3cr3t-xyz").ok).toBe(true);
+  });
+
+  it("aceita Basic base64(secret) (secret sozinho em base64)", () => {
+    const b64 = Buffer.from("s3cr3t-xyz").toString("base64");
+    expect(verifyEulenWebhookAuth(`Basic ${b64}`).ok).toBe(true);
   });
 
   it("rejeita senha errada", () => {
