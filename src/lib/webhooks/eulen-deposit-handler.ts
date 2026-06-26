@@ -6,6 +6,7 @@ import { propagateDepositNotPaid } from "@/lib/webhooks/depix-deposit-propagate"
 import {
   settleDepositConfirmed,
   settleDepositViaFeeWallet,
+  applyPixReceivedEffects,
 } from "@/server/services/depix-transaction.service";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 
@@ -84,7 +85,8 @@ export async function handleEulenDepositWebhook(
     return { status: 200, body: { ok: true, matched: false } };
   }
 
-  // ── PIX aprovado: sinal intermediario, sem credito ──
+  // ── PIX aprovado: o cliente pagou (fiat caiu). LIBERA a venda na hora (PDV/
+  //    QuickSale) — nao espera o on-chain. NAO credita saldo (isso e COMPLETED).
   if (PIX_APPROVED_STATUSES.has(statusRaw)) {
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
@@ -92,6 +94,9 @@ export async function handleEulenDepositWebhook(
         data: { pixApprovedAt: new Date() },
       }),
     );
+    // Efeito de venda (QuickSale->PAID + notify SSE). Tenant REAL (a venda e
+    // dele, nao da carteira de taxas). Idempotente.
+    await applyPixReceivedEffects(txRow.tenantId, txRow.id);
     await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
     return { status: 200, body: { ok: true, pixApproved: true } };
   }
@@ -100,13 +105,15 @@ export async function handleEulenDepositWebhook(
   if (PAID_ONCHAIN_STATUSES.has(statusRaw)) {
     const blockchainTxId = payload.blockchainTxID;
     if (!blockchainTxId) {
-      // Sem txid nao da pra cross-check; deixa o monitor on-chain completar.
+      // Sem txid nao da pra cross-check; deixa o monitor on-chain creditar o
+      // saldo. Mas o PIX ja caiu -> libera a venda na hora (idempotente).
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.updateMany({
           where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
           data: { pixApprovedAt: new Date() },
         }),
       );
+      await applyPixReceivedEffects(txRow.tenantId, txRow.id);
       await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
       return { status: 200, body: { ok: true, depixSent: true, awaitingMonitor: true } };
     }

@@ -3300,7 +3300,14 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Transacao nao pertence a esta venda." });
         }
         let status: "pending" | "paid" | "expired" | "failed" = "pending";
-        if (walletTx.status === "COMPLETED" || walletTx.status === "COMPLETED_FEE_PENDING") status = "paid";
+        // Venda PAGA = PIX recebido (pixApprovedAt). O dinheiro fiat ja caiu; o
+        // PDV libera na hora, sem esperar o on-chain (COMPLETED credita saldo).
+        if (
+          walletTx.status === "COMPLETED" ||
+          walletTx.status === "COMPLETED_FEE_PENDING" ||
+          walletTx.pixApprovedAt != null
+        )
+          status = "paid";
         else if (walletTx.status === "EXPIRED") status = "expired";
         else if (walletTx.status === "FAILED" || walletTx.status === "CANCELLED") status = "failed";
         return { status, isFinal: status !== "pending" };
