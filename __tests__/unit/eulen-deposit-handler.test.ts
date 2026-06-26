@@ -15,6 +15,7 @@ const settleDepositConfirmed = vi.fn();
 const settleDepositViaFeeWallet = vi.fn();
 const getFeeWalletTenantId = vi.fn();
 const propagateDepositNotPaid = vi.fn();
+const applyPixReceivedEffects = vi.fn();
 
 vi.mock("@/server/db", () => ({
   withAdmin: (fn: (tx: unknown) => unknown) =>
@@ -33,6 +34,7 @@ vi.mock("@/lib/webhooks/depix-deposit-propagate", () => ({
 vi.mock("@/server/services/depix-transaction.service", () => ({
   settleDepositConfirmed: (...a: unknown[]) => settleDepositConfirmed(...a),
   settleDepositViaFeeWallet: (...a: unknown[]) => settleDepositViaFeeWallet(...a),
+  applyPixReceivedEffects: (...a: unknown[]) => applyPixReceivedEffects(...a),
 }));
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: (...a: unknown[]) => getFeeWalletTenantId(...a),
@@ -58,7 +60,7 @@ beforeEach(() => {
   for (const m of [
     findFirst, updateMany, recordWebhookEvent, markWebhookProcessed,
     verifyDepositOnChain, settleDepositConfirmed, settleDepositViaFeeWallet,
-    getFeeWalletTenantId, propagateDepositNotPaid,
+    getFeeWalletTenantId, propagateDepositNotPaid, applyPixReceivedEffects,
   ]) m.mockReset();
   recordWebhookEvent.mockResolvedValue(true);
   updateMany.mockResolvedValue({ count: 1 });
@@ -68,7 +70,7 @@ beforeEach(() => {
 });
 
 describe("handleEulenDepositWebhook", () => {
-  it("approved -> marca pixApprovedAt, NAO credita", async () => {
+  it("approved -> marca pixApprovedAt, LIBERA venda, NAO credita saldo", async () => {
     const res = await handleEulenDepositWebhook(
       { webhookType: "deposit", qrId: "q1", status: "approved", valueInCents: 10000 },
       null,
@@ -76,7 +78,11 @@ describe("handleEulenDepositWebhook", () => {
     expect(res.body).toMatchObject({ pixApproved: true });
     const data = updateMany.mock.calls[0]![0] as { data: { pixApprovedAt: unknown } };
     expect(data.data.pixApprovedAt).toBeInstanceOf(Date);
+    // Libera a venda na hora (PIX recebido) com o tenant REAL...
+    expect(applyPixReceivedEffects).toHaveBeenCalledWith(TENANT, "tx-1");
+    // ...mas NAO credita saldo (isso so no on-chain/COMPLETED).
     expect(settleDepositConfirmed).not.toHaveBeenCalled();
+    expect(settleDepositViaFeeWallet).not.toHaveBeenCalled();
   });
 
   it("depix_sent confirmado on-chain -> settle COMPLETED (custodial)", async () => {

@@ -24,6 +24,7 @@ import {
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
+import { verifyDepositOnChain } from "@/lib/webhooks/verify-deposit-onchain";
 import {
   getFeeWalletTenantId,
   ensureFeeWalletLbtc,
@@ -803,24 +804,24 @@ export async function retryRepayment(
   return { status: "completed" };
 }
 
-export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {
-  const row = await withTenant(tenantId, async (tx) =>
-    tx.tenantDepixTransaction.findUnique({
-      where: { id: transactionId },
-      select: {
-        id: true,
-        tenantId: true,
-        sourceType: true,
-        sourceId: true,
-        grossAmountCents: true,
-        status: true,
-      },
-    }),
-  );
-  if (!row || row.status !== "COMPLETED") return { applied: false };
-
+/**
+ * Efeito de VENDA de um depósito DePix com origem em PDV/QuickSale: marca a
+ * QuickSale como PAID e dispara `pg_notify('depix_paid')` para o SSE (PDV
+ * auto-finaliza). Idempotente: a QuickSale só transiciona de AWAITING_PAYMENT,
+ * então reentrega de webhook (approved + depix_sent) não duplica.
+ *
+ * Disparado no marco **PIX recebido** (`approved`) — o dinheiro fiat já caiu, a
+ * venda libera na hora. O crédito de SALDO (COMPLETED) é separado e só ocorre
+ * on-chain (`settleDeposit*`). Por isso é seguro liberar a venda aqui.
+ */
+async function applyDepositSaleEffects(row: {
+  id: string;
+  tenantId: string;
+  sourceType: string | null;
+  sourceId: string | null;
+}): Promise<{ applied: boolean; sourceType?: string | null; sourceId?: string | null }> {
   if (row.sourceType === "QUICK_SALE" && row.sourceId) {
-    await withTenant(tenantId, async (tx) => {
+    await withTenant(row.tenantId, async (tx) => {
       const quickSale = await tx.quickSale.findFirst({
         where: {
           id: row.sourceId!,
@@ -850,7 +851,7 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
   // não há mais sourceType "SERVICE_ORDER" de PIX direto de OS.
 
   if (row.sourceType === "SALE" && row.sourceId) {
-    await withTenant(tenantId, async (tx) => {
+    await withTenant(row.tenantId, async (tx) => {
       const sale = await tx.sale.findUnique({
         where: { id: row.sourceId! },
         select: { id: true, number: true },
@@ -868,6 +869,55 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
   }
 
   return { applied: false, sourceType: row.sourceType, sourceId: row.sourceId };
+}
+
+/**
+ * Marco **PIX recebido** (`approved`): o cliente pagou o PIX (fiat já caiu). Para
+ * depósitos de PDV/QuickSale, libera a venda na hora (sem esperar o on-chain).
+ * NÃO credita saldo — isso é COMPLETED (on-chain), via `settleDeposit*`.
+ */
+export async function applyPixReceivedEffects(tenantId: string, transactionId: string) {
+  const row = await withTenant(tenantId, async (tx) =>
+    tx.tenantDepixTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        tenantId: true,
+        sourceType: true,
+        sourceId: true,
+        pixApprovedAt: true,
+      },
+    }),
+  );
+  if (!row) return { applied: false };
+  // So libera venda de PDV/QuickSale; deposito wallet puro nao tem efeito de venda.
+  if (row.sourceType !== "SALE" && row.sourceType !== "QUICK_SALE") {
+    return { applied: false };
+  }
+  return applyDepositSaleEffects(row);
+}
+
+export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {
+  const row = await withTenant(tenantId, async (tx) =>
+    tx.tenantDepixTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        tenantId: true,
+        sourceType: true,
+        sourceId: true,
+        grossAmountCents: true,
+        status: true,
+      },
+    }),
+  );
+  if (!row || row.status !== "COMPLETED") return { applied: false };
+
+  // Efeito de venda (QuickSale→PAID + notify). Idempotente: se já foi aplicado no
+  // marco `approved` (PIX recebido), a QuickSale já não está AWAITING_PAYMENT e o
+  // notify não re-dispara. Mantido aqui como rede de segurança (caso o `approved`
+  // não tenha chegado e o depósito complete direto do on-chain).
+  return applyDepositSaleEffects(row);
 }
 
 async function markFeeMissing(tenantId: string, txId: string, reason: string) {
@@ -1255,6 +1305,69 @@ export async function onWithdrawCompleted(tenantId: string, transactionId: strin
   }
 }
 
+/**
+ * Rede de seguranca do deposito: re-roda o cross-check on-chain de uma tx
+ * PROCESSING com `depositTxId` ja gravado e credita o saldo (COMPLETED) se
+ * confirmado. Usado quando o webhook do monitor LWK pode ter se perdido —
+ * mesma logica do webhook da Eulen. Idempotente (settle so age em PENDING/
+ * PROCESSING). Best-effort: erro nao propaga (o monitor ainda cobre).
+ */
+async function creditDepositIfConfirmedOnChain(txRow: {
+  id: string;
+  tenantId: string;
+  depositTxId: string | null;
+  depositLabel: string | null;
+  depositAddress: string | null;
+  depositReceivingTenantId: string | null;
+  grossAmountCents: number;
+}): Promise<void> {
+  if (!txRow.depositTxId) return;
+  try {
+    const feeWalletTenantId = await getFeeWalletTenantId();
+    const receivingTenantId = txRow.depositReceivingTenantId ?? txRow.tenantId;
+    const isFeeWalletDeposit = !!feeWalletTenantId && receivingTenantId === feeWalletTenantId;
+    const expectedAmount = txRow.grossAmountCents / 100;
+
+    const crossCheck = await verifyDepositOnChain({
+      tenantId: receivingTenantId,
+      txid: txRow.depositTxId,
+      expectedAmount,
+      expectedAddress: txRow.depositAddress,
+    });
+    if (!crossCheck.ok) {
+      logger.info("reconcile deposit: ainda nao confirmado on-chain", {
+        txId: txRow.id,
+        reason: crossCheck.reason,
+      });
+      return;
+    }
+
+    if (isFeeWalletDeposit) {
+      await settleDepositViaFeeWallet({
+        feeWalletTenantId: receivingTenantId,
+        depositLabel: txRow.depositLabel ?? "",
+        depositTxId: txRow.depositTxId,
+        depixAmount: crossCheck.onchainAmount,
+        confirmations: 2,
+      });
+    } else {
+      await settleDepositConfirmed({
+        tenantId: receivingTenantId,
+        depositLabel: txRow.depositLabel ?? "",
+        depositTxId: txRow.depositTxId,
+        depixAmount: crossCheck.onchainAmount,
+        confirmations: 2,
+      });
+    }
+    logger.info("reconcile deposit: creditado on-chain (rede de seguranca)", { txId: txRow.id });
+  } catch (err) {
+    logger.warn("reconcile deposit: erro ao creditar on-chain", {
+      txId: txRow.id,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function checkTransactionStatus(tenantId: string, transactionId: string) {
   const txRow = await withTenant(tenantId, async (tx) =>
     tx.tenantDepixTransaction.findUnique({ where: { id: transactionId } }),
@@ -1270,22 +1383,25 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
     if (txRow.pixpayDepixId && txRow.status === "PENDING") {
       const ps = await getPixStatus(txRow.pixpayDepixId);
       if (ps.success && ps.status === "paid") {
-        // depix_sent: DePix on-chain. Marca PROCESSING (aguardando LWK confirmar).
+        // depix_sent: DePix on-chain. Marca PROCESSING (aguardando LWK confirmar
+        // o saldo). O PIX ja caiu -> libera a venda na hora (idempotente).
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.update({
             where: { id: txRow.id },
-            data: { status: "PROCESSING" },
+            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date() },
           }),
         );
+        await applyPixReceivedEffects(tenantId, txRow.id);
       } else if (ps.success && ps.status === "pix_received") {
-        // approved: PIX caiu mas o DePix ainda nao saiu on-chain — NAO credita,
-        // so registra o sinal pra UX (espelha o webhook `approved`).
+        // approved: PIX caiu mas o DePix ainda nao saiu on-chain — NAO credita
+        // saldo, mas LIBERA a venda (PDV/QuickSale) na hora.
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.updateMany({
             where: { id: txRow.id, pixApprovedAt: null },
             data: { pixApprovedAt: new Date() },
           }),
         );
+        await applyPixReceivedEffects(tenantId, txRow.id);
       } else if (ps.success && ps.status === "expired") {
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.update({
@@ -1294,6 +1410,14 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
           }),
         );
       }
+    }
+
+    // Rede de seguranca: deposito PROCESSING com DePix ja enviado on-chain
+    // (depositTxId gravado pelo webhook) mas que nunca creditou o saldo — p.ex.
+    // se o webhook do monitor LWK se perdeu. Re-roda o cross-check on-chain e
+    // credita se confirmado (mesma logica do webhook). Idempotente.
+    if (txRow.status === "PROCESSING" && txRow.depositTxId) {
+      await creditDepositIfConfirmedOnChain(txRow);
     }
   } else if (txRow.kind === "WITHDRAW") {
     // Confere status do saque na PixPay.
