@@ -54,6 +54,7 @@ beforeEach(() => {
   repaymentFindUnique.mockResolvedValue({
     id: REPAYMENT_ID,
     status: "PENDING",
+    attempts: 0,
     tenantId: "11111111-1111-1111-1111-111111111111",
     transactionId: "33333333-3333-3333-3333-333333333333",
     destinationAddress: "lq1real",
@@ -97,5 +98,56 @@ describe("retryRepayment", () => {
     const res = await retryRepayment(REPAYMENT_ID);
     expect(res).toMatchObject({ status: "skipped", reason: "fee_wallet_missing" });
     expect(transfer).not.toHaveBeenCalled();
+  });
+
+  it("esgota o teto de tentativas -> FAILED (para de reprocessar no cron)", async () => {
+    // attempts ja em MAX-1: a falha desta tentativa atinge o teto.
+    repaymentFindUnique.mockResolvedValue({
+      id: REPAYMENT_ID,
+      status: "PENDING",
+      attempts: 7, // MAX_REPAYMENT_ATTEMPTS = 8 → 7+1 esgota
+      tenantId: "11111111-1111-1111-1111-111111111111",
+      transactionId: "33333333-3333-3333-3333-333333333333",
+      destinationAddress: "lq1real",
+      netAmountCents: 9751,
+    });
+    transfer.mockResolvedValue({ success: false, error: "insufficient_lbtc" });
+    const res = await retryRepayment(REPAYMENT_ID);
+    expect(res.status).toBe("failed");
+    const upd = repaymentUpdate.mock.calls[0]![0] as { data: { status?: string } };
+    expect(upd.data.status).toBe("FAILED");
+  });
+
+  it("nao reprocessa repasse ja FAILED no cron (auto)", async () => {
+    repaymentFindUnique.mockResolvedValue({
+      id: REPAYMENT_ID,
+      status: "FAILED",
+      attempts: 8,
+      tenantId: "11111111-1111-1111-1111-111111111111",
+      transactionId: "33333333-3333-3333-3333-333333333333",
+      destinationAddress: "lq1real",
+      netAmountCents: 9751,
+    });
+    const res = await retryRepayment(REPAYMENT_ID);
+    expect(res).toMatchObject({ status: "skipped", reason: "exhausted" });
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
+  it("retry MANUAL reabre um FAILED e nao re-esgota (override do superadmin)", async () => {
+    repaymentFindUnique.mockResolvedValue({
+      id: REPAYMENT_ID,
+      status: "FAILED",
+      attempts: 20, // bem acima do teto
+      tenantId: "11111111-1111-1111-1111-111111111111",
+      transactionId: "33333333-3333-3333-3333-333333333333",
+      destinationAddress: "lq1real",
+      netAmountCents: 9751,
+    });
+    transfer.mockResolvedValue({ success: false, error: "ainda fora" });
+    const res = await retryRepayment(REPAYMENT_ID, { manual: true });
+    // Manual nunca declara failed automaticamente: segue "pending" pra nova tentativa.
+    expect(res.status).toBe("pending");
+    const upd = repaymentUpdate.mock.calls[0]![0] as { data: { status?: string } };
+    expect(upd.data.status).toBeUndefined();
   });
 });

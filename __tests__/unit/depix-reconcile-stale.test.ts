@@ -81,7 +81,54 @@ describe("reconcileStaleDepixTransactions", () => {
   it("lista vazia -> no-op", async () => {
     findMany.mockResolvedValue([]);
     const res = await reconcileStaleDepixTransactions();
-    expect(res).toMatchObject({ scanned: 0, reconciled: 0, unchanged: 0, errors: 0 });
+    expect(res).toMatchObject({ scanned: 0, reconciled: 0, unchanged: 0, errors: 0, stuckWithdrawals: 0 });
     expect(getDepixWithdrawStatus).not.toHaveBeenCalled();
+  });
+
+  it("sinaliza saque preso (PROCESSING ha >1h) sem auto-falhar", async () => {
+    const twoHoursAgo = new Date(Date.now() - 120 * 60_000);
+    findMany.mockResolvedValue([
+      {
+        id: "tx-stuck",
+        tenantId: TENANT,
+        status: "PROCESSING",
+        kind: "WITHDRAW",
+        number: "TXW-20260626-00001",
+        createdAt: twoHoursAgo,
+      },
+    ]);
+    // Continua PROCESSING no provedor (nada a reconciliar).
+    txFindUnique
+      .mockResolvedValueOnce({ id: "tx-stuck", kind: "WITHDRAW", status: "PROCESSING", pixpayDepixId: "lqx-s" })
+      .mockResolvedValueOnce({ id: "tx-stuck", status: "PROCESSING" });
+    getDepixWithdrawStatus.mockResolvedValue({ success: true, status: "processing", raw: {} });
+
+    const res = await reconcileStaleDepixTransactions();
+    expect(res).toMatchObject({ scanned: 1, reconciled: 0, unchanged: 1, stuckWithdrawals: 1 });
+    // NAO auto-falha: nenhum update marcando FAILED.
+    const failedUpdate = txUpdate.mock.calls.find(
+      (c) => (c[0] as { data?: { status?: string } })?.data?.status === "FAILED",
+    );
+    expect(failedUpdate).toBeUndefined();
+  });
+
+  it("nao sinaliza preso quando o saque acabou de entrar em PROCESSING (<1h)", async () => {
+    findMany.mockResolvedValue([
+      {
+        id: "tx-fresh",
+        tenantId: TENANT,
+        status: "PROCESSING",
+        kind: "WITHDRAW",
+        number: "TXW-20260626-00002",
+        createdAt: new Date(Date.now() - 5 * 60_000),
+      },
+    ]);
+    txFindUnique
+      .mockResolvedValueOnce({ id: "tx-fresh", kind: "WITHDRAW", status: "PROCESSING", pixpayDepixId: "lqx-f" })
+      .mockResolvedValueOnce({ id: "tx-fresh", status: "PROCESSING" });
+    getDepixWithdrawStatus.mockResolvedValue({ success: true, status: "processing", raw: {} });
+
+    const res = await reconcileStaleDepixTransactions();
+    expect(res).toMatchObject({ stuckWithdrawals: 0 });
   });
 });

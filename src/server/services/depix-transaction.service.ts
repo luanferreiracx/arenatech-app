@@ -43,6 +43,22 @@ const ZERO_FEE: DepixFeeConfig = {
   exitFeePercent: 0,
 };
 
+/**
+ * Teto de tentativas automaticas do repasse do liquido (ADR 0052). Apos esgotar,
+ * o repasse vai pra FAILED e PARA de ser reprocessado pelo cron — fica visivel no
+ * painel superadmin (/admin/depix-fees) pra intervencao humana. O retry MANUAL do
+ * painel ignora o teto (override do superadmin), reusando a mesma idempotencyKey.
+ */
+const MAX_REPAYMENT_ATTEMPTS = 8;
+
+/**
+ * Idade (min) a partir da qual um saque ainda em PROCESSING e considerado "preso":
+ * o cron de reconciliacao registra log de ERRO pra escalar (sem auto-falhar — o PIX
+ * pode ter saido on-chain e o saldo ja foi debitado). Acima disso, exige verificacao
+ * humana no painel da PixPay.
+ */
+const WITHDRAW_STUCK_ALERT_MINUTES = 60;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -687,8 +703,11 @@ export async function completeFeeWalletRepayment(args: {
  * broadcast foi pra rede mas o registro nao atualizou (crash), o LWK devolve o
  * mesmo txid e concluimos sem duplicar on-chain. Chamado pelo cron e pelo painel.
  */
-export async function retryRepayment(repaymentId: string): Promise<{
-  status: "completed" | "pending" | "skipped";
+export async function retryRepayment(
+  repaymentId: string,
+  opts?: { manual?: boolean },
+): Promise<{
+  status: "completed" | "pending" | "failed" | "skipped";
   reason?: string;
 }> {
   const repayment = await withAdmin(async (tx) =>
@@ -697,6 +716,7 @@ export async function retryRepayment(repaymentId: string): Promise<{
       select: {
         id: true,
         status: true,
+        attempts: true,
         tenantId: true,
         transactionId: true,
         destinationAddress: true,
@@ -706,6 +726,11 @@ export async function retryRepayment(repaymentId: string): Promise<{
   );
   if (!repayment) return { status: "skipped", reason: "not_found" };
   if (repayment.status === "COMPLETED") return { status: "skipped", reason: "already_completed" };
+  // Repasse esgotado nao e mais reprocessado pelo cron; so o retry MANUAL do painel
+  // (override do superadmin) o reabre pra nova tentativa.
+  if (repayment.status === "FAILED" && !opts?.manual) {
+    return { status: "skipped", reason: "exhausted" };
+  }
 
   const feeWalletTenantId = await getFeeWalletTenantId();
   if (!feeWalletTenantId) return { status: "skipped", reason: "fee_wallet_missing" };
@@ -728,17 +753,38 @@ export async function retryRepayment(repaymentId: string): Promise<{
     { idempotencyKey: `repay:${repayment.id}` },
   );
   if (!transfer.success || !transfer.txid) {
+    const lastError = transfer.error ?? "transfer falhou";
+    const newAttempts = repayment.attempts + 1;
+    // Esgotou o teto (so na rota automatica do cron) → FAILED + log de ERRO pra
+    // escalar. O retry manual nunca esgota: o superadmin assume o controle.
+    const exhausted = !opts?.manual && newAttempts >= MAX_REPAYMENT_ATTEMPTS;
     await withAdmin(async (tx) =>
       tx.depixDepositRepayment.update({
         where: { id: repayment.id },
-        data: { attempts: { increment: 1 }, lastError: transfer.error ?? "transfer falhou" },
+        data: {
+          attempts: { increment: 1 },
+          lastError,
+          ...(exhausted ? { status: "FAILED" } : {}),
+        },
       }),
     );
+    if (exhausted) {
+      logger.error("retryRepayment: repasse FALHADO apos esgotar tentativas", {
+        repaymentId: repayment.id,
+        tenantId: repayment.tenantId,
+        transactionId: repayment.transactionId,
+        netAmountCents: repayment.netAmountCents,
+        attempts: newAttempts,
+        error: lastError,
+      });
+      return { status: "failed", reason: lastError };
+    }
     logger.warn("retryRepayment: repasse ainda falha", {
       repaymentId: repayment.id,
-      error: transfer.error,
+      attempts: newAttempts,
+      error: lastError,
     });
-    return { status: "pending", reason: transfer.error ?? "transfer_failed" };
+    return { status: "pending", reason: lastError };
   }
 
   await completeFeeWalletRepayment({
@@ -1301,7 +1347,13 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
 export async function reconcileStaleDepixTransactions(opts?: {
   olderThanMinutes?: number;
   limit?: number;
-}): Promise<{ scanned: number; reconciled: number; unchanged: number; errors: number }> {
+}): Promise<{
+  scanned: number;
+  reconciled: number;
+  unchanged: number;
+  errors: number;
+  stuckWithdrawals: number;
+}> {
   const olderThan = new Date(Date.now() - (opts?.olderThanMinutes ?? 10) * 60_000);
   const stale = await withAdmin(async (tx) =>
     tx.tenantDepixTransaction.findMany({
@@ -1313,24 +1365,44 @@ export async function reconcileStaleDepixTransactions(opts?: {
       },
       orderBy: { createdAt: "asc" },
       take: opts?.limit ?? 50,
-      select: { id: true, tenantId: true, status: true },
+      select: { id: true, tenantId: true, status: true, kind: true, number: true, createdAt: true },
     }),
   );
 
+  const stuckBefore = new Date(Date.now() - WITHDRAW_STUCK_ALERT_MINUTES * 60_000);
   let reconciled = 0;
   let unchanged = 0;
   let errors = 0;
+  let stuckWithdrawals = 0;
   for (const t of stale) {
+    let resolved = false;
     try {
       const after = await checkTransactionStatus(t.tenantId, t.id);
-      if (after && after.status !== t.status) reconciled += 1;
-      else unchanged += 1;
+      if (after && after.status !== t.status) {
+        reconciled += 1;
+        resolved = true;
+      } else {
+        unchanged += 1;
+      }
     } catch (err) {
       errors += 1;
       logger.warn("reconcileStaleDepixTransactions: erro ao reconciliar", {
         txId: t.id,
         tenantId: t.tenantId,
         err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Saque que segue PROCESSING ha muito tempo (provedor fora / webhook perdido):
+    // escala via log de ERRO pra verificacao humana. NAO auto-falha: o PIX pode ter
+    // saido on-chain e o saldo ja foi debitado — declarar FAILED arriscaria duplo saque.
+    if (!resolved && t.kind === "WITHDRAW" && t.status === "PROCESSING" && t.createdAt < stuckBefore) {
+      stuckWithdrawals += 1;
+      logger.error("reconcileStaleDepixTransactions: saque preso em PROCESSING — verificar manualmente", {
+        txId: t.id,
+        number: t.number,
+        tenantId: t.tenantId,
+        stuckSinceMinutes: Math.round((Date.now() - t.createdAt.getTime()) / 60_000),
       });
     }
   }
@@ -1340,6 +1412,7 @@ export async function reconcileStaleDepixTransactions(opts?: {
     reconciled,
     unchanged,
     errors,
+    stuckWithdrawals,
   });
-  return { scanned: stale.length, reconciled, unchanged, errors };
+  return { scanned: stale.length, reconciled, unchanged, errors, stuckWithdrawals };
 }
