@@ -287,7 +287,8 @@ export async function createDeposit(args: CreateDepositArgs) {
     depixAddress: addr.address,
   });
 
-  // ETAPA 3: gera PIX no PixPay apontando pro endereco LWK do tenant.
+  // ETAPA 3: gera PIX na Eulen apontando pro endereco LWK do tenant.
+  // nonce = created.id (idempotente por intencao: retry nao duplica).
   const pix = await createPixPayment(
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
@@ -1062,13 +1063,15 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   });
 
-  // ETAPA 2: chama PixPay createDepixWithdraw passando o valor LIQUIDO
-  // (o que o destinatario recebe).
+  // ETAPA 2: chama a Eulen createDepixWithdraw passando o valor LIQUIDO
+  // (o que o destinatario recebe). nonce = created.id (idempotente: um retry
+  // com o mesmo nonce NAO duplica o saque).
   const withdrawResult = await createDepixWithdraw(
     pixKey,
     args.pixKeyType,
     args.netAmountCents / 100,
     taxId,
+    created.id,
   );
   if (!withdrawResult.success || !withdrawResult.id || !withdrawResult.depositAddress) {
     logger.error("createWithdraw: PixPay falhou", {
@@ -1263,15 +1266,24 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
   if (terminal.includes(txRow.status)) return txRow;
 
   if (txRow.kind === "DEPOSIT") {
-    // Confere status do PIX no PixPay (cliente ja pagou?).
+    // Confere status do PIX na Eulen (cliente ja pagou?).
     if (txRow.pixpayDepixId && txRow.status === "PENDING") {
       const ps = await getPixStatus(txRow.pixpayDepixId);
       if (ps.success && ps.status === "paid") {
-        // Marca PROCESSING (aguardando LWK confirmar on-chain).
+        // depix_sent: DePix on-chain. Marca PROCESSING (aguardando LWK confirmar).
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.update({
             where: { id: txRow.id },
             data: { status: "PROCESSING" },
+          }),
+        );
+      } else if (ps.success && ps.status === "pix_received") {
+        // approved: PIX caiu mas o DePix ainda nao saiu on-chain — NAO credita,
+        // so registra o sinal pra UX (espelha o webhook `approved`).
+        await withTenant(tenantId, async (tx) =>
+          tx.tenantDepixTransaction.updateMany({
+            where: { id: txRow.id, pixApprovedAt: null },
+            data: { pixApprovedAt: new Date() },
           }),
         );
       } else if (ps.success && ps.status === "expired") {

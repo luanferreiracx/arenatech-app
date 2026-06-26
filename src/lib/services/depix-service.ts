@@ -11,9 +11,20 @@
  *   - DEPIX_SAQUE_URL          (default https://depix.eulen.app/api/withdraw) — POST cria saque
  *   - DEPIX_SAQUE_STATUS_URL   (default .../api/withdraw-status) — GET ?id= consulta
  *
+ * Contrato (docs.eulen.app):
+ *   - Auth: `Authorization: Bearer <jwt>` em TODAS as chamadas (inclusive status).
+ *   - Idempotencia: header `X-Nonce: <uuid>` — MESMO nonce no retry da mesma
+ *     intencao evita duplicar a operacao (critico no saque). Nonce novo = nova
+ *     intencao.
+ *   - Envelope: resposta sincrona vem `{ response: {...}, async: false }`. Se
+ *     `async: true`, a acao ainda esta na fila — repetir a chamada com o MESMO
+ *     nonce ate virar sincrona (NAO e erro).
+ *   - Erro: `response.errorMessage`.
+ *
  * Quando DEPIX_API_KEY nao configurada, retorna mock para desenvolvimento.
  */
 
+import { randomUUID } from "node:crypto";
 import { logger } from "@/lib/logger";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -25,7 +36,6 @@ export interface DepixCreateResult {
   transactionId?: string;
   qrCode?: string;
   qrCodeBase64?: string;
-  pixKey?: string;
   error?: string;
 }
 
@@ -36,26 +46,36 @@ export interface DepixCancelResult {
 
 export interface DepixStatusResult {
   success: boolean;
-  /** Status normalizado: "pending" | "paid" | "expired" | "failed" | "refunded" */
-  status?: "pending" | "paid" | "expired" | "failed" | "refunded";
+  /**
+   * Status normalizado. `pix_received` = PIX caiu mas o DePix ainda NAO foi
+   * enviado on-chain (status Eulen `approved`) — NAO e creditavel ainda. `paid`
+   * = DePix enviado on-chain (status `depix_sent`).
+   */
+  status?: "pending" | "pix_received" | "paid" | "expired" | "failed" | "refunded";
   /** Status final (true) significa que nao vai mais mudar. */
   isFinal?: boolean;
   error?: string;
 }
 
 interface DepixConfig {
-  /** Endpoint completo do POST de criacao (ex.: https://api.pixpay.space/v1/deposit) */
+  /** Endpoint completo do POST de criacao (https://depix.eulen.app/api/deposit) */
   depositUrl: string;
-  /** Endpoint completo do POST de consulta de status */
+  /** Endpoint completo do GET de consulta de status */
   statusUrl: string;
-  /** Bearer token da API */
+  /** Bearer token da API (JWT da Eulen) */
   apiKey: string;
-  /** Carteira Liquid onde a loja recebe o DEPIX */
+  /** Carteira Liquid onde a loja recebe o DePix */
   depixAddress?: string;
 }
 
+/** Envelope padrao da Eulen: { response, async }. */
+interface EulenEnvelope {
+  response?: Record<string, unknown>;
+  async?: boolean;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
-// Config
+// Helpers
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -67,13 +87,46 @@ function maskTaxNumber(doc: string): string {
   return `${d.slice(0, 3)}${"*".repeat(d.length - 5)}${d.slice(-2)}`;
 }
 
+/** Headers padrao da Eulen: Bearer + JSON + nonce de idempotencia. */
+function eulenHeaders(apiKey: string, nonce: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "X-Nonce": nonce,
+  };
+}
+
+/**
+ * Le o envelope `{ response, async }` da Eulen. Retorna o objeto `response` e se
+ * a chamada foi processada (sincrona) ou ainda esta na fila (assincrona).
+ */
+function parseEnvelope(body: unknown): { data: Record<string, unknown>; isAsync: boolean } {
+  const env = (body ?? {}) as EulenEnvelope;
+  const data = (env.response ?? (body as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  // `async: true` => ainda na fila. Ausente/false => processado.
+  const isAsync = env.async === true;
+  return { data, isAsync };
+}
+
+/** Extrai a mensagem de erro do corpo da Eulen (`response.errorMessage`). */
+function extractEulenError(body: unknown): string | undefined {
+  const { data } = parseEnvelope(body);
+  const top = (body ?? {}) as Record<string, unknown>;
+  return (
+    (data.errorMessage as string | undefined) ??
+    (top.errorMessage as string | undefined) ??
+    (top.error as string | undefined) ??
+    (top.message as string | undefined)
+  );
+}
+
 function getConfig(): DepixConfig | null {
   const apiKey = process.env.DEPIX_API_KEY;
   if (!apiKey) return null;
 
   const depositUrl =
-    process.env.DEPIX_API_URL?.replace(/\/$/, "") ??
-    "https://depix.eulen.app/api/deposit";
+    process.env.DEPIX_API_URL?.replace(/\/$/, "") ?? "https://depix.eulen.app/api/deposit";
   const statusUrl =
     process.env.DEPIX_DEPOSIT_STATUS_URL?.replace(/\/$/, "") ??
     depositUrl.replace(/\/deposit$/, "/deposit-status");
@@ -87,22 +140,24 @@ function getConfig(): DepixConfig | null {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Public API
+// Deposit (PIX -> DePix)
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Gera um QR Code PIX para um valor em reais. Paridade Laravel chamarDeposit().
+ * Gera um QR Code PIX para um valor em reais (POST /deposit).
  *
  * @param amountReais valor em reais (float).
- * @param description descricao (nao enviado a API, apenas para log).
- * @param referenceId id local (nao enviado a API).
- * @param taxNumber CPF/CNPJ do pagador — recomendado pela API para evitar
- *   pagamento por terceiros (anti-fraude).
+ * @param description descricao (apenas para log; nao enviado a API).
+ * @param nonce UUID de idempotencia (use o id da transacao local — estavel por
+ *   intencao). Reenviar a mesma chamada com o mesmo nonce nao duplica.
+ * @param taxNumber CPF/CNPJ do pagador. OBRIGATORIO pela Eulen
+ *   (`endUserTaxNumber` required) — alem de anti-fraude (evita pagamento por
+ *   terceiros).
  */
 export async function createPixPayment(
   amountReais: number,
   description: string,
-  referenceId: string,
+  nonce: string,
   taxNumber?: string | null,
   options?: { depixAddress?: string; requireDepixAddress?: boolean },
 ): Promise<DepixCreateResult> {
@@ -112,7 +167,7 @@ export async function createPixPayment(
     logger.error("Depix: deposito wallet sem depixAddress — recusando fallback legado", {
       amount: amountReais,
       description,
-      referenceId,
+      nonce,
     });
     return {
       success: false,
@@ -120,26 +175,33 @@ export async function createPixPayment(
     };
   }
 
-  if (!config) {
-    logger.warn("Depix: mock mode (DEPIX_API_KEY ausente)", {
+  const taxDigits = taxNumber?.replace(/\D/g, "") ?? "";
+  if (!taxDigits) {
+    logger.error("Depix: deposito sem CPF/CNPJ do pagador (endUserTaxNumber obrigatorio)", {
       amount: amountReais,
       description,
     });
+    return {
+      success: false,
+      error: "CPF/CNPJ do pagador e obrigatorio para gerar o PIX",
+    };
+  }
+
+  if (!config) {
+    logger.warn("Depix: mock mode (DEPIX_API_KEY ausente)", { amount: amountReais, description });
     return {
       success: true,
       transactionId: `mock-depix-${Date.now()}`,
       qrCode: "00020126580014br.gov.bcb.pix0136mock-pix-key-12345678901234567890",
       qrCodeBase64: "",
-      pixKey: "mock@pix.key",
     };
   }
 
   const amountInCents = Math.round(amountReais * 100);
-  const payload: Record<string, string | number> = { amountInCents };
-
-  if (taxNumber) {
-    payload.endUserTaxNumber = taxNumber.replace(/\D/g, "");
-  }
+  const payload: Record<string, string | number> = {
+    amountInCents,
+    endUserTaxNumber: taxDigits,
+  };
   // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
   // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
   // (fluxo legacy do PDV/OS/QuickSale).
@@ -147,25 +209,19 @@ export async function createPixPayment(
   if (depixAddress) {
     payload.depixAddress = depixAddress;
   }
+
   logger.info("Depix: criando deposit", {
     url: config.depositUrl,
     amountInCents,
-    hasEndUserTax: !!payload.endUserTaxNumber,
-    taxIdMasked: payload.endUserTaxNumber
-      ? maskTaxNumber(String(payload.endUserTaxNumber))
-      : undefined,
+    taxIdMasked: maskTaxNumber(taxDigits),
     hasDepixAddr: !!payload.depixAddress,
-    referenceId,
+    nonce,
   });
 
   try {
     const response = await fetch(config.depositUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers: eulenHeaders(config.apiKey, nonce),
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(45_000),
     });
@@ -176,44 +232,42 @@ export async function createPixPayment(
         status: response.status,
         body: body.substring(0, 500),
       });
-      // tenta extrair mensagem JSON
       let msg = `HTTP ${response.status}`;
       try {
-        const parsed = JSON.parse(body) as { message?: string; error?: string };
-        msg = parsed.message ?? parsed.error ?? msg;
+        msg = extractEulenError(JSON.parse(body)) ?? msg;
       } catch {
         msg = `${msg}: ${body.substring(0, 200)}`;
       }
       return { success: false, error: `Erro ao gerar PIX: ${msg}` };
     }
 
-    const body = (await response.json()) as Record<string, unknown>;
-    // PixPay retorna `response` aninhado ou raiz, igual ao Laravel
-    const data = (body.response ?? body) as Record<string, unknown>;
-    const id = data.id ?? body.id;
+    const raw = (await response.json()) as unknown;
+    const apiError = extractEulenError(raw);
+    if (apiError) {
+      logger.error("Depix: erro da API no deposit", { erro: apiError });
+      return { success: false, error: `Erro da API PIX: ${apiError}` };
+    }
 
+    const { data, isAsync } = parseEnvelope(raw);
+    if (isAsync) {
+      // Deposit so retorna o id de forma sincrona; async aqui e raro (servidor
+      // ocupado). Sem id nao da pra prosseguir — o caller pode retentar.
+      logger.warn("Depix: deposit retornou async (sem id) — retentar com mesmo nonce", { nonce });
+      return { success: false, error: "API PIX ocupada; tente novamente" };
+    }
+
+    const id = data.id;
     if (!id) {
-      logger.error("Depix: resposta sem id", { body });
-      const erroApi =
-        (body.error as string | undefined) ??
-        (data.error as string | undefined) ??
-        (body.message as string | undefined);
-      return {
-        success: false,
-        error: erroApi
-          ? `Erro da API PIX: ${erroApi}`
-          : "Resposta invalida da API PIX: sem id",
-      };
+      logger.error("Depix: resposta sem id", { data });
+      return { success: false, error: "Resposta invalida da API PIX: sem id" };
     }
 
     logger.info("Depix: PIX criado", { transactionId: String(id) });
-
     return {
       success: true,
       transactionId: String(id),
-      qrCode: String(data.qrCopyPaste ?? data.qr_code ?? ""),
-      qrCodeBase64: String(data.qrImageUrl ?? data.qr_code_base64 ?? ""),
-      pixKey: String(data.pix_key ?? ""),
+      qrCode: String(data.qrCopyPaste ?? ""),
+      qrCodeBase64: String(data.qrImageUrl ?? ""),
     };
   } catch (error) {
     logger.error("Depix: erro de rede", {
@@ -227,13 +281,10 @@ export async function createPixPayment(
 }
 
 /**
- * Cancela um PIX pendente. PixPay nao tem endpoint dedicado de cancelamento —
- * a transacao expira sozinha apos 30 minutos. Implementacao mantida por API
- * consistency mas atualmente apenas loga.
+ * Cancela um PIX pendente. A Eulen nao tem endpoint dedicado de cancelamento —
+ * a transacao expira sozinha. Mantido por consistencia de API; apenas loga.
  */
-export async function cancelPixPayment(
-  transactionId: string,
-): Promise<DepixCancelResult> {
+export async function cancelPixPayment(transactionId: string): Promise<DepixCancelResult> {
   logger.info("Depix: cancelamento solicitado (expira sozinho)", { transactionId });
   return { success: true };
 }
@@ -244,11 +295,11 @@ export async function cancelPixPayment(
 
 export interface DepixWithdrawResult {
   success: boolean;
-  /** ID retornado pelo provedor de off-ramp. */
+  /** ID retornado pela Eulen (withdrawalId). */
   id?: string;
-  /** Endereco Liquid de deposito */
+  /** Endereco Liquid de deposito (onde fazemos o sweep on-chain). */
   depositAddress?: string;
-  /** PNG base64 do QR code do depositAddress, gerado localmente (PixPay nao envia). */
+  /** PNG base64 do QR code do depositAddress, gerado localmente (Eulen nao envia). */
   depositAddressQr?: string;
   depositAmountInCents?: number;
   payoutAmountInCents?: number;
@@ -262,7 +313,7 @@ export interface DepixWithdrawResult {
 
 /**
  * Gera QR Code (PNG base64) a partir de um endereco Liquid (lq1qq...).
- * PixPay nao retorna QR para saque — geramos no backend pra usuario escanear.
+ * A Eulen nao retorna QR para saque — geramos no backend pra usuario escanear.
  * Retorna a string `data:image/png;base64,...` pronta pra `<img src>`.
  */
 export async function generateDepositAddressQr(address: string): Promise<string | null> {
@@ -283,18 +334,26 @@ export async function generateDepositAddressQr(address: string): Promise<string 
 }
 
 /**
- * Solicita saque de DEPIX (DePix Liquid -> PIX para o destinatario) via PixPay.
+ * Solicita saque de DePix (DePix Liquid -> PIX para o destinatario) — POST
+ * /withdraw.
  *
- * Off-ramp: PixPay retorna um `depositAddress` Liquid + o valor a depositar
- * (depositAmountInCents); o orquestrador faz o sweep on-chain desse DePix pra
- * la, e o PixPay paga o PIX ao destinatario. Paridade Laravel
- * DepixService::criarSaque. Auth: Bearer `DEPIX_API_KEY` + `senha` no body.
+ * Off-ramp: a Eulen retorna um `depositAddress` Liquid + `depositAmountInCents`
+ * (quanto DePix mandar); o orquestrador faz o sweep on-chain desse DePix pra la,
+ * e a Eulen paga o PIX ao destinatario.
+ *
+ * Enviamos `payoutAmountInCents` (valor LIQUIDO que o destinatario recebe) — a
+ * Eulen calcula o `depositAmountInCents` deduzindo a taxa dela. NUNCA enviar os
+ * dois (a doc proibe).
+ *
+ * @param nonce UUID de idempotencia (id da transacao local). Reenviar a mesma
+ *   chamada com o mesmo nonce NAO duplica o saque — essencial: duplicar = perda.
  */
 export async function createDepixWithdraw(
   pixKey: string,
   pixKeyType: "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "RANDOM",
   valorReais: number,
   taxId: string,
+  nonce: string,
 ): Promise<DepixWithdrawResult> {
   const apiKey = process.env.DEPIX_API_KEY;
 
@@ -310,23 +369,23 @@ export async function createDepixWithdraw(
   }
 
   const saqueUrl =
-    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
-    "https://depix.eulen.app/api/withdraw";
+    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ?? "https://depix.eulen.app/api/withdraw";
 
   const taxIdDigits = taxId.replace(/\D/g, "");
+  if (!taxIdDigits) {
+    return { success: false, error: "CPF/CNPJ do destinatario e obrigatorio" };
+  }
+
   let pixKeyFormatted: string;
   try {
     pixKeyFormatted = formatPixKey(pixKey, pixKeyType);
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Chave PIX invalida",
-    };
+    return { success: false, error: err instanceof Error ? err.message : "Chave PIX invalida" };
   }
 
-  // Eulen oficial: { pixKey, taxNumber, payoutAmountInCents } — passamos o valor
+  // Eulen oficial: { pixKey, taxNumber, payoutAmountInCents }. Passamos o valor
   // LIQUIDO (o que o destinatario recebe); a Eulen deduz a taxa dela e devolve
-  // depositAmountInCents (quanto DePix mandar). Sem senha/tipoChave/valor.
+  // depositAmountInCents (quanto DePix mandar).
   const payload = {
     pixKey: pixKeyFormatted,
     taxNumber: taxIdDigits,
@@ -338,72 +397,40 @@ export async function createDepixWithdraw(
     tipoChave: pixKeyType,
     payoutAmountInCents: payload.payoutAmountInCents,
     taxIdMasked: maskTaxNumber(taxIdDigits),
+    nonce,
   });
 
   try {
-    const response = await fetch(saqueUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(45_000),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      logger.error("Depix saque: erro na API", {
-        status: response.status,
-        body: body.substring(0, 500),
-      });
-      let msg = `HTTP ${response.status}`;
-      try {
-        const parsed = JSON.parse(body) as {
-          message?: string;
-          error?: string;
-          errorMessage?: string;
-        };
-        msg = parsed.errorMessage ?? parsed.message ?? parsed.error ?? msg;
-      } catch {
-        msg = `${msg}: ${body.substring(0, 200)}`;
-      }
-      return { success: false, error: `Erro ao solicitar saque: ${msg}` };
+    // Forca modo sincrono. Se mesmo assim vier async (servidor ocupado),
+    // retenta com o MESMO nonce ate virar sincrono (sem risco de duplicar).
+    const raw = await postWithdrawSync(saqueUrl, apiKey, nonce, payload);
+    if (!raw.ok) {
+      return { success: false, error: raw.error };
     }
 
-    const body = (await response.json()) as Record<string, unknown>;
-    const data = (body.response ?? body) as Record<string, unknown>;
-
-    // Eulen usa `errorMessage`; mantemos `error` por compatibilidade.
-    const erroApi =
-      (data.errorMessage as string | undefined) ??
-      (data.error as string | undefined) ??
-      (body.error as string | undefined);
-    if (erroApi) {
-      logger.error("Depix saque: erro da API", { erro: erroApi });
-      return { success: false, error: `Erro da API: ${erroApi}` };
+    const data = raw.data;
+    const apiError = extractEulenError({ response: data });
+    if (apiError) {
+      logger.error("Depix saque: erro da API", { erro: apiError });
+      return { success: false, error: `Erro da API: ${apiError}` };
     }
 
-    // Eulen retorna `withdrawalId`; aceitamos `id` como fallback.
-    const withdrawalId = (data.withdrawalId as string | undefined) ?? (data.id as string | undefined);
-    if (!withdrawalId) {
-      logger.error("Depix saque: sem withdrawalId na resposta");
-      return { success: false, error: "Resposta invalida: sem id" };
+    const withdrawalId = data.withdrawalId as string | undefined;
+    const depositAddress = data.depositAddress as string | undefined;
+    if (!withdrawalId || !depositAddress) {
+      logger.error("Depix saque: resposta sem withdrawalId/depositAddress", { data });
+      return { success: false, error: "Resposta invalida do provedor de saque" };
     }
 
-    const depositAmountInCents = (data.depositAmountInCents as number | undefined) ?? undefined;
-    const payoutAmountInCents = (data.payoutAmountInCents as number | undefined) ?? undefined;
+    const depositAmountInCents = data.depositAmountInCents as number | undefined;
+    const payoutAmountInCents = data.payoutAmountInCents as number | undefined;
     const receivedAmount = payoutAmountInCents != null ? payoutAmountInCents / 100 : undefined;
     const fee =
       receivedAmount != null && depositAmountInCents != null
         ? depositAmountInCents / 100 - receivedAmount
         : undefined;
 
-    const depositAddress = (data.depositAddress as string | undefined) ?? undefined;
-    const depositAddressQr = depositAddress
-      ? ((await generateDepositAddressQr(depositAddress)) ?? undefined)
-      : undefined;
+    const depositAddressQr = (await generateDepositAddressQr(depositAddress)) ?? undefined;
 
     return {
       success: true,
@@ -430,18 +457,84 @@ export async function createDepixWithdraw(
 }
 
 /**
- * Consulta status de um saque pela API PixPay. Paridade Laravel
- * Eulen: GET /withdraw-status?id=... (sem auth, sem senha). Retorna o status
- * cru (unsent/sending/sent/error/canceled/refunded) + receiptUrl/blockchainTxID.
+ * POST /withdraw forcando modo sincrono (`X-Async: false`). Se a Eulen ainda
+ * responder `async: true` (sem o resultado), retenta com o MESMO nonce ate o
+ * resultado ficar sincrono. Reusar o nonce e SEGURO — a Eulen garante que a
+ * mesma chamada com o mesmo nonce nao duplica a operacao.
+ */
+async function postWithdrawSync(
+  saqueUrl: string,
+  apiKey: string,
+  nonce: string,
+  payload: Record<string, unknown>,
+): Promise<
+  { ok: true; data: Record<string, unknown> } | { ok: false; error: string }
+> {
+  const MAX_ATTEMPTS = 4;
+  const RETRY_DELAY_MS = 1_500;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const response = await fetch(saqueUrl, {
+      method: "POST",
+      headers: { ...eulenHeaders(apiKey, nonce), "X-Async": "false" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error("Depix saque: erro na API", {
+        status: response.status,
+        attempt,
+        body: text.substring(0, 500),
+      });
+      let msg = `HTTP ${response.status}`;
+      try {
+        msg = extractEulenError(JSON.parse(text)) ?? msg;
+      } catch {
+        msg = `${msg}: ${text.substring(0, 200)}`;
+      }
+      return { ok: false, error: `Erro ao solicitar saque: ${msg}` };
+    }
+
+    const raw = (await response.json()) as unknown;
+    const { data, isAsync } = parseEnvelope(raw);
+
+    if (!isAsync) {
+      return { ok: true, data };
+    }
+
+    // Ainda na fila: retenta com o MESMO nonce (idempotente).
+    logger.warn("Depix saque: resposta async — retentando com mesmo nonce", {
+      attempt,
+      nonce,
+    });
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    }
+  }
+
+  return {
+    ok: false,
+    error: "Provedor de saque ocupado (resposta assincrona). Tente novamente em instantes.",
+  };
+}
+
+/**
+ * Consulta status de um saque (GET /withdraw-status?id=). Auth Bearer + nonce
+ * novo (leitura). Retorna o status cru (unsent/sending/sent/error/canceled/
+ * refunded) + receiptUrl/blockchainTxID no `raw`.
  */
 export async function getDepixWithdrawStatus(
   depixId: string,
 ): Promise<{ success: boolean; status?: string; raw?: Record<string, unknown>; error?: string }> {
   if (depixId.startsWith("mock-saque-")) return { success: true, status: "pending" };
 
+  const apiKey = process.env.DEPIX_API_KEY;
+  if (!apiKey) return { success: true, status: "pending" };
+
   const baseUrl =
-    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ??
-    "https://depix.eulen.app/api/withdraw";
+    process.env.DEPIX_SAQUE_URL?.replace(/\/$/, "") ?? "https://depix.eulen.app/api/withdraw";
   const statusUrl =
     process.env.DEPIX_SAQUE_STATUS_URL?.replace(/\/$/, "") ??
     baseUrl.replace(/\/withdraw$/, "/withdraw-status");
@@ -450,7 +543,7 @@ export async function getDepixWithdrawStatus(
     const qs = new URLSearchParams({ id: depixId });
     const response = await fetch(`${statusUrl}?${qs.toString()}`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json", "X-Nonce": randomUUID() },
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) {
@@ -460,18 +553,7 @@ export async function getDepixWithdrawStatus(
       });
       return { success: false, error: `HTTP ${response.status}` };
     }
-    const body = (await response.json()) as
-      | Record<string, unknown>
-      | Array<Record<string, unknown>>;
-    let data: Record<string, unknown>;
-    if (Array.isArray(body) && body.length > 0) {
-      const first = body[0] as Record<string, unknown>;
-      data = (first.response as Record<string, unknown>) ?? first;
-    } else {
-      data =
-        ((body as Record<string, unknown>).response as Record<string, unknown>) ??
-        (body as Record<string, unknown>);
-    }
+    const { data } = parseEnvelope((await response.json()) as unknown);
     return { success: true, status: String(data.status ?? "pending"), raw: data };
   } catch (error) {
     return {
@@ -484,7 +566,6 @@ export async function getDepixWithdrawStatus(
 /**
  * Formata e valida a chave PIX para o endpoint de saque (CPF/CNPJ com
  * pontuacao, telefone com +55, etc). Lanca Error se invalida.
- * Paridade Laravel DepixService::formatarPixKey.
  */
 function formatPixKey(
   pixKey: string,
@@ -526,32 +607,36 @@ function formatPixKey(
   return trimmed;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Deposit status
+// ────────────────────────────────────────────────────────────────────────────
+
 /**
- * Consulta status de uma transacao PIX. Paridade Laravel
- * `consultarStatusDeposito` — POST {statusUrl} com {id}.
+ * Consulta status de uma transacao PIX (GET /deposit-status?id=). Auth Bearer +
+ * nonce novo (leitura).
+ *
+ * Normaliza os status Eulen: `approved` = PIX recebido mas DePix ainda nao
+ * enviado on-chain -> `pix_received` (NAO creditavel). `depix_sent` = DePix
+ * on-chain -> `paid` (creditavel).
  */
-export async function getPixStatus(
-  transactionId: string,
-): Promise<DepixStatusResult> {
+export async function getPixStatus(transactionId: string): Promise<DepixStatusResult> {
   const config = getConfig();
   if (!config) {
     return { success: true, status: "pending", isFinal: false };
   }
 
-  // Mock IDs (criados no modo dev) — retorna pending para nao bagunca testes
   if (transactionId.startsWith("mock-depix-")) {
     return { success: true, status: "pending", isFinal: false };
   }
 
   try {
-    // Eulen: GET /deposit-status?id=... (sem body). O Bearer e inofensivo
-    // (o endpoint nao exige auth, mas mantemos por consistencia).
     const qs = new URLSearchParams({ id: transactionId });
     const response = await fetch(`${config.statusUrl}?${qs.toString()}`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
         Accept: "application/json",
+        "X-Nonce": randomUUID(),
       },
       signal: AbortSignal.timeout(30_000),
     });
@@ -560,24 +645,11 @@ export async function getPixStatus(
       return { success: false, error: `Depix HTTP ${response.status}` };
     }
 
-    const body = (await response.json()) as Record<string, unknown>;
-    const data = (body.response ?? body) as Record<string, unknown>;
-    // Normaliza status Eulen: pending/under_review/delayed/approved/depix_sent/
-    // refunded/will_refund/expired/canceled/error.
+    const { data } = parseEnvelope((await response.json()) as unknown);
     const raw = String(data.status ?? "pending").toLowerCase();
-    let normalized: DepixStatusResult["status"];
-    if (["approved", "depix_sent", "paid", "completed", "success"].includes(raw)) {
-      normalized = "paid";
-    } else if (raw === "expired") {
-      normalized = "expired";
-    } else if (["failed", "cancelled", "canceled", "error"].includes(raw)) {
-      normalized = "failed";
-    } else if (["refunded", "will_refund"].includes(raw)) {
-      normalized = "refunded";
-    } else {
-      normalized = "pending";
-    }
-    const isFinal = normalized !== "pending";
+    const normalized = normalizeDepositStatus(raw);
+    // `pix_received` ainda nao e final — o DePix pode ser enviado on-chain.
+    const isFinal = normalized !== "pending" && normalized !== "pix_received";
     return { success: true, status: normalized, isFinal };
   } catch (error) {
     return {
@@ -585,4 +657,15 @@ export async function getPixStatus(
       error: error instanceof Error ? error.message : "Erro ao consultar PIX",
     };
   }
+}
+
+/** Status Eulen de deposito -> status normalizado. */
+function normalizeDepositStatus(raw: string): NonNullable<DepixStatusResult["status"]> {
+  if (raw === "depix_sent") return "paid";
+  if (raw === "approved") return "pix_received";
+  if (raw === "expired") return "expired";
+  if (["refunded", "will_refund"].includes(raw)) return "refunded";
+  if (["canceled", "cancelled", "error"].includes(raw)) return "failed";
+  // pending / under_review / delayed
+  return "pending";
 }
