@@ -221,6 +221,33 @@ export function PaymentDialog({
   const activeAcquirers = (acquirersQuery.data ?? []).filter((a) => a.active);
   const activeBrands = (brandsQuery.data ?? []).filter((b) => b.active);
 
+  // Preview de liquidacao do cartao: taxa do adquirente + liquido que a loja
+  // recebe + data de liquidacao (D+N), pela AcquirerRate configurada. So roda
+  // quando adquirente+bandeira+parcelas+valor estao definidos; se nao houver
+  // taxa cadastrada pra combinacao, `found=false` e nao mostramos nada.
+  const previewInstallments = parseInt(formInstallments, 10) || 1;
+  const previewGrossCents = Math.round((parseFloat(formAmount) || 0) * 100);
+  const cardPreviewQuery = useQuery(
+    trpc.receiving.previewCardSettlement.queryOptions(
+      {
+        acquirerId: selectedAcquirerId ?? "",
+        cardBrandId: selectedCardBrandId ?? "",
+        kind: selectedCardKind ?? "CREDIT",
+        installments: previewInstallments,
+        grossCents: previewGrossCents,
+      },
+      {
+        enabled:
+          open &&
+          isCardPayment &&
+          !!selectedAcquirerId &&
+          !!selectedCardBrandId &&
+          previewGrossCents > 0,
+      },
+    ),
+  );
+  const cardPreview = cardPreviewQuery.data;
+
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 
   const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
@@ -657,26 +684,34 @@ export function PaymentDialog({
               )}
             </div>
 
-            {isCardPayment && activeAcquirers.length > 0 && activeBrands.length > 0 && (
+            {/* Cartao: mostra a captura sempre que ha BANDEIRAS (o catalogo padrao
+                ja vem semeado). O adquirente (maquininha) e opcional — so aparece
+                se o tenant tiver adquirentes cadastrados. Antes o bloco inteiro
+                exigia adquirente E bandeira, entao sumia quando nao havia adquirente
+                (caso comum: seed cria bandeiras mas nao adquirentes) — o operador
+                nao conseguia nem registrar a bandeira. */}
+            {isCardPayment && activeBrands.length > 0 && (
               <div className="flex gap-3">
-                <div className="flex-1">
-                  <Label>Adquirente</Label>
-                  <Select
-                    value={selectedAcquirerId ?? ""}
-                    onValueChange={(v) => setSelectedAcquirerId(v || null)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Maquininha (opcional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {activeAcquirers.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {activeAcquirers.length > 0 && (
+                  <div className="flex-1">
+                    <Label>Adquirente</Label>
+                    <Select
+                      value={selectedAcquirerId ?? ""}
+                      onValueChange={(v) => setSelectedAcquirerId(v || null)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Maquininha (opcional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeAcquirers.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="flex-1">
                   <Label>Bandeira</Label>
                   <Select
@@ -695,6 +730,33 @@ export function PaymentDialog({
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+            )}
+
+            {/* Previa da liquidacao do cartao (taxa do adquirente + liquido +
+                D+N). So aparece quando ha taxa cadastrada pra combinacao. */}
+            {cardPreview?.found && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Taxa do adquirente</span>
+                  <span className="font-medium text-destructive">
+                    − {formatCurrency(cardPreview.feeCents)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Liquido que a loja recebe</span>
+                  <span className="font-semibold text-green-500">
+                    {formatCurrency(cardPreview.netCents)}
+                  </span>
+                </div>
+                {cardPreview.settlementDate && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Liquidacao prevista</span>
+                    <span className="font-medium">
+                      {new Date(cardPreview.settlementDate).toLocaleDateString("pt-BR")}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
