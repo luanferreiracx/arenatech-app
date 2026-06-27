@@ -323,22 +323,11 @@ export default function DepixWithdrawPage() {
                 )}
               </div>
 
-              <div>
-                <Label htmlFor="recipientName">
-                  Nome do destinatario{" "}
-                  <span className="text-[10px] text-muted-foreground font-normal">
-                    (opcional)
-                  </span>
-                </Label>
-                <Input
-                  id="recipientName"
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder="Como aparecera no comprovante"
-                  autoComplete="off"
-                />
-              </div>
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              O nome do destinatário é preenchido automaticamente pela rede (titular da
+              chave PIX) e aparece no comprovante após o processamento.
+            </p>
           </Card>
 
           <div className="flex justify-end gap-2">

@@ -15,7 +15,19 @@ export interface EulenWithdrawPayload {
   blockchainTxID?: string;
   receiptUrl?: string;
   centralBankId?: string;
+  /** Nome completo do destinatario (titular da chave PIX), validado pela Eulen. */
+  receiverName?: string;
+  receiverTaxNumber?: string;
   [key: string]: unknown;
+}
+
+/**
+ * Nome oficial do destinatario vindo da Eulen (`receiverName`), pronto pra
+ * mesclar no `data:`. Retorna `{}` se ausente — nunca sobrescreve com null.
+ */
+function receiverNamePatch(payload: EulenWithdrawPayload): { recipientName?: string } {
+  const name = typeof payload.receiverName === "string" ? payload.receiverName.trim() : "";
+  return name ? { recipientName: name } : {};
 }
 
 /** Status do saque Eulen -> nosso enum. unsent/sending -> PROCESSING; sent ->
@@ -104,13 +116,14 @@ export async function handleEulenWithdrawWebhook(
     return { status: 200, body: { ok: true, matched: false } };
   }
 
-  // Ja terminal: so registra o comprovante se novo.
+  // Ja terminal: so registra o comprovante / nome do destinatario se novos.
   if (["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(txRow.status)) {
-    if (receiptUrl) {
+    const namePatch = receiverNamePatch(payload);
+    if (receiptUrl || Object.keys(namePatch).length > 0) {
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.update({
           where: { id: txRow.id },
-          data: { pixpayReceiptUrl: receiptUrl, apiResponse: payload as never },
+          data: { pixpayReceiptUrl: receiptUrl ?? undefined, apiResponse: payload as never, ...namePatch },
         }),
       );
     }
@@ -128,6 +141,7 @@ export async function handleEulenWithdrawWebhook(
         pixpayReceiptUrl: receiptUrl ?? undefined,
         apiResponse: payload as never,
         errorMessage: mapped === "FAILED" ? `Eulen saque ${statusRaw}` : undefined,
+        ...receiverNamePatch(payload),
       },
     }),
   );
