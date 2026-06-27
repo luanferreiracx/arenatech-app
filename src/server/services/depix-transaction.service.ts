@@ -1185,39 +1185,42 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       message: "Nao foi possivel consultar saldo (LWK indisponivel)",
     });
   }
-  const reservedCents = await withTenant(args.tenantId, async (tx) => {
+  const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
+  const centralId = await getCentralTenantId();
+
+  // SEÇÃO CRÍTICA (anti-race de saques concorrentes — M2 da auditoria):
+  // ler a reserva + validar saldo + cap diário + criar o PENDING numa ÚNICA
+  // transação, serializada por advisory lock por tenant. Sem isto, 2 saques
+  // concorrentes do mesmo tenant liam a mesma reserva e ambos passavam o gate,
+  // somando mais que o saldo (payout órfão no provedor). A chamada HTTP à Eulen
+  // fica FORA desta transação (não segura conexão).
+  const { created, availableCents } = await withTenant(args.tenantId, async (tx) => {
+    // Lock por tenant: serializa esta seção entre saques do mesmo tenant.
+    // hashtextextended -> bigint estável a partir do UUID do tenant (parametrizado).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('depix_withdraw:' || ${args.tenantId}, 0))`;
+
     const agg = await tx.tenantDepixTransaction.aggregate({
-      where: {
-        tenantId: args.tenantId,
-        kind: "WITHDRAW",
-        status: { in: ["PENDING", "PROCESSING"] },
-      },
+      where: { tenantId: args.tenantId, kind: "WITHDRAW", status: { in: ["PENDING", "PROCESSING"] } },
       _sum: { grossAmountCents: true },
     });
-    return agg._sum.grossAmountCents ?? 0;
-  });
-  const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
-  const availableCents = onchainCents - reservedCents;
-  if (availableCents < grossAmountCents) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Saldo disponivel insuficiente. Necessario R$ ${(grossAmountCents / 100).toFixed(2)}; disponivel R$ ${(availableCents / 100).toFixed(2)} (saldo on-chain R$ ${(onchainCents / 100).toFixed(2)}, reservado em saques pendentes R$ ${(reservedCents / 100).toFixed(2)})`,
-    });
-  }
+    const reservedCents = agg._sum.grossAmountCents ?? 0;
+    // Saldo disponivel ANTES desta tx (a reserva acima nao a inclui ainda).
+    const avail = onchainCents - reservedCents;
+    if (avail < grossAmountCents) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Saldo disponivel insuficiente. Necessario R$ ${(grossAmountCents / 100).toFixed(2)}; disponivel R$ ${(avail / 100).toFixed(2)} (saldo on-chain R$ ${(onchainCents / 100).toFixed(2)}, reservado em saques pendentes R$ ${(reservedCents / 100).toFixed(2)})`,
+      });
+    }
 
-  // Cap diario (defesa em profundidade contra drain via sessao roubada).
-  // Tenant central (Arena Tech) eh isento — eh quem recebe os saques.
-  const centralId = await getCentralTenantId();
-  if (args.tenantId !== centralId) {
-    await withTenant(args.tenantId, async (tx) =>
-      checkDailyWithdrawCap(tx, args.tenantId, grossAmountCents),
-    );
-  }
+    // Cap diario (defesa contra drain via sessao roubada). Central e isento.
+    if (args.tenantId !== centralId) {
+      await checkDailyWithdrawCap(tx, args.tenantId, grossAmountCents);
+    }
 
-  // ETAPA 1: persiste PENDING + gera numero.
-  const created = await withTenant(args.tenantId, async (tx) => {
+    // Persiste PENDING + gera numero (dentro do lock -> a reserva ja conta este).
     const number = await nextTransactionNumber(tx, "WITHDRAW");
-    return tx.tenantDepixTransaction.create({
+    const row = await tx.tenantDepixTransaction.create({
       data: {
         tenantId: args.tenantId,
         number,
@@ -1242,6 +1245,7 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         idempotencyKey: args.idempotencyKey ?? null,
       },
     });
+    return { created: row, availableCents: avail };
   });
 
   // ETAPA 2: chama a Eulen createDepixWithdraw passando o valor LIQUIDO
