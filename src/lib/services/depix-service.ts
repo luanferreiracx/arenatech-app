@@ -161,7 +161,14 @@ export async function createPixPayment(
   description: string,
   nonce: string,
   taxNumber?: string | null,
-  options?: { depixAddress?: string; requireDepixAddress?: boolean },
+  options?: {
+    depixAddress?: string;
+    requireDepixAddress?: boolean;
+    /** Split nativo da Eulen: endereco que recebe a taxa (master da Arena). */
+    depixSplitAddress?: string;
+    /** Split nativo: % do valor enviado ao depixSplitAddress (taxa Arena). */
+    splitFeePercent?: number;
+  },
 ): Promise<DepixCreateResult> {
   const config = getConfig();
 
@@ -206,11 +213,27 @@ export async function createPixPayment(
     payload.depixAddress = depixAddress;
   }
 
+  // SPLIT NATIVO da Eulen: a taxa Arena e descontada NA ORIGEM — a Eulen manda
+  // `splitFee%` do valor pro `depixSplitAddress` (master da Arena) e o restante
+  // (liquido) pro `depixAddress` (carteira do tenant). Evita 2a tx on-chain e a
+  // carteira de taxas intermediaria. So inclui se ha taxa real (> 0).
+  if (
+    options?.depixSplitAddress &&
+    options.splitFeePercent != null &&
+    options.splitFeePercent > 0
+  ) {
+    payload.depixSplitAddress = options.depixSplitAddress;
+    // Formato exigido pela Eulen: string "X%" (ex.: "2.49%"), 2 casas.
+    payload.splitFee = `${options.splitFeePercent.toFixed(2)}%`;
+  }
+
   logger.info("Depix: criando deposit", {
     url: config.depositUrl,
     amountInCents,
     taxIdMasked: taxDigits ? maskTaxNumber(taxDigits) : null,
     hasDepixAddr: !!payload.depixAddress,
+    hasSplit: !!payload.depixSplitAddress,
+    splitFee: payload.splitFee ?? null,
     nonce,
   });
 

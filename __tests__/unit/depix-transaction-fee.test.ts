@@ -10,6 +10,8 @@ import {
   calcWithdrawFee,
   calcDepositFee,
   calcDepositSettlement,
+  calcDepositSplitFeePercent,
+  estimateArenaFeeFromNet,
   DEPIX_LIMITS,
 } from "@/lib/services/depix-transaction-fee";
 
@@ -116,5 +118,48 @@ describe("calcDepositSettlement — sobre o on-chain (ja liquido da Eulen)", () 
   it("nunca negativo", () => {
     const r = calcDepositSettlement(50, cfgNormal);
     expect(r.netCents).toBe(0);
+  });
+});
+
+describe("calcDepositSplitFeePercent — taxa fixo+% -> % equivalente p/ o split Eulen", () => {
+  it("R$100 com (R$0,99 + 1,5%) -> 2,49%", () => {
+    // fee = 99 + 1,5% de 10000 = 99 + 150 = 249c; 249/10000 = 2,49%.
+    expect(calcDepositSplitFeePercent(10000, cfgNormal)).toBe(2.49);
+  });
+
+  it("central / fee zero -> 0 (sem split)", () => {
+    expect(calcDepositSplitFeePercent(10000, cfgCentral)).toBe(0);
+  });
+
+  it("valor maior dilui o fixo (% cai)", () => {
+    // R$1000: fee = 99 + 1,5% de 100000 = 99 + 1500 = 1599c; 1599/100000 = 1,599% -> 1,6%.
+    expect(calcDepositSplitFeePercent(100000, cfgNormal)).toBe(1.6);
+  });
+
+  it("valor pequeno faz o fixo pesar (% sobe) mas nunca >= 100", () => {
+    const p = calcDepositSplitFeePercent(100, cfgNormal); // R$1
+    expect(p).toBeGreaterThan(2.49);
+    expect(p).toBeLessThan(100);
+  });
+
+  it("gross <= 0 -> 0", () => {
+    expect(calcDepositSplitFeePercent(0, cfgNormal)).toBe(0);
+  });
+});
+
+describe("estimateArenaFeeFromNet — reconstroi a taxa Arena a partir do liquido (ledger)", () => {
+  it("aproxima a taxa que o split separou (round-trip ~)", () => {
+    // gross R$100 -> fee 249c -> net 9751c. A partir do net, reconstroi ~249c.
+    const fee = estimateArenaFeeFromNet(9751, cfgNormal);
+    expect(fee).toBeGreaterThanOrEqual(248);
+    expect(fee).toBeLessThanOrEqual(251);
+  });
+
+  it("central / fee zero -> 0", () => {
+    expect(estimateArenaFeeFromNet(10000, cfgCentral)).toBe(0);
+  });
+
+  it("net <= 0 -> 0", () => {
+    expect(estimateArenaFeeFromNet(0, cfgNormal)).toBe(0);
   });
 });

@@ -81,6 +81,48 @@ export function estimatePixPayDepositFee(_grossCents: number): number {
 }
 
 /**
+ * Converte a taxa Arena do DEPOSITO (fixo + %) num PERCENTUAL equivalente sobre o
+ * valor pago, pra usar no SPLIT NATIVO da Eulen (`splitFee: "X%"`).
+ *
+ * A Eulen so aceita split percentual; nossa taxa tem parte fixa (entryFeeFixed) +
+ * parte percentual (entryFeePercent). Aqui colapsamos as duas no % equivalente
+ * PARA ESTE valor:  splitFee% = (fixo + %·valor) / valor · 100.
+ *
+ * Arredonda a 2 casas (formato da Eulen) e limita a [0, 100). grossCents<=0 ou taxa
+ * zero -> 0 (sem split). Em valores muito baixos o fixo eleva o % — esperado (o
+ * minimo operacional de R$10 limita a distorcao).
+ */
+export function calcDepositSplitFeePercent(
+  grossCents: number,
+  cfg: DepixFeeConfig,
+): number {
+  if (grossCents <= 0) return 0;
+  const feeArenaCents = cfg.entryFeeFixed + pct(grossCents, cfg.entryFeePercent);
+  if (feeArenaCents <= 0) return 0;
+  const percent = (feeArenaCents / grossCents) * 100;
+  // 2 casas decimais; nunca >= 100% (nao faria sentido — a taxa nao engole tudo).
+  return Math.min(99.99, Math.round(percent * 100) / 100);
+}
+
+/**
+ * Estima a taxa Arena (em centavos) que foi SEPARADA via split nativo da Eulen,
+ * a partir do LIQUIDO que chegou on-chain. Usado SO pra registrar o ledger
+ * (a taxa ja saiu na origem — isto e contabil/informativo).
+ *
+ * O split tirou `splitFee%` do bruto; o liquido = bruto·(1 − f). Como o `splitFee`
+ * depende do bruto (parte fixa), reconstroi o bruto resolvendo:
+ *   gross = (net + entryFeeFixed) / (1 − entryFeePercent/100)
+ * e a taxa = gross − net. Config degenerada (≥100%) -> 0.
+ */
+export function estimateArenaFeeFromNet(netCents: number, cfg: DepixFeeConfig): number {
+  if (netCents <= 0) return 0;
+  if (cfg.entryFeeFixed <= 0 && cfg.entryFeePercent <= 0) return 0;
+  if (cfg.entryFeePercent >= 100) return 0;
+  const gross = (netCents + cfg.entryFeeFixed) / (1 - cfg.entryFeePercent / 100);
+  return Math.max(0, roundCents(gross - netCents));
+}
+
+/**
  * Taxa do DEPOSITO. PixPay: 0,99 + 0,5% (linear).
  */
 export function calcDepositFee(
