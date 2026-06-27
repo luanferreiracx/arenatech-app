@@ -31,9 +31,20 @@ export async function getPublicCharge(token: string): Promise<PublicChargeView |
   return withAdmin(async (tx) => {
     const link = await tx.paymentLink.findUnique({
       where: { token },
-      select: { tenantId: true, status: true, description: true, amountCents: true },
+      select: { id: true, tenantId: true, status: true, description: true, amountCents: true, expiresAt: true },
     });
     if (!link) return null;
+
+    // On-read: link ACTIVE vencido -> EXPIRED (nao depende do cron).
+    let status = link.status;
+    if (status === "ACTIVE" && link.expiresAt && link.expiresAt < new Date()) {
+      await tx.paymentLink.updateMany({
+        where: { id: link.id, status: "ACTIVE" },
+        data: { status: "EXPIRED" },
+      });
+      status = "EXPIRED";
+    }
+
     const tenant = await tx.tenant.findUnique({
       where: { id: link.tenantId },
       select: { name: true },
@@ -43,8 +54,8 @@ export async function getPublicCharge(token: string): Promise<PublicChargeView |
       description: link.description ?? "",
       amountCents: link.amountCents,
       amountOpen: link.amountCents == null,
-      status: link.status,
-      alreadyPaid: link.status === "PAID",
+      status,
+      alreadyPaid: status === "PAID",
     };
   });
 }
@@ -90,6 +101,7 @@ export async function generatePublicPix(args: {
         status: true,
         amountCents: true,
         description: true,
+        expiresAt: true,
         walletTransactionId: true,
         createdById: true,
       },
@@ -98,6 +110,13 @@ export async function generatePublicPix(args: {
   if (!link) return { ok: false, error: "Cobrança não encontrada." };
   if (link.status !== "ACTIVE") {
     return { ok: false, error: "Esta cobrança não está mais disponível para pagamento." };
+  }
+  // Link vencido: expira e recusa (defesa server-side; nao gera QR novo).
+  if (link.expiresAt && link.expiresAt < new Date()) {
+    await withAdmin((tx) =>
+      tx.paymentLink.updateMany({ where: { id: link.id, status: "ACTIVE" }, data: { status: "EXPIRED" } }),
+    );
+    return { ok: false, error: "Este link de pagamento expirou. Peça um novo ao comerciante." };
   }
 
   // 3) Valor: livre -> usa o do cliente; fixo -> usa o do link. Limites sempre.

@@ -5,6 +5,7 @@ import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { generateDepositAddressQr } from "@/lib/services/depix-service";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
+import { PAYMENT_LINK_TTL_MS } from "@/server/services/payment-link.service";
 import { logger } from "@/lib/logger";
 
 /** Monta a URL pública + QR (PNG data-url) de um token de link. */
@@ -42,6 +43,7 @@ export const paymentLinkRouter = createTRPCRouter({
             amountCents: input.amountCents ?? null,
             description: input.description?.trim() || null,
             createdById: ctx.session.user.id,
+            expiresAt: new Date(Date.now() + PAYMENT_LINK_TTL_MS),
           },
           select: { id: true, token: true, amountCents: true, description: true },
         }),
@@ -63,8 +65,13 @@ export const paymentLinkRouter = createTRPCRouter({
   list: tenantProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }).optional())
     .query(async ({ ctx, input }) => {
-      const links = await ctx.withTenant(async (tx) =>
-        tx.paymentLink.findMany({
+      const links = await ctx.withTenant(async (tx) => {
+        // Expira on-read os ACTIVE ja vencidos deste tenant antes de listar.
+        await tx.paymentLink.updateMany({
+          where: { tenantId: ctx.tenantId, status: "ACTIVE", expiresAt: { lt: new Date() } },
+          data: { status: "EXPIRED" },
+        });
+        return tx.paymentLink.findMany({
           where: { tenantId: ctx.tenantId },
           orderBy: { createdAt: "desc" },
           take: input?.limit ?? 50,
@@ -75,10 +82,11 @@ export const paymentLinkRouter = createTRPCRouter({
             description: true,
             status: true,
             paidAt: true,
+            expiresAt: true,
             createdAt: true,
           },
-        }),
-      );
+        });
+      });
       const base = getAppBaseUrl();
       return links.map((l) => ({ ...l, url: `${base}/pay/${l.token}` }));
     }),

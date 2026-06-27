@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Link2, Copy, Check, MessageCircle, Loader2, Download } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useMutation } from "@tanstack/react-query";
@@ -147,6 +148,13 @@ export function GenerateLinkDialog({ trigger }: { trigger: React.ReactNode }) {
               )}
               Gerar link
             </Button>
+
+            <Link
+              href="/depix-wallet/payment-links"
+              className="block text-center text-xs text-muted-foreground hover:text-foreground"
+            >
+              Ver links gerados
+            </Link>
           </div>
         ) : (
           <div className="space-y-4">

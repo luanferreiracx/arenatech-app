@@ -7,12 +7,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const linkFindUnique = vi.fn();
 const linkUpdate = vi.fn();
+const linkUpdateMany = vi.fn();
 const txFindUnique = vi.fn();
 const validateDepixLimit = vi.fn();
 const createDeposit = vi.fn();
 
 const tx = {
-  paymentLink: { findUnique: linkFindUnique, update: linkUpdate },
+  paymentLink: { findUnique: linkFindUnique, update: linkUpdate, updateMany: linkUpdateMany },
   tenantDepixTransaction: { findUnique: txFindUnique },
 };
 
@@ -39,6 +40,7 @@ function paymentLink(over: Record<string, unknown> = {}) {
     status: "ACTIVE",
     amountCents: 5000, // R$50 fixo (null = livre)
     description: "Mensalidade",
+    expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000), // valido (6h restantes)
     walletTransactionId: null,
     createdById: "user-1",
     ...over,
@@ -46,7 +48,8 @@ function paymentLink(over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  for (const m of [linkFindUnique, linkUpdate, txFindUnique, validateDepixLimit, createDeposit]) m.mockReset();
+  for (const m of [linkFindUnique, linkUpdate, linkUpdateMany, txFindUnique, validateDepixLimit, createDeposit]) m.mockReset();
+  linkUpdateMany.mockResolvedValue({ count: 1 });
   linkFindUnique.mockResolvedValue(paymentLink());
   linkUpdate.mockResolvedValue({});
   validateDepixLimit.mockResolvedValue({ allowed: true });
@@ -78,6 +81,17 @@ describe("generatePublicPix (PaymentLink)", () => {
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
     expect(r.ok).toBe(false);
     expect(createDeposit).not.toHaveBeenCalled();
+  });
+
+  it("rejeita link vencido (expiresAt no passado) e o marca EXPIRED", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ expiresAt: new Date(Date.now() - 60_000) }));
+    const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("expirou");
+    expect(createDeposit).not.toHaveBeenCalled();
+    // Marcou EXPIRED (updateMany guardado por status ACTIVE).
+    const data = linkUpdateMany.mock.calls.at(-1)![0] as { data: { status: string } };
+    expect(data.data.status).toBe("EXPIRED");
   });
 
   it("valor livre abaixo do minimo -> rejeita", async () => {
