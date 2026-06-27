@@ -210,4 +210,15 @@ describe("Eulen DePix service — contrato oficial (docs.eulen.app)", () => {
     expect(result.status).toBe("paid");
     expect(result.isFinal).toBe(true);
   });
+
+  it("captura o nome do pagador (payerName) do deposit-status", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => syncBody({ status: "depix_sent", payerName: "João da Silva" }),
+    } as Response);
+
+    const result = await getPixStatus("dep_1");
+    expect(result.payerName).toBe("João da Silva");
+  });
 });

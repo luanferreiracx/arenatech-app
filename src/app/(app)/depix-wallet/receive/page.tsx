@@ -73,6 +73,7 @@ export default function DepixReceivePage() {
   const [amount, setAmount] = useState(0);
   const [payerTaxId, setPayerTaxId] = useState("");
   const [payerPhone, setPayerPhone] = useState("");
+  const [description, setDescription] = useState("");
 
   const payerTaxIdDigits = payerTaxId.replace(/\D/g, "");
   const requiresTaxId = amount >= 50_000;
@@ -199,6 +200,26 @@ export default function DepixReceivePage() {
             </div>
           </div>
 
+          <div>
+            <Label htmlFor="description">
+              Descrição{" "}
+              <span className="text-[10px] text-muted-foreground font-normal">
+                (opcional)
+              </span>
+            </Label>
+            <Input
+              id="description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value.slice(0, 200))}
+              placeholder="Ex.: Pagamento da conta, reserva, mensalidade…"
+              maxLength={200}
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Aparece no recibo e no histórico para identificar este recebimento.
+            </p>
+          </div>
+
           {amount >= DEPIX_LIMITS.MIN_CENTS && previewQuery.data && (
             <FeeBreakdown
               kind="DEPOSIT"
@@ -219,6 +240,7 @@ export default function DepixReceivePage() {
                 grossAmountCents: amount,
                 payerTaxId: payerTaxIdDigits || null,
                 payerPhone: payerPhone.replace(/\D/g, "") || null,
+                sourceDescription: description.trim() || null,
               })
             }
             disabled={!canSubmit || createMutation.isPending}

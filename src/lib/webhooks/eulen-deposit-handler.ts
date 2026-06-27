@@ -30,6 +30,15 @@ const EXPIRED_STATUSES = new Set(["expired"]);
 const FAILED_STATUSES = new Set(["refunded", "will_refund", "canceled", "error"]);
 
 /**
+ * Nome do pagador vindo da Eulen (`payerName`), pronto pra mesclar no `data:` de
+ * um update. Retorna `{}` se ausente — assim NUNCA sobrescreve com null/undefined.
+ */
+function payerNamePatch(payload: EulenDepositPayload): { payerName?: string } {
+  const name = typeof payload.payerName === "string" ? payload.payerName.trim() : "";
+  return name ? { payerName: name } : {};
+}
+
+/**
  * Processa o webhook de DEPOSITO da Eulen.
  *
  * - `approved`  : PIX recebido — marca pixApprovedAt (UX "confirmando na rede").
@@ -92,7 +101,7 @@ export async function handleEulenDepositWebhook(
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
         where: { id: txRow.id, status: "PENDING" },
-        data: { status: "PROCESSING", pixApprovedAt: new Date() },
+        data: { status: "PROCESSING", pixApprovedAt: new Date(), ...payerNamePatch(payload) },
       }),
     );
     // Efeito de venda (QuickSale->PAID + notify SSE). Tenant REAL (a venda e
@@ -111,7 +120,7 @@ export async function handleEulenDepositWebhook(
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.updateMany({
           where: { id: txRow.id, status: "PENDING" },
-          data: { status: "PROCESSING", pixApprovedAt: new Date() },
+          data: { status: "PROCESSING", pixApprovedAt: new Date(), ...payerNamePatch(payload) },
         }),
       );
       await applyPixReceivedEffects(txRow.tenantId, txRow.id);
@@ -134,7 +143,7 @@ export async function handleEulenDepositWebhook(
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
         where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
-        data: { status: "PROCESSING", depositTxId: blockchainTxId, pixApprovedAt: new Date() },
+        data: { status: "PROCESSING", depositTxId: blockchainTxId, pixApprovedAt: new Date(), ...payerNamePatch(payload) },
       }),
     );
 
