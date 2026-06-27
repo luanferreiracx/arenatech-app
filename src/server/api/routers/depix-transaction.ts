@@ -22,9 +22,11 @@ import {
 import {
   createDeposit,
   createWithdraw,
+  createOnchainWithdraw,
   checkTransactionStatus,
   loadFeeConfig,
 } from "@/server/services/depix-transaction.service";
+import { onchainWithdrawSchema } from "@/lib/validators/depix-onchain";
 import * as lwk from "@/lib/services/lwk-service";
 import { logger } from "@/lib/logger";
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
@@ -112,6 +114,54 @@ export const depixTransactionRouter = createTRPCRouter({
         passphrase: input.walletPassphrase,
       });
       return tx;
+    }),
+
+  /** Saque DePix ON-CHAIN para um endereco Liquid externo (Sideswap, hardware
+   *  wallet). Sem PIX/Eulen — envio direto via LWK. IRREVERSIVEL.
+   *
+   *  Seguranca (igual ao saque PIX + 2ª etapa):
+   *   - tenantAdminProcedure (so OWNER/MANAGER)
+   *   - rate-limit 5/hora
+   *   - step-up 2FA obrigatorio
+   *   - 2ª etapa: confirmAddress/confirmAmount re-digitados (validados no schema)
+   *   - cap diario + advisory lock no service */
+  createOnchainWithdraw: tenantAdminProcedure
+    .input(onchainWithdrawSchema)
+    .mutation(async ({ ctx, input }) => {
+      await rlCreateWithdraw(ctx, "depixTransaction.createOnchainWithdraw");
+
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
+      if (!stepUp.ok) {
+        if (stepUp.reason === "not_enrolled") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Saque exige autenticacao de dois fatores (2FA). Habilite o 2FA em Configuracoes > Seguranca antes de sacar.",
+          });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
+      }
+
+      const tx = await createOnchainWithdraw({
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        toAddress: input.toAddress,
+        amountCents: Math.round(input.amountReais * 100),
+        passphrase: input.passphrase,
+      });
+      return {
+        id: tx.id,
+        number: tx.number,
+        status: tx.status,
+        withdrawTxId: tx.withdrawTxId,
+        onchainAddress: tx.onchainAddress,
+        amountCents: tx.netAmountCents,
+        grossAmountCents: tx.grossAmountCents,
+        explorerUrl: tx.withdrawTxId
+          ? `https://blockstream.info/liquid/tx/${tx.withdrawTxId}`
+          : null,
+      };
     }),
 
   /** Polling: consulta status remoto (PixPay/LWK) e atualiza estado local.
