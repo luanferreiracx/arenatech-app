@@ -18,6 +18,7 @@ enum DepixTransactionSourceType {
   SALE
   SERVICE_ORDER
   PAYMENT_LINK
+  STATIC_QR
 }
 
 enum DepixTransactionStatus {

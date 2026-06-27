@@ -8,6 +8,7 @@ import {
   settleDepositViaFeeWallet,
   applyPixReceivedEffects,
 } from "@/server/services/depix-transaction.service";
+import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 
 /** Payload do webhook de deposito da Eulen (docs.eulen.app — DepositWebhookBody). */
@@ -56,8 +57,10 @@ export async function handleEulenDepositWebhook(
   const qrId = payload.qrId;
   const statusRaw = (payload.status ?? "").toLowerCase();
 
+  // qrId vazio = pagamento no QR PIX ESTATICO (chave fixa da intermediadora,
+  // exclusivo do tenant central). Handler dedicado cria/credita a tx STATIC_QR.
   if (!qrId) {
-    return { status: 400, body: { error: "missing qrId" } };
+    return handleStaticQrDeposit(payload, sourceIp);
   }
 
   // Idempotencia por (qrId, status).
