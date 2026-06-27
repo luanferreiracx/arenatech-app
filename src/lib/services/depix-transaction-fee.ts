@@ -99,6 +99,26 @@ export function calcDepositFee(
 }
 
 /**
+ * Liquidacao do DEPOSITO a partir do valor que REALMENTE chegou on-chain.
+ *
+ * CRITICO: o valor on-chain JA esta liquido da taxa da Eulen — a Eulen desconta
+ * o R$ 0,99 ANTES de enviar o DePix (ex.: PIX de R$ 10,00 -> R$ 9,01 on-chain).
+ * Por isso aqui NAO se subtrai a taxa Eulen de novo (seria cobranca dupla, saldo
+ * a menor); so a taxa Arena Tech e retida. `calcDepositFee` (usado no PREVIEW)
+ * parte do valor que o pagador paga, entao la sim inclui a taxa Eulen.
+ */
+export function calcDepositSettlement(
+  onchainCents: number,
+  cfg: DepixFeeConfig,
+): { feeArenaTechCents: number; netCents: number } {
+  const feeArena = cfg.entryFeeFixed + pct(onchainCents, cfg.entryFeePercent);
+  return {
+    feeArenaTechCents: feeArena,
+    netCents: Math.max(0, onchainCents - feeArena),
+  };
+}
+
+/**
  * Taxa do SAQUE, calculada A PARTIR DO BRUTO (forward).
  * PixPay: taxa estimada sobre o payout PIX.
  *
