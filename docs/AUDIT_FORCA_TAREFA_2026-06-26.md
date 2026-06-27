@@ -94,6 +94,7 @@ Nenhum P0 confirmado nesta rodada. (Dois achados marcados P0 pelos agentes foram
 - **Impacto:** Confiabilidade (retry cego ou desistência indevida).
 - **Confiança:** Média.
 - **Proposta:** Enriquecer o retorno com `{ retryable: boolean, retryAfterMs?: number }` derivado do HTTP status; camadas de retry leem esse campo.
+- **🚫 Descopado (verificado no PR-E, 2026-06-26):** **YAGNI por ora.** A única lógica de retry do sistema são os crons, que **reprocessam incondicionalmente com idempotencyKey** (padrão correto — retry idempotente não precisa classificar `retryable`). Nenhum caller hoje consumiria o campo; adicioná-lo a 5 services com zero consumidores é churn prematuro. Reabrir quando existir um consumidor real (ex. backoff exponencial por status).
 
 ### P2-5 · Webhook InfinitePay sem rate-limit no `payment_check`
 - **Onde:** `src/app/api/webhooks/infinitepay/route.ts:89-111`
@@ -101,6 +102,7 @@ Nenhum P0 confirmado nesta rodada. (Dois achados marcados P0 pelos agentes foram
 - **Impacto:** Robustez (retry storm), risco marginal.
 - **Confiança:** Baixa-Média.
 - **Proposta:** Rate-limit por `saleId` (ex. 5 tentativas/h → 429) ou backoff.
+- **✅ Resolvido (PR #275):** rate-limit por `saleId` (10/h) antes do `payment_check`, reusando `rateLimit()` de `src/lib/rate-limit.ts`. Ao exceder → 429 sem chamar a API externa (o PDV ainda confirma via polling/SSE). Só falhas acumulam; o sucesso consome 1 token e o `alreadyPaid` curto-circuita os reenvios seguintes.
 
 ---
 
@@ -189,7 +191,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 2. ~~**PR-B (segurança):** cifrar `TenantIntegration.config`~~ → **CANCELADO** (FP-3: não há secret em claro no banco).
 3. **PR-C — ✅ FEITO (PR #263):** lock por job (tabela `cron_locks` + `withCronLock`, lease 15min, pool-safe) nos 3 crons (P1-4). Optou-se por lock por linha em vez de `pg_advisory_xact_lock` (pool de conexões + chamadas HTTP nos crons).
 4. **PR-D — ✅ FEITO (PR #273):** bloquear estorno sem caixa aberto (P2-1, dono escolheu bloquear; corrigido em venda e OS) + `logAudit` nas mutations admin (P2-2).
-5. **PR-E (P2/P3, robustez):** classificação de erro HTTP `retryable` (P2-4) + rate-limit InfinitePay (P2-5).
+5. **PR-E — ✅ FEITO (PR #275):** rate-limit InfinitePay (P2-5). P2-4 (classificação `retryable`) **descopado como YAGNI** — sem consumidor real hoje.
 6. **PR-F (P3, limpeza):** triagem de procedures órfãs (P3-1) + remover componentes mortos (P3-2). *Após o dono decidir sobre os órfãos ligados a Admin SaaS/planos.*
 7. **PR-G (P3, higiene):** comentários/TTL doc (P3-6), float cash-session (P3-4), `onDelete` explícito (P3-5).
 

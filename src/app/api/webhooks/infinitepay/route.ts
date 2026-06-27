@@ -7,6 +7,7 @@ import {
   infinitepayWebhookSchema,
 } from "@/lib/services/infinitepay-service";
 import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -84,6 +85,21 @@ export async function POST(req: NextRequest) {
   });
   if (alreadyPaid) {
     return NextResponse.json({ received: true, note: "ja processado" });
+  }
+
+  // Rate-limit por venda do `payment_check` (chamada externa). A InfinitePay nao
+  // assina o webhook e reenvia em loop quando recebe 4xx/5xx; sem teto, um payload
+  // que nunca confirma (forjado ou pagamento que nao caiu) faria a gente marteloar
+  // a API deles indefinidamente. Limita as REVALIDACOES por venda/hora; ao exceder
+  // devolve 429 sem chamar a API (o PDV ainda confirma via polling/SSE).
+  const rl = await rateLimit({
+    key: `infinitepay-webhook:${saleId}`,
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!rl.success) {
+    logger.warn("InfinitePay webhook: rate-limit por venda atingido — pulando payment_check", { saleId });
+    return NextResponse.json({ error: "rate limit" }, { status: 429 });
   }
 
   // REVALIDA via payment_check — fonte de verdade (webhook nao e assinado).
