@@ -2,6 +2,16 @@ import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 
 /**
+ * Regra de negocio (auditoria 2026-06-26, P2-1): um estorno com valor > 0 gera
+ * uma saida (WITHDRAWAL) na gaveta, entao EXIGE caixa aberto. Sem isso a saida
+ * nao era registrada e a conferencia de caixa ficava sub-reportada (gaveta
+ * desbalanceada). Fonte unica usada pelos guards de estorno (venda e OS).
+ */
+export function refundNeedsOpenCashSession(refundAmountCents: number): boolean {
+  return refundAmountCents > 0
+}
+
+/**
  * Calculate the current balance for a cash session.
  * Formula: initialBalance + sum(INCOME amounts) - sum(OUTCOME amounts)
  */
