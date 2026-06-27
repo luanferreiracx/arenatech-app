@@ -151,7 +151,7 @@ Validadas com prefixo correto `trpc.<router>.<proc>` em `src/app`+`src/component
 - **Onde:** `src/lib/talison/scheduler.ts` (TTL do nonce), `src/server/api/routers/financial.ts:398-419` (última parcela absorve resto)
 - **O quê:** Comportamentos corretos mas sem comentário. TTL do Talison existe (`EX`), só não está documentado o valor razoável; cálculo de parcela está certo (última absorve o resto), falta comentário.
 - **Proposta:** Comentários de 1 linha; warning se `GENERATION_TTL_SECONDS > 3600`.
-- **✅/🚫 Resolvido (PR #277):** comentário do "última parcela absorve o resto" adicionado em `financial.ts`. TTL Talison **já é 60s** (`GENERATION_TTL_SECONDS = 60`, bem abaixo de 3600) — o warning proposto é moot, nada a fazer.
+- **✅/🚫 Resolvido (PR #278):** comentário do "última parcela absorve o resto" adicionado em `financial.ts`. TTL Talison **já é 60s** (`GENERATION_TTL_SECONDS = 60`, bem abaixo de 3600) — o warning proposto é moot, nada a fazer.
 
 ---
 
@@ -198,7 +198,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 4. **PR-D — ✅ FEITO (PR #273):** bloquear estorno sem caixa aberto (P2-1, dono escolheu bloquear; corrigido em venda e OS) + `logAudit` nas mutations admin (P2-2).
 5. **PR-E — ✅ FEITO (PR #275):** rate-limit InfinitePay (P2-5). P2-4 (classificação `retryable`) **descopado como YAGNI** — sem consumidor real hoje.
 6. **PR-F — ✅ FEITO (PR #276):** removidas as duplicatas mortas óbvias (`financial.exportCsv`, `settings.getAuditLog`) + `scroll-area` morto. Demais órfãs mantidas (scaffolding/Admin SaaS — dono optou pela via conservadora); `labels-export-menu` é feature a plugar no estoque.
-7. **PR-G — ✅ FEITO (PR #277):** comentário de parcelas (P3-6); TTL Talison já OK. P3-4 (float) e P3-5 (`onDelete` explícito) marcados **won't-fix** (cosmético/risco > valor, sem bug). **Backlog da auditoria fechado.**
+7. **PR-G — ✅ FEITO (PR #278):** comentário de parcelas (P3-6); TTL Talison já OK. P3-4 (float) e P3-5 (`onDelete` explícito) marcados **won't-fix** (cosmético/risco > valor, sem bug). **Backlog da auditoria fechado.**
 
 **Pré-requisito transversal:** instalar **Sentry** (ou equivalente) destrava o valor de PR-A/PR-C — sem alerta, estados presos passam despercebidos.
 
