@@ -75,7 +75,7 @@ const WITHDRAW_SWEEP_SAFETY_MARGIN_MS = 90_000;
 
 /** Cache do id do tenant central — invalida raramente (so muda em recreate). */
 let _centralTenantIdCache: string | null = null;
-async function getCentralTenantId(): Promise<string | null> {
+export async function getCentralTenantId(): Promise<string | null> {
   if (_centralTenantIdCache) return _centralTenantIdCache;
   const t = await withAdmin(async (tx) =>
     tx.tenant.findUnique({ where: { slug: CENTRAL_TENANT_SLUG }, select: { id: true } }),
@@ -192,6 +192,86 @@ async function getArenaMasterAddress(): Promise<string> {
     throw new Error("Carteira Arena Tech nao provisionada (TenantDepixWallet ausente)");
   }
   return wallet.masterAddress;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// QR ESTATICO (tenant central)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Garante a tx de DEPOSITO do pagamento no QR PIX ESTATICO (chave fixa da
+ * intermediadora), EXCLUSIVA do tenant central (arena-tech). O webhook vem com
+ * qrId vazio — usamos uma chave estavel (txid/bankTxId) como `depositLabel`
+ * sintetico p/ idempotencia + match no settle. Cria PENDING se nao existe; nunca
+ * cria pra outro tenant. Retorna a tx (ou null se a central nao esta provisionada).
+ */
+export async function ensureStaticQrDepositTx(args: {
+  stableKey: string; // txid on-chain ou bankTxId — chave unica do pagamento
+  grossAmountCents: number;
+  payerName?: string | null;
+  payerTaxId?: string | null;
+  apiResponse?: unknown;
+}): Promise<
+  | { id: string; tenantId: string; status: string; depositLabel: string; depositAddress: string | null }
+  | null
+> {
+  const centralId = await getCentralTenantId();
+  if (!centralId) {
+    logger.error("static-qr: tenant central (arena-tech) nao encontrado");
+    return null;
+  }
+  const depositLabel = `static:${args.stableKey}`;
+
+  // Ja existe? (idempotente por label)
+  const existing = await withTenant(centralId, async (tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: { tenantId: centralId, kind: "DEPOSIT", depositLabel },
+      select: { id: true, tenantId: true, status: true, depositLabel: true, depositAddress: true },
+    }),
+  );
+  if (existing) return existing as never;
+
+  // Carteira master da central (destino on-chain do DePix do QR estatico) +
+  // um usuario da central (userId e obrigatorio na tx; o estatico nao tem
+  // operador, entao usamos qualquer membro da central).
+  const wallet = await withTenant(centralId, async (tx) =>
+    tx.tenantDepixWallet.findUnique({ where: { tenantId: centralId }, select: { masterAddress: true } }),
+  );
+  const member = await withAdmin(async (tx) =>
+    tx.userTenant.findFirst({ where: { tenantId: centralId }, select: { userId: true } }),
+  );
+  if (!member) {
+    logger.error("static-qr: central sem usuario vinculado — nao da p/ criar tx");
+    return null;
+  }
+
+  const created = await withTenant(centralId, async (tx) => {
+    const number = await nextTransactionNumber(tx, "DEPOSIT");
+    return tx.tenantDepixTransaction.create({
+      data: {
+        tenantId: centralId,
+        number,
+        kind: "DEPOSIT",
+        status: "PENDING",
+        userId: member.userId,
+        userName: "QR estático",
+        grossAmountCents: args.grossAmountCents,
+        netAmountCents: args.grossAmountCents,
+        sourceType: "STATIC_QR",
+        sourceDescription: "Pagamento QR estático",
+        depositLabel,
+        depositAddress: wallet?.masterAddress ?? null,
+        depositReceivingTenantId: centralId,
+        payerName: args.payerName?.trim() || null,
+        payerTaxId: args.payerTaxId?.replace(/\D/g, "") || null,
+        apiResponse: (args.apiResponse ?? null) as never,
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      },
+      select: { id: true, tenantId: true, status: true, depositLabel: true, depositAddress: true },
+    });
+  });
+  logger.info("static-qr: tx criada na central", { id: created.id, stableKey: args.stableKey });
+  return created as never;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

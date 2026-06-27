@@ -14,8 +14,56 @@ import {
   handleEulenMedWebhook,
   type EulenMedPayload,
 } from "@/lib/webhooks/eulen-med-handler";
+import { notifyDepixWebhook } from "@/lib/webhooks/eulen-webhook-notify";
 
 export const runtime = "nodejs";
+
+/** Mapeia o payload cru -> notificacao no grupo. QR estatico = deposit s/ qrId. */
+function notifyFromPayload(
+  type: string,
+  p: { webhookType?: string } & Record<string, unknown>,
+): Promise<void> {
+  const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
+  const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  if (type === "withdraw") {
+    return notifyDepixWebhook({
+      kind: "withdraw",
+      status: str(p.status),
+      valueInCents: num(p.payoutAmountInCents) ?? num(p.depositAmountInCents),
+      payerName: str(p.receiverName),
+      payerTaxNumber: str(p.receiverTaxNumber),
+      pixKey: str(p.pixKey),
+      withdrawalId: str(p.id),
+      blockchainTxID: str(p.blockchainTxID),
+    });
+  }
+  if (type === "med") {
+    return notifyDepixWebhook({
+      kind: "med",
+      valueInCents: num(p.principalValueInCents),
+      payerName: str(p.name),
+      payerTaxNumber: str(p.taxNumber),
+      qrId: str(p.qrId),
+      blockchainTxID: str(p.blockchainTxID),
+      bankTxId: str(p.bankTxId),
+    });
+  }
+  if (type === "deposit") {
+    const isStatic = !str(p.qrId);
+    return notifyDepixWebhook({
+      kind: isStatic ? "static" : "deposit",
+      status: str(p.status),
+      valueInCents: num(p.valueInCents),
+      payerName: str(p.payerName),
+      payerTaxNumber: str(p.payerTaxNumber),
+      pixKey: str(p.pixKey),
+      qrId: str(p.qrId),
+      blockchainTxID: str(p.blockchainTxID),
+      bankTxId: str(p.bankTxId),
+    });
+  }
+  return Promise.resolve();
+}
 
 /**
  * POST /api/webhooks/eulen
@@ -49,6 +97,9 @@ export async function POST(req: NextRequest) {
 
   const sourceIp = extractSourceIp(req.headers);
   const type = String(payload.webhookType ?? "").toLowerCase();
+
+  // Notifica o grupo "Confirmacoes Depix" a cada webhook (fire-and-forget).
+  void notifyFromPayload(type, payload);
 
   try {
     if (type === "withdraw") {
