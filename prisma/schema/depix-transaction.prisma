@@ -79,6 +79,9 @@ model TenantDepixTransaction {
   /// Dados do pagador informados na geracao do QR PIX da Wallet.
   payerTaxId            String?                 @map("payer_tax_id")
   payerPhone            String?                 @map("payer_phone")
+  /// Nome do pagador, capturado da Eulen quando o PIX e pago (deposit-status/
+  /// webhook trazem payerName). So preenchido apos o pagamento.
+  payerName             String?                 @map("payer_name")
   /// QR code BR Code (texto copia-cola) gerado pelo PixPay.
   qrCode                String?                 @map("qr_code") @db.Text
   /// QR code em base64 (PNG), ja pronto pra <img src=...>.

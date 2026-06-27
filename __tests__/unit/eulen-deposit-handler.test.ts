@@ -85,6 +85,24 @@ describe("handleEulenDepositWebhook", () => {
     expect(settleDepositViaFeeWallet).not.toHaveBeenCalled();
   });
 
+  it("approved -> persiste o nome do pagador (payerName) quando a Eulen envia", async () => {
+    await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q1", status: "approved", valueInCents: 10000, payerName: "  Maria Souza  " },
+      null,
+    );
+    const data = updateMany.mock.calls[0]![0] as { data: { payerName?: string } };
+    expect(data.data.payerName).toBe("Maria Souza"); // trim aplicado
+  });
+
+  it("approved sem payerName -> NAO escreve o campo (nao sobrescreve com null)", async () => {
+    await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q1", status: "approved", valueInCents: 10000 },
+      null,
+    );
+    const data = updateMany.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect("payerName" in data.data).toBe(false);
+  });
+
   it("depix_sent confirmado on-chain -> settle COMPLETED (custodial)", async () => {
     verifyDepositOnChain.mockResolvedValue({ ok: true, onchainAmount: 100 });
     settleDepositConfirmed.mockResolvedValue({ matched: true, completed: true });

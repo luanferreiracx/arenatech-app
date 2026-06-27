@@ -416,12 +416,18 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
           </Card>
 
           {/* Pagador (deposito) */}
-          {isDeposit && (t.payerTaxId || t.payerPhone) && (
+          {isDeposit && (t.payerName || t.payerTaxId || t.payerPhone) && (
             <Card className="p-6">
               <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
                 Pagador
               </h3>
               <dl className="space-y-2.5 text-sm">
+                {t.payerName && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Nome</dt>
+                    <dd className="font-medium text-right">{t.payerName}</dd>
+                  </div>
+                )}
                 {t.payerTaxId && (
                   <div className="flex justify-between gap-3">
                     <dt className="text-muted-foreground">CPF/CNPJ</dt>
@@ -503,6 +509,14 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
               Detalhes
             </h3>
             <dl className="space-y-3 text-xs">
+              {t.sourceDescription && (
+                <div>
+                  <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">
+                    Descrição
+                  </dt>
+                  <dd className="font-medium mt-0.5 break-words">{t.sourceDescription}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">
                   Criado em

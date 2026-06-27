@@ -1445,13 +1445,16 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
     // Confere status do PIX na Eulen (cliente ja pagou?).
     if (txRow.pixpayDepixId && txRow.status === "PENDING") {
       const ps = await getPixStatus(txRow.pixpayDepixId);
+      // Captura o nome do pagador (Eulen) quando vier e a tx ainda nao tiver.
+      const payerNamePatch =
+        ps.payerName && !txRow.payerName ? { payerName: ps.payerName } : {};
       if (ps.success && ps.status === "paid") {
         // depix_sent: DePix on-chain. Marca PROCESSING (aguardando LWK confirmar
         // o saldo). O PIX ja caiu -> libera a venda na hora (idempotente).
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.update({
             where: { id: txRow.id },
-            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date() },
+            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date(), ...payerNamePatch },
           }),
         );
         await applyPixReceivedEffects(tenantId, txRow.id);
@@ -1461,7 +1464,7 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
         await withTenant(tenantId, async (tx) =>
           tx.tenantDepixTransaction.update({
             where: { id: txRow.id },
-            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date() },
+            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date(), ...payerNamePatch },
           }),
         );
         await applyPixReceivedEffects(tenantId, txRow.id);

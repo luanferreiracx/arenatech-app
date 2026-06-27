@@ -54,6 +54,8 @@ export interface DepixStatusResult {
   status?: "pending" | "pix_received" | "paid" | "expired" | "failed" | "refunded";
   /** Status final (true) significa que nao vai mais mudar. */
   isFinal?: boolean;
+  /** Nome do pagador (Eulen `payerName`), disponivel apos o PIX ser pago. */
+  payerName?: string;
   error?: string;
 }
 
@@ -644,7 +646,8 @@ export async function getPixStatus(transactionId: string): Promise<DepixStatusRe
     const normalized = normalizeDepositStatus(raw);
     // `pix_received` ainda nao e final — o DePix pode ser enviado on-chain.
     const isFinal = normalized !== "pending" && normalized !== "pix_received";
-    return { success: true, status: normalized, isFinal };
+    const payerName = typeof data.payerName === "string" ? data.payerName.trim() : undefined;
+    return { success: true, status: normalized, isFinal, payerName: payerName || undefined };
   } catch (error) {
     return {
       success: false,
