@@ -581,18 +581,6 @@ export const settingsRouter = createTRPCRouter({
       });
     }),
 
-  getAuditLog: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const log = await tx.auditLog.findFirst({
-          where: { id: input.id, tenantId: ctx.tenantId },
-        });
-        if (!log) throw new TRPCError({ code: "NOT_FOUND" });
-        return log;
-      });
-    }),
-
   // ═══════════════════════════════════════
   // FISCAL SETTINGS
   // ═══════════════════════════════════════

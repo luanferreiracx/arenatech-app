@@ -122,11 +122,13 @@ Validadas com prefixo correto `trpc.<router>.<proc>` em `src/app`+`src/component
 - **Nota:** algumas funções (`entrySerializedItems`, `adjustInventory`, `getAvailableQuantity`) **também existem como função de serviço** importada internamente — a *procedure tRPC* é órfã, a *função* não. Remover só a procedure.
 - **Decisão de produto antes de remover:** `admin.deleteTenant`, `admin.assignAddon`/`getAddon` (ligados ao Admin SaaS/planos — Fase 15 pendente), `settings.getAuditLog`/`getSecurity`/`listTeam` (telas de admin que podem estar planejadas). `stock.*` e `communication.*` parecem seguras para remoção ou para religar a uma UI faltante.
 - **Proposta:** Triagem em 1 PR: remover as comprovadamente mortas (ex. `financial.exportCsv` duplicada, `stock` órfãs sem feature correspondente); religar à UI as que representam feature faltante (ex. `settings.getAuditLog` → tela de logs já existe mas não consome). **Não** remover as bloqueadas por decisão de produto.
+- **✅ Parcial (PR #276):** dono optou pela via **conservadora** — remover só as **duplicatas mortas óbvias**: `financial.exportCsv` (substituída pelo GET `/api/financial/export`) e `settings.getAuditLog` (a tela `/settings/logs` usa `listAuditLogs`, não esta). **Mantidas** as demais: Admin SaaS (`admin.assignAddon`/`getAddon`/`deleteTenant`/`publicPlans`/`getRefund` = Fase 15) e as ambíguas (`stock.*`, `communication.*` opt-out, `settings.getSecurity`/`listTeam`/etc.) podem ser scaffolding de feature planejada — procedure órfã não custa runtime. Reabrir caso a caso quando a feature for decidida.
 
 ### P3-2 · Componentes mortos
 - **Onde:** `src/components/ui/scroll-area.tsx`, `src/app/(app)/stock/_components/labels-export-menu.tsx`
 - **O quê:** Nunca importados. `scroll-area` é wrapper shadcn não usado; `LabelsExportMenu` é feature de etiqueta Niimbot não plugada.
 - **Proposta:** Remover `scroll-area` (re-adicionável via shadcn quando precisar). Confirmar com o dono se `LabelsExportMenu` é feature pendente antes de remover.
+- **✅ Parcial (PR #276):** `scroll-area` removido. `labels-export-menu` **mantido** — dono: a exportação de etiquetas Niimbot já existe na **tela de produtos** e quer **também na tela de estoque** → é feature a **plugar** (PR próprio), não código morto.
 
 ### P3-3 · Logs de cron sem granularidade por ID
 - **Onde:** `src/app/api/cron/process-deposit-repayments/route.ts:56-61` (e crons análogos)
@@ -192,7 +194,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 3. **PR-C — ✅ FEITO (PR #263):** lock por job (tabela `cron_locks` + `withCronLock`, lease 15min, pool-safe) nos 3 crons (P1-4). Optou-se por lock por linha em vez de `pg_advisory_xact_lock` (pool de conexões + chamadas HTTP nos crons).
 4. **PR-D — ✅ FEITO (PR #273):** bloquear estorno sem caixa aberto (P2-1, dono escolheu bloquear; corrigido em venda e OS) + `logAudit` nas mutations admin (P2-2).
 5. **PR-E — ✅ FEITO (PR #275):** rate-limit InfinitePay (P2-5). P2-4 (classificação `retryable`) **descopado como YAGNI** — sem consumidor real hoje.
-6. **PR-F (P3, limpeza):** triagem de procedures órfãs (P3-1) + remover componentes mortos (P3-2). *Após o dono decidir sobre os órfãos ligados a Admin SaaS/planos.*
+6. **PR-F — ✅ FEITO (PR #276):** removidas as duplicatas mortas óbvias (`financial.exportCsv`, `settings.getAuditLog`) + `scroll-area` morto. Demais órfãs mantidas (scaffolding/Admin SaaS — dono optou pela via conservadora); `labels-export-menu` é feature a plugar no estoque.
 7. **PR-G (P3, higiene):** comentários/TTL doc (P3-6), float cash-session (P3-4), `onDelete` explícito (P3-5).
 
 **Pré-requisito transversal:** instalar **Sentry** (ou equivalente) destrava o valor de PR-A/PR-C — sem alerta, estados presos passam despercebidos.
