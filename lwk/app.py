@@ -369,8 +369,10 @@ def send_webhook(payload, max_attempts=3):
     body = json.dumps(payload, separators=(",", ":")).encode()
     headers = {"Content-Type": "application/json"}
     if WEBHOOK_SECRET:
-        # Bearer estatico (compat) + assinatura do corpo (integridade/origem).
-        headers["X-Webhook-Secret"] = WEBHOOK_SECRET
+        # SO a assinatura HMAC do corpo (prova posse do secret sem transmiti-lo).
+        # O receptor (/api/webhooks/lwk-deposit) valida exclusivamente por
+        # X-Signature; NAO enviamos o secret em claro (evita vazamento se TLS/URL
+        # for comprometida).
         headers["X-Signature"] = "sha256=" + hmac.new(
             WEBHOOK_SECRET.encode(), body, hashlib.sha256
         ).hexdigest()
@@ -773,7 +775,7 @@ def wallet_mnemonic_reveal(tenant_id):
             "network":     NETWORK_NAME,
         })
     except Exception as e:
-        return fail("internal_error", 500, log_detail=f"mnemonic_reveal[{tenant_id}]: {e}")
+        return fail("internal_error", 500, log_detail=f"mnemonic_reveal[{tenant_id}]: {type(e).__name__}")
 
 
 @app.route("/wallet/<tenant_id>/encrypt-seed", methods=["POST"])
@@ -803,7 +805,7 @@ def wallet_encrypt_seed(tenant_id):
             "network":     NETWORK_NAME,
         })
     except Exception as e:
-        return fail("internal_error", 500, log_detail=f"encrypt_seed[{tenant_id}]: {e}")
+        return fail("internal_error", 500, log_detail=f"encrypt_seed[{tenant_id}]: {type(e).__name__}")
 
 
 @app.route("/wallet/<tenant_id>/rewrap", methods=["POST"])
@@ -829,7 +831,7 @@ def wallet_rewrap(tenant_id):
     except crypto.InvalidPassphraseError:
         return fail("invalid_passphrase", 400)
     except Exception as e:
-        return fail("internal_error", 500, log_detail=f"rewrap[{tenant_id}]: {e}")
+        return fail("internal_error", 500, log_detail=f"rewrap[{tenant_id}]: {type(e).__name__}")
     return jsonify({"tenant_id": tenant_id, "encrypted_seed": new_blob, "network": NETWORK_NAME})
 
 
@@ -868,7 +870,7 @@ def wallet_recover(tenant_id):
         del mnemonic_in
         return jsonify({"tenant_id": tenant_id, "encrypted_seed": blob, "network": NETWORK_NAME})
     except Exception as e:
-        return fail("internal_error", 500, log_detail=f"recover[{tenant_id}]: {e}")
+        return fail("internal_error", 500, log_detail=f"recover[{tenant_id}]: {type(e).__name__}")
 
 
 @app.route("/wallet/<tenant_id>/setup-noncustodial", methods=["POST"])
@@ -947,7 +949,7 @@ def wallet_setup_noncustodial(tenant_id):
         logger.info(f"[{tenant_id}] Carteira non-custodial provisionada (mode={mode})")
         return jsonify(resp)
     except Exception as e:
-        return fail("internal_error", 500, log_detail=f"setup_noncustodial[{tenant_id}]: {e}")
+        return fail("internal_error", 500, log_detail=f"setup_noncustodial[{tenant_id}]: {type(e).__name__}")
 
 
 @app.route("/wallet/<tenant_id>/balance", methods=["GET"])
