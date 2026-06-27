@@ -1,16 +1,20 @@
 /**
- * generatePublicPix (pagamento publico de QuickSale): revalida TODAS as regras
- * no servidor — checkbox de titularidade, CPF obrigatorio+valido, limites
- * min/max e por documento, status AWAITING. Idempotencia (nao recria QR).
+ * generatePublicPix (pagamento publico via PaymentLink): revalida TODAS as
+ * regras no servidor — checkbox de titularidade, CPF obrigatorio+valido, limites
+ * min/max e por documento, link ACTIVE. Idempotencia (nao recria deposito).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const qsFindFirst = vi.fn();
-const qsUpdate = vi.fn();
+const linkFindUnique = vi.fn();
+const linkUpdate = vi.fn();
+const txFindUnique = vi.fn();
 const validateDepixLimit = vi.fn();
 const createDeposit = vi.fn();
 
-const tx = { quickSale: { findFirst: qsFindFirst, update: qsUpdate } };
+const tx = {
+  paymentLink: { findUnique: linkFindUnique, update: linkUpdate },
+  tenantDepixTransaction: { findUnique: txFindUnique },
+};
 
 vi.mock("@/server/db", () => ({
   withAdmin: (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -25,33 +29,26 @@ vi.mock("@/server/services/depix-transaction.service", () => ({
 
 import { generatePublicPix } from "@/server/services/pay-public.service";
 
-// CPF valido (passa no isValidTaxId real).
-const CPF = "52998224725";
+const CPF = "52998224725"; // valido no isValidTaxId real
 const TOKEN = "tok_public_123456";
 
-function quickSale(over: Record<string, unknown> = {}) {
+function paymentLink(over: Record<string, unknown> = {}) {
   return {
-    id: "qs-1",
+    id: "pl-1",
     tenantId: "tenant-1",
-    number: "VA-1",
-    status: "AWAITING_PAYMENT",
-    totalAmount: 50, // R$50 fixo
-    publicAmountOpen: false,
-    cpfCnpj: null,
+    status: "ACTIVE",
+    amountCents: 5000, // R$50 fixo (null = livre)
+    description: "Mensalidade",
     walletTransactionId: null,
-    depixQrCode: null,
-    depixQrCodeBase64: null,
-    depixTransactionId: null,
-    depixExpiresAt: null,
     createdById: "user-1",
     ...over,
   };
 }
 
 beforeEach(() => {
-  for (const m of [qsFindFirst, qsUpdate, validateDepixLimit, createDeposit]) m.mockReset();
-  qsFindFirst.mockResolvedValue(quickSale());
-  qsUpdate.mockResolvedValue({});
+  for (const m of [linkFindUnique, linkUpdate, txFindUnique, validateDepixLimit, createDeposit]) m.mockReset();
+  linkFindUnique.mockResolvedValue(paymentLink());
+  linkUpdate.mockResolvedValue({});
   validateDepixLimit.mockResolvedValue({ allowed: true });
   createDeposit.mockResolvedValue({
     id: "wtx-1",
@@ -62,7 +59,7 @@ beforeEach(() => {
   });
 });
 
-describe("generatePublicPix", () => {
+describe("generatePublicPix (PaymentLink)", () => {
   it("rejeita sem confirmar titularidade (checkbox)", async () => {
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: false });
     expect(r.ok).toBe(false);
@@ -76,22 +73,22 @@ describe("generatePublicPix", () => {
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("rejeita venda que nao esta aguardando pagamento", async () => {
-    qsFindFirst.mockResolvedValue(quickSale({ status: "PAID" }));
+  it("rejeita link que nao esta ACTIVE", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ status: "PAID" }));
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
     expect(r.ok).toBe(false);
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("valor aberto abaixo do minimo -> rejeita", async () => {
-    qsFindFirst.mockResolvedValue(quickSale({ publicAmountOpen: true, totalAmount: 0 }));
+  it("valor livre abaixo do minimo -> rejeita", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 500, ownershipConfirmed: true });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("mínimo");
   });
 
-  it("valor aberto acima do maximo -> rejeita", async () => {
-    qsFindFirst.mockResolvedValue(quickSale({ publicAmountOpen: true, totalAmount: 0 }));
+  it("valor livre acima do maximo -> rejeita", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 600000, ownershipConfirmed: true });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("máximo");
@@ -105,7 +102,7 @@ describe("generatePublicPix", () => {
     expect(createDeposit).not.toHaveBeenCalled();
   });
 
-  it("caminho feliz (valor fixo): cria deposito com CPF e retorna QR", async () => {
+  it("caminho feliz (valor fixo): cria deposito com CPF + descricao do link", async () => {
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -113,27 +110,37 @@ describe("generatePublicPix", () => {
       expect(r.amountCents).toBe(5000);
     }
     expect(createDeposit).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: "tenant-1", sourceType: "QUICK_SALE", sourceId: "qs-1", payerTaxId: CPF, grossAmountCents: 5000 }),
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        sourceType: "PAYMENT_LINK",
+        sourceId: "pl-1",
+        payerTaxId: CPF,
+        grossAmountCents: 5000,
+        sourceDescription: "Mensalidade",
+      }),
+    );
+    // Vincula o deposito ao link.
+    expect(linkUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { walletTransactionId: "wtx-1" } }),
     );
   });
 
-  it("valor aberto: usa o valor do cliente e persiste totalAmount", async () => {
-    qsFindFirst.mockResolvedValue(quickSale({ publicAmountOpen: true, totalAmount: 0 }));
+  it("valor livre: usa o valor do cliente", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ amountCents: null }));
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: 12300, ownershipConfirmed: true });
     expect(r.ok).toBe(true);
     expect(createDeposit).toHaveBeenCalledWith(expect.objectContaining({ grossAmountCents: 12300 }));
-    const updateData = qsUpdate.mock.calls.at(-1)![0] as { data: { totalAmount?: number } };
-    expect(updateData.data.totalAmount).toBe(123);
   });
 
-  it("idempotente: QR PENDING valido existente -> retorna sem recriar deposito", async () => {
-    qsFindFirst.mockResolvedValue(
-      quickSale({
-        walletTransactionId: "wtx-existente",
-        depixQrCode: "QR-EXISTENTE",
-        depixExpiresAt: new Date(Date.now() + 10 * 60_000),
-      }),
-    );
+  it("idempotente: deposito PENDING valido existente -> retorna sem recriar", async () => {
+    linkFindUnique.mockResolvedValue(paymentLink({ walletTransactionId: "wtx-existente" }));
+    txFindUnique.mockResolvedValue({
+      status: "PENDING",
+      qrCode: "QR-EXISTENTE",
+      qrCodeBase64: "b64",
+      pixpayDepixId: "qr-x",
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+    });
     const r = await generatePublicPix({ token: TOKEN, taxId: CPF, amountCents: null, ownershipConfirmed: true });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.qrCode).toBe("QR-EXISTENTE");

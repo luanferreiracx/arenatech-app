@@ -828,6 +828,18 @@ async function applyDepositSaleEffects(row: {
   sourceType: string | null;
   sourceId: string | null;
 }): Promise<{ applied: boolean; sourceType?: string | null; sourceId?: string | null }> {
+  if (row.sourceType === "PAYMENT_LINK" && row.sourceId) {
+    // Link de pagamento (DePix Wallet) — marca PAID na hora do PIX recebido.
+    // Idempotente: so transiciona de ACTIVE.
+    await withTenant(row.tenantId, async (tx) => {
+      await tx.paymentLink.updateMany({
+        where: { id: row.sourceId!, walletTransactionId: row.id, status: "ACTIVE" },
+        data: { status: "PAID", paidAt: new Date() },
+      });
+    });
+    return { applied: true, sourceType: row.sourceType, sourceId: row.sourceId };
+  }
+
   if (row.sourceType === "QUICK_SALE" && row.sourceId) {
     await withTenant(row.tenantId, async (tx) => {
       const quickSale = await tx.quickSale.findFirst({

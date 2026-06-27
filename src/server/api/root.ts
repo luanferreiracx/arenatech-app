@@ -12,6 +12,7 @@ import { imeiRouter } from "@/server/api/routers/imei";
 import { interestRouter } from "@/server/api/routers/interest";
 import { operationRouter } from "@/server/api/routers/operation";
 import { quickSaleRouter } from "@/server/api/routers/quick-sale";
+import { paymentLinkRouter } from "@/server/api/routers/payment-link";
 import { saleRouter } from "@/server/api/routers/sale";
 import { serviceOrderRouter } from "@/server/api/routers/service-order";
 import { simulatorRouter } from "@/server/api/routers/simulator";
@@ -61,6 +62,7 @@ export const appRouter = createTRPCRouter({
   operation: operationRouter,
   providerCommission: providerCommissionRouter,
   quickSale: quickSaleRouter,
+  paymentLink: paymentLinkRouter,
   sale: saleRouter,
   serviceOrder: serviceOrderRouter,
   simulator: simulatorRouter,

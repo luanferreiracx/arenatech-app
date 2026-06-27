@@ -35,7 +35,6 @@ import {
   Puzzle,
   Clock,
   Smartphone,
-  QrCode,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ModuleKey } from "@/lib/modules";
@@ -138,7 +137,6 @@ export const appNavGroups: NavGroup[] = [
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
-      { label: "Cobrança por link", href: "/quick-sales", icon: QrCode, module: "depix-ops" },
     ],
   },
   {
