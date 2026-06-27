@@ -33,13 +33,20 @@ vi.mock("@/lib/depix/receipt-url", () => ({
   extractDepixWithdrawReceiptUrl: () => null,
 }));
 
+const propagateDepositNotPaid = vi.fn();
+vi.mock("@/lib/webhooks/depix-deposit-propagate", () => ({
+  propagateDepositNotPaid: (...a: unknown[]) => propagateDepositNotPaid(...a),
+}));
+vi.mock("@/lib/webhooks/verify-deposit-onchain", () => ({ verifyDepositOnChain: vi.fn() }));
+
 import { reconcileStaleDepixTransactions } from "@/server/services/depix-transaction.service";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
 
 beforeEach(() => {
-  for (const m of [findMany, txFindUnique, txUpdate, getDepixWithdrawStatus, getPixStatus]) m.mockReset();
+  for (const m of [findMany, txFindUnique, txUpdate, getDepixWithdrawStatus, getPixStatus, propagateDepositNotPaid]) m.mockReset();
   txUpdate.mockResolvedValue({});
+  propagateDepositNotPaid.mockResolvedValue(0);
 });
 
 describe("reconcileStaleDepixTransactions", () => {
@@ -76,6 +83,48 @@ describe("reconcileStaleDepixTransactions", () => {
 
     const res = await reconcileStaleDepixTransactions();
     expect(res).toMatchObject({ scanned: 1, reconciled: 0, unchanged: 1 });
+  });
+
+  it("expira deposito PENDING vencido e nao pago -> EXPIRED + propaga QuickSale", async () => {
+    findMany.mockResolvedValue([{ id: "dep-x", tenantId: TENANT, status: "PENDING" }]);
+    txFindUnique.mockResolvedValueOnce({
+      id: "dep-x",
+      kind: "DEPOSIT",
+      status: "PENDING",
+      pixpayDepixId: "qr-x",
+      pixApprovedAt: null,
+      expiresAt: new Date(Date.now() - 60_000), // vencido ha 1 min
+    });
+    txUpdate.mockResolvedValue({ id: "dep-x", status: "EXPIRED" });
+
+    const res = await reconcileStaleDepixTransactions();
+    expect(res).toMatchObject({ scanned: 1, reconciled: 1, errors: 0 });
+    const upd = txUpdate.mock.calls[0]![0] as { data: { status: string } };
+    expect(upd.data.status).toBe("EXPIRED");
+    expect(propagateDepositNotPaid).toHaveBeenCalledWith("qr-x", "EXPIRED");
+    // Nao consulta a Eulen — expira localmente, sem depender do webhook.
+    expect(getPixStatus).not.toHaveBeenCalled();
+  });
+
+  it("NAO expira deposito vencido se o PIX ja caiu (pixApprovedAt setado)", async () => {
+    findMany.mockResolvedValue([{ id: "dep-y", tenantId: TENANT, status: "PENDING" }]);
+    txFindUnique.mockResolvedValue({
+      id: "dep-y",
+      kind: "DEPOSIT",
+      status: "PENDING",
+      pixpayDepixId: "qr-y",
+      pixApprovedAt: new Date(), // PIX recebido — nao expira
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    getPixStatus.mockResolvedValue({ success: true, status: "pix_received" });
+
+    await reconcileStaleDepixTransactions();
+    // Nao marcou EXPIRED.
+    const expiredUpd = txUpdate.mock.calls.find(
+      (c) => (c[0] as { data?: { status?: string } })?.data?.status === "EXPIRED",
+    );
+    expect(expiredUpd).toBeUndefined();
+    expect(propagateDepositNotPaid).not.toHaveBeenCalled();
   });
 
   it("lista vazia -> no-op", async () => {

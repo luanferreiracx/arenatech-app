@@ -20,11 +20,13 @@ import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
 import {
   calcDepositFee,
+  calcDepositSettlement,
   calcWithdrawFromNet,
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
 import { verifyDepositOnChain } from "@/lib/webhooks/verify-deposit-onchain";
+import { propagateDepositNotPaid } from "@/lib/webhooks/depix-deposit-propagate";
 import {
   getFeeWalletTenantId,
   ensureFeeWalletLbtc,
@@ -59,6 +61,13 @@ const MAX_REPAYMENT_ATTEMPTS = 8;
  * humana no painel da PixPay.
  */
 const WITHDRAW_STUCK_ALERT_MINUTES = 60;
+
+/**
+ * Margem de seguranca antes do `expiration` do saque para transmitir o DePix
+ * on-chain. Depositar apos o expiration = perda de fundos (doc Eulen). Cobre o
+ * tempo de broadcast/propagacao na Liquid.
+ */
+const WITHDRAW_SWEEP_SAFETY_MARGIN_MS = 90_000;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -376,7 +385,8 @@ export async function settleDepositConfirmed(args: {
   // diferir do gross solicitado se o cliente pagou outro valor — usamos o
   // que de fato chegou).
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  const breakdown = calcDepositFee(grossActualCents, cfg);
+  // Liquidacao: o on-chain JA e liquido da taxa Eulen — retem so a taxa Arena.
+  const breakdown = calcDepositSettlement(grossActualCents, cfg);
 
   // Transicao atomica PENDING/PROCESSING -> PROCESSING_FEE.
   // updateMany com guard de status evita race: se 2 webhooks chegarem
@@ -538,7 +548,8 @@ export async function settleDepositViaFeeWallet(args: {
 
   // Taxa sobre o valor REAL recebido on-chain.
   const cfg = await withTenant(realTenantId, async (tx) => loadFeeConfig(tx, realTenantId));
-  const breakdown = calcDepositFee(grossActualCents, cfg);
+  // Liquidacao: o on-chain JA e liquido da taxa Eulen — retem so a taxa Arena.
+  const breakdown = calcDepositSettlement(grossActualCents, cfg);
 
   // Transicao atomica PENDING/PROCESSING -> PROCESSING_FEE (guard anti-race).
   const transitioned = await withTenant(realTenantId, async (tx) =>
@@ -575,12 +586,9 @@ export async function settleDepositViaFeeWallet(args: {
     return { matched: true, repayPending: true };
   }
 
-  // Liquido a repassar = valor RECEBIDO on-chain - taxa Arena Tech. O DePix que
-  // caiu na carteira de taxas (grossActualCents) JA e o liquido do PixPay (a
-  // taxa do off-ramp foi descontada antes de virar DePix), entao aqui so a taxa
-  // Arena Tech e retida — NAO subtrair feePixPay de novo (breakdown.netCents
-  // ja desconta o PixPay e levaria a repassar a menos).
-  const netCents = Math.max(0, grossActualCents - breakdown.feeArenaTechCents);
+  // Liquido a repassar = on-chain - taxa Arena Tech (= breakdown.netCents, que
+  // calcDepositSettlement ja calcula sem re-descontar a taxa Eulen).
+  const netCents = breakdown.netCents;
 
   // Enfileira o repasse ANTES de chamar o LWK (persiste PENDING -> retry seguro).
   // transactionId @unique = 1 repasse por deposito (defesa anti-duplo).
@@ -1163,6 +1171,10 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     });
   }
 
+  const withdrawExpiresAt = withdrawResult.expiration
+    ? new Date(withdrawResult.expiration)
+    : null;
+
   await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixTransaction.update({
       where: { id: created.id },
@@ -1172,10 +1184,41 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         feePixPayCents,
         netAmountCents: payoutAmountCents,
         grossAmountCents: finalGrossCents,
+        expiresAt: withdrawExpiresAt,
         apiResponse: withdrawResult.raw as never,
       },
     }),
   );
+
+  // SEGURANCA FINANCEIRA: a Eulen para de observar o depositAddress apos o
+  // `expiration`. Transmitir o DePix on-chain DEPOIS disso = PERDA DE FUNDOS
+  // (doc oficial: "Never ever deposit after the expiration date. YOU WILL LOSE
+  // YOUR FUNDS!"). Abortamos ANTES do sweep — nada foi transmitido, o saldo do
+  // tenant fica intacto. Margem cobre o tempo de broadcast/propagacao na Liquid.
+  if (
+    withdrawExpiresAt != null &&
+    withdrawExpiresAt.getTime() - WITHDRAW_SWEEP_SAFETY_MARGIN_MS < Date.now()
+  ) {
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: created.id },
+        data: {
+          status: "FAILED",
+          errorMessage: "Janela do saque expirou antes do envio on-chain (sem perda de fundos)",
+        },
+      }),
+    );
+    logger.error("createWithdraw: janela do saque expirada antes do sweep — abortado sem perda", {
+      txId: created.id,
+      tenantId: args.tenantId,
+      expiresAt: withdrawExpiresAt.toISOString(),
+    });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "A janela deste saque expirou antes do envio. Nenhum valor foi debitado — gere o saque novamente.",
+    });
+  }
 
   const recipients: lwk.LwkTransferRecipient[] = [
     { to: withdrawResult.depositAddress, amountBrl: depositAmountCents / 100 },
@@ -1379,6 +1422,26 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
   if (terminal.includes(txRow.status)) return txRow;
 
   if (txRow.kind === "DEPOSIT") {
+    // Expiracao LOCAL do QR: PENDING vencido (expiresAt no passado) e nunca pago
+    // (pixApprovedAt nulo) -> EXPIRED. Nao depende do webhook `expired` da Eulen,
+    // que pode nao chegar. NAO expira se o PIX ja caiu (pixApprovedAt setado).
+    if (
+      txRow.status === "PENDING" &&
+      txRow.pixApprovedAt == null &&
+      txRow.expiresAt != null &&
+      txRow.expiresAt < new Date()
+    ) {
+      const expired = await withTenant(tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: txRow.id },
+          data: { status: "EXPIRED", errorMessage: "PIX expirou (30 min)" },
+        }),
+      );
+      if (txRow.pixpayDepixId) await propagateDepositNotPaid(txRow.pixpayDepixId, "EXPIRED");
+      logger.info("Deposito DePix expirado localmente (QR vencido)", { txId: txRow.id });
+      return expired;
+    }
+
     // Confere status do PIX na Eulen (cliente ja pagou?).
     if (txRow.pixpayDepixId && txRow.status === "PENDING") {
       const ps = await getPixStatus(txRow.pixpayDepixId);
@@ -1393,12 +1456,12 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
         );
         await applyPixReceivedEffects(tenantId, txRow.id);
       } else if (ps.success && ps.status === "pix_received") {
-        // approved: PIX caiu mas o DePix ainda nao saiu on-chain — NAO credita
-        // saldo, mas LIBERA a venda (PDV/QuickSale) na hora.
+        // approved: PIX caiu mas o DePix ainda nao saiu on-chain — marca
+        // PROCESSING (pagamento confirmado) e LIBERA a venda. NAO credita saldo.
         await withTenant(tenantId, async (tx) =>
-          tx.tenantDepixTransaction.updateMany({
-            where: { id: txRow.id, pixApprovedAt: null },
-            data: { pixApprovedAt: new Date() },
+          tx.tenantDepixTransaction.update({
+            where: { id: txRow.id },
+            data: { status: "PROCESSING", pixApprovedAt: txRow.pixApprovedAt ?? new Date() },
           }),
         );
         await applyPixReceivedEffects(tenantId, txRow.id);

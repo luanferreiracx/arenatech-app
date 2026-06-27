@@ -9,6 +9,7 @@ import {
   calcWithdrawFromNet,
   calcWithdrawFee,
   calcDepositFee,
+  calcDepositSettlement,
   DEPIX_LIMITS,
 } from "@/lib/services/depix-transaction-fee";
 
@@ -94,5 +95,26 @@ describe("calcDepositFee", () => {
     expect(r.feeArenaTechCents).toBe(0);
     expect(r.feePixPayEstimatedCents).toBe(99);
     expect(r.netCents).toBe(10000 - 99);
+  });
+});
+
+describe("calcDepositSettlement — sobre o on-chain (ja liquido da Eulen)", () => {
+  it("NAO re-desconta a taxa Eulen: net = onchain - feeArena (central feeArena=0)", () => {
+    // R$9,01 chegou on-chain (Eulen ja tirou os R$0,99 do PIX de R$10).
+    const r = calcDepositSettlement(901, cfgCentral);
+    expect(r.feeArenaTechCents).toBe(0);
+    expect(r.netCents).toBe(901); // credita o valor cheio que chegou — sem cobranca dupla
+  });
+
+  it("retem so a taxa Arena Tech sobre o on-chain", () => {
+    // onchain R$100,00; feeArena = 99 + 1,5% = 99 + 150 = 249.
+    const r = calcDepositSettlement(10000, cfgNormal);
+    expect(r.feeArenaTechCents).toBe(99 + 150);
+    expect(r.netCents).toBe(10000 - (99 + 150));
+  });
+
+  it("nunca negativo", () => {
+    const r = calcDepositSettlement(50, cfgNormal);
+    expect(r.netCents).toBe(0);
   });
 });

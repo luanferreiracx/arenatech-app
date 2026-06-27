@@ -85,13 +85,14 @@ export async function handleEulenDepositWebhook(
     return { status: 200, body: { ok: true, matched: false } };
   }
 
-  // ── PIX aprovado: o cliente pagou (fiat caiu). LIBERA a venda na hora (PDV/
-  //    QuickSale) — nao espera o on-chain. NAO credita saldo (isso e COMPLETED).
+  // ── PIX aprovado: o cliente pagou (fiat caiu). Marca PROCESSING na hora
+  //    (pagamento confirmado, aguardando o DePix on-chain) e LIBERA a venda
+  //    (PDV/QuickSale). NAO credita saldo (isso e COMPLETED, on-chain).
   if (PIX_APPROVED_STATUSES.has(statusRaw)) {
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
-        where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
-        data: { pixApprovedAt: new Date() },
+        where: { id: txRow.id, status: "PENDING" },
+        data: { status: "PROCESSING", pixApprovedAt: new Date() },
       }),
     );
     // Efeito de venda (QuickSale->PAID + notify SSE). Tenant REAL (a venda e
@@ -106,11 +107,11 @@ export async function handleEulenDepositWebhook(
     const blockchainTxId = payload.blockchainTxID;
     if (!blockchainTxId) {
       // Sem txid nao da pra cross-check; deixa o monitor on-chain creditar o
-      // saldo. Mas o PIX ja caiu -> libera a venda na hora (idempotente).
+      // saldo. Mas o PIX ja caiu -> marca PROCESSING + libera a venda (idempotente).
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.updateMany({
-          where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
-          data: { pixApprovedAt: new Date() },
+          where: { id: txRow.id, status: "PENDING" },
+          data: { status: "PROCESSING", pixApprovedAt: new Date() },
         }),
       );
       await applyPixReceivedEffects(txRow.tenantId, txRow.id);
