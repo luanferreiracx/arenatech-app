@@ -42,10 +42,10 @@
 - **Impacto:** sem validação de valor mínimo de parcela; caixa não fecha no horário; meta/políticas decorativas.
 - **Tamanho:** varia por campo (mín. parcela = pequeno no PDV; auto-close = cron, maior).
 
-### D7 · Nuvem Fiscal ignora o toggle `enabled` por-tenant (P2)
-- **Onde:** `fiscal-service.ts:~56` lê só `NUVEM_FISCAL_CLIENT_ID/SECRET` do **env**; ignora `TenantIntegration.enabled`.
-- **Impacto:** o dono desativa a Nuvem Fiscal no painel mas, com as envs globais setadas, a emissão segue ativa pra todos os tenants — não dá pra desabilitar por tenant.
-- **Tamanho:** pequeno-médio (checar `enabled` do tenant antes de emitir + decidir se credenciais são globais ou por-tenant).
+### D7 · Nuvem Fiscal ignora o toggle `enabled` por-tenant (P2) — **✅ FEITO**
+- **Onde:** `fiscal-service.ts:~56` lê só `NUVEM_FISCAL_CLIENT_ID/SECRET` do **env**; ignorava `TenantIntegration.enabled`.
+- **✅ Feito:** `fiscal.authorize` (ponto de emissão na SEFAZ) agora **bloqueia** se o tenant **desativou explicitamente** a integração `NUVEM_FISCAL` (linha `TenantIntegration` existe com `enabled=false`), com erro claro. **Semântica segura:** sem linha = comportamento antigo (env-driven) — não quebra quem emite sem nunca ter mexido no toggle. Cancelar/carta de correção de notas já emitidas seguem permitidos (só a emissão nova é gateada).
+- **Pendente (decisão de produto, não nesta rodada):** credenciais Nuvem Fiscal continuam **globais** (env). Tornar as credenciais **por-tenant** (cada loja com sua conta Nuvem Fiscal) é mudança maior, separada.
 
 ---
 
