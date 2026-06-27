@@ -1,21 +1,25 @@
 /**
  * Sentry — runtime Node.js (server). Init roda via instrumentation.ts.
  *
- * No-op por padrao: sem `NEXT_PUBLIC_SENTRY_DSN` configurado, `Sentry.init({
- * dsn: "" })` NAO envia nada (desabilitado). Assim dev/CI/qualquer ambiente sem
- * DSN segue inalterado — ligar e so setar o DSN (acao do dono, como o dominio do
- * Resend). DSN do Sentry e publico por design (so permite ENVIAR eventos), por
- * isso usamos a mesma var NEXT_PUBLIC_ no server, edge e client.
+ * DSN do Sentry e PUBLICO por design (so permite ENVIAR eventos, nunca ler) —
+ * por isso fica versionado como default; uma env `NEXT_PUBLIC_SENTRY_DSN`
+ * sobrescreve se precisar trocar de projeto.
+ *
+ * Liga SO em producao real: `NODE_ENV === "production"` e fora de CI. Assim
+ * dev e o E2E do CI (que roda build de producao) NAO consomem a cota gratuita
+ * (5k/mes) com ruido de teste. O plano free nunca cobra — so descarta acima da
+ * cota.
  */
 import * as Sentry from "@sentry/nextjs";
 
-const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
+const DEFAULT_DSN =
+  "https://febccfe0c61a42ced505e16a9b20cfae@o4511635141033984.ingest.de.sentry.io/4511635147718736";
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN || DEFAULT_DSN;
+const isProd = process.env.NODE_ENV === "production" && !process.env.CI;
 
 Sentry.init({
   dsn,
-  enabled: dsn !== "",
+  enabled: dsn !== "" && isProd,
   environment: process.env.NODE_ENV,
-  // Amostragem de tracing: barato em prod, cheio em dev. Erros (captureException)
-  // nao sao amostrados — sempre vao.
-  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+  tracesSampleRate: 0.1,
 });
