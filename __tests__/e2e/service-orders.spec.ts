@@ -346,6 +346,14 @@ test.describe("OS — Detalhe e Edição", () => {
     await expect(page.getByRole("button", { name: /Enviar assinatura/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Confirmar fisica/i })).toBeVisible();
 
+    // O termo de devolucao so e EXIGIDO no cancelamento quando a ENTRADA foi
+    // assinada (aparelho sob custodia formal da loja) — gate `isSigned` (#256).
+    // Entao confirmamos a assinatura fisica da entrada antes de cancelar; sem
+    // isso, uma OS nao-assinada cancela direto (sem termo).
+    await page.getByRole("button", { name: /Confirmar fisica/i }).click({ force: true });
+    // Apos assinar, a pendencia de assinatura de entrada some (isSigned=true).
+    await expect(page.getByText(/Assinatura de entrada pendente/i).first()).toBeHidden({ timeout: 15000 });
+
     await page.getByRole("button", { name: /^Cancelar$/i }).click({ force: true });
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText(/Termo de devolucao pendente/i)).toBeVisible({ timeout: 10000 });
