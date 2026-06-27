@@ -123,7 +123,7 @@ export const depixTransactionRouter = createTRPCRouter({
    *   - tenantAdminProcedure (so OWNER/MANAGER)
    *   - rate-limit 5/hora
    *   - step-up 2FA obrigatorio
-   *   - 2ª etapa: confirmAddress/confirmAmount re-digitados (validados no schema)
+   *   - confirmacao: endereco colado + conferido (acknowledgedAddress no schema)
    *   - cap diario + advisory lock no service */
   createOnchainWithdraw: tenantAdminProcedure
     .input(onchainWithdrawSchema)

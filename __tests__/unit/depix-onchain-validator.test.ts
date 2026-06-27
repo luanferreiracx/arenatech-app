@@ -1,7 +1,6 @@
 /**
- * onchainWithdrawSchema: 2ª etapa de confirmacao (re-tipar endereco + valor) e
- * validacao leve de endereco Liquid. O refine roda no SERVIDOR — nao confia so no
- * front.
+ * onchainWithdrawSchema: o usuario COLA o endereco e CONFERE (acknowledgedAddress),
+ * sem re-digitar. Valida endereco Liquid leve + exige o ack + 2FA.
  */
 import { describe, it, expect } from "vitest";
 import { onchainWithdrawSchema } from "@/lib/validators/depix-onchain";
@@ -12,48 +11,30 @@ const VALID_ADDR =
 const base = {
   toAddress: VALID_ADDR,
   amountReais: 50,
-  confirmAddress: VALID_ADDR,
-  confirmAmount: 50,
+  acknowledgedAddress: true as const,
   twoFactorCode: "123456",
 };
 
 describe("onchainWithdrawSchema", () => {
-  it("aceita endereco/valor confirmados iguais", () => {
-    const r = onchainWithdrawSchema.safeParse(base);
-    expect(r.success).toBe(true);
+  it("aceita endereco colado + conferido", () => {
+    expect(onchainWithdrawSchema.safeParse(base).success).toBe(true);
   });
 
-  it("rejeita quando o endereco de confirmacao difere", () => {
-    const r = onchainWithdrawSchema.safeParse({
-      ...base,
-      confirmAddress: VALID_ADDR.slice(0, -1) + "x",
-    });
+  it("rejeita sem o ack de conferencia (acknowledgedAddress != true)", () => {
+    const r = onchainWithdrawSchema.safeParse({ ...base, acknowledgedAddress: false });
     expect(r.success).toBe(false);
     if (!r.success) {
-      expect(r.error.issues.some((i) => i.path.includes("confirmAddress"))).toBe(true);
-    }
-  });
-
-  it("rejeita quando o valor de confirmacao difere", () => {
-    const r = onchainWithdrawSchema.safeParse({ ...base, confirmAmount: 49.99 });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(r.error.issues.some((i) => i.path.includes("confirmAmount"))).toBe(true);
+      expect(r.error.issues.some((i) => i.path.includes("acknowledgedAddress"))).toBe(true);
     }
   });
 
   it("rejeita endereco invalido (nao-Liquid)", () => {
-    const r = onchainWithdrawSchema.safeParse({
-      ...base,
-      toAddress: "0xabc123",
-      confirmAddress: "0xabc123",
-    });
-    expect(r.success).toBe(false);
+    expect(onchainWithdrawSchema.safeParse({ ...base, toAddress: "0xabc123" }).success).toBe(false);
   });
 
   it("rejeita valor zero ou negativo", () => {
-    expect(onchainWithdrawSchema.safeParse({ ...base, amountReais: 0, confirmAmount: 0 }).success).toBe(false);
-    expect(onchainWithdrawSchema.safeParse({ ...base, amountReais: -5, confirmAmount: -5 }).success).toBe(false);
+    expect(onchainWithdrawSchema.safeParse({ ...base, amountReais: 0 }).success).toBe(false);
+    expect(onchainWithdrawSchema.safeParse({ ...base, amountReais: -5 }).success).toBe(false);
   });
 
   it("exige twoFactorCode", () => {
@@ -61,8 +42,7 @@ describe("onchainWithdrawSchema", () => {
     expect(onchainWithdrawSchema.safeParse(noCode).success).toBe(false);
   });
 
-  it("trata espacos: confirmacao com espacos ao redor confere", () => {
-    const r = onchainWithdrawSchema.safeParse({ ...base, confirmAddress: `  ${VALID_ADDR}  ` });
-    expect(r.success).toBe(true);
+  it("aceita endereco com espacos ao redor (trim)", () => {
+    expect(onchainWithdrawSchema.safeParse({ ...base, toAddress: `  ${VALID_ADDR}  ` }).success).toBe(true);
   });
 });

@@ -30,31 +30,27 @@ const liquidAddress = z
 
 /**
  * Saque DePix ON-CHAIN para um endereco Liquid externo (Sideswap, hardware
- * wallet, etc). 2ª ETAPA de confirmacao: `confirmAddress`/`confirmAmount` sao
- * re-digitados e validados no SERVIDOR (refine), defesa contra erro de digitacao
- * e contra UI comprometida — envio on-chain e IRREVERSIVEL.
+ * wallet, etc). Envio IRREVERSIVEL.
+ *
+ * Confirmacao: re-digitar um endereco Liquid (60+ chars) e inviavel — o usuario
+ * COLA o endereco e CONFERE visualmente num passo de revisao (`acknowledgedAddress`
+ * marcado). O servidor exige esse ack; as defesas que importam continuam: 2FA,
+ * advisory lock, cap diario, e validacao do endereco aqui + no LWK (`lwk.Address`).
  *
  * `passphrase` so e exigida em carteira non-custodial (o service faz o fail-fast
  * — aqui e opcional).
  */
-export const onchainWithdrawSchema = z
-  .object({
-    toAddress: liquidAddress,
-    /** Valor em reais (= DePix), nao centavos. */
-    amountReais: z.number().positive("Valor deve ser maior que zero").max(50000, "Valor maximo R$ 50.000,00"),
-    confirmAddress: liquidAddress,
-    confirmAmount: z.number().positive(),
-    passphrase: z.string().min(1).max(200).optional(),
-    /** Step-up 2FA (saque on-chain e irreversivel — mesmo guard do saque PIX). */
-    twoFactorCode: z.string().trim().min(1, "Informe o codigo 2FA").max(20),
-  })
-  .refine((v) => v.confirmAddress.trim() === v.toAddress.trim(), {
-    message: "O endereco de confirmacao nao confere com o endereco de destino",
-    path: ["confirmAddress"],
-  })
-  .refine((v) => Math.round(v.confirmAmount * 100) === Math.round(v.amountReais * 100), {
-    message: "O valor de confirmacao nao confere com o valor do saque",
-    path: ["confirmAmount"],
-  });
+export const onchainWithdrawSchema = z.object({
+  toAddress: liquidAddress,
+  /** Valor em reais (= DePix), nao centavos. */
+  amountReais: z.number().positive("Valor deve ser maior que zero").max(50000, "Valor maximo R$ 50.000,00"),
+  /** Usuario confirmou ter conferido o endereco colado (passo de revisao). */
+  acknowledgedAddress: z.literal(true, {
+    message: "Confirme que conferiu o endereco de destino",
+  }),
+  passphrase: z.string().min(1).max(200).optional(),
+  /** Step-up 2FA (saque on-chain e irreversivel — mesmo guard do saque PIX). */
+  twoFactorCode: z.string().trim().min(1, "Informe o codigo 2FA").max(20),
+});
 
 export type OnchainWithdrawInput = z.infer<typeof onchainWithdrawSchema>;
