@@ -47,6 +47,18 @@ describe("resolveModuleForPath", () => {
     expect(resolveModuleForPath("/settings/installments")).toBe("settings");
   });
 
+  it("EXCETO /settings/security: nunca gateado (2FA/senha p/ qualquer tenant)", () => {
+    // Tenants wallet/NO-KYC precisam habilitar 2FA pra sacar — a pagina nao pode
+    // ser bloqueada por modulo, senao ficam num beco.
+    expect(resolveModuleForPath("/settings/security")).toBeNull();
+    expect(resolveModuleForPath("/settings/security/anything")).toBeNull();
+    // wallet-only (sem modulo settings) PODE acessar /settings/security:
+    expect(isPathAllowed("/settings/security", ["wallet", "depix-ops"])).toBe(true);
+    // mas continua sem as demais paginas de settings:
+    expect(isPathAllowed("/settings/general", ["wallet", "depix-ops"])).toBe(false);
+    expect(isPathAllowed("/settings/payment-methods", ["wallet", "depix-ops"])).toBe(false);
+  });
+
   it("não casa prefixo parcial de outra rota (/stockfoo)", () => {
     expect(resolveModuleForPath("/stockfoo")).toBeNull();
   });

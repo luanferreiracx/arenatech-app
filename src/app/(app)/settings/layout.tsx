@@ -1,18 +1,16 @@
-"use client";
+import { cookies } from "next/headers";
+import { auth } from "@/server/auth";
+import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { resolveModuleForPath } from "@/lib/modules";
+import { SettingsTabs, type SettingsTab } from "./_components/settings-tabs";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-
-const tabs = [
+const ALL_TABS: SettingsTab[] = [
   { label: "Geral", href: "/settings/general" },
   { label: "Assistência", href: "/settings/assistance" },
   { label: "Fiscal", href: "/settings/fiscal" },
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
   { label: "Meios de Recebimento", href: "/settings/card-acquirers" },
   { label: "Parcelamento", href: "/settings/installments" },
-  // "Recebimento": parte dos ajustes ja vale no PDV (valor min. de parcela +
-  // exigir CPF acima de X — D6). O resto segue "em breve" (aviso na pagina).
   { label: "Recebimento", href: "/settings/receiving" },
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Equipe", href: "/settings/users" },
@@ -22,30 +20,26 @@ const tabs = [
   { label: "Seguranca", href: "/settings/security" },
 ];
 
-export default function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  const cookieStore = await cookies();
+  // O (app)/layout pai ja garante sessao (redireciona se ausente); guard de tipo.
+  const activeTenant = session
+    ? resolveActiveTenant(session, cookieStore.get("x-active-tenant")?.value)
+    : null;
+  const allowedModules = activeTenant?.modules ?? [];
+
+  // Só mostra as abas que o tenant pode acessar — senão um tenant wallet/NO-KYC
+  // (que alcança /settings/security pra habilitar 2FA) veria abas gateadas que
+  // o redirecionam ao clicar. Aba sem módulo (ex.: Segurança) aparece pra todos.
+  const tabs = ALL_TABS.filter((tab) => {
+    const mod = resolveModuleForPath(tab.href);
+    return mod === null || allowedModules.includes(mod);
+  });
 
   return (
     <div>
-      <nav className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
-        {tabs.map((tab) => {
-          const isActive = pathname.startsWith(tab.href);
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={cn(
-                "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap",
-                isActive
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
-              )}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <SettingsTabs tabs={tabs} />
       {children}
     </div>
   );
