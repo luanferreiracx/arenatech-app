@@ -1504,6 +1504,11 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
       if (ws.success && ws.status) {
         const raw = ws.status.toLowerCase();
         const receiptUrl = extractDepixWithdrawReceiptUrl(ws.raw);
+        // Nome oficial do destinatario (titular da chave PIX), validado pela Eulen.
+        const receiverNameRaw =
+          ws.raw && typeof ws.raw.receiverName === "string" ? ws.raw.receiverName.trim() : "";
+        const recipientNamePatch =
+          receiverNameRaw && !txRow.recipientName ? { recipientName: receiverNameRaw } : {};
         let newStatus: typeof txRow.status | null = null;
         // PixPay (off-ramp) usa depix_sent/paid/under_review/expired/refunded/unsent.
         if (["sent", "send", "paid", "completed", "depix_sent", "success"].includes(raw))
@@ -1517,7 +1522,11 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
         if (newStatus === "PROCESSING" && txRow.status === "PROCESSING") {
           newStatus = null;
         }
-        if ((newStatus && newStatus !== txRow.status) || receiptUrl) {
+        if (
+          (newStatus && newStatus !== txRow.status) ||
+          receiptUrl ||
+          Object.keys(recipientNamePatch).length > 0
+        ) {
           await withTenant(tenantId, async (tx) =>
             tx.tenantDepixTransaction.update({
               where: { id: txRow.id },
@@ -1526,6 +1535,7 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
                 completedAt: newStatus === "COMPLETED" ? new Date() : undefined,
                 pixpayReceiptUrl: receiptUrl ?? undefined,
                 apiResponse: ws.raw ? (ws.raw as never) : undefined,
+                ...recipientNamePatch,
               },
             }),
           );

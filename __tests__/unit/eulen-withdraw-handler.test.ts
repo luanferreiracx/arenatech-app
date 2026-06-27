@@ -59,6 +59,23 @@ describe("handleEulenWithdrawWebhook", () => {
     expect(onWithdrawCompleted).not.toHaveBeenCalled();
   });
 
+  it("persiste o nome oficial do destinatario (receiverName) da Eulen", async () => {
+    findFirst.mockResolvedValue({ id: "tx-r", status: "PROCESSING", tenantId: TENANT });
+    await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: "w_r", status: "sent", receiverName: "  Ana Lima  " },
+      null,
+    );
+    const data = update.mock.calls[0]![0] as { data: { recipientName?: string } };
+    expect(data.data.recipientName).toBe("Ana Lima"); // trim
+  });
+
+  it("sem receiverName -> NAO escreve recipientName (nao sobrescreve)", async () => {
+    findFirst.mockResolvedValue({ id: "tx-n", status: "PROCESSING", tenantId: TENANT });
+    await handleEulenWithdrawWebhook({ webhookType: "withdraw", id: "w_n", status: "sent" }, null);
+    const data = update.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect("recipientName" in data.data).toBe(false);
+  });
+
   it("status sending -> PROCESSING (nao terminal)", async () => {
     findFirst.mockResolvedValue({ id: "tx-3", status: "PROCESSING", tenantId: TENANT });
     await handleEulenWithdrawWebhook({ webhookType: "withdraw", id: "w_3", status: "sending" }, null);
