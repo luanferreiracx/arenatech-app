@@ -10,6 +10,10 @@ import {
   handleEulenWithdrawWebhook,
   type EulenWithdrawPayload,
 } from "@/lib/webhooks/eulen-withdraw-handler";
+import {
+  handleEulenMedWebhook,
+  type EulenMedPayload,
+} from "@/lib/webhooks/eulen-med-handler";
 
 export const runtime = "nodejs";
 
@@ -49,6 +53,10 @@ export async function POST(req: NextRequest) {
     }
     if (type === "deposit") {
       const result = await handleEulenDepositWebhook(payload as EulenDepositPayload, sourceIp);
+      return NextResponse.json(result.body, { status: result.status });
+    }
+    if (type === "med") {
+      const result = await handleEulenMedWebhook(payload as EulenMedPayload, sourceIp);
       return NextResponse.json(result.body, { status: result.status });
     }
     logger.warn("Eulen webhook: webhookType desconhecido", { type });

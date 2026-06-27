@@ -1430,7 +1430,7 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
   if (!txRow) throw new TRPCError({ code: "NOT_FOUND" });
 
   // Status terminal: retorna sem chamar externos.
-  const terminal = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"];
+  const terminal = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED", "MED_REFUNDED"];
   if (terminal.includes(txRow.status)) return txRow;
 
   if (txRow.kind === "DEPOSIT") {
