@@ -100,6 +100,11 @@ function log(level: LogLevel, message: string, context?: Record<string, unknown>
   switch (level) {
     case "error":
       console.error(json);
+      // Encaminha TODO logger.error ao Sentry (no-op sem DSN). Cobre os ~75
+      // call sites de uma vez — inclusive os fluxos criticos (escalacao de
+      // repasse/saque DePix presos, webhooks, crons). Fire-and-forget: nunca
+      // deixa a observabilidade quebrar o caminho de log.
+      reportErrorToSentry(message, redactedCtx);
       break;
     case "warn":
       console.warn(json);
@@ -107,6 +112,21 @@ function log(level: LogLevel, message: string, context?: Record<string, unknown>
     default:
       console.log(json);
   }
+}
+
+/**
+ * Envia um erro logado ao Sentry como exception, com o contexto (ja redigido)
+ * anexado. Import dinamico: nao puxa o SDK onde nao e usado e mantem no-op real
+ * quando o DSN nao esta configurado (Sentry.init({ enabled:false })).
+ */
+function reportErrorToSentry(message: string, context?: Record<string, unknown>) {
+  void import("@sentry/nextjs")
+    .then((Sentry) => {
+      Sentry.captureException(new Error(message), context ? { extra: context } : undefined);
+    })
+    .catch(() => {
+      // SDK ausente/falha de import nao pode quebrar o log.
+    });
 }
 
 export const logger = {

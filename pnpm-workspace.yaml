@@ -1,5 +1,9 @@
 allowBuilds:
   '@prisma/engines': true
+  # false: nao baixamos o binario do sentry-cli — upload de source map esta
+  # desabilitado no withSentryConfig (sourcemaps.disable). Liga quando for
+  # configurar o upload (SENTRY_AUTH_TOKEN).
+  '@sentry/cli': false
   esbuild: true
   prisma: true
   sharp: true
