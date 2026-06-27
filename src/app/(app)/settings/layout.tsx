@@ -11,7 +11,9 @@ const tabs = [
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
   { label: "Meios de Recebimento", href: "/settings/card-acquirers" },
   { label: "Parcelamento", href: "/settings/installments" },
-  { label: "Recebimento", href: "/settings/receiving" },
+  // "Recebimento" (/settings/receiving) ocultado da navegacao: os ajustes
+  // ainda nao sao aplicados em nenhum fluxo (D6 da auditoria de config). A
+  // pagina segue acessivel por URL (com aviso "em breve") ate a feature ligar.
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Equipe", href: "/settings/users" },
   { label: "Entregadores", href: "/settings/delivery-persons" },

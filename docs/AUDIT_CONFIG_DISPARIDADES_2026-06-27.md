@@ -30,17 +30,17 @@
 - **✅ Feito (complexidade, dono escolheu este escopo):** helper puro `validatePasswordPolicy` (`src/lib/password.ts`) + `enforcePasswordPolicy` (`password-policy.service.ts`, lê `TenantSecuritySettings` com defaults do schema). Aplicado nas **duas** trocas de senha (`auth.changePassword` + `settings.changePassword`) pelo **tenant ativo da sessão**. Os schemas Zod das trocas relaxados pra não-vazio → a **política é a fonte única** de tamanho/complexidade (mensagem consistente). Resets admin geram senha aleatória (política não se aplica). NO-KYC register não tem tenant ainda → mantém seu `passwordSchema` fixo (mín. 8 + letra+número).
 - **Pendente (não nesta rodada, mais invasivo no NextAuth):** `passwordExpirationDays` (forçar troca), `sessionTimeoutMinutes` (timeout de inatividade no JWT), `maxFailedLoginAttempts`/`lockoutMinutes` (hoje o login usa rate-limit **fixo** 5/15min, não a config).
 
-### D5 · Notificações por evento não disparam pela config (P1)
-- **Onde:** `settings.listNotificationConfigs`/`upsertNotificationConfig` (`settings.ts:~1104`). Configura evento (OS_CRIADA, VENDA_FINALIZADA…) × canal (email/WhatsApp) + template.
-- **Realidade:** **nenhuma** referência a `NotificationConfig` no código de notificação (os envios são pontuais/hardcoded nos fluxos). Confirmado por grep negativo.
-- **Impacto:** o dono liga "email quando OS criada" e nada acontece — a config é ignorada.
-- **Tamanho:** grande (um dispatcher central que lê a config por evento/canal/template).
+### D5 · Notificações por evento não disparam pela config (P1) — **correção: NÃO há tela**
+- **Onde:** `settings.listNotificationConfigs`/`upsertNotificationConfig`/`toggleNotificationConfig` (`settings.ts:~1104`).
+- **Correção da investigação:** ao contrário do que o relatório do agente disse, **não existe tela** de notificações — essas procedures são **órfãs (0 callers na UI)**, batendo com a auditoria de jun/26 (P3-1). Então não há "config que dá falsa sensação"; há **scaffolding** de uma feature ainda não construída (nem o dispatcher, nem a UI).
+- **Hoje:** os envios são **manuais/opt-in** (ex.: WhatsApp na conclusão da OS, quando o operador escolhe). `sale.finalize` não envia nada. Eventos como OS_CRIADA/CAIXA_FECHADO não têm envio automático.
+- **Decisão (dono):** **esconder/adiar** — como não há tela, nada a esconder; fica documentado como **feature futura** (dispatcher central + UI + templates + opt-out do cliente). Procedures órfãs permanecem como scaffolding.
 
-### D6 · Settings de recebimento não são consumidos (P2)
-- **Onde:** `settings.updateReceiving` (`settings.ts:~856`). Campos: `defaultPolicyDevice/NonDevice`, `minInstallmentAmount`, `requireCpfAbove`, `autoCloseTime`, `monthlySalesGoal`, `defaultDasRate`, `defaultIcmsDiffRate`.
-- **Realidade:** lidos **só** pela própria página de settings (`/settings/receiving`), por nenhum fluxo. Confirmado por grep.
-- **Impacto:** sem validação de valor mínimo de parcela; caixa não fecha no horário; meta/políticas decorativas.
-- **Tamanho:** varia por campo (mín. parcela = pequeno no PDV; auto-close = cron, maior).
+### D6 · Settings de recebimento não são consumidos (P2) — **✅ ocultado (em breve)**
+- **Onde:** `settings.updateReceiving` (`settings.ts:~856`) + página `/settings/receiving`. Campos: `defaultPolicyDevice/NonDevice`, `minInstallmentAmount`, `requireCpfAbove`, `autoCloseTime`, `monthlySalesGoal`, `defaultDasRate`, `defaultIcmsDiffRate`.
+- **Realidade:** a página é real e salva, mas **nenhum fluxo lê** os valores (só a própria página). Confirmado por grep.
+- **✅ Feito (dono: esconder o que não funciona):** a aba **"Recebimento" foi removida do menu** de Configurações e a página ganhou um **aviso "em breve"** (os ajustes ficam salvos mas inertes). A página segue acessível por URL até a feature ser ligada — reversível (re-adicionar a aba quando implementar).
+- **Quick-wins futuros (quando ligar):** `minInstallmentAmount`/`requireCpfAbove` são gates pequenos no PDV; `autoCloseTime` exige cron; metas/políticas são display.
 
 ### D7 · Nuvem Fiscal ignora o toggle `enabled` por-tenant (P2) — **✅ FEITO**
 - **Onde:** `fiscal-service.ts:~56` lê só `NUVEM_FISCAL_CLIENT_ID/SECRET` do **env**; ignorava `TenantIntegration.enabled`.
