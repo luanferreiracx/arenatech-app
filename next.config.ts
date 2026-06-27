@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -26,7 +27,8 @@ function buildCsp(): string {
 
   // Turbopack/React Refresh usam eval e websocket de HMR em dev.
   const scriptSrc = ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com", turnstileHost];
-  const connectSrc = ["'self'", "https://cloudflareinsights.com", turnstileHost];
+  // *.sentry.io: o SDK do browser envia eventos pro ingest do DSN (no-op sem DSN).
+  const connectSrc = ["'self'", "https://cloudflareinsights.com", turnstileHost, "https://*.sentry.io"];
   if (isDev) {
     scriptSrc.push("'unsafe-eval'");
     connectSrc.push("ws:");
@@ -91,4 +93,15 @@ const nextConfig: NextConfig = {
   ],
 };
 
-export default nextConfig;
+/**
+ * withSentryConfig: habilita instrumentacao do Sentry no build. Upload de
+ * source maps DESABILITADO por ora (exige SENTRY_AUTH_TOKEN/org/project) — o
+ * build segue self-contained sem secrets; stack traces vao minificados ate o
+ * dono configurar o upload. `enabled:false` no init (sem DSN) ja deixa tudo
+ * no-op em runtime.
+ */
+export default withSentryConfig(nextConfig, {
+  silent: !process.env.CI,
+  disableLogger: true,
+  sourcemaps: { disable: true },
+});

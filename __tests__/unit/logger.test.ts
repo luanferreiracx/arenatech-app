@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const captureException = vi.fn();
+vi.mock("@sentry/nextjs", () => ({
+  captureException: (...args: unknown[]) => captureException(...args),
+}));
+
 import { logger } from "@/lib/logger";
 
 describe("logger", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    captureException.mockClear();
   });
 
   it("outputs valid JSON for info level", () => {
@@ -29,6 +36,31 @@ describe("logger", () => {
 
     expect(parsed["level"]).toBe("error");
     expect(parsed["message"]).toBe("something broke");
+  });
+
+  it("encaminha logger.error ao Sentry com o contexto REDIGIDO (sem vazar secret)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    logger.error("boom", { saleId: "x", password: "super-secret" });
+
+    // O forward ao Sentry e fire-and-forget via import dinamico — resolve num microtask.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captureException).toHaveBeenCalledTimes(1);
+    const call = captureException.mock.calls[0] as [Error, { extra?: Record<string, unknown> }];
+    expect(call[0]).toBeInstanceOf(Error);
+    expect(call[0].message).toBe("boom");
+    // Contexto vai com a MESMA redacao do log — secret nao chega ao Sentry.
+    expect(call[1]?.extra?.["saleId"]).toBe("x");
+    expect(call[1]?.extra?.["password"]).toBe("***");
+  });
+
+  it("NAO encaminha logger.info/warn ao Sentry (so error)", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    logger.info("ok");
+    logger.warn("aviso");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(captureException).not.toHaveBeenCalled();
   });
 
   it("outputs valid JSON for warn level", () => {
