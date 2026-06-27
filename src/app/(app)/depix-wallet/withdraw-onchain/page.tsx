@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { MoneyInput } from "@/components/inputs/money-input";
 import {
   Dialog,
@@ -46,9 +47,8 @@ export default function DepixOnchainWithdrawPage() {
 
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState(0);
-  // 2ª etapa: re-digitar endereco e valor (defesa contra erro/UI comprometida).
-  const [confirmAddress, setConfirmAddress] = useState("");
-  const [confirmAmount, setConfirmAmount] = useState(0);
+  // Confirmacao: o usuario COLA o endereco e CONFERE visualmente (sem re-digitar).
+  const [addressAcknowledged, setAddressAcknowledged] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [walletPassphrase, setWalletPassphrase] = useState("");
@@ -75,16 +75,13 @@ export default function DepixOnchainWithdrawPage() {
 
   const addressValid = looksLikeLiquidAddress(toAddress);
   const amountValid = amount >= MIN_CENTS && amount <= balanceCents;
-  const addressMatches = confirmAddress.trim() === toAddress.trim();
-  const amountMatches = Math.round(confirmAmount) === Math.round(amount);
-  const canReview = addressValid && amountValid && addressMatches && amountMatches;
+  const canReview = addressValid && amountValid && addressAcknowledged;
 
   function handleSubmit() {
     createMutation.mutate({
       toAddress: toAddress.trim(),
       amountReais: amount / 100,
-      confirmAddress: confirmAddress.trim(),
-      confirmAmount: confirmAmount / 100,
+      acknowledgedAddress: true,
       twoFactorCode: twoFactorCode.trim(),
       passphrase: isNonCustodial ? walletPassphrase : undefined,
     });
@@ -144,8 +141,11 @@ export default function DepixOnchainWithdrawPage() {
             <Input
               id="toAddress"
               value={toAddress}
-              onChange={(e) => setToAddress(e.target.value)}
-              placeholder="lq1qq..."
+              onChange={(e) => {
+                setToAddress(e.target.value);
+                setAddressAcknowledged(false); // mudou o endereco -> reconferir
+              }}
+              placeholder="Cole o endereco lq1qq..."
               className={cn("font-mono text-sm", toAddress && !addressValid && "border-destructive")}
               autoComplete="off"
               spellCheck={false}
@@ -174,51 +174,32 @@ export default function DepixOnchainWithdrawPage() {
           </div>
         </Card>
 
-        {/* 2ª ETAPA: re-digitar endereco e valor. */}
-        <Card className="p-5 sm:p-6 space-y-5 border-primary/30">
-          <p className="text-xs font-medium inline-flex items-center gap-1.5">
-            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            Confirmacao (digite novamente)
-          </p>
-          <div>
-            <Label htmlFor="confirmAddress">Repita o endereco de destino *</Label>
-            <Input
-              id="confirmAddress"
-              value={confirmAddress}
-              onChange={(e) => setConfirmAddress(e.target.value)}
-              placeholder="lq1qq..."
-              className={cn(
-                "font-mono text-sm",
-                confirmAddress && !addressMatches && "border-destructive",
-              )}
-              autoComplete="off"
-              spellCheck={false}
-              onPaste={(e) => e.preventDefault()}
-            />
-            {confirmAddress && !addressMatches && (
-              <p className="text-xs text-destructive mt-1.5">
-                O endereco nao confere com o de destino.
-              </p>
-            )}
-          </div>
-          <div>
-            <Label className="text-sm font-medium">Repita o valor *</Label>
-            <div className="mt-2">
-              <MoneyInput
-                value={confirmAmount}
-                onChange={setConfirmAmount}
-                placeholder="R$ 0,00"
-                className={cn(
-                  "!h-12 !font-mono tabular-nums",
-                  confirmAmount > 0 && !amountMatches && "border-destructive",
-                )}
-              />
+        {/* Confirmacao: conferir o endereco COLADO (sem re-digitar). */}
+        {addressValid && amountValid && (
+          <Card className="p-5 sm:p-6 space-y-4 border-primary/30">
+            <p className="text-xs font-medium inline-flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              Confira o endereco de destino
+            </p>
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="font-mono text-sm break-all leading-relaxed">{toAddress.trim()}</p>
             </div>
-            {confirmAmount > 0 && !amountMatches && (
-              <p className="text-xs text-destructive mt-1.5">O valor nao confere.</p>
-            )}
-          </div>
-        </Card>
+            <p className="text-sm text-muted-foreground">
+              Enviando <span className="font-medium text-foreground">{formatBRL(amount)}</span> para
+              o endereco acima.
+            </p>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <Checkbox
+                checked={addressAcknowledged}
+                onCheckedChange={(c) => setAddressAcknowledged(c === true)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                Conferi o endereco de destino e confirmo que esta correto.
+              </span>
+            </label>
+          </Card>
+        )}
 
         <Card className="p-3 bg-amber-500/[0.04] border-amber-500/30">
           <p className="text-xs text-amber-700 dark:text-amber-400 inline-flex items-center gap-2">
