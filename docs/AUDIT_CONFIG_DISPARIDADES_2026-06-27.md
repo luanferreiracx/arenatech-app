@@ -42,8 +42,8 @@
 ### D6 · Settings de recebimento não são consumidos (P2) — **✅ ocultado (em breve)**
 - **Onde:** `settings.updateReceiving` (`settings.ts:~856`) + página `/settings/receiving`. Campos: `defaultPolicyDevice/NonDevice`, `minInstallmentAmount`, `requireCpfAbove`, `autoCloseTime`, `monthlySalesGoal`, `defaultDasRate`, `defaultIcmsDiffRate`.
 - **Realidade:** a página é real e salva, mas **nenhum fluxo lê** os valores (só a própria página). Confirmado por grep.
-- **✅ Feito (dono: esconder o que não funciona):** a aba **"Recebimento" foi removida do menu** de Configurações e a página ganhou um **aviso "em breve"** (os ajustes ficam salvos mas inertes). A página segue acessível por URL até a feature ser ligada — reversível (re-adicionar a aba quando implementar).
-- **Quick-wins futuros (quando ligar):** `minInstallmentAmount`/`requireCpfAbove` são gates pequenos no PDV; `autoCloseTime` exige cron; metas/políticas são display.
+- **✅ Quick-wins LIGADOS (2ª rodada):** `minInstallmentAmount` (valor mínimo de parcela) e `requireCpfAbove` (exigir CPF/CNPJ acima de X) agora são **aplicados no PDV** (`sale.finalize`) — barram a finalização quando violados. **Opt-in/seguro:** sem linha `TenantReceivingSettings` (tenant nunca salvou) = sem regra; não quebra quem nunca configurou. Regras puras/testáveis em `src/lib/receiving-rules.ts`. A aba **"Recebimento" voltou ao menu**, com aviso **por campo** (esses 2 já valem; o resto "em breve").
+- **Ainda inertes (em breve):** `autoCloseTime` (exige cron), `monthlySalesGoal`/políticas/alíquotas (display). Continuam salvos mas sem efeito, sinalizados no aviso da página.
 
 ### D7 · Nuvem Fiscal ignora o toggle `enabled` por-tenant (P2) — **✅ FEITO**
 - **Onde:** `fiscal-service.ts:~56` lê só `NUVEM_FISCAL_CLIENT_ID/SECRET` do **env**; ignorava `TenantIntegration.enabled`.

@@ -75,13 +75,15 @@ export default function ReceivingSettingsPage() {
         subtitle="Políticas de recebimento, metas e alíquotas"
       />
 
-      {/* D6 da auditoria de config: estes ajustes ainda NAO sao aplicados em
-          nenhum fluxo (PDV/caixa/fiscal). Ficam salvos mas inertes. Aviso honesto
-          ate a feature ser ligada; a aba foi removida do menu de Configuracoes. */}
-      <div className="mb-6 rounded-md border border-warning bg-warning/10 p-3 text-sm text-warning">
-        <strong>Em breve.</strong> Estes ajustes ainda não são aplicados
-        automaticamente nas vendas/caixa — ficam salvos para uso futuro. Vamos
-        ligá-los por etapa.
+      {/* D6 da auditoria de config: parte dos ajustes ja vale (min. parcela +
+          CPF), o resto ainda nao — aviso honesto por campo. */}
+      <div className="mb-6 rounded-md border border-info bg-info/10 p-3 text-sm">
+        <strong>Já aplicados no PDV:</strong> &quot;Valor mínimo de parcela&quot; e
+        &quot;Exigir CPF/CNPJ acima de&quot; — barram a finalização da venda quando
+        a regra é violada.
+        <br />
+        <strong>Em breve:</strong> políticas de taxa, fechar caixa automático,
+        metas e alíquotas ainda não são aplicados automaticamente.
       </div>
 
       <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-6">
