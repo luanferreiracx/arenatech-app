@@ -298,6 +298,23 @@ export const fiscalRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nota ja autorizada ou cancelada" });
         }
 
+        // D7: respeita o toggle por-tenant da Nuvem Fiscal. Antes o servico so
+        // checava as envs globais e emitia mesmo com a integracao desligada no
+        // painel. Agora, se o tenant DESATIVOU explicitamente (linha existe com
+        // enabled=false), bloqueia a emissao. Sem linha = comportamento antigo
+        // (nao quebra quem emite sem nunca ter mexido no toggle).
+        const fiscalIntegration = await tx.tenantIntegration.findUnique({
+          where: { tenantId_provider: { tenantId: ctx.tenantId, provider: "NUVEM_FISCAL" } },
+          select: { enabled: true },
+        });
+        if (fiscalIntegration && !fiscalIntegration.enabled) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Emissao fiscal (Nuvem Fiscal) esta desativada nas Integracoes deste estabelecimento. Ative para emitir.",
+          });
+        }
+
         const payload = {
           modelo: invoice.type === "NFCE" ? "65" : "55",
           destinatario: {
