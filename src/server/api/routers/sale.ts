@@ -7,6 +7,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
+import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
 import {
@@ -1838,6 +1839,21 @@ export const saleRouter = createTRPCRouter({
           0,
         );
 
+        // Exige caixa aberto: o estorno gera uma saida (WITHDRAWAL) na gaveta.
+        // Sem caixa aberto a saida nao era registrada (gaveta sub-reportada) —
+        // agora bloqueia, em paridade com o finalize (que exige caixa pra
+        // receber/devolver dinheiro). Guard early: nao mexe em estoque/recebivel
+        // antes de validar.
+        const refundSession = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (refundNeedsOpenCashSession(refundedCents) && !refundSession) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Caixa nao esta aberto. Abra um caixa antes de estornar (a saida precisa ser registrada na gaveta).",
+          });
+        }
+
         // Devolve estoque (paridade Laravel PdvService::estornarEstoque)
         if (input.returnStock !== false) {
           for (const item of itemsToRefund) {
@@ -1929,14 +1945,12 @@ export const saleRouter = createTRPCRouter({
 
         // CashMovement de estorno (saida do caixa). Valor = total estornado
         // (refundedCents), nao o total da venda — paridade Laravel estornarParcial.
-        const openSession = await tx.cashSession.findFirst({
-          where: { userId: ctx.session.user.id, closedAt: null },
-        });
-        if (openSession) {
+        // refundSession ja foi validado acima (refundedCents > 0 => caixa aberto).
+        if (refundSession) {
           await tx.cashMovement.create({
             data: {
               tenantId: ctx.tenantId,
-              cashSessionId: openSession.id,
+              cashSessionId: refundSession.id,
               type: "WITHDRAWAL",
               amount: centsToPrisma(refundedCents),
               nature: "OUTCOME",
@@ -1948,15 +1962,6 @@ export const saleRouter = createTRPCRouter({
               referenceType: "SALE_REFUND",
               createdByUserId: ctx.session.user.id,
             },
-          });
-        } else {
-          // Sem caixa aberto nao da pra registrar a saida — antes isso era
-          // silencioso (gaveta sub-reportada). Log estruturado pra auditoria.
-          logger.warn("Estorno sem caixa aberto — saida nao registrada na gaveta", {
-            saleId: sale.id,
-            number: sale.number,
-            refundedCents,
-            userId: ctx.session.user.id,
           });
         }
 

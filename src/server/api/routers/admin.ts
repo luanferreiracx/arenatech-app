@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
+import { logAudit } from "@/server/services/audit-log.service";
 import { modulesFromPlanFeatures } from "@/lib/modules";
 
 /**
@@ -459,6 +460,17 @@ export const adminRouter = createTRPCRouter({
           byAdmin: ctx.session.user.id,
         });
 
+        // Trilha persistente (audit_logs): operacao admin sensivel sobre credencial
+        // — logger e transiente; sem isto nao da pra rastrear quem resetou pos-incidente.
+        await logAudit(tx as never, {
+          tenantId: membership.tenant.id,
+          userId: ctx.session.user.id,
+          action: "reset_password",
+          entity: "tenant_user",
+          entityId: membership.user.id,
+          payload: { role: membership.role, bySuperAdmin: true },
+        });
+
         return {
           tempPassword,
           user: {
@@ -521,6 +533,17 @@ export const adminRouter = createTRPCRouter({
           role: membership.role,
           wasEnabled: membership.user.twoFactorEnabled,
           byAdmin: ctx.session.user.id,
+        });
+
+        // Trilha persistente (audit_logs): desligar 2FA e remocao de barreira de
+        // seguranca — precisa ser auditavel pos-incidente, nao so log transiente.
+        await logAudit(tx as never, {
+          tenantId: membership.tenant.id,
+          userId: ctx.session.user.id,
+          action: "reset_two_factor",
+          entity: "tenant_user",
+          entityId: membership.user.id,
+          payload: { role: membership.role, wasEnabled: membership.user.twoFactorEnabled, bySuperAdmin: true },
         });
 
         return {

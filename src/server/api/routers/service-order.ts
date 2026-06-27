@@ -67,6 +67,7 @@ import {
 } from "@/server/services/os-stock.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { resolveOsAssignee } from "@/server/services/os-assignee.service";
+import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
@@ -1266,6 +1267,31 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // Exige caixa aberto quando o estorno vai gerar saida na gaveta (OS paga
+        // via PDV → venda vinculada). Sem caixa aberto a saida nao era registrada
+        // (gaveta sub-reportada) — bloqueia, em paridade com o estorno de venda e
+        // com o finalize. Guard early: antes de marcar a OS como REFUNDED.
+        const refundOpenSession = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (!refundOpenSession) {
+          const paidLinkedSale = await tx.sale.findFirst({
+            where: {
+              serviceOrderId: input.id,
+              isOSPayment: true,
+              status: "COMPLETED",
+              deletedAt: null,
+            },
+            select: { totalAmount: true },
+          });
+          if (paidLinkedSale && refundNeedsOpenCashSession(decimalToCents(paidLinkedSale.totalAmount))) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Caixa nao esta aberto. Abra um caixa antes de estornar a OS (a saida precisa ser registrada na gaveta).",
+            });
+          }
+        }
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -1331,14 +1357,13 @@ export const serviceOrderRouter = createTRPCRouter({
           if (cas.count === 1) {
             saleRefunded = true;
             const refundedCents = decimalToCents(linkedSale.totalAmount);
-            const openSession = await tx.cashSession.findFirst({
-              where: { userId: ctx.session.user.id, closedAt: null },
-            });
-            if (openSession && refundedCents > 0) {
+            // refundOpenSession foi validado no guard inicial (linked sale paga
+            // com valor > 0 => caixa aberto), entao a saida sempre e registrada.
+            if (refundOpenSession && refundedCents > 0) {
               await tx.cashMovement.create({
                 data: {
                   tenantId: ctx.tenantId,
-                  cashSessionId: openSession.id,
+                  cashSessionId: refundOpenSession.id,
                   type: "WITHDRAWAL",
                   amount: centsToPrisma(refundedCents),
                   nature: "OUTCOME",
