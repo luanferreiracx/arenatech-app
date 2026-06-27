@@ -19,6 +19,7 @@ enum DepixTransactionSourceType {
   SERVICE_ORDER
   PAYMENT_LINK
   STATIC_QR
+  EXTERNAL_DEPOSIT
 }
 
 enum DepixTransactionStatus {

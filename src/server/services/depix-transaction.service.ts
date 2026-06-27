@@ -275,6 +275,79 @@ export async function ensureStaticQrDepositTx(args: {
   return created as never;
 }
 
+/**
+ * Registra um DEPOSITO ON-CHAIN EXTERNO (DePix vindo de outra carteira — Sideswap,
+ * hardware wallet — sem PIX/Eulen). O monitor LWK detecta a entrada SEM label e
+ * o handler chama isto APOS o cross-check on-chain (≥2 conf + valor real). Cria a
+ * tx ja COMPLETED (o DePix ja esta on-chain na carteira do tenant; o saldo, lido
+ * on-chain, ja reflete — aqui damos rastreio/historico + base p/ notificar).
+ *
+ * Vale p/ QUALQUER tenant (o dono da carteira monitorada). Idempotente por
+ * (tenantId, depositTxId): um replay do webhook nao duplica a linha.
+ */
+export async function recordExternalOnchainDeposit(args: {
+  tenantId: string;
+  depositTxId: string; // txid on-chain (chave de idempotencia)
+  amountCents: number; // valor VERIFICADO on-chain
+  confirmations: number;
+  depositAddress?: string | null;
+}): Promise<{ id: string; created: boolean } | null> {
+  // Idempotente: ja registrado p/ este txid?
+  const existing = await withAdmin((tx) =>
+    tx.tenantDepixTransaction.findFirst({
+      where: { tenantId: args.tenantId, kind: "DEPOSIT", depositTxId: args.depositTxId },
+      select: { id: true },
+    }),
+  );
+  if (existing) return { id: existing.id, created: false };
+
+  // userId e obrigatorio na tx; deposito externo nao tem operador -> usa qualquer
+  // membro do tenant (mesmo padrao do QR estatico).
+  const member = await withAdmin((tx) =>
+    tx.userTenant.findFirst({ where: { tenantId: args.tenantId }, select: { userId: true } }),
+  );
+  if (!member) {
+    logger.error("external-deposit: tenant sem usuario vinculado — nao da p/ registrar", {
+      tenantId: args.tenantId,
+      depositTxId: args.depositTxId,
+    });
+    return null;
+  }
+
+  const created = await withTenant(args.tenantId, async (tx) => {
+    const number = await nextTransactionNumber(tx, "DEPOSIT");
+    return tx.tenantDepixTransaction.create({
+      data: {
+        tenantId: args.tenantId,
+        number,
+        kind: "DEPOSIT",
+        status: "COMPLETED",
+        userId: member.userId,
+        userName: "Depósito on-chain",
+        // Entrada externa nao cobra taxa Arena (ninguem intermediou): gross=net.
+        grossAmountCents: args.amountCents,
+        netAmountCents: args.amountCents,
+        feeArenaTechCents: 0,
+        sourceType: "EXTERNAL_DEPOSIT",
+        sourceDescription: "Depósito on-chain externo",
+        depositTxId: args.depositTxId,
+        depositAddress: args.depositAddress ?? null,
+        depositReceivingTenantId: args.tenantId,
+        confirmations: args.confirmations,
+        completedAt: new Date(),
+      },
+      select: { id: true },
+    });
+  });
+  logger.info("external-deposit: tx registrada", {
+    id: created.id,
+    tenantId: args.tenantId,
+    depositTxId: args.depositTxId,
+    amountCents: args.amountCents,
+  });
+  return { id: created.id, created: true };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // DEPOSITO
 // ────────────────────────────────────────────────────────────────────────────

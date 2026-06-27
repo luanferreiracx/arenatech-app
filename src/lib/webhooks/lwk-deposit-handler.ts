@@ -26,7 +26,6 @@ import {
 } from "@/server/services/depix-transaction.service";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 import { withTenant } from "@/server/db";
-import * as lwk from "@/lib/services/lwk-service";
 import {
   verifyDepositOnChain,
   type CrossCheckResult,
@@ -96,10 +95,55 @@ export async function handleLwkDepositWebhook(
 
   const depositLabel = payload.label?.user ?? null;
   if (!depositLabel) {
-    // Sem label: nao da pra matchar exato. Loga e registra como nao-matchado.
-    logger.warn("LWK webhook sem label.user — sem match", { tenantId, txid });
-    await markProcessed(eventKey, status, "no_label");
-    return { status: 200, body: { ok: true, matched: false, reason: "no label" } };
+    // Sem label = deposito on-chain EXTERNO (DePix de outra carteira: Sideswap,
+    // hardware wallet — sem PIX/Eulen). Nao casa com nenhuma intencao nossa.
+    // No `pending`, so ACK (aguarda confirmar). No `confirmed`, cross-check
+    // on-chain (≥2 conf + valor real) e REGISTRA a entrada + NOTIFICA o grupo.
+    if (status !== "confirmed") {
+      await markProcessed(eventKey, status, "no_label_pending");
+      return { status: 200, body: { ok: true, external: true, status: "pending" } };
+    }
+
+    const crossCheck = await verifyDepositOnChain({
+      tenantId,
+      txid,
+      expectedAmount: depixAmount,
+      expectedAddress: payload.label?.address ?? null,
+    });
+    if (!crossCheck.ok) {
+      logger.warn("LWK webhook externo: cross-check on-chain falhou — ignorando", {
+        tenantId,
+        txid,
+        reason: crossCheck.reason,
+      });
+      await markProcessed(eventKey, status, `external_rejected: ${crossCheck.reason}`);
+      return { status: 200, body: { ok: true, external: true, rejected: true } };
+    }
+
+    const { recordExternalOnchainDeposit } = await import(
+      "@/server/services/depix-transaction.service"
+    );
+    const rec = await recordExternalOnchainDeposit({
+      tenantId,
+      depositTxId: txid,
+      amountCents: Math.round(crossCheck.onchainAmount * 100),
+      confirmations: payload.confirmations ?? 0,
+      depositAddress: payload.label?.address ?? null,
+    });
+    await markProcessed(eventKey, status, rec ? "external_recorded" : "external_no_member");
+
+    // Notifica o grupo so quando criamos a linha (nao em replay/duplicata).
+    if (rec?.created) {
+      const { notifyDepixWebhook } = await import("@/lib/webhooks/eulen-webhook-notify");
+      void notifyDepixWebhook({
+        kind: "deposit",
+        status: "on-chain externo",
+        valueInCents: Math.round(crossCheck.onchainAmount * 100),
+        blockchainTxID: txid,
+        extra: { tenant: tenantId },
+      });
+    }
+    return { status: 200, body: { ok: true, external: true, recorded: !!rec } };
   }
 
   // ADR 0052: deposito de tenant non-custodial cai na CARTEIRA DE TAXAS
