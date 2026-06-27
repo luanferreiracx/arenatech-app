@@ -75,6 +75,10 @@ model TenantDepixTransaction {
   pixpayDepositAddress  String?                 @map("pixpay_deposit_address")
   /// txid da tx LWK que enviou o saque (1 tx com 2 outputs: pixpay + arena).
   withdrawTxId          String?                 @map("withdraw_tx_id")
+  /// Saque ON-CHAIN (Sideswap/externo): endereco Liquid de destino. Quando
+  /// preenchido (com kind=WITHDRAW), discrimina um envio on-chain direto de um
+  /// saque PIX — nao ha chave PIX nem off-ramp Eulen.
+  onchainAddress        String?                 @map("onchain_address")
   /// URL do comprovante oficial de transferencia PIX retornada pela PixPay no webhook/status.
   pixpayReceiptUrl      String?                 @map("pixpay_receipt_url") @db.Text
 

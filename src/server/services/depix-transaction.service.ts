@@ -1433,6 +1433,204 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   return final;
 }
 
+export interface CreateOnchainWithdrawArgs {
+  tenantId: string;
+  userId: string;
+  userName?: string | null;
+  /** Endereco Liquid de destino (ja validado pelo schema; o LWK revalida). */
+  toAddress: string;
+  /** Valor enviado ao destino (em centavos). */
+  amountCents: number;
+  /** Non-custodial: passphrase pra assinar. NUNCA logada nem persistida. */
+  passphrase?: string;
+  idempotencyKey?: string;
+}
+
+/**
+ * Saque DePix ON-CHAIN para um endereco Liquid externo (Sideswap, hardware
+ * wallet, etc) — sem PIX, sem off-ramp Eulen. Reusa a MESMA seção crítica do
+ * `createWithdraw` (advisory lock por tenant + reserva on-chain − pendentes + cap
+ * diário + criação do PENDING numa transação única) e troca a etapa Eulen pelo
+ * envio direto via `lwk.transfer`.
+ *
+ * Envio on-chain é IRREVERSÍVEL: a 2ª etapa de confirmação (re-tipar endereço +
+ * valor) é validada no router/validator ANTES de chegar aqui. `idempotencyKey` no
+ * `lwk.transfer` garante que um replay não duplica o envio.
+ */
+export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
+  const toAddress = args.toAddress.trim();
+
+  // Idempotencia de aplicacao (alem do idempotencyKey do LWK).
+  if (args.idempotencyKey) {
+    const existing = await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findFirst({
+        where: { tenantId: args.tenantId, idempotencyKey: args.idempotencyKey },
+      }),
+    );
+    if (existing) return existing;
+  }
+
+  // Custodia (ADR 0051): non-custodial EXIGE passphrase (mesmo fail-fast do PIX).
+  const wallet = await withTenant(args.tenantId, async (tx) =>
+    tx.tenantDepixWallet.findUnique({
+      where: { tenantId: args.tenantId },
+      select: { custodyModel: true, encryptedSeed: true },
+    }),
+  );
+  const isNonCustodial = wallet?.custodyModel === "non_custodial";
+  if (isNonCustodial) {
+    if (!args.passphrase) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Informe a senha da carteira (2FA da carteira) para sacar.",
+      });
+    }
+    if (!wallet?.encryptedSeed) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Carteira non-custodial sem seed cifrada. Contate o suporte.",
+      });
+    }
+  }
+
+  // Taxa Arena sobre o valor enviado (mesma config do saque PIX). Sem taxa de
+  // provedor (envio on-chain direto). gross = valor + fee Arena.
+  const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
+  const breakdown = calcWithdrawFromNet(args.amountCents, cfg);
+  // No on-chain o "deposito" do provedor é o próprio valor enviado (sem taxa Eulen).
+  const grossAmountCents = args.amountCents + breakdown.feeArenaTechCents;
+
+  const balance = await lwk.getBalance(args.tenantId);
+  if (!balance.success) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Nao foi possivel consultar saldo (LWK indisponivel)",
+    });
+  }
+  const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
+  const centralId = await getCentralTenantId();
+
+  // SEÇÃO CRÍTICA (idêntica ao createWithdraw — anti-race M2): lock + reserva +
+  // cap + criação do PENDING numa única transação. O envio on-chain fica FORA.
+  const { created } = await withTenant(args.tenantId, async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('depix_withdraw:' || ${args.tenantId}, 0))`;
+
+    const agg = await tx.tenantDepixTransaction.aggregate({
+      where: { tenantId: args.tenantId, kind: "WITHDRAW", status: { in: ["PENDING", "PROCESSING"] } },
+      _sum: { grossAmountCents: true },
+    });
+    const reservedCents = agg._sum.grossAmountCents ?? 0;
+    const avail = onchainCents - reservedCents;
+    if (avail < grossAmountCents) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Saldo disponivel insuficiente. Necessario R$ ${(grossAmountCents / 100).toFixed(2)}; disponivel R$ ${(avail / 100).toFixed(2)} (saldo on-chain R$ ${(onchainCents / 100).toFixed(2)}, reservado em saques pendentes R$ ${(reservedCents / 100).toFixed(2)})`,
+      });
+    }
+
+    if (args.tenantId !== centralId) {
+      await checkDailyWithdrawCap(tx, args.tenantId, grossAmountCents);
+    }
+
+    const number = await nextTransactionNumber(tx, "WITHDRAW");
+    const row = await tx.tenantDepixTransaction.create({
+      data: {
+        tenantId: args.tenantId,
+        number,
+        kind: "WITHDRAW",
+        status: "PENDING",
+        grossAmountCents,
+        feeArenaTechCents: breakdown.feeArenaTechCents,
+        netAmountCents: args.amountCents,
+        sourceType: "WALLET",
+        sourceDescription: "Saque on-chain (Liquid)",
+        onchainAddress: toAddress,
+        userId: args.userId,
+        userName: args.userName ?? null,
+        idempotencyKey: args.idempotencyKey ?? null,
+      },
+    });
+    return { created: row };
+  });
+
+  // Envio on-chain: valor ao destino + taxa Arena ao master (se houver).
+  const recipients: lwk.LwkTransferRecipient[] = [
+    { to: toAddress, amountBrl: args.amountCents / 100 },
+  ];
+  if (breakdown.feeArenaTechCents > 0) {
+    try {
+      const arenaMaster = await getArenaMasterAddress();
+      recipients.push({ to: arenaMaster, amountBrl: breakdown.feeArenaTechCents / 100 });
+    } catch (err) {
+      await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: created.id },
+          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+        }),
+      );
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Carteira mestre Arena Tech indisponivel",
+      });
+    }
+  }
+
+  const sweep = await lwk.transfer(args.tenantId, recipients, {
+    idempotencyKey: created.id,
+    ...(isNonCustodial
+      ? { encryptedSeed: wallet!.encryptedSeed, passphrase: args.passphrase }
+      : {}),
+  });
+  if (!sweep.success || !sweep.txid) {
+    logger.error("createOnchainWithdraw: LWK transfer falhou", {
+      tenantId: args.tenantId,
+      txId: created.id,
+      error: sweep.error,
+    });
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: created.id },
+        data: { status: "FAILED", errorMessage: sweep.error ?? "LWK transfer falhou" },
+      }),
+    );
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: sanitizeUserError(sweep.error, "Falha ao transmitir saque on-chain"),
+    });
+  }
+
+  // On-chain confirmado pelo broadcast -> COMPLETED direto (não há etapa PIX).
+  const final = await withTenant(args.tenantId, async (tx) => {
+    const updated = await tx.tenantDepixTransaction.update({
+      where: { id: created.id },
+      data: { withdrawTxId: sweep.txid, status: "COMPLETED", completedAt: new Date() },
+    });
+    if (breakdown.feeArenaTechCents > 0) {
+      await tx.tenantDepixFeeLedger.create({
+        data: {
+          tenantId: args.tenantId,
+          transactionId: created.id,
+          kind: "WITHDRAW",
+          amountCents: breakdown.feeArenaTechCents,
+          status: "SETTLED",
+          settlementTxId: sweep.txid!,
+          settledAt: new Date(),
+        },
+      });
+    }
+    return updated;
+  });
+
+  logger.info("Saque DePix on-chain transmitido", {
+    txId: created.id,
+    withdrawTxId: sweep.txid,
+    grossCents: grossAmountCents,
+    feeArenaTechCents: breakdown.feeArenaTechCents,
+    amountCents: args.amountCents,
+  });
+  return final;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Poll status (UI fallback)
 // ────────────────────────────────────────────────────────────────────────────
