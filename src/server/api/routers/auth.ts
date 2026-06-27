@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "@/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { prisma } from "@/server/db";
-import { hashPassword } from "@/lib/password";
+import { prisma, withTenant } from "@/server/db";
+import { hashPassword, validatePasswordPolicy } from "@/lib/password";
+import {
+  enforcePasswordPolicy,
+  DEFAULT_PASSWORD_POLICY,
+} from "@/server/services/password-policy.service";
 import { sendEmail } from "@/lib/services/email-service";
 import { compareSync } from "bcryptjs";
 import { logger } from "@/lib/logger";
@@ -171,7 +175,8 @@ export const authRouter = createTRPCRouter({
     .input(
       z.object({
         currentPassword: z.string().min(1, "Informe a senha atual"),
-        newPassword: z.string().min(6, "A nova senha deve ter pelo menos 6 caracteres"),
+        // Tamanho/complexidade ficam na POLITICA do tenant (D4) — aqui so nao-vazio.
+        newPassword: z.string().min(1, "Informe a nova senha"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -190,6 +195,18 @@ export const authRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message: "Senha atual incorreta",
         });
+      }
+
+      // Aplica a politica de senha do tenant ativo (D4). Sem tenant ativo
+      // (multi-tenant sem selecao), valida com a politica padrao.
+      if (ctx.session.activeTenantId) {
+        const activeTenantId = ctx.session.activeTenantId;
+        await withTenant(activeTenantId, (tx) =>
+          enforcePasswordPolicy(tx as never, activeTenantId, input.newPassword),
+        );
+      } else {
+        const err = validatePasswordPolicy(input.newPassword, DEFAULT_PASSWORD_POLICY);
+        if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
       }
 
       const passwordHash = hashPassword(input.newPassword);

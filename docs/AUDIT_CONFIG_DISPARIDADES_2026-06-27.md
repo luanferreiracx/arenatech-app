@@ -24,11 +24,11 @@
 
 > Cada uma é uma tela de Configurações que **grava** o valor, mas **nenhum fluxo lê**. Dão falsa sensação de que funcionam. Para cada uma: implementar (fazer valer) **ou** esconder da UI até existir. **Não toquei nesta rodada.**
 
-### D4 · Política de senha não é aplicada (P1 — segurança)
+### D4 · Política de senha não é aplicada (P1 — segurança) — **PARCIAL (complexidade ✅)**
 - **Onde:** `settings.getSecurity`/`updateSecurity` (`settings.ts:~1044`). Campos: `minPasswordLength`, `requireUppercase/Number/SpecialChar`, `passwordExpirationDays`, `sessionTimeoutMinutes`, `maxFailedLoginAttempts`, `lockoutMinutes`.
-- **Realidade:** **nenhum** é lido em `auth.ts` nem na validação de senha (criação/reset usam regras fixas nos validators). Confirmado por grep negativo.
-- **Impacto:** o dono configura "mín. 12 + maiúscula + número" e o sistema aceita 6 chars; sem expiração de sessão; o lockout real vem do rate-limit fixo, não da config.
-- **Tamanho:** médio (ligar a policy na validação de senha + no authorize; expiração de sessão é maior).
+- **Realidade (era):** nenhum lido — criação/reset/troca usavam regras fixas; o sistema aceitava 6 chars independentemente da config.
+- **✅ Feito (complexidade, dono escolheu este escopo):** helper puro `validatePasswordPolicy` (`src/lib/password.ts`) + `enforcePasswordPolicy` (`password-policy.service.ts`, lê `TenantSecuritySettings` com defaults do schema). Aplicado nas **duas** trocas de senha (`auth.changePassword` + `settings.changePassword`) pelo **tenant ativo da sessão**. Os schemas Zod das trocas relaxados pra não-vazio → a **política é a fonte única** de tamanho/complexidade (mensagem consistente). Resets admin geram senha aleatória (política não se aplica). NO-KYC register não tem tenant ainda → mantém seu `passwordSchema` fixo (mín. 8 + letra+número).
+- **Pendente (não nesta rodada, mais invasivo no NextAuth):** `passwordExpirationDays` (forçar troca), `sessionTimeoutMinutes` (timeout de inatividade no JWT), `maxFailedLoginAttempts`/`lockoutMinutes` (hoje o login usa rate-limit **fixo** 5/15min, não a config).
 
 ### D5 · Notificações por evento não disparam pela config (P1)
 - **Onde:** `settings.listNotificationConfigs`/`upsertNotificationConfig` (`settings.ts:~1104`). Configura evento (OS_CRIADA, VENDA_FINALIZADA…) × canal (email/WhatsApp) + template.
