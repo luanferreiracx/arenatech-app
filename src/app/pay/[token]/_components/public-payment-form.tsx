@@ -15,7 +15,7 @@ const MAX_CENTS = 500000;
 type Props = {
   token: string;
   merchantName: string;
-  productDescription: string;
+  description: string;
   amountCents: number | null;
   amountOpen: boolean;
 };
@@ -56,7 +56,7 @@ function maskAmount(value: string): string {
 export function PublicPaymentForm({
   token,
   merchantName,
-  productDescription,
+  description,
   amountCents,
   amountOpen,
 }: Props) {
@@ -135,7 +135,7 @@ export function PublicPaymentForm({
     <div className="space-y-6">
       <AmountHero
         amountCents={amountOpen ? enteredCents : (amountCents ?? 0)}
-        productDescription={productDescription}
+        description={description}
         merchantName={merchantName}
       />
 
@@ -216,17 +216,17 @@ export function PublicPaymentForm({
 /** Herói: o valor com a conversão R$ → DePix tornada explícita e bonita. */
 function AmountHero({
   amountCents,
-  productDescription,
+  description,
   merchantName,
 }: {
   amountCents: number;
-  productDescription: string;
+  description: string;
   merchantName: string;
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-6 text-center">
       <p className="text-[0.7rem] font-medium uppercase tracking-[0.18em] text-slate-400">
-        {productDescription}
+        {description || "Pagamento DePix"}
       </p>
       <p className="mt-3 text-[2.75rem] font-semibold leading-none tabular-nums text-slate-50">
         {amountCents > 0 ? formatBRL(amountCents) : "—"}

@@ -1,0 +1,37 @@
+/// Link de pagamento DePix gerado no DePix Wallet. O cliente paga por
+/// /pay/<token> sem login (informa CPF/CNPJ + confirma titularidade). Quando
+/// pago, vincula-se ao deposito (walletTransactionId). NAO carrega conceito de
+/// "venda" (produto/quantidade) — e so a cobranca.
+enum PaymentLinkStatus {
+  ACTIVE
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+model PaymentLink {
+  id                  String            @id @default(uuid()) @db.Uuid
+  tenantId            String            @map("tenant_id") @db.Uuid
+
+  /// Token publico nao-adivinhavel da URL /pay/<token>.
+  token               String            @unique
+
+  /// Valor em centavos. NULL = valor livre (o cliente define ao pagar).
+  amountCents         Int?              @map("amount_cents")
+  /// Descricao/observacao do que se refere o pagamento.
+  description         String?
+
+  status              PaymentLinkStatus @default(ACTIVE)
+
+  /// Deposito DePix vinculado quando o link e pago (1 link = 1 pagamento).
+  walletTransactionId String?           @unique @map("wallet_transaction_id") @db.Uuid
+
+  createdById         String            @map("created_by_id") @db.Uuid
+  paidAt              DateTime?         @map("paid_at")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("payment_links")
+}

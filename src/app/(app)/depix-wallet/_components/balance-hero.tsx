@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, Copy, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Copy, Link2, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { GenerateLinkDialog } from "./generate-link-dialog";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +91,14 @@ export function BalanceHero({
                   </Link>
                 </Button>
               )}
+              <GenerateLinkDialog
+                trigger={
+                  <Button size="lg" variant="outline">
+                    <Link2 className="mr-2 h-4 w-4" />
+                    Gerar link
+                  </Button>
+                }
+              />
             </div>
             {!canWithdraw && (
               <p className="max-w-[240px] text-xs text-muted-foreground text-left sm:text-right">

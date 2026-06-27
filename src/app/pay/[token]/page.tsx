@@ -31,11 +31,7 @@ export default async function PublicPaymentPage(props: {
     );
   }
 
-  if (
-    charge.status === "EXPIRED" ||
-    charge.status === "CANCELLED" ||
-    charge.status === "REFUNDED"
-  ) {
+  if (charge.status === "EXPIRED" || charge.status === "CANCELLED") {
     return (
       <PayShell merchantName={charge.merchantName}>
         <StatusScreen
@@ -52,7 +48,7 @@ export default async function PublicPaymentPage(props: {
       <PublicPaymentForm
         token={token}
         merchantName={charge.merchantName}
-        productDescription={charge.productDescription}
+        description={charge.description}
         amountCents={charge.amountCents}
         amountOpen={charge.amountOpen}
       />

@@ -17,6 +17,7 @@ enum DepixTransactionSourceType {
   QUICK_SALE
   SALE
   SERVICE_ORDER
+  PAYMENT_LINK
 }
 
 enum DepixTransactionStatus {
