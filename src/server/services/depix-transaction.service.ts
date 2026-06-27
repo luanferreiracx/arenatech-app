@@ -488,11 +488,28 @@ export async function settleDepositConfirmed(args: {
     }),
   );
   if (transitioned.count === 0) {
-    // Outro processo ja moveu pra PROCESSING_FEE/COMPLETED — idempotente.
-    logger.info("settleDepositConfirmed: race detectada, ja processado", {
+    // count=0: outro processo ja moveu a tx. Reconsulta o status REAL — nao
+    // assume COMPLETED. Se ja concluiu, idempotente. Se ficou presa em
+    // PROCESSING_FEE (ex.: crash apos o transfer da taxa, antes de marcar
+    // COMPLETED), RETOMA a finalizacao (transfer e ledger sao idempotentes:
+    // idempotencyKey no LWK + upsert no ledger).
+    const current = await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findUnique({
+        where: { id: txRow.id },
+        select: { status: true },
+      }),
+    );
+    if (current?.status !== "PROCESSING_FEE") {
+      logger.info("settleDepositConfirmed: ja processado (status terminal)", {
+        txId: txRow.id,
+        status: current?.status,
+      });
+      return { matched: true, alreadyCompleted: true };
+    }
+    logger.warn("settleDepositConfirmed: tx presa em PROCESSING_FEE — retomando finalizacao", {
       txId: txRow.id,
     });
-    return { matched: true, alreadyCompleted: true };
+    // Cai no fluxo abaixo (transfer da taxa + COMPLETED), idempotente.
   }
 
   // Fee zero (tenant central) -> nao dispara tx on-chain. Marca COMPLETED direto.
@@ -646,8 +663,22 @@ export async function settleDepositViaFeeWallet(args: {
     }),
   );
   if (transitioned.count === 0) {
-    logger.info("settleDepositViaFeeWallet: race detectada, ja processado", { txId: txRow.id });
-    return { matched: true, alreadyCompleted: true };
+    // count=0: reconsulta o status REAL. Se ja concluiu, idempotente. Se ficou
+    // preso em PROCESSING_FEE, retoma o repasse abaixo (a fila depixDepositRepayment
+    // e upsert/idempotente + tem cron de retry).
+    const current = await withTenant(realTenantId, async (tx) =>
+      tx.tenantDepixTransaction.findUnique({ where: { id: txRow.id }, select: { status: true } }),
+    );
+    if (current?.status !== "PROCESSING_FEE") {
+      logger.info("settleDepositViaFeeWallet: ja processado (status terminal)", {
+        txId: txRow.id,
+        status: current?.status,
+      });
+      return { matched: true, alreadyCompleted: true };
+    }
+    logger.warn("settleDepositViaFeeWallet: tx presa em PROCESSING_FEE — retomando repasse", {
+      txId: txRow.id,
+    });
   }
 
   // Resolve o endereco de destino (master do TENANT REAL).

@@ -107,12 +107,24 @@ describe("settleDepositViaFeeWallet", () => {
     expect(ledgerUpsert).toHaveBeenCalled();
   });
 
-  it("race: transicao count=0 -> alreadyCompleted, sem transferir", async () => {
+  it("count=0 + status terminal (COMPLETED) -> alreadyCompleted, sem transferir", async () => {
     txUpdateMany.mockResolvedValueOnce({ count: 0 });
+    txFindUnique.mockResolvedValueOnce({ id: TX_ID, status: "COMPLETED" });
 
     const res = await settleDepositViaFeeWallet(args);
     expect(res).toMatchObject({ alreadyCompleted: true });
     expect(transfer).not.toHaveBeenCalled();
+  });
+
+  it("count=0 + preso em PROCESSING_FEE -> RETOMA o repasse (nao engole)", async () => {
+    txUpdateMany.mockResolvedValueOnce({ count: 0 }); // transicao falhou (ja em PROCESSING_FEE)
+    txFindUnique.mockResolvedValueOnce({ id: TX_ID, status: "PROCESSING_FEE" }); // preso
+    transfer.mockResolvedValue({ success: true, txid: "repay-retomado" });
+
+    const res = await settleDepositViaFeeWallet(args);
+    // Retoma e completa em vez de retornar alreadyCompleted.
+    expect(res).toMatchObject({ matched: true, completed: true });
+    expect(transfer).toHaveBeenCalled();
   });
 
   it("falha no transfer -> repayment PENDING (attempts++), nao completa", async () => {
