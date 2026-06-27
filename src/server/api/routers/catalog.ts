@@ -1109,10 +1109,24 @@ export const catalogRouter = createTRPCRouter({
         const amountToFinance = Math.max(0, input.totalAmount - (input.downPayment ?? 0));
         if (amountToFinance <= 0) return { parcelas: [], amountToFinance: 0 };
 
-        // Load installment rules from settings
-        const rules = await tx.installmentRule.findMany({
+        // Regras de parcelamento das formas de CARTAO DE CREDITO ativas. Antes
+        // carregava TODAS as installmentRule (qualquer forma), entao misturava as
+        // taxas de crediario/outras formas no simulador de cartao — e podia
+        // duplicar linhas quando duas formas tinham o mesmo numero de parcelas.
+        const creditRules = await tx.installmentRule.findMany({
+          where: { paymentMethod: { type: "CREDIT_CARD", active: true } },
           orderBy: { installments: "asc" },
         });
+        // Dedup defensivo por numero de parcelas (caso haja >1 forma de credito
+        // ativa): mantem a menor taxa para o mesmo Nx.
+        const ruleByInstallments = new Map<number, (typeof creditRules)[number]>();
+        for (const r of creditRules) {
+          const existing = ruleByInstallments.get(r.installments);
+          if (!existing || Number(r.feePercent) < Number(existing.feePercent)) {
+            ruleByInstallments.set(r.installments, r);
+          }
+        }
+        const rules = [...ruleByInstallments.values()].sort((a, b) => a.installments - b.installments);
 
         const parcelas: Array<{
           installments: number
