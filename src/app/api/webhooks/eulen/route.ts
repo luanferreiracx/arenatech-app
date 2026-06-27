@@ -36,11 +36,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: code });
   }
 
+  const rawBody = await req.text();
   let payload: { webhookType?: string } & Record<string, unknown>;
   try {
-    payload = JSON.parse(await req.text());
+    payload = JSON.parse(rawBody);
   } catch {
-    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+    // Loga o corpo cru (ajuda a entender webhooks fora do contrato, ex.: QR
+    // estatico). 200 pra nao gerar alerta de erro no Bot da Eulen.
+    logger.warn("Eulen webhook: corpo nao-JSON", { rawBody: rawBody.slice(0, 1000) });
+    return NextResponse.json({ ok: true, ignored: "invalid_json" });
   }
 
   const sourceIp = extractSourceIp(req.headers);
@@ -49,17 +53,22 @@ export async function POST(req: NextRequest) {
   try {
     if (type === "withdraw") {
       const result = await handleEulenWithdrawWebhook(payload as EulenWithdrawPayload, sourceIp);
-      return NextResponse.json(result.body, { status: result.status });
+      return ackOnClientError(result, type, rawBody);
     }
     if (type === "deposit") {
       const result = await handleEulenDepositWebhook(payload as EulenDepositPayload, sourceIp);
-      return NextResponse.json(result.body, { status: result.status });
+      return ackOnClientError(result, type, rawBody);
     }
     if (type === "med") {
       const result = await handleEulenMedWebhook(payload as EulenMedPayload, sourceIp);
-      return NextResponse.json(result.body, { status: result.status });
+      return ackOnClientError(result, type, rawBody);
     }
-    logger.warn("Eulen webhook: webhookType desconhecido", { type });
+    // webhookType desconhecido (inclui o QR estatico, que pode nao mandar
+    // webhookType): loga o corpo cru e ACK 200 (nao alarmar o Bot da Eulen).
+    logger.warn("Eulen webhook: webhookType desconhecido — corpo cru", {
+      type: type || "(vazio)",
+      rawBody: rawBody.slice(0, 1000),
+    });
     return NextResponse.json({ ok: true, ignored: `webhookType ${type}` });
   } catch (err) {
     logger.error("Eulen webhook: erro no handler", {
@@ -69,4 +78,27 @@ export async function POST(req: NextRequest) {
     // 200 pra Eulen nao reenviar infinito — fallback no monitor/cron.
     return NextResponse.json({ ok: true, error: "internal" });
   }
+}
+
+/**
+ * Responde 200 mesmo quando o handler retorna 4xx de "cliente" (ex.: missing
+ * qrId/id) — caso provavel do QR estatico, que nao tem deposit-id nosso. Loga o
+ * corpo cru pra diagnosticar o formato. Um 400 fazia o Bot da Eulen alarmar
+ * ("non-200 status code: 400"); o monitor LWK + cron cobrem a conciliacao.
+ */
+function ackOnClientError(
+  result: { status: number; body: Record<string, unknown> },
+  type: string,
+  rawBody: string,
+): NextResponse {
+  if (result.status >= 400 && result.status < 500) {
+    logger.warn("Eulen webhook: handler retornou 4xx — ACK 200 + corpo cru", {
+      type,
+      handlerStatus: result.status,
+      handlerBody: result.body,
+      rawBody: rawBody.slice(0, 1000),
+    });
+    return NextResponse.json({ ok: true, acked: true, original: result.body });
+  }
+  return NextResponse.json(result.body, { status: result.status });
 }
