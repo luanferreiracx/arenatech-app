@@ -18,14 +18,24 @@ import { notifyDepixWebhook } from "@/lib/webhooks/eulen-webhook-notify";
 
 export const runtime = "nodejs";
 
-/** Mapeia o payload cru -> notificacao no grupo. QR estatico = deposit s/ qrId. */
+/**
+ * Mapeia o payload cru -> notificacao no grupo. Notifica UMA vez por pagamento:
+ * - deposit/QR estatico: so no `approved` (a Eulen manda 3 status por pagamento
+ *   — under_review/approved/depix_sent; `approved` e o marco "PIX recebido").
+ * - saque: so no `sent` (terminal; evita unsent/sending/sent em triplicata).
+ * - MED: sempre (evento unico).
+ * QR estatico = deposit s/ qrId.
+ */
 function notifyFromPayload(
   type: string,
   p: { webhookType?: string } & Record<string, unknown>,
 ): Promise<void> {
   const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
   const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  const status = (str(p.status) ?? "").toLowerCase();
+
   if (type === "withdraw") {
+    if (status !== "sent") return Promise.resolve();
     return notifyDepixWebhook({
       kind: "withdraw",
       status: str(p.status),
@@ -49,6 +59,7 @@ function notifyFromPayload(
     });
   }
   if (type === "deposit") {
+    if (status !== "approved") return Promise.resolve();
     const isStatic = !str(p.qrId);
     return notifyDepixWebhook({
       kind: isStatic ? "static" : "deposit",
