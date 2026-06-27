@@ -98,8 +98,8 @@ describe("allowedModulesForTenant", () => {
     ).toEqual(["wallet", "pdv"]);
   });
 
-  // ── NO-KYC: teto rígido em wallet (ADR 0050) ──
-  it("NO-KYC fica só em wallet MESMO com plano que libera tudo", () => {
+  // ── NO-KYC: teto rígido em wallet + cobrança por link (ADR 0050) ──
+  it("NO-KYC fica só em wallet+depix-ops MESMO com plano que libera tudo", () => {
     expect(
       allowedModulesForTenant({
         tenantSlug: "pdv-7f3a9c",
@@ -107,13 +107,13 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
         isNoKyc: true,
       }),
-    ).toEqual(["wallet"]);
+    ).toEqual(["wallet", "depix-ops"]);
   });
 
-  it("NO-KYC sem plano também só wallet", () => {
+  it("NO-KYC sem plano também só wallet+depix-ops", () => {
     expect(
       allowedModulesForTenant({ tenantSlug: "pdv-x", planFeatures: null, hasPlan: false, isNoKyc: true }),
-    ).toEqual(["wallet"]);
+    ).toEqual(["wallet", "depix-ops"]);
   });
 
   it("isNoKyc não afeta o tenant de acesso total (arena-tech)", () => {

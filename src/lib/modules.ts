@@ -60,17 +60,20 @@ export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
 
 /**
  * Módulos liberados por padrão para tenants novos enquanto validamos os demais.
- * Hoje: apenas a carteira DePix.
+ * - `wallet`: carteira DePix (saldo, depósito, saque).
+ * - `depix-ops`: link público de pagamento (/quick-sales -> /pay). Liberado a
+ *   todos pois é só a ponte para a cobrança pública — as operações de carteira
+ *   já vivem em `wallet`.
  */
-export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet"];
+export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
- * Teto rígido de módulos para tenants NO-KYC (ADR 0050): apenas a carteira
- * DePix, independente do plano. Constante própria (não reaproveita
+ * Teto rígido de módulos para tenants NO-KYC (ADR 0050): carteira DePix + link
+ * público de pagamento, independente do plano. Constante própria (não reaproveita
  * DEFAULT_RELEASED_MODULES) para que mudar o default de tenants novos no futuro
  * não eleve acidentalmente o acesso de um tenant sem documento.
  */
-export const NO_KYC_MODULES: ModuleKey[] = ["wallet"];
+export const NO_KYC_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
  * Mapa de prefixo de rota → módulo. A ordem importa: prefixos mais específicos
