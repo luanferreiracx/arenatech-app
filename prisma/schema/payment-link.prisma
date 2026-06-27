@@ -23,6 +23,10 @@ model PaymentLink {
 
   status              PaymentLinkStatus @default(ACTIVE)
 
+  /// Validade do link: nao pago ate aqui -> EXPIRED. Setado na criacao
+  /// (now + 12h). Pagamento ja iniciado (deposito gerado) nao e barrado por isto.
+  expiresAt           DateTime?         @map("expires_at")
+
   /// Deposito DePix vinculado quando o link e pago (1 link = 1 pagamento).
   walletTransactionId String?           @unique @map("wallet_transaction_id") @db.Uuid
 
@@ -33,5 +37,7 @@ model PaymentLink {
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
+  /// Varredura do cron que expira links ACTIVE vencidos (cross-tenant).
+  @@index([status, expiresAt])
   @@map("payment_links")
 }

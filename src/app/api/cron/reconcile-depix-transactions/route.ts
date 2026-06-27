@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 import { withCronLock } from "@/server/cron-lock";
 import { reconcileStaleDepixTransactions } from "@/server/services/depix-transaction.service";
+import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 
 export const dynamic = "force-dynamic";
 
@@ -32,14 +33,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
+    let expiredLinks = 0;
     // Lock por job: evita duas instancias consultando/transicionando a mesma tx.
     const ran = await withCronLock("reconcile-depix-transactions", async () => {
       results.push(await reconcileStaleDepixTransactions());
+      // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
+      expiredLinks = (await expireStalePaymentLinks()).expired;
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
-    logger.info("[cron-reconcile-depix] processed", result);
-    return NextResponse.json({ success: true, ...result });
+    logger.info("[cron-reconcile-depix] processed", { ...result, expiredLinks });
+    return NextResponse.json({ success: true, ...result, expiredLinks });
   } catch (err) {
     logger.error("[cron-reconcile-depix] failed", {
       err: err instanceof Error ? err.message : String(err),
