@@ -12,6 +12,7 @@ export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
   FAILED: "Falhou",
   CANCELLED: "Cancelado",
   EXPIRED: "Expirado",
+  MED_REFUNDED: "Devolvido (MED)",
 };
 
 export const DEPIX_TX_KIND_LABELS: Record<string, string> = {

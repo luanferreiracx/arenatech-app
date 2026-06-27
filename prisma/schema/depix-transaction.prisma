@@ -29,6 +29,7 @@ enum DepixTransactionStatus {
   FAILED                    // erro irrecuperavel
   CANCELLED                 // cancelado pelo operador
   EXPIRED                   // QR expirou antes do pagamento
+  MED_REFUNDED              // deposito devolvido pelo BC (MED) apos pago — pendencia
 }
 
 model TenantDepixTransaction {
@@ -83,6 +84,10 @@ model TenantDepixTransaction {
   /// Nome do pagador, capturado da Eulen quando o PIX e pago (deposit-status/
   /// webhook trazem payerName). So preenchido apos o pagamento.
   payerName             String?                 @map("payer_name")
+  /// Quando o deposito foi devolvido pelo BC via MED (webhook `med`). Marca a
+  /// tx como MED_REFUNDED (pendencia: o DePix ja esta on-chain na carteira; o
+  /// estorno/decisao e manual — o servidor nao debita non-custodial sem a chave).
+  medReportedAt         DateTime?               @map("med_reported_at")
   /// QR code BR Code (texto copia-cola) gerado pelo PixPay.
   qrCode                String?                 @map("qr_code") @db.Text
   /// QR code em base64 (PNG), ja pronto pra <img src=...>.
