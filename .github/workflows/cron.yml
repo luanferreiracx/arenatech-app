@@ -32,6 +32,7 @@ on:
           - release-stale-reservations
           - process-deposit-repayments
           - reconcile-depix-transactions
+          - reconcile-eulen-extract
 
 # `shell: bash` usa `-eo pipefail` — sem isto o default e `bash -e` (sem
 # pipefail), e o `curl ... | tee` mascara a falha do curl (o pipeline retorna
@@ -147,6 +148,21 @@ jobs:
       - name: Invoca cron reconcile-depix-transactions
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/reconcile-depix-transactions" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 180 \
+            | tee /tmp/response.json
+
+  reconcile-eulen-extract:
+    # Roda de hora em hora (schedule horario) ou manualmente. Rede de seguranca por
+    # EXTRATO da Eulen (GET /deposits): pega credito/estorno que o webhook E o
+    # monitor LWK perderam. Complementa o reconcile por-id (que so ve nossas linhas).
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 * * * *') || inputs.job == 'reconcile-eulen-extract' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron reconcile-eulen-extract
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/reconcile-eulen-extract" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 180 \
