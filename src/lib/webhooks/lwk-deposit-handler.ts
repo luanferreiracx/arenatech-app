@@ -146,10 +146,12 @@ export async function handleLwkDepositWebhook(
     return { status: 200, body: { ok: true, external: true, recorded: !!rec } };
   }
 
-  // ADR 0052: deposito de tenant non-custodial cai na CARTEIRA DE TAXAS
-  // (arena-fees) — o webhook chega com tenant_id = arena-fees. A tx pertence ao
-  // tenant real; achamos pelo label (UUID global). Custodial/central seguem o
-  // caminho normal (tenant_id = o proprio tenant).
+  // DEPRECATED (split nativo Eulen): novos depositos NAO passam mais pela carteira
+  // de taxas — a Eulen ja divide na origem (depixSplitAddress). Este ramo fica SO
+  // pra DRENAR depositos LEGADOS que ja estavam em voo na carteira de taxas
+  // (arena-fees) quando o split entrou. Pode ser removido apos a carteira de taxas
+  // zerar. ADR 0052 (legado): webhook chega com tenant_id = arena-fees; a tx
+  // pertence ao tenant real (achada pelo label UUID global).
   const feeWalletTenantId = await getFeeWalletTenantId();
   const isFeeWalletDeposit = !!feeWalletTenantId && tenantId === feeWalletTenantId;
 

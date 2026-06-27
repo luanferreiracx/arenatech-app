@@ -1,18 +1,24 @@
 /**
- * Roteamento do endereco de deposito (ADR 0052, PR3): tenant non-custodial
- * recebe o DePix na CARTEIRA DE TAXAS (arena-fees); custodial recebe na propria.
- * Fail-closed se a carteira de taxas nao existe. Tudo mockado — testa a logica
- * de roteamento do createDeposit, nao o banco/LWK/PixPay.
+ * createDeposit com SPLIT NATIVO da Eulen: o DePix cai SEMPRE na carteira do
+ * proprio tenant (custodial e non-custodial); a taxa Arena e descontada na origem
+ * via depixSplitAddress + splitFee. Central e isento (sem split). Tudo mockado.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const txCreate = vi.fn();
 const txUpdate = vi.fn();
 const txFindFirst = vi.fn(); // nextTransactionNumber
-const walletFindUnique = vi.fn(); // custodyModel do tenant
+const feeConfigFindUnique = vi.fn();
+const walletFindUnique = vi.fn(); // master da Arena (getArenaMasterAddress)
+const tenantFindUnique = vi.fn(); // getCentralTenantId / arena-tech slug
 const generateAddress = vi.fn();
 const createPixPayment = vi.fn();
 const getFeeWalletTenantId = vi.fn();
+
+const adminTx = {
+  tenant: { findUnique: tenantFindUnique },
+  tenantDepixWallet: { findUnique: walletFindUnique },
+};
 
 vi.mock("@/server/db", () => ({
   withTenant: (_tenantId: string, fn: (tx: unknown) => unknown) =>
@@ -22,9 +28,10 @@ vi.mock("@/server/db", () => ({
         create: txCreate,
         update: txUpdate,
       },
-      tenantDepixWallet: { findUnique: walletFindUnique },
+      tenantDepixFeeConfig: { findUnique: feeConfigFindUnique },
+      tenant: { findUnique: tenantFindUnique },
     }),
-  withAdmin: (fn: (tx: unknown) => unknown) => fn({}),
+  withAdmin: (fn: (tx: unknown) => unknown) => fn(adminTx),
 }));
 
 vi.mock("@/server/api/trpc", () => ({ CENTRAL_TENANT_SLUG: "arena-tech" }));
@@ -38,6 +45,7 @@ vi.mock("@/lib/services/depix-service", () => ({
   createDepixWithdraw: vi.fn(),
   getPixStatus: vi.fn(),
   getDepixWithdrawStatus: vi.fn(),
+  listEulenDeposits: vi.fn(),
 }));
 
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
@@ -47,28 +55,31 @@ vi.mock("@/server/services/depix-fee-wallet.service", () => ({
 import { createDeposit } from "@/server/services/depix-transaction.service";
 
 const REAL_TENANT = "11111111-1111-1111-1111-111111111111";
-const FEE_TENANT = "22222222-2222-2222-2222-222222222222";
+const CENTRAL_TENANT = "99999999-9999-9999-9999-999999999999";
 const TX_ID = "33333333-3333-3333-3333-333333333333";
+const ARENA_MASTER = "lq1arenamasteraddr";
 
 const baseArgs = {
   tenantId: REAL_TENANT,
-  grossAmountCents: 10000,
+  grossAmountCents: 10000, // R$100
   userId: "44444444-4444-4444-4444-444444444444",
 };
 
 beforeEach(() => {
-  txCreate.mockReset();
-  txUpdate.mockReset();
-  txFindFirst.mockReset();
-  walletFindUnique.mockReset();
-  generateAddress.mockReset();
-  createPixPayment.mockReset();
-  getFeeWalletTenantId.mockReset();
+  for (const m of [
+    txCreate, txUpdate, txFindFirst, feeConfigFindUnique, walletFindUnique,
+    tenantFindUnique, generateAddress, createPixPayment, getFeeWalletTenantId,
+  ]) m.mockReset();
 
-  txFindFirst.mockResolvedValue(null); // primeira tx do dia
+  txFindFirst.mockResolvedValue(null);
   txCreate.mockResolvedValue({ id: TX_ID, number: "TXD20260616-00001" });
   txUpdate.mockImplementation(async (a: { data: unknown }) => a.data);
-  generateAddress.mockResolvedValue({ success: true, address: "lq1addr", label: "x" });
+  feeConfigFindUnique.mockResolvedValue(null); // defaults (R$0,99 + 1,5%)
+  // getCentralTenantId -> arena-tech = CENTRAL_TENANT; getArenaMasterAddress
+  // resolve a carteira master da central.
+  tenantFindUnique.mockResolvedValue({ id: CENTRAL_TENANT });
+  walletFindUnique.mockResolvedValue({ masterAddress: ARENA_MASTER });
+  generateAddress.mockResolvedValue({ success: true, address: "lq1tenantaddr", label: "x" });
   createPixPayment.mockResolvedValue({
     success: true,
     transactionId: "pix-1",
@@ -77,45 +88,45 @@ beforeEach(() => {
   });
 });
 
-describe("createDeposit — roteamento da carteira de recebimento", () => {
-  it("non-custodial: gera endereco na CARTEIRA DE TAXAS e persiste o destino", async () => {
-    walletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
-    getFeeWalletTenantId.mockResolvedValue(FEE_TENANT);
-
+describe("createDeposit — split nativo Eulen", () => {
+  it("tenant normal: recebe na PROPRIA carteira + manda split (taxa -> arena master)", async () => {
     await createDeposit(baseArgs);
 
-    // Endereco gerado na carteira de taxas, NAO no tenant real.
-    expect(generateAddress).toHaveBeenCalledWith(FEE_TENANT, TX_ID);
-    // PixPay aponta pro endereco da carteira de taxas.
-    expect(createPixPayment.mock.calls[0]![4]).toMatchObject({ depixAddress: "lq1addr" });
-    // Persiste depositReceivingTenantId = carteira de taxas.
-    const persisted = txUpdate.mock.calls.at(-1)![0] as { data: { depositReceivingTenantId: string } };
-    expect(persisted.data.depositReceivingTenantId).toBe(FEE_TENANT);
-  });
-
-  it("custodial: gera endereco na PROPRIA carteira do tenant", async () => {
-    walletFindUnique.mockResolvedValue({ custodyModel: "custodial" });
-
-    await createDeposit(baseArgs);
-
+    // Endereco gerado na carteira do PROPRIO tenant.
     expect(generateAddress).toHaveBeenCalledWith(REAL_TENANT, TX_ID);
-    expect(getFeeWalletTenantId).not.toHaveBeenCalled();
+    // PixPay aponta pro endereco do tenant + split p/ a Arena (2,49% em R$100).
+    const opts = createPixPayment.mock.calls[0]![4] as {
+      depixAddress: string;
+      depixSplitAddress?: string;
+      splitFeePercent?: number;
+    };
+    expect(opts.depixAddress).toBe("lq1tenantaddr");
+    expect(opts.depixSplitAddress).toBe(ARENA_MASTER);
+    expect(opts.splitFeePercent).toBeCloseTo(2.49, 2);
+    // depositReceivingTenantId = o proprio tenant (sem carteira de taxas).
     const persisted = txUpdate.mock.calls.at(-1)![0] as { data: { depositReceivingTenantId: string } };
     expect(persisted.data.depositReceivingTenantId).toBe(REAL_TENANT);
   });
 
-  it("fail-closed: non-custodial sem carteira de taxas -> erro + tx FAILED", async () => {
-    walletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
-    getFeeWalletTenantId.mockResolvedValue(null);
+  it("non-custodial tambem usa split (sem carteira de taxas)", async () => {
+    // O custodyModel nao muda mais o roteamento — ambos recebem na propria carteira.
+    await createDeposit(baseArgs);
+    expect(generateAddress).toHaveBeenCalledWith(REAL_TENANT, TX_ID);
+    expect(getFeeWalletTenantId).not.toHaveBeenCalled();
+    const opts = createPixPayment.mock.calls[0]![4] as { depixSplitAddress?: string };
+    expect(opts.depixSplitAddress).toBe(ARENA_MASTER);
+  });
 
-    await expect(createDeposit(baseArgs)).rejects.toThrow(/Carteira de taxas/i);
-    // NAO gera endereco nem chama PixPay (bloqueia antes).
-    expect(generateAddress).not.toHaveBeenCalled();
-    expect(createPixPayment).not.toHaveBeenCalled();
-    // Marca a tx como FAILED.
-    const failed = txUpdate.mock.calls.find(
-      (c) => (c[0] as { data: { status?: string } }).data.status === "FAILED",
-    );
-    expect(failed).toBeTruthy();
+  it("tenant central: SEM split (taxa 0, recebe 100%)", async () => {
+    // O deposito e do PROPRIO tenant central (id = CENTRAL_TENANT, que e o que
+    // getCentralTenantId resolve). loadFeeConfig retorna ZERO -> sem split.
+    await createDeposit({ ...baseArgs, tenantId: CENTRAL_TENANT });
+
+    const opts = createPixPayment.mock.calls[0]![4] as {
+      depixSplitAddress?: string;
+      splitFeePercent?: number;
+    };
+    expect(opts.depixSplitAddress).toBeUndefined();
+    expect(opts.splitFeePercent).toBe(0);
   });
 });

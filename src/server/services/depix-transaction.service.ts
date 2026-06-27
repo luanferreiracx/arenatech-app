@@ -19,9 +19,10 @@ import { withTenant, withAdmin } from "@/server/db";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
 import {
-  calcDepositFee,
   calcDepositSettlement,
+  calcDepositSplitFeePercent,
   calcWithdrawFromNet,
+  estimateArenaFeeFromNet,
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
@@ -391,43 +392,12 @@ export async function createDeposit(args: CreateDepositArgs) {
     });
   });
 
-  // ETAPA 2: decide a carteira que RECEBE o DePix (ADR 0052).
-  // Tenant non-custodial nao consegue assinar a cobranca da taxa no webhook
-  // (sem passphrase). Por isso o deposito cai na CARTEIRA DE TAXAS custodial,
-  // que retem a taxa e repassa o liquido. Custodial mantem o fluxo atual
-  // (recebe na propria carteira). A tx continua pertencendo ao TENANT REAL.
-  const depositWallet = await withTenant(args.tenantId, async (tx) =>
-    tx.tenantDepixWallet.findUnique({
-      where: { tenantId: args.tenantId },
-      select: { custodyModel: true },
-    }),
-  );
-  const isNonCustodial = depositWallet?.custodyModel === "non_custodial";
-
-  let receivingTenantId = args.tenantId;
-  if (isNonCustodial) {
-    const feeWalletTenantId = await getFeeWalletTenantId();
-    // Fail-closed: sem carteira de taxas provisionada, NAO cai no fluxo antigo
-    // (que deixaria a taxa pendente). Bloqueia ate provisionar (ADR 0052).
-    if (!feeWalletTenantId) {
-      await withTenant(args.tenantId, async (tx) =>
-        tx.tenantDepixTransaction.update({
-          where: { id: created.id },
-          data: { status: "FAILED", errorMessage: "Carteira de taxas nao provisionada" },
-        }),
-      );
-      throw new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message:
-          "Carteira de taxas da Arena Tech ainda nao foi configurada. Contate o suporte.",
-      });
-    }
-    receivingTenantId = feeWalletTenantId;
-  }
-
-  // Gera endereco LWK dedicado pra este deposito NA carteira de recebimento.
-  // label = transactionId -> match exato no webhook do monitor.
-  const addr = await lwk.generateAddress(receivingTenantId, created.id);
+  // ETAPA 2: o DePix cai SEMPRE na carteira do PRÓPRIO tenant. A taxa Arena é
+  // descontada NA ORIGEM via SPLIT NATIVO da Eulen (depixSplitAddress + splitFee):
+  // a Eulen manda o líquido pro tenant e a taxa pra master da Arena, já dividido
+  // on-chain. Sem carteira de taxas intermediária, sem 2ª tx (custodial e
+  // non-custodial seguem o mesmo caminho).
+  const addr = await lwk.generateAddress(args.tenantId, created.id);
   if (!addr.success || !addr.address) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
@@ -441,24 +411,47 @@ export async function createDeposit(args: CreateDepositArgs) {
     });
   }
 
+  // Split: % equivalente da taxa Arena (fixo + %) sobre o valor. Central é isento
+  // (loadFeeConfig retorna ZERO p/ o central) -> splitFee 0 -> sem split (recebe
+  // 100% na própria carteira). Resolve o master da Arena só quando há taxa.
+  const feeCfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
+  const splitFeePercent = calcDepositSplitFeePercent(args.grossAmountCents, feeCfg);
+  let depixSplitAddress: string | undefined;
+  if (splitFeePercent > 0) {
+    try {
+      depixSplitAddress = await getArenaMasterAddress();
+    } catch (err) {
+      await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: created.id },
+          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+        }),
+      );
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Carteira mestre Arena Tech indisponivel",
+      });
+    }
+  }
+
   logger.info("Deposito DePix wallet usando endereco LWK dedicado", {
     tenantId: args.tenantId,
-    receivingTenantId,
-    nonCustodial: isNonCustodial,
     transactionId: created.id,
     sourceType: args.sourceType ?? "WALLET",
     sourceId: args.sourceId ?? null,
     depixAddress: addr.address,
+    splitFeePercent,
+    hasSplit: !!depixSplitAddress,
   });
 
-  // ETAPA 3: gera PIX na Eulen apontando pro endereco LWK do tenant.
-  // nonce = created.id (idempotente por intencao: retry nao duplica).
+  // ETAPA 3: gera PIX na Eulen apontando pro endereco LWK do tenant, com o split
+  // nativo da taxa Arena. nonce = created.id (idempotente: retry nao duplica).
   const pix = await createPixPayment(
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
     payerTaxId,
-    { depixAddress: addr.address, requireDepixAddress: true },
+    { depixAddress: addr.address, requireDepixAddress: true, depixSplitAddress, splitFeePercent },
   );
   if (!pix.success || !pix.transactionId) {
     await withTenant(args.tenantId, async (tx) =>
@@ -487,9 +480,8 @@ export async function createDeposit(args: CreateDepositArgs) {
         // que NUNCA bate com o que o webhook envia → deposito travava em
         // PROCESSING/PENDING sem nunca confirmar.
         depositLabel: created.id,
-        // Carteira que recebe o DePix: a de taxas (non-custodial) ou a propria
-        // (custodial). O settle usa isto p/ rotear sem reconsultar custodyModel.
-        depositReceivingTenantId: receivingTenantId,
+        // Split nativo: o DePix cai sempre na carteira do PRÓPRIO tenant.
+        depositReceivingTenantId: args.tenantId,
         pixpayDepixId: pix.transactionId,
         qrCode: pix.qrCode ?? null,
         qrCodeBase64: pix.qrCodeBase64 ?? null,
@@ -535,139 +527,71 @@ export async function settleDepositConfirmed(args: {
     return { matched: false };
   }
 
-  // Calcula taxa Arena Tech sobre o valor REAL recebido on-chain (pode
-  // diferir do gross solicitado se o cliente pagou outro valor — usamos o
-  // que de fato chegou).
+  // SPLIT NATIVO: o valor que chega on-chain na carteira do tenant JA e o
+  // LIQUIDO — a Eulen tirou a taxa Arena na origem (depixSplitAddress) e a taxa
+  // Eulen antes. Logo NAO ha 2a tx de cobranca: net = o que chegou. A taxa Arena
+  // (informativa, ja paga via split) e recalculada so pro registro/ledger.
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  // Liquidacao: o on-chain JA e liquido da taxa Eulen — retem so a taxa Arena.
-  const breakdown = calcDepositSettlement(grossActualCents, cfg);
+  // O split mandou ~splitFee% pra Arena; reconstroi o valor BRUTO aproximado
+  // (gross = net / (1 - feePct)) so pra registrar a taxa Arena equivalente. Em
+  // termos praticos, o feeArenaTechCents e o que saiu pra Arena via split.
+  const feeArenaTechCents = estimateArenaFeeFromNet(grossActualCents, cfg);
 
-  // Transicao atomica PENDING/PROCESSING -> PROCESSING_FEE.
-  // updateMany com guard de status evita race: se 2 webhooks chegarem
-  // concorrentes, so 1 passa. O outro recebe count=0 e desiste.
+  // Transicao atomica PENDING/PROCESSING -> COMPLETED (sem PROCESSING_FEE: nao ha
+  // transfer de taxa). updateMany com guard de status evita race: 2 webhooks
+  // concorrentes, so 1 passa; o outro recebe count=0 e e idempotente.
   const transitioned = await withTenant(args.tenantId, async (tx) =>
     tx.tenantDepixTransaction.updateMany({
-      where: {
-        id: txRow.id,
-        status: { in: ["PENDING", "PROCESSING"] },
-      },
+      where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
       data: {
-        status: "PROCESSING_FEE",
+        status: "COMPLETED",
+        completedAt: new Date(),
         depositTxId: args.depositTxId,
         confirmations: args.confirmations,
-        feeArenaTechCents: breakdown.feeArenaTechCents,
-        netAmountCents: breakdown.netCents,
+        feeArenaTechCents,
+        // Net = o que de fato chegou (ja liquido pelo split).
+        netAmountCents: grossActualCents,
         grossAmountCents: grossActualCents,
       },
     }),
   );
   if (transitioned.count === 0) {
-    // count=0: outro processo ja moveu a tx. Reconsulta o status REAL — nao
-    // assume COMPLETED. Se ja concluiu, idempotente. Se ficou presa em
-    // PROCESSING_FEE (ex.: crash apos o transfer da taxa, antes de marcar
-    // COMPLETED), RETOMA a finalizacao (transfer e ledger sao idempotentes:
-    // idempotencyKey no LWK + upsert no ledger).
-    const current = await withTenant(args.tenantId, async (tx) =>
-      tx.tenantDepixTransaction.findUnique({
-        where: { id: txRow.id },
-        select: { status: true },
-      }),
-    );
-    if (current?.status !== "PROCESSING_FEE") {
-      logger.info("settleDepositConfirmed: ja processado (status terminal)", {
-        txId: txRow.id,
-        status: current?.status,
-      });
-      return { matched: true, alreadyCompleted: true };
-    }
-    logger.warn("settleDepositConfirmed: tx presa em PROCESSING_FEE — retomando finalizacao", {
-      txId: txRow.id,
-    });
-    // Cai no fluxo abaixo (transfer da taxa + COMPLETED), idempotente.
+    // Outro processo ja concluiu — idempotente.
+    logger.info("settleDepositConfirmed: ja processado (status terminal)", { txId: txRow.id });
+    return { matched: true, alreadyCompleted: true };
   }
 
-  // Fee zero (tenant central) -> nao dispara tx on-chain. Marca COMPLETED direto.
-  if (breakdown.feeArenaTechCents <= 0) {
-    await withTenant(args.tenantId, async (tx) => {
-      await tx.tenantDepixTransaction.update({
-        where: { id: txRow.id },
-        data: { status: "COMPLETED", completedAt: new Date() },
-      });
-    });
-    await applyDepositBusinessEffects(args.tenantId, txRow.id);
-    logger.info("Deposito DePix concluido (sem taxa — tenant central)", {
-      txId: txRow.id,
-      grossCents: grossActualCents,
-    });
-    return { matched: true, completed: true };
-  }
-
-  // Dispara a TX LWK de cobranca de taxa: tenant -> Arena Tech.
-  let arenaMaster: string;
-  try {
-    arenaMaster = await getArenaMasterAddress();
-  } catch (err) {
-    logger.error("settleDepositConfirmed: arenaMaster indisponivel", {
-      txId: txRow.id,
-      err: String(err),
-    });
-    await markFeeMissing(args.tenantId, txRow.id, "arenaMaster ausente");
-    return { matched: true, feePending: true };
-  }
-
-  const feeTx = await lwk.transfer(
-    args.tenantId,
-    [{ to: arenaMaster, amountBrl: breakdown.feeArenaTechCents / 100 }],
-    { idempotencyKey: `${txRow.id}:fee` },
-  );
-  if (!feeTx.success || !feeTx.txid) {
-    logger.error("settleDepositConfirmed: transfer da taxa falhou", {
-      txId: txRow.id,
-      error: feeTx.error,
-    });
-    await markFeeMissing(args.tenantId, txRow.id, feeTx.error ?? "transfer falhou");
-    return { matched: true, feePending: true };
-  }
-
-  // ETAPA final: marca COMPLETED + ledger SETTLED.
-  // updateMany com guard de status: so transiciona PROCESSING_FEE -> COMPLETED
-  // (impede COMPLETED -> COMPLETED). Upsert no ledger (unique [transactionId,
-  // kind]) impede entry duplicada se 2 webhooks chegarem confirmados.
-  await withTenant(args.tenantId, async (tx) => {
-    await tx.tenantDepixTransaction.updateMany({
-      where: { id: txRow.id, status: "PROCESSING_FEE" },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    });
-    await tx.tenantDepixFeeLedger.upsert({
-      where: {
-        transactionId_kind: {
+  // Ledger Arena: a taxa foi liquidada VIA SPLIT (settlementTxId = txid do
+  // proprio deposito, onde a Eulen dividiu). Upsert idempotente. Central (fee 0)
+  // nao registra ledger.
+  if (feeArenaTechCents > 0) {
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixFeeLedger.upsert({
+        where: { transactionId_kind: { transactionId: txRow.id, kind: "DEPOSIT" } },
+        create: {
+          tenantId: args.tenantId,
           transactionId: txRow.id,
           kind: "DEPOSIT",
+          amountCents: feeArenaTechCents,
+          status: "SETTLED",
+          settlementTxId: args.depositTxId,
+          settledAt: new Date(),
         },
-      },
-      create: {
-        tenantId: args.tenantId,
-        transactionId: txRow.id,
-        kind: "DEPOSIT",
-        amountCents: breakdown.feeArenaTechCents,
-        status: "SETTLED",
-        settlementTxId: feeTx.txid!,
-        settledAt: new Date(),
-      },
-      update: {
-        amountCents: breakdown.feeArenaTechCents,
-        status: "SETTLED",
-        settlementTxId: feeTx.txid!,
-        settledAt: new Date(),
-      },
-    });
-  });
+        update: {
+          amountCents: feeArenaTechCents,
+          status: "SETTLED",
+          settlementTxId: args.depositTxId,
+          settledAt: new Date(),
+        },
+      }),
+    );
+  }
 
-  logger.info("Deposito DePix concluido", {
+  logger.info("Deposito DePix concluido (split nativo Eulen)", {
     txId: txRow.id,
-    grossCents: grossActualCents,
-    feeArenaTechCents: breakdown.feeArenaTechCents,
-    feeSettlementTxId: feeTx.txid,
+    netCents: grossActualCents,
+    feeArenaTechCents,
+    depositTxId: args.depositTxId,
   });
   await applyDepositBusinessEffects(args.tenantId, txRow.id);
   return { matched: true, completed: true };
@@ -1123,36 +1047,6 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
   // notify não re-dispara. Mantido aqui como rede de segurança (caso o `approved`
   // não tenha chegado e o depósito complete direto do on-chain).
   return applyDepositSaleEffects(row);
-}
-
-async function markFeeMissing(tenantId: string, txId: string, reason: string) {
-  await withTenant(tenantId, async (tx) => {
-    await tx.tenantDepixTransaction.update({
-      where: { id: txId },
-      data: {
-        status: "COMPLETED_FEE_PENDING",
-        completedAt: new Date(),
-        errorMessage: `Taxa nao cobrada: ${reason}`,
-      },
-    });
-    // Ledger PENDING_SETTLEMENT pra reconciliacao posterior. Pega valor
-    // do registro pra nao recalcular.
-    const cur = await tx.tenantDepixTransaction.findUnique({
-      where: { id: txId },
-      select: { feeArenaTechCents: true },
-    });
-    if (cur && cur.feeArenaTechCents > 0) {
-      await tx.tenantDepixFeeLedger.create({
-        data: {
-          tenantId,
-          transactionId: txId,
-          kind: "DEPOSIT",
-          amountCents: cur.feeArenaTechCents,
-          status: "PENDING_SETTLEMENT",
-        },
-      });
-    }
-  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────
