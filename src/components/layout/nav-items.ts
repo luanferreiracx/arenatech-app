@@ -161,7 +161,10 @@ export const appNavGroups: NavGroup[] = [
       { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "settings" },
       { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "settings" },
       { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck, module: "settings" },
-      { label: "Seguranca", href: "/settings/security", icon: Lock, module: "settings" },
+      // Sem `module`: Seguranca (2FA + senha) e disponivel a QUALQUER tenant —
+      // tenants wallet/NO-KYC precisam habilitar 2FA pra sacar (sem isso ficavam
+      // sem acesso a pagina, num beco). Veja resolveModuleForPath em modules.ts.
+      { label: "Seguranca", href: "/settings/security", icon: Lock },
     ],
   },
 ];

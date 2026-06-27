@@ -132,6 +132,13 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
  * Settings agora É gateado (módulo `settings`) — fica fora do plano por enquanto.
  */
 export function resolveModuleForPath(pathname: string): ModuleKey | null {
+  // /settings/security e primitivo de seguranca (2FA + troca de senha) que TODO
+  // usuario precisa — em especial tenants wallet/NO-KYC, que sao OBRIGADOS a
+  // habilitar 2FA pra sacar/transferir. Nunca gateado por modulo/plano, senao o
+  // tenant fica num beco: o saque exige 2FA mas a pagina de habilitar e bloqueada.
+  if (pathname === "/settings/security" || pathname.startsWith("/settings/security/")) {
+    return null;
+  }
   for (const [prefix, key] of ROUTE_MODULE_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {
       return key;
