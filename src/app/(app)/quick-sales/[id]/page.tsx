@@ -16,6 +16,7 @@ import {
   QrCode,
 } from "lucide-react";
 import { QuickSaleDepixDialog } from "./_components/quick-sale-depix-dialog";
+import { SharePaymentLink } from "./_components/share-payment-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -106,6 +107,7 @@ export default function QuickSaleDetailPage() {
                   <QrCode className="mr-2 h-4 w-4" />
                   {s.walletTransactionId || s.depixTransactionId ? "Ver QR PIX" : "Gerar PIX DePix"}
                 </Button>
+                <SharePaymentLink quickSaleId={id} />
                 <Button
                   variant="outline"
                   onClick={() => markPaidMutation.mutate({ id })}

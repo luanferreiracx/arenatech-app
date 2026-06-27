@@ -14,6 +14,8 @@ import {
   checkTransactionStatus,
 } from "@/server/services/depix-transaction.service";
 import { validateDepixLimit } from "@/lib/services/depix-limit-service";
+import { generatePublicToken } from "@/lib/utils/public-link";
+import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { logger } from "@/lib/logger";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -511,6 +513,39 @@ export const quickSaleRouter = createTRPCRouter({
     }),
 
   /** Stats */
+  /**
+   * Gera (ou retorna) o link PUBLICO de pagamento da venda avulsa. O cliente
+   * paga o QR por /pay/<token> sem login, informando CPF/CNPJ. `amountOpen`:
+   * o cliente define o valor (dentro dos limites DePix).
+   */
+  createPublicLink: tenantProcedure
+    .input(z.object({ id: z.string().uuid(), amountOpen: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      const qs = await ctx.withTenant(async (tx) =>
+        tx.quickSale.findUnique({ where: { id: input.id } }),
+      );
+      if (!qs || qs.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Venda avulsa nao encontrada" });
+      }
+      if (qs.status !== "AWAITING_PAYMENT") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Só é possível gerar link de uma venda aguardando pagamento.",
+        });
+      }
+
+      const token = qs.publicToken ?? generatePublicToken(16);
+      await ctx.withTenant(async (tx) =>
+        tx.quickSale.update({
+          where: { id: qs.id },
+          data: { publicToken: token, publicAmountOpen: input.amountOpen },
+        }),
+      );
+
+      logger.info("QuickSale link publico gerado", { quickSaleId: qs.id, amountOpen: input.amountOpen });
+      return { token, url: `${getAppBaseUrl()}/pay/${token}`, amountOpen: input.amountOpen };
+    }),
+
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const base = { tenantId: ctx.tenantId, deletedAt: null as Date | null };
