@@ -165,7 +165,9 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "Senha atual obrigatoria"),
-    newPassword: z.string().min(6, "Minimo 6 caracteres"),
+    // Tamanho/complexidade ficam na POLITICA do tenant (D4), aplicada no servidor
+    // — aqui so exigimos nao-vazio, pra mensagem unica e consistente.
+    newPassword: z.string().min(1, "Informe a nova senha"),
     confirmPassword: z.string().min(1, "Confirme a nova senha"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

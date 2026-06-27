@@ -3,7 +3,12 @@ import { TRPCError } from "@trpc/server";
 import { hashSync, compareSync } from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure, tenantAdminProcedure, protectedProcedure, superAdminTenantProcedure } from "@/server/api/trpc";
-import { withAdmin } from "@/server/db";
+import { withAdmin, withTenant } from "@/server/db";
+import { validatePasswordPolicy } from "@/lib/password";
+import {
+  enforcePasswordPolicy,
+  DEFAULT_PASSWORD_POLICY,
+} from "@/server/services/password-policy.service";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit, pickChanges } from "@/server/services/audit-log.service";
 import {
@@ -773,6 +778,17 @@ export const settingsRouter = createTRPCRouter({
 
       if (!compareSync(input.currentPassword, user.passwordHash)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Senha atual incorreta" });
+      }
+
+      // Politica de senha do tenant ativo (D4). Sem tenant ativo, defaults.
+      if (ctx.session.activeTenantId) {
+        const activeTenantId = ctx.session.activeTenantId;
+        await withTenant(activeTenantId, (tx) =>
+          enforcePasswordPolicy(tx as never, activeTenantId, input.newPassword),
+        );
+      } else {
+        const policyError = validatePasswordPolicy(input.newPassword, DEFAULT_PASSWORD_POLICY);
+        if (policyError) throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
       }
 
       await withAdmin(async (tx) => {
