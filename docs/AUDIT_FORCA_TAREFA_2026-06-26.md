@@ -71,6 +71,7 @@ Nenhum P0 confirmado nesta rodada. (Dois achados marcados P0 pelos agentes foram
 - **Impacto:** Inconsistência financeira silenciosa.
 - **Confiança:** Alta (confirmado).
 - **Proposta:** Decisão de produto: **bloquear** estorno sem caixa aberto (paridade com outras operações de caixa) **ou** retornar `warnings: [...]` visível na UI. Recomendo bloquear.
+- **✅ Resolvido (PR #273):** dono escolheu **bloquear**. Guard early em `sale.refund` e no estorno de OS (mesmo gap na cascade da venda vinculada). Regra única `refundNeedsOpenCashSession` em `cash-session.service.ts`.
 
 ### P2-2 · Mutations admin sensíveis sem trilha em `audit_logs`
 - **Onde:** `src/server/api/routers/admin.ts` — `resetTenantUserPassword` (~l.404), `resetTenantUserTwoFactor` (~l.477)
@@ -78,6 +79,7 @@ Nenhum P0 confirmado nesta rodada. (Dois achados marcados P0 pelos agentes foram
 - **Impacto:** Compliance/LGPD; impossível rastrear pós-incidente quem resetou credencial de quem.
 - **Confiança:** Alta. **Relacionado:** o P2 conhecido de `adminProcedure` aceitar `tenantId` do input confiando no superadmin — aceitável, mas reforça a necessidade da trilha.
 - **Proposta:** Chamar `logAudit()` ao fim de cada mutation admin que toca credenciais (`action: reset_password` / `reset_two_factor`, com `tenantId`/`userId`/ator).
+- **✅ Resolvido (PR #273):** `logAudit()` adicionado nas duas mutations (`reset_password` / `reset_two_factor`, entity `tenant_user`).
 
 ### P2-3 · `CashMovement → CashSession` sem soft-delete / política de retenção
 - **Onde:** `prisma/schema/cashier.prisma:66`
@@ -186,7 +188,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 1. **PR-A — ✅ FEITO (PR #261):** `maxRetries` + escalação em `DepixDepositRepayment` (P1-1) **e** alerta de saque preso (P1-2). Casou com logs por ID (P3-3).
 2. ~~**PR-B (segurança):** cifrar `TenantIntegration.config`~~ → **CANCELADO** (FP-3: não há secret em claro no banco).
 3. **PR-C — ✅ FEITO (PR #263):** lock por job (tabela `cron_locks` + `withCronLock`, lease 15min, pool-safe) nos 3 crons (P1-4). Optou-se por lock por linha em vez de `pg_advisory_xact_lock` (pool de conexões + chamadas HTTP nos crons).
-4. **PR-D (P2, financeiro):** bloquear/avisar estorno sem caixa aberto (P2-1) + `logAudit` nas mutations admin (P2-2). *Decisão de produto em P2-1.*
+4. **PR-D — ✅ FEITO (PR #273):** bloquear estorno sem caixa aberto (P2-1, dono escolheu bloquear; corrigido em venda e OS) + `logAudit` nas mutations admin (P2-2).
 5. **PR-E (P2/P3, robustez):** classificação de erro HTTP `retryable` (P2-4) + rate-limit InfinitePay (P2-5).
 6. **PR-F (P3, limpeza):** triagem de procedures órfãs (P3-1) + remover componentes mortos (P3-2). *Após o dono decidir sobre os órfãos ligados a Admin SaaS/planos.*
 7. **PR-G (P3, higiene):** comentários/TTL doc (P3-6), float cash-session (P3-4), `onDelete` explícito (P3-5).
