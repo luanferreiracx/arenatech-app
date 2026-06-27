@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { CommandPaletteProvider } from "@/components/command-palette";
+import { IdleTimeout } from "@/components/layout/idle-timeout";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -35,6 +36,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
     >
       <CommandPaletteProvider tenantSlug={activeTenant?.slug} allowedModules={allowedModules}>
+        {/* Logout por inatividade (opt-in pelo tenant via Config -> Seguranca). */}
+        <IdleTimeout />
         <div className="flex min-h-screen">
           {/* Desktop sidebar */}
           <AppSidebar
