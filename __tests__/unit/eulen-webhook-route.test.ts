@@ -25,6 +25,10 @@ vi.mock("@/lib/webhooks/eulen-auth", () => ({
 vi.mock("@/lib/webhooks/replay-guard", () => ({
   extractSourceIp: () => null,
 }));
+const notifyDepixWebhook = vi.fn();
+vi.mock("@/lib/webhooks/eulen-webhook-notify", () => ({
+  notifyDepixWebhook: (...a: unknown[]) => notifyDepixWebhook(...a),
+}));
 
 import { POST } from "@/app/api/webhooks/eulen/route";
 
@@ -37,7 +41,11 @@ function req(body: string) {
 }
 
 beforeEach(() => {
-  for (const m of [handleDeposit, handleWithdraw, handleMed]) m.mockReset();
+  for (const m of [handleDeposit, handleWithdraw, handleMed, notifyDepixWebhook]) m.mockReset();
+  handleDeposit.mockResolvedValue({ status: 200, body: { ok: true } });
+  handleWithdraw.mockResolvedValue({ status: 200, body: { ok: true } });
+  handleMed.mockResolvedValue({ status: 200, body: { ok: true } });
+  notifyDepixWebhook.mockResolvedValue(undefined);
 });
 
 describe("POST /api/webhooks/eulen", () => {
@@ -65,5 +73,37 @@ describe("POST /api/webhooks/eulen", () => {
     const res = await POST(req(JSON.stringify({ foo: "bar" })));
     expect(res.status).toBe(200);
     expect(handleDeposit).not.toHaveBeenCalled();
+  });
+
+  // ── Notificacao no grupo: 1x por pagamento ──
+  it("deposit approved -> notifica o grupo 1x", async () => {
+    await POST(req(JSON.stringify({ webhookType: "deposit", qrId: "q", status: "approved" })));
+    expect(notifyDepixWebhook).toHaveBeenCalledTimes(1);
+    expect(notifyDepixWebhook).toHaveBeenCalledWith(expect.objectContaining({ kind: "deposit" }));
+  });
+
+  it("deposit under_review / depix_sent -> NAO notifica (evita 3x)", async () => {
+    await POST(req(JSON.stringify({ webhookType: "deposit", qrId: "q", status: "under_review" })));
+    await POST(req(JSON.stringify({ webhookType: "deposit", qrId: "q", status: "depix_sent" })));
+    expect(notifyDepixWebhook).not.toHaveBeenCalled();
+  });
+
+  it("QR estatico (qrId vazio) approved -> notifica kind:static 1x", async () => {
+    await POST(req(JSON.stringify({ webhookType: "deposit", qrId: "", status: "approved", valueInCents: 2000 })));
+    expect(notifyDepixWebhook).toHaveBeenCalledTimes(1);
+    expect(notifyDepixWebhook).toHaveBeenCalledWith(expect.objectContaining({ kind: "static" }));
+  });
+
+  it("saque so notifica no 'sent' (nao em unsent/sending)", async () => {
+    await POST(req(JSON.stringify({ webhookType: "withdraw", id: "w", status: "sending" })));
+    expect(notifyDepixWebhook).not.toHaveBeenCalled();
+    await POST(req(JSON.stringify({ webhookType: "withdraw", id: "w", status: "sent" })));
+    expect(notifyDepixWebhook).toHaveBeenCalledTimes(1);
+    expect(notifyDepixWebhook).toHaveBeenCalledWith(expect.objectContaining({ kind: "withdraw" }));
+  });
+
+  it("MED -> notifica sempre", async () => {
+    await POST(req(JSON.stringify({ webhookType: "med", qrId: "q", principalValueInCents: 100 })));
+    expect(notifyDepixWebhook).toHaveBeenCalledWith(expect.objectContaining({ kind: "med" }));
   });
 });
