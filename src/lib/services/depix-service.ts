@@ -666,3 +666,118 @@ function normalizeDepositStatus(raw: string): NonNullable<DepixStatusResult["sta
   // pending / under_review / delayed
   return "pending";
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Deposits (extrato / conciliacao) — GET /deposits
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Status cru da Eulen aceitos no filtro do extrato. */
+export type EulenDepositStatus =
+  | "pending"
+  | "under_review"
+  | "approved"
+  | "depix_sent"
+  | "delayed"
+  | "refunded"
+  | "canceled"
+  | "expired"
+  | "error";
+
+/**
+ * Linha compacta retornada por GET /deposits. A Eulen NAO devolve valor/pagador
+ * aqui (so qrId/status/bankTxId) — e um indice de conciliacao: descobre-se a
+ * divergencia e busca-se o detalhe por id (`getPixStatus`).
+ */
+export interface EulenDepositRow {
+  qrId: string;
+  status: string;
+  bankTxId: string | null;
+}
+
+export interface ListEulenDepositsResult {
+  success: boolean;
+  rows: EulenDepositRow[];
+  error?: string;
+}
+
+/**
+ * Lista depositos da Eulen num intervalo (GET /deposits?start&end&status) — ate
+ * 200 linhas, forma compacta. Rede de seguranca de conciliacao quando o
+ * webhook/monitor falham (a doc recomenda usar como fallback, nao como fonte
+ * primaria). Janela: `start` incluido, `end` excluido (datas YYYY-MM-DD ou
+ * RFC3339).
+ *
+ * Auth Bearer + `X-Nonce` novo (leitura) + `X-Async: auto`. Sem DEPIX_API_KEY
+ * (dev), retorna lista vazia (sem erro) pra nao falsear conciliacao.
+ */
+export async function listEulenDeposits(
+  start: string,
+  end: string,
+  status?: EulenDepositStatus,
+): Promise<ListEulenDepositsResult> {
+  const apiKey = process.env.DEPIX_API_KEY;
+  if (!apiKey) {
+    logger.warn("Depix extrato: mock mode (DEPIX_API_KEY ausente) — retornando vazio");
+    return { success: true, rows: [] };
+  }
+
+  const depositUrl =
+    process.env.DEPIX_API_URL?.replace(/\/$/, "") ?? "https://depix.eulen.app/api/deposit";
+  const depositsUrl =
+    process.env.DEPIX_DEPOSITS_URL?.replace(/\/$/, "") ??
+    depositUrl.replace(/\/deposit$/, "/deposits");
+
+  try {
+    const qs = new URLSearchParams({ start, end });
+    if (status) qs.set("status", status);
+
+    const response = await fetch(`${depositsUrl}?${qs.toString()}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
+        "X-Nonce": randomUUID(),
+        "X-Async": "auto",
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      logger.error("Depix extrato: erro HTTP", {
+        status: response.status,
+        body: body.substring(0, 300),
+      });
+      return { success: false, rows: [], error: `HTTP ${response.status}` };
+    }
+
+    const raw = (await response.json()) as unknown;
+    // O endpoint devolve um array cru. Se vier embrulhado em { response }, a
+    // Eulen sinaliza erro — extrai a mensagem.
+    if (!Array.isArray(raw)) {
+      const apiError = extractEulenError(raw);
+      logger.error("Depix extrato: resposta nao-array", { apiError });
+      return { success: false, rows: [], error: apiError ?? "Resposta invalida do extrato" };
+    }
+
+    const rows: EulenDepositRow[] = raw
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+      .map((r) => ({
+        qrId: String(r.qrId ?? ""),
+        status: String(r.status ?? "").toLowerCase(),
+        bankTxId: r.bankTxId != null ? String(r.bankTxId) : null,
+      }))
+      .filter((r) => r.qrId.length > 0);
+
+    return { success: true, rows };
+  } catch (error) {
+    logger.error("Depix extrato: erro de rede", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      rows: [],
+      error: error instanceof Error ? error.message : "Erro ao consultar extrato",
+    };
+  }
+}

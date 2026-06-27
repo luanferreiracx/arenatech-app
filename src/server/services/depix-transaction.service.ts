@@ -36,6 +36,7 @@ import {
   createDepixWithdraw,
   getPixStatus,
   getDepixWithdrawStatus,
+  listEulenDeposits,
 } from "@/lib/services/depix-service";
 import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 
@@ -1754,4 +1755,133 @@ export async function reconcileStaleDepixTransactions(opts?: {
     stuckWithdrawals,
   });
   return { scanned: stale.length, reconciled, unchanged, errors, stuckWithdrawals };
+}
+
+/** Formata um Date como YYYY-MM-DD (UTC) para os filtros do extrato Eulen. */
+function toYmd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Conciliacao por EXTRATO da Eulen (GET /deposits) — rede de seguranca quando o
+ * webhook E o monitor LWK falham (ambos podem perder um evento). O extrato lista
+ * os depositos que a Eulen registrou num intervalo; cruzamos com o nosso banco e
+ * agimos so nas DIVERGENCIAS:
+ *
+ *  - `depix_sent` na Eulen mas nossa tx ainda nao COMPLETED -> roda o MESMO
+ *    `checkTransactionStatus` (poll por id + cross-check on-chain + credito
+ *    idempotente). NUNCA credita pelo valor do extrato (que nem traz valor).
+ *  - `refunded` na Eulen mas nossa tx nao MED_REFUNDED -> marca MED_REFUNDED +
+ *    alerta (mesma pendencia do webhook MED; estorno on-chain e humano).
+ *  - `qrId` sem tx nossa -> alerta (`orphan`): registro divergente, exige olhar.
+ *
+ * Cross-tenant (withAdmin). O extrato so traz `{qrId,status,bankTxId}` — o id da
+ * Eulen e o nosso `pixpayDepixId`. 1 chamada por status (rate 12/min, folgado).
+ */
+export async function reconcileEulenDepositsByExtract(opts?: {
+  sinceHours?: number;
+}): Promise<{ scanned: number; settled: number; medFlagged: number; orphans: number; errors: number }> {
+  // Janela: do inicio do dia (UTC) `sinceHours` atras ate amanha (end exclusivo).
+  const sinceHours = opts?.sinceHours ?? 48;
+  const start = toYmd(new Date(Date.now() - sinceHours * 60 * 60_000));
+  const end = toYmd(new Date(Date.now() + 24 * 60 * 60_000));
+
+  // So os status que exigem acao: credito perdido e estorno perdido.
+  const statuses = ["depix_sent", "refunded"] as const;
+
+  let scanned = 0;
+  let settled = 0;
+  let medFlagged = 0;
+  let orphans = 0;
+  let errors = 0;
+
+  for (const status of statuses) {
+    const list = await listEulenDeposits(start, end, status);
+    if (!list.success) {
+      errors += 1;
+      logger.warn("reconcileEulenDepositsByExtract: extrato indisponivel", { status, error: list.error });
+      continue;
+    }
+
+    for (const row of list.rows) {
+      scanned += 1;
+      try {
+        const ours = await withAdmin((tx) =>
+          tx.tenantDepixTransaction.findFirst({
+            where: { pixpayDepixId: row.qrId, kind: "DEPOSIT" },
+            select: { id: true, tenantId: true, status: true, number: true, netAmountCents: true },
+          }),
+        );
+
+        if (!ours) {
+          orphans += 1;
+          logger.error("reconcileEulenDepositsByExtract: deposito no extrato SEM tx nossa", {
+            qrId: row.qrId,
+            eulenStatus: status,
+            bankTxId: row.bankTxId,
+          });
+          continue;
+        }
+
+        if (status === "depix_sent") {
+          // Ja terminal do nosso lado? nada a fazer.
+          if (["COMPLETED", "MED_REFUNDED"].includes(ours.status)) continue;
+          // Reusa todo o fluxo canonico (poll por id + cross-check on-chain +
+          // credito idempotente). Pode levar PENDING->...->COMPLETED.
+          const before = ours.status;
+          const after = await checkTransactionStatus(ours.tenantId, ours.id);
+          if (after && after.status !== before) {
+            settled += 1;
+            logger.info("reconcileEulenDepositsByExtract: deposito conciliado via extrato", {
+              txId: ours.id,
+              number: ours.number,
+              from: before,
+              to: after.status,
+              qrId: row.qrId,
+            });
+          }
+          continue;
+        }
+
+        // status === "refunded": marca MED_REFUNDED (pendencia) se ainda nao for.
+        if (ours.status === "MED_REFUNDED") continue;
+        await withAdmin((tx) =>
+          tx.tenantDepixTransaction.updateMany({
+            where: { id: ours.id, status: { not: "MED_REFUNDED" } },
+            data: {
+              status: "MED_REFUNDED",
+              medReportedAt: new Date(),
+              errorMessage: "Deposito devolvido pelo BC (MED) — detectado via extrato",
+            },
+          }),
+        );
+        medFlagged += 1;
+        logger.error("reconcileEulenDepositsByExtract: deposito REFUNDED no extrato — pendencia MED", {
+          txId: ours.id,
+          number: ours.number,
+          tenantId: ours.tenantId,
+          qrId: row.qrId,
+          statusAnterior: ours.status,
+          netAmountCents: ours.netAmountCents,
+        });
+      } catch (err) {
+        errors += 1;
+        logger.warn("reconcileEulenDepositsByExtract: erro ao conciliar linha", {
+          qrId: row.qrId,
+          status,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  logger.info("reconcileEulenDepositsByExtract: lote processado", {
+    window: { start, end },
+    scanned,
+    settled,
+    medFlagged,
+    orphans,
+    errors,
+  });
+  return { scanned, settled, medFlagged, orphans, errors };
 }
