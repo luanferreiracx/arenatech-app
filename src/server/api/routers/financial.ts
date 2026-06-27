@@ -309,7 +309,10 @@ export const financialRouter = createTRPCRouter({
           },
         });
 
-        // Generate installments (faithful to Laravel logic)
+        // Generate installments (faithful to Laravel logic).
+        // A ULTIMA parcela absorve o resto da divisao (total - parcela*(n-1)) para
+        // a soma das parcelas bater exatamente com o total — sem perder centavos
+        // quando totalAmount nao e divisivel por numInstallments.
         const valorParcelaCents = Math.floor(input.totalAmount / input.numInstallments);
         const valorUltimaCents = input.totalAmount - valorParcelaCents * (input.numInstallments - 1);
 
