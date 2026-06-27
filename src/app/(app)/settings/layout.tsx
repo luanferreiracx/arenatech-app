@@ -11,9 +11,9 @@ const tabs = [
   { label: "Formas de Pagamento", href: "/settings/payment-methods" },
   { label: "Meios de Recebimento", href: "/settings/card-acquirers" },
   { label: "Parcelamento", href: "/settings/installments" },
-  // "Recebimento" (/settings/receiving) ocultado da navegacao: os ajustes
-  // ainda nao sao aplicados em nenhum fluxo (D6 da auditoria de config). A
-  // pagina segue acessivel por URL (com aviso "em breve") ate a feature ligar.
+  // "Recebimento": parte dos ajustes ja vale no PDV (valor min. de parcela +
+  // exigir CPF acima de X — D6). O resto segue "em breve" (aviso na pagina).
+  { label: "Recebimento", href: "/settings/receiving" },
   { label: "Integracoes", href: "/settings/integrations" },
   { label: "Equipe", href: "/settings/users" },
   { label: "Entregadores", href: "/settings/delivery-persons" },

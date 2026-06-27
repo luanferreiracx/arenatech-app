@@ -8,6 +8,7 @@ import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
+import { requiresCpf, installmentBelowMinimum } from "@/lib/receiving-rules";
 import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
 import {
@@ -866,6 +867,41 @@ export const saleRouter = createTRPCRouter({
         const amountDueAfterUpgradeCents = totalCents;
         const payments = input.payments ?? [];
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
+
+        // D6 (quick-wins): regras de recebimento configuradas em Config -> Recebimento,
+        // antes inertes. Aplicadas aqui no PDV. Sem linha de settings = sem regra
+        // (nao bloqueia quem nunca configurou).
+        const receivingSettings = await tx.tenantReceivingSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { minInstallmentAmount: true, requireCpfAbove: true },
+        });
+        if (receivingSettings) {
+          // requireCpfAbove: acima do limite, exige CPF/CNPJ do cliente na venda.
+          if (requiresCpf(totalCents, receivingSettings)) {
+            let hasTaxId = false;
+            if (sale.customerId) {
+              const c = await tx.customer.findUnique({
+                where: { id: sale.customerId },
+                select: { cpf: true, cnpj: true },
+              });
+              hasTaxId = !!(c?.cpf || c?.cnpj);
+            }
+            if (!hasTaxId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Vendas acima de R$ ${(receivingSettings.requireCpfAbove / 100).toFixed(2)} exigem um cliente com CPF/CNPJ. Selecione/cadastre o cliente com documento.`,
+              });
+            }
+          }
+          // minInstallmentAmount: cada parcela do cartao precisa ser >= o minimo.
+          const minViolated = installmentBelowMinimum(payments, receivingSettings);
+          if (minViolated !== null) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Valor de parcela abaixo do minimo de R$ ${(minViolated / 100).toFixed(2)}. Reduza o numero de parcelas.`,
+            });
+          }
+        }
 
         // R6: DePix "recebido manualmente" pula a validação de liquidação na
         // wallet (operador assume que recebeu por outro app). Para reduzir risco
