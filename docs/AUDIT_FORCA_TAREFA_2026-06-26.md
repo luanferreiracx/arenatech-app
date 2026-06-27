@@ -139,16 +139,19 @@ Validadas com prefixo correto `trpc.<router>.<proc>` em `src/app`+`src/component
 - **Onde:** `src/server/services/cash-session.service.ts:27-31,57-61,89-93`
 - **O quê:** Cálculo de saldo com float + `Math.round` no final. Correto hoje (arredonda no fim), mas subótimo. Já catalogado.
 - **Proposta:** Refactor futuro para centavos inteiros/Decimal end-to-end. Baixa prioridade.
+- **🚫 Won't fix (PR-G):** **Não há bug** — o arredondamento final está correto. Converter a aritmética de saldo (financeiro-crítico) para Decimal é refactor não-trivial com risco de regressão para ganho puramente cosmético. Não compensa. Reabrir só se aparecer erro de centavo real.
 
 ### P3-5 · `onDelete` implícito em 23 relations (explicitar por legibilidade)
 - **Onde:** `prisma/schema/*.prisma` (23 de 59 relations sem `onDelete` explícito)
 - **O quê:** **Não é bug** (ver FP-1): o Prisma aplica `Restrict` (obrigatória) / `SetNull` (opcional) por padrão, e as migrations refletem exatamente isso. Mas o comportamento fica implícito — um leitor não sabe a intenção sem consultar a migration.
 - **Proposta:** Opcional/higiene: declarar `onDelete` explícito nas relations de domínios sensíveis (financeiro, venda, OS) para a intenção ficar no schema. Sem urgência.
+- **🚫 Won't fix (PR-G):** 23 relations de churn cosmético, **zero mudança de comportamento**, e cada `onDelete` precisaria casar com a ação real da migration — escrever um errado **mudaria** o comportamento. Sem DB local pra validar zero-drift, o risco supera o ganho. Fica como convenção a aplicar gradualmente em relations novas.
 
 ### P3-6 · TTL/cálculos a documentar
 - **Onde:** `src/lib/talison/scheduler.ts` (TTL do nonce), `src/server/api/routers/financial.ts:398-419` (última parcela absorve resto)
 - **O quê:** Comportamentos corretos mas sem comentário. TTL do Talison existe (`EX`), só não está documentado o valor razoável; cálculo de parcela está certo (última absorve o resto), falta comentário.
 - **Proposta:** Comentários de 1 linha; warning se `GENERATION_TTL_SECONDS > 3600`.
+- **✅/🚫 Resolvido (PR #278):** comentário do "última parcela absorve o resto" adicionado em `financial.ts`. TTL Talison **já é 60s** (`GENERATION_TTL_SECONDS = 60`, bem abaixo de 3600) — o warning proposto é moot, nada a fazer.
 
 ---
 
@@ -195,7 +198,7 @@ Outros descartes dos agentes (confirmados sólidos, não re-investigar): race em
 4. **PR-D — ✅ FEITO (PR #273):** bloquear estorno sem caixa aberto (P2-1, dono escolheu bloquear; corrigido em venda e OS) + `logAudit` nas mutations admin (P2-2).
 5. **PR-E — ✅ FEITO (PR #275):** rate-limit InfinitePay (P2-5). P2-4 (classificação `retryable`) **descopado como YAGNI** — sem consumidor real hoje.
 6. **PR-F — ✅ FEITO (PR #276):** removidas as duplicatas mortas óbvias (`financial.exportCsv`, `settings.getAuditLog`) + `scroll-area` morto. Demais órfãs mantidas (scaffolding/Admin SaaS — dono optou pela via conservadora); `labels-export-menu` é feature a plugar no estoque.
-7. **PR-G (P3, higiene):** comentários/TTL doc (P3-6), float cash-session (P3-4), `onDelete` explícito (P3-5).
+7. **PR-G — ✅ FEITO (PR #278):** comentário de parcelas (P3-6); TTL Talison já OK. P3-4 (float) e P3-5 (`onDelete` explícito) marcados **won't-fix** (cosmético/risco > valor, sem bug). **Backlog da auditoria fechado.**
 
 **Pré-requisito transversal:** instalar **Sentry** (ou equivalente) destrava o valor de PR-A/PR-C — sem alerta, estados presos passam despercebidos.
 
