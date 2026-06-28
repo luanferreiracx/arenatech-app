@@ -6,6 +6,9 @@ export const updateDepixFeeConfigSchema = z.object({
   entryFeePercent: z.number().min(0).max(100),
   exitFeeFixed: z.number().int().min(0).max(100000),
   exitFeePercent: z.number().min(0).max(100),
+  // Taxa do saque ON-CHAIN (Sideswap), independente do PIX.
+  onchainFeeFixed: z.number().int().min(0).max(100000),
+  onchainFeePercent: z.number().min(0).max(100),
 });
 
 export type UpdateDepixFeeConfigInput = z.infer<typeof updateDepixFeeConfigSchema>;
@@ -15,4 +18,6 @@ export const DEFAULT_DEPIX_FEE = {
   entryFeePercent: 1.5,
   exitFeeFixed: 99,
   exitFeePercent: 1.7,
+  onchainFeeFixed: 0,
+  onchainFeePercent: 0,
 } as const;

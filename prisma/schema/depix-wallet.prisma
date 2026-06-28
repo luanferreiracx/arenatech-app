@@ -48,10 +48,15 @@ model TenantDepixFeeConfig {
   entryFeeFixed   Int      @default(99) @map("entry_fee_fixed")
   /// Taxa percentual de entrada (default 1,5%)
   entryFeePercent Decimal  @default(1.5) @map("entry_fee_percent") @db.Decimal(5, 2)
-  /// Taxa fixa de saida em centavos (default R$ 0,99 = 99)
+  /// Taxa fixa de saida (saque PIX) em centavos (default R$ 0,99 = 99)
   exitFeeFixed    Int      @default(99) @map("exit_fee_fixed")
-  /// Taxa percentual de saida (default 1,7%)
+  /// Taxa percentual de saida (saque PIX) (default 1,7%)
   exitFeePercent  Decimal  @default(1.7) @map("exit_fee_percent") @db.Decimal(5, 2)
+  /// Taxa fixa do SAQUE ON-CHAIN (Sideswap) em centavos. Independente do PIX.
+  /// Default 0 = sem taxa ate o superadmin configurar.
+  onchainFeeFixed   Int     @default(0) @map("onchain_fee_fixed")
+  /// Taxa percentual do SAQUE ON-CHAIN (default 0%)
+  onchainFeePercent Decimal @default(0) @map("onchain_fee_percent") @db.Decimal(5, 2)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

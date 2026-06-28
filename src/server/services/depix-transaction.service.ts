@@ -21,6 +21,7 @@ import { logger } from "@/lib/logger";
 import {
   calcDepositSettlement,
   calcDepositSplitFeePercent,
+  calcOnchainWithdrawFee,
   calcWithdrawFromNet,
   estimateArenaFeeFromNet,
   type DepixFeeConfig,
@@ -46,6 +47,8 @@ const ZERO_FEE: DepixFeeConfig = {
   entryFeePercent: 0,
   exitFeeFixed: 0,
   exitFeePercent: 0,
+  onchainFeeFixed: 0,
+  onchainFeePercent: 0,
 };
 
 /**
@@ -157,6 +160,8 @@ export async function loadFeeConfig(
     entryFeePercent: Number(cfg?.entryFeePercent ?? 1.5),
     exitFeeFixed: cfg?.exitFeeFixed ?? 99,
     exitFeePercent: Number(cfg?.exitFeePercent ?? 1.7),
+    onchainFeeFixed: cfg?.onchainFeeFixed ?? 0,
+    onchainFeePercent: Number(cfg?.onchainFeePercent ?? 0),
   };
 }
 
@@ -199,22 +204,19 @@ async function ensureLbtcBeforeWithdraw(tenantId: string): Promise<void> {
   }
 }
 
-/** Endereco mestre do tenant central (destino da taxa Arena Tech on-chain). */
-async function getArenaMasterAddress(): Promise<string> {
-  const tenant = await withAdmin(async (tx) =>
-    tx.tenant.findUnique({ where: { slug: "arena-tech" }, select: { id: true } }),
-  );
-  if (!tenant) throw new Error("Tenant central 'arena-tech' nao encontrado");
-  const wallet = await withAdmin(async (tx) =>
-    tx.tenantDepixWallet.findUnique({
-      where: { tenantId: tenant.id },
-      select: { masterAddress: true },
-    }),
-  );
-  if (!wallet?.masterAddress) {
-    throw new Error("Carteira Arena Tech nao provisionada (TenantDepixWallet ausente)");
+/**
+ * Endereco que RECEBE as taxas Arena on-chain = master da CARTEIRA DE TAXAS
+ * (arena-fees). Destino dedicado das taxas (split de deposito + taxa de saque),
+ * separado da arena-tech (que fica so com as movimentacoes dela). Lanca se a
+ * carteira de taxas nao estiver provisionada.
+ */
+async function getFeeRecipientAddress(): Promise<string> {
+  const { getFeeWalletMasterAddress } = await import("./depix-fee-wallet.service");
+  const addr = await getFeeWalletMasterAddress();
+  if (!addr) {
+    throw new Error("Carteira de taxas (arena-fees) nao provisionada");
   }
-  return wallet.masterAddress;
+  return addr;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -434,23 +436,25 @@ export async function createDeposit(args: CreateDepositArgs) {
 
   // Split: % equivalente da taxa Arena (fixo + %) sobre o valor. Central é isento
   // (loadFeeConfig retorna ZERO p/ o central) -> splitFee 0 -> sem split (recebe
-  // 100% na própria carteira). Resolve o master da Arena só quando há taxa.
+  // 100% na própria carteira). A taxa do split vai pra CARTEIRA DE TAXAS
+  // (arena-fees) — destino dedicado das taxas (separado da arena-tech, que fica só
+  // com as movimentações dela). Resolve o master da carteira de taxas só se há taxa.
   const feeCfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
   const splitFeePercent = calcDepositSplitFeePercent(args.grossAmountCents, feeCfg);
   let depixSplitAddress: string | undefined;
   if (splitFeePercent > 0) {
     try {
-      depixSplitAddress = await getArenaMasterAddress();
+      depixSplitAddress = await getFeeRecipientAddress();
     } catch (err) {
       await withTenant(args.tenantId, async (tx) =>
         tx.tenantDepixTransaction.update({
           where: { id: created.id },
-          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+          data: { status: "FAILED", errorMessage: `Carteira de taxas indisponivel: ${String(err)}` },
         }),
       );
       throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Carteira mestre Arena Tech indisponivel",
+        code: "PRECONDITION_FAILED",
+        message: "Carteira de taxas da Arena Tech nao provisionada. Contate o suporte.",
       });
     }
   }
@@ -1345,21 +1349,21 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   ];
   if (breakdown.feeArenaTechCents > 0) {
     try {
-      const arenaMaster = await getArenaMasterAddress();
+      const feeMaster = await getFeeRecipientAddress();
       recipients.push({
-        to: arenaMaster,
+        to: feeMaster,
         amountBrl: breakdown.feeArenaTechCents / 100,
       });
     } catch (err) {
       await withTenant(args.tenantId, async (tx) =>
         tx.tenantDepixTransaction.update({
           where: { id: created.id },
-          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+          data: { status: "FAILED", errorMessage: `Carteira de taxas indisponivel: ${String(err)}` },
         }),
       );
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: "Carteira mestre Arena Tech indisponivel",
+        message: "Carteira de taxas indisponivel",
       });
     }
   }
@@ -1485,12 +1489,12 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
     }
   }
 
-  // Taxa Arena sobre o valor enviado (mesma config do saque PIX). Sem taxa de
-  // provedor (envio on-chain direto). gross = valor + fee Arena.
+  // Taxa Arena do SAQUE ON-CHAIN — config PRÓPRIA (onchainFee*), independente do
+  // PIX. Sem taxa de provedor (envio direto). gross = valor + fee on-chain.
   const cfg = await withTenant(args.tenantId, async (tx) => loadFeeConfig(tx, args.tenantId));
-  const breakdown = calcWithdrawFromNet(args.amountCents, cfg);
-  // No on-chain o "deposito" do provedor é o próprio valor enviado (sem taxa Eulen).
-  const grossAmountCents = args.amountCents + breakdown.feeArenaTechCents;
+  const feeArenaTechCents = calcOnchainWithdrawFee(args.amountCents, cfg);
+  const breakdown = { feeArenaTechCents };
+  const grossAmountCents = args.amountCents + feeArenaTechCents;
 
   const balance = await lwk.getBalance(args.tenantId);
   if (!balance.success) {
@@ -1549,24 +1553,24 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
     return { created: row };
   });
 
-  // Envio on-chain: valor ao destino + taxa Arena ao master (se houver).
+  // Envio on-chain: valor ao destino + taxa ao master da carteira de taxas (se houver).
   const recipients: lwk.LwkTransferRecipient[] = [
     { to: toAddress, amountBrl: args.amountCents / 100 },
   ];
   if (breakdown.feeArenaTechCents > 0) {
     try {
-      const arenaMaster = await getArenaMasterAddress();
-      recipients.push({ to: arenaMaster, amountBrl: breakdown.feeArenaTechCents / 100 });
+      const feeMaster = await getFeeRecipientAddress();
+      recipients.push({ to: feeMaster, amountBrl: breakdown.feeArenaTechCents / 100 });
     } catch (err) {
       await withTenant(args.tenantId, async (tx) =>
         tx.tenantDepixTransaction.update({
           where: { id: created.id },
-          data: { status: "FAILED", errorMessage: `Arena Tech master indisponivel: ${String(err)}` },
+          data: { status: "FAILED", errorMessage: `Carteira de taxas indisponivel: ${String(err)}` },
         }),
       );
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: "Carteira mestre Arena Tech indisponivel",
+        message: "Carteira de taxas indisponivel",
       });
     }
   }

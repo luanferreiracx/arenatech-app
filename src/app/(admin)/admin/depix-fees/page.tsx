@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Wallet, AlertTriangle, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FeeConfigEditor } from "./_components/fee-config-editor";
 
 function formatBRL(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -26,6 +27,10 @@ export default function DepixFeesAdminPage() {
   });
   const repaymentsQuery = useQuery({
     ...trpc.depixFeeWalletAdmin.listRepayments.queryOptions({ limit: 50 }),
+    refetchInterval: 30_000,
+  });
+  const txQuery = useQuery({
+    ...trpc.depixFeeWalletAdmin.transactions.queryOptions(),
     refetchInterval: 30_000,
   });
 
@@ -123,6 +128,89 @@ export default function DepixFeesAdminPage() {
               {provisionMutation.isPending ? "Provisionando…" : "Provisionar carteira"}
             </Button>
           </div>
+        )}
+      </Card>
+
+      {/* Editor de taxas por tenant */}
+      <FeeConfigEditor />
+
+      {/* Extrato on-chain */}
+      <Card className="overflow-hidden">
+        <div className="p-4 border-b border-border flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">Extrato (on-chain)</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Taxas recebidas (entradas) e envios/recargas de L-BTC (saídas) — últimas 50 transações.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void txQuery.refetch()}
+            disabled={txQuery.isFetching}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", txQuery.isFetching && "animate-spin")} />
+          </Button>
+        </div>
+        {txQuery.isLoading ? (
+          <div className="p-6 text-center text-xs text-muted-foreground">Carregando…</div>
+        ) : (txQuery.data?.transactions ?? []).length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            Nenhuma movimentação ainda
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {(txQuery.data?.transactions ?? []).map((t) => {
+              const isFeeIn = t.depixDeltaCents > 0;
+              const isDepixOut = t.depixDeltaCents < 0;
+              const label = isFeeIn
+                ? "Taxa recebida"
+                : isDepixOut
+                  ? "Envio DePix"
+                  : "Recarga L-BTC";
+              return (
+                <li key={t.txid} className="flex items-center justify-between gap-3 p-3 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{label}</p>
+                    <p className="text-muted-foreground">
+                      {t.timestamp
+                        ? new Date(t.timestamp * 1000).toLocaleString("pt-BR")
+                        : "—"}
+                      {" · "}
+                      <a
+                        href={t.explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline font-mono"
+                      >
+                        {t.txid.slice(0, 10)}…
+                      </a>
+                      {t.confirmations < 2 && " · pendente"}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {t.depixDeltaCents !== 0 && (
+                      <p
+                        className={cn(
+                          "font-mono tabular-nums",
+                          isFeeIn ? "text-emerald-500" : "text-rose-500",
+                        )}
+                      >
+                        {isFeeIn ? "+" : "−"}
+                        {formatBRL(Math.abs(t.depixDeltaCents))}
+                      </p>
+                    )}
+                    {t.lbtcDeltaSats !== 0 && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        {t.lbtcDeltaSats > 0 ? "+" : "−"}
+                        {Math.abs(t.lbtcDeltaSats)} sat L-BTC
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
 

@@ -11,6 +11,7 @@ import {
   calcDepositFee,
   calcDepositSettlement,
   calcDepositSplitFeePercent,
+  calcOnchainWithdrawFee,
   estimateArenaFeeFromNet,
   DEPIX_LIMITS,
 } from "@/lib/services/depix-transaction-fee";
@@ -20,12 +21,16 @@ const cfgNormal = {
   entryFeePercent: 1.5,
   exitFeeFixed: 99,
   exitFeePercent: 1.7,
+  onchainFeeFixed: 0,
+  onchainFeePercent: 0,
 };
 const cfgCentral = {
   entryFeeFixed: 0,
   entryFeePercent: 0,
   exitFeeFixed: 0,
   exitFeePercent: 0,
+  onchainFeeFixed: 0,
+  onchainFeePercent: 0,
 };
 
 describe("estimatePixPayWithdrawFee — Eulen 1% fixo", () => {
@@ -161,5 +166,28 @@ describe("estimateArenaFeeFromNet — reconstroi a taxa Arena a partir do liquid
 
   it("net <= 0 -> 0", () => {
     expect(estimateArenaFeeFromNet(0, cfgNormal)).toBe(0);
+  });
+});
+
+describe("calcOnchainWithdrawFee — taxa propria do saque on-chain (independente do PIX)", () => {
+  it("default 0 -> sem taxa (mesmo com taxa PIX configurada)", () => {
+    // cfgNormal tem exitFee mas onchainFee = 0.
+    expect(calcOnchainWithdrawFee(10000, cfgNormal)).toBe(0);
+  });
+
+  it("fixo + % proprios", () => {
+    const cfg = { ...cfgNormal, onchainFeeFixed: 50, onchainFeePercent: 2 };
+    // 50c + 2% de 10000 = 50 + 200 = 250c.
+    expect(calcOnchainWithdrawFee(10000, cfg)).toBe(250);
+  });
+
+  it("so percentual", () => {
+    const cfg = { ...cfgNormal, onchainFeeFixed: 0, onchainFeePercent: 1 };
+    expect(calcOnchainWithdrawFee(20000, cfg)).toBe(200);
+  });
+
+  it("valor <= 0 -> 0", () => {
+    const cfg = { ...cfgNormal, onchainFeeFixed: 99, onchainFeePercent: 2 };
+    expect(calcOnchainWithdrawFee(0, cfg)).toBe(0);
   });
 });

@@ -24,6 +24,9 @@ export interface DepixFeeConfig {
   entryFeePercent: number; // 0-100
   exitFeeFixed: number;
   exitFeePercent: number;
+  /** Taxa do SAQUE ON-CHAIN (Sideswap), independente do PIX. Default 0. */
+  onchainFeeFixed: number;
+  onchainFeePercent: number;
 }
 
 export interface DepositFeeBreakdown {
@@ -120,6 +123,16 @@ export function estimateArenaFeeFromNet(netCents: number, cfg: DepixFeeConfig): 
   if (cfg.entryFeePercent >= 100) return 0;
   const gross = (netCents + cfg.entryFeeFixed) / (1 - cfg.entryFeePercent / 100);
   return Math.max(0, roundCents(gross - netCents));
+}
+
+/**
+ * Taxa Arena do SAQUE ON-CHAIN (Sideswap) em centavos: onchainFeeFixed + % sobre o
+ * valor enviado. Independente da taxa do saque PIX. Sem taxa de provedor (envio
+ * on-chain direto). Default 0 -> sem taxa.
+ */
+export function calcOnchainWithdrawFee(amountCents: number, cfg: DepixFeeConfig): number {
+  if (amountCents <= 0) return 0;
+  return cfg.onchainFeeFixed + pct(amountCents, cfg.onchainFeePercent);
 }
 
 /**
