@@ -7,7 +7,6 @@ import { prisma } from "@/server/db";
 import { logger } from "@/lib/logger";
 import {
   buildOtpAuthUrl,
-  canDisableTwoFactor,
   consumeBackupCode,
   decryptSecret,
   diagnoseTotpFailure,
@@ -17,6 +16,8 @@ import {
   isTwoFactorConfigured,
   verifyTotp,
 } from "@/lib/auth/two-factor";
+import { issueVerificationCode, verifyCode } from "@/server/services/verification.service";
+import { rateLimit } from "@/lib/rate-limit";
 
 const totpCodeSchema = z
   .string()
@@ -139,19 +140,15 @@ export const twoFactorRouter = createTRPCRouter({
       return { backupCodes: codes };
     }),
 
-  /** Desativa o 2FA. Exige senha atual + um código válido (app). */
   /**
-   * Desativa o 2FA. Sempre exige a senha. Para a 2ª prova aceita:
-   *  - código TOTP do app (quando o segredo é decifrável), OU
-   *  - um backup code (independe do segredo — hashes próprios), OU
-   *  - RECUPERAÇÃO: senha sozinha quando o segredo está INUTILIZÁVEL
-   *    (null/indecifrável — ex.: cifrado com NEXTAUTH_SECRET antigo). Nesse caso
-   *    o 2FA já está morto (o próprio dono não consegue gerar código), então a
-   *    senha é o fator efetivo — destrava o "beco" sem enfraquecer um 2FA que
-   *    FUNCIONA (com segredo válido, senha sozinha NÃO desativa).
+   * Desativa o 2FA com o app FUNCIONANDO: exige senha + código TOTP OU backup
+   * code. NÃO há atalho "só senha" — se o usuário perdeu o acesso ao app/códigos
+   * (ou o segredo está indecifrável), a saída é a RECUPERAÇÃO por email+WhatsApp
+   * (startTwoFactorRecovery/confirmTwoFactorRecovery). Isso fecha o furo de quem
+   * tem só a senha desativar o 2FA e sacar.
    */
   disable: protectedProcedure
-    .input(z.object({ password: z.string().min(1), code: z.string().trim().optional() }))
+    .input(z.object({ password: z.string().min(1), code: z.string().trim().min(1, "Informe o código") }))
     .mutation(async ({ ctx, input }) => {
       const user = await prisma.user.findUnique({
         where: { id: ctx.session.user.id },
@@ -164,26 +161,23 @@ export const twoFactorRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
       }
 
-      // O segredo é utilizável? (null ou indecifrável => 2FA morto => recuperação)
-      let secretUsable = false;
-      let totpSecret: string | null = null;
+      const code = input.code.trim();
+      // TOTP (se o segredo decifra) OU backup code (independe do segredo).
+      let totpOk = false;
       if (user.twoFactorSecret) {
         try {
-          totpSecret = decryptSecret(user.twoFactorSecret);
-          secretUsable = true;
+          totpOk = verifyTotp(decryptSecret(user.twoFactorSecret), code);
         } catch {
-          secretUsable = false; // segredo corrompido/cifrado com chave antiga
+          totpOk = false; // segredo indecifrável → cai pro backup code / recovery
         }
       }
+      const backupOk = consumeBackupCode(code, user.twoFactorBackupCodes) !== null;
 
-      const code = input.code?.trim();
-      const totpOk = secretUsable && !!totpSecret && !!code && verifyTotp(totpSecret, code);
-      const backupOk = !!code && consumeBackupCode(code, user.twoFactorBackupCodes) !== null;
-
-      if (!canDisableTwoFactor({ secretUsable, totpOk, backupOk })) {
+      if (!totpOk && !backupOk) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Código inválido. Use o código do app ou um backup code.",
+          message:
+            "Código inválido. Use o código do app ou um backup code. Sem acesso a nenhum dos dois, use 'Recuperar acesso'.",
         });
       }
 
@@ -198,8 +192,126 @@ export const twoFactorRouter = createTRPCRouter({
       });
       logger.info("2FA: desativado", {
         userId: ctx.session.user.id,
-        via: totpOk ? "totp" : backupOk ? "backup_code" : "recovery_secret_unusable",
+        via: totpOk ? "totp" : "backup_code",
       });
       return { success: true };
     }),
+
+  /**
+   * RECUPERAÇÃO de 2FA (perdeu o app E os backup codes, ou o segredo ficou
+   * indecifrável). Passo 1: valida a senha e dispara um código no EMAIL e outro
+   * no WHATSAPP do usuário. Exige os DOIS canais cadastrados — quem não tem ambos
+   * recupera só via superadmin (resetTenantUserTwoFactor). Fecha o furo de quem
+   * tem só a senha desativar o 2FA: os códigos vão para canais que o atacante
+   * normalmente não controla.
+   */
+  startRecovery: protectedProcedure
+    .input(z.object({ password: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const rl = await rateLimit({
+        key: `2fa-recovery-start:${ctx.session.user.id}`,
+        limit: 5,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!rl.success) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Muitas tentativas. Tente mais tarde." });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { passwordHash: true, twoFactorEnabled: true, email: true, phone: true },
+      });
+      if (!user?.twoFactorEnabled) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
+      }
+      if (!compareSync(input.password, user.passwordHash)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
+      }
+      if (!user.email || !user.phone) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Recuperação exige email E WhatsApp cadastrados. Sem ambos, peça ao suporte/administrador para redefinir seu 2FA.",
+        });
+      }
+
+      await issueVerificationCode({ target: user.email, channel: "EMAIL" });
+      await issueVerificationCode({ target: user.phone, channel: "WHATSAPP" });
+      logger.info("2FA recovery: códigos enviados (email + whatsapp)", { userId: ctx.session.user.id });
+      return { sent: true, emailMasked: maskEmail(user.email), phoneMasked: maskPhone(user.phone) };
+    }),
+
+  /**
+   * RECUPERAÇÃO passo 2: senha + código do EMAIL + código do WHATSAPP. Os dois
+   * precisam bater. Só então zera o 2FA (o usuário recadastra em seguida).
+   */
+  confirmRecovery: protectedProcedure
+    .input(
+      z.object({
+        password: z.string().min(1),
+        emailCode: z.string().trim().min(1),
+        whatsappCode: z.string().trim().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rl = await rateLimit({
+        key: `2fa-recovery-confirm:${ctx.session.user.id}`,
+        limit: 10,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!rl.success) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Muitas tentativas. Tente mais tarde." });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { passwordHash: true, twoFactorEnabled: true, email: true, phone: true },
+      });
+      if (!user?.twoFactorEnabled) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
+      }
+      if (!compareSync(input.password, user.passwordHash)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
+      }
+      if (!user.email || !user.phone) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Recuperação exige email E WhatsApp cadastrados.",
+        });
+      }
+
+      const emailRes = await verifyCode(user.email, "EMAIL", input.emailCode);
+      const waRes = await verifyCode(user.phone, "WHATSAPP", input.whatsappCode);
+      if (!emailRes.ok || !waRes.ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Código do email ou do WhatsApp inválido/expirado. Reenvie e tente novamente.",
+        });
+      }
+
+      await prisma.user.update({
+        where: { id: ctx.session.user.id },
+        data: {
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+          twoFactorConfirmedAt: null,
+          twoFactorBackupCodes: [],
+        },
+      });
+      logger.info("2FA: desativado via recovery (email + whatsapp)", { userId: ctx.session.user.id });
+      return { success: true };
+    }),
 });
+
+/** Mascara um email pra exibir na UI (a***@dominio.com). */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return "***";
+  const head = local.slice(0, 1);
+  return `${head}${"*".repeat(Math.max(1, local.length - 1))}@${domain}`;
+}
+
+/** Mascara um telefone (mantém os 2 últimos dígitos). */
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 2) return "***";
+  return `${"*".repeat(Math.max(2, digits.length - 2))}${digits.slice(-2)}`;
+}
