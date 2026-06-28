@@ -145,3 +145,19 @@ export function consumeBackupCode(code: string, hashes: string[]): string[] | nu
   if (!hashes.includes(target)) return null;
   return hashes.filter((h) => h !== target);
 }
+
+/**
+ * Decide se o 2FA pode ser DESATIVADO (já assumida a senha correta). Regra de
+ * segurança + recuperação do "beco" (segredo cifrado com NEXTAUTH_SECRET antigo):
+ *  - segredo UTILIZÁVEL → exige código válido (TOTP ou backup code);
+ *  - segredo INUTILIZÁVEL (null/indecifrável) → senha basta (o 2FA já está morto;
+ *    o próprio dono não consegue gerar código). NÃO enfraquece um 2FA que funciona.
+ */
+export function canDisableTwoFactor(args: {
+  secretUsable: boolean;
+  totpOk: boolean;
+  backupOk: boolean;
+}): boolean {
+  if (!args.secretUsable) return true; // recuperação
+  return args.totpOk || args.backupOk;
+}
