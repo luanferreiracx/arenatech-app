@@ -10,7 +10,6 @@ import {
   DEPIX_STATUS_LABELS,
 } from "@/lib/validators/depix-withdraw";
 import { logger } from "@/lib/logger";
-import { createWithdraw as createWalletWithdraw } from "@/server/services/depix-transaction.service";
 
 // ── Helpers ──
 
@@ -117,74 +116,32 @@ export const depixWithdrawRouter = createTRPCRouter({
       });
     }),
 
+  // SEGURANCA: estas mutations legadas estao DESATIVADAS. O fluxo canonico de
+  // saque e `depixTransaction.createWithdraw`/`createOnchainWithdraw`, que exige
+  // `tenantAdminProcedure` + step-up 2FA + rate-limit + cap diario + idempotencia.
+  // Este router antigo expunha `create` como `tenantProcedure` chamando o MESMO
+  // service de saque SEM nenhuma dessas protecoes — um operador comum sacaria
+  // dinheiro irreversivel burlando admin e 2FA. Nao ha mais frontend chamando
+  // estas mutations; em vez de duplicar (mal) a cadeia de protecao num caminho
+  // morto, fechamos a porta e apontamos pro fluxo correto. As leituras/stats
+  // seguem disponiveis para compatibilidade.
   create: tenantProcedure
     .input(createWithdrawSchema)
-    .mutation(async ({ ctx, input }) => {
-      const walletTx = await createWalletWithdraw({
-        tenantId: ctx.tenantId,
-        userId: ctx.session.user.id,
-        userName: ctx.session.user.name ?? null,
-        pixKeyType: input.pixKeyType,
-        pixKey: input.pixKey,
-        recipientName: input.recipientName ?? null,
-        recipientTaxId: input.recipientTaxId,
-        netAmountCents: Math.round(input.requestedAmount * 100),
-        sourceType: "WALLET",
-        sourceDescription: input.notes ?? "Saque criado por compatibilidade legada; fluxo canonico: DePix Wallet",
+    .mutation(() => {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          "Saque por este endpoint foi desativado. Use a Carteira DePix (exige administrador e 2FA).",
       });
-
-      logger.info("DepixWithdraw legado redirecionado para wallet", {
-        walletTransactionId: walletTx.id,
-        number: walletTx.number,
-        amount: input.requestedAmount,
-      });
-
-      return {
-        id: walletTx.id,
-        number: walletTx.number,
-        pixKeyType: walletTx.pixKeyType,
-        pixKey: walletTx.pixKey,
-        recipientName: walletTx.recipientName,
-        recipientTaxId: walletTx.recipientTaxId,
-        notes: walletTx.sourceDescription,
-        requestedAmount: (walletTx.netAmountCents ?? walletTx.grossAmountCents) / 100,
-        receivedAmount: walletTx.netAmountCents != null ? walletTx.netAmountCents / 100 : null,
-        fee:
-          walletTx.feePixPayCents != null
-            ? walletTx.feePixPayCents / 100
-            : null,
-        depositAmount: walletTx.grossAmountCents / 100,
-        status: walletTx.status === "COMPLETED" ? "SENT" : walletTx.status === "FAILED" ? "FAILED" : "PROCESSING",
-        statusLabel: walletTx.status === "COMPLETED" ? "Enviado" : "Processando",
-        depixId: walletTx.pixpayDepixId,
-        depositAddress: walletTx.pixpayDepositAddress,
-        depositAddressQr: null,
-        blockchainTxId: walletTx.withdrawTxId,
-        expiration: null,
-        userId: walletTx.userId,
-        userName: walletTx.userName,
-        createdAt: walletTx.createdAt,
-        updatedAt: walletTx.updatedAt,
-        walletTransactionId: walletTx.id,
-      };
     }),
 
   update: tenantProcedure
     .input(updateWithdrawSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const w = await tx.depixWithdraw.findUnique({ where: { id: input.id } });
-        if (!w) throw new TRPCError({ code: "NOT_FOUND", message: "Saque nao encontrado" });
-
-        const updated = await tx.depixWithdraw.update({
-          where: { id: input.id },
-          data: {
-            recipientName: input.recipientName,
-            notes: input.notes,
-          },
-        });
-
-        return serializeWithdraw(updated);
+    .mutation(() => {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          "Edicao de saque por este endpoint foi desativada. Use a Carteira DePix.",
       });
     }),
 

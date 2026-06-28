@@ -315,6 +315,18 @@ export const fiscalRouter = createTRPCRouter({
           });
         }
 
+        // Fallback de NCM/CFOP por item: item explicito > config FISCAL do tenant
+        // (defaultNcm/defaultCfop em Configuracoes > Fiscal) > constante generica.
+        // Antes ignorava a config e caia direto em "00000000"/"5102" — entao o
+        // lojista configurava o NCM/CFOP do seu ramo e a NF-e nascia com valores
+        // genericos/invalidos (risco fiscal).
+        const fiscalSettings = await tx.tenantFiscalSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { defaultNcm: true, defaultCfop: true },
+        });
+        const fallbackNcm = fiscalSettings?.defaultNcm ?? "00000000";
+        const fallbackCfop = fiscalSettings?.defaultCfop ?? "5102";
+
         const payload = {
           modelo: invoice.type === "NFCE" ? "65" : "55",
           destinatario: {
@@ -327,8 +339,8 @@ export const fiscalRouter = createTRPCRouter({
             quantidade: Number(item.quantity),
             valor_unitario: Number(item.unitPrice),
             valor_total: Number(item.total),
-            ncm: item.ncm ?? "00000000",
-            cfop: item.cfop ?? "5102",
+            ncm: item.ncm ?? fallbackNcm,
+            cfop: item.cfop ?? fallbackCfop,
           })),
         };
 
