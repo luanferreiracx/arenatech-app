@@ -70,15 +70,32 @@ export async function issueVerificationCode(input: IssueVerificationInput): Prom
   return { sent };
 }
 
+export type VerifyCodeOptions = {
+  /**
+   * Consumir o código (marcar `consumedAt`) quando ele casar. Default `true`.
+   *
+   * Use `false` quando a operação exige DOIS códigos válidos (ex.: recovery de
+   * 2FA = email + WhatsApp): valida-se ambos SEM consumir e, só se os dois
+   * passarem, consome-se os dois (`consumeCode`). Assim, um código correto não é
+   * queimado porque o OUTRO canal falhou (o usuário teria de re-pedir os dois).
+   * A proteção anti-brute-force é mantida: o contador de tentativas ainda é
+   * incrementado no mismatch, independente de `consume`.
+   */
+  consume?: boolean;
+};
+
 /**
- * Valida o código informado para o alvo. Consome no sucesso; incrementa
- * tentativas e invalida ao estourar o limite.
+ * Valida o código informado para o alvo. Por padrão consome no sucesso;
+ * incrementa tentativas e invalida ao estourar o limite. Com `consume:false`,
+ * valida sem consumir (ver `VerifyCodeOptions`).
  */
 export async function verifyCode(
   target: string,
   channel: VerificationChannel,
   inputCode: string,
+  options: VerifyCodeOptions = {},
 ): Promise<VerifyResult> {
+  const consume = options.consume ?? true;
   const record = await prisma.verificationCode.findFirst({
     where: { target, channel, consumedAt: null },
     orderBy: { createdAt: "desc" },
@@ -104,8 +121,22 @@ export async function verifyCode(
     return { ok: false, reason: "invalid" };
   }
 
-  await prisma.verificationCode.update({ where: { id: record.id }, data: { consumedAt: new Date() } });
+  if (consume) {
+    await prisma.verificationCode.update({ where: { id: record.id }, data: { consumedAt: new Date() } });
+  }
   return { ok: true };
+}
+
+/**
+ * Consome (marca `consumedAt`) o código pendente mais recente do alvo/canal.
+ * Idempotente — usado após validar múltiplos códigos com `verifyCode(...,
+ * { consume: false })` para queimar todos de uma vez no sucesso total.
+ */
+export async function consumeCode(target: string, channel: VerificationChannel): Promise<void> {
+  await prisma.verificationCode.updateMany({
+    where: { target, channel, consumedAt: null },
+    data: { consumedAt: new Date() },
+  });
 }
 
 /**
