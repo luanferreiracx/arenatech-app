@@ -142,20 +142,31 @@ export function TwoFactorCard() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="disable-code">Código do app</Label>
+            <Label htmlFor="disable-code">Código do app ou backup code</Label>
             <Input
               id="disable-code"
-              inputMode="numeric"
-              maxLength={6}
+              autoComplete="one-time-code"
+              maxLength={11}
+              placeholder="000000 ou XXXXX-XXXXX"
               value={disableCode}
-              onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(e) => setDisableCode(e.target.value.toUpperCase().slice(0, 11))}
             />
+            <p className="text-xs text-muted-foreground">
+              Perdeu o acesso ao app e não tem backup code? Você ainda pode
+              desativar só com a senha — funciona quando o 2FA está com erro
+              (ex.: não aceita seu código).
+            </p>
           </div>
           <Button
             type="button"
             variant="destructive"
-            disabled={disableMutation.isPending || !disablePassword || disableCode.length < 6}
-            onClick={() => disableMutation.mutate({ password: disablePassword, code: disableCode })}
+            disabled={disableMutation.isPending || !disablePassword}
+            onClick={() =>
+              disableMutation.mutate({
+                password: disablePassword,
+                code: disableCode.trim() || undefined,
+              })
+            }
           >
             {disableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Desativar 2FA

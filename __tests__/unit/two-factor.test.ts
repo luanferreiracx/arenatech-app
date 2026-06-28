@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import * as OTPAuth from "otpauth";
 import {
   buildOtpAuthUrl,
+  canDisableTwoFactor,
   consumeBackupCode,
   decryptSecret,
   diagnoseTotpFailure,
@@ -152,6 +153,36 @@ describe("two-factor", () => {
     it("consumeBackupCode retorna null para código inexistente", () => {
       const { hashes } = generateBackupCodes(3);
       expect(consumeBackupCode("ZZZZZ-ZZZZZ", hashes)).toBeNull();
+    });
+  });
+
+  describe("canDisableTwoFactor (recuperação do beco)", () => {
+    it("segredo VÁLIDO exige código correto (TOTP ou backup)", () => {
+      // senha já validada; sem código bom → não desativa.
+      expect(canDisableTwoFactor({ secretUsable: true, totpOk: false, backupOk: false })).toBe(false);
+      expect(canDisableTwoFactor({ secretUsable: true, totpOk: true, backupOk: false })).toBe(true);
+      expect(canDisableTwoFactor({ secretUsable: true, totpOk: false, backupOk: true })).toBe(true);
+    });
+
+    it("segredo INUTILIZÁVEL (null/indecifrável) → senha basta (recupera)", () => {
+      // 2FA morto: o dono não consegue gerar código; senha destrava.
+      expect(canDisableTwoFactor({ secretUsable: false, totpOk: false, backupOk: false })).toBe(true);
+    });
+
+    it("segredo cifrado com NEXTAUTH_SECRET ANTIGO é indecifrável → recovery", () => {
+      // Cifra com uma chave; tenta decifrar com outra (rotação) → throw.
+      const secret = generateTotpSecret();
+      const enc = encryptSecret(secret);
+      process.env.NEXTAUTH_SECRET = "uma-chave-totalmente-diferente";
+      let usable = true;
+      try {
+        decryptSecret(enc);
+      } catch {
+        usable = false;
+      }
+      expect(usable).toBe(false);
+      // Com o segredo inutilizável, a senha sozinha desativa (sai do beco).
+      expect(canDisableTwoFactor({ secretUsable: usable, totpOk: false, backupOk: false })).toBe(true);
     });
   });
 });

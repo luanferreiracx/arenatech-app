@@ -7,6 +7,8 @@ import { prisma } from "@/server/db";
 import { logger } from "@/lib/logger";
 import {
   buildOtpAuthUrl,
+  canDisableTwoFactor,
+  consumeBackupCode,
   decryptSecret,
   diagnoseTotpFailure,
   encryptSecret,
@@ -138,22 +140,53 @@ export const twoFactorRouter = createTRPCRouter({
     }),
 
   /** Desativa o 2FA. Exige senha atual + um código válido (app). */
+  /**
+   * Desativa o 2FA. Sempre exige a senha. Para a 2ª prova aceita:
+   *  - código TOTP do app (quando o segredo é decifrável), OU
+   *  - um backup code (independe do segredo — hashes próprios), OU
+   *  - RECUPERAÇÃO: senha sozinha quando o segredo está INUTILIZÁVEL
+   *    (null/indecifrável — ex.: cifrado com NEXTAUTH_SECRET antigo). Nesse caso
+   *    o 2FA já está morto (o próprio dono não consegue gerar código), então a
+   *    senha é o fator efetivo — destrava o "beco" sem enfraquecer um 2FA que
+   *    FUNCIONA (com segredo válido, senha sozinha NÃO desativa).
+   */
   disable: protectedProcedure
-    .input(z.object({ password: z.string().min(1), code: totpCodeSchema }))
+    .input(z.object({ password: z.string().min(1), code: z.string().trim().optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await prisma.user.findUnique({
         where: { id: ctx.session.user.id },
-        select: { passwordHash: true, twoFactorSecret: true, twoFactorEnabled: true },
+        select: { passwordHash: true, twoFactorSecret: true, twoFactorEnabled: true, twoFactorBackupCodes: true },
       });
-      if (!user?.twoFactorEnabled || !user.twoFactorSecret) {
+      if (!user?.twoFactorEnabled) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
       }
       if (!compareSync(input.password, user.passwordHash)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
       }
-      if (!verifyTotp(decryptSecret(user.twoFactorSecret), input.code)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Código inválido." });
+
+      // O segredo é utilizável? (null ou indecifrável => 2FA morto => recuperação)
+      let secretUsable = false;
+      let totpSecret: string | null = null;
+      if (user.twoFactorSecret) {
+        try {
+          totpSecret = decryptSecret(user.twoFactorSecret);
+          secretUsable = true;
+        } catch {
+          secretUsable = false; // segredo corrompido/cifrado com chave antiga
+        }
       }
+
+      const code = input.code?.trim();
+      const totpOk = secretUsable && !!totpSecret && !!code && verifyTotp(totpSecret, code);
+      const backupOk = !!code && consumeBackupCode(code, user.twoFactorBackupCodes) !== null;
+
+      if (!canDisableTwoFactor({ secretUsable, totpOk, backupOk })) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Código inválido. Use o código do app ou um backup code.",
+        });
+      }
+
       await prisma.user.update({
         where: { id: ctx.session.user.id },
         data: {
@@ -163,7 +196,10 @@ export const twoFactorRouter = createTRPCRouter({
           twoFactorBackupCodes: [],
         },
       });
-      logger.info("2FA: desativado", { userId: ctx.session.user.id });
+      logger.info("2FA: desativado", {
+        userId: ctx.session.user.id,
+        via: totpOk ? "totp" : backupOk ? "backup_code" : "recovery_secret_unusable",
+      });
       return { success: true };
     }),
 });
