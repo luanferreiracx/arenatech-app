@@ -159,6 +159,18 @@ export type ResetTenantUserTwoFactorInput = z.infer<typeof resetTenantUserTwoFac
 export const tenantUserRoleEnum = z.enum(["admin", "operator"]);
 export type TenantUserRole = z.infer<typeof tenantUserRoleEnum>;
 
+// Email + WhatsApp obrigatórios (canais de recuperação do 2FA — pré-req de saque).
+// Telefone BR: DDD + número (10–11 dígitos), precisa ser WhatsApp válido.
+const adminRequiredEmail = z.string().email("E-mail inválido").max(200);
+const adminRequiredBrPhone = z
+  .string()
+  .min(10, "WhatsApp obrigatório (com DDD)")
+  .max(20)
+  .refine((v) => {
+    const d = v.replace(/\D/g, "").length;
+    return d >= 10 && d <= 11;
+  }, { message: "WhatsApp inválido — informe DDD + número (10 ou 11 dígitos)" });
+
 export const createTenantUserSchema = z.object({
   tenantId: z.string().uuid(),
   name: z.string().min(1, "Nome obrigatorio").max(255),
@@ -167,8 +179,8 @@ export const createTenantUserSchema = z.object({
     .min(11, "CPF obrigatorio")
     .max(14)
     .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
-  phone: z.string().max(20).optional().nullable(),
+  email: adminRequiredEmail,
+  phone: adminRequiredBrPhone,
   role: tenantUserRoleEnum,
   isTechnician: z.boolean().optional(),
   isCashier: z.boolean().optional(),
@@ -179,8 +191,8 @@ export const updateTenantUserSchema = z.object({
   tenantId: z.string().uuid(),
   userId: z.string().uuid(),
   name: z.string().min(1, "Nome obrigatorio").max(255),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
-  phone: z.string().max(20).optional().nullable(),
+  email: adminRequiredEmail,
+  phone: adminRequiredBrPhone,
   role: tenantUserRoleEnum,
   isTechnician: z.boolean().optional(),
   isCashier: z.boolean().optional(),

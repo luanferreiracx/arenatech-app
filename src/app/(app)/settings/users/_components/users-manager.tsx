@@ -62,6 +62,8 @@ type UserRow = {
   name: string;
   cpf: string;
   email: string | null;
+  phone: string | null;
+  contactIncomplete: boolean;
 };
 type Target = { userId: string; name: string };
 
@@ -157,7 +159,7 @@ export function UsersManager() {
       name: u.name,
       cpf: u.cpf,
       email: u.email ?? "",
-      phone: "",
+      phone: u.phone ?? "",
       role: u.role === "admin" ? "admin" : "operator",
       isTechnician: u.isTechnician,
       isCashier: u.isCashier,
@@ -168,8 +170,8 @@ export function UsersManager() {
     createMutation.mutate({
       name: form.name.trim(),
       cpf: form.cpf.replace(/\D/g, ""),
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
+      email: form.email.trim(),
+      phone: form.phone.trim(),
       role: form.role as "admin" | "operator",
       isTechnician: form.isTechnician,
       isCashier: form.isCashier,
@@ -179,8 +181,8 @@ export function UsersManager() {
     updateMutation.mutate({
       userId: editTarget.userId,
       name: form.name.trim(),
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
+      email: form.email.trim(),
+      phone: form.phone.trim(),
       role: form.role as "admin" | "operator",
       isTechnician: form.isTechnician,
       isCashier: form.isCashier,
@@ -238,7 +240,20 @@ export function UsersManager() {
             <TableBody>
               {users.map((u) => (
                 <TableRow key={u.userId}>
-                  <TableCell className="font-medium">{u.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {u.name}
+                      {u.contactIncomplete && (
+                        <Badge
+                          variant="outline"
+                          className="bg-warning/10 text-warning border-warning/20"
+                          title="Sem e-mail e/ou WhatsApp — não consegue recuperar o 2FA. Edite para completar."
+                        >
+                          Contato incompleto
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="font-mono text-sm">{formatCpf(u.cpf)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
                   <TableCell>
@@ -306,12 +321,16 @@ export function UsersManager() {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="u-email">Email (opcional)</Label>
+              <Label htmlFor="u-email">E-mail *</Label>
               <Input id="u-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="u-phone">Telefone (opcional)</Label>
-              <Input id="u-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Label htmlFor="u-phone">WhatsApp * (com DDD)</Label>
+              <Input id="u-phone" inputMode="tel" placeholder="(11) 91234-5678" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <p className="text-xs text-muted-foreground">
+                Obrigatórios: e-mail e WhatsApp são os canais de recuperação do 2FA
+                (necessário para saques/transferências).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Perfil</Label>
@@ -347,7 +366,14 @@ export function UsersManager() {
           <DialogFooter>
             <Button
               type="button"
-              disabled={createMutation.isPending || updateMutation.isPending || !form.name.trim() || (!editTarget && form.cpf.replace(/\D/g, "").length !== 11)}
+              disabled={
+                createMutation.isPending ||
+                updateMutation.isPending ||
+                !form.name.trim() ||
+                !form.email.includes("@") ||
+                form.phone.replace(/\D/g, "").length < 10 ||
+                (!editTarget && form.cpf.replace(/\D/g, "").length !== 11)
+              }
               onClick={editTarget ? submitEdit : submitCreate}
             >
               {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

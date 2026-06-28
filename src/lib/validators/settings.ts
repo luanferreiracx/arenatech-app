@@ -132,6 +132,22 @@ export const listUsersSchema = z.object({
 
 export type ListUsersInput = z.infer<typeof listUsersSchema>;
 
+/**
+ * Email e WhatsApp são OBRIGATÓRIOS para membros da equipe: são os canais de
+ * recuperação do 2FA (que é pré-requisito de saque/transferência DePix). Sem
+ * eles o usuário fica sem como recuperar acesso. Telefone BR (DDD + número,
+ * 10–11 dígitos) — precisa ser um WhatsApp válido pro código chegar.
+ */
+const requiredEmailSchema = z.string().email("E-mail inválido").max(200);
+const requiredBrPhoneSchema = z
+  .string()
+  .min(10, "WhatsApp obrigatório (com DDD)")
+  .max(20)
+  .refine((v) => {
+    const d = v.replace(/\D/g, "").length;
+    return d >= 10 && d <= 11;
+  }, { message: "WhatsApp inválido — informe DDD + número (10 ou 11 dígitos)" });
+
 export const createUserSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio").max(255),
   cpf: z
@@ -139,8 +155,8 @@ export const createUserSchema = z.object({
     .min(11, "CPF obrigatorio")
     .max(14)
     .refine(isValidCpf, { message: "CPF invalido (digito verificador nao confere)" }),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
-  phone: z.string().max(20).optional().nullable(),
+  email: requiredEmailSchema,
+  phone: requiredBrPhoneSchema,
   role: z.enum(["admin", "operator"]),
   isTechnician: z.boolean().optional(),
   isCashier: z.boolean().optional(),
@@ -151,8 +167,8 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 export const updateUserSchema = z.object({
   userId: z.string().uuid(),
   name: z.string().min(1, "Nome obrigatorio").max(255),
-  email: z.string().email("Email invalido").max(200).optional().nullable(),
-  phone: z.string().max(20).optional().nullable(),
+  email: requiredEmailSchema,
+  phone: requiredBrPhoneSchema,
   role: z.enum(["admin", "operator"]),
   isTechnician: z.boolean().optional(),
   isCashier: z.boolean().optional(),
