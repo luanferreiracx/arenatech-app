@@ -25,14 +25,18 @@ export async function handleStaticQrDeposit(
   sourceIp: string | null,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const statusRaw = (payload.status ?? "").toLowerCase();
-  // Sem qrId, a chave estavel do pagamento e o txid on-chain (quando ha) ou o
-  // bankTxId (sempre presente). Liga todos os webhooks do mesmo pagamento.
+  // Chave estavel do pagamento: PRIORIZA o `bankTxId`, que esta presente em TODOS
+  // os webhooks do mesmo pagamento (approved, depix_sent...). O `blockchainTxID`
+  // so aparece no `depix_sent` — usa-lo como chave criava DUAS tx pro mesmo
+  // pagamento (uma no approved via bankTxId, outra no depix_sent via txid),
+  // deixando a primeira orfa em PROCESSING. Fallback p/ blockchainTxID so se nao
+  // houver bankTxId.
   const stableKey =
-    (typeof payload.blockchainTxID === "string" && payload.blockchainTxID) ||
     (typeof payload.bankTxId === "string" && payload.bankTxId) ||
+    (typeof payload.blockchainTxID === "string" && payload.blockchainTxID) ||
     "";
   if (!stableKey) {
-    logger.warn("static-qr: webhook sem txid/bankTxId — ignorado", { statusRaw });
+    logger.warn("static-qr: webhook sem bankTxId/txid — ignorado", { statusRaw });
     return { status: 200, body: { ok: true, ignored: "no_stable_key" } };
   }
 
