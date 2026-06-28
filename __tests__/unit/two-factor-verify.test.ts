@@ -5,19 +5,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findUnique = vi.fn();
-const update = vi.fn();
 const verifyTotp = vi.fn();
-const consumeBackupCode = vi.fn();
+const consumeBackupCodeAtomic = vi.fn();
 const decryptSecret = vi.fn();
 
 vi.mock("@/lib/auth/two-factor", () => ({
   decryptSecret: (...a: unknown[]) => decryptSecret(...a),
   verifyTotp: (...a: unknown[]) => verifyTotp(...a),
-  consumeBackupCode: (...a: unknown[]) => consumeBackupCode(...a),
+}));
+
+vi.mock("@/server/services/backup-code.service", () => ({
+  consumeBackupCodeAtomic: (...a: unknown[]) => consumeBackupCodeAtomic(...a),
 }));
 
 vi.mock("@/server/db", () => ({
-  withAdmin: (fn: (tx: unknown) => unknown) => fn({ user: { findUnique, update } }),
+  withAdmin: (fn: (tx: unknown) => unknown) => fn({ user: { findUnique } }),
 }));
 
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
@@ -54,36 +56,32 @@ describe("verifyUserTwoFactor", () => {
     verifyTotp.mockReturnValue(true);
     const r = await verifyUserTwoFactor(USER, "123456");
     expect(r).toEqual({ ok: true });
-    expect(consumeBackupCode).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
+    expect(consumeBackupCodeAtomic).not.toHaveBeenCalled();
   });
 
-  it("cai pra backup code quando TOTP falha e consome o code", async () => {
+  it("cai pra backup code quando TOTP falha e consome ATOMICAMENTE", async () => {
     findUnique.mockResolvedValue({
       twoFactorEnabled: true,
       twoFactorSecret: "enc",
       twoFactorBackupCodes: ["h1", "h2"],
     });
     verifyTotp.mockReturnValue(false);
-    consumeBackupCode.mockReturnValue(["h2"]); // consumiu h1
+    consumeBackupCodeAtomic.mockResolvedValue(true); // consumiu
     const r = await verifyUserTwoFactor(USER, "BACKUP-CODE");
     expect(r).toEqual({ ok: true });
-    expect(update).toHaveBeenCalledTimes(1);
-    const arg = update.mock.calls[0]![0] as { data: { twoFactorBackupCodes: string[] } };
-    expect(arg.data.twoFactorBackupCodes).toEqual(["h2"]);
+    expect(consumeBackupCodeAtomic).toHaveBeenCalledWith(expect.anything(), USER, "BACKUP-CODE");
   });
 
-  it("rejeita quando TOTP falha e nenhum backup code casa", async () => {
+  it("rejeita quando TOTP falha e o backup code nao consome (invalido/ja usado)", async () => {
     findUnique.mockResolvedValue({
       twoFactorEnabled: true,
       twoFactorSecret: "enc",
       twoFactorBackupCodes: ["h1"],
     });
     verifyTotp.mockReturnValue(false);
-    consumeBackupCode.mockReturnValue(null);
+    consumeBackupCodeAtomic.mockResolvedValue(false);
     const r = await verifyUserTwoFactor(USER, "999999");
     expect(r).toEqual({ ok: false, reason: "invalid_code" });
-    expect(update).not.toHaveBeenCalled();
   });
 
   it("segredo corrompido (decrypt lanca) = invalid_code, nao explode", async () => {

@@ -15,7 +15,8 @@ import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
-import { decryptSecret, verifyTotp, consumeBackupCode } from "@/lib/auth/two-factor";
+import { decryptSecret, verifyTotp } from "@/lib/auth/two-factor";
+import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
 import { TwoFactorRequiredError, TwoFactorInvalidError } from "@/lib/auth/two-factor-errors";
 import { RateLimitedError } from "@/lib/auth/login-errors";
 
@@ -205,17 +206,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (verifyTotp(secret, totp)) {
             clearRateLimit(rateLimitKey);
           } else {
-            // Tenta backup code (uso único).
-            const remaining = consumeBackupCode(totp, user.twoFactorBackupCodes);
-            if (!remaining) {
+            // Tenta backup code (uso único) — consumido ATOMICAMENTE (anti-replay).
+            const consumed = await withAdmin((tx) => consumeBackupCodeAtomic(tx, user.id, totp));
+            if (!consumed) {
               recordFailedAttempt(rateLimitKey);
               throw new TwoFactorInvalidError();
             }
-            await withAdmin((tx) =>
-              tx.user.update({ where: { id: user.id }, data: { twoFactorBackupCodes: remaining } }),
-            );
             clearRateLimit(rateLimitKey);
-            logger.info("Login: backup code 2FA usado", { userId: user.id, remaining: remaining.length });
+            logger.info("Login: backup code 2FA usado", { userId: user.id });
           }
         } else {
           // Sem 2FA — limpa contador no sucesso.

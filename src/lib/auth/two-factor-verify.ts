@@ -6,7 +6,8 @@
  *
  * @see src/server/auth.ts (fluxo de login) e src/lib/auth/two-factor.ts.
  */
-import { decryptSecret, verifyTotp, consumeBackupCode } from "@/lib/auth/two-factor";
+import { decryptSecret, verifyTotp } from "@/lib/auth/two-factor";
+import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 
@@ -66,14 +67,12 @@ export async function verifyUserTwoFactor(
     return { ok: true };
   }
 
-  // Fallback: backup code de uso unico.
-  const remaining = consumeBackupCode(trimmed, user.twoFactorBackupCodes);
-  if (!remaining) {
+  // Fallback: backup code de uso unico — consumido ATOMICAMENTE (anti-replay
+  // em requisicoes concorrentes; ver backup-code.service).
+  const consumed = await withAdmin((tx) => consumeBackupCodeAtomic(tx, userId, trimmed));
+  if (!consumed) {
     return { ok: false, reason: "invalid_code" };
   }
-  await withAdmin((tx) =>
-    tx.user.update({ where: { id: userId }, data: { twoFactorBackupCodes: remaining } }),
-  );
-  logger.info("2FA step-up: backup code usado", { userId, remaining: remaining.length });
+  logger.info("2FA step-up: backup code usado", { userId });
   return { ok: true };
 }
