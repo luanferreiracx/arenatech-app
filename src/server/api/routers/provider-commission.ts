@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
-import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantProcedure, tenantAdminProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import {
   createProviderSchema,
@@ -93,7 +93,7 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 
-  createProvider: tenantProcedure
+  createProvider: tenantAdminProcedure
     .input(createProviderSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -136,7 +136,7 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 
-  updateProvider: tenantProcedure
+  updateProvider: tenantAdminProcedure
     .input(updateProviderSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -166,7 +166,7 @@ export const providerCommissionRouter = createTRPCRouter({
   // CONTRACTS
   // ═══════════════════════════════════════
 
-  createContract: tenantProcedure
+  createContract: tenantAdminProcedure
     .input(createContractSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -191,7 +191,7 @@ export const providerCommissionRouter = createTRPCRouter({
   // COMMISSION RULES (per contract)
   // ═══════════════════════════════════════
 
-  updateRules: tenantProcedure
+  updateRules: tenantAdminProcedure
     .input(updateProviderRulesSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -350,7 +350,7 @@ export const providerCommissionRouter = createTRPCRouter({
     }),
 
   /** Recalculate apuracao (only if OPEN or not yet created) */
-  calculate: tenantProcedure
+  calculate: tenantAdminProcedure
     .input(apurarProviderSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -571,7 +571,7 @@ export const providerCommissionRouter = createTRPCRouter({
    * Se 2 chamadas concorrentes tentarem fechar, só 1 vê count=1. A outra recebe count=0
    * e aborta sem efeito colateral (sem PAYABLE duplicada).
    */
-  closeApuracao: tenantProcedure
+  closeApuracao: tenantAdminProcedure
     .input(closeApuracaoSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -699,7 +699,7 @@ export const providerCommissionRouter = createTRPCRouter({
   // REVERSALS
   // ═══════════════════════════════════════
 
-  createReversal: tenantProcedure
+  createReversal: tenantAdminProcedure
     .input(createReversalSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -720,7 +720,7 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 
-  deleteReversal: tenantProcedure
+  deleteReversal: tenantAdminProcedure
     .input(deleteReversalSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -745,7 +745,7 @@ export const providerCommissionRouter = createTRPCRouter({
   // UNCOVERED DAYS
   // ═══════════════════════════════════════
 
-  toggleUncoveredDay: tenantProcedure
+  toggleUncoveredDay: tenantAdminProcedure
     .input(toggleUncoveredDaySchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

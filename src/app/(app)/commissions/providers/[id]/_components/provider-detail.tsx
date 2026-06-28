@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import {
   PROVIDER_PROFILE_LABELS,
   PROVIDER_BOND_TYPE_LABELS,
@@ -50,6 +51,10 @@ function getMonthOptions() {
 export function ProviderDetail({ providerId }: { providerId: string }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // Escritas de comissao sao `tenantAdminProcedure` no server (P2-2). Operador
+  // comum ve a apuracao em modo leitura — escondemos os controles de escrita
+  // em vez de mostrar botoes que dariam FORBIDDEN.
+  const isAdmin = useIsTenantAdmin();
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -250,15 +255,17 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCalculate}
-            disabled={calculateMutation.isPending}
-          >
-            <Calculator className="h-4 w-4 mr-1" />
-            {calculateMutation.isPending ? "Calculando..." : "Calcular"}
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCalculate}
+              disabled={calculateMutation.isPending}
+            >
+              <Calculator className="h-4 w-4 mr-1" />
+              {calculateMutation.isPending ? "Calculando..." : "Calcular"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -299,7 +306,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           </div>
 
           {/* Close button */}
-          {!isClosed && currentContract && apuracao.grossCommission > 0 && (
+          {isAdmin && !isClosed && currentContract && apuracao.grossCommission > 0 && (
             <Button onClick={() => setShowCloseConfirm(true)}>
               <Lock className="h-4 w-4 mr-2" />
               Fechar apuracao e gerar conta a pagar
@@ -391,7 +398,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           Estornos do periodo
         </h3>
 
-        {!isClosed && (
+        {isAdmin && !isClosed && (
           <div className="grid grid-cols-[130px_1fr_120px_1fr_auto] gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
@@ -472,7 +479,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                   <td className="p-2 text-muted-foreground">{r.description ?? "—"}</td>
                   <td className="p-2 text-right font-medium text-red-400">{formatCurrency(r.amount)}</td>
                   <td className="p-2">
-                    {!r.apuracaoId ? (
+                    {isAdmin && !r.apuracaoId ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -482,7 +489,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                         <X className="h-3 w-3" />
                       </Button>
                     ) : (
-                      <span className="text-[10px] text-muted-foreground">fixo</span>
+                      <span className="text-[10px] text-muted-foreground">{r.apuracaoId ? "fixo" : "—"}</span>
                     )}
                   </td>
                 </tr>
@@ -503,7 +510,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           (ajuda de custo e proporcional).
         </p>
 
-        {!isClosed && (
+        {isAdmin && !isClosed && (
           <div className="flex gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>

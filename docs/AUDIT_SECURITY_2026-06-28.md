@@ -10,7 +10,7 @@
 |---|---|---|
 | **P0** | 0 | — |
 | **P1** | 1 | ✅ **corrigido** — replay de backup code (consumo não-atômico) |
-| **P2** | 4 (3 ✅) | ✅ TOTP intra-window replay no step-up (corrigido); RBAC de comissões (operador); ✅ open-redirect via Host header (corrigido); ✅ rate-limit XFF (verificado — já pega o last-hop) |
+| **P2** | 4 (4 ✅) | ✅ TOTP intra-window replay no step-up; ✅ RBAC de comissões (agora admin); ✅ open-redirect via Host header; ✅ rate-limit XFF (verificado — já pega o last-hop) |
 | **P3** | 5 | confirmRecovery queima código no erro parcial; flags de cookie explícitas; `.env`/exemplos; Chatwoot token em query; cap diário por-CPF |
 
 ---
@@ -31,10 +31,10 @@
 - **Impacto:** enfraquecia o step-up (o código deveria provar presença POR operação).
 - **✅ Fix:** coluna `two_factor_last_used_counter BIGINT?` (migration `20260628120000`). `verifyTotpReturningCounter` devolve o counter absoluto (`floor(unixtime/30)+delta`) do passo que casou; `markTotpCounterUsedAtomic` faz um `UPDATE ... SET counter=$c WHERE id=$id AND (counter IS NULL OR counter < $c)` — só aceita passo **estritamente novo** (atômico → resiste a concorrência). Replay (mesmo counter) → `invalid_code`, sem cair pra backup code. **Escopo: só o step-up do saque/transferência** — o login segue com `verifyTotp` (sem consumir o counter) pra não rejeitar um saque legítimo feito dentro de 30s do login (mesma janela = mesmo código). +5 testes.
 
-### P2-2 · Escritas de comissão de prestador como `tenantProcedure` (qualquer membro)
-- **Onde:** `src/server/api/routers/provider-commission.ts` — `createReversal` (702), `deleteReversal` (723), `updateRules` (194), `createProvider`/`updateProvider`/`createContract`.
-- **O quê:** **NÃO é cross-tenant** (roda em `withTenant` → RLS protege; o agente errou ao chamar de "P0"). Mas todo o módulo de comissões é `tenantProcedure` — um **operador comum** pode criar/excluir estornos de prestador e alterar regras de comissão (afeta o que a loja paga). É consistente no módulo (não é descuido pontual), então é **decisão de RBAC de produto**, não furo de segurança.
-- **Proposta (decisão do dono):** gatear escritas de comissão por `isTenantAdmin`/`can()` (como o financeiro sensível), OU manter por design (ADR 0053). Surface ao dono.
+### ✅ P2-2 · Escritas de comissão de prestador como `tenantProcedure` (qualquer membro) — CORRIGIDO
+- **Onde:** `src/server/api/routers/provider-commission.ts`.
+- **O quê:** **NÃO era cross-tenant** (roda em `withTenant` → RLS protege; o agente errou ao chamar de "P0"). Mas todo o módulo era `tenantProcedure` — um **operador comum** podia criar/excluir estornos e alterar o que a loja paga.
+- **✅ Fix:** as 9 escritas (`createProvider`, `updateProvider`, `createContract`, `updateRules`, `calculate`, `closeApuracao`, `createReversal`, `deleteReversal`, `toggleUncoveredDay`) agora são **`tenantAdminProcedure`** (gate `isTenantAdmin`, igual ao financeiro sensível). Leituras (`listProviders`, `getDetail`, `listAvailableUsers`) seguem `tenantProcedure`. UI: `useIsTenantAdmin()` esconde os controles de escrita (botão "Novo prestador", Calcular, Fechar apuração, formulários de estorno/dia-não-coberto, excluir estorno) — operador vê a apuração em **modo leitura**. (3 das 9 — `updateProvider`/`createContract`/`updateRules` — ainda não têm UI; gate é hardening puro.)
 
 ### ✅ P2-3 · Open-redirect / host-injection via header (CORRIGIDO)
 - **Onde:** `src/proxy.ts` `selfUrl()` — usava `x-forwarded-host`/`host` do request pra montar URLs de redirect.
@@ -68,5 +68,5 @@
 1. **✅ P1 backup-code atômico** — feito (#318).
 2. **✅ P2-1 TOTP last-used** (anti-replay no step-up de saque) — feito (migration `20260628120000`).
 3. **✅ P2-3** host allowlist no redirect — feito. **✅ P2-4** rate-limit — verificado (já pega o last-hop do XFF, sem mudança).
-4. **P2-2** comissões RBAC — gatear escritas por `isTenantAdmin`.
+4. **✅ P2-2** comissões RBAC — feito (escritas → `tenantAdminProcedure` + UI gated).
 5. **P3** — higiene conforme prioridade.
