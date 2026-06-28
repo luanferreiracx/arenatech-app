@@ -11,7 +11,13 @@
  */
 import { auth } from "@/server/auth";
 import { NextResponse } from "next/server";
-import { isLandingHost, isPublicCatalogHost, isAppSubdomainHost } from "@/lib/brand-host";
+import {
+  isLandingHost,
+  isPublicCatalogHost,
+  isAppSubdomainHost,
+  isKnownHost,
+  CANONICAL_APP_HOST,
+} from "@/lib/brand-host";
 import { isPathAllowed } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
@@ -60,9 +66,14 @@ export const proxy = auth((req) => {
   // wrapper auth() nao reflete o Host header (usa o host interno/NEXTAUTH_URL),
   // o que vazava redirects de pdvdepix.app -> app.arenatechpi. Aqui priorizamos
   // o header Host (que o Nginx encaminha) + o protocolo encaminhado.
+  //
+  // SEGURANCA (P2-3): so ecoamos o host se ele estiver na ALLOWLIST de hosts
+  // conhecidos. `x-forwarded-host` e atacante-controlavel se o Nginx repassar um
+  // valor forjado — sem a allowlist, um redirect iria pra `atacante.com/painel`
+  // (open-redirect/phishing). Host desconhecido cai pro host canonico.
   const selfUrl = (path: string): URL => {
-    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    if (!host) return new URL(path, req.url);
+    const rawHost = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const host = isKnownHost(rawHost) ? rawHost! : CANONICAL_APP_HOST;
     const proto =
       req.headers.get("x-forwarded-proto") ??
       (req.nextUrl.protocol.replace(":", "") || "https");
