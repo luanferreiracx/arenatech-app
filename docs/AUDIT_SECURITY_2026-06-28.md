@@ -10,7 +10,7 @@
 |---|---|---|
 | **P0** | 0 | — |
 | **P1** | 1 | ✅ **corrigido** — replay de backup code (consumo não-atômico) |
-| **P2** | 4 | TOTP intra-window replay no step-up; RBAC de comissões (operador); open-redirect via Host header; rate-limit por IP via X-Forwarded-For |
+| **P2** | 4 (1 ✅) | ✅ TOTP intra-window replay no step-up (corrigido); RBAC de comissões (operador); open-redirect via Host header; rate-limit por IP via X-Forwarded-For |
 | **P3** | 5 | confirmRecovery queima código no erro parcial; flags de cookie explícitas; `.env`/exemplos; Chatwoot token em query; cap diário por-CPF |
 
 ---
@@ -25,11 +25,11 @@
 
 ## P2 — corrigir quando priorizar
 
-### P2-1 · TOTP pode ser reusado dentro da janela no step-up do saque
+### ✅ P2-1 · TOTP pode ser reusado dentro da janela no step-up do saque (CORRIGIDO)
 - **Onde:** `src/lib/auth/two-factor-verify.ts` + `verifyTotp` (`src/lib/auth/two-factor.ts`).
-- **O quê:** o TOTP é validado por janela de tempo (±, ~30–90s) e **não há registro do último código usado**. O MESMO código de 6 dígitos autoriza **mais de um saque** dentro da janela. Cada saque tem `idempotencyKey` própria (UUID do client), então saques DIFERENTES (valor/destino distintos) com o mesmo código passam. Um atacante que capturou 1 código (phishing) + tem a sessão/senha faria 2 saques no intervalo.
-- **Impacto:** enfraquece o step-up (o código deveria provar presença POR operação).
-- **Proposta:** guardar `twoFactorLastUsedStep`/timestamp por usuário (migration) e rejeitar reuso do mesmo passo TOTP. Hardening — exige migration.
+- **O quê:** o TOTP era validado por janela de tempo (±, ~30–90s) e **não havia registro do último código usado**. O MESMO código de 6 dígitos autorizava **mais de um saque** dentro da janela. Cada saque tem `idempotencyKey` própria (UUID do client), então saques DIFERENTES (valor/destino distintos) com o mesmo código passavam. Um atacante que capturou 1 código (phishing) + tem a sessão/senha faria 2 saques no intervalo.
+- **Impacto:** enfraquecia o step-up (o código deveria provar presença POR operação).
+- **✅ Fix:** coluna `two_factor_last_used_counter BIGINT?` (migration `20260628120000`). `verifyTotpReturningCounter` devolve o counter absoluto (`floor(unixtime/30)+delta`) do passo que casou; `markTotpCounterUsedAtomic` faz um `UPDATE ... SET counter=$c WHERE id=$id AND (counter IS NULL OR counter < $c)` — só aceita passo **estritamente novo** (atômico → resiste a concorrência). Replay (mesmo counter) → `invalid_code`, sem cair pra backup code. **Escopo: só o step-up do saque/transferência** — o login segue com `verifyTotp` (sem consumir o counter) pra não rejeitar um saque legítimo feito dentro de 30s do login (mesma janela = mesmo código). +5 testes.
 
 ### P2-2 · Escritas de comissão de prestador como `tenantProcedure` (qualquer membro)
 - **Onde:** `src/server/api/routers/provider-commission.ts` — `createReversal` (702), `deleteReversal` (723), `updateRules` (194), `createProvider`/`updateProvider`/`createContract`.
@@ -66,8 +66,8 @@
 ---
 
 ## Sugestão de ordem de execução
-1. **✅ P1 backup-code atômico** — feito nesta rodada (PR desta auditoria).
-2. **P2-1 TOTP last-used** (anti-replay no step-up de saque) — exige migration; maior valor de segurança restante.
+1. **✅ P1 backup-code atômico** — feito (#318).
+2. **✅ P2-1 TOTP last-used** (anti-replay no step-up de saque) — feito (migration `20260628120000`).
 3. **P2-3/P2-4** (host allowlist no redirect + rate-limit sem XFF cru) — hardening rápido.
-4. **P2-2** comissões RBAC — **decisão do dono** (gatear vs manter).
+4. **P2-2** comissões RBAC — gatear escritas por `isTenantAdmin`.
 5. **P3** — higiene conforme prioridade.

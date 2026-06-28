@@ -93,6 +93,21 @@ export function verifyTotp(base32Secret: string, token: string): boolean {
   return delta !== null;
 }
 
+/**
+ * Como verifyTotp, mas retorna o COUNTER ABSOLUTO do passo que casou
+ * (counter = floor(unixtime/period)), ou `null` se inválido. Usado para
+ * anti-replay: rejeitar reuso do MESMO código (mesmo counter) dentro da janela.
+ */
+export function verifyTotpReturningCounter(base32Secret: string, token: string): number | null {
+  const normalized = token.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(normalized)) return null;
+  const delta = buildTotp(base32Secret, "x").validate({ token: normalized, window: TOTP_WINDOW });
+  if (delta === null) return null;
+  // `delta` é o deslocamento (em passos) do código aceito em relação ao "agora".
+  const nowCounter = Math.floor(Date.now() / 1000 / TOTP_PERIOD);
+  return nowCounter + delta;
+}
+
 // Janela larga (±5min) usada SÓ para diagnóstico — nunca para aceitar um login.
 const TOTP_DIAGNOSTIC_WINDOW = 10;
 

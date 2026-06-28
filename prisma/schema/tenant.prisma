@@ -43,6 +43,9 @@ model User {
   twoFactorEnabled     Boolean   @default(false) @map("two_factor_enabled")
   twoFactorConfirmedAt DateTime? @map("two_factor_confirmed_at")
   twoFactorBackupCodes String[]  @map("two_factor_backup_codes")
+  // Último "passo" TOTP (counter = floor(unixtime/30)) já aceito — anti-replay:
+  // o mesmo código de 6 dígitos não autoriza 2 operações na mesma janela.
+  twoFactorLastUsedCounter BigInt? @map("two_factor_last_used_counter")
 
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")

@@ -6,8 +6,8 @@
  *
  * @see src/server/auth.ts (fluxo de login) e src/lib/auth/two-factor.ts.
  */
-import { decryptSecret, verifyTotp } from "@/lib/auth/two-factor";
-import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
+import { decryptSecret, verifyTotpReturningCounter } from "@/lib/auth/two-factor";
+import { consumeBackupCodeAtomic, markTotpCounterUsedAtomic } from "@/server/services/backup-code.service";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 
@@ -63,7 +63,15 @@ export async function verifyUserTwoFactor(
     return { ok: false, reason: "invalid_code" };
   }
 
-  if (verifyTotp(secret, trimmed)) {
+  // TOTP com ANTI-REPLAY (P2-1): só aceita se o passo (counter) for novo —
+  // o mesmo código não autoriza duas operações (ex.: dois saques) na janela.
+  const counter = verifyTotpReturningCounter(secret, trimmed);
+  if (counter !== null) {
+    const fresh = await withAdmin((tx) => markTotpCounterUsedAtomic(tx, userId, counter));
+    if (!fresh) {
+      logger.warn("2FA step-up: TOTP reusado (replay) — rejeitado", { userId });
+      return { ok: false, reason: "invalid_code" };
+    }
     return { ok: true };
   }
 

@@ -4,7 +4,7 @@
  * duas requisições concorrentes com o mesmo código afeta a linha (count=1).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
+import { consumeBackupCodeAtomic, markTotpCounterUsedAtomic } from "@/server/services/backup-code.service";
 import { hashBackupCode } from "@/lib/auth/two-factor";
 
 const executeRaw = vi.fn();
@@ -37,5 +37,26 @@ describe("consumeBackupCodeAtomic", () => {
     await consumeBackupCodeAtomic(tx, "user-1", "  ABCDE-12345  ");
     const sql = JSON.stringify(executeRaw.mock.calls[0]?.[0]);
     expect(sql).toContain(hashBackupCode("ABCDE-12345"));
+  });
+});
+
+describe("markTotpCounterUsedAtomic (anti-replay TOTP — P2-1)", () => {
+  it("retorna true quando o UPDATE afeta 1 linha (counter novo aceito)", async () => {
+    executeRaw.mockResolvedValue(1);
+    expect(await markTotpCounterUsedAtomic(tx, "user-1", 1000)).toBe(true);
+  });
+
+  it("retorna false quando 0 linhas (counter <= último usado → replay)", async () => {
+    executeRaw.mockResolvedValue(0);
+    expect(await markTotpCounterUsedAtomic(tx, "user-1", 1000)).toBe(false);
+  });
+
+  it("só aceita counter ESTRITAMENTE maior (UPDATE condicional com <)", async () => {
+    executeRaw.mockResolvedValue(1);
+    await markTotpCounterUsedAtomic(tx, "user-1", 1000);
+    const sql = JSON.stringify(executeRaw.mock.calls[0]?.[0]);
+    expect(sql).toContain("two_factor_last_used_counter");
+    expect(sql).toContain("IS NULL OR");
+    expect(sql).toContain("<");
   });
 });
