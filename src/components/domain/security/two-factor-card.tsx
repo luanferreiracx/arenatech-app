@@ -88,6 +88,39 @@ export function TwoFactorCard() {
     }),
   );
 
+  // Recuperação (perdeu o app + backup codes): step-up por email + WhatsApp.
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoverySent, setRecoverySent] = useState<{ emailMasked: string; phoneMasked: string } | null>(null);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryEmailCode, setRecoveryEmailCode] = useState("");
+  const [recoveryWhatsappCode, setRecoveryWhatsappCode] = useState("");
+
+  const startRecoveryMutation = useMutation(
+    trpc.twoFactor.startRecovery.mutationOptions({
+      onSuccess: (data) => {
+        setRecoverySent({ emailMasked: data.emailMasked, phoneMasked: data.phoneMasked });
+        toast.success("Códigos enviados por email e WhatsApp.");
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
+  const confirmRecoveryMutation = useMutation(
+    trpc.twoFactor.confirmRecovery.mutationOptions({
+      onSuccess: () => {
+        setRecoveryOpen(false);
+        setRecoverySent(null);
+        setRecoveryPassword("");
+        setRecoveryEmailCode("");
+        setRecoveryWhatsappCode("");
+        setBackupCodes(null);
+        void statusQuery.refetch();
+        toast.success("2FA desativado. Cadastre novamente para reativar.");
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
   if (statusQuery.isLoading) {
     return (
       <Card className="max-w-lg">
@@ -151,26 +184,106 @@ export function TwoFactorCard() {
               value={disableCode}
               onChange={(e) => setDisableCode(e.target.value.toUpperCase().slice(0, 11))}
             />
-            <p className="text-xs text-muted-foreground">
-              Perdeu o acesso ao app e não tem backup code? Você ainda pode
-              desativar só com a senha — funciona quando o 2FA está com erro
-              (ex.: não aceita seu código).
-            </p>
           </div>
           <Button
             type="button"
             variant="destructive"
-            disabled={disableMutation.isPending || !disablePassword}
+            disabled={disableMutation.isPending || !disablePassword || !disableCode.trim()}
             onClick={() =>
-              disableMutation.mutate({
-                password: disablePassword,
-                code: disableCode.trim() || undefined,
-              })
+              disableMutation.mutate({ password: disablePassword, code: disableCode.trim() })
             }
           >
             {disableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Desativar 2FA
           </Button>
+
+          {/* Recuperação: perdeu o app E os backup codes (ou 2FA com erro). */}
+          <div className="border-t pt-3">
+            {!recoveryOpen ? (
+              <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setRecoveryOpen(true)}>
+                Perdi o acesso ao app e aos backup codes — recuperar
+              </Button>
+            ) : (
+              <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Recuperar acesso (sem o app)</p>
+                <p className="text-xs text-muted-foreground">
+                  Enviamos um código por <strong>email</strong> e outro por{" "}
+                  <strong>WhatsApp</strong>. Informe os dois + sua senha para desativar o 2FA
+                  com segurança. Exige email e WhatsApp cadastrados.
+                </p>
+                {!recoverySent ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="rec-pass">Senha atual</Label>
+                      <Input
+                        id="rec-pass"
+                        type="password"
+                        autoComplete="current-password"
+                        value={recoveryPassword}
+                        onChange={(e) => setRecoveryPassword(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={startRecoveryMutation.isPending || !recoveryPassword}
+                      onClick={() => startRecoveryMutation.mutate({ password: recoveryPassword })}
+                    >
+                      {startRecoveryMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Enviar códigos
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Código enviado para {recoverySent.emailMasked} e WhatsApp •••{recoverySent.phoneMasked}.
+                    </p>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="rec-email">Código do email</Label>
+                      <Input
+                        id="rec-email"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={recoveryEmailCode}
+                        onChange={(e) => setRecoveryEmailCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="rec-wa">Código do WhatsApp</Label>
+                      <Input
+                        id="rec-wa"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={recoveryWhatsappCode}
+                        onChange={(e) => setRecoveryWhatsappCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={
+                        confirmRecoveryMutation.isPending ||
+                        !recoveryPassword ||
+                        recoveryEmailCode.length < 6 ||
+                        recoveryWhatsappCode.length < 6
+                      }
+                      onClick={() =>
+                        confirmRecoveryMutation.mutate({
+                          password: recoveryPassword,
+                          emailCode: recoveryEmailCode,
+                          whatsappCode: recoveryWhatsappCode,
+                        })
+                      }
+                    >
+                      {confirmRecoveryMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Desativar 2FA
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     );
