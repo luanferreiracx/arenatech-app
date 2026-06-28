@@ -201,10 +201,15 @@ export async function createPixPayment(
   }
 
   const amountInCents = Math.round(amountReais * 100);
-  const payload: Record<string, string | number> = { amountInCents };
+  const payload: Record<string, string | number | boolean> = { amountInCents };
   if (taxDigits) {
     payload.endUserTaxNumber = taxDigits;
   }
+  // whitelist=true: sinaliza que o parceiro (Arena) conhece/confia no pagador,
+  // liberando depositos > R$500 sem a retencao anti-fraude da Eulen (que limita o
+  // 1o deposito de um pagador a R$500 / under_review). DECISAO DE NEGOCIO do dono:
+  // ao marcar, a Arena ASSUME a responsabilidade anti-fraude/KYC perante a Eulen.
+  payload.whitelist = true;
   // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
   // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
   // (fluxo legacy do PDV/OS/QuickSale).
@@ -234,6 +239,7 @@ export async function createPixPayment(
     hasDepixAddr: !!payload.depixAddress,
     hasSplit: !!payload.depixSplitAddress,
     splitFee: payload.splitFee ?? null,
+    whitelist: payload.whitelist === true,
     nonce,
   });
 
