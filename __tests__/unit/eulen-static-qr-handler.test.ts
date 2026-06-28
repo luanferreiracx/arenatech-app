@@ -116,4 +116,23 @@ describe("handleStaticQrDeposit", () => {
     expect(res.body).toMatchObject({ ignored: "no_stable_key" });
     expect(recordWebhookEvent).not.toHaveBeenCalled();
   });
+
+  it("stableKey = bankTxId mesmo quando ha blockchainTxID (1 tx por pagamento)", async () => {
+    // depix_sent traz AMBOS; a chave DEVE ser o bankTxId (presente tambem no
+    // approved) — senao approved e depix_sent criariam 2 tx pro mesmo pagamento.
+    verifyDepositOnChain.mockResolvedValue({ ok: true, onchainAmount: 19.01 });
+    settleDepositConfirmed.mockResolvedValue({ matched: true, completed: true });
+    await handleStaticQrDeposit(
+      { webhookType: "deposit", qrId: "", status: "depix_sent", valueInCents: 2000, bankTxId: "bk-123", blockchainTxID: "bc-xyz" },
+      null,
+    );
+    // A tx e localizada/criada pela chave estavel = bankTxId.
+    expect(ensureStaticQrDepositTx).toHaveBeenCalledWith(
+      expect.objectContaining({ stableKey: "bk-123" }),
+    );
+    // Mas o credito on-chain usa o blockchainTxID real (depositTxId).
+    expect(settleDepositConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ depositTxId: "bc-xyz" }),
+    );
+  });
 });
