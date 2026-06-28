@@ -97,6 +97,11 @@ export function RecentTransactions() {
           {(query.data?.data ?? []).map((t) => {
             const isDeposit = t.kind === "DEPOSIT";
             const Icon = isDeposit ? ArrowDownLeft : ArrowUpRight;
+            // Valor so "entra/sai" de fato quando CONCLUIDO. Cancelado/falho/
+            // expirado NAO movimenta saldo — exibe neutro e riscado (sem +/−
+            // verde, que enganava: parecia credito mesmo nao tendo entrado).
+            const didMoveFunds = t.status === "COMPLETED";
+            const isVoided = ["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(t.status);
             return (
               <li key={t.id}>
                 <Link
@@ -106,9 +111,11 @@ export function RecentTransactions() {
                   <div
                     className={cn(
                       "h-10 w-10 rounded-full grid place-items-center shrink-0",
-                      isDeposit
-                        ? "bg-success/10 text-success"
-                        : "bg-primary/10 text-primary",
+                      isVoided
+                        ? "bg-muted text-muted-foreground"
+                        : isDeposit
+                          ? "bg-success/10 text-success"
+                          : "bg-primary/10 text-primary",
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -127,10 +134,15 @@ export function RecentTransactions() {
                       <p
                         className={cn(
                           "tabular-nums font-mono text-sm font-semibold shrink-0",
-                          isDeposit ? "text-success" : "text-foreground",
+                          isVoided
+                            ? "text-muted-foreground line-through"
+                            : isDeposit && didMoveFunds
+                              ? "text-success"
+                              : "text-foreground",
                         )}
                       >
-                        {isDeposit ? "+" : "−"}{" "}
+                        {/* Só mostra sinal +/− quando o valor de fato movimentou. */}
+                        {didMoveFunds ? (isDeposit ? "+ " : "− ") : ""}
                         {formatBRL(
                           (t.netAmountCents ?? t.grossAmountCents) as number,
                         )}
