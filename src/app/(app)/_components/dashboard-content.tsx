@@ -448,22 +448,22 @@ function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allow
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Zap className="h-4 w-4 text-primary" />
           Acesso Rapido
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
           {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="flex items-center gap-2 rounded-md border border-transparent p-3 text-sm font-medium transition-colors hover:border-primary/30 hover:bg-primary/5"
+              className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-card p-4 text-center text-sm font-medium transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:border-primary/40 focus-visible:bg-primary/5"
             >
-              <link.icon className={`h-4 w-4 shrink-0 ${link.color}`} />
-              {link.label}
+              <link.icon className={`h-6 w-6 shrink-0 ${link.color}`} />
+              <span className="leading-tight">{link.label}</span>
             </Link>
           ))}
         </div>
@@ -534,6 +534,14 @@ export function DashboardContent({
 
       {/* Cashier Status */}
       <CashierStatusBanner />
+
+      {/* Acesso Rapido — atalhos no topo: o que o usuario mais faz fica a um
+          clique, antes de qualquer analise. */}
+      <QuickLinks tenantSlug={tenantSlug} allowedModules={allowedModules} />
+
+      {/* Alertas — itens acionaveis/urgentes (OS atrasada, conta vencida,
+          estoque baixo) sobem pra perto do topo; so renderiza se houver algo. */}
+      <AlertsSection />
 
       {/* KPI Section: Vendas */}
       <section>
@@ -625,12 +633,6 @@ export function DashboardContent({
         <RecentSalesTable />
         <RecentOrdersTable />
       </div>
-
-      {/* Alerts */}
-      <AlertsSection />
-
-      {/* Quick Links */}
-      <QuickLinks tenantSlug={tenantSlug} allowedModules={allowedModules} />
     </div>
   );
 }

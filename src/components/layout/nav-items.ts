@@ -57,6 +57,11 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+// Ordem do menu por FREQUÊNCIA DE USO na operação diária de loja/assistência:
+// painel → vender (PDV) → atender (OS) → caixa → clientes → estoque →
+// financeiro → ferramentas → fiscal → comissões → configurações. O que se usa o
+// dia inteiro fica no topo; gestão/config desce. Itens gateados por `module`
+// somem sozinhos pra quem não tem o módulo (isNavItemVisible).
 export const appNavGroups: NavGroup[] = [
   {
     title: null,
@@ -65,13 +70,27 @@ export const appNavGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Vendas",
+    items: [
+      { label: "PDV / Nova Venda", href: "/pdv", icon: ShoppingCart, module: "pdv" },
+      { label: "Historico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
+    ],
+  },
+  {
     title: "Assistencia",
     items: [
       { label: "Ordens de Servico", href: "/service-orders", icon: ClipboardList, module: "service-orders" },
-      { label: "Relatorio Tecnicos", href: "/service-orders/technician-report", icon: BarChart3, module: "service-orders" },
-      { label: "Gestao de Servicos", href: "/services", icon: Wrench, module: "service-orders" },
       { label: "Operacao", href: "/operation", icon: Truck, module: "service-orders" },
       { label: "Comunicacao", href: "/communication", icon: MessageSquare, module: "service-orders" },
+      { label: "Gestao de Servicos", href: "/services", icon: Wrench, module: "service-orders" },
+      { label: "Relatorio Tecnicos", href: "/service-orders/technician-report", icon: BarChart3, module: "service-orders" },
+    ],
+  },
+  {
+    title: "Caixa",
+    items: [
+      { label: "Caixa", href: "/cashier", icon: Banknote, module: "cashier" },
+      { label: "Conferencias", href: "/cashier/reviews", icon: CheckSquare, module: "cashier" },
     ],
   },
   {
@@ -79,6 +98,35 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Lista de Clientes", href: "/customers", icon: Users, module: "customers" },
       { label: "Interesses", href: "/interests", icon: Heart, module: "customers" },
+    ],
+  },
+  {
+    title: "Estoque",
+    items: [
+      { label: "Produtos", href: "/stock", icon: Package, module: "stock" },
+      { label: "Entrada", href: "/stock/entry", icon: ArrowDownToLine, module: "stock" },
+      { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine, module: "stock" },
+      { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp, module: "stock" },
+      { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag, module: "stock" },
+      { label: "Fornecedores", href: "/stock/suppliers", icon: Building2, module: "stock" },
+      { label: "Categorias", href: "/stock/categories", icon: Tags, module: "stock" },
+      { label: "Catálogo Aparelhos", href: "/aparelhos-catalogo", icon: Smartphone, module: "stock" },
+      { label: "Importar CSV", href: "/stock/import", icon: Download, module: "stock" },
+      { label: "Relatorios", href: "/stock/reports", icon: BarChart3, module: "stock" },
+    ],
+  },
+  {
+    title: "Financeiro",
+    items: [
+      { label: "Financeiro", href: "/financial", icon: Wallet, module: "financial" },
+      { label: "Recebimentos", href: "/financial/receivables", icon: Receipt, module: "financial" },
+      { label: "Recebíveis de Cartão", href: "/financial/card-receivables", icon: CreditCard, module: "financial" },
+      { label: "Pendentes", href: "/financial/pending", icon: Clock, module: "financial" },
+      { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt, module: "financial" },
+      { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial" },
+      { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
+      { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
+      { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
     ],
   },
   {
@@ -94,49 +142,6 @@ export const appNavGroups: NavGroup[] = [
         icon: Smartphone,
         requiresTenantSlug: "arena-tech",
       },
-    ],
-  },
-  {
-    title: "Comercial",
-    items: [
-      { label: "Vendas", href: "/pdv", icon: ShoppingCart, module: "pdv" },
-      { label: "Historico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
-    ],
-  },
-  {
-    title: "Estoque",
-    items: [
-      { label: "Produtos", href: "/stock", icon: Package, module: "stock" },
-      { label: "Fornecedores", href: "/stock/suppliers", icon: Building2, module: "stock" },
-      { label: "Categorias", href: "/stock/categories", icon: Tags, module: "stock" },
-      { label: "Entrada", href: "/stock/entry", icon: ArrowDownToLine, module: "stock" },
-      { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine, module: "stock" },
-      { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag, module: "stock" },
-      { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp, module: "stock" },
-      { label: "Relatorios", href: "/stock/reports", icon: BarChart3, module: "stock" },
-      { label: "Importar CSV", href: "/stock/import", icon: Download, module: "stock" },
-      { label: "Catálogo Aparelhos", href: "/aparelhos-catalogo", icon: Smartphone, module: "stock" },
-    ],
-  },
-  {
-    title: "Caixa",
-    items: [
-      { label: "Caixa", href: "/cashier", icon: Banknote, module: "cashier" },
-      { label: "Conferencias", href: "/cashier/reviews", icon: CheckSquare, module: "cashier" },
-    ],
-  },
-  {
-    title: "Financeiro",
-    items: [
-      { label: "Financeiro", href: "/financial", icon: Wallet, module: "financial" },
-      { label: "Recebimentos", href: "/financial/receivables", icon: Receipt, module: "financial" },
-      { label: "Recebíveis de Cartão", href: "/financial/card-receivables", icon: CreditCard, module: "financial" },
-      { label: "Pendentes", href: "/financial/pending", icon: Clock, module: "financial" },
-      { label: "Contas a Receber", href: "/financial?type=RECEIVABLE", icon: Receipt, module: "financial" },
-      { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial" },
-      { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
-      { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
-      { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
     ],
   },
   {
