@@ -15,6 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { PageHeader } from "@/components/domain/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -438,231 +448,391 @@ export default function PaymentMethodsPage() {
 
           {methodBase && (
             <div className="space-y-6">
-              {/* Configuracao base */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 border border-border rounded-md p-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Nome</label>
-                  <Input
-                    value={methodBase.name}
-                    onChange={(e) =>
-                      setMethodBase({ ...methodBase, name: e.target.value })
-                    }
-                  />
+              {/* Configuracao base — campos numericos em cima, toggles separados
+                  embaixo (em vez de misturar Input e Switch no mesmo grid, que
+                  desalinhava). */}
+              <section className="rounded-lg border bg-muted/30 p-4">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Configuracao geral
+                </h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="cfg-name">Nome</Label>
+                    <Input
+                      id="cfg-name"
+                      value={methodBase.name}
+                      onChange={(e) =>
+                        setMethodBase({ ...methodBase, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cfg-settlement">Prazo de recebimento (dias)</Label>
+                    <Input
+                      id="cfg-settlement"
+                      type="number"
+                      min={0}
+                      max={365}
+                      value={methodBase.settlementDays}
+                      onChange={(e) =>
+                        setMethodBase({
+                          ...methodBase,
+                          settlementDays: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Dias ate o valor cair na conta (0 = a vista).
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cfg-inst-min">Parcelas min</Label>
+                      <Input
+                        id="cfg-inst-min"
+                        type="number"
+                        min={1}
+                        max={36}
+                        value={methodBase.installmentsMin}
+                        disabled={!methodBase.acceptsInstallments}
+                        onChange={(e) =>
+                          setMethodBase({
+                            ...methodBase,
+                            installmentsMin: parseInt(e.target.value) || 1,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cfg-inst-max">Parcelas max</Label>
+                      <Input
+                        id="cfg-inst-max"
+                        type="number"
+                        min={1}
+                        max={36}
+                        value={methodBase.installmentsMax}
+                        disabled={!methodBase.acceptsInstallments}
+                        onChange={(e) =>
+                          setMethodBase({
+                            ...methodBase,
+                            installmentsMax: parseInt(e.target.value) || 1,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Aceita parcelas</label>
-                  <Switch
-                    checked={methodBase.acceptsInstallments}
-                    onCheckedChange={(checked) =>
-                      setMethodBase({
-                        ...methodBase,
-                        acceptsInstallments: checked,
-                        installmentsMax: checked
-                          ? Math.max(methodBase.installmentsMax, 2)
-                          : 1,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Parcelas min</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={36}
-                    value={methodBase.installmentsMin}
-                    disabled={!methodBase.acceptsInstallments}
-                    onChange={(e) =>
-                      setMethodBase({
-                        ...methodBase,
-                        installmentsMin: parseInt(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Parcelas max</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={36}
-                    value={methodBase.installmentsMax}
-                    disabled={!methodBase.acceptsInstallments}
-                    onChange={(e) =>
-                      setMethodBase({
-                        ...methodBase,
-                        installmentsMax: parseInt(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">
-                    Prazo recebimento (dias)
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={methodBase.settlementDays}
-                    onChange={(e) =>
-                      setMethodBase({
-                        ...methodBase,
-                        settlementDays: parseInt(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Aceita troco</label>
-                  <Switch
-                    checked={methodBase.acceptsChange}
-                    onCheckedChange={(checked) =>
-                      setMethodBase({ ...methodBase, acceptsChange: checked })
-                    }
-                  />
-                </div>
-              </div>
 
-              {/* Tabela de rates */}
-              <div className="space-y-2">
+                <Separator className="my-4" />
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium">Aceita parcelamento</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Permite dividir a venda em parcelas.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={methodBase.acceptsInstallments}
+                      onCheckedChange={(checked) =>
+                        setMethodBase({
+                          ...methodBase,
+                          acceptsInstallments: checked,
+                          installmentsMax: checked
+                            ? Math.max(methodBase.installmentsMax, 2)
+                            : 1,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium">Aceita troco</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Permite informar valor recebido e calcular troco.
+                      </span>
+                    </span>
+                    <Switch
+                      checked={methodBase.acceptsChange}
+                      onCheckedChange={(checked) =>
+                        setMethodBase({ ...methodBase, acceptsChange: checked })
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+
+              {/* Taxas por parcela / aplicabilidade */}
+              <section className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">
-                    Taxas por parcela / aplicabilidade
-                  </h3>
+                  <div>
+                    <h3 className="text-sm font-semibold">Taxas por parcela</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Uma linha por nº de parcelas. A politica define quem paga o
+                      acrescimo; a aplicabilidade separa aparelho de outros itens.
+                    </p>
+                  </div>
                   <Button variant="outline" size="sm" onClick={addRateRow}>
-                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    <Plus className="mr-1 h-3.5 w-3.5" />
                     Adicionar
                   </Button>
                 </div>
 
                 {rates.length === 0 ? (
-                  <p className="text-sm text-muted-foreground border border-dashed border-border rounded-md p-4 text-center">
-                    Nenhuma taxa configurada. Clique em &quot;Adicionar&quot; para
-                    criar a primeira.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                    {rates.map((rate, idx) => (
-                      <div
-                        key={idx}
-                        className="grid grid-cols-12 gap-2 items-end border border-border rounded-md p-2"
-                      >
-                        <div className="col-span-1 space-y-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Parc
-                          </label>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={36}
-                            value={rate.installments}
-                            onChange={(e) =>
-                              updateRate(idx, "installments", parseInt(e.target.value) || 1)
-                            }
-                          />
-                        </div>
-                        <div className="col-span-3 space-y-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Aplica em
-                          </label>
-                          <Select
-                            value={rate.appliesTo}
-                            onValueChange={(v) =>
-                              updateRate(idx, "appliesTo", v as AppliesTo)
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(Object.entries(APPLIES_TO_LABELS) as [AppliesTo, string][]).map(
-                                ([v, lab]) => (
-                                  <SelectItem key={v} value={v}>
-                                    {lab}
-                                  </SelectItem>
-                                ),
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="col-span-3 space-y-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Politica
-                          </label>
-                          <Select
-                            value={rate.policy}
-                            onValueChange={(v) =>
-                              updateRate(idx, "policy", v as Policy)
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(Object.entries(POLICY_LABELS) as [Policy, string][]).map(
-                                ([v, lab]) => (
-                                  <SelectItem key={v} value={v}>
-                                    {lab}
-                                  </SelectItem>
-                                ),
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="col-span-2 space-y-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Taxa %
-                          </label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            max={99.99}
-                            value={rate.feePercent}
-                            onChange={(e) =>
-                              updateRate(idx, "feePercent", parseFloat(e.target.value) || 0)
-                            }
-                          />
-                        </div>
-                        <div className="col-span-2 space-y-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Taxa R$
-                          </label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            value={rate.feeFixed}
-                            onChange={(e) =>
-                              updateRate(idx, "feeFixed", parseFloat(e.target.value) || 0)
-                            }
-                          />
-                        </div>
-                        <div className="col-span-1 flex flex-col items-center gap-1">
-                          <label className="text-[10px] text-muted-foreground uppercase">
-                            Ativa
-                          </label>
-                          <Switch
-                            checked={rate.active}
-                            onCheckedChange={(c) => updateRate(idx, "active", c)}
-                          />
-                        </div>
-                        <div className="col-span-12 md:col-span-12 flex justify-end">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive"
-                            onClick={() => removeRate(idx)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center">
+                    <CreditCard className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma taxa configurada ainda.
+                    </p>
+                    <Button variant="outline" size="sm" onClick={addRateRow}>
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Adicionar primeira taxa
+                    </Button>
                   </div>
+                ) : (
+                  <>
+                    {/* Desktop: tabela com cabecalho unico (labels uma vez so). */}
+                    <div className="hidden max-h-[360px] overflow-y-auto rounded-lg border md:block">
+                      <Table>
+                        <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+                          <TableRow>
+                            <TableHead className="w-20">Parcelas</TableHead>
+                            <TableHead>Aplica em</TableHead>
+                            <TableHead>Politica</TableHead>
+                            <TableHead className="w-28">Taxa %</TableHead>
+                            <TableHead className="w-28">Taxa R$</TableHead>
+                            <TableHead className="w-16 text-center">Ativa</TableHead>
+                            <TableHead className="w-12" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rates.map((rate, idx) => (
+                            <TableRow key={idx} className={rate.active ? "" : "opacity-55"}>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={36}
+                                  value={rate.installments}
+                                  className="h-9"
+                                  onChange={(e) =>
+                                    updateRate(idx, "installments", parseInt(e.target.value) || 1)
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={rate.appliesTo}
+                                  onValueChange={(v) => updateRate(idx, "appliesTo", v as AppliesTo)}
+                                >
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(Object.entries(APPLIES_TO_LABELS) as [AppliesTo, string][]).map(
+                                      ([v, lab]) => (
+                                        <SelectItem key={v} value={v}>
+                                          {lab}
+                                        </SelectItem>
+                                      ),
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={rate.policy}
+                                  onValueChange={(v) => updateRate(idx, "policy", v as Policy)}
+                                >
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(Object.entries(POLICY_LABELS) as [Policy, string][]).map(
+                                      ([v, lab]) => (
+                                        <SelectItem key={v} value={v}>
+                                          {lab}
+                                        </SelectItem>
+                                      ),
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    max={99.99}
+                                    value={rate.feePercent}
+                                    className="h-9 pr-6"
+                                    onChange={(e) =>
+                                      updateRate(idx, "feePercent", parseFloat(e.target.value) || 0)
+                                    }
+                                  />
+                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                    %
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="relative">
+                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                    R$
+                                  </span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    value={rate.feeFixed}
+                                    className="h-9 pl-7"
+                                    onChange={(e) =>
+                                      updateRate(idx, "feeFixed", parseFloat(e.target.value) || 0)
+                                    }
+                                  />
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Switch
+                                  checked={rate.active}
+                                  onCheckedChange={(c) => updateRate(idx, "active", c)}
+                                  aria-label="Taxa ativa"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removeRate(idx)}
+                                  aria-label="Remover taxa"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Mobile: cada taxa vira um card (a tabela nao cabe). */}
+                    <div className="space-y-3 md:hidden">
+                      {rates.map((rate, idx) => (
+                        <div
+                          key={idx}
+                          className={`space-y-3 rounded-lg border p-3 ${rate.active ? "" : "opacity-60"}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{rate.installments}x</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Ativa</span>
+                              <Switch
+                                checked={rate.active}
+                                onCheckedChange={(c) => updateRate(idx, "active", c)}
+                                aria-label="Taxa ativa"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeRate(idx)}
+                                aria-label="Remover taxa"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Parcelas</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={36}
+                                value={rate.installments}
+                                className="h-9"
+                                onChange={(e) =>
+                                  updateRate(idx, "installments", parseInt(e.target.value) || 1)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Aplica em</Label>
+                              <Select
+                                value={rate.appliesTo}
+                                onValueChange={(v) => updateRate(idx, "appliesTo", v as AppliesTo)}
+                              >
+                                <SelectTrigger className="h-9">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(Object.entries(APPLIES_TO_LABELS) as [AppliesTo, string][]).map(
+                                    ([v, lab]) => (
+                                      <SelectItem key={v} value={v}>
+                                        {lab}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-2 space-y-1.5">
+                              <Label className="text-xs">Politica</Label>
+                              <Select
+                                value={rate.policy}
+                                onValueChange={(v) => updateRate(idx, "policy", v as Policy)}
+                              >
+                                <SelectTrigger className="h-9">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(Object.entries(POLICY_LABELS) as [Policy, string][]).map(
+                                    ([v, lab]) => (
+                                      <SelectItem key={v} value={v}>
+                                        {lab}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Taxa %</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min={0}
+                                max={99.99}
+                                value={rate.feePercent}
+                                className="h-9"
+                                onChange={(e) =>
+                                  updateRate(idx, "feePercent", parseFloat(e.target.value) || 0)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Taxa R$</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min={0}
+                                value={rate.feeFixed}
+                                className="h-9"
+                                onChange={(e) =>
+                                  updateRate(idx, "feeFixed", parseFloat(e.target.value) || 0)
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
-              </div>
+              </section>
             </div>
           )}
 
