@@ -181,18 +181,28 @@ function SalesChart() {
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-40" />
-        ) : chartData ? (
-          <div className="flex items-end gap-1 h-40">
+        ) : chartData && chartData.length > 0 ? (
+          <div className="flex items-end gap-1">
             {chartData.map((d) => {
+              // Altura proporcional ao maior dia (em %). A area das barras tem
+              // altura FIXA (h-40) e o `height` percentual e resolvido contra
+              // ela — por isso a barra fica num wrapper proprio de altura fixa,
+              // separado do label (que fica fora do calculo de %).
               const height = maxValue > 0 ? Math.max((d.totalCents / maxValue) * 100, 2) : 2;
               const dateObj = new Date(d.date + "T12:00:00");
               const label = dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
               return (
-                <div key={d.date} className="flex flex-1 flex-col items-center gap-1" title={`${label}: ${formatCurrency(d.totalCents)} (${d.count} vendas)`}>
-                  <div
-                    className="w-full rounded-t bg-primary transition-all hover:opacity-80"
-                    style={{ height: `${height}%`, minHeight: "2px" }}
-                  />
+                <div
+                  key={d.date}
+                  className="flex flex-1 flex-col items-center gap-1"
+                  title={`${label}: ${formatCurrency(d.totalCents)} (${d.count} vendas)`}
+                >
+                  <div className="flex h-40 w-full items-end">
+                    <div
+                      className="w-full rounded-t bg-primary transition-all hover:opacity-80"
+                      style={{ height: `${height}%`, minHeight: "2px" }}
+                    />
+                  </div>
                   {days === 7 && (
                     <span className="text-[10px] text-muted-foreground">{label}</span>
                   )}
@@ -200,7 +210,11 @@ function SalesChart() {
               );
             })}
           </div>
-        ) : null}
+        ) : (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            Sem vendas no periodo
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -539,10 +553,6 @@ export function DashboardContent({
           clique, antes de qualquer analise. */}
       <QuickLinks tenantSlug={tenantSlug} allowedModules={allowedModules} />
 
-      {/* Alertas — itens acionaveis/urgentes (OS atrasada, conta vencida,
-          estoque baixo) sobem pra perto do topo; so renderiza se houver algo. */}
-      <AlertsSection />
-
       {/* KPI Section: Vendas */}
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase text-muted-foreground tracking-wide">
@@ -627,6 +637,10 @@ export function DashboardContent({
         <SalesChart />
         <OrdersByStatus />
       </div>
+
+      {/* Alertas — itens acionaveis/urgentes (OS atrasada, conta vencida,
+          estoque baixo). So renderiza se houver algo. */}
+      <AlertsSection />
 
       {/* Recent Sales + Orders */}
       <div className="grid gap-4 md:grid-cols-2">
