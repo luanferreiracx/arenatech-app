@@ -241,7 +241,13 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
 
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-1.5">
-              {isDeposit ? "Voce recebe" : "Destinatario recebe"}
+              {["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(t.status)
+                ? "Valor (nao creditado)"
+                : isDeposit
+                  ? t.status === "COMPLETED"
+                    ? "Voce recebeu"
+                    : "Voce recebe"
+                  : "Destinatario recebe"}
             </p>
             <p className="text-4xl sm:text-5xl font-mono font-bold tabular-nums">
               {formatBRL(t.netAmountCents ?? t.grossAmountCents)}
