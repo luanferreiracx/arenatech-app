@@ -46,3 +46,32 @@ export function isPublicCatalogHost(host: string | null | undefined): boolean {
 export function isAppSubdomainHost(host: string | null | undefined): boolean {
   return APP_SUBDOMAIN_HOSTS.has(normalizeHost(host));
 }
+
+/**
+ * Host canônico de fallback para montar redirects quando o Host da requisição
+ * não é reconhecível (ex.: localhost em dev, ou `x-forwarded-host` forjado).
+ */
+export const CANONICAL_APP_HOST = "pdvdepix.app";
+
+/**
+ * Todos os hosts CONHECIDOS desta app (allowlist). Usado para decidir se um
+ * `Host`/`x-forwarded-host` da requisição é confiável o bastante para ecoar
+ * num redirect — senão um header forjado redirecionaria o usuário para
+ * `atacante.com/painel` (open-redirect/phishing). Inclui os hosts de
+ * dev/local porque o proxy roda igual em dev.
+ */
+const KNOWN_HOSTS = new Set([
+  ...PDVDEPIX_HOSTS,
+  ...PUBLIC_CATALOG_HOSTS,
+  ...APP_SUBDOMAIN_HOSTS,
+  "arenatechpi.com.br",
+  "www.arenatechpi.com.br",
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+]);
+
+/** O host pertence à allowlist de hosts conhecidos desta app? */
+export function isKnownHost(host: string | null | undefined): boolean {
+  return KNOWN_HOSTS.has(normalizeHost(host));
+}

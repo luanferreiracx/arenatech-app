@@ -10,7 +10,7 @@
 |---|---|---|
 | **P0** | 0 | — |
 | **P1** | 1 | ✅ **corrigido** — replay de backup code (consumo não-atômico) |
-| **P2** | 4 (1 ✅) | ✅ TOTP intra-window replay no step-up (corrigido); RBAC de comissões (operador); open-redirect via Host header; rate-limit por IP via X-Forwarded-For |
+| **P2** | 4 (3 ✅) | ✅ TOTP intra-window replay no step-up (corrigido); RBAC de comissões (operador); ✅ open-redirect via Host header (corrigido); ✅ rate-limit XFF (verificado — já pega o last-hop) |
 | **P3** | 5 | confirmRecovery queima código no erro parcial; flags de cookie explícitas; `.env`/exemplos; Chatwoot token em query; cap diário por-CPF |
 
 ---
@@ -36,15 +36,14 @@
 - **O quê:** **NÃO é cross-tenant** (roda em `withTenant` → RLS protege; o agente errou ao chamar de "P0"). Mas todo o módulo de comissões é `tenantProcedure` — um **operador comum** pode criar/excluir estornos de prestador e alterar regras de comissão (afeta o que a loja paga). É consistente no módulo (não é descuido pontual), então é **decisão de RBAC de produto**, não furo de segurança.
 - **Proposta (decisão do dono):** gatear escritas de comissão por `isTenantAdmin`/`can()` (como o financeiro sensível), OU manter por design (ADR 0053). Surface ao dono.
 
-### P2-3 · Open-redirect / host-injection via header
-- **Onde:** `src/proxy.ts` `selfUrl()` (64) — usa `x-forwarded-host`/`host` do request pra montar URLs de redirect.
-- **O quê:** os redirects vão pra paths FIXOS (`/painel`, `/login`, `/change-password`), mas o HOST vem do header do request. Atrás de Cloudflare/nginx (que setam o host real) o risco é baixo; se o nginx repassar um `x-forwarded-host` forjado, dá redirect pra `atacante.com/painel` (phishing).
-- **Proposta:** fixar o host de redirect numa allowlist conhecida (`app.arenatechpi.com.br`/`pdvdepix.app`) em vez de ecoar o header.
+### ✅ P2-3 · Open-redirect / host-injection via header (CORRIGIDO)
+- **Onde:** `src/proxy.ts` `selfUrl()` — usava `x-forwarded-host`/`host` do request pra montar URLs de redirect.
+- **O quê:** os redirects vão pra paths FIXOS (`/painel`, `/login`, `/change-password`), mas o HOST vinha do header do request. Atrás de Cloudflare/nginx (que setam o host real) o risco é baixo; se o nginx repassar um `x-forwarded-host` forjado, dava redirect pra `atacante.com/painel` (phishing).
+- **✅ Fix:** `isKnownHost()` (`src/lib/brand-host.ts`) — allowlist de hosts conhecidos (pdvdepix.app + aliases, app/catalogo.arenatechpi, arenatechpi.com.br, localhost). `selfUrl` só ecoa o host se estiver na allowlist; senão cai pro `CANONICAL_APP_HOST` (`pdvdepix.app`). Host forjado → redirect sempre pro host canônico, nunca pro atacante. +2 testes.
 
-### P2-4 · Rate-limit de login confia em X-Forwarded-For
-- **Onde:** `src/lib/rate-limit.ts` / `extractSourceIp`.
-- **O quê:** se a chave de rate-limit cai pra IP via `X-Forwarded-For` e o nginx não normaliza, um atacante forja o header e burla o limite por-IP. (O login também limita por identificador CPF/email, que mitiga.)
-- **Proposta:** confiar só no IP real do proxy (last hop) ou no identificador; não no XFF cru.
+### ✅ P2-4 · Rate-limit de login confia em X-Forwarded-For (JÁ MITIGADO — verificado)
+- **Onde:** `src/app/actions/auth.ts` `clientIp()` + `src/lib/webhooks/replay-guard.ts` `extractSourceIp()`.
+- **Verificado:** AMBOS os extratores já pegam o **ÚLTIMO** elemento do `X-Forwarded-For` (`.split(",").at(-1)`), que é o IP appendado pelo nginx confiável — não o primeiro (atacante-controlável). O comentário no código já documenta isso. **Não é furo de código.** O único risco residual é de **infra** (nginx mal-configurado que repasse o XFF cru sem appendar); isso é assunto de config do proxy, não da app. Login também limita por CPF (defense-in-depth). Sem mudança de código.
 
 ---
 
@@ -68,6 +67,6 @@
 ## Sugestão de ordem de execução
 1. **✅ P1 backup-code atômico** — feito (#318).
 2. **✅ P2-1 TOTP last-used** (anti-replay no step-up de saque) — feito (migration `20260628120000`).
-3. **P2-3/P2-4** (host allowlist no redirect + rate-limit sem XFF cru) — hardening rápido.
+3. **✅ P2-3** host allowlist no redirect — feito. **✅ P2-4** rate-limit — verificado (já pega o last-hop do XFF, sem mudança).
 4. **P2-2** comissões RBAC — gatear escritas por `isTenantAdmin`.
 5. **P3** — higiene conforme prioridade.
