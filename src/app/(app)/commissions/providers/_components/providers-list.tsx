@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Eye, Trash2, Plus } from "lucide-react";
+import { Search, Eye } from "lucide-react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import {
   PROVIDER_PROFILE_LABELS,
   PROVIDER_BOND_TYPE_LABELS,
 } from "@/lib/validators/provider-commission";
+import { NewProviderButton } from "./new-provider-button";
 
 export function ProvidersList() {
   const trpc = useTRPC();
@@ -33,14 +34,7 @@ export function ProvidersList() {
         title="Nenhum prestador cadastrado"
         description="Cadastre prestadores MEI/CLT para gerenciar comissoes com faixas progressivas"
         icon={Search}
-        action={
-          <Button asChild>
-            <Link href="/commissions/providers/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Novo prestador
-            </Link>
-          </Button>
-        }
+        action={<NewProviderButton />}
       />
     );
   }
