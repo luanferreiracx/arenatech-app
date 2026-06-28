@@ -1945,14 +1945,66 @@ export async function reconcileStaleDepixTransactions(opts?: {
     }
   }
 
+  // 2o PASSO: depositos ON-CHAIN sem id de provedor PIX (STATIC_QR / EXTERNAL_
+  // DEPOSIT) presos em PROCESSING com o DePix JA on-chain (depositTxId gravado).
+  // O 1o passo nao os pega (filtra pixpayDepixId != null) e o webhook do monitor
+  // LWK os reporta como no_label — entao se o `depix_sent` chegou ANTES de 2
+  // confirmacoes, o cross-check falhou e a tx ficou presa pra sempre. Aqui
+  // re-rodamos o cross-check + settle (idempotente) agora que confirmou.
+  const onchainStuck = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findMany({
+      where: {
+        kind: "DEPOSIT",
+        status: "PROCESSING",
+        pixpayDepixId: null,
+        depositTxId: { not: null },
+        createdAt: { lt: olderThan },
+      },
+      orderBy: { createdAt: "asc" },
+      take: opts?.limit ?? 50,
+      select: {
+        id: true,
+        tenantId: true,
+        depositTxId: true,
+        depositLabel: true,
+        depositAddress: true,
+        depositReceivingTenantId: true,
+        grossAmountCents: true,
+      },
+    }),
+  );
+  let onchainReconciled = 0;
+  for (const row of onchainStuck) {
+    try {
+      await creditDepositIfConfirmedOnChain(row);
+      const after = await withAdmin(async (tx) =>
+        tx.tenantDepixTransaction.findUnique({ where: { id: row.id }, select: { status: true } }),
+      );
+      if (after?.status === "COMPLETED") onchainReconciled += 1;
+    } catch (err) {
+      errors += 1;
+      logger.warn("reconcileStaleDepixTransactions: erro no credito on-chain", {
+        txId: row.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   logger.info("reconcileStaleDepixTransactions: lote processado", {
-    scanned: stale.length,
-    reconciled,
+    scanned: stale.length + onchainStuck.length,
+    reconciled: reconciled + onchainReconciled,
+    onchainReconciled,
     unchanged,
     errors,
     stuckWithdrawals,
   });
-  return { scanned: stale.length, reconciled, unchanged, errors, stuckWithdrawals };
+  return {
+    scanned: stale.length + onchainStuck.length,
+    reconciled: reconciled + onchainReconciled,
+    unchanged,
+    errors,
+    stuckWithdrawals,
+  };
 }
 
 /** Formata um Date como YYYY-MM-DD (UTC) para os filtros do extrato Eulen. */
