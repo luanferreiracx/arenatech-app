@@ -401,6 +401,15 @@ export const financialRouter = createTRPCRouter({
   cancel: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // RBAC: cancelar uma conta a receber/pagar (e suas parcelas) e operacao de
+      // gestao financeira — restringe a admin do tenant, alinhado com
+      // `reverseInstallment` (estorno tambem e admin).
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem cancelar transacoes financeiras",
+        });
+      }
       return ctx.withTenant(async (tx) => {
         const existing = await tx.financialTransaction.findFirst({
           where: { id: input.id, deletedAt: null },

@@ -7,6 +7,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
+import { isTenantAdmin } from "@/lib/auth/roles"
 import { logger } from "@/lib/logger"
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -364,6 +365,14 @@ export const rewardRouter = createTRPCRouter({
       percentage: z.number().min(0).max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // RBAC: aprovar recompensa credita beneficio/cashback ao cliente (movimento
+      // financeiro) — restringe a admin do tenant.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem aprovar recompensas",
+        })
+      }
       return ctx.withTenant(async (tx) => {
         const action = await tx.rewardAction.findUnique({ where: { id: input.actionId } })
         if (!action) throw new TRPCError({ code: "NOT_FOUND" })
@@ -430,6 +439,14 @@ export const rewardRouter = createTRPCRouter({
       reason: z.string().min(1).max(500),
     }))
     .mutation(async ({ ctx, input }) => {
+      // RBAC: cancelar recompensa aprovada reverte cashback/beneficio (movimento
+      // financeiro) — restringe a admin do tenant.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem cancelar recompensas",
+        })
+      }
       return ctx.withTenant(async (tx) => {
         const action = await tx.rewardAction.findUnique({ where: { id: input.actionId } })
         if (!action || !["PENDING", "APPROVED"].includes(action.status)) {

@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { ArrowLeft, Ban, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -79,6 +80,7 @@ interface TransactionDetailProps {
 
 export function TransactionDetail({ transactionId }: TransactionDetailProps) {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const queryClient = useQueryClient();
 
   const [showPayDialog, setShowPayDialog] = useState(false);
@@ -191,7 +193,10 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
 
   const t = query.data;
   const isReceivable = t.type === "RECEIVABLE";
-  const canCancel = !["PAID", "CANCELLED"].includes(t.status);
+  // Cancelar conta e estornar parcela paga sao operacoes de admin no server
+  // (financial.cancel / financial.reverseInstallment). Esconde os botoes pra
+  // operador comum em vez de mostrar um CTA que daria FORBIDDEN.
+  const canCancel = isAdmin && !["PAID", "CANCELLED"].includes(t.status);
   const paidInstallments = t.installments?.filter((i) => i.status === "PAID").length ?? 0;
   const totalInstallments = t.installments?.length ?? 0;
 
@@ -391,7 +396,7 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                           Baixar
                         </Button>
                       )}
-                      {inst.status === "PAID" && (
+                      {inst.status === "PAID" && isAdmin && (
                         <Button
                           size="sm"
                           variant="outline"
