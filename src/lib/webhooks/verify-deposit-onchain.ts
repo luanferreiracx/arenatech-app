@@ -17,6 +17,16 @@ export const MIN_CONFIRMATIONS = Number(process.env.LWK_MIN_CONFIRMATIONS ?? "2"
 /** Tolerancia de centavos no cross-check do amount (lida com arredondamento). */
 export const AMOUNT_TOLERANCE_CENTS = 1;
 
+/**
+ * A Eulen desconta R$ 0,99 fixo do deposito ANTES de enviar o DePix on-chain.
+ * Quando o `expectedAmount` e o valor CHEIO (ex.: QR estatico usa o valueInCents
+ * da Eulen, ou a reconciliacao usa o grossAmountCents), o on-chain chega ATE
+ * 99c MENOR — e isso e legitimo, nao um mismatch. O deposito normal nao precisa
+ * disso (compara com o `depix.amount` do monitor, que ja e o valor on-chain real),
+ * mas aceitar a folga PRA BAIXO nao o enfraquece: nunca aceitamos valor a MAIS.
+ */
+export const EULEN_DEPOSIT_FEE_CENTS = 99;
+
 export interface CrossCheckResult {
   ok: boolean;
   reason?: string;
@@ -32,13 +42,17 @@ export interface CrossCheckResult {
  *   1. txid existe na carteira do tenant
  *   2. confirmations >= MIN_CONFIRMATIONS
  *   3. balance contem entrada DePix (is_depix=true)
- *   4. amount on-chain == amount esperado (tolerancia de 1 centavo)
+ *   4. amount on-chain dentro da faixa esperada: nunca mais que +1c acima do
+ *      esperado (anti-forja), e ate `maxUnderpayCents` abaixo (taxa fixa Eulen).
  */
 export async function verifyDepositOnChain(args: {
   tenantId: string;
   txid: string;
   expectedAmount: number;
   expectedAddress: string | null;
+  /** Quanto o on-chain pode ser MENOR que o esperado (default = taxa Eulen 99c).
+   *  Use 0 quando o `expectedAmount` JA e o valor liquido on-chain. */
+  maxUnderpayCents?: number;
 }): Promise<CrossCheckResult> {
   void args.expectedAddress; // LWK nao expoe address por output ainda — campo reservado
   const lwkResult = await lwk.listTransactions(args.tenantId, 50);
@@ -66,11 +80,17 @@ export async function verifyDepositOnChain(args: {
   if (onchainDepixAmount <= 0) {
     return { ok: false, reason: "no_depix_in_tx", onchainAmount: 0 };
   }
-  const diffCents = Math.round(Math.abs(onchainDepixAmount - args.expectedAmount) * 100);
-  if (diffCents > AMOUNT_TOLERANCE_CENTS) {
+  // Faixa aceita: [expected − maxUnderpay, expected + tolerancia].
+  // - Acima do esperado: so a tolerancia de arredondamento (anti-forja).
+  // - Abaixo: ate a taxa fixa da Eulen (o on-chain ja vem liquido dela).
+  const maxUnderpayCents = args.maxUnderpayCents ?? EULEN_DEPOSIT_FEE_CENTS;
+  const deltaCents = Math.round((onchainDepixAmount - args.expectedAmount) * 100);
+  const tooHigh = deltaCents > AMOUNT_TOLERANCE_CENTS;
+  const tooLow = deltaCents < -maxUnderpayCents;
+  if (tooHigh || tooLow) {
     return {
       ok: false,
-      reason: `amount_mismatch: payload=${args.expectedAmount} onchain=${onchainDepixAmount}`,
+      reason: `amount_mismatch: expected=${args.expectedAmount} onchain=${onchainDepixAmount}`,
       onchainAmount: onchainDepixAmount,
     };
   }
