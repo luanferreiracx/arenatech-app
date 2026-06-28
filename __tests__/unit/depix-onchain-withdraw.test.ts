@@ -67,6 +67,12 @@ vi.mock("@/server/services/depix-lbtc-refill.service", () => ({
   ensureLbtcFor: (...a: unknown[]) => ensureLbtcFor(...a),
 }));
 
+const getFeeWalletMasterAddress = vi.fn();
+vi.mock("@/server/services/depix-fee-wallet.service", () => ({
+  getFeeWalletMasterAddress: (...a: unknown[]) => getFeeWalletMasterAddress(...a),
+  getFeeWalletTenantId: vi.fn(),
+}));
+
 import { createOnchainWithdraw } from "@/server/services/depix-transaction.service";
 
 const TENANT = CENTRAL;
@@ -78,8 +84,10 @@ beforeEach(() => {
     walletFindUnique, feeConfigFindUnique, aggregate, txCreate, txUpdate,
     txFindFirst, ledgerCreate, executeRaw, tenantFindUnique, getBalance, transfer,
     ensureLbtcFor,
+    getFeeWalletMasterAddress,
   ]) m.mockReset();
   ensureLbtcFor.mockResolvedValue({ skipped: true });
+  getFeeWalletMasterAddress.mockResolvedValue("lq1feewalletmaster");
 
   // getCentralTenantId resolve p/ o nosso TENANT -> e o central (fee zero, cap isento).
   tenantFindUnique.mockResolvedValue({ id: CENTRAL });
@@ -120,6 +128,30 @@ describe("createOnchainWithdraw", () => {
     const upd = txUpdate.mock.calls.at(-1)![0] as { data: { status: string; withdrawTxId: string } };
     expect(upd.data.status).toBe("COMPLETED");
     expect(upd.data.withdrawTxId).toBe("liquid-txid-1");
+  });
+
+  it("usa a taxa ON-CHAIN propria (2o output da taxa), nao a do PIX", async () => {
+    // Tenant nao-central com taxa on-chain 1% (e exitFee PIX alto, que NAO deve ser usado).
+    feeConfigFindUnique.mockResolvedValue({
+      entryFeeFixed: 0, entryFeePercent: 0,
+      exitFeeFixed: 999, exitFeePercent: 5, // PIX — ignorar
+      onchainFeeFixed: 0, onchainFeePercent: 1, // on-chain — usar
+    });
+    walletFindUnique.mockResolvedValue({
+      custodyModel: "custodial", encryptedSeed: null, masterAddress: "lq1feemaster",
+    });
+    getBalance.mockResolvedValue({ success: true, depixBalance: 200 }); // folga p/ gross R$101
+    transfer.mockResolvedValue({ success: true, txid: "liquid-txid-3" });
+
+    await createOnchainWithdraw({
+      tenantId: NON_CENTRAL, userId: "u1", toAddress: ADDR, amountCents: 10000, // R$100
+    });
+
+    const recipients = transfer.mock.calls[0]![1] as Array<{ to: string; amountBrl: number }>;
+    // 2 outputs: destino externo (R$100) + taxa on-chain (1% = R$1) p/ a carteira de taxas.
+    expect(recipients).toHaveLength(2);
+    expect(recipients[0]).toMatchObject({ to: ADDR, amountBrl: 100 });
+    expect(recipients[1]!.amountBrl).toBeCloseTo(1, 2);
   });
 
   it("seeda L-BTC ANTES do transfer (resolve ovo-e-galinha do 1o saque)", async () => {

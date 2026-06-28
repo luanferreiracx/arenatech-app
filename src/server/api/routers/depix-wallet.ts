@@ -62,6 +62,8 @@ export const depixWalletRouter = createTRPCRouter({
       entryFeePercent: decimalToNumber(cfg.entryFeePercent),
       exitFeeFixed: cfg.exitFeeFixed,
       exitFeePercent: decimalToNumber(cfg.exitFeePercent),
+      onchainFeeFixed: cfg.onchainFeeFixed,
+      onchainFeePercent: decimalToNumber(cfg.onchainFeePercent),
       isCentralTenant,
     };
   }),
