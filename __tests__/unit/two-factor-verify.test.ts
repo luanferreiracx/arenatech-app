@@ -5,17 +5,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findUnique = vi.fn();
-const verifyTotp = vi.fn();
+const verifyTotpReturningCounter = vi.fn();
 const consumeBackupCodeAtomic = vi.fn();
+const markTotpCounterUsedAtomic = vi.fn();
 const decryptSecret = vi.fn();
 
 vi.mock("@/lib/auth/two-factor", () => ({
   decryptSecret: (...a: unknown[]) => decryptSecret(...a),
-  verifyTotp: (...a: unknown[]) => verifyTotp(...a),
+  verifyTotpReturningCounter: (...a: unknown[]) => verifyTotpReturningCounter(...a),
 }));
 
 vi.mock("@/server/services/backup-code.service", () => ({
   consumeBackupCodeAtomic: (...a: unknown[]) => consumeBackupCodeAtomic(...a),
+  markTotpCounterUsedAtomic: (...a: unknown[]) => markTotpCounterUsedAtomic(...a),
 }));
 
 vi.mock("@/server/db", () => ({
@@ -36,7 +38,7 @@ describe("verifyUserTwoFactor", () => {
     findUnique.mockResolvedValue({ twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] });
     const r = await verifyUserTwoFactor(USER, "123456");
     expect(r).toEqual({ ok: false, reason: "not_enrolled" });
-    expect(verifyTotp).not.toHaveBeenCalled();
+    expect(verifyTotpReturningCounter).not.toHaveBeenCalled();
   });
 
   it("bloqueia quando enabled mas sem segredo (estado inconsistente)", async () => {
@@ -51,11 +53,23 @@ describe("verifyUserTwoFactor", () => {
     expect(r).toEqual({ ok: false, reason: "invalid_code" });
   });
 
-  it("aceita TOTP valido", async () => {
+  it("aceita TOTP valido (passo novo) e marca o counter ATOMICAMENTE", async () => {
     findUnique.mockResolvedValue({ twoFactorEnabled: true, twoFactorSecret: "enc", twoFactorBackupCodes: [] });
-    verifyTotp.mockReturnValue(true);
+    verifyTotpReturningCounter.mockReturnValue(1000);
+    markTotpCounterUsedAtomic.mockResolvedValue(true); // counter novo aceito
     const r = await verifyUserTwoFactor(USER, "123456");
     expect(r).toEqual({ ok: true });
+    expect(markTotpCounterUsedAtomic).toHaveBeenCalledWith(expect.anything(), USER, 1000);
+    expect(consumeBackupCodeAtomic).not.toHaveBeenCalled();
+  });
+
+  it("rejeita TOTP reusado (replay) — mesmo counter ja consumido", async () => {
+    findUnique.mockResolvedValue({ twoFactorEnabled: true, twoFactorSecret: "enc", twoFactorBackupCodes: [] });
+    verifyTotpReturningCounter.mockReturnValue(1000);
+    markTotpCounterUsedAtomic.mockResolvedValue(false); // counter <= ultimo usado → replay
+    const r = await verifyUserTwoFactor(USER, "123456");
+    expect(r).toEqual({ ok: false, reason: "invalid_code" });
+    // NAO cai pra backup code quando o TOTP casa mas e replay.
     expect(consumeBackupCodeAtomic).not.toHaveBeenCalled();
   });
 
@@ -65,7 +79,7 @@ describe("verifyUserTwoFactor", () => {
       twoFactorSecret: "enc",
       twoFactorBackupCodes: ["h1", "h2"],
     });
-    verifyTotp.mockReturnValue(false);
+    verifyTotpReturningCounter.mockReturnValue(null);
     consumeBackupCodeAtomic.mockResolvedValue(true); // consumiu
     const r = await verifyUserTwoFactor(USER, "BACKUP-CODE");
     expect(r).toEqual({ ok: true });
@@ -78,7 +92,7 @@ describe("verifyUserTwoFactor", () => {
       twoFactorSecret: "enc",
       twoFactorBackupCodes: ["h1"],
     });
-    verifyTotp.mockReturnValue(false);
+    verifyTotpReturningCounter.mockReturnValue(null);
     consumeBackupCodeAtomic.mockResolvedValue(false);
     const r = await verifyUserTwoFactor(USER, "999999");
     expect(r).toEqual({ ok: false, reason: "invalid_code" });

@@ -30,3 +30,27 @@ export async function consumeBackupCodeAtomic(tx: Tx, userId: string, code: stri
   );
   return affected === 1;
 }
+
+/**
+ * Marca um passo TOTP como usado de forma ATÔMICA (anti-replay — P2-1).
+ *
+ * Aceita o código SÓ se o `counter` for ESTRITAMENTE MAIOR que o último já
+ * aceito (`two_factor_last_used_counter`). Assim o MESMO código de 6 dígitos
+ * (mesmo counter) não autoriza duas operações dentro da janela (~30-90s), e não
+ * dá pra "voltar" pra um código mais antigo. Atômico: duas requisições
+ * concorrentes com o mesmo código → só uma afeta a linha (count=1).
+ *
+ * Retorna `true` se ESTE chamador "venceu" (counter novo aceito); `false` se for
+ * replay (counter <= último usado).
+ */
+export async function markTotpCounterUsedAtomic(tx: Tx, userId: string, counter: number): Promise<boolean> {
+  const affected = await tx.$executeRaw(
+    Prisma.sql`
+      UPDATE "users"
+      SET "two_factor_last_used_counter" = ${counter}
+      WHERE "id" = ${userId}::uuid
+        AND ("two_factor_last_used_counter" IS NULL OR "two_factor_last_used_counter" < ${counter})
+    `,
+  );
+  return affected === 1;
+}
