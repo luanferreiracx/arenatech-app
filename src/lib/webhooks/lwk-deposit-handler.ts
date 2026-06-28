@@ -109,6 +109,8 @@ export async function handleLwkDepositWebhook(
       txid,
       expectedAmount: depixAmount,
       expectedAddress: payload.label?.address ?? null,
+      // depixAmount vem do monitor LWK = valor on-chain REAL -> match exato.
+      maxUnderpayCents: 0,
     });
     if (!crossCheck.ok) {
       logger.warn("LWK webhook externo: cross-check on-chain falhou — ignorando", {
@@ -206,6 +208,8 @@ export async function handleLwkDepositWebhook(
     txid,
     expectedAmount: depixAmount,
     expectedAddress: payload.label?.address ?? null,
+    // depixAmount vem do monitor LWK = valor on-chain REAL -> match exato.
+    maxUnderpayCents: 0,
   });
   if (!crossCheck.ok) {
     logger.error("LWK webhook: cross-check on-chain falhou — rejeitando deposito", {
