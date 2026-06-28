@@ -198,7 +198,20 @@ describe("tenant user schemas", () => {
     expect(createTenantUserSchema.safeParse({ ...validCreate, cpf: "12345678901" }).success).toBe(false);
   });
 
-  it("aceita atualizar usuario de tenant", () => {
+  it("aceita atualizar usuario de tenant (com email + WhatsApp)", () => {
+    expect(updateTenantUserSchema.safeParse({
+      tenantId: UUID,
+      userId: UUID,
+      name: "Maria Silva",
+      email: "maria@test.com",
+      phone: "86999999999",
+      role: "admin",
+    }).success).toBe(true);
+  });
+
+  it("EXIGE email + WhatsApp ao criar/atualizar usuario de tenant", () => {
+    expect(createTenantUserSchema.safeParse({ ...validCreate, email: "", phone: "86999999999" }).success).toBe(false);
+    expect(createTenantUserSchema.safeParse({ ...validCreate, email: "maria@test.com", phone: "" }).success).toBe(false);
     expect(updateTenantUserSchema.safeParse({
       tenantId: UUID,
       userId: UUID,
@@ -206,7 +219,7 @@ describe("tenant user schemas", () => {
       email: null,
       phone: null,
       role: "admin",
-    }).success).toBe(true);
+    }).success).toBe(false);
   });
 
   it("rejeita role invalida ao atualizar usuario de tenant", () => {

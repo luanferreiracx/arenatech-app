@@ -423,6 +423,7 @@ export const settingsRouter = createTRPCRouter({
                 cpf: true,
                 name: true,
                 email: true,
+                phone: true,
                 createdAt: true,
               },
             },
@@ -444,6 +445,10 @@ export const settingsRouter = createTRPCRouter({
           name: ut.user.name,
           cpf: ut.user.cpf,
           email: ut.user.email,
+          phone: ut.user.phone,
+          // Sinaliza cadastro incompleto: sem email OU sem WhatsApp o usuário não
+          // consegue recuperar o 2FA (pré-req de saque). A UI destaca esses.
+          contactIncomplete: !ut.user.email || !ut.user.phone,
           createdAt: ut.user.createdAt,
         }));
 
