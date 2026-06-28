@@ -11,7 +11,7 @@
 | **P0** | 0 | — |
 | **P1** | 1 | ✅ **corrigido** — replay de backup code (consumo não-atômico) |
 | **P2** | 4 (4 ✅) | ✅ TOTP intra-window replay no step-up; ✅ RBAC de comissões (agora admin); ✅ open-redirect via Host header; ✅ rate-limit XFF (verificado — já pega o last-hop) |
-| **P3** | 5 | confirmRecovery queima código no erro parcial; flags de cookie explícitas; `.env`/exemplos; Chatwoot token em query; cap diário por-CPF |
+| **P3** | 5 (1 ✅, 3 N/A) | ✅ confirmRecovery queimava código no erro parcial (corrigido); cookie flags (default NextAuth OK); `.env` (sem secret); Chatwoot token (já em header — FP); cap diário por-CPF (decisão de produto) |
 
 ---
 
@@ -48,11 +48,11 @@
 ---
 
 ## P3 — hardening (baixa prioridade)
-- **confirmRecovery queima o código do email no erro parcial** (`two-factor.ts`): se o email valida mas o WhatsApp falha, o código do email já foi consumido → UX (re-enviar). **Fail-closed** (não desativa 2FA sem os dois) — não é furo. Melhoria: só consumir após ambos validarem.
-- **Flags de cookie de sessão** (NextAuth): garantir `Secure`+`HttpOnly`+`SameSite` explícitos e prefixo `__Secure-`/`__Host-` em prod (NextAuth já faz por padrão; tornar explícito).
-- **`.env`/exemplos** com valores de dev versionados — revisar (não há secret de prod no repo; já verificado).
-- **Chatwoot token em query string** pode ir pra logs — mover pra header.
-- **Cap diário de saque é por-tenant, não por-CPF** — concentração não controlada (Eulen pode recusar). Decisão de produto.
+- **✅ confirmRecovery queimava o código do email no erro parcial** (`two-factor.ts`): se o email validava mas o WhatsApp falhava, o código do email já tinha sido consumido → UX (re-enviar os dois). **Fix:** `verifyCode(..., { consume: false })` nos dois canais + `consumeCode` só após ambos passarem — um código correto não é queimado pelo erro do outro canal. Anti-brute-force preservado (mismatch ainda incrementa tentativas). +3 testes.
+- **Chatwoot token em query string** → **FALSO-POSITIVO**: o token (`api_access_token`) já vai no **header**, nunca na URL (`src/lib/talison/chatwoot-client.ts:38`). Sem mudança.
+- **Flags de cookie de sessão** (NextAuth v5): com `trustHost:true` + HTTPS em prod, o NextAuth já aplica `Secure`+`HttpOnly`+`SameSite=Lax` e prefixo `__Secure-`/`__Host-` por padrão. Tornar explícito é churn de risco > ganho — **mantido no default** (verificado).
+- **`.env`/exemplos** com valores de dev versionados — revisado: **não há secret de prod no repo**.
+- **Cap diário de saque é por-tenant, não por-CPF** — concentração não controlada (Eulen pode recusar). **Decisão de produto** (fora de higiene).
 
 ---
 
@@ -69,4 +69,10 @@
 2. **✅ P2-1 TOTP last-used** (anti-replay no step-up de saque) — feito (migration `20260628120000`).
 3. **✅ P2-3** host allowlist no redirect — feito. **✅ P2-4** rate-limit — verificado (já pega o last-hop do XFF, sem mudança).
 4. **✅ P2-2** comissões RBAC — feito (escritas → `tenantAdminProcedure` + UI gated).
-5. **P3** — higiene conforme prioridade.
+5. **✅ P3** — confirmRecovery sem partial-burn feito; resto N/A ou decisão de produto.
+
+---
+
+## Status final
+
+**Todos os achados acionáveis fechados.** 0 P0; P1 (backup-code) ✅; P2-1/P2-2/P2-3 ✅, P2-4 verificado-seguro; P3 (confirmRecovery) ✅, demais P3 são falso-positivo/default-seguro/decisão de produto. PRs: #318 (P1), #319 (P2-1), #321 (P2-3), #322 (P2-2), #323 (P3).

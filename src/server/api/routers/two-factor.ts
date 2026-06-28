@@ -16,7 +16,7 @@ import {
   isTwoFactorConfigured,
   verifyTotp,
 } from "@/lib/auth/two-factor";
-import { issueVerificationCode, verifyCode } from "@/server/services/verification.service";
+import { consumeCode, issueVerificationCode, verifyCode } from "@/server/services/verification.service";
 import { rateLimit } from "@/lib/rate-limit";
 
 const totpCodeSchema = z
@@ -278,14 +278,20 @@ export const twoFactorRouter = createTRPCRouter({
         });
       }
 
-      const emailRes = await verifyCode(user.email, "EMAIL", input.emailCode);
-      const waRes = await verifyCode(user.phone, "WHATSAPP", input.whatsappCode);
+      // Valida AMBOS os códigos SEM consumir — só queima os dois se os dois
+      // passarem. Senão, um código correto seria invalidado porque o OUTRO canal
+      // falhou (o usuário teria de re-pedir os dois). O contador de tentativas
+      // ainda incrementa no mismatch (anti-brute-force preservado).
+      const emailRes = await verifyCode(user.email, "EMAIL", input.emailCode, { consume: false });
+      const waRes = await verifyCode(user.phone, "WHATSAPP", input.whatsappCode, { consume: false });
       if (!emailRes.ok || !waRes.ok) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Código do email ou do WhatsApp inválido/expirado. Reenvie e tente novamente.",
         });
       }
+      await consumeCode(user.email, "EMAIL");
+      await consumeCode(user.phone, "WHATSAPP");
 
       await prisma.user.update({
         where: { id: ctx.session.user.id },
