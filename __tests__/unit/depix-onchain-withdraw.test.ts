@@ -62,16 +62,24 @@ vi.mock("@/lib/depix/receipt-url", () => ({ extractDepixWithdrawReceiptUrl: () =
 vi.mock("@/lib/webhooks/depix-deposit-propagate", () => ({ propagateDepositNotPaid: vi.fn() }));
 vi.mock("@/lib/webhooks/verify-deposit-onchain", () => ({ verifyDepositOnChain: vi.fn() }));
 
+const ensureLbtcFor = vi.fn();
+vi.mock("@/server/services/depix-lbtc-refill.service", () => ({
+  ensureLbtcFor: (...a: unknown[]) => ensureLbtcFor(...a),
+}));
+
 import { createOnchainWithdraw } from "@/server/services/depix-transaction.service";
 
 const TENANT = CENTRAL;
+const NON_CENTRAL = "55555555-5555-5555-5555-555555555555";
 const ADDR = "lq1qqexternaldestaddr00000000000000000000";
 
 beforeEach(() => {
   for (const m of [
     walletFindUnique, feeConfigFindUnique, aggregate, txCreate, txUpdate,
     txFindFirst, ledgerCreate, executeRaw, tenantFindUnique, getBalance, transfer,
+    ensureLbtcFor,
   ]) m.mockReset();
+  ensureLbtcFor.mockResolvedValue({ skipped: true });
 
   // getCentralTenantId resolve p/ o nosso TENANT -> e o central (fee zero, cap isento).
   tenantFindUnique.mockResolvedValue({ id: CENTRAL });
@@ -112,6 +120,26 @@ describe("createOnchainWithdraw", () => {
     const upd = txUpdate.mock.calls.at(-1)![0] as { data: { status: string; withdrawTxId: string } };
     expect(upd.data.status).toBe("COMPLETED");
     expect(upd.data.withdrawTxId).toBe("liquid-txid-1");
+  });
+
+  it("seeda L-BTC ANTES do transfer (resolve ovo-e-galinha do 1o saque)", async () => {
+    transfer.mockResolvedValue({ success: true, txid: "liquid-txid-2" });
+    // Tenant nao-central tem taxa -> resolve arena master (precisa de masterAddress).
+    walletFindUnique.mockResolvedValue({
+      custodyModel: "custodial",
+      encryptedSeed: null,
+      masterAddress: "lq1arenamaster",
+    });
+
+    await createOnchainWithdraw({
+      tenantId: NON_CENTRAL, userId: "u1", toAddress: ADDR, amountCents: 5000,
+    });
+
+    // Refill de L-BTC chamado pro tenant ANTES do transfer.
+    expect(ensureLbtcFor).toHaveBeenCalledWith(NON_CENTRAL, { source: "auto" });
+    const seedOrder = ensureLbtcFor.mock.invocationCallOrder[0]!;
+    const transferOrder = transfer.mock.invocationCallOrder[0]!;
+    expect(seedOrder).toBeLessThan(transferOrder);
   });
 
   it("saldo insuficiente -> barra antes de transferir", async () => {

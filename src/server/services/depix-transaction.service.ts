@@ -178,6 +178,27 @@ async function nextTransactionNumber(
   return `${prefix}${String(seq).padStart(5, "0")}`;
 }
 
+/**
+ * Garante L-BTC na carteira do tenant ANTES do saque on-chain (PIX ou externo).
+ *
+ * Toda tx Liquid paga fee de rede em L-BTC. O refill automatico so rodava APOS um
+ * saque concluido (`onWithdrawCompleted`) — entao o PRIMEIRO saque de um tenant
+ * com 0 L-BTC falhava com `insufficient_lbtc` (ovo-e-galinha). Aqui topamos o
+ * L-BTC ANTES do transfer. Best-effort: se o central estiver sem L-BTC, nao
+ * bloqueia (o proprio transfer dará o erro claro); idempotente por janela de 1h.
+ */
+async function ensureLbtcBeforeWithdraw(tenantId: string): Promise<void> {
+  try {
+    const { ensureLbtcFor } = await import("./depix-lbtc-refill.service");
+    await ensureLbtcFor(tenantId, { source: "auto" });
+  } catch (err) {
+    logger.warn("ensureLbtcBeforeWithdraw: refill falhou (segue; transfer dará o erro)", {
+      tenantId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 /** Endereco mestre do tenant central (destino da taxa Arena Tech on-chain). */
 async function getArenaMasterAddress(): Promise<string> {
   const tenant = await withAdmin(async (tx) =>
@@ -1156,6 +1177,10 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
   const centralId = await getCentralTenantId();
 
+  // Garante L-BTC pra fee de rede ANTES do transfer (resolve o ovo-e-galinha do
+  // 1o saque de um tenant com 0 L-BTC). Best-effort; central é a fonte (skip).
+  await ensureLbtcBeforeWithdraw(args.tenantId);
+
   // SEÇÃO CRÍTICA (anti-race de saques concorrentes — M2 da auditoria):
   // ler a reserva + validar saldo + cap diário + criar o PENDING numa ÚNICA
   // transação, serializada por advisory lock por tenant. Sem isto, 2 saques
@@ -1476,6 +1501,10 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
   }
   const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
   const centralId = await getCentralTenantId();
+
+  // Garante L-BTC pra fee de rede ANTES do envio on-chain (ovo-e-galinha do 1o
+  // saque). Best-effort; central é a fonte (skip).
+  await ensureLbtcBeforeWithdraw(args.tenantId);
 
   // SEÇÃO CRÍTICA (idêntica ao createWithdraw — anti-race M2): lock + reserva +
   // cap + criação do PENDING numa única transação. O envio on-chain fica FORA.
