@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Wallet, AlertTriangle, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FeeConfigEditor } from "./_components/fee-config-editor";
+import { SendOnchainDialog } from "./_components/send-onchain-dialog";
 
 function formatBRL(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -31,6 +32,10 @@ export default function DepixFeesAdminPage() {
   });
   const txQuery = useQuery({
     ...trpc.depixFeeWalletAdmin.transactions.queryOptions(),
+    refetchInterval: 30_000,
+  });
+  const ledgerQuery = useQuery({
+    ...trpc.depixFeeWalletAdmin.feeLedger.queryOptions({ limit: 100 }),
     refetchInterval: 30_000,
   });
 
@@ -77,7 +82,7 @@ export default function DepixFeesAdminPage() {
     <div className="space-y-5 animate-in fade-in duration-300">
       <PageHeader
         title="Carteira de Taxas (DePix)"
-        subtitle="Carteira custodial que recebe depósitos de tenants non-custodial, retém a taxa Arena Tech e repassa o líquido."
+        subtitle="Recebe a taxa Arena (split nativo no depósito + taxa de saque) e recarrega L-BTC dos tenants. A receita real está em 'Taxas recebidas'."
       />
 
       {/* Status da carteira */}
@@ -103,14 +108,17 @@ export default function DepixFeesAdminPage() {
                 </p>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void statusQuery.refetch()}
-              disabled={statusQuery.isFetching}
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", statusQuery.isFetching && "animate-spin")} />
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <SendOnchainDialog balanceCents={Math.round((status.depixBalance ?? 0) * 100)} />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void statusQuery.refetch()}
+                disabled={statusQuery.isFetching}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", statusQuery.isFetching && "animate-spin")} />
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-4">
@@ -134,13 +142,71 @@ export default function DepixFeesAdminPage() {
       {/* Editor de taxas por tenant */}
       <FeeConfigEditor />
 
-      {/* Extrato on-chain */}
+      {/* Taxas recebidas (fonte de verdade = ledger) */}
+      <Card className="overflow-hidden">
+        <div className="p-4 border-b border-border">
+          <h3 className="text-sm font-semibold">Taxas recebidas</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Receita real de intermediação (cada taxa cobrada por depósito/saque, por tenant).
+            {ledgerQuery.data && (
+              <>
+                {" "}Total liquidado:{" "}
+                <span className="font-mono tabular-nums text-emerald-500">
+                  {formatBRL(ledgerQuery.data.totalSettledCents)}
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+        {ledgerQuery.isLoading ? (
+          <div className="p-6 text-center text-xs text-muted-foreground">Carregando…</div>
+        ) : (ledgerQuery.data?.items ?? []).length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">Nenhuma taxa ainda</div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {(ledgerQuery.data?.items ?? []).map((f) => (
+              <li key={f.id} className="flex items-center justify-between gap-3 p-3 text-xs">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{f.tenantName}</p>
+                  <p className="text-muted-foreground">
+                    {f.kind === "DEPOSIT" ? "Depósito" : "Saque"}
+                    {" · "}
+                    {new Date(f.createdAt).toLocaleString("pt-BR")}
+                    {f.settlementTxId && (
+                      <>
+                        {" · "}
+                        <a
+                          href={`https://blockstream.info/liquid/tx/${f.settlementTxId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline font-mono"
+                        >
+                          {f.settlementTxId.slice(0, 8)}…
+                        </a>
+                      </>
+                    )}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono tabular-nums text-emerald-500">+{formatBRL(f.amountCents)}</p>
+                  {f.status !== "SETTLED" && (
+                    <p className="text-[10px] uppercase tracking-wider text-amber-500">pendente</p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* Movimentações on-chain (bruto — NÃO é só taxa) */}
       <Card className="overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold">Extrato (on-chain)</h3>
+            <h3 className="text-sm font-semibold">Movimentações on-chain</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Taxas recebidas (entradas) e envios/recargas de L-BTC (saídas) — últimas 50 transações.
+              Todas as entradas/saídas de DePix e L-BTC da carteira — últimas 50. Nem toda entrada é
+              taxa (a receita real está acima).
             </p>
           </div>
           <Button
@@ -161,13 +227,13 @@ export default function DepixFeesAdminPage() {
         ) : (
           <ul className="divide-y divide-border">
             {(txQuery.data?.transactions ?? []).map((t) => {
-              const isFeeIn = t.depixDeltaCents > 0;
+              const isDepixIn = t.depixDeltaCents > 0;
               const isDepixOut = t.depixDeltaCents < 0;
-              const label = isFeeIn
-                ? "Taxa recebida"
+              const label = isDepixIn
+                ? "Entrada DePix"
                 : isDepixOut
-                  ? "Envio DePix"
-                  : "Recarga L-BTC";
+                  ? "Saída DePix"
+                  : "Movimentação L-BTC";
               return (
                 <li key={t.txid} className="flex items-center justify-between gap-3 p-3 text-xs">
                   <div className="min-w-0 flex-1">
@@ -193,10 +259,10 @@ export default function DepixFeesAdminPage() {
                       <p
                         className={cn(
                           "font-mono tabular-nums",
-                          isFeeIn ? "text-emerald-500" : "text-rose-500",
+                          isDepixIn ? "text-emerald-500" : "text-rose-500",
                         )}
                       >
-                        {isFeeIn ? "+" : "−"}
+                        {isDepixIn ? "+" : "−"}
                         {formatBRL(Math.abs(t.depixDeltaCents))}
                       </p>
                     )}

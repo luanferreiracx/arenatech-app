@@ -10,8 +10,10 @@
  */
 
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, adminProcedure, CENTRAL_TENANT_SLUG, FEE_WALLET_TENANT_SLUG } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
+import { looksLikeLiquidAddress } from "@/lib/validators/depix-onchain";
 import {
   ensureFeeWalletProvisioned,
   getFeeWalletTenantId,
@@ -31,9 +33,11 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
   }),
 
   /**
-   * Extrato ON-CHAIN da carteira de taxas (ultimas 50 tx). Cada linha traz o
-   * delta de DePix (+ = taxa recebida; − = envio/saida) e de L-BTC (refills de
-   * gas pros tenants saem daqui). Read-only (watch-only no LWK).
+   * Extrato ON-CHAIN BRUTO da carteira de taxas (ultimas 50 tx) — TODAS as
+   * movimentacoes, nao so taxa. NEM toda entrada de DePix e taxa: o legado ADR
+   * 0052 fazia o deposito non-custodial cair INTEIRO aqui (e repassava o liquido).
+   * Por isso o rotulo e NEUTRO (entrada/saida); a receita REAL de taxa vem do
+   * `feeLedger` (fonte de verdade). Read-only (watch-only no LWK).
    */
   transactions: adminProcedure.query(async () => {
     const feeTenantId = await getFeeWalletTenantId();
@@ -49,9 +53,9 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
         if (b.is_depix) depixDeltaCents += Math.round(b.amount * 100);
         else if (assetId === lwk.LBTC_ASSET_ID) lbtcDeltaSats += b.satoshis;
       }
-      // Tipo pela direcao do DePix: entrada = taxa recebida; saida = envio.
+      // Rotulo NEUTRO pela direcao do DePix (NAO chama de taxa — pode ser legado).
       const kind =
-        depixDeltaCents > 0 ? "fee_in" : depixDeltaCents < 0 ? "depix_out" : "lbtc_only";
+        depixDeltaCents > 0 ? "depix_in" : depixDeltaCents < 0 ? "depix_out" : "lbtc_only";
       return {
         txid: t.txid,
         timestamp: t.timestamp,
@@ -65,6 +69,77 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
     });
     return { provisioned: true, transactions: items };
   }),
+
+  /**
+   * Extrato de TAXAS REAIS (fonte de verdade = tenant_depix_fee_ledger). Cada
+   * linha e uma taxa efetivamente cobrada (deposito ou saque), com o tenant que
+   * pagou e o valor exato. NAO depende do delta on-chain (que mistura legado).
+   */
+  feeLedger: adminProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(200).default(100) }).default({ limit: 100 }))
+    .query(async ({ input }) => {
+      const rows = await withAdmin((tx) =>
+        tx.tenantDepixFeeLedger.findMany({
+          orderBy: { createdAt: "desc" },
+          take: input.limit,
+        }),
+      );
+      const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+      const tenants = await withAdmin((tx) =>
+        tx.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true, slug: true } }),
+      );
+      const nameById = new Map(tenants.map((t) => [t.id, t.name ?? t.slug]));
+      const settledSum = rows
+        .filter((r) => r.status === "SETTLED")
+        .reduce((acc, r) => acc + r.amountCents, 0);
+      return {
+        totalSettledCents: settledSum,
+        items: rows.map((r) => ({
+          id: r.id,
+          tenantName: nameById.get(r.tenantId) ?? r.tenantId,
+          kind: r.kind, // DEPOSIT | WITHDRAW
+          amountCents: r.amountCents,
+          status: r.status, // SETTLED | PENDING_SETTLEMENT
+          settlementTxId: r.settlementTxId,
+          createdAt: r.createdAt,
+        })),
+      };
+    }),
+
+  /**
+   * Envia DePix da CARTEIRA DE TAXAS pra um endereco Liquid externo (consolidar a
+   * receita). A arena-fees e custodial -> assina sem passphrase. IRREVERSIVEL:
+   * o endereco e validado leve aqui + autoritativamente no LWK (lwk.Address).
+   */
+  sendOnchain: adminProcedure
+    .input(
+      z.object({
+        toAddress: z.string().trim().min(20).max(110).refine(looksLikeLiquidAddress, {
+          message: "Endereco Liquid invalido (use lq1.../ex1...)",
+        }),
+        amountReais: z.number().positive().max(1_000_000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const feeTenantId = await getFeeWalletTenantId();
+      if (!feeTenantId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Carteira de taxas nao provisionada." });
+      }
+      // Idempotencia best-effort por (admin + valor + minuto) — evita duplo clique.
+      const idempotencyKey = `fee-send:${ctx.session.user.id}:${Math.round(input.amountReais * 100)}:${Math.floor(Date.now() / 60_000)}`;
+      const res = await lwk.transfer(
+        feeTenantId,
+        [{ to: input.toAddress.trim(), amountBrl: input.amountReais }],
+        { idempotencyKey },
+      );
+      if (!res.success || !res.txid) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: res.error ?? "Falha ao enviar on-chain",
+        });
+      }
+      return { txid: res.txid, explorerUrl: `https://blockstream.info/liquid/tx/${res.txid}` };
+    }),
 
   /** Estado da carteira de taxas: provisionada? saldo (= taxas retidas)? */
   status: adminProcedure.query(async () => {

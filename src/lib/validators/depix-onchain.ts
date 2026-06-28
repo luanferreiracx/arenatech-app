@@ -9,7 +9,7 @@ import { z } from "zod";
  *   - legacy base58 (P2PKH/P2SH): comeca com `Q`, `G`, `H`, `V`, `P` etc. — por
  *     seguranca, exigimos comprimento minimo e charset.
  */
-function looksLikeLiquidAddress(addr: string): boolean {
+export function looksLikeLiquidAddress(addr: string): boolean {
   const a = addr.trim();
   if (a.length < 20 || a.length > 110) return false;
   // bech32/blech32 mainnet (lq1 confidential, ex1 unconfidential).

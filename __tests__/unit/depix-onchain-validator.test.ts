@@ -3,7 +3,7 @@
  * sem re-digitar. Valida endereco Liquid leve + exige o ack + 2FA.
  */
 import { describe, it, expect } from "vitest";
-import { onchainWithdrawSchema } from "@/lib/validators/depix-onchain";
+import { onchainWithdrawSchema, looksLikeLiquidAddress } from "@/lib/validators/depix-onchain";
 
 const VALID_ADDR =
   "lq1qqw8re6enadhd82hk9m445kr78e7rlddcu58vypmk9ndmm3z9q4nfsxx3qz8q3xjh8qg2k7p7e2pmq4hd2";
@@ -44,5 +44,19 @@ describe("onchainWithdrawSchema", () => {
 
   it("aceita endereco com espacos ao redor (trim)", () => {
     expect(onchainWithdrawSchema.safeParse({ ...base, toAddress: `  ${VALID_ADDR}  ` }).success).toBe(true);
+  });
+});
+
+// Compartilhado com o envio da carteira de taxas (sendOnchain) — guarda fundos.
+describe("looksLikeLiquidAddress (compartilhado)", () => {
+  it("aceita lq1.../ex1... mainnet", () => {
+    expect(looksLikeLiquidAddress(VALID_ADDR)).toBe(true);
+    expect(looksLikeLiquidAddress("ex1qhuq5u7udzwskhaz45fy80kdaxjytqd99ju5yfn")).toBe(true);
+  });
+  it("rejeita lixo / endereco curto / outra rede", () => {
+    expect(looksLikeLiquidAddress("0xabc123")).toBe(false);
+    expect(looksLikeLiquidAddress("lq1")).toBe(false);
+    expect(looksLikeLiquidAddress("")).toBe(false);
+    expect(looksLikeLiquidAddress("bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh")).toBe(false);
   });
 });
