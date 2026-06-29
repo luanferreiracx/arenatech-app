@@ -18,6 +18,8 @@ const ALL_TABS: SettingsTab[] = [
   { label: "Assinatura", href: "/settings/subscription" },
   { label: "Logs", href: "/settings/logs" },
   { label: "Seguranca", href: "/settings/security" },
+  // Só superadmin (gerencia as API-keys de parceiro do tenant ativo).
+  { label: "API de Parceiros", href: "/settings/partner-api", superAdminOnly: true },
 ];
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -32,7 +34,9 @@ export default async function SettingsLayout({ children }: { children: React.Rea
   // Só mostra as abas que o tenant pode acessar — senão um tenant wallet/NO-KYC
   // (que alcança /settings/security pra habilitar 2FA) veria abas gateadas que
   // o redirecionam ao clicar. Aba sem módulo (ex.: Segurança) aparece pra todos.
+  const isSuperAdmin = session?.user?.isSuperAdmin === true;
   const tabs = ALL_TABS.filter((tab) => {
+    if (tab.superAdminOnly && !isSuperAdmin) return false;
     const mod = resolveModuleForPath(tab.href);
     return mod === null || allowedModules.includes(mod);
   });

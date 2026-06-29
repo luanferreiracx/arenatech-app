@@ -34,6 +34,16 @@ export interface RateLimitResult {
 let redis: Redis | null = null;
 let redisFailed = false;
 
+/**
+ * Há backend distribuído (Redis) disponível pro rate-limit? Usado por superfícies
+ * que precisam ser FAIL-CLOSED (ex.: API de parceiros, ADR 0057): sem backend
+ * compartilhado, o limite in-memory não é confiável em cluster, então a borda de
+ * parceiro recusa em vez de liberar geral.
+ */
+export function hasDistributedRateLimit(): boolean {
+  return getRedis() !== null;
+}
+
 function getRedis(): Redis | null {
   if (redisFailed) return null;
   if (redis) return redis;

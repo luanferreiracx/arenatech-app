@@ -1,0 +1,91 @@
+/**
+ * Middleware de autenticação da API de PARCEIROS (ADR 0057, Fase 1).
+ *
+ * Uso num route handler REST (/api/v1/partner/...):
+ *
+ *   export async function GET(req: NextRequest) {
+ *     const auth = await withPartnerAuth(req, { scope: PARTNER_SCOPES.DEPIX_READ });
+ *     if (auth instanceof Response) return auth;       // 401/403/429/503
+ *     // auth.tenantId / auth.scopes — chamar o service via withTenant(auth.tenantId, …)
+ *   }
+ *
+ * Garantias: Bearer obrigatório, key válida e não-revogada, escopo exigido
+ * presente, e rate-limit FAIL-CLOSED por key (sem Redis em prod → 503). Nunca dá
+ * acesso superadmin/withAdmin de negócio.
+ */
+import { NextRequest } from "next/server";
+import { logger } from "@/lib/logger";
+import { hasDistributedRateLimit, rateLimit } from "@/lib/rate-limit";
+import { validatePartnerApiKey } from "@/server/services/partner-api-key.service";
+import type { PartnerScope } from "@/lib/partner-api/scopes";
+
+export interface PartnerContext {
+  tenantId: string;
+  keyId: string;
+  keyPrefix: string;
+  scopes: PartnerScope[];
+}
+
+interface PartnerAuthOptions {
+  /** Escopo exigido pra esta rota. */
+  scope: PartnerScope;
+  /** Limite de req/min por key (default 60). Saques usam um menor. */
+  ratePerMinute?: number;
+}
+
+function json(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+export async function withPartnerAuth(
+  req: NextRequest,
+  opts: PartnerAuthOptions,
+): Promise<PartnerContext | Response> {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const m = /^Bearer\s+(.+)$/i.exec(authHeader);
+  if (!m) {
+    return json(401, { error: "unauthorized", message: "Authorization: Bearer <api-key> obrigatório" });
+  }
+  const presentedKey = m[1]!.trim();
+
+  const validated = await validatePartnerApiKey(presentedKey);
+  if (!validated) {
+    return json(401, { error: "invalid_key", message: "API-key inválida ou revogada" });
+  }
+
+  if (!validated.scopes.includes(opts.scope)) {
+    logger.warn("partner-api: escopo insuficiente", {
+      keyPrefix: validated.keyPrefix,
+      required: opts.scope,
+    });
+    return json(403, { error: "insufficient_scope", message: `Escopo necessário: ${opts.scope}` });
+  }
+
+  // FAIL-CLOSED: sem backend distribuído de rate-limit em produção, recusa.
+  if (process.env.NODE_ENV === "production" && !hasDistributedRateLimit()) {
+    logger.error("partner-api: rate-limit sem backend distribuído — recusando (fail-closed)", {
+      keyPrefix: validated.keyPrefix,
+    });
+    return json(503, { error: "unavailable", message: "Serviço temporariamente indisponível" });
+  }
+
+  const limit = opts.ratePerMinute ?? 60;
+  const rl = await rateLimit({
+    key: `partner:${validated.keyPrefix}:${opts.scope}`,
+    limit,
+    windowMs: 60_000,
+  });
+  if (!rl.success) {
+    return json(429, { error: "rate_limited", message: "Limite de requisições excedido. Tente em instantes." });
+  }
+
+  return {
+    tenantId: validated.tenantId,
+    keyId: validated.keyId,
+    keyPrefix: validated.keyPrefix,
+    scopes: validated.scopes,
+  };
+}
