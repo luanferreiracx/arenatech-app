@@ -5,6 +5,9 @@ model Tenant {
   cnpj      String?      @unique
   status    TenantStatus @default(PENDING)
   plan      String?
+  /// Gate da API externa (ADR 0057): só com isto ligado o admin do tenant pode
+  /// emitir/usar API-keys de parceiro. Controlado pelo superadmin.
+  apiAccessEnabled Boolean @default(false) @map("api_access_enabled")
   createdAt DateTime     @default(now()) @map("created_at")
   updatedAt DateTime     @updatedAt @map("updated_at")
 

@@ -141,6 +141,8 @@ export const updateTenantSchema = z.object({
   name: z.string().min(1).max(200),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]),
   plan: z.string().min(1).max(100).optional().nullable(),
+  /** Gate da API externa (ADR 0057): libera o tenant a emitir/usar API-keys. */
+  apiAccessEnabled: z.boolean().optional(),
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
 

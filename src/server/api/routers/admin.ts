@@ -396,6 +396,9 @@ export const adminRouter = createTRPCRouter({
             name: input.name,
             status: input.status,
             plan: planId,
+            ...(input.apiAccessEnabled !== undefined
+              ? { apiAccessEnabled: input.apiAccessEnabled }
+              : {}),
           },
         });
         return { success: true };

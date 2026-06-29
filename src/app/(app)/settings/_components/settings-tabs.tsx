@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 export interface SettingsTab {
   label: string;
   href: string;
-  /** Aba visível só pro superadmin (ex.: API de Parceiros). */
-  superAdminOnly?: boolean;
+  /** Aba visível só quando o superadmin liberou a API externa (apiAccessEnabled). */
+  apiAccessOnly?: boolean;
 }
 
 /** Barra de abas de Configurações — recebe só as abas acessíveis ao tenant. */

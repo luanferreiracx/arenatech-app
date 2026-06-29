@@ -1,10 +1,13 @@
 /**
- * Gestão das API-keys de parceiro (ADR 0057, Fase 1) — SUPERADMIN, por tenant.
- * Emite (mostra o segredo 1x), lista (sem segredo) e revoga. A validação real das
- * keys acontece na borda REST (`withPartnerAuth`), não aqui.
+ * Gestão das API-keys de parceiro (ADR 0057). O PRÓPRIO TENANT (admin OWNER/
+ * MANAGER) emite/lista/revoga suas keys — desde que o SUPERADMIN tenha liberado o
+ * acesso à API externa pra esse tenant (`Tenant.apiAccessEnabled`). A validação
+ * real das keys acontece na borda REST (`withPartnerAuth`), não aqui.
  */
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { createTRPCRouter, superAdminTenantProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, tenantAdminProcedure } from "@/server/api/trpc";
+import { withAdmin } from "@/server/db";
 import { ALL_PARTNER_SCOPES } from "@/lib/partner-api/scopes";
 import {
   issuePartnerApiKey,
@@ -12,14 +15,36 @@ import {
   revokePartnerApiKey,
 } from "@/server/services/partner-api-key.service";
 
+/** Bloqueia se o superadmin não liberou a API externa pra este tenant. */
+async function assertApiAccessEnabled(tenantId: string): Promise<void> {
+  const tenant = await withAdmin((tx) =>
+    tx.tenant.findUnique({ where: { id: tenantId }, select: { apiAccessEnabled: true } }),
+  );
+  if (!tenant?.apiAccessEnabled) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Acesso à API externa não habilitado para este tenant. Solicite à Arena Tech.",
+    });
+  }
+}
+
 export const partnerApiKeyRouter = createTRPCRouter({
-  /** Lista as keys do tenant ativo (sem segredo/hash). */
-  list: superAdminTenantProcedure.query(async ({ ctx }) => {
+  /** O tenant tem acesso à API externa liberado? (pra UI decidir o que mostrar) */
+  getAccess: tenantAdminProcedure.query(async ({ ctx }) => {
+    const tenant = await withAdmin((tx) =>
+      tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { apiAccessEnabled: true } }),
+    );
+    return { enabled: tenant?.apiAccessEnabled === true };
+  }),
+
+  /** Lista as keys do tenant (sem segredo/hash). */
+  list: tenantAdminProcedure.query(async ({ ctx }) => {
+    await assertApiAccessEnabled(ctx.tenantId);
     return listPartnerApiKeys(ctx.tenantId);
   }),
 
   /** Emite uma key nova. Retorna o segredo COMPLETO uma única vez. */
-  issue: superAdminTenantProcedure
+  issue: tenantAdminProcedure
     .input(
       z.object({
         name: z.string().trim().min(2).max(80),
@@ -27,6 +52,7 @@ export const partnerApiKeyRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertApiAccessEnabled(ctx.tenantId);
       const issued = await issuePartnerApiKey({
         tenantId: ctx.tenantId,
         name: input.name,
@@ -36,10 +62,11 @@ export const partnerApiKeyRouter = createTRPCRouter({
       return issued; // { id, keyPrefix, plaintextKey }
     }),
 
-  /** Revoga (soft) uma key do tenant ativo. */
-  revoke: superAdminTenantProcedure
+  /** Revoga (soft) uma key do tenant. */
+  revoke: tenantAdminProcedure
     .input(z.object({ keyId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Revogar é permitido mesmo se o acesso foi desligado (limpeza).
       await revokePartnerApiKey({ tenantId: ctx.tenantId, keyId: input.keyId });
       return { success: true };
     }),
