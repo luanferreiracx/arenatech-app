@@ -14,10 +14,41 @@
  * acesso superadmin/withAdmin de negócio.
  */
 import { NextRequest } from "next/server";
+import { TRPCError } from "@trpc/server";
 import { logger } from "@/lib/logger";
 import { hasDistributedRateLimit, rateLimit } from "@/lib/rate-limit";
 import { validatePartnerApiKey } from "@/server/services/partner-api-key.service";
 import type { PartnerScope } from "@/lib/partner-api/scopes";
+
+/** Mapeia um erro de service (TRPCError ou genérico) numa Response JSON. */
+export function partnerErrorResponse(err: unknown, keyPrefix: string): Response {
+  if (err instanceof TRPCError) {
+    const status =
+      err.code === "PRECONDITION_FAILED"
+        ? 412
+        : err.code === "BAD_REQUEST"
+          ? 400
+          : err.code === "NOT_FOUND"
+            ? 404
+            : err.code === "UNAUTHORIZED"
+              ? 401
+              : err.code === "FORBIDDEN"
+                ? 403
+                : 500;
+    return new Response(JSON.stringify({ error: err.code.toLowerCase(), message: err.message }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  logger.error("partner-api: erro interno", {
+    keyPrefix,
+    err: err instanceof Error ? err.message : String(err),
+  });
+  return new Response(JSON.stringify({ error: "internal", message: "Erro interno" }), {
+    status: 500,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 export interface PartnerContext {
   tenantId: string;
