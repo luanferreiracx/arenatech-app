@@ -1,7 +1,7 @@
 # API de Parceiros — DePix (v1)
 
-> Referência da API REST externa pra parceiros (ADR 0057). **Fase 2: read-only.**
-> Endpoints de escrita (depósito/saque) vêm na Fase 3.
+> Referência da API REST externa pra parceiros (ADR 0057). Read-only + escrita
+> (depósito e saque).
 
 ## Autenticação
 
@@ -18,8 +18,11 @@ vez** na criação. Cada key tem **escopos**:
 | Escopo | Permite |
 |---|---|
 | `depix:read` | saldo, status de transação, extrato |
-| `depix:deposit` | criar depósito (Fase 3) |
-| `depix:withdraw` | sacar (Fase 3) |
+| `depix:deposit` | criar depósito (gerar QR) |
+| `depix:withdraw` | sacar (PIX ou on-chain) |
+
+**Escrita aceita idempotência:** envie `Idempotency-Key: <uuid>` — repetir a mesma
+chamada com a mesma key não duplica a operação.
 
 **Respostas de erro** (JSON): `401` sem/inválida key · `403` sem o escopo · `429`
 acima da quota (60 req/min por key) · `503` indisponível.
@@ -101,6 +104,64 @@ Detalhe de uma transação. Escopo: `depix:read`. **404** se não existir
 
 **Status possíveis:** `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`, `CANCELLED`,
 `EXPIRED`, `MED_REFUNDED` (devolução pós-pago).
+
+---
+
+## POST /depix/deposits
+
+Cria um depósito e devolve o QR PIX de cobrança. Escopo: `depix:deposit`.
+Rate-limit: 30/min. Aceita `Idempotency-Key`.
+
+**Body:**
+```json
+{ "amountCents": 10000, "payerTaxId": "12345678909", "description": "Pedido #42" }
+```
+- `amountCents` — R$ 10,00 a R$ 5.000,00 (1000–500000).
+- `payerTaxId` — CPF/CNPJ do pagador. **Obrigatório a partir de R$ 500,00** (422 se ausente).
+- `description` — opcional.
+
+**201**
+```json
+{
+  "id": "uuid",
+  "number": "TXD20260629-00007",
+  "status": "PENDING",
+  "amountCents": 10000,
+  "qrCode": "00020126…",
+  "qrCodeBase64": "data:image/png;base64,…"
+}
+```
+Acompanhe a confirmação via `GET /depix/transactions/:id` (vira `COMPLETED`).
+
+---
+
+## POST /depix/withdrawals
+
+Saque PIX **ou** on-chain. Escopo: `depix:withdraw`. Rate-limit: 10/min.
+Aceita `Idempotency-Key`.
+
+> **Importante:** disponível só para carteira **custodial** (a non-custodial exige a
+> senha do titular — use o painel). Sem 2FA (chamada de máquina), mas com **cap diário
+> próprio da API** + cap do painel + validação on-chain. **Saque move dinheiro — use
+> com cuidado.**
+
+**PIX:**
+```json
+{ "method": "pix", "amountCents": 5000, "pixKeyType": "CPF",
+  "pixKey": "12345678909", "recipientName": "Fulano", "recipientTaxId": "12345678909" }
+```
+
+**On-chain (Liquid):**
+```json
+{ "method": "onchain", "amountCents": 5000, "toAddress": "lq1qq…" }
+```
+
+**201**
+```json
+{ "id": "uuid", "number": "TXW…", "status": "PROCESSING",
+  "method": "pix", "amountCents": 5000, "onchainTxId": null }
+```
+- `412` se a carteira for non-custodial; `400` se estourar o cap diário.
 
 ---
 
