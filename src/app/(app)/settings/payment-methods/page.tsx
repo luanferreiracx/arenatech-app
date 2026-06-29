@@ -17,14 +17,6 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { PageHeader } from "@/components/domain/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -67,29 +59,38 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
 // Codigos legados que NAO tem taxa por design (paridade Laravel).
 const NO_FEE_CODES = new Set(["dinheiro", "transferencia"]);
 
-type AppliesTo = "APARELHO" | "NAO_APARELHO" | "AMBOS";
+function formatBRL(value: number): string {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 type Policy = "LOJA_ABSORVE" | "CLIENTE_PAGA";
+
+// A taxa, na cabeca do lojista, e so "parcela -> quanto a maquininha cobra".
+// A aplicabilidade (aparelho/nao-aparelho) nao muda a taxa dele (quem muda e a
+// maquina/bandeira, que vive em Meios de Recebimento), entao toda taxa salva
+// vai como AMBOS. A politica (quem paga a taxa) e definida UMA vez por forma de
+// pagamento, nao por parcela. Por isso a linha de taxa so guarda parcela+valores.
+const RATE_APPLIES_TO = "AMBOS" as const;
 
 interface RateRow {
   installments: number;
-  appliesTo: AppliesTo;
-  policy: Policy;
   feePercent: number;
   feeFixed: number; // reais
-  settlementDays: number;
   active: boolean;
 }
 
-const APPLIES_TO_LABELS: Record<AppliesTo, string> = {
-  APARELHO: "Aparelho",
-  NAO_APARELHO: "Nao aparelho",
-  AMBOS: "Ambos",
-};
-
-const POLICY_LABELS: Record<Policy, string> = {
-  LOJA_ABSORVE: "Loja absorve",
-  CLIENTE_PAGA: "Cliente paga acrescimo",
-};
+const POLICY_OPTIONS: { value: Policy; label: string; help: string }[] = [
+  {
+    value: "LOJA_ABSORVE",
+    label: "Loja absorve a taxa",
+    help: "O cliente paga o preco normal e a loja recebe o valor menos a taxa.",
+  },
+  {
+    value: "CLIENTE_PAGA",
+    label: "Cliente paga a taxa",
+    help: "O acrescimo da maquininha e repassado ao cliente; a loja recebe o preco cheio.",
+  },
+];
 
 export default function PaymentMethodsPage() {
   const trpc = useTRPC();
@@ -106,6 +107,7 @@ export default function PaymentMethodsPage() {
     installmentsMax: number;
     settlementDays: number;
     acceptsChange: boolean;
+    policy: Policy;
   } | null>(null);
   const [rates, setRates] = useState<RateRow[]>([]);
 
@@ -174,6 +176,9 @@ export default function PaymentMethodsPage() {
   const openEditDialog = (id: string) => {
     const m = methods?.find((x) => x.id === id);
     if (!m) return;
+    // Politica e por FORMA agora: deriva da primeira taxa existente (todas
+    // costumam compartilhar a mesma); default loja absorve.
+    const policy = ((m.rates ?? [])[0]?.policy as Policy | undefined) ?? "LOJA_ABSORVE";
     setMethodBase({
       name: m.name,
       acceptsInstallments: m.acceptsInstallments,
@@ -181,17 +186,17 @@ export default function PaymentMethodsPage() {
       installmentsMax: m.installmentsMax,
       settlementDays: m.settlementDays ?? 0,
       acceptsChange: m.acceptsChange,
+      policy,
     });
     setRates(
-      (m.rates ?? []).map((r) => ({
-        installments: r.installments,
-        appliesTo: r.appliesTo as AppliesTo,
-        policy: r.policy as Policy,
-        feePercent: Number(r.feePercent),
-        feeFixed: Number(r.feeFixed),
-        settlementDays: r.settlementDays ?? 0,
-        active: r.active,
-      })),
+      (m.rates ?? [])
+        .map((r) => ({
+          installments: r.installments,
+          feePercent: Number(r.feePercent),
+          feeFixed: Number(r.feeFixed),
+          active: r.active,
+        }))
+        .sort((a, b) => a.installments - b.installments),
     );
     setEditingMethodId(id);
   };
@@ -202,16 +207,13 @@ export default function PaymentMethodsPage() {
 
   const addRateRow = () => {
     const lastInstall =
-      rates.length > 0 ? Math.max(...rates.map((r) => r.installments)) : 1;
+      rates.length > 0 ? Math.max(...rates.map((r) => r.installments)) : 0;
     setRates((prev) => [
       ...prev,
       {
         installments: lastInstall + 1,
-        appliesTo: "AMBOS",
-        policy: "LOJA_ABSORVE",
         feePercent: 0,
         feeFixed: 0,
-        settlementDays: 0,
         active: true,
       },
     ]);
@@ -239,13 +241,15 @@ export default function PaymentMethodsPage() {
       });
       await upsertRatesMutation.mutateAsync({
         paymentMethodId: editingMethodId,
+        // Politica unica da forma + aplicabilidade AMBOS pra toda taxa (a tela
+        // nao expoe mais esses dois por linha — ver RateRow/RATE_APPLIES_TO).
         rates: rates.map((r) => ({
           installments: r.installments,
-          appliesTo: r.appliesTo,
-          policy: r.policy,
+          appliesTo: RATE_APPLIES_TO,
+          policy: methodBase.policy,
           feePercent: r.feePercent,
           feeFixed: r.feeFixed,
-          settlementDays: r.settlementDays,
+          settlementDays: methodBase.settlementDays,
           active: r.active,
         })),
       });
@@ -336,7 +340,7 @@ export default function PaymentMethodsPage() {
                     <p className="text-xs text-muted-foreground">
                       {ratesCount === 0
                         ? "Nenhuma taxa configurada"
-                        : `${ratesCount} taxa(s) por parcela / aplicabilidade`}
+                        : `${ratesCount} ${ratesCount === 1 ? "taxa" : "taxas"} por parcela`}
                     </p>
                   )}
 
@@ -440,14 +444,14 @@ export default function PaymentMethodsPage() {
               Configurar {editingMethod?.name ?? "forma de pagamento"}
             </DialogTitle>
             <DialogDescription>
-              Defina parcelamento, prazo de recebimento e tabela de taxas por parcela.
-              Cada taxa pode ter politica diferente (loja absorve vs cliente paga
-              acrescimo) e separacao por tipo de produto (aparelho vs nao aparelho).
+              Defina como esta forma cobra a taxa da maquininha por parcela. A taxa
+              vale para qualquer item — o que muda a taxa de verdade (maquina e
+              bandeira) fica em Meios de Recebimento.
             </DialogDescription>
           </DialogHeader>
 
           {methodBase && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {/* Configuracao base — campos numericos em cima, toggles separados
                   embaixo (em vez de misturar Input e Switch no mesmo grid, que
                   desalinhava). */}
@@ -563,274 +567,209 @@ export default function PaymentMethodsPage() {
                 </div>
               </section>
 
-              {/* Taxas por parcela / aplicabilidade */}
+              {/* Quem paga a taxa — UMA escolha por forma (nao por parcela). */}
+              <section className="rounded-lg border bg-muted/30 p-4">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Quem paga a taxa
+                </h3>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {POLICY_OPTIONS.map((opt) => {
+                    const selected = methodBase.policy === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setMethodBase({ ...methodBase, policy: opt.value })}
+                        aria-pressed={selected}
+                        className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors ${
+                          selected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "bg-background hover:border-muted-foreground/40"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          <span
+                            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                              selected ? "border-primary" : "border-muted-foreground/40"
+                            }`}
+                          >
+                            {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+                          </span>
+                          {opt.label}
+                        </span>
+                        <span className="pl-6 text-xs text-muted-foreground">{opt.help}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Taxas por parcela — agora cada linha so tem parcela + % + R$
+                  (aplicabilidade=AMBOS e politica vivem no nivel da forma). */}
               <section className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-end justify-between gap-2">
                   <div>
-                    <h3 className="text-sm font-semibold">Taxas por parcela</h3>
+                    <h3 className="text-sm font-semibold">Taxa por parcela</h3>
                     <p className="text-xs text-muted-foreground">
-                      Uma linha por nº de parcelas. A politica define quem paga o
-                      acrescimo; a aplicabilidade separa aparelho de outros itens.
+                      Quanto a maquininha cobra em cada nº de parcelas.
                     </p>
                   </div>
                   <Button variant="outline" size="sm" onClick={addRateRow}>
                     <Plus className="mr-1 h-3.5 w-3.5" />
-                    Adicionar
+                    Adicionar parcela
                   </Button>
                 </div>
 
                 {rates.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center">
-                    <CreditCard className="h-8 w-8 text-muted-foreground/50" />
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma taxa configurada ainda.
-                    </p>
+                  <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-10 text-center">
+                    <CreditCard className="h-8 w-8 text-muted-foreground/40" />
+                    <div>
+                      <p className="text-sm font-medium">Nenhuma taxa configurada</p>
+                      <p className="text-xs text-muted-foreground">
+                        Adicione uma linha por nº de parcelas (1×, 2×, 3×…).
+                      </p>
+                    </div>
                     <Button variant="outline" size="sm" onClick={addRateRow}>
                       <Plus className="mr-1 h-3.5 w-3.5" />
-                      Adicionar primeira taxa
+                      Adicionar primeira parcela
                     </Button>
                   </div>
                 ) : (
-                  <>
-                    {/* Desktop: tabela com cabecalho unico (labels uma vez so). */}
-                    <div className="hidden max-h-[360px] overflow-y-auto rounded-lg border md:block">
-                      <Table>
-                        <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
-                          <TableRow>
-                            <TableHead className="w-20">Parcelas</TableHead>
-                            <TableHead>Aplica em</TableHead>
-                            <TableHead>Politica</TableHead>
-                            <TableHead className="w-28">Taxa %</TableHead>
-                            <TableHead className="w-28">Taxa R$</TableHead>
-                            <TableHead className="w-16 text-center">Ativa</TableHead>
-                            <TableHead className="w-12" />
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {rates.map((rate, idx) => (
-                            <TableRow key={idx} className={rate.active ? "" : "opacity-55"}>
-                              <TableCell>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  max={36}
-                                  value={rate.installments}
-                                  className="h-9"
-                                  onChange={(e) =>
-                                    updateRate(idx, "installments", parseInt(e.target.value) || 1)
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Select
-                                  value={rate.appliesTo}
-                                  onValueChange={(v) => updateRate(idx, "appliesTo", v as AppliesTo)}
+                  <div className="space-y-2">
+                    {/* Cabecalho so no desktop — no mobile cada campo tem seu label. */}
+                    <div className="hidden grid-cols-[64px_1fr_1fr_88px] items-center gap-3 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                      <span>Parcelas</span>
+                      <span>Taxa %</span>
+                      <span>Taxa fixa (R$)</span>
+                      <span className="text-right">Ativa</span>
+                    </div>
+
+                    <div className="max-h-[340px] space-y-2 overflow-y-auto pr-0.5">
+                      {rates.map((rate, idx) => {
+                        // Preview do efeito em R$100 — concreto pro lojista.
+                        const feeOn100 = 100 * (rate.feePercent / 100) + rate.feeFixed;
+                        const netReceiverPays =
+                          methodBase.policy === "LOJA_ABSORVE"
+                            ? `loja recebe ${formatBRL(100 - feeOn100)}`
+                            : `cliente paga ${formatBRL(100 + feeOn100)}`;
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded-lg border bg-card p-3 transition-opacity ${
+                              rate.active ? "" : "opacity-55"
+                            }`}
+                          >
+                            <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[64px_1fr_1fr_88px]">
+                              {/* Parcela — ancora da linha (chip nx) */}
+                              <div className="space-y-1.5">
+                                <Label
+                                  htmlFor={`rate-inst-${idx}`}
+                                  className="text-[11px] text-muted-foreground sm:hidden"
                                 >
-                                  <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {(Object.entries(APPLIES_TO_LABELS) as [AppliesTo, string][]).map(
-                                      ([v, lab]) => (
-                                        <SelectItem key={v} value={v}>
-                                          {lab}
-                                        </SelectItem>
-                                      ),
-                                    )}
-                                  </SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell>
-                                <Select
-                                  value={rate.policy}
-                                  onValueChange={(v) => updateRate(idx, "policy", v as Policy)}
-                                >
-                                  <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {(Object.entries(POLICY_LABELS) as [Policy, string][]).map(
-                                      ([v, lab]) => (
-                                        <SelectItem key={v} value={v}>
-                                          {lab}
-                                        </SelectItem>
-                                      ),
-                                    )}
-                                  </SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell>
+                                  Parcelas
+                                </Label>
                                 <div className="relative">
                                   <Input
+                                    id={`rate-inst-${idx}`}
+                                    type="number"
+                                    min={1}
+                                    max={36}
+                                    value={rate.installments}
+                                    className="h-10 pr-6 text-center font-semibold tabular-nums"
+                                    onChange={(e) =>
+                                      updateRate(idx, "installments", parseInt(e.target.value) || 1)
+                                    }
+                                  />
+                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                                    ×
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Taxa % */}
+                              <div className="space-y-1.5">
+                                <Label
+                                  htmlFor={`rate-pct-${idx}`}
+                                  className="text-[11px] text-muted-foreground sm:hidden"
+                                >
+                                  Taxa %
+                                </Label>
+                                <div className="relative">
+                                  <Input
+                                    id={`rate-pct-${idx}`}
                                     type="number"
                                     step="0.01"
                                     min={0}
                                     max={99.99}
                                     value={rate.feePercent}
-                                    className="h-9 pr-6"
+                                    className="h-10 pr-7 tabular-nums"
                                     onChange={(e) =>
                                       updateRate(idx, "feePercent", parseFloat(e.target.value) || 0)
                                     }
                                   />
-                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                                     %
                                   </span>
                                 </div>
-                              </TableCell>
-                              <TableCell>
+                              </div>
+
+                              {/* Taxa fixa R$ */}
+                              <div className="space-y-1.5">
+                                <Label
+                                  htmlFor={`rate-fix-${idx}`}
+                                  className="text-[11px] text-muted-foreground sm:hidden"
+                                >
+                                  Taxa fixa (R$)
+                                </Label>
                                 <div className="relative">
-                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                  <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                                     R$
                                   </span>
                                   <Input
+                                    id={`rate-fix-${idx}`}
                                     type="number"
                                     step="0.01"
                                     min={0}
                                     value={rate.feeFixed}
-                                    className="h-9 pl-7"
+                                    className="h-10 pl-9 tabular-nums"
                                     onChange={(e) =>
                                       updateRate(idx, "feeFixed", parseFloat(e.target.value) || 0)
                                     }
                                   />
                                 </div>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Switch
-                                  checked={rate.active}
-                                  onCheckedChange={(c) => updateRate(idx, "active", c)}
-                                  aria-label="Taxa ativa"
-                                />
-                              </TableCell>
-                              <TableCell>
+                              </div>
+
+                              {/* Acoes: ativar / remover */}
+                              <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:justify-end">
+                                <label className="flex items-center gap-2 text-xs text-muted-foreground sm:flex-col sm:gap-1">
+                                  <span className="sm:hidden">Ativa</span>
+                                  <Switch
+                                    checked={rate.active}
+                                    onCheckedChange={(c) => updateRate(idx, "active", c)}
+                                    aria-label={`Taxa de ${rate.installments}x ativa`}
+                                  />
+                                </label>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeRate(idx)}
-                                  aria-label="Remover taxa"
+                                  aria-label={`Remover taxa de ${rate.installments}x`}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                              </div>
+                            </div>
 
-                    {/* Mobile: cada taxa vira um card (a tabela nao cabe). */}
-                    <div className="space-y-3 md:hidden">
-                      {rates.map((rate, idx) => (
-                        <div
-                          key={idx}
-                          className={`space-y-3 rounded-lg border p-3 ${rate.active ? "" : "opacity-60"}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{rate.installments}x</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">Ativa</span>
-                              <Switch
-                                checked={rate.active}
-                                onCheckedChange={(c) => updateRate(idx, "active", c)}
-                                aria-label="Taxa ativa"
-                              />
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                onClick={() => removeRate(idx)}
-                                aria-label="Remover taxa"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            {/* Efeito em R$100 — torna a taxa concreta */}
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Em {formatBRL(100)}: {netReceiverPays}
+                            </p>
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">Parcelas</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={36}
-                                value={rate.installments}
-                                className="h-9"
-                                onChange={(e) =>
-                                  updateRate(idx, "installments", parseInt(e.target.value) || 1)
-                                }
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">Aplica em</Label>
-                              <Select
-                                value={rate.appliesTo}
-                                onValueChange={(v) => updateRate(idx, "appliesTo", v as AppliesTo)}
-                              >
-                                <SelectTrigger className="h-9">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(Object.entries(APPLIES_TO_LABELS) as [AppliesTo, string][]).map(
-                                    ([v, lab]) => (
-                                      <SelectItem key={v} value={v}>
-                                        {lab}
-                                      </SelectItem>
-                                    ),
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="col-span-2 space-y-1.5">
-                              <Label className="text-xs">Politica</Label>
-                              <Select
-                                value={rate.policy}
-                                onValueChange={(v) => updateRate(idx, "policy", v as Policy)}
-                              >
-                                <SelectTrigger className="h-9">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(Object.entries(POLICY_LABELS) as [Policy, string][]).map(
-                                    ([v, lab]) => (
-                                      <SelectItem key={v} value={v}>
-                                        {lab}
-                                      </SelectItem>
-                                    ),
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">Taxa %</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min={0}
-                                max={99.99}
-                                value={rate.feePercent}
-                                className="h-9"
-                                onChange={(e) =>
-                                  updateRate(idx, "feePercent", parseFloat(e.target.value) || 0)
-                                }
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">Taxa R$</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min={0}
-                                value={rate.feeFixed}
-                                className="h-9"
-                                onChange={(e) =>
-                                  updateRate(idx, "feeFixed", parseFloat(e.target.value) || 0)
-                                }
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  </>
+                  </div>
                 )}
               </section>
             </div>
@@ -842,7 +781,7 @@ export default function PaymentMethodsPage() {
             </Button>
             <Button onClick={saveAll} disabled={isSaving}>
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Salvar tudo
+              Salvar alteracoes
             </Button>
           </DialogFooter>
         </DialogContent>
