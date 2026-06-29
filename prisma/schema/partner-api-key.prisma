@@ -1,0 +1,33 @@
+/// Credencial de máquina (API-key) de um PARCEIRO externo para a API REST
+/// /api/v1/partner/... (ADR 0057). Por-tenant: a key resolve o tenant + escopos.
+/// O segredo completo (`at_<prefix>_<secret>`) é mostrado UMA vez na emissão;
+/// guardamos só o `keyHash` (bcrypt). `keyPrefix` (8 chars visíveis) permite o
+/// lookup O(1) antes do hash-compare. Revogável (`revokedAt`).
+model PartnerApiKey {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+
+  /// Nome legível para o painel (ex.: "Integração ACME").
+  name            String
+
+  /// Prefixo público da key (8 chars), usado pra localizar o registro sem expor
+  /// o segredo. Único globalmente.
+  keyPrefix       String    @unique @map("key_prefix")
+  /// Hash bcrypt do segredo completo. NUNCA armazenamos o segredo em claro.
+  keyHash         String    @map("key_hash")
+
+  /// Escopos concedidos (ex.: depix:read, depix:deposit, depix:withdraw).
+  scopes          String[]  @default([])
+
+  /// Última vez que a key foi usada com sucesso (best-effort, observabilidade).
+  lastUsedAt      DateTime? @map("last_used_at")
+  /// Revogada quando != null — a validação rejeita.
+  revokedAt       DateTime? @map("revoked_at")
+
+  createdById     String    @map("created_by_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, revokedAt])
+  @@map("partner_api_keys")
+}
