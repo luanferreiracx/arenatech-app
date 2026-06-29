@@ -85,7 +85,7 @@ export default function PartnerApiPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="API de Parceiros"
-        subtitle="Credenciais de máquina (API-keys) para integrações externas consumirem a API DePix deste tenant. O segredo é exibido uma única vez."
+        subtitle="Emita credenciais (API-keys) para suas integrações externas consumirem a API DePix. O segredo é exibido uma única vez — guarde com segurança."
       />
 
       <div className="flex justify-end">

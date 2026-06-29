@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -124,7 +125,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
-    values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], plan: tenant.plan } : undefined,
+    values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], plan: tenant.plan, apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
   });
   const createUserForm = useForm<CreateTenantUserInput>({
     resolver: zodResolver(createTenantUserSchema),
@@ -154,6 +155,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   });
   const tenantStatus = useWatch({ control: tenantForm.control, name: "status" });
   const tenantPlan = useWatch({ control: tenantForm.control, name: "plan" });
+  const tenantApiAccess = useWatch({ control: tenantForm.control, name: "apiAccessEnabled" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
   if (!tenant) return <p className="text-muted-foreground">Tenant nao encontrado</p>;
@@ -321,6 +323,19 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div className="min-w-0">
+              <Label>API externa (parceiros)</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Libera o admin deste tenant a emitir e usar API-keys de parceiro (ADR 0057).
+                Desligado, a aba &quot;API de Parceiros&quot; não aparece e as keys param de funcionar.
+              </p>
+            </div>
+            <Switch
+              checked={tenantApiAccess === true}
+              onCheckedChange={(v) => tenantForm.setValue("apiAccessEnabled", v)}
+            />
           </div>
         </FormSection>
         <div className="flex gap-2">
