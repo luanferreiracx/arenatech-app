@@ -79,7 +79,7 @@ async function resolveModulesByTenant(
       // e o reforço de gating do NO-KYC não pode depender só do plano.
       const dbTenants = await tx.tenant.findMany({
         where: { id: { in: stale.map((t) => t.id) } },
-        select: { id: true, slug: true, plan: true, status: true, cnpj: true },
+        select: { id: true, slug: true, plan: true, status: true, cnpj: true, apiAccessEnabled: true },
       });
 
       const activeTenants = dbTenants.filter(
@@ -105,6 +105,8 @@ async function resolveModulesByTenant(
         planFeatures: t.plan ? data.featuresByPlanId.get(t.plan) : null,
         // Tipo inferido pela presença de documento (ADR 0050): sem CNPJ = NO-KYC.
         isNoKyc: !t.cnpj,
+        // Override por-tenant da API externa (ADR 0057).
+        apiAccessEnabled: t.apiAccessEnabled === true,
       });
       modulesCache.set(t.id, { modules, expiresAt: now + MODULES_CACHE_TTL_MS });
       result.set(t.id, modules);

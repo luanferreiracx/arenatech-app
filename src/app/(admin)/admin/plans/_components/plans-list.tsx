@@ -17,7 +17,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
 import { createPlanSchema, type CreatePlanInput } from "@/lib/validators/admin";
-import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/modules";
+import { PLAN_SELECTABLE_MODULES, MODULE_LABELS, type ModuleKey } from "@/lib/modules";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -149,7 +149,7 @@ export function PlansList() {
                 Define o que os tenants deste plano podem acessar. (arena-tech tem acesso total, independente do plano.)
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {MODULE_KEYS.map((mod) => (
+                {PLAN_SELECTABLE_MODULES.map((mod) => (
                   <label key={mod} className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox
                       checked={selectedModules.includes(mod)}

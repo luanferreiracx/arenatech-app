@@ -29,6 +29,7 @@ export const MODULE_KEYS = [
   "fiscal", // Fiscal / NF-e / relatórios fiscais
   "commissions", // Comissões
   "settings", // Configurações do tenant (gerais, formas de pagamento, etc.)
+  "partner-api", // API externa de parceiros (ADR 0057). Override por-tenant (apiAccessEnabled).
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
@@ -49,11 +50,23 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   fiscal: "Fiscal / NF-e",
   commissions: "Comissões",
   settings: "Configurações",
+  "partner-api": "API de Parceiros",
 };
 
 export function isModuleKey(value: string): value is ModuleKey {
   return MODULE_KEY_SET.has(value);
 }
+
+/**
+ * Módulos controlados por OVERRIDE por-tenant (não pelo plano). Ficam fora do
+ * editor de plano — quem libera é o superadmin no detalhe do tenant.
+ */
+export const PER_TENANT_OVERRIDE_MODULES: ModuleKey[] = ["partner-api"];
+
+/** Módulos selecionáveis no editor de PLANO (exclui os de override por-tenant). */
+export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
+  (m) => !PER_TENANT_OVERRIDE_MODULES.includes(m),
+);
 
 /** Slug do tenant com acesso total (bypass do gating). */
 export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
@@ -122,6 +135,10 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   // commissions
   ["/commissions", "commissions"],
 
+  // partner-api ANTES de /settings (mais específico vence). Módulo próprio com
+  // override por-tenant (apiAccessEnabled) — ver allowedModulesForTenant.
+  ["/settings/partner-api", "partner-api"],
+
   // settings (configurações do tenant). Gateado: por enquanto NÃO liberado.
   ["/settings", "settings"],
 ];
@@ -177,6 +194,18 @@ export function allowedModulesForTenant(args: {
   hasPlan: boolean;
   /** Tenant NO-KYC (sem documento — ADR 0050): teto rígido em `wallet`. */
   isNoKyc?: boolean;
+  /** Override por-tenant da API externa (ADR 0057), ligado pelo superadmin. */
+  apiAccessEnabled?: boolean;
+}): ModuleKey[] {
+  const base = resolveBaseModules(args);
+  return applyPerTenantOverrides(base, args);
+}
+
+function resolveBaseModules(args: {
+  tenantSlug: string | null | undefined;
+  planFeatures: unknown;
+  hasPlan: boolean;
+  isNoKyc?: boolean;
 }): ModuleKey[] {
   if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) {
     return [...MODULE_KEYS];
@@ -190,6 +219,20 @@ export function allowedModulesForTenant(args: {
     return [...DEFAULT_RELEASED_MODULES];
   }
   return modulesFromPlanFeatures(args.planFeatures);
+}
+
+/**
+ * Overrides POR-TENANT que somam ao que o plano libera (controle do superadmin,
+ * fora da matriz de plano). Hoje: `partner-api` via `apiAccessEnabled`. Ponto único
+ * pra futuros toggles por-tenant — sem espalhar exceções pelo código.
+ */
+function applyPerTenantOverrides(
+  base: ModuleKey[],
+  args: { apiAccessEnabled?: boolean },
+): ModuleKey[] {
+  const set = new Set<ModuleKey>(base);
+  if (args.apiAccessEnabled) set.add("partner-api");
+  return [...set];
 }
 
 /** True se o módulo da rota está liberado para a lista de módulos do tenant. */
