@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeftRight, LogOut, User, Shield } from "lucide-react";
+import { ArrowLeftRight, KeyRound, LogOut, User, Shield } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/branding/logo";
@@ -141,16 +141,24 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, a
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
               {(allowedModules ?? []).includes("settings") && (
-                <>
-                  <DropdownMenuItem asChild>
-                    <Link href="/settings" className="flex items-center gap-2">
-                      <User className="w-4 h-4" />
-                      Perfil
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Perfil
+                  </Link>
+                </DropdownMenuItem>
               )}
+              {/* API de Parceiros: link direto, independente do módulo settings. */}
+              {(allowedModules ?? []).includes("partner-api") && (
+                <DropdownMenuItem asChild>
+                  <Link href="/settings/partner-api" className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4" />
+                    API de Parceiros
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {((allowedModules ?? []).includes("settings") ||
+                (allowedModules ?? []).includes("partner-api")) && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={() => signOut({ callbackUrl: "/login" })}
