@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { splitCardReceivable } from "@/server/services/card-receivable.service";
+import { splitCardReceivable, resolveAcquirerRate } from "@/server/services/card-receivable.service";
 
 /** Cliente Prisma mínimo necessário (transação). */
 type ReceivableTx = {
@@ -60,29 +60,17 @@ export async function generateCardReceivables(
   });
   if (!acquirer) return 0;
 
-  const rate = await tx.acquirerRate.findFirst({
-    where: {
-      tenantId,
-      acquirerId: payment.acquirerId,
-      cardBrandId: payment.cardBrandId,
-      kind: payment.cardKind,
-      installments: payment.installments,
-      active: true,
-    },
-    select: { feePercent: true, feeFixed: true, settlementDays: true },
+  // Mesma resolucao de taxa do breakdown da venda (resolveAcquirerRate) — fonte
+  // unica, sem drift entre o que entra no DRE e o que vira recebivel.
+  const rate = await resolveAcquirerRate(tx, tenantId, {
+    acquirerId: payment.acquirerId,
+    cardBrandId: payment.cardBrandId,
+    kind: payment.cardKind,
+    installments: payment.installments,
   });
   if (!rate) return 0;
 
-  const splits = splitCardReceivable(
-    {
-      feePercent: Number(rate.feePercent),
-      feeFixed: Math.round(Number(rate.feeFixed) * 100),
-      settlementDays: rate.settlementDays,
-    },
-    payment.grossCents,
-    payment.installments,
-    saleDate,
-  );
+  const splits = splitCardReceivable(rate, payment.grossCents, payment.installments, saleDate);
 
   await tx.cardReceivable.createMany({
     data: splits.map((s) => ({

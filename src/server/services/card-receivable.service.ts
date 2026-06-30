@@ -116,3 +116,73 @@ export function reconciliationDifference(
   const differenceCents = settledNetCents - expectedNetCents;
   return { differenceCents, divergent: differenceCents !== 0 };
 }
+
+// ── Resolução da AcquirerRate (fonte única da taxa de cartão) ──
+
+type AcquirerRateLookupTx = {
+  acquirerRate: {
+    findFirst: (args: object) => Promise<{
+      feePercent: { toString(): string } | number;
+      feeFixed: { toString(): string } | number;
+      settlementDays: number;
+    } | null>;
+  };
+};
+
+export interface AcquirerRateKey {
+  acquirerId: string;
+  cardBrandId: string;
+  kind: "CREDIT" | "DEBIT";
+  installments: number;
+}
+
+/**
+ * Resolve a taxa do cartão (AcquirerRate) por adquirente×bandeira×tipo×parcela.
+ * Fonte ÚNICA da taxa de cartão — usada tanto pelo breakdown da venda
+ * (payment-calculator) quanto pela geração do recebível (generateCardReceivables)
+ * e pelo preview (receiving.previewCardSettlement), pra que os três usem
+ * exatamente a mesma taxa. Retorna a taxa em CENTAVOS (feeFixed) ou null se não
+ * houver taxa ativa cadastrada para a combinação.
+ */
+export async function resolveAcquirerRate(
+  tx: AcquirerRateLookupTx,
+  tenantId: string,
+  key: AcquirerRateKey,
+): Promise<CardSettlementRate | null> {
+  const rate = await tx.acquirerRate.findFirst({
+    where: {
+      tenantId,
+      acquirerId: key.acquirerId,
+      cardBrandId: key.cardBrandId,
+      kind: key.kind,
+      installments: key.installments,
+      active: true,
+    },
+    select: { feePercent: true, feeFixed: true, settlementDays: true },
+  });
+  if (!rate) return null;
+  return {
+    feePercent: Number(rate.feePercent),
+    feeFixed: Math.round(Number(rate.feeFixed) * 100), // reais → centavos
+    settlementDays: rate.settlementDays,
+  };
+}
+
+/**
+ * Taxa total (centavos) de um pagamento no cartão, calculada com a MESMA
+ * matemática do recebível: `splitCardReceivable` por parcela (feeFixed por
+ * parcela + arredondamento por slice). É o que garante que o `operatorFee` do
+ * breakdown da venda bate, centavo a centavo, com a soma dos `feeAmount` dos
+ * CardReceivable gerados — DRE = recebível.
+ */
+export function totalCardFeeCents(
+  rate: CardSettlementRate,
+  grossCents: number,
+  installments: number,
+  saleDate: Date = new Date(),
+): number {
+  return splitCardReceivable(rate, grossCents, installments, saleDate).reduce(
+    (sum, s) => sum + s.feeCents,
+    0,
+  );
+}

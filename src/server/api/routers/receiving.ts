@@ -19,6 +19,7 @@ import {
 import {
   computeCardSettlement,
   reconciliationDifference,
+  resolveAcquirerRate,
 } from "@/server/services/card-receivable.service";
 
 /** Decimal(10,2) em reais -> centavos inteiros. */
@@ -303,15 +304,12 @@ export const receivingRouter = createTRPCRouter({
     .input(previewCardSettlementSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const rate = await tx.acquirerRate.findFirst({
-          where: {
-            tenantId: ctx.tenantId,
-            acquirerId: input.acquirerId,
-            cardBrandId: input.cardBrandId,
-            kind: input.kind,
-            installments: input.installments,
-            active: true,
-          },
+        // Fonte unica da taxa (mesma do breakdown da venda e do recebivel).
+        const rate = await resolveAcquirerRate(tx, ctx.tenantId, {
+          acquirerId: input.acquirerId,
+          cardBrandId: input.cardBrandId,
+          kind: input.kind,
+          installments: input.installments,
         });
         if (!rate) {
           return {
@@ -322,15 +320,7 @@ export const receivingRouter = createTRPCRouter({
             settlementDate: null,
           };
         }
-        const settlement = computeCardSettlement(
-          {
-            feePercent: Number(rate.feePercent),
-            feeFixed: reaisToCents(rate.feeFixed),
-            settlementDays: rate.settlementDays,
-          },
-          input.grossCents,
-          new Date(),
-        );
+        const settlement = computeCardSettlement(rate, input.grossCents, new Date());
         return {
           found: true as const,
           grossCents: settlement.grossCents,
