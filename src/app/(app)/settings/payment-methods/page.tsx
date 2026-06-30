@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/domain/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -60,21 +59,6 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
 // Codigos legados que NAO tem taxa por design (paridade Laravel).
 const NO_FEE_CODES = new Set(["dinheiro", "transferencia"]);
 
-type Policy = "LOJA_ABSORVE" | "CLIENTE_PAGA";
-
-const POLICY_OPTIONS: { value: Policy; label: string; help: string }[] = [
-  {
-    value: "LOJA_ABSORVE",
-    label: "Loja absorve a taxa",
-    help: "O cliente paga o preco normal e a loja recebe o valor menos a taxa.",
-  },
-  {
-    value: "CLIENTE_PAGA",
-    label: "Cliente paga a taxa",
-    help: "O acrescimo da maquininha e repassado ao cliente; a loja recebe o preco cheio.",
-  },
-];
-
 export default function PaymentMethodsPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -82,15 +66,12 @@ export default function PaymentMethodsPage() {
   const [editingMethodId, setEditingMethodId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // Estado do dialog de edicao (config base + politica da forma).
+  // Estado do dialog de edicao (nome + aceita parcelamento). Prazo, parcelas e
+  // taxa do cartao vivem no adquirente (Cartoes e Recebimento); quem paga a taxa
+  // e decidido na venda.
   const [methodBase, setMethodBase] = useState<{
     name: string;
     acceptsInstallments: boolean;
-    installmentsMin: number;
-    installmentsMax: number;
-    settlementDays: number;
-    acceptsChange: boolean;
-    policy: Policy;
   } | null>(null);
 
   const { data: methods, isLoading } = useQuery(
@@ -158,12 +139,6 @@ export default function PaymentMethodsPage() {
     setMethodBase({
       name: m.name,
       acceptsInstallments: m.acceptsInstallments,
-      installmentsMin: m.installmentsMin,
-      installmentsMax: m.installmentsMax,
-      settlementDays: m.settlementDays ?? 0,
-      acceptsChange: m.acceptsChange,
-      // Politica de taxa por FORMA (coluna PaymentMethod.feePolicy).
-      policy: (m.feePolicy as Policy | undefined) ?? "LOJA_ABSORVE",
     });
     setEditingMethodId(id);
   };
@@ -179,11 +154,6 @@ export default function PaymentMethodsPage() {
         id: editingMethodId,
         name: methodBase.name,
         acceptsInstallments: methodBase.acceptsInstallments,
-        installmentsMin: methodBase.installmentsMin,
-        installmentsMax: methodBase.installmentsMax,
-        settlementDays: methodBase.settlementDays,
-        acceptsChange: methodBase.acceptsChange,
-        feePolicy: methodBase.policy,
       });
       toast.success("Forma de pagamento atualizada!");
       queryClient.invalidateQueries({ queryKey: [["settings"]] });
@@ -208,7 +178,7 @@ export default function PaymentMethodsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Formas de Pagamento"
-        subtitle="Quais formas aparecem no PDV — parcelas, prazo, troco e quem paga a taxa. A taxa do cartão é definida em Cartões e Recebimento."
+        subtitle="Quais formas de pagamento aparecem no PDV. A taxa, as parcelas e o prazo do cartão ficam em Cartões e Recebimento."
         actions={
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -251,9 +221,7 @@ export default function PaymentMethodsPage() {
                       {PAYMENT_TYPE_LABELS[method.type] ?? method.type}
                     </Badge>
                     {method.acceptsInstallments && (
-                      <Badge variant="secondary">
-                        ate {method.installmentsMax}x
-                      </Badge>
+                      <Badge variant="secondary">Parcelado</Badge>
                     )}
                     {/* Cartao: a taxa vive em Cartoes e Recebimento, nao aqui. */}
                     {!isCard && hasFee && Number(method.feePercent) > 0 && (
@@ -379,180 +347,57 @@ export default function PaymentMethodsPage() {
               Configurar {editingMethod?.name ?? "forma de pagamento"}
             </DialogTitle>
             <DialogDescription>
-              Defina parcelas, prazo, troco e quem paga a taxa. A taxa do cartão
-              em si é configurada em Cartões e Recebimento (por adquirente e
-              bandeira).
+              Nome e se aceita parcelamento. Taxa, parcelas e prazo do cartão
+              vêm do adquirente (Cartões e Recebimento); quem paga a taxa é
+              decidido na venda.
             </DialogDescription>
           </DialogHeader>
 
           {methodBase && (
             <div className="space-y-5">
-              {/* Configuracao base — campos numericos em cima, toggles separados
-                  embaixo (em vez de misturar Input e Switch no mesmo grid, que
-                  desalinhava). */}
-              <section className="rounded-lg border bg-muted/30 p-4">
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Configuracao geral
-                </h3>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="cfg-name">Nome</Label>
-                    <Input
-                      id="cfg-name"
-                      value={methodBase.name}
-                      onChange={(e) =>
-                        setMethodBase({ ...methodBase, name: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="cfg-settlement">Prazo de recebimento (dias)</Label>
-                    <Input
-                      id="cfg-settlement"
-                      type="number"
-                      min={0}
-                      max={365}
-                      value={methodBase.settlementDays}
-                      onChange={(e) =>
-                        setMethodBase({
-                          ...methodBase,
-                          settlementDays: parseInt(e.target.value) || 0,
-                        })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Dias ate o valor cair na conta (0 = a vista).
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cfg-inst-min">Parcelas min</Label>
-                      <Input
-                        id="cfg-inst-min"
-                        type="number"
-                        min={1}
-                        max={36}
-                        value={methodBase.installmentsMin}
-                        disabled={!methodBase.acceptsInstallments}
-                        onChange={(e) =>
-                          setMethodBase({
-                            ...methodBase,
-                            installmentsMin: parseInt(e.target.value) || 1,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cfg-inst-max">Parcelas max</Label>
-                      <Input
-                        id="cfg-inst-max"
-                        type="number"
-                        min={1}
-                        max={36}
-                        value={methodBase.installmentsMax}
-                        disabled={!methodBase.acceptsInstallments}
-                        onChange={(e) =>
-                          setMethodBase({
-                            ...methodBase,
-                            installmentsMax: parseInt(e.target.value) || 1,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
+              <section className="rounded-lg border bg-muted/30 p-4 space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cfg-name">Nome</Label>
+                  <Input
+                    id="cfg-name"
+                    value={methodBase.name}
+                    onChange={(e) =>
+                      setMethodBase({ ...methodBase, name: e.target.value })
+                    }
+                  />
                 </div>
 
-                <Separator className="my-4" />
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
-                    <span className="space-y-0.5">
-                      <span className="block text-sm font-medium">Aceita parcelamento</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Permite dividir a venda em parcelas.
-                      </span>
+                <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
+                  <span className="space-y-0.5">
+                    <span className="block text-sm font-medium">Aceita parcelamento</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Permite dividir a venda em parcelas. O nº de parcelas e o
+                      prazo de recebimento vêm das taxas cadastradas no adquirente.
                     </span>
-                    <Switch
-                      checked={methodBase.acceptsInstallments}
-                      onCheckedChange={(checked) =>
-                        setMethodBase({
-                          ...methodBase,
-                          acceptsInstallments: checked,
-                          installmentsMax: checked
-                            ? Math.max(methodBase.installmentsMax, 2)
-                            : 1,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
-                    <span className="space-y-0.5">
-                      <span className="block text-sm font-medium">Aceita troco</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Permite informar valor recebido e calcular troco.
-                      </span>
-                    </span>
-                    <Switch
-                      checked={methodBase.acceptsChange}
-                      onCheckedChange={(checked) =>
-                        setMethodBase({ ...methodBase, acceptsChange: checked })
-                      }
-                    />
-                  </label>
-                </div>
+                  </span>
+                  <Switch
+                    checked={methodBase.acceptsInstallments}
+                    onCheckedChange={(checked) =>
+                      setMethodBase({ ...methodBase, acceptsInstallments: checked })
+                    }
+                  />
+                </label>
               </section>
 
-              {/* Quem paga a taxa — UMA escolha por forma (nao por parcela). */}
-              <section className="rounded-lg border bg-muted/30 p-4">
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Quem paga a taxa
-                </h3>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {POLICY_OPTIONS.map((opt) => {
-                    const selected = methodBase.policy === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setMethodBase({ ...methodBase, policy: opt.value })}
-                        aria-pressed={selected}
-                        className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors ${
-                          selected
-                            ? "border-primary bg-primary/5 ring-1 ring-primary"
-                            : "bg-background hover:border-muted-foreground/40"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <span
-                            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
-                              selected ? "border-primary" : "border-muted-foreground/40"
-                            }`}
-                          >
-                            {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
-                          </span>
-                          {opt.label}
-                        </span>
-                        <span className="pl-6 text-xs text-muted-foreground">{opt.help}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* A taxa do cartao NAO e mais configurada aqui — vive em Cartoes
-                  e Recebimento (por adquirente x bandeira x parcela), que e a
-                  taxa real da maquininha e a fonte unica do recebivel/DRE. */}
+              {/* A taxa do cartao (e o prazo/parcelas) vivem em Cartoes e
+                  Recebimento — fonte unica por adquirente x bandeira x parcela. */}
               {(editingMethod?.type === "CREDIT_CARD" ||
                 editingMethod?.type === "DEBIT_CARD") && (
                 <section className="rounded-lg border border-info/40 bg-info/5 p-4">
                   <div className="flex items-start gap-3">
                     <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-info" />
                     <div className="space-y-1.5">
-                      <h3 className="text-sm font-semibold">A taxa do cartão fica em Cartões e Recebimento</h3>
+                      <h3 className="text-sm font-semibold">Taxa, parcelas e prazo ficam em Cartões e Recebimento</h3>
                       <p className="text-sm text-muted-foreground">
-                        A taxa real da maquininha varia por adquirente, bandeira e
-                        parcela — configure lá. É a mesma taxa usada no recebível e
-                        no financeiro, sem duplicar valores.
+                        A taxa real da maquininha — e até quantas parcelas e em
+                        quantos dias o valor cai — vêm do adquirente e da bandeira.
+                        Quem paga a taxa (loja ou cliente) é decidido na própria
+                        venda, pelo valor informado no PDV.
                       </p>
                       <Button variant="outline" size="sm" asChild className="mt-1">
                         <Link href="/settings/card-acquirers">

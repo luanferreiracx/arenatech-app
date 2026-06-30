@@ -163,13 +163,16 @@ model PaymentMethod {
   acceptsInstallments Boolean       @default(false) @map("accepts_installments")
   installmentsMin Int               @default(1) @map("installments_min")
   installmentsMax Int               @default(1) @map("installments_max")
+  // @deprecated settlementDays/installmentsMin/Max da FORMA nao sao mais a fonte:
+  // prazo e parcelas do cartao vem da AcquirerRate (Cartoes e Recebimento).
+  // Mantidos (sem uso de UI) ate um drop futuro.
   settlementDays  Int               @default(0) @map("settlement_days")
   active          Boolean           @default(true)
+  // @deprecated O troco e habilitado so para dinheiro no PDV; este flag nao tem
+  // efeito. Mantido ate um drop futuro.
   acceptsChange   Boolean           @default(false) @map("accepts_change")
-  // Politica de taxa da forma (quem paga a taxa do cartao): a loja absorve ou o
-  // cliente paga o acrescimo. Definida UMA vez por forma (nao por parcela) — ver
-  // PR #329. Antes vivia em PaymentMethodRate.policy; passa a ser a fonte unica
-  // conforme a taxa de cartao migra para AcquirerRate.
+  // @deprecated "Quem paga a taxa" e DECIDIDO NA VENDA (pelo valor informado no
+  // PDV), nao configurado. O calculo nao le mais este campo. Mantido ate o drop.
   feePolicy       PaymentFeePolicy  @default(LOJA_ABSORVE) @map("fee_policy")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
