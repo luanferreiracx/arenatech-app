@@ -99,6 +99,9 @@ export const updatePaymentMethodFullSchema = z.object({
   active: z.boolean().optional(),
   feePercent: z.number().min(0).max(99.99).optional(),
   feeFixed: z.number().min(0).max(9999.99).optional(),
+  // Politica de taxa por forma (loja absorve / cliente paga). Antes vinha junto
+  // de cada PaymentMethodRate; agora e por forma (coluna PaymentMethod.feePolicy).
+  feePolicy: paymentRatePolicyEnum.optional(),
 });
 export type UpdatePaymentMethodFullInput = z.infer<typeof updatePaymentMethodFullSchema>;
 
