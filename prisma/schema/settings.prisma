@@ -166,6 +166,11 @@ model PaymentMethod {
   settlementDays  Int               @default(0) @map("settlement_days")
   active          Boolean           @default(true)
   acceptsChange   Boolean           @default(false) @map("accepts_change")
+  // Politica de taxa da forma (quem paga a taxa do cartao): a loja absorve ou o
+  // cliente paga o acrescimo. Definida UMA vez por forma (nao por parcela) — ver
+  // PR #329. Antes vivia em PaymentMethodRate.policy; passa a ser a fonte unica
+  // conforme a taxa de cartao migra para AcquirerRate.
+  feePolicy       PaymentFeePolicy  @default(LOJA_ABSORVE) @map("fee_policy")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
