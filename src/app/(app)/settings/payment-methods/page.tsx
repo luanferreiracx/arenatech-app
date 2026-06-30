@@ -276,7 +276,7 @@ export default function PaymentMethodsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Formas de Pagamento"
-        subtitle="Configure quais formas estarao disponiveis no PDV e como cada uma cobra taxa"
+        subtitle="Quais formas aparecem no PDV — parcelas, prazo, troco e quem paga a taxa. A taxa do cartão é definida em Cartões e Recebimento."
         actions={
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />

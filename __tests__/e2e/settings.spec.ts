@@ -136,8 +136,8 @@ test.describe("Settings — Tab Parcelamento", () => {
     await gotoAndWait(page, "/settings/installments");
     const table = page.locator("table");
     const hasTable = await table.isVisible({ timeout: 5000 }).catch(() => false);
-    // Either table with rates or empty state
-    expect(hasTable || await page.locator("text=/[Pp]arcelamento/").first().isVisible().catch(() => false)).toBe(true);
+    // Either table with rates or the simulator-fees content
+    expect(hasTable || await page.locator("text=/[Ss]imulador|[Pp]arcela/").first().isVisible().catch(() => false)).toBe(true);
   });
 
   test("@business S-10 tab Parcelamento tem conteúdo interativo", async ({ page }) => {

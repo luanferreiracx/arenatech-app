@@ -71,8 +71,8 @@ export default function ReceivingSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Recebimento"
-        subtitle="Políticas de recebimento, metas e alíquotas"
+        title="Regras de Venda"
+        subtitle="Políticas de venda, exigência de CPF, metas e alíquotas"
       />
 
       {/* D6 da auditoria de config: parte dos ajustes ja vale (min. parcela +
