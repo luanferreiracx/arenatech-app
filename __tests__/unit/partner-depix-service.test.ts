@@ -122,6 +122,17 @@ describe("partner-depix.service", () => {
     expect(res.data[0]).not.toHaveProperty("apiResponse");
   });
 
+  it("list: coage page/pageSize NaN para os defaults (nao manda skip:NaN ao Prisma)", async () => {
+    txFindMany.mockResolvedValue([]);
+    txCount.mockResolvedValue(0);
+    // Simula ?page=abc&pageSize=xyz -> Number("abc") = NaN vindo da rota.
+    await listPartnerTransactions(TENANT, { page: Number.NaN, pageSize: Number.NaN });
+    const args = txFindMany.mock.calls[0]![0] as { take: number; skip: number };
+    expect(args.skip).toBe(0); // page default 0
+    expect(args.take).toBe(20); // pageSize default 20
+    expect(Number.isNaN(args.skip)).toBe(false);
+  });
+
   it("list: ignora status invalido (nao filtra por lixo)", async () => {
     txFindMany.mockResolvedValue([]);
     txCount.mockResolvedValue(0);

@@ -466,6 +466,16 @@ paths:
       security:
         - bearerAuth: []
       description: 'Escopo necessário: `depix:deposit`.'
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: >-
+            UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado,
+            sem duplicar.
       requestBody:
         required: true
         content:
@@ -479,6 +489,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PartnerDepositResult'
+        '400':
+          description: Corpo JSON inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
         '401':
           description: API-key ausente/inválida/revogada.
           content:
@@ -515,6 +531,16 @@ paths:
       security:
         - bearerAuth: []
       description: 'Escopo necessário: `depix:withdraw`.'
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: >-
+            UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado,
+            sem duplicar.
       requestBody:
         required: true
         content:
@@ -528,6 +554,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PartnerWithdrawResult'
+        '400':
+          description: Corpo JSON inválido ou cap diário de saque excedido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
         '401':
           description: API-key ausente/inválida/revogada.
           content:

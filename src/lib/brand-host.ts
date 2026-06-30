@@ -75,3 +75,18 @@ const KNOWN_HOSTS = new Set([
 export function isKnownHost(host: string | null | undefined): boolean {
   return KNOWN_HOSTS.has(normalizeHost(host));
 }
+
+/**
+ * Resolve a ORIGEM pública (`https://host`) da requisição a partir dos headers,
+ * de forma segura: só ecoa o `x-forwarded-host`/`Host` se ele estiver na allowlist
+ * (`isKnownHost`) — senão cai no host canônico. Espelha a lógica do `selfUrl` do
+ * proxy. Usado por respostas servidas atrás de Nginx/Cloudflare, onde `req.url`
+ * carrega o host INTERNO (ex.: localhost:3000), não o público. Preserva a porta do
+ * host conhecido (dev/local) e usa `x-forwarded-proto` quando presente.
+ */
+export function resolvePublicOrigin(headers: Headers): string {
+  const rawHost = headers.get("x-forwarded-host") ?? headers.get("host");
+  const host = isKnownHost(rawHost) ? rawHost!.split(",")[0]!.trim() : CANONICAL_APP_HOST;
+  const proto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+  return `${proto}://${host}`;
+}

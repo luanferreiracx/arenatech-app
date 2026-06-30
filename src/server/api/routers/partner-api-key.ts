@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, tenantAdminProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
+import { assertPublicHttpsUrl } from "@/lib/security/ssrf";
 import { ALL_PARTNER_SCOPES } from "@/lib/partner-api/scopes";
 import {
   issuePartnerApiKey,
@@ -89,8 +90,17 @@ export const partnerApiKeyRouter = createTRPCRouter({
     .input(z.object({ url: z.string().trim().url().max(500).nullable() }))
     .mutation(async ({ ctx, input }) => {
       await assertApiAccessEnabled(ctx.tenantId);
-      if (input.url && !input.url.startsWith("https://")) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A URL do webhook deve ser HTTPS." });
+      // Anti-SSRF: HTTPS obrigatório + rejeita hosts internos/privados (o servidor
+      // faz POST nessa URL; sem o guard, o tenant apontaria pra rede interna).
+      if (input.url) {
+        try {
+          assertPublicHttpsUrl(input.url);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err instanceof Error ? err.message : "URL de webhook inválida.",
+          });
+        }
       }
       return setPartnerWebhookUrl({ tenantId: ctx.tenantId, url: input.url });
     }),

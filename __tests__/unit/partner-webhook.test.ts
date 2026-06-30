@@ -16,6 +16,12 @@ vi.mock("@/server/db", () => ({
   withTenant: (_t: string, fn: (d: typeof db) => unknown) => fn(db),
 }));
 
+// DNS determinístico: o guard anti-SSRF resolve o host antes do fetch — sem isto o
+// teste bateria na rede real (flaky). parceiro.com → IP público.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async () => [{ address: "203.0.113.10", family: 4 }]),
+}));
+
 import { notifyPartnerWebhook } from "@/server/services/partner-webhook.service";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
@@ -55,7 +61,9 @@ describe("notifyPartnerWebhook", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(url).toBe("https://parceiro.com/hook");
+    expect(String(url)).toBe("https://parceiro.com/hook");
+    // redirect:"error" impede bypass de SSRF via 3xx.
+    expect((init as RequestInit).redirect).toBe("error");
     const body = (init as RequestInit).body as string;
     const headers = (init as RequestInit).headers as Record<string, string>;
     const expected = "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
@@ -78,5 +86,12 @@ describe("notifyPartnerWebhook", () => {
     cfgFindUnique.mockResolvedValue({ url: "https://parceiro.com/hook", secret: SECRET });
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ETIMEDOUT"));
     await expect(notifyPartnerWebhook(TENANT, event)).resolves.toBeUndefined();
+  });
+
+  it("anti-SSRF: NÃO entrega para URL interna (e não lança)", async () => {
+    cfgFindUnique.mockResolvedValue({ url: "https://127.0.0.1/hook", secret: SECRET });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(notifyPartnerWebhook(TENANT, event)).resolves.toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

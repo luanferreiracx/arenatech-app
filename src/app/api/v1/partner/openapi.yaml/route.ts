@@ -7,11 +7,14 @@
  */
 import { dump } from "js-yaml";
 import { buildOpenApiSpec } from "@/lib/partner-api/openapi-spec";
+import { resolvePublicOrigin } from "@/lib/brand-host";
 
 export const dynamic = "force-dynamic";
 
 export function GET(req: Request): Response {
-  const origin = new URL(req.url).origin;
+  // Atrás de Nginx/Cloudflare, `req.url` traz o host INTERNO (localhost:3000); o
+  // `servers[0].url` precisa ser o público para o "Try it out" do Swagger funcionar.
+  const origin = resolvePublicOrigin(req.headers);
   const spec = buildOpenApiSpec(origin);
   const body = dump(spec, { lineWidth: 100, noRefs: true, sortKeys: false });
   return new Response(body, {

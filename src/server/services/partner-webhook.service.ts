@@ -10,6 +10,7 @@
 import { randomBytes, createHmac } from "node:crypto";
 import { withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { assertPublicHttpsUrl, assertUrlResolvesToPublicIp } from "@/lib/security/ssrf";
 
 export type PartnerWebhookEventType = "deposit.completed" | "withdrawal.completed";
 
@@ -102,10 +103,16 @@ export async function notifyPartnerWebhook(
     );
     if (!cfg?.url || !cfg.secret) return;
 
+    // Anti-SSRF na ENTREGA: revalida formato e resolve o DNS antes do fetch (o host
+    // pode ter sido cadastrado válido e depois apontar para um IP interno —
+    // DNS-rebinding). `redirect: "error"` impede bypass via 3xx → host interno.
+    const target = assertPublicHttpsUrl(cfg.url);
+    await assertUrlResolvesToPublicIp(target);
+
     const body = JSON.stringify(event);
     const signature = "sha256=" + createHmac("sha256", cfg.secret).update(body).digest("hex");
 
-    const res = await fetch(cfg.url, {
+    const res = await fetch(target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -114,6 +121,7 @@ export async function notifyPartnerWebhook(
         "x-event-id": event.transactionId,
       },
       body,
+      redirect: "error",
       signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) {

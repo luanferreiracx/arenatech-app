@@ -54,6 +54,7 @@ vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletMasterAddress: (...a: unknown[]) => getFeeWalletMasterAddress(...a),
 }));
 
+import { Prisma } from "@prisma/client";
 import { createDeposit } from "@/server/services/depix-transaction.service";
 
 const REAL_TENANT = "11111111-1111-1111-1111-111111111111";
@@ -133,5 +134,45 @@ describe("createDeposit — split nativo Eulen", () => {
     };
     expect(opts.depixSplitAddress).toBeUndefined();
     expect(opts.splitFeePercent).toBe(0);
+  });
+});
+
+describe("createDeposit — idempotência (API de parceiros)", () => {
+  const EXISTING = { id: "existing-tx", number: "TXD20260616-09999", status: "PENDING" };
+
+  it("idempotencyKey ja existente: retorna o MESMO deposito sem gerar QR novo", async () => {
+    // Pre-check encontra a transacao -> retorna sem chamar LWK/PixPay.
+    txFindFirst.mockResolvedValueOnce(EXISTING);
+    const res = await createDeposit({ ...baseArgs, idempotencyKey: "idem-1" });
+
+    expect(res).toBe(EXISTING);
+    expect(generateAddress).not.toHaveBeenCalled();
+    expect(createPixPayment).not.toHaveBeenCalled();
+    expect(txCreate).not.toHaveBeenCalled();
+  });
+
+  it("corrida concorrente (P2002): recupera o deposito ja criado", async () => {
+    // Pre-check perde (null), nextTransactionNumber (null), create colide (P2002),
+    // recovery encontra a transacao criada pela chamada vencedora.
+    txFindFirst
+      .mockResolvedValueOnce(null) // pre-check
+      .mockResolvedValueOnce(null) // nextTransactionNumber
+      .mockResolvedValueOnce(EXISTING); // recovery pos-P2002
+    txCreate.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "7" }),
+    );
+
+    const res = await createDeposit({ ...baseArgs, idempotencyKey: "idem-2" });
+    expect(res).toBe(EXISTING);
+    expect(createPixPayment).not.toHaveBeenCalled();
+  });
+
+  it("sem idempotencyKey: nao faz pre-check de idempotencia", async () => {
+    await createDeposit(baseArgs);
+    // findFirst so foi chamado pra numeracao — nunca com filtro idempotencyKey.
+    for (const call of txFindFirst.mock.calls) {
+      const where = (call[0] as { where?: Record<string, unknown> } | undefined)?.where ?? {};
+      expect(where).not.toHaveProperty("idempotencyKey");
+    }
   });
 });
