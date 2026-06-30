@@ -48,3 +48,6 @@ test-results/
 .claude/settings.previous.bak
 .claude/settings.unrestricted.json
 .eslintcache
+
+# Swagger UI assets copiados no build (scripts/copy-swagger-assets.ts)
+/public/swagger-ui/

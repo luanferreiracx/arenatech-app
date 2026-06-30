@@ -161,6 +161,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Trava de drift: a spec OpenAPI da API de parceiros é gerada dos schemas
+      # Zod. Mexeu na API sem rodar `pnpm openapi:gen` -> build vermelho.
+      - name: OpenAPI da API de parceiros em sincronia
+        run: pnpm openapi:check
+
   # ============================================================
   # Unit tests (paralelo)
   # ============================================================

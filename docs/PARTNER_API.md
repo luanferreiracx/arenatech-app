@@ -3,6 +3,15 @@
 > Referência da API REST externa pra parceiros (ADR 0057). Read-only + escrita
 > (depósito e saque).
 
+> **Contrato canônico:** [`docs/openapi/partner-api.yaml`](./openapi/partner-api.yaml),
+> **gerado dos schemas Zod** (`pnpm openapi:gen`) — é a fonte de verdade do formato de
+> request/response. Este guia cobre autenticação, idempotência, webhooks e exemplos;
+> **não** redefine schemas à mão (evita divergência). O CI roda `openapi:check` e
+> **falha** se a spec sair de sincronia com o código.
+>
+> **Doc interativa (Swagger UI):** `/docs/partner-api` (pública). A spec viva é servida
+> em `GET /api/v1/partner/openapi.yaml`.
+
 ## Autenticação
 
 Toda requisição exige o header:
