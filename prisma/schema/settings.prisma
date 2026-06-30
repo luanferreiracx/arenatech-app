@@ -206,9 +206,13 @@ enum PaymentRateAppliesTo {
 }
 
 /**
- * Tabela de taxas por (forma, parcelas, tipo de produto).
- * Paridade Laravel forma_pagamento_taxas. Permite diferenciar taxa de
- * aparelho vs acessorio e politica cliente-paga vs loja-absorve.
+ * @deprecated Taxa de cartao migrou para AcquirerRate (Cartoes e Recebimento) —
+ * fonte unica do breakdown da venda E do recebivel. Ninguem mais LE esta tabela
+ * pra calculo (PR de unificacao); a politica virou PaymentMethod.feePolicy.
+ * Mantida (com os dados) por reversibilidade; sera removida num PR futuro.
+ *
+ * Tabela de taxas por (forma, parcelas, tipo de produto). Paridade Laravel
+ * forma_pagamento_taxas.
  */
 model PaymentMethodRate {
   id                String                 @id @default(uuid()) @db.Uuid

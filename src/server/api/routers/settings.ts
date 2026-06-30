@@ -179,11 +179,13 @@ export const settingsRouter = createTRPCRouter({
 
   listPaymentMethods: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // `rates` (PaymentMethodRate) nao e mais incluido: a taxa de cartao migrou
+      // para AcquirerRate (Cartoes e Recebimento). A UI usa feePolicy + config
+      // base. installmentRules segue (simulador do catalogo).
       return tx.paymentMethod.findMany({
         where: { tenantId: ctx.tenantId, active: true },
         include: {
           installmentRules: { orderBy: { installments: "asc" } },
-          rates: { where: { active: true }, orderBy: { installments: "asc" } },
         },
         orderBy: { name: "asc" },
       });
@@ -199,18 +201,26 @@ export const settingsRouter = createTRPCRouter({
       paymentMethodId: z.string().uuid(),
       installments: z.number().int().min(1).max(36),
       valorMercadoria: z.number().int().min(0), // centavos
-      appliesTo: z.enum(["APARELHO", "NAO_APARELHO", "AMBOS"]).default("AMBOS"),
+      // Cartao: adquirente/bandeira/tipo (resolve a AcquirerRate, fonte da taxa).
+      acquirerId: z.string().uuid().optional(),
+      cardBrandId: z.string().uuid().optional(),
+      cardKind: z.enum(["CREDIT", "DEBIT"]).optional(),
       totalPaidManual: z.number().int().min(0).optional(),
     }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const { calculatePaymentByMethodId } = await import("@/lib/services/payment-calculator");
+        const card =
+          input.acquirerId && input.cardBrandId && input.cardKind
+            ? { acquirerId: input.acquirerId, cardBrandId: input.cardBrandId, cardKind: input.cardKind }
+            : null;
         return calculatePaymentByMethodId(tx, {
           paymentMethodId: input.paymentMethodId,
           installments: input.installments,
           valorMercadoria: input.valorMercadoria,
-          appliesTo: input.appliesTo,
+          card,
           totalPaidManual: input.totalPaidManual ?? null,
+          tenantId: ctx.tenantId,
         });
       });
     }),
@@ -313,13 +323,14 @@ export const settingsRouter = createTRPCRouter({
     }),
 
   /**
+   * @deprecated A taxa de cartao migrou para AcquirerRate (Cartoes e
+   * Recebimento) — fonte unica usada pelo breakdown da venda E pelo recebivel.
+   * Esta mutation nao e mais chamada por nenhuma UI; o calculo do PDV nao le
+   * mais PaymentMethodRate. Mantida (sem chamadores) apenas pra nao quebrar
+   * integracoes externas; o model/tabela serao removidos num PR futuro.
+   *
    * Replace-all de PaymentMethodRate de uma forma de pagamento.
-   * Apaga as rates existentes e insere as novas. Idempotente.
-   * Aceita policy (LOJA_ABSORVE/CLIENTE_PAGA) e appliesTo (APARELHO/NAO_APARELHO/AMBOS)
-   * por parcela — paridade Laravel formas_pagamento_taxas.
    */
-  // Taxas por forma de pagamento = precificação controlada pela Arena Tech.
-  // SÓ super admin altera; o tenant não mexe nas próprias taxas.
   upsertPaymentRates: superAdminTenantProcedure
     .input(upsertPaymentRatesSchema)
     .mutation(async ({ ctx, input }) => {

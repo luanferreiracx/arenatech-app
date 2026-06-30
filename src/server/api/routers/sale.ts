@@ -975,12 +975,6 @@ export const saleRouter = createTRPCRouter({
         const products = productIds.length > 0
           ? await tx.product.findMany({ where: { id: { in: productIds } }, select: { isDevice: true } })
           : [];
-        const allDevices = products.length > 0 && products.every((p) => p.isDevice);
-        const noDevices = products.length > 0 && products.every((p) => !p.isDevice);
-        const appliesTo: "APARELHO" | "NAO_APARELHO" | "AMBOS" = allDevices
-          ? "APARELHO"
-          : noDevices ? "NAO_APARELHO" : "AMBOS";
-
         // Regra de negocio: venda de aparelho exige cliente vinculado
         // (rastreabilidade do IMEI, termo de entrega + DevicePurchase em
         // upgrade). Paridade Laravel `validarClienteParaAparelho`.
@@ -993,21 +987,41 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
+        // Data unica da venda — usada no breakdown, no recebivel (D+N) e na
+        // linha da venda, pra que a taxa/liquido batam entre eles.
+        const saleDate = new Date();
+
         let totalSurcharge = 0;
         let totalOperatorFee = 0;
         let totalNetRevenue = 0;
         let totalPaidByCustomer = 0;
+        // Bruto que passou na maquininha por pagamento (= totalPaid do breakdown).
+        // O recebivel e gerado sobre esse bruto pra bater com o operatorFee (em
+        // CLIENTE_PAGA o bruto inclui o acrescimo).
+        const grossPassedByPayment = new Map<(typeof payments)[number], number>();
 
         for (const payment of payments) {
           let breakdown;
           if (payment.paymentMethodId) {
             const { calculatePaymentByMethodId } = await import("@/lib/services/payment-calculator");
+            // Taxa do cartao vem da AcquirerRate (mesma do recebivel). So resolve
+            // quando ha adquirente+bandeira+tipo; senao usa a taxa-base do metodo.
+            const card =
+              payment.acquirerId && payment.cardBrandId && payment.cardKind
+                ? {
+                    acquirerId: payment.acquirerId,
+                    cardBrandId: payment.cardBrandId,
+                    cardKind: payment.cardKind,
+                  }
+                : null;
             breakdown = await calculatePaymentByMethodId(tx, {
               paymentMethodId: payment.paymentMethodId,
               installments: payment.installments ?? 1,
               valorMercadoria: payment.amount,
-              appliesTo,
+              card,
               totalPaidManual: payment.totalPaidByCustomer ?? null,
+              tenantId: ctx.tenantId,
+              saleDate,
             });
             if (breakdown.error) {
               throw new TRPCError({ code: "BAD_REQUEST", message: breakdown.error });
@@ -1031,6 +1045,7 @@ export const saleRouter = createTRPCRouter({
           totalOperatorFee += breakdown.operatorFee;
           totalNetRevenue += breakdown.netRevenue;
           totalPaidByCustomer += breakdown.totalPaid;
+          grossPassedByPayment.set(payment, breakdown.totalPaid);
         }
 
         // Downgrade: upgrade excede o valor da venda. Cliente nao paga nada
@@ -1265,10 +1280,14 @@ export const saleRouter = createTRPCRouter({
                 acquirerId: payment.acquirerId,
                 cardBrandId: payment.cardBrandId,
                 cardKind: payment.cardKind,
-                grossCents: payment.amount,
+                // Bruto = o que passou na maquininha (totalPaid do breakdown).
+                // Em CLIENTE_PAGA inclui o acrescimo; assim o recebivel usa a
+                // MESMA base do operatorFee -> DRE = recebivel.
+                grossCents: grossPassedByPayment.get(payment) ?? payment.amount,
                 installments: payment.installments ?? 1,
               },
               createdByUserId: ctx.session.user.id,
+              saleDate,
             });
           }
         }
@@ -1483,7 +1502,7 @@ export const saleRouter = createTRPCRouter({
                   : totalCents,
             ),
             observations: input.observations ?? sale.observations,
-            saleDate: new Date(),
+            saleDate,
           },
           include: { items: true },
         });
