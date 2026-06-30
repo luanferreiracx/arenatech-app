@@ -10,8 +10,8 @@ export function CardAcquirersClient() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Meios de Recebimento"
-        subtitle="Adquirentes (maquininhas), bandeiras, taxas por parcela e contas onde o dinheiro cai"
+        title="Cartões e Recebimento"
+        subtitle="É aqui que a taxa do cartão é definida — por adquirente (maquininha), bandeira e parcela — além das contas onde o dinheiro cai."
       />
 
       <Tabs defaultValue="acquirers">
