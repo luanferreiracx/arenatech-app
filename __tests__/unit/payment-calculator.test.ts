@@ -39,9 +39,12 @@ function rate(feePercent: number, feeFixed = 0, settlementDays = 30): CardSettle
 const SALE_DATE = new Date("2026-06-01T12:00:00Z");
 
 describe("calculatePayment", () => {
-  describe("LOJA_ABSORVE (loja absorve a taxa)", () => {
+  // Quem paga a taxa = decidido na venda (pelo valor que o cliente pagou),
+  // nao por configuracao. Sem valor informado (ou == mercadoria) => loja
+  // absorve. Maior que a mercadoria => cliente pagou o acrescimo.
+  describe("loja absorve (operador nao informa acrescimo)", () => {
     it("deduz a taxa do recebido; cliente paga so a mercadoria", () => {
-      const method = makeMethod({ feePolicy: "LOJA_ABSORVE" });
+      const method = makeMethod();
       const r = calculatePayment({
         method, installments: 1, valorMercadoria: 10_000, cardRate: rate(10), saleDate: SALE_DATE,
       });
@@ -50,6 +53,7 @@ describe("calculatePayment", () => {
       expect(r.operatorFee).toBe(1_000); // 10% de 10000
       expect(r.netRevenue).toBe(9_000);
       expect(r.surcharge).toBe(0);
+      expect(r.policy).toBe("LOJA_ABSORVE"); // derivado
     });
 
     it("soma a taxa fixa (centavos) a taxa percentual em 1x", () => {
@@ -60,33 +64,11 @@ describe("calculatePayment", () => {
       expect(r.operatorFee).toBe(200 + 50); // 2% de 10000 + R$0,50
       expect(r.netRevenue).toBe(10_000 - 250);
     });
-
-    it("registra surcharge quando o operador informa total pago maior que a mercadoria", () => {
-      const method = makeMethod({ feePolicy: "LOJA_ABSORVE" });
-      const r = calculatePayment({
-        method, installments: 1, valorMercadoria: 10_000, cardRate: rate(10),
-        totalPaidManual: 10_500, saleDate: SALE_DATE,
-      });
-      expect(r.totalPaid).toBe(10_500);
-      expect(r.surcharge).toBe(500);
-    });
   });
 
-  describe("CLIENTE_PAGA (gross-up; taxa sobre o valor com acrescimo)", () => {
-    it("calcula o bruto via gross-up e a taxa incide sobre o total com acrescimo", () => {
-      const method = makeMethod({ feePolicy: "CLIENTE_PAGA" });
-      const r = calculatePayment({
-        method, installments: 1, valorMercadoria: 10_000, cardRate: rate(10), saleDate: SALE_DATE,
-      });
-      // bruto = 10000 * 100 / 90 = 11111. Taxa = 10% de 11111 = 1111.
-      expect(r.totalPaid).toBe(11_111);
-      expect(r.surcharge).toBe(1_111);
-      expect(r.operatorFee).toBe(1_111);
-      expect(r.netRevenue).toBe(11_111 - 1_111);
-    });
-
-    it("usa o total manual direto quando >= mercadoria", () => {
-      const method = makeMethod({ feePolicy: "CLIENTE_PAGA" });
+  describe("cliente paga (operador informa total > mercadoria)", () => {
+    it("a taxa incide sobre o total com acrescimo; loja recebe o liquido desse total", () => {
+      const method = makeMethod();
       const r = calculatePayment({
         method, installments: 1, valorMercadoria: 10_000, cardRate: rate(10),
         totalPaidManual: 11_000, saleDate: SALE_DATE,
@@ -95,14 +77,18 @@ describe("calculatePayment", () => {
       expect(r.surcharge).toBe(1_000);
       expect(r.operatorFee).toBe(1_100); // 10% de 11000
       expect(r.netRevenue).toBe(11_000 - 1_100);
+      expect(r.policy).toBe("CLIENTE_PAGA"); // derivado do surcharge > 0
     });
 
-    it("erra quando a taxa percentual >= 100 (gross-up impossivel)", () => {
-      const method = makeMethod({ feePolicy: "CLIENTE_PAGA" });
+    it("total informado igual a mercadoria = loja absorve (sem surcharge)", () => {
+      const method = makeMethod();
       const r = calculatePayment({
-        method, installments: 1, valorMercadoria: 10_000, cardRate: rate(100), saleDate: SALE_DATE,
+        method, installments: 1, valorMercadoria: 10_000, cardRate: rate(10),
+        totalPaidManual: 10_000, saleDate: SALE_DATE,
       });
-      expect(r.error).toMatch(/gross-up/i);
+      expect(r.surcharge).toBe(0);
+      expect(r.policy).toBe("LOJA_ABSORVE");
+      expect(r.netRevenue).toBe(9_000);
     });
   });
 
@@ -176,29 +162,33 @@ describe("calculatePayment", () => {
 
   // ── TESTE-GUARDIAO: o operatorFee do breakdown deve bater, centavo a centavo,
   // com a soma dos feeCents dos recebiveis (splitCardReceivable). E a definicao
-  // de "DRE = recebivel". Cobre a matriz {1x,12x} x {feeFixed 0,>0} x {politica}.
+  // de "DRE = recebivel". Cobre {1x,12x} x {feeFixed 0,>0} x {loja absorve /
+  // cliente paga (totalPaid > mercadoria)}.
   describe("paridade DRE = recebivel (operatorFee == Σ feeCents do split)", () => {
-    const matrix: { installments: number; r: CardSettlementRate; policy: "LOJA_ABSORVE" | "CLIENTE_PAGA" }[] = [];
+    const matrix: { installments: number; r: CardSettlementRate; clientePaga: boolean }[] = [];
     for (const installments of [1, 12]) {
       for (const feeFixed of [0, 99]) {
-        for (const policy of ["LOJA_ABSORVE", "CLIENTE_PAGA"] as const) {
-          matrix.push({ installments, r: rate(2.99, feeFixed), policy });
+        for (const clientePaga of [false, true]) {
+          matrix.push({ installments, r: rate(2.99, feeFixed), clientePaga });
         }
       }
     }
 
     it.each(matrix)(
       "%j: operatorFee == soma dos feeCents do recebivel",
-      ({ installments, r: cardRate, policy }) => {
-        const method = makeMethod({ feePolicy: policy });
+      ({ installments, r: cardRate, clientePaga }) => {
+        const method = makeMethod();
         const valorMercadoria = 100_000;
-        const bd = calculatePayment({ method, installments, valorMercadoria, cardRate, saleDate: SALE_DATE });
+        // Cliente paga = operador informa um total maior que a mercadoria.
+        const totalPaidManual = clientePaga ? 103_500 : undefined;
+        const bd = calculatePayment({
+          method, installments, valorMercadoria, cardRate, totalPaidManual, saleDate: SALE_DATE,
+        });
         expect(bd.error).toBeNull();
         // O recebivel e gerado sobre o BRUTO que passou na maquininha (totalPaid).
         const expectedFee = splitCardReceivable(cardRate, bd.totalPaid, installments, SALE_DATE)
           .reduce((s, x) => s + x.feeCents, 0);
         expect(bd.operatorFee).toBe(expectedFee);
-        // E o liquido bate: netRevenue = totalPaid - operatorFee.
         expect(bd.netRevenue).toBe(bd.totalPaid - bd.operatorFee);
       },
     );

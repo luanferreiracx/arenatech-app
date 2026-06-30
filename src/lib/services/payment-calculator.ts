@@ -12,15 +12,18 @@
  * recebivel (`totalCardFeeCents` -> `splitCardReceivable`), pra que o
  * `operatorFee` do breakdown bata centavo a centavo com a soma dos
  * `CardReceivable` da venda (DRE = recebivel). Sem AcquirerRate cadastrada, cai
- * pro fallback `PaymentMethod.feePercent/feeFixed` (mesma matematica). A
- * politica (quem paga a taxa) vem de `PaymentMethod.feePolicy`.
+ * pro fallback `PaymentMethod.feePercent/feeFixed` (mesma matematica).
  *
- * Politicas:
- * - LOJA_ABSORVE: cliente paga `valorMercadoria`, loja deduz taxa do recebido.
- *   netRevenue = valorMercadoria - taxa
- * - CLIENTE_PAGA: cliente paga acrescimo (gross-up sobre o valor que passa na
- *   maquininha). A taxa incide sobre o TOTAL com acrescimo; loja recebe o
- *   liquido desse total.
+ * QUEM PAGA A TAXA — DECIDIDO NA VENDA, nao configurado: o operador informa no
+ * PDV o valor que o cliente pagou de fato (`totalPaidManual`, o que passou na
+ * maquininha). A regra e UNICA, sem ramo por politica:
+ *   - `totalPaid` = o que o cliente pagou (>= valorMercadoria; default =
+ *     valorMercadoria quando o operador nao informa = loja absorve).
+ *   - taxa incide sobre `totalPaid` (o bruto real da maquininha).
+ *   - netRevenue = totalPaid - operatorFee.
+ *   - surcharge = totalPaid - valorMercadoria (>0 = cliente pagou o acrescimo).
+ * A "politica" no output e DERIVADA (surcharge>0 -> CLIENTE_PAGA) so pra rotular
+ * o recibo; nao e mais uma escolha de configuracao.
  */
 
 import { Prisma, type PaymentMethod } from "@prisma/client";
@@ -71,8 +74,9 @@ interface CalculatePaymentInput {
    */
   cardRate: CardSettlementRate | null;
   /**
-   * Valor total que o cliente paga (centavos). Se informado e > valorMercadoria,
-   * usado direto. Caso contrario, calcula gross-up (politica CLIENTE_PAGA).
+   * Valor total que o cliente pagou DE FATO (centavos) — o que passou na
+   * maquininha. Se informado e > valorMercadoria, o cliente pagou o acrescimo;
+   * se ausente (ou == mercadoria), a loja absorve a taxa.
    */
   totalPaidManual?: number | null;
   /** Data da venda — base do D+N (so afeta settlementDays, nao a taxa). */
@@ -107,9 +111,7 @@ function baseRateFromMethod(method: PaymentMethod): CardSettlementRate {
 export function calculatePayment(input: CalculatePaymentInput): PaymentBreakdown {
   const { method, installments, valorMercadoria, cardRate, totalPaidManual } = input;
   const saleDate = input.saleDate ?? new Date();
-  const policy: PaymentFeePolicy =
-    (method.feePolicy as PaymentFeePolicy | undefined) ?? "LOJA_ABSORVE";
-  const base = emptyBreakdown(valorMercadoria, policy);
+  const base = emptyBreakdown(valorMercadoria);
 
   if (valorMercadoria < 0) {
     base.error = "Valor da mercadoria nao pode ser negativo.";
@@ -143,43 +145,23 @@ export function calculatePayment(input: CalculatePaymentInput): PaymentBreakdown
   base.feeFixed = rate.feeFixed;
   base.settlementDays = rate.settlementDays;
 
-  if (policy === "CLIENTE_PAGA") {
-    // Cliente paga o acrescimo. O valor que passa na maquininha (totalPaid) e o
-    // bruto sobre o qual a taxa incide — e o MESMO bruto do recebivel.
-    let totalPaid: number;
-    if (totalPaidManual != null && totalPaidManual >= valorMercadoria) {
-      totalPaid = totalPaidManual;
-    } else {
-      // Gross-up: bruto = (mercadoria + taxaFixa) / (1 - taxa%/100)
-      const denom = 100 - rate.feePercent;
-      if (denom <= 0) {
-        base.error = `Taxa percentual invalida (${rate.feePercent}%): impossivel calcular gross-up.`;
-        return base;
-      }
-      totalPaid = Math.round(((valorMercadoria + rate.feeFixed) * 100) / denom);
-    }
-    // Taxa da operadora sobre o TOTAL com acrescimo, com a matematica do recebivel.
-    const operatorFee = totalCardFeeCents(rate, totalPaid, installments, saleDate);
-    base.totalPaid = totalPaid;
-    base.surcharge = Math.max(0, totalPaid - valorMercadoria);
-    base.operatorFee = operatorFee;
-    base.netRevenue = totalPaid - operatorFee;
-  } else {
-    // LOJA_ABSORVE: cliente paga a mercadoria; a loja deduz a taxa. operatorFee
-    // com a MESMA matematica do recebivel (split por parcela).
-    const operatorFee = totalCardFeeCents(rate, valorMercadoria, installments, saleDate);
-    // Se o operador informou um totalPaidManual MAIOR (maquininha passou o
-    // acrescimo direto ao cliente), preserva o excedente como surcharge pra
-    // refletir o que o cliente REALMENTE pagou.
-    const totalPaid =
-      totalPaidManual != null && totalPaidManual > valorMercadoria
-        ? totalPaidManual
-        : valorMercadoria;
-    base.surcharge = totalPaid - valorMercadoria;
-    base.totalPaid = totalPaid;
-    base.operatorFee = operatorFee;
-    base.netRevenue = valorMercadoria - operatorFee;
-  }
+  // REGRA UNICA (quem paga a taxa = decidido na venda, nao configurado):
+  // `totalPaid` = o que o cliente pagou de fato. Sem valor informado (ou igual a
+  // mercadoria) => loja absorve. Maior que a mercadoria => cliente pagou o
+  // acrescimo. A taxa SEMPRE incide sobre o totalPaid (bruto real da maquininha),
+  // que e o MESMO bruto do recebivel -> operatorFee == Σ feeCents (DRE = recebivel).
+  const totalPaid =
+    totalPaidManual != null && totalPaidManual > valorMercadoria
+      ? totalPaidManual
+      : valorMercadoria;
+  const operatorFee = totalCardFeeCents(rate, totalPaid, installments, saleDate);
+
+  base.totalPaid = totalPaid;
+  base.surcharge = totalPaid - valorMercadoria;
+  base.operatorFee = operatorFee;
+  base.netRevenue = totalPaid - operatorFee;
+  // Politica DERIVADA (so pra rotular o recibo): cliente pagou o acrescimo?
+  base.policy = base.surcharge > 0 ? "CLIENTE_PAGA" : "LOJA_ABSORVE";
 
   base.installmentValue =
     installments > 0 ? Math.round(base.totalPaid / installments) : base.totalPaid;
