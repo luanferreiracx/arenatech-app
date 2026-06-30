@@ -113,8 +113,12 @@ export async function listPartnerTransactions(
   tenantId: string,
   params: ListPartnerTxParams,
 ): Promise<PartnerTransactionListDTO> {
-  const page = Math.max(0, params.page ?? 0);
-  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+  // Coerção robusta: query params chegam como `Number("abc") = NaN`. Math.max/min
+  // propagam NaN (→ skip:NaN → erro no Prisma), então caímos no default antes.
+  const page = Number.isFinite(params.page) ? Math.max(0, Math.floor(params.page!)) : 0;
+  const pageSize = Number.isFinite(params.pageSize)
+    ? Math.min(100, Math.max(1, Math.floor(params.pageSize!)))
+    : 20;
   const where: Prisma.TenantDepixTransactionWhereInput = { tenantId };
   if (params.kind) where.kind = params.kind;
   // status filtra só se for um valor válido do enum (ignora lixo silenciosamente).

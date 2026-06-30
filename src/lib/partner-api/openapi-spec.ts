@@ -51,18 +51,28 @@ const COMMON_ERRORS = {
   "503": jsonResponse("PartnerError", "Serviço temporariamente indisponível."),
 };
 
+const IDEMPOTENCY_HEADER = {
+  name: "Idempotency-Key",
+  in: "header",
+  required: false,
+  schema: { type: "string", format: "uuid" },
+  description: "UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado, sem duplicar.",
+};
+
 function op(args: {
   summary: string;
   scope: string;
   responses: Record<string, unknown>;
   requestBodyId?: string;
   parameters?: unknown[];
+  idempotent?: boolean;
 }) {
+  const parameters = [...(args.parameters ?? []), ...(args.idempotent ? [IDEMPOTENCY_HEADER] : [])];
   return {
     summary: args.summary,
     security: [{ bearerAuth: [] }],
     description: `Escopo necessário: \`${args.scope}\`.`,
-    ...(args.parameters ? { parameters: args.parameters } : {}),
+    ...(parameters.length ? { parameters } : {}),
     ...(args.requestBodyId ? { requestBody: jsonBody(args.requestBodyId) } : {}),
     responses: { ...args.responses, ...COMMON_ERRORS },
   };
@@ -143,8 +153,10 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
           summary: "Criar depósito (gerar QR PIX)",
           scope: PARTNER_SCOPES.DEPIX_DEPOSIT,
           requestBodyId: "PartnerDepositRequest",
+          idempotent: true,
           responses: {
             "201": jsonResponse("PartnerDepositResult", "Depósito criado (QR)."),
+            "400": jsonResponse("PartnerError", "Corpo JSON inválido."),
             "422": ERR,
           },
         }),
@@ -154,8 +166,10 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
           summary: "Sacar (PIX ou on-chain)",
           scope: PARTNER_SCOPES.DEPIX_WITHDRAW,
           requestBodyId: "PartnerWithdrawRequest",
+          idempotent: true,
           responses: {
             "201": jsonResponse("PartnerWithdrawResult", "Saque iniciado/concluído."),
+            "400": jsonResponse("PartnerError", "Corpo JSON inválido ou cap diário de saque excedido."),
             "412": jsonResponse("PartnerError", "Carteira non-custodial (use o painel)."),
             "422": ERR,
           },

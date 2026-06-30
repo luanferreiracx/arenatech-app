@@ -386,34 +386,70 @@ export interface CreateDepositArgs {
   sourceDescription?: string | null;
   payerTaxId?: string | null;
   payerPhone?: string | null;
+  /**
+   * Chave de idempotência (cliente). 2a chamada com a mesma key retorna o MESMO
+   * depósito (QR), sem duplicar. Usada pela API de parceiros (`Idempotency-Key`).
+   */
+  idempotencyKey?: string | null;
 }
 
 export async function createDeposit(args: CreateDepositArgs) {
   const payerTaxId = args.payerTaxId?.replace(/\D/g, "") || null;
   const payerPhone = args.payerPhone?.replace(/\D/g, "") || null;
 
-  // ETAPA 1: cria registro PENDING + gera numero.
-  const created = await withTenant(args.tenantId, async (tx) => {
-    const number = await nextTransactionNumber(tx, "DEPOSIT");
-    return tx.tenantDepixTransaction.create({
-      data: {
-        tenantId: args.tenantId,
-        number,
-        kind: "DEPOSIT",
-        status: "PENDING",
-        grossAmountCents: args.grossAmountCents,
-        sourceType: args.sourceType ?? "WALLET",
-        sourceId: args.sourceId ?? null,
-        sourceDescription: args.sourceDescription ?? null,
-        payerTaxId,
-        payerPhone,
-        userId: args.userId,
-        userName: args.userName ?? null,
-        // 30 min de validade do PIX (padrao PixPay).
-        expiresAt: new Date(Date.now() + 30 * 60_000),
-      },
+  // Idempotencia: se ja existe transaction com a mesma key, retorna (mesmo padrao
+  // do createWithdraw). O @@unique([tenantId, idempotencyKey]) e o backstop do DB.
+  if (args.idempotencyKey) {
+    const existing = await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findFirst({
+        where: { tenantId: args.tenantId, idempotencyKey: args.idempotencyKey },
+      }),
+    );
+    if (existing) return existing;
+  }
+
+  // ETAPA 1: cria registro PENDING + gera numero. Se duas chamadas concorrentes
+  // usarem a mesma idempotencyKey, o unique constraint rejeita a 2a (P2002) — nesse
+  // caso devolvemos a transacao ja criada em vez de estourar 500.
+  let created;
+  try {
+    created = await withTenant(args.tenantId, async (tx) => {
+      const number = await nextTransactionNumber(tx, "DEPOSIT");
+      return tx.tenantDepixTransaction.create({
+        data: {
+          tenantId: args.tenantId,
+          number,
+          kind: "DEPOSIT",
+          status: "PENDING",
+          grossAmountCents: args.grossAmountCents,
+          sourceType: args.sourceType ?? "WALLET",
+          sourceId: args.sourceId ?? null,
+          sourceDescription: args.sourceDescription ?? null,
+          payerTaxId,
+          payerPhone,
+          userId: args.userId,
+          userName: args.userName ?? null,
+          idempotencyKey: args.idempotencyKey ?? null,
+          // 30 min de validade do PIX (padrao PixPay).
+          expiresAt: new Date(Date.now() + 30 * 60_000),
+        },
+      });
     });
-  });
+  } catch (err) {
+    if (
+      args.idempotencyKey &&
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing = await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.findFirst({
+          where: { tenantId: args.tenantId, idempotencyKey: args.idempotencyKey },
+        }),
+      );
+      if (existing) return existing;
+    }
+    throw err;
+  }
 
   // ETAPA 2: o DePix cai SEMPRE na carteira do PRÓPRIO tenant. A taxa Arena é
   // descontada NA ORIGEM via SPLIT NATIVO da Eulen (depixSplitAddress + splitFee):

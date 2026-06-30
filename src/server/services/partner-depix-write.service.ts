@@ -57,6 +57,7 @@ export async function partnerCreateDeposit(args: {
     sourceType: "WALLET",
     sourceDescription: args.input.description ?? "Depósito via API de parceiro",
     payerTaxId: args.input.payerTaxId ?? null,
+    idempotencyKey: args.idempotencyKey ?? undefined,
   });
   return {
     id: tx.id,
