@@ -1,6 +1,8 @@
 # ADR 0057 — API de parceiros externos (API-key + REST v1, começando por DePix)
 
-**Status:** Proposto (2026-06-29). Aguardando implementação.
+**Status:** Aceito e IMPLEMENTADO (2026-06-30). Fases 1–5 entregues
+(#330/#331 auth, #332 read-only, #333 escrita, #336 webhooks, runbook). Operação:
+`docs/PARTNER_API_RUNBOOK.md`; contrato: `docs/PARTNER_API.md`.
 **Origem:** dono pediu "disponibilizar a API para acesso externo (parceiros)" e
 perguntou se o sistema está robusto o suficiente para iniciar.
 
