@@ -14,6 +14,11 @@ import {
   listPartnerApiKeys,
   revokePartnerApiKey,
 } from "@/server/services/partner-api-key.service";
+import {
+  getPartnerWebhookConfig,
+  setPartnerWebhookUrl,
+  rotatePartnerWebhookSecret,
+} from "@/server/services/partner-webhook.service";
 
 /** Bloqueia se o superadmin não liberou a API externa pra este tenant. */
 async function assertApiAccessEnabled(tenantId: string): Promise<void> {
@@ -70,4 +75,29 @@ export const partnerApiKeyRouter = createTRPCRouter({
       await revokePartnerApiKey({ tenantId: ctx.tenantId, keyId: input.keyId });
       return { success: true };
     }),
+
+  // ── Webhook de saída (ADR 0057, Fase 4) ──────────────────────────────────
+
+  /** Config atual do webhook (URL + se há secret + última entrega). */
+  getWebhook: tenantAdminProcedure.query(async ({ ctx }) => {
+    await assertApiAccessEnabled(ctx.tenantId);
+    return getPartnerWebhookConfig(ctx.tenantId);
+  }),
+
+  /** Define a URL (HTTPS). Vazio limpa. Gera o secret na primeira vez (exibe 1x). */
+  setWebhookUrl: tenantAdminProcedure
+    .input(z.object({ url: z.string().trim().url().max(500).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertApiAccessEnabled(ctx.tenantId);
+      if (input.url && !input.url.startsWith("https://")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A URL do webhook deve ser HTTPS." });
+      }
+      return setPartnerWebhookUrl({ tenantId: ctx.tenantId, url: input.url });
+    }),
+
+  /** Rotaciona o secret (retorna o novo — exibido 1x). */
+  rotateWebhookSecret: tenantAdminProcedure.mutation(async ({ ctx }) => {
+    await assertApiAccessEnabled(ctx.tenantId);
+    return rotatePartnerWebhookSecret(ctx.tenantId);
+  }),
 });
