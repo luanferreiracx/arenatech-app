@@ -168,3 +168,49 @@ describe("isPathAllowed", () => {
     expect(isPathAllowed("/pdv", ["wallet", "pdv"])).toBe(true);
   });
 });
+
+describe("partner-api — módulo com override por-tenant (ADR 0057)", () => {
+  it("/settings/partner-api resolve pro módulo partner-api (não settings)", () => {
+    expect(resolveModuleForPath("/settings/partner-api")).toBe("partner-api");
+    expect(resolveModuleForPath("/settings/partner-api/x")).toBe("partner-api");
+    // O /settings genérico segue em settings.
+    expect(resolveModuleForPath("/settings/general")).toBe("settings");
+  });
+
+  it("apiAccessEnabled libera partner-api MESMO sem o módulo settings (tenant wallet-only)", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "pdv-x",
+      hasPlan: false, // cai no default (wallet, depix-ops) — sem settings
+      planFeatures: null,
+      apiAccessEnabled: true,
+    });
+    expect(mods).toContain("partner-api");
+    expect(mods).not.toContain("settings");
+  });
+
+  it("sem apiAccessEnabled, partner-api NÃO entra", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "pdv-x",
+      hasPlan: false,
+      planFeatures: null,
+    });
+    expect(mods).not.toContain("partner-api");
+  });
+
+  it("override vale também pra NO-KYC (grant explícito do superadmin)", () => {
+    const mods = allowedModulesForTenant({
+      tenantSlug: "pdv-x",
+      hasPlan: false,
+      planFeatures: null,
+      isNoKyc: true,
+      apiAccessEnabled: true,
+    });
+    expect(mods).toContain("wallet"); // teto NO-KYC
+    expect(mods).toContain("partner-api"); // + override
+  });
+
+  it("isPathAllowed bloqueia /settings/partner-api sem o módulo", () => {
+    expect(isPathAllowed("/settings/partner-api", ["wallet"])).toBe(false);
+    expect(isPathAllowed("/settings/partner-api", ["wallet", "partner-api"])).toBe(true);
+  });
+});
