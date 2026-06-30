@@ -6,45 +6,17 @@
 import { Prisma, DepixTransactionStatus } from "@prisma/client";
 import { withTenant } from "@/server/db";
 import * as lwk from "@/lib/services/lwk-service";
+import type {
+  PartnerBalanceDTO,
+  PartnerTransactionDTO,
+  PartnerTransactionListDTO,
+} from "@/lib/partner-api/openapi-schemas";
+
+export type { PartnerBalanceDTO, PartnerTransactionDTO, PartnerTransactionListDTO };
 
 const VALID_STATUSES = new Set<string>(Object.values(DepixTransactionStatus));
 
-// ── DTOs (contrato público v1; mudança quebrante → v2) ──────────────────────
-
-export interface PartnerBalanceDTO {
-  /** Saldo DePix on-chain do tenant, em reais. */
-  depix: number;
-  /** Carteira provisionada? (sem provisão, saldo é 0). */
-  provisioned: boolean;
-}
-
-export interface PartnerTransactionDTO {
-  id: string;
-  number: string;
-  kind: "DEPOSIT" | "WITHDRAW";
-  status: string;
-  sourceType: string;
-  grossAmountCents: number;
-  netAmountCents: number | null;
-  feeArenaTechCents: number;
-  /** Pagador (depósito) / destinatário (saque) quando disponível. */
-  payerName: string | null;
-  recipientName: string | null;
-  /** txid on-chain Liquid (depósito ou saque), quando houver. */
-  onchainTxId: string | null;
-  /** Endereço Liquid de destino (saque on-chain). */
-  onchainAddress: string | null;
-  createdAt: string; // ISO
-  completedAt: string | null; // ISO
-}
-
-export interface PartnerTransactionListDTO {
-  data: PartnerTransactionDTO[];
-  total: number;
-  page: number;
-  pageSize: number;
-  pageCount: number;
-}
+// DTOs são definidos em openapi-schemas.ts (fonte única req/resp + OpenAPI).
 
 // Shape mínimo lido do banco (só o que o DTO precisa).
 interface TxRow {

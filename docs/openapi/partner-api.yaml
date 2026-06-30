@@ -1,0 +1,566 @@
+# GERADO AUTOMATICAMENTE a partir dos schemas Zod (scripts/gen-partner-openapi.ts).
+# NÃO editar à mão — rode `pnpm openapi:gen`. O CI (`openapi:check`) trava divergência.
+openapi: 3.0.3
+info:
+  title: Arena Tech — API de Parceiros (DePix)
+  version: 1.0.0
+  description: >-
+    API REST para parceiros consumirem o DePix de um tenant: saldo, extrato, depósito e saque.
+    Autentique com `Authorization: Bearer at_<prefix>_<secret>` (API-key emitida pelo admin do
+    tenant). Webhooks de saída assinados (HMAC).
+servers:
+  - url: https://app.arenatechpi.com.br
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        API-key do parceiro no formato `at_<prefix>_<secret>`. Escopos: depix:read, depix:deposit,
+        depix:withdraw.
+  schemas:
+    PartnerBalance:
+      type: object
+      properties:
+        depix:
+          type: number
+          description: Saldo DePix on-chain do tenant, em reais.
+        provisioned:
+          type: boolean
+          description: Carteira provisionada? (sem provisão, saldo é 0).
+      required:
+        - depix
+        - provisioned
+      additionalProperties: false
+    PartnerTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+          description: 'Número único da transação no tenant (ex.: TXD20260630-00001).'
+        kind:
+          type: string
+          enum:
+            - DEPOSIT
+            - WITHDRAW
+        status:
+          type: string
+          description: PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED
+        sourceType:
+          type: string
+        grossAmountCents:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: Valor bruto em centavos.
+        netAmountCents:
+          nullable: true
+          description: Líquido (após taxas), em centavos.
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        feeArenaTechCents:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: Taxa Arena retida, em centavos.
+        payerName:
+          nullable: true
+          description: Pagador (depósito), quando disponível.
+          type: string
+        recipientName:
+          nullable: true
+          description: Destinatário (saque), quando disponível.
+          type: string
+        onchainTxId:
+          nullable: true
+          description: txid Liquid (depósito ou saque), quando houver.
+          type: string
+        onchainAddress:
+          nullable: true
+          description: Endereço Liquid de destino (saque on-chain).
+          type: string
+        createdAt:
+          type: string
+          description: ISO 8601.
+        completedAt:
+          nullable: true
+          description: ISO 8601.
+          type: string
+      required:
+        - id
+        - number
+        - kind
+        - status
+        - sourceType
+        - grossAmountCents
+        - netAmountCents
+        - feeArenaTechCents
+        - payerName
+        - recipientName
+        - onchainTxId
+        - onchainAddress
+        - createdAt
+        - completedAt
+      additionalProperties: false
+    PartnerTransactionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PartnerTransaction'
+        total:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        page:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: 0-based.
+        pageSize:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        pageCount:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+      required:
+        - data
+        - total
+        - page
+        - pageSize
+        - pageCount
+      additionalProperties: false
+    PartnerDepositRequest:
+      type: object
+      properties:
+        amountCents:
+          type: integer
+          minimum: 1000
+          maximum: 500000
+        payerTaxId:
+          nullable: true
+          type: string
+          minLength: 11
+          maxLength: 18
+        description:
+          nullable: true
+          type: string
+          maxLength: 200
+      required:
+        - amountCents
+      additionalProperties: false
+    PartnerDepositResult:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+        amountCents:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        qrCode:
+          nullable: true
+          description: PIX copia-e-cola.
+          type: string
+        qrCodeBase64:
+          nullable: true
+          description: Imagem do QR (data URL).
+          type: string
+      required:
+        - id
+        - number
+        - status
+        - amountCents
+        - qrCode
+        - qrCodeBase64
+      additionalProperties: false
+    PartnerWithdrawRequest:
+      oneOf:
+        - type: object
+          properties:
+            method:
+              type: string
+              enum:
+                - pix
+            amountCents:
+              type: integer
+              minimum: 1000
+              maximum: 500000
+            pixKeyType:
+              type: string
+              enum:
+                - RANDOM
+                - CPF
+                - CNPJ
+                - EMAIL
+                - PHONE
+            pixKey:
+              type: string
+              minLength: 1
+              maxLength: 255
+            recipientName:
+              nullable: true
+              type: string
+              maxLength: 200
+            recipientTaxId:
+              type: string
+              minLength: 11
+              maxLength: 18
+          required:
+            - method
+            - amountCents
+            - pixKeyType
+            - pixKey
+            - recipientTaxId
+          additionalProperties: false
+        - type: object
+          properties:
+            method:
+              type: string
+              enum:
+                - onchain
+            amountCents:
+              type: integer
+              minimum: 100
+              maximum: 5000000
+            toAddress:
+              type: string
+          required:
+            - method
+            - amountCents
+            - toAddress
+          additionalProperties: false
+    PartnerWithdrawResult:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+        method:
+          type: string
+          enum:
+            - pix
+            - onchain
+        amountCents:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        onchainTxId:
+          nullable: true
+          type: string
+      required:
+        - id
+        - number
+        - status
+        - method
+        - amountCents
+        - onchainTxId
+      additionalProperties: false
+    PartnerError:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 'Código do erro (ex.: invalid_key, insufficient_scope).'
+        message:
+          type: string
+      required:
+        - error
+        - message
+      additionalProperties: false
+    PartnerWebhookEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - deposit.completed
+            - withdrawal.completed
+        transactionId:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+        amountCents:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        occurredAt:
+          type: string
+          description: ISO 8601.
+      required:
+        - type
+        - transactionId
+        - number
+        - status
+        - amountCents
+        - occurredAt
+      additionalProperties: false
+paths:
+  /api/v1/partner/depix/balance:
+    get:
+      summary: Saldo DePix do tenant
+      security:
+        - bearerAuth: []
+      description: 'Escopo necessário: `depix:read`.'
+      responses:
+        '200':
+          description: Saldo atual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerBalance'
+        '401':
+          description: API-key ausente/inválida/revogada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '403':
+          description: Escopo insuficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '429':
+          description: Acima da quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '503':
+          description: Serviço temporariamente indisponível.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+  /api/v1/partner/depix/transactions:
+    get:
+      summary: Extrato paginado
+      security:
+        - bearerAuth: []
+      description: 'Escopo necessário: `depix:read`.'
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+          description: 0-based.
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum:
+              - DEPOSIT
+              - WITHDRAW
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Página de transações.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerTransactionList'
+        '401':
+          description: API-key ausente/inválida/revogada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '403':
+          description: Escopo insuficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '429':
+          description: Acima da quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '503':
+          description: Serviço temporariamente indisponível.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+  /api/v1/partner/depix/transactions/{id}:
+    get:
+      summary: Detalhe de uma transação
+      security:
+        - bearerAuth: []
+      description: 'Escopo necessário: `depix:read`.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transação.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerTransaction'
+        '401':
+          description: API-key ausente/inválida/revogada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '403':
+          description: Escopo insuficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '404':
+          description: Não encontrada (ou de outro tenant).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '429':
+          description: Acima da quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '503':
+          description: Serviço temporariamente indisponível.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+  /api/v1/partner/depix/deposits:
+    post:
+      summary: Criar depósito (gerar QR PIX)
+      security:
+        - bearerAuth: []
+      description: 'Escopo necessário: `depix:deposit`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerDepositRequest'
+      responses:
+        '201':
+          description: Depósito criado (QR).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerDepositResult'
+        '401':
+          description: API-key ausente/inválida/revogada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '403':
+          description: Escopo insuficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '422':
+          description: Erro
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '429':
+          description: Acima da quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '503':
+          description: Serviço temporariamente indisponível.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+  /api/v1/partner/depix/withdrawals:
+    post:
+      summary: Sacar (PIX ou on-chain)
+      security:
+        - bearerAuth: []
+      description: 'Escopo necessário: `depix:withdraw`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerWithdrawRequest'
+      responses:
+        '201':
+          description: Saque iniciado/concluído.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerWithdrawResult'
+        '401':
+          description: API-key ausente/inválida/revogada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '403':
+          description: Escopo insuficiente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '412':
+          description: Carteira non-custodial (use o painel).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '422':
+          description: Erro
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '429':
+          description: Acima da quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'
+        '503':
+          description: Serviço temporariamente indisponível.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerError'

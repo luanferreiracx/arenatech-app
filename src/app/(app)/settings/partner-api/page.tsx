@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { BookOpen, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   ALL_PARTNER_SCOPES,
   PARTNER_SCOPE_LABELS,
@@ -89,7 +89,13 @@ export default function PartnerApiPage() {
         subtitle="Emita credenciais (API-keys) para suas integrações externas consumirem a API DePix. O segredo é exibido uma única vez — guarde com segurança."
       />
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" asChild>
+          <a href="/docs/partner-api" target="_blank" rel="noopener noreferrer">
+            <BookOpen className="h-4 w-4 mr-2" />
+            Documentação da API
+          </a>
+        </Button>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Nova chave

@@ -16,6 +16,9 @@ import {
   createOnchainWithdraw,
 } from "@/server/services/depix-transaction.service";
 import type { PartnerDepositInput, PartnerWithdrawInput } from "@/lib/partner-api/write-schemas";
+import type { PartnerDepositResult, PartnerWithdrawResult } from "@/lib/partner-api/openapi-schemas";
+
+export type { PartnerDepositResult, PartnerWithdrawResult };
 
 /** Cap diário ESPECÍFICO da API de parceiros (defesa extra; soma à do painel). */
 const PARTNER_DAILY_WITHDRAW_CAP_CENTS = Number(
@@ -33,15 +36,6 @@ async function resolveTenantUserId(tenantId: string): Promise<string> {
 }
 
 // ── Depósito ────────────────────────────────────────────────────────────────
-
-export interface PartnerDepositResult {
-  id: string;
-  number: string;
-  status: string;
-  amountCents: number;
-  qrCode: string | null;
-  qrCodeBase64: string | null;
-}
 
 export async function partnerCreateDeposit(args: {
   tenantId: string;
@@ -75,15 +69,6 @@ export async function partnerCreateDeposit(args: {
 }
 
 // ── Saque ────────────────────────────────────────────────────────────────────
-
-export interface PartnerWithdrawResult {
-  id: string;
-  number: string;
-  status: string;
-  method: "pix" | "onchain";
-  amountCents: number;
-  onchainTxId: string | null;
-}
 
 /** Bloqueia saque via API em carteira non-custodial (exige passphrase do humano). */
 async function assertCustodialForApiWithdraw(tenantId: string): Promise<void> {

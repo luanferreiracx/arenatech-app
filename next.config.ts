@@ -20,6 +20,31 @@ const isDev = process.env.NODE_ENV !== "production";
  * imagens vêm de Cloudinary/MinIO (img-src https:). O site fica atrás do
  * Cloudflare — liberamos o beacon de analytics defensivamente.
  */
+/**
+ * CSP relaxada SOMENTE para a doc pública /docs/partner-api: o bundle do Swagger UI
+ * usa `new Function` (exige 'unsafe-eval') e injeta estilos inline. Tudo same-origin
+ * (assets self-hosted em /swagger-ui) — nenhum host externo é liberado. A página só
+ * renderiza a spec (contrato público), não toca dado de tenant.
+ */
+function buildSwaggerCsp(): string {
+  const directives: Array<[string, string[]]> = [
+    ["default-src", ["'self'"]],
+    ["base-uri", ["'self'"]],
+    ["object-src", ["'none'"]],
+    ["frame-ancestors", ["'none'"]],
+    ["form-action", ["'self'"]],
+    ["img-src", ["'self'", "data:", "https:"]],
+    ["font-src", ["'self'", "data:"]],
+    ["style-src", ["'self'", "'unsafe-inline'"]],
+    ["script-src", ["'self'", "'unsafe-inline'", "'unsafe-eval'"]],
+    ["connect-src", ["'self'"]],
+    ...(isDev ? [] : [["upgrade-insecure-requests", []] as [string, string[]]]),
+  ];
+  return directives
+    .map(([key, values]) => (values.length ? `${key} ${values.join(" ")}` : key))
+    .join("; ");
+}
+
 function buildCsp(): string {
   // Cloudflare Turnstile: o widget carrega api.js de challenges.cloudflare.com,
   // abre o desafio num iframe do mesmo host e troca o token via fetch.
@@ -89,6 +114,17 @@ const nextConfig: NextConfig = {
           value: "camera=(), microphone=(), geolocation=()",
         },
       ],
+    },
+    // CSP relaxada (Swagger UI) DEPOIS da regra geral: no Next, quando duas fontes
+    // casam a mesma chave, a ÚLTIMA vence — então a rota específica sobrescreve a
+    // Content-Security-Policy só em /docs/partner-api.
+    {
+      source: "/docs/partner-api/:path*",
+      headers: [{ key: "Content-Security-Policy", value: buildSwaggerCsp() }],
+    },
+    {
+      source: "/docs/partner-api",
+      headers: [{ key: "Content-Security-Policy", value: buildSwaggerCsp() }],
     },
   ],
 };

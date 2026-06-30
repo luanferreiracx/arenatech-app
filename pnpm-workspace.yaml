@@ -1,5 +1,9 @@
 allowBuilds:
   '@prisma/engines': true
+  # false: scarf é só telemetria de instalação (dep transitiva do swagger-ui-dist).
+  # Não precisa rodar postinstall; declarado aqui pra o pnpm não tratar o "ignored
+  # build script" como erro no CI (--frozen-lockfile sai 1).
+  '@scarf/scarf': false
   # false: nao baixamos o binario do sentry-cli — upload de source map esta
   # desabilitado no withSentryConfig (sourcemaps.disable). Liga quando for
   # configurar o upload (SENTRY_AUTH_TOKEN).

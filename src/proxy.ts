@@ -41,7 +41,11 @@ function isPublicRoute(pathname: string): boolean {
     pathname.startsWith("/quote/") ||
     pathname.startsWith("/pay/") ||
     pathname.startsWith("/receipt/") ||
-    pathname.startsWith("/register/")
+    pathname.startsWith("/register/") ||
+    // Documentação pública da API de parceiros (Swagger UI + spec OpenAPI).
+    // O contrato é público; não expõe segredo.
+    pathname.startsWith("/docs/partner-api") ||
+    pathname === "/api/v1/partner/openapi.yaml"
   );
 }
 
