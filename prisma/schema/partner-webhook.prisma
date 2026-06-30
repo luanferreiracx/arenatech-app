@@ -1,0 +1,18 @@
+/// Config de webhook de SAÍDA da API de parceiros (ADR 0057, Fase 4): 1 por tenant.
+/// Notificamos a `url` (HMAC-SHA256 no header X-Signature, secret = `secret`) quando
+/// um depósito confirma ou um saque conclui. Entrega best-effort (sem fila); o
+/// polling de GET /transactions/:id é o fallback.
+model PartnerWebhookConfig {
+  tenantId       String   @id @map("tenant_id") @db.Uuid
+  /// URL HTTPS do parceiro. Null/vazio = sem notificação.
+  url            String?
+  /// Secret HMAC (gerado pelo sistema; o parceiro valida a assinatura). Em claro
+  /// porque PRECISAMOS dele pra assinar o envio (não é credencial de login).
+  secret         String?
+  /// Última entrega bem-sucedida (observabilidade).
+  lastDeliveryAt DateTime? @map("last_delivery_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("partner_webhook_configs")
+}

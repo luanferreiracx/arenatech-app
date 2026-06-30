@@ -165,6 +165,45 @@ Aceita `Idempotency-Key`.
 
 ---
 
+## Webhooks (notificações de saída)
+
+Em vez de fazer polling, configure uma **URL de webhook** (HTTPS) em
+`Configurações → API de Parceiros`. A Arena envia um **POST** quando:
+
+| Evento | Quando |
+|---|---|
+| `deposit.completed` | um depósito confirma (DePix creditado) |
+| `withdrawal.completed` | um saque conclui |
+
+**Assinatura:** cada POST traz o header
+`X-Signature: sha256=<hex>` = `HMAC-SHA256(corpo, secret)` — o `secret` é exibido
+**uma vez** ao salvar a URL (e pode ser rotacionado). Valide a assinatura antes de
+confiar no corpo. Também enviamos `X-Event-Type` e `X-Event-Id` (= id da transação).
+
+**Corpo:**
+```json
+{
+  "type": "deposit.completed",
+  "transactionId": "uuid",
+  "number": "TXD20260630-00001",
+  "status": "COMPLETED",
+  "amountCents": 9751,
+  "occurredAt": "2026-06-30T10:00:00.000Z"
+}
+```
+
+**Validação (exemplo Node):**
+```js
+const expected = "sha256=" + crypto.createHmac("sha256", SECRET).update(rawBody).digest("hex");
+if (req.headers["x-signature"] !== expected) return res.status(401).end();
+```
+
+> **Entrega best-effort:** tentamos entregar uma vez (timeout 8s). Se o seu endpoint
+> estiver fora do ar, o evento **não é reentregue** — reconcilie via
+> `GET /transactions/:id`. Responda **2xx** rápido (processe async do seu lado).
+
+---
+
 ## Notas
 
 - **Versionamento:** `v1` no path. Mudanças quebrantes → `v2` (o `v1` não muda).

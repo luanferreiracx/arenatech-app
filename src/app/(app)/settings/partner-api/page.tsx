@@ -26,6 +26,7 @@ import {
   PARTNER_SCOPE_LABELS,
   type PartnerScope,
 } from "@/lib/partner-api/scopes";
+import { WebhookConfig } from "./_components/webhook-config";
 
 export default function PartnerApiPage() {
   const trpc = useTRPC();
@@ -150,6 +151,8 @@ export default function PartnerApiPage() {
           </ul>
         )}
       </Card>
+
+      <WebhookConfig />
 
       {/* Criar chave */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

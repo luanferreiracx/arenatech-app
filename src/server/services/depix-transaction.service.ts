@@ -1058,20 +1058,51 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
       select: {
         id: true,
         tenantId: true,
+        number: true,
         sourceType: true,
         sourceId: true,
         grossAmountCents: true,
+        netAmountCents: true,
         status: true,
       },
     }),
   );
   if (!row || row.status !== "COMPLETED") return { applied: false };
 
+  // Webhook de SAÍDA pro parceiro (ADR 0057): depósito confirmado. Best-effort,
+  // fire-and-forget (não bloqueia nem quebra o fluxo).
+  void notifyPartnerDepositCompleted(tenantId, {
+    id: row.id,
+    number: row.number,
+    status: row.status,
+    amountCents: row.netAmountCents ?? row.grossAmountCents,
+  });
+
   // Efeito de venda (QuickSale→PAID + notify). Idempotente: se já foi aplicado no
   // marco `approved` (PIX recebido), a QuickSale já não está AWAITING_PAYMENT e o
   // notify não re-dispara. Mantido aqui como rede de segurança (caso o `approved`
   // não tenha chegado e o depósito complete direto do on-chain).
   return applyDepositSaleEffects(row);
+}
+
+/** Dispara o webhook de depósito concluído (best-effort). */
+async function notifyPartnerDepositCompleted(
+  tenantId: string,
+  tx: { id: string; number: string; status: string; amountCents: number },
+): Promise<void> {
+  try {
+    const { notifyPartnerWebhook } = await import("./partner-webhook.service");
+    await notifyPartnerWebhook(tenantId, {
+      type: "deposit.completed",
+      transactionId: tx.id,
+      number: tx.number,
+      status: tx.status,
+      amountCents: tx.amountCents,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch {
+    // notifyPartnerWebhook já é fail-safe; este catch é só pro import.
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1628,6 +1659,10 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
     feeArenaTechCents: breakdown.feeArenaTechCents,
     amountCents: args.amountCents,
   });
+  // Side-effects pós-conclusão (webhook do parceiro + reposição L-BTC). Como o
+  // on-chain conclui COMPLETED direto aqui (sem o poll do PIX), disparamos o
+  // mesmo hook. Fire-and-forget — não bloqueia a resposta.
+  void onWithdrawCompleted(args.tenantId, created.id);
   return final;
 }
 
@@ -1646,9 +1681,21 @@ export async function onWithdrawCompleted(tenantId: string, transactionId: strin
     const row = await withTenant(tenantId, async (tx) =>
       tx.tenantDepixTransaction.findUnique({
         where: { id: transactionId },
-        select: { recipientTaxId: true, netAmountCents: true },
+        select: { number: true, status: true, recipientTaxId: true, netAmountCents: true, grossAmountCents: true },
       }),
     );
+    // Webhook de SAÍDA pro parceiro (ADR 0057): saque concluído. Best-effort.
+    if (row) {
+      const { notifyPartnerWebhook } = await import("./partner-webhook.service");
+      void notifyPartnerWebhook(tenantId, {
+        type: "withdrawal.completed",
+        transactionId,
+        number: row.number,
+        status: row.status,
+        amountCents: row.netAmountCents ?? row.grossAmountCents,
+        occurredAt: new Date().toISOString(),
+      });
+    }
     if (row?.recipientTaxId && row.netAmountCents) {
       const { registerDepixUse } = await import("@/lib/services/depix-limit-service");
       await withTenant(tenantId, async (tx) =>

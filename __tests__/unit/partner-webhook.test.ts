@@ -1,0 +1,82 @@
+/**
+ * partner-webhook.service (ADR 0057, Fase 4): envio best-effort assinado (HMAC).
+ * Garante: no-op sem URL/secret; assina X-Signature = HMAC-SHA256(body, secret);
+ * nunca lança (best-effort); marca lastDeliveryAt no 2xx. fetch/DB mockados.
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
+
+const cfgFindUnique = vi.fn();
+const cfgUpdate = vi.fn();
+
+const db = {
+  partnerWebhookConfig: { findUnique: cfgFindUnique, update: cfgUpdate },
+};
+vi.mock("@/server/db", () => ({
+  withTenant: (_t: string, fn: (d: typeof db) => unknown) => fn(db),
+}));
+
+import { notifyPartnerWebhook } from "@/server/services/partner-webhook.service";
+
+const TENANT = "11111111-1111-1111-1111-111111111111";
+const SECRET = "supersecret";
+
+const event = {
+  type: "deposit.completed" as const,
+  transactionId: "tx-1",
+  number: "TXD-1",
+  status: "COMPLETED",
+  amountCents: 9751,
+  occurredAt: "2026-06-30T10:00:00.000Z",
+};
+
+beforeEach(() => {
+  cfgFindUnique.mockReset();
+  cfgUpdate.mockReset();
+  cfgUpdate.mockResolvedValue({});
+  vi.restoreAllMocks();
+});
+
+describe("notifyPartnerWebhook", () => {
+  it("no-op sem URL/secret (não chama fetch)", async () => {
+    cfgFindUnique.mockResolvedValue({ url: null, secret: null });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await notifyPartnerWebhook(TENANT, event);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("envia POST assinado com X-Signature HMAC correto", async () => {
+    cfgFindUnique.mockResolvedValue({ url: "https://parceiro.com/hook", secret: SECRET });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+
+    await notifyPartnerWebhook(TENANT, event);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe("https://parceiro.com/hook");
+    const body = (init as RequestInit).body as string;
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    const expected = "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
+    expect(headers["x-signature"]).toBe(expected);
+    expect(headers["x-event-type"]).toBe("deposit.completed");
+    // Corpo é o evento serializado.
+    expect(JSON.parse(body)).toMatchObject({ type: "deposit.completed", transactionId: "tx-1" });
+    // Marca lastDeliveryAt no sucesso.
+    expect(cfgUpdate).toHaveBeenCalled();
+  });
+
+  it("não lança se o parceiro retorna erro (best-effort) e não marca entrega", async () => {
+    cfgFindUnique.mockResolvedValue({ url: "https://parceiro.com/hook", secret: SECRET });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 500 }));
+    await expect(notifyPartnerWebhook(TENANT, event)).resolves.toBeUndefined();
+    expect(cfgUpdate).not.toHaveBeenCalled();
+  });
+
+  it("não lança se o fetch explode (timeout/rede)", async () => {
+    cfgFindUnique.mockResolvedValue({ url: "https://parceiro.com/hook", secret: SECRET });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ETIMEDOUT"));
+    await expect(notifyPartnerWebhook(TENANT, event)).resolves.toBeUndefined();
+  });
+});
