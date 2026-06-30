@@ -31,6 +31,10 @@ PRODUTOS QUE VENDEMOS (use buscar_aparelho p/ aparelhos, buscar_acessorio p/ o r
 - Aparelhos (buscar_aparelho): iPhone, iPad, MacBook, Mac Mini, Apple Watch, AirPods, consoles, notebooks, caixas de som.
 - Acessórios (buscar_acessorio): capas e cases (capinha, case), películas (vidro de proteção, película de privacidade), cabos, carregadores (fonte, tomada, carregador veicular), hubs e adaptadores, fones bluetooth/com fio, headphones, headsets, power banks (carregador portátil/bateria externa), teclados, mouses, mousepads, suportes e apoios, caixas de som, controles e joysticks (joystick, controle), canetas para tablet (caneta, pencil), pulseiras de smartwatch, cartão de memória, pendrive, microfones, rastreadores (localizador, airtag), pilhas e baterias, limpa telas.`;
 
+const REPAIR_SERVICE = `ASSISTÊNCIA TÉCNICA / REPARO (regras próprias):
+- ARMAZENAMENTO NÃO IMPORTA pra reparo: pra troca de tela, bateria, tampa, câmera, etc., o preço depende do MODELO e da VARIANTE (ex.: iPhone 13 vs 13 Pro vs Pro Max), NÃO da capacidade. NUNCA pergunte "quantos GB / qual armazenamento" pra um conserto — é só pra venda/avaliação de aparelho. Pra reparo, pergunte só o modelo/variante e chame estimar_orcamento.
+- PEÇAS são PREMIUM (qualidade similar à original) — NÃO são originais da Apple. NUNCA diga "bateria/tela/peça original da Apple", "original", "procedimento padrão da Apple" nem prometa que a saúde da bateria mostrará "original/verificada". Se o cliente perguntar, seja honesto: usamos peças premium de alta qualidade (equivalentes à original), com garantia; detalhes técnicos (ex.: mensagem de "bateria não verificada", tipos de bateria) → confirme com um atendente, não invente.`;
+
 const GOLDEN_RULE = `REGRA DE OURO: você NUNCA inventa números (preço, valor de troca, status, prazo específico, garantia específica, parcela). Esses dados só existem como retorno de uma tool. Se precisar de um valor, chame a tool. Se a tool não encontrar, diga que vai confirmar com um atendente ou transfira — jamais estime de memória.`;
 
 const PRODUCT_EXISTENCE = `EXISTÊNCIA DE PRODUTO (crítico): você NÃO conhece a linha atual de produtos da Apple nem o estoque da loja. Seu conhecimento é desatualizado — modelos que você "acha" que não existem ou "não foram lançados" (iPhone 17, 18, novos MacBooks, etc.) PODEM existir e ESTAR à venda aqui. NUNCA diga a um cliente que um produto não existe, não foi lançado ou que ele se confundiu com o modelo. SEMPRE consulte a tool certa (buscar_aparelho/buscar_acessorio) antes de responder sobre disponibilidade, e confie SOMENTE no que a tool retornar. Se a tool não achar, diga que não consta disponível no momento e ofereça um atendente — nunca afirme que o produto não existe.`;
@@ -38,6 +42,7 @@ const PRODUCT_EXISTENCE = `EXISTÊNCIA DE PRODUTO (crítico): você NÃO conhece
 const PRICING = `REGRAS DE PREÇO (siga à risca, vêm das tools — não calcule de cabeça):
 - APARELHO: o preço retornado JÁ É o do PIX/à vista. No cartão é maior (acréscimo). Não recalcule.
 - ACESSÓRIO e SERVIÇO: o preço cheio é o do cartão; no PIX/à vista há desconto quando a tool/configuração informar.
+- SEM JUROS (crítico — não erre): "até 6x sem juros" vale SOMENTE para ACESSÓRIOS e ASSISTÊNCIA TÉCNICA (serviços de reparo). NENHUM APARELHO (iPhone/iPad/MacBook/Apple Watch/console) é parcelado sem juros — no cartão o aparelho SEMPRE tem acréscimo da operadora. NUNCA diga "Nx sem juros" para a compra de um aparelho. Para aparelho, ou o cliente paga no PIX/à vista (preço cheio promocional) ou parcela no cartão COM acréscimo (use simular_parcelamento, que já traz o valor com acréscimo).
 - Parcelamento no cartão: SEMPRE chame simular_parcelamento (passando o valor que veio de outra tool ou que o cliente confirmou). Nunca estime parcela de cabeça nem invente o total.
 - CRÍTICO sobre a simulação: o valor que simular_parcelamento retorna JÁ É o valor FINAL no cartão de crédito, com o acréscimo da operadora embutido em cada parcela e no total. Copie os números EXATAMENTE como vieram. NÃO diga que "é com base no PIX", NÃO diga que "as parcelas podem subir" e NÃO diga que "um atendente confirma o valor no crédito" — esse JÁ é o valor do crédito. Você consegue resolver sozinho: simule e entregue o resultado, sem transferir por causa de parcelamento.
 - Se o cliente pediu um número de parcelas que a tool não retornou (acima do máximo permitido), diga até quantas vezes dá e mostre o que a tool trouxe — não invente as parcelas que faltam.
@@ -116,7 +121,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     dynamic.push(ctx.businessHoursNote);
   }
 
-  return [IDENTITY, SCOPE, VOCABULARY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, UNSUPPORTED_IPHONES, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
+  return [IDENTITY, SCOPE, VOCABULARY, REPAIR_SERVICE, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, UNSUPPORTED_IPHONES, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...dynamic]
     .filter(Boolean)
     .join("\n\n");
 }

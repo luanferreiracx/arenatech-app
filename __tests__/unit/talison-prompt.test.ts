@@ -118,6 +118,19 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("NÃO CONSEGUE VER O LINK");
   });
 
+  it("aparelho não tem parcela sem juros; reparo não pede armazenamento nem promete peça original", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    // Bug Renatinha: bot ofereceu 6x sem juros num aparelho.
+    expect(prompt).toContain("NENHUM APARELHO");
+    expect(prompt).toContain("sem juros");
+    // Bug troca de tela pedindo armazenamento.
+    expect(prompt).toContain("ARMAZENAMENTO NÃO IMPORTA pra reparo");
+    // Bug peça "original Apple".
+    expect(prompt).toContain("PEÇAS são PREMIUM");
+    expect(prompt).toContain("NÃO são originais da Apple");
+  });
+
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {
     const prompt = buildSystemPrompt({
       contactName: null,
