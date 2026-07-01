@@ -55,6 +55,7 @@ vi.mock("@/lib/webhooks/depix-deposit-propagate", () => ({
 }));
 vi.mock("@/lib/webhooks/verify-deposit-onchain", () => ({
   verifyDepositOnChain: (...a: unknown[]) => verifyDepositOnChain(...a),
+  EULEN_DEPOSIT_FEE_CENTS: 99,
 }));
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: (...a: unknown[]) => getFeeWalletTenantId(...a),

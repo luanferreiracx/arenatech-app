@@ -27,7 +27,7 @@ import {
   type DepixFeeConfig,
 } from "@/lib/services/depix-transaction-fee";
 import * as lwk from "@/lib/services/lwk-service";
-import { verifyDepositOnChain } from "@/lib/webhooks/verify-deposit-onchain";
+import { verifyDepositOnChain, EULEN_DEPOSIT_FEE_CENTS } from "@/lib/webhooks/verify-deposit-onchain";
 import { propagateDepositNotPaid } from "@/lib/webhooks/depix-deposit-propagate";
 import {
   getFeeWalletTenantId,
@@ -1757,6 +1757,32 @@ export async function onWithdrawCompleted(tenantId: string, transactionId: strin
   }
 }
 
+/** Folga extra de arredondamento no cross-check (o split % da Eulen arredonda 2 casas). */
+const UNDERPAY_ROUNDING_BUFFER_CENTS = 2;
+
+/**
+ * Quanto o valor on-chain de um deposito pode chegar ABAIXO do bruto e ainda ser
+ * legitimo, quando o `expectedAmount` do cross-check e o BRUTO (webhook Eulen,
+ * static-QR, reconcile). Com o SPLIT NATIVO, a Eulen manda o LIQUIDO on-chain:
+ * bruto − taxa Arena (fixo + %, via split) − taxa fixa Eulen. Se so tolerassemos a
+ * taxa fixa (99c), qualquer deposito COM taxa percentual (loja nao-central) acima de
+ * ~R$40 seria rejeitado e ficaria preso em PROCESSING. Aqui somamos a taxa Arena
+ * esperada (calculada como a Eulen faz: % arredondado sobre o bruto) + a fixa Eulen.
+ * Tenant central = ZERO_FEE -> volta a 99c (comportamento inalterado). Anti-forja
+ * intacto: o limite SUPERIOR (nunca aceitar mais que o bruto) nao muda, e o credito
+ * usa sempre o valor on-chain REAL.
+ */
+export async function depositUnderpayToleranceCents(
+  receivingTenantId: string,
+  grossCents: number,
+): Promise<number> {
+  if (grossCents <= 0) return EULEN_DEPOSIT_FEE_CENTS + UNDERPAY_ROUNDING_BUFFER_CENTS;
+  const cfg = await withTenant(receivingTenantId, async (tx) => loadFeeConfig(tx, receivingTenantId));
+  const splitPercent = calcDepositSplitFeePercent(grossCents, cfg);
+  const arenaFeeCents = Math.round((grossCents * splitPercent) / 100);
+  return arenaFeeCents + EULEN_DEPOSIT_FEE_CENTS + UNDERPAY_ROUNDING_BUFFER_CENTS;
+}
+
 /**
  * Rede de seguranca do deposito: re-roda o cross-check on-chain de uma tx
  * PROCESSING com `depositTxId` ja gravado e credita o saldo (COMPLETED) se
@@ -1785,6 +1811,8 @@ async function creditDepositIfConfirmedOnChain(txRow: {
       txid: txRow.depositTxId,
       expectedAmount,
       expectedAddress: txRow.depositAddress,
+      // Split nativo: on-chain chega LIQUIDO (bruto − taxa Arena − taxa Eulen).
+      maxUnderpayCents: await depositUnderpayToleranceCents(receivingTenantId, txRow.grossAmountCents),
     });
     if (!crossCheck.ok) {
       logger.info("reconcile deposit: ainda nao confirmado on-chain", {
