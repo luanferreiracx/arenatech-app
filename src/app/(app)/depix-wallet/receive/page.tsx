@@ -76,7 +76,8 @@ export default function DepixReceivePage() {
   const [description, setDescription] = useState("");
 
   const payerTaxIdDigits = payerTaxId.replace(/\D/g, "");
-  const requiresTaxId = amount >= 50_000;
+  // A Eulen exige CPF/CNPJ do pagador para qualquer valor (mudanca 2026-06-30).
+  const requiresTaxId = true;
   const hasPayerTaxId = payerTaxIdDigits.length > 0;
   const payerTaxIdValid = !hasPayerTaxId || isValidTaxId(payerTaxIdDigits);
   const payerPhoneValid = isValidOptionalPhone(payerPhone);
@@ -185,7 +186,7 @@ export default function DepixReceivePage() {
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground mt-1.5">
-                Opcional ate R$ 499,99; obrigatorio a partir de R$ 500,00.
+                Obrigatorio para qualquer valor (exigencia da Eulen).
               </p>
               {requiresTaxId && !hasPayerTaxId && (
                 <p className="text-xs text-destructive mt-1.5">

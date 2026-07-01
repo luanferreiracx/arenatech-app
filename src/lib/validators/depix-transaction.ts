@@ -22,7 +22,6 @@ export const DEPIX_TX_KIND_LABELS: Record<string, string> = {
 
 const VALID_PIX_KEY_TYPES = ["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"] as const;
 const VALID_SOURCE_TYPES = ["WALLET", "QUICK_SALE", "SALE", "SERVICE_ORDER"] as const;
-const TAX_ID_REQUIRED_FROM_CENTS = 50_000;
 
 export const depixTransactionSourceTypeSchema = z.enum(VALID_SOURCE_TYPES);
 
@@ -56,12 +55,12 @@ export const createDepositSchema = z
   })
   .superRefine((input, ctx) => {
     const payerTaxId = input.payerTaxId?.trim() ?? "";
-    const requiresTaxId = input.grossAmountCents >= TAX_ID_REQUIRED_FROM_CENTS;
-    if (requiresTaxId && !payerTaxId) {
+    // A Eulen exige CPF/CNPJ do pagador para QUALQUER valor (mudanca 2026-06-30).
+    if (!payerTaxId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["payerTaxId"],
-        message: "CPF/CNPJ obrigatorio para recebimentos a partir de R$ 500,00",
+        message: "CPF/CNPJ do pagador é obrigatório",
       });
       return;
     }

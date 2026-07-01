@@ -3227,14 +3227,13 @@ export const saleRouter = createTRPCRouter({
         });
       }
 
-      // Regra DePix: valores >= R$ 500,00 exigem CPF/CNPJ do pagador (anti-fraude PixPay).
+      // Regra DePix: a Eulen exige CPF/CNPJ do pagador para QUALQUER valor (2026-06-30).
       // Usa o que vier no input (operador digitou) > cadastro do cliente.
       const taxIdRaw = (input.taxId ?? customerCpf ?? customerCnpj ?? "").replace(/\D/g, "");
-      if (totalAmount >= 500 && taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
+      if (taxIdRaw.length !== 11 && taxIdRaw.length !== 14) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+          message: "Informe o CPF ou CNPJ do pagador para gerar o PIX.",
         });
       }
 
