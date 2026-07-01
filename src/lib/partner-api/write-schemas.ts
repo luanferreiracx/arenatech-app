@@ -10,19 +10,12 @@ import { looksLikeLiquidAddress } from "@/lib/validators/depix-onchain";
 export const partnerDepositSchema = z.object({
   /** Valor em centavos (R$ 10,00 a R$ 5.000,00 — limites operacionais DePix). */
   amountCents: z.number().int().min(1000).max(500000),
-  /** CPF/CNPJ do pagador — OBRIGATÓRIO a partir de R$ 500,00 (regra Eulen). */
-  payerTaxId: z.string().min(11).max(18).optional().nullable(),
+  /** CPF/CNPJ do pagador — OBRIGATÓRIO para qualquer valor (exigência da Eulen). */
+  payerTaxId: z.string().min(11).max(18),
   /** Descrição livre (aparece no registro). */
   description: z.string().max(200).optional().nullable(),
 }).superRefine((v, ctx) => {
-  if (v.amountCents >= 50000 && !v.payerTaxId) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["payerTaxId"],
-      message: "CPF/CNPJ do pagador obrigatório a partir de R$ 500,00",
-    });
-  }
-  if (v.payerTaxId && !isValidTaxId(v.payerTaxId)) {
+  if (!isValidTaxId(v.payerTaxId)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["payerTaxId"], message: "CPF/CNPJ inválido" });
   }
 });

@@ -61,7 +61,7 @@ describe("partnerCreateDeposit", () => {
   it("tenant sem membro -> PRECONDITION_FAILED", async () => {
     userTenantFindFirst.mockResolvedValue(null);
     await expect(
-      partnerCreateDeposit({ tenantId: TENANT, keyPrefix: "k", input: { amountCents: 2000, payerTaxId: null, description: null } }),
+      partnerCreateDeposit({ tenantId: TENANT, keyPrefix: "k", input: { amountCents: 2000, payerTaxId: "12345678909", description: null } }),
     ).rejects.toThrow(/usuário vinculado/i);
   });
 });

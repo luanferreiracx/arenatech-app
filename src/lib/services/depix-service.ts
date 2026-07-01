@@ -184,10 +184,10 @@ export async function createPixPayment(
     };
   }
 
-  // CPF/CNPJ do pagador: enviado quando disponivel (anti-fraude — evita
-  // pagamento por terceiros). NAO bloqueamos quando ausente: a API da Eulen em
-  // producao aceita deposito sem `endUserTaxNumber` (apesar de o schema marcar
-  // como required), e fluxos do PDV/wallet nem sempre coletam o CPF do pagador.
+  // CPF/CNPJ do pagador (`endUserTaxNumber`): a Eulen passou a EXIGIR para TODO
+  // QR code (qualquer valor) — mudanca de contrato em vigor a partir de 2026-06-30.
+  // Sem ele, o deposit e rejeitado. Bloqueamos aqui (antes de chamar a Eulen) com
+  // uma mensagem clara, em vez de deixar estourar um erro cru da API.
   const taxDigits = taxNumber?.replace(/\D/g, "") ?? "";
 
   if (!config) {
@@ -200,16 +200,28 @@ export async function createPixPayment(
     };
   }
 
+  if (!taxDigits) {
+    logger.warn("Depix: deposito sem CPF/CNPJ do pagador (obrigatorio pela Eulen)", {
+      amount: amountReais,
+      description,
+    });
+    return {
+      success: false,
+      error: "CPF/CNPJ do pagador é obrigatório para gerar o PIX.",
+    };
+  }
+
   const amountInCents = Math.round(amountReais * 100);
   const payload: Record<string, string | number | boolean> = { amountInCents };
   if (taxDigits) {
     payload.endUserTaxNumber = taxDigits;
   }
-  // whitelist=true: sinaliza que o parceiro (Arena) conhece/confia no pagador,
-  // liberando depositos > R$500 sem a retencao anti-fraude da Eulen (que limita o
-  // 1o deposito de um pagador a R$500 / under_review). DECISAO DE NEGOCIO do dono:
-  // ao marcar, a Arena ASSUME a responsabilidade anti-fraude/KYC perante a Eulen.
-  payload.whitelist = true;
+  // NAO enviamos `whitelist` (o "qrcodewhitelist" da Eulen): essa permissao nao
+  // esta habilitada no parceiro e a Eulen REJEITA o deposito ("Permission
+  // qrcodewhitelist not enabled for partner"). O caminho correto para liberar
+  // depositos > R$500 e o CPF/CNPJ do pagador (`endUserTaxNumber`), ja obrigatorio
+  // a partir de R$500 nos validators de entrada (createDepositSchema / partner /
+  // pay-public). Ver reversao do #320.
   // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
   // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
   // (fluxo legacy do PDV/OS/QuickSale).
@@ -239,7 +251,7 @@ export async function createPixPayment(
     hasDepixAddr: !!payload.depixAddress,
     hasSplit: !!payload.depixSplitAddress,
     splitFee: payload.splitFee ?? null,
-    whitelist: payload.whitelist === true,
+    hasPayerTaxId: !!payload.endUserTaxNumber,
     nonce,
   });
 

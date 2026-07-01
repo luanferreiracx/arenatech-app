@@ -1,7 +1,8 @@
 /**
- * createPixPayment (POST /deposit): trava o corpo enviado a Eulen. Foco no
- * `whitelist: true` (libera depositos > R$500 sem retencao) e no
- * `endUserTaxNumber` quando ha CPF. `fetch` mockado.
+ * createPixPayment (POST /deposit): trava o corpo enviado a Eulen. Garante que
+ * NAO enviamos `whitelist` (permissao qrcodewhitelist nao habilitada -> Eulen
+ * rejeita) e que o `endUserTaxNumber` (CPF/CNPJ) vai quando presente — o CPF e o
+ * mecanismo correto para liberar depositos > R$500. `fetch` mockado.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createPixPayment } from "@/lib/services/depix-service";
@@ -25,7 +26,7 @@ afterEach(() => {
 });
 
 describe("createPixPayment — payload do POST /deposit", () => {
-  it("envia whitelist=true (libera > R$500)", async () => {
+  it("NAO envia whitelist; manda o CPF como endUserTaxNumber (libera > R$500)", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ response: { id: "qr-1", qrCopyPaste: "00020...", qrImageUrl: "" } }), {
         status: 200,
@@ -39,23 +40,22 @@ describe("createPixPayment — payload do POST /deposit", () => {
 
     expect(res.success).toBe(true);
     const body = lastFetchBody(fetchSpy);
-    expect(body.whitelist).toBe(true);
+    // whitelist NUNCA vai (a Eulen rejeita: permissao nao habilitada).
+    expect(body).not.toHaveProperty("whitelist");
     expect(body.endUserTaxNumber).toBe("12345678909");
     expect(body.amountInCents).toBe(100000);
     expect(body.depixAddress).toBe("lq1tenant");
   });
 
-  it("whitelist=true mesmo sem CPF do pagador", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ response: { id: "qr-2" } }), { status: 200 }),
-    );
-    await createPixPayment(800, "deposito", "nonce-2", null, {
+  it("sem CPF/CNPJ: recusa antes de chamar a Eulen (obrigatorio pra qualquer valor)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const res = await createPixPayment(800, "deposito", "nonce-2", null, {
       depixAddress: "lq1tenant",
       requireDepixAddress: true,
     });
-    const body = lastFetchBody(fetchSpy);
-    expect(body.whitelist).toBe(true);
-    expect(body.endUserTaxNumber).toBeUndefined();
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/CPF\/CNPJ/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("sem DEPIX_API_KEY -> mock mode (nao chama fetch)", async () => {

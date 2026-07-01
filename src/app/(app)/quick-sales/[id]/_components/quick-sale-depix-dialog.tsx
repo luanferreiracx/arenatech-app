@@ -70,7 +70,8 @@ export function QuickSaleDepixDialog({
     paidFiredRef.current = false;
   }, [open]);
 
-  const requiresTaxId = totalCents >= 50_000;
+  // A Eulen exige CPF/CNPJ do pagador para qualquer valor (mudanca 2026-06-30).
+  const requiresTaxId = true;
   const existingTaxId = (buyerTaxId ?? "").replace(/\D/g, "");
   const hasValidExisting = existingTaxId.length === 11 || existingTaxId.length === 14;
   const needsTaxIdPrompt = requiresTaxId && !hasValidExisting && !transactionId;
@@ -185,8 +186,8 @@ export function QuickSaleDepixDialog({
         {!taxIdConfirmed ? (
           <div className="space-y-3 py-2">
             <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm">
-              Para PIX a partir de <strong>R$ 500,00</strong>, e obrigatorio
-              informar o CPF/CNPJ do pagador (exigencia anti-fraude da Eulen).
+              Para gerar o PIX e <strong>obrigatorio</strong> informar o CPF/CNPJ
+              do pagador (exigencia da Eulen).
             </div>
             <div className="space-y-1">
               <Label>CPF ou CNPJ do pagador *</Label>

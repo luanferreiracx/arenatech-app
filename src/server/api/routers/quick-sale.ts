@@ -121,17 +121,16 @@ export const quickSaleRouter = createTRPCRouter({
     .input(createQuickSaleSchema)
     .mutation(async ({ ctx, input }) => {
       // Pre-calculo de total + validacao de regra DePix antes de abrir tx.
-      // PIX >= R$ 500 exige CPF/CNPJ do pagador (anti-fraude PixPay).
+      // A Eulen exige CPF/CNPJ do pagador para QUALQUER valor (mudanca 2026-06-30).
       const subtotalPre = input.quantity * input.unitPrice;
       const totalCentsPre = Math.max(0, subtotalPre - (input.discount ?? 0));
       const totalReaisPre = totalCentsPre / 100;
       const cpfDigits = (input.cpfCnpj ?? "").replace(/\D/g, "");
       const hasValidTaxId = cpfDigits.length === 11 || cpfDigits.length === 14;
-      if (totalReaisPre >= 500 && !hasValidTaxId) {
+      if (!hasValidTaxId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+          message: "Informe o CPF ou CNPJ do pagador para gerar o PIX.",
         });
       }
 
@@ -360,15 +359,14 @@ export const quickSaleRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Total deve ser maior que zero" });
       }
 
-      // Regra DePix: >= R$ 500 exige CPF/CNPJ. Usa o que vier no input
-      // (operador pode digitar agora) ou o que ja tem cadastrado.
+      // Regra DePix: a Eulen exige CPF/CNPJ para QUALQUER valor (2026-06-30). Usa o
+      // que vier no input (operador pode digitar agora) ou o que ja tem cadastrado.
       const taxIdRaw = (input.taxId ?? qs.cpfCnpj ?? "").replace(/\D/g, "");
       const hasValidTaxId = taxIdRaw.length === 11 || taxIdRaw.length === 14;
-      if (totalReais >= 500 && !hasValidTaxId) {
+      if (!hasValidTaxId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "Para PIX a partir de R$ 500,00 e obrigatorio informar CPF ou CNPJ do pagador.",
+          message: "Informe o CPF ou CNPJ do pagador para gerar o PIX.",
         });
       }
 

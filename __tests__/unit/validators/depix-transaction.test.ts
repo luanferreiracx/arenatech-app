@@ -5,16 +5,16 @@ const validCpf = "52998224725";
 const validCnpj = "11222333000181";
 
 describe("createDepositSchema", () => {
-  it("accepts R$ 499,99 without payer tax id", () => {
-    const result = createDepositSchema.safeParse({ grossAmountCents: 49_999 });
-
-    expect(result.success).toBe(true);
+  it("rejects any amount without payer tax id (Eulen exige p/ qualquer valor)", () => {
+    expect(createDepositSchema.safeParse({ grossAmountCents: 49_999 }).success).toBe(false);
+    expect(createDepositSchema.safeParse({ grossAmountCents: 50_000 }).success).toBe(false);
+    expect(createDepositSchema.safeParse({ grossAmountCents: 1_000 }).success).toBe(false);
   });
 
-  it("rejects R$ 500,00 without payer tax id", () => {
-    const result = createDepositSchema.safeParse({ grossAmountCents: 50_000 });
+  it("accepts a small amount with valid CPF", () => {
+    const result = createDepositSchema.safeParse({ grossAmountCents: 1_000, payerTaxId: validCpf });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("accepts R$ 500,00 with valid CPF", () => {
@@ -63,13 +63,14 @@ describe("createDepositSchema", () => {
   });
 
   it("accepts empty and valid phone", () => {
-    expect(createDepositSchema.safeParse({ grossAmountCents: 49_999, payerPhone: "" }).success).toBe(true);
-    expect(createDepositSchema.safeParse({ grossAmountCents: 49_999, payerPhone: "86999991234" }).success).toBe(true);
+    expect(createDepositSchema.safeParse({ grossAmountCents: 49_999, payerTaxId: validCpf, payerPhone: "" }).success).toBe(true);
+    expect(createDepositSchema.safeParse({ grossAmountCents: 49_999, payerTaxId: validCpf, payerPhone: "86999991234" }).success).toBe(true);
   });
 
   it("rejects invalid phone", () => {
     const result = createDepositSchema.safeParse({
       grossAmountCents: 49_999,
+      payerTaxId: validCpf,
       payerPhone: "123",
     });
 
