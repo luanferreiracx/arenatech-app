@@ -35,6 +35,7 @@ vi.mock("@/server/services/depix-transaction.service", () => ({
   settleDepositConfirmed: (...a: unknown[]) => settleDepositConfirmed(...a),
   settleDepositViaFeeWallet: (...a: unknown[]) => settleDepositViaFeeWallet(...a),
   applyPixReceivedEffects: (...a: unknown[]) => applyPixReceivedEffects(...a),
+  depositUnderpayToleranceCents: () => Promise.resolve(99),
 }));
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: (...a: unknown[]) => getFeeWalletTenantId(...a),

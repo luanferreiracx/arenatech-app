@@ -5,6 +5,7 @@ import { verifyDepositOnChain } from "@/lib/webhooks/verify-deposit-onchain";
 import {
   ensureStaticQrDepositTx,
   settleDepositConfirmed,
+  depositUnderpayToleranceCents,
 } from "@/server/services/depix-transaction.service";
 import type { EulenDepositPayload } from "@/lib/webhooks/eulen-deposit-handler";
 
@@ -99,11 +100,17 @@ export async function handleStaticQrDeposit(
     );
 
     const expectedAmount = (payload.valueInCents ?? 0) / 100;
+    // Static-QR e central hoje (ZERO_FEE -> ~99c), mas usamos a mesma tolerancia por
+    // taxa dos demais fluxos por consistencia/robustez (cobre split se um dia aplicar).
     const crossCheck = await verifyDepositOnChain({
       tenantId: tx.tenantId,
       txid: blockchainTxId,
       expectedAmount,
       expectedAddress: tx.depositAddress,
+      maxUnderpayCents: await depositUnderpayToleranceCents(
+        tx.tenantId,
+        payload.valueInCents ?? Math.round(expectedAmount * 100),
+      ),
     });
     if (!crossCheck.ok) {
       await markWebhookProcessed("eulen_static", eventKey, { ok: true });

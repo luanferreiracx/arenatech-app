@@ -25,6 +25,7 @@ vi.mock("@/lib/webhooks/verify-deposit-onchain", () => ({
 vi.mock("@/server/services/depix-transaction.service", () => ({
   ensureStaticQrDepositTx: (...a: unknown[]) => ensureStaticQrDepositTx(...a),
   settleDepositConfirmed: (...a: unknown[]) => settleDepositConfirmed(...a),
+  depositUnderpayToleranceCents: () => Promise.resolve(99),
 }));
 
 import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";

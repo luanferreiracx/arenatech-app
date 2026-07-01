@@ -7,6 +7,7 @@ import {
   settleDepositConfirmed,
   settleDepositViaFeeWallet,
   applyPixReceivedEffects,
+  depositUnderpayToleranceCents,
 } from "@/server/services/depix-transaction.service";
 import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
@@ -151,11 +152,17 @@ export async function handleEulenDepositWebhook(
     );
 
     // Cross-check on-chain (forca sync do LWK; exige >=2 conf + amount confere).
+    // Split nativo: o on-chain chega LIQUIDO (bruto − taxa Arena − taxa Eulen), entao
+    // a folga PRA BAIXO precisa cobrir a taxa Arena esperada, nao so a fixa da Eulen.
     const crossCheck = await verifyDepositOnChain({
       tenantId: receivingTenantId,
       txid: blockchainTxId,
       expectedAmount,
       expectedAddress: txRow.depositAddress ?? null,
+      maxUnderpayCents: await depositUnderpayToleranceCents(
+        receivingTenantId,
+        payload.valueInCents ?? Math.round(expectedAmount * 100),
+      ),
     });
     if (!crossCheck.ok) {
       // Ainda nao confirmado (broadcast recente) ou divergencia: NAO credita.
