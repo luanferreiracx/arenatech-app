@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcilia depositos DePix pelo EXTRATO da Eulen (credito/estorno perdido)
+After=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+# Rede de seguranca por extrato (GET /deposits): pega credito/estorno que o webhook
+# E o monitor LWK perderam. Roda por systemd no VPS (GH Actions e' pouco confiavel).
+ExecStart=/bin/bash -c 'curl -fsS -m 170 -X POST http://127.0.0.1:3001/api/cron/reconcile-eulen-extract -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'

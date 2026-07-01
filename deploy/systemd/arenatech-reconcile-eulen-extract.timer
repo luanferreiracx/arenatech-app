@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispara o reconcile por extrato da Eulen de hora em hora
+
+[Timer]
+# Todo minuto :07 de cada hora (desalinha do reconcile-depix pra nao concorrerem).
+OnCalendar=*:07
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
