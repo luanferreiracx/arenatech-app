@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcilia transacoes DePix presas (PENDING/PROCESSING -> settle on-chain)
+After=network.target
+
+[Service]
+Type=oneshot
+# Carrega CRON_SECRET (e demais vars) do env de producao do app.
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+# GitHub Actions atrasa/pula schedules — dependencia de DINHEIRO nao pode contar
+# com isso (deposito static-QR ficou preso em PROCESSING por o reconcile nao rodar).
+# Roda por systemd no VPS, como o talison-waiting-sweep. bash -c expande $CRON_SECRET.
+ExecStart=/bin/bash -c 'curl -fsS -m 170 -X POST http://127.0.0.1:3001/api/cron/reconcile-depix-transactions -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'

@@ -7,11 +7,12 @@ on:
     - cron: "0 6 * * *"
     # De hora em hora: resolve-stale-conversations (precisa de granularidade
     # pra o corte de 12h ser preciso, nao so 1x/dia).
+    # (reconcile-eulen-extract NAO roda mais aqui — migrou pra systemd no VPS.)
     - cron: "0 * * * *"
-    # A cada 10 min: process-pending-talison (rede de captura de disparos
-    # perdidos no deploy). O fluxo de espera/alerta/off-hours (talison-waiting-sweep)
-    # NÃO roda aqui — precisa de granularidade de 1 min, então roda por systemd
-    # timer no VPS (ver deploy/talison-waiting-sweep.{service,timer}).
+    # A cada 10 min: process-pending-talison + release-stale-reservations (rede de
+    # captura). talison-waiting-sweep e reconcile-depix-transactions NAO rodam aqui —
+    # precisam de confiabilidade/granularidade e rodam por systemd no VPS
+    # (ver deploy/systemd/*.{service,timer}).
     - cron: "*/10 * * * *"
     # A cada 5 min: process-deposit-repayments (ADR 0052). Reprocessa repasses
     # PENDING da carteira de taxas (depósito non-custodial cujo repasse falhou).
@@ -139,10 +140,12 @@ jobs:
             | tee /tmp/response.json
 
   reconcile-depix-transactions:
-    # Roda a cada 10 min (schedule */10) ou manualmente. Reconcilia transacoes
-    # DePix presas em PENDING/PROCESSING (saque concluido no provedor cuja tela
-    # nunca foi aberta -> reserva o saldo pra sempre; deposito com PIX expirado).
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'reconcile-depix-transactions' }}
+    # CADENCIA REGULAR agora roda por SYSTEMD no VPS (a cada 10 min) — GitHub Actions
+    # atrasa/pula schedules e isso e' dependencia de DINHEIRO (deposito static-QR
+    # ficou preso em PROCESSING por o reconcile agendado nao rodar). Ver
+    # deploy/systemd/arenatech-reconcile-depix.{service,timer}. AQUI fica so como
+    # break-glass MANUAL (workflow_dispatch), nunca no schedule.
+    if: ${{ inputs.job == 'reconcile-depix-transactions' }}
     runs-on: ubuntu-latest
     steps:
       - name: Invoca cron reconcile-depix-transactions
@@ -154,10 +157,10 @@ jobs:
             | tee /tmp/response.json
 
   reconcile-eulen-extract:
-    # Roda de hora em hora (schedule horario) ou manualmente. Rede de seguranca por
-    # EXTRATO da Eulen (GET /deposits): pega credito/estorno que o webhook E o
-    # monitor LWK perderam. Complementa o reconcile por-id (que so ve nossas linhas).
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 * * * *') || inputs.job == 'reconcile-eulen-extract' }}
+    # CADENCIA REGULAR agora roda por SYSTEMD no VPS (de hora em hora) — ver
+    # deploy/systemd/arenatech-reconcile-eulen-extract.{service,timer}. AQUI fica so
+    # como break-glass MANUAL (workflow_dispatch), nunca no schedule.
+    if: ${{ inputs.job == 'reconcile-eulen-extract' }}
     runs-on: ubuntu-latest
     steps:
       - name: Invoca cron reconcile-eulen-extract
