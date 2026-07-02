@@ -248,7 +248,41 @@ export function PaymentDialog({
   );
   const cardPreview = cardPreviewQuery.data;
 
+  // Parcelas disponiveis = as que tem taxa cadastrada no adquirente×bandeira×tipo
+  // selecionado. O maximo real vem daqui, nao de um numero fixo na forma. Sem
+  // adquirente/bandeira escolhidos (ou combinacao sem taxa), cai pro fallback
+  // (installmentsMax da forma) pra nao travar a venda.
+  const installmentsQuery = useQuery(
+    trpc.receiving.rates.availableInstallments.queryOptions(
+      {
+        acquirerId: selectedAcquirerId ?? "",
+        cardBrandId: selectedCardBrandId ?? "",
+        kind: selectedCardKind ?? "CREDIT",
+      },
+      {
+        enabled: open && isCardPayment && !!selectedAcquirerId && !!selectedCardBrandId,
+      },
+    ),
+  );
+
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
+
+  // Opcoes de parcela do dropdown: se ha taxas cadastradas no adquirente×bandeira
+  // selecionado, usa exatamente essas (o maximo real). Senao, fallback ao maximo
+  // da forma (1..N) — cobre crediario e cartao sem maquininha escolhida.
+  const acquirerInstallments = installmentsQuery.data ?? [];
+  const methodMax =
+    methodOptions.find((m) => m.key === selectedMethod)?.installmentsMax ?? MAX_INSTALLMENTS;
+  const installmentOptions =
+    acquirerInstallments.length > 0
+      ? acquirerInstallments
+      : Array.from({ length: methodMax }, (_, i) => i + 1);
+  // Se a selecao atual nao existe nas opcoes (ex.: adquirente so tem 2x/3x e o
+  // valor era 1x), usa a primeira disponivel — mantem display e submit consistentes.
+  const selectedInstallments = parseInt(formInstallments, 10) || 1;
+  const effectiveInstallments = installmentOptions.includes(selectedInstallments)
+    ? selectedInstallments
+    : (installmentOptions[0] ?? 1);
 
   const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = Math.max(0, totalAmount - paidTotal);
@@ -299,7 +333,9 @@ export function PaymentDialog({
 
     const amountMercadoria = Math.min(valorPagoCents, remaining);
     const totalPaidByCustomer = valorPagoCents;
-    const installments = parseInt(formInstallments, 10) || 1;
+    // Usa o valor efetivo (clamped as opcoes disponiveis) — nunca uma parcela
+    // sem taxa cadastrada no adquirente.
+    const installments = effectiveInstallments;
 
     // Recebível de cartão: só anexa adquirente/bandeira quando AMBOS escolhidos.
     // Sem isso, a venda no cartão segue sem recebível (fallback do backend).
@@ -658,17 +694,14 @@ export function PaymentDialog({
                 <div className="flex-1">
                   <Label>Parcelas</Label>
                   <Select
-                    value={formInstallments}
+                    value={String(effectiveInstallments)}
                     onValueChange={setFormInstallments}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Array.from(
-                        { length: methodOptions.find((m) => m.key === selectedMethod)?.installmentsMax ?? MAX_INSTALLMENTS },
-                        (_, i) => i + 1,
-                      ).map((n) => (
+                      {installmentOptions.map((n) => (
                         <SelectItem key={n} value={String(n)}>
                           {n}x de{" "}
                           {formatCurrency(
@@ -697,7 +730,10 @@ export function PaymentDialog({
                     <Label>Adquirente</Label>
                     <Select
                       value={selectedAcquirerId ?? ""}
-                      onValueChange={(v) => setSelectedAcquirerId(v || null)}
+                      onValueChange={(v) => {
+                        setSelectedAcquirerId(v || null);
+                        setFormInstallments("1"); // parcelas dependem do adquirente
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Maquininha (opcional)" />
@@ -716,7 +752,10 @@ export function PaymentDialog({
                   <Label>Bandeira</Label>
                   <Select
                     value={selectedCardBrandId ?? ""}
-                    onValueChange={(v) => setSelectedCardBrandId(v || null)}
+                    onValueChange={(v) => {
+                      setSelectedCardBrandId(v || null);
+                      setFormInstallments("1"); // parcelas dependem da bandeira
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Bandeira" />
