@@ -34,7 +34,7 @@ jobs:
   # ============================================================
   setup:
     name: Setup (deps + prisma)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     outputs:
       pnpm-store: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
@@ -48,7 +48,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Get pnpm store path
         id: pnpm-cache
@@ -81,7 +80,7 @@ jobs:
   lint:
     name: Lint
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +92,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Restore deps cache
         uses: actions/cache@v4
@@ -124,7 +122,7 @@ jobs:
   typecheck:
     name: Typecheck
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +134,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Restore deps cache
         uses: actions/cache@v4
@@ -172,7 +169,7 @@ jobs:
   test:
     name: Unit tests
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 8
 
     services:
@@ -183,7 +180,7 @@ jobs:
           POSTGRES_PASSWORD: testpass
           POSTGRES_DB: arenatech_test
         ports:
-          - 5432:5432
+          - 5435:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -193,7 +190,7 @@ jobs:
       redis:
         image: redis:7-alpine
         ports:
-          - 6379:6379
+          - 6383:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -210,7 +207,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Restore deps cache
         uses: actions/cache@v4
@@ -234,8 +230,8 @@ jobs:
       - name: Unit tests
         run: pnpm vitest run --exclude="**/integration/**"
         env:
-          DATABASE_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_test
-          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgresql://arenatech:testpass@localhost:5435/arenatech_test
+          REDIS_URL: redis://localhost:6383
           NEXTAUTH_SECRET: test-secret-do-not-use-in-prod
           NEXTAUTH_URL: http://localhost:3000
 
@@ -246,7 +242,7 @@ jobs:
   # ============================================================
   lwk-test:
     name: LWK Python tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -268,7 +264,7 @@ jobs:
     name: Build & push Docker image
     needs: [lint, typecheck, test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 12
     permissions:
       contents: read
@@ -326,7 +322,7 @@ jobs:
   e2e:
     name: E2E
     needs: [lint, typecheck, test]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     # @smoke (branch/PR) termina em ~3-4min. O FULL (push na main, ~126 testes
     # serial — workers=1 por ADR 0039) leva ~25min (setup ~9min + testes ~16min).
     # Era 18min e a suite FULL era cancelada no meio toda run da main (sinal zero
@@ -334,10 +330,10 @@ jobs:
     # (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy e não bloqueia).
     timeout-minutes: 35
     env:
-      DB_URL: postgresql://arenatech:testpass@localhost:5432/arenatech_e2e
-      REDIS_URL: redis://localhost:6379
+      DB_URL: postgresql://arenatech:testpass@localhost:5435/arenatech_e2e
+      REDIS_URL: redis://localhost:6383
       NEXTAUTH_SECRET: e2e-secret-do-not-use-in-prod
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:4000
       SUPERADMIN_CPF: "12345678909"
       SUPERADMIN_PASSWORD: "Ar3naTech2026Super"
       CRON_SECRET: dev_cron_secret_not_for_production
@@ -353,12 +349,12 @@ jobs:
           POSTGRES_USER: arenatech
           POSTGRES_PASSWORD: testpass
           POSTGRES_DB: arenatech_e2e
-        ports: ["5432:5432"]
+        ports: ["5435:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
         image: redis:7-alpine
-        ports: ["6379:6379"]
+        ports: ["6383:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
@@ -386,7 +382,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Restore deps cache
         uses: actions/cache@v4
@@ -415,7 +410,8 @@ jobs:
           DATABASE_URL: ${{ env.DB_URL }}
 
       - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+        # sem --with-deps: system deps já instalados no runner self-hosted (root, one-time)
+        run: pnpm exec playwright install chromium
 
       # ── App: build de producao local (sem buildar imagem Docker) ──
       - name: Build app (next build)
@@ -424,11 +420,14 @@ jobs:
           DATABASE_URL: ${{ env.DB_URL }}
           NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
 
+      - name: Liberar porta 3000 (self-hosted runner reusa o host)
+        run: fuser -k 4000/tcp || true
+
       - name: Subir app (next start)
         run: |
           pnpm start >/tmp/app.log 2>&1 &
           for _ in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/login || true)
             if [ "$code" = "200" ]; then echo "app UP"; exit 0; fi
             sleep 2
           done
@@ -441,12 +440,12 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           WHATSAPP_MOCK: "1"
           AUTENTIQUE_MOCK: "1"
-          PORT: "3000"
+          PORT: "4000"
 
       - name: Rodar E2E (${{ steps.scope.outputs.label }})
         run: pnpm exec playwright test ${{ steps.scope.outputs.grep }}
         env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:4000
 
       - name: Logs do app (se falhar)
         if: failure()
@@ -460,6 +459,10 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      - name: Cleanup porta 3000 (self-hosted runner)
+        if: always()
+        run: fuser -k 4000/tcp || true
+
   # ============================================================
   # Deploy: VPS so faz `docker pull` + restart + migrate
   # ============================================================
@@ -467,7 +470,7 @@ jobs:
     name: Deploy to VPS
     needs: build-image
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 8
     # SERIALIZA deploys: dois pushes proximos NAO disputam a VPS ao mesmo tempo.
     # Group fixo (nao por ref/sha) => todo deploy entra na MESMA fila.
