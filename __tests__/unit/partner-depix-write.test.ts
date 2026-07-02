@@ -1,13 +1,13 @@
 /**
  * partner-depix-write.service (ADR 0057, Fase 3): criar depósito + sacar via API.
  * Garante: saque só em carteira CUSTODIAL, cap diário PRÓPRIO da API, atribuição a
- * um membro do tenant, e roteamento PIX/on-chain. Services internos mockados.
+ * um membro do tenant, e que o saque é SÓ PIX (on-chain não é exposto na API).
+ * Services internos mockados.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const createDeposit = vi.fn();
 const createWithdraw = vi.fn();
-const createOnchainWithdraw = vi.fn();
 const userTenantFindFirst = vi.fn();
 const walletFindUnique = vi.fn();
 const txAggregate = vi.fn();
@@ -24,7 +24,6 @@ vi.mock("@/server/db", () => ({
 vi.mock("@/server/services/depix-transaction.service", () => ({
   createDeposit: (...a: unknown[]) => createDeposit(...a),
   createWithdraw: (...a: unknown[]) => createWithdraw(...a),
-  createOnchainWithdraw: (...a: unknown[]) => createOnchainWithdraw(...a),
 }));
 
 import {
@@ -33,10 +32,19 @@ import {
 } from "@/server/services/partner-depix-write.service";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
-const ADDR = "lq1qqexternaldestaddr00000000000000000000";
+
+/** Input PIX válido (único método aceito pela API). */
+const pixInput = {
+  method: "pix" as const,
+  amountCents: 5000,
+  pixKeyType: "CPF" as const,
+  pixKey: "12345678909",
+  recipientName: null,
+  recipientTaxId: "12345678909",
+};
 
 beforeEach(() => {
-  for (const m of [createDeposit, createWithdraw, createOnchainWithdraw, userTenantFindFirst, walletFindUnique, txAggregate]) m.mockReset();
+  for (const m of [createDeposit, createWithdraw, userTenantFindFirst, walletFindUnique, txAggregate]) m.mockReset();
   userTenantFindFirst.mockResolvedValue({ userId: "member-1" });
   walletFindUnique.mockResolvedValue({ custodyModel: "custodial" });
   txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 0 } });
@@ -70,43 +78,24 @@ describe("partnerCreateWithdraw", () => {
   it("BLOQUEIA saque em carteira non-custodial (exige passphrase humana)", async () => {
     walletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
     await expect(
-      partnerCreateWithdraw({
-        tenantId: TENANT, keyPrefix: "k",
-        input: { method: "onchain", amountCents: 5000, toAddress: ADDR },
-      }),
+      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput }),
     ).rejects.toThrow(/non-custodial/i);
-    expect(createOnchainWithdraw).not.toHaveBeenCalled();
+    expect(createWithdraw).not.toHaveBeenCalled();
   });
 
   it("aplica o cap diário PRÓPRIO da API (barra acima do limite)", async () => {
     // Já usou R$9.999 nas 24h; default do cap API = R$10.000. +R$50 estoura.
     txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 999900 } });
     await expect(
-      partnerCreateWithdraw({
-        tenantId: TENANT, keyPrefix: "k",
-        input: { method: "onchain", amountCents: 5000, toAddress: ADDR },
-      }),
+      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput }),
     ).rejects.toThrow(/cap diário de saque via api/i);
-    expect(createOnchainWithdraw).not.toHaveBeenCalled();
-  });
-
-  it("on-chain: chama createOnchainWithdraw e retorna o txid", async () => {
-    createOnchainWithdraw.mockResolvedValue({
-      id: "txw-1", number: "TXW-1", status: "COMPLETED", netAmountCents: 5000, withdrawTxId: "liquid-x",
-    });
-    const res = await partnerCreateWithdraw({
-      tenantId: TENANT, keyPrefix: "abcd1234",
-      input: { method: "onchain", amountCents: 5000, toAddress: ADDR },
-    });
-    expect(createOnchainWithdraw.mock.calls[0]![0]).toMatchObject({ tenantId: TENANT, userId: "member-1", toAddress: ADDR });
-    expect(res).toMatchObject({ method: "onchain", onchainTxId: "liquid-x", status: "COMPLETED" });
+    expect(createWithdraw).not.toHaveBeenCalled();
   });
 
   it("pix: chama createWithdraw (sem 2FA) e retorna", async () => {
-    createWithdraw.mockResolvedValue({ id: "txw-2", number: "TXW-2", status: "PROCESSING", netAmountCents: 3000, withdrawTxId: null });
+    createWithdraw.mockResolvedValue({ id: "txw-2", number: "TXW-2", status: "PROCESSING", netAmountCents: 5000, withdrawTxId: null });
     const res = await partnerCreateWithdraw({
-      tenantId: TENANT, keyPrefix: "k",
-      input: { method: "pix", amountCents: 3000, pixKeyType: "CPF", pixKey: "12345678909", recipientName: null, recipientTaxId: "12345678909" },
+      tenantId: TENANT, keyPrefix: "k", input: pixInput,
     });
     expect(createWithdraw).toHaveBeenCalled();
     // Nao passa twoFactorCode (parceiro nao tem 2FA).

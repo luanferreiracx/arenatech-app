@@ -187,61 +187,43 @@ components:
         - qrCodeBase64
       additionalProperties: false
     PartnerWithdrawRequest:
-      oneOf:
-        - type: object
-          properties:
-            method:
-              type: string
-              enum:
-                - pix
-            amountCents:
-              type: integer
-              minimum: 1000
-              maximum: 500000
-            pixKeyType:
-              type: string
-              enum:
-                - RANDOM
-                - CPF
-                - CNPJ
-                - EMAIL
-                - PHONE
-            pixKey:
-              type: string
-              minLength: 1
-              maxLength: 255
-            recipientName:
-              nullable: true
-              type: string
-              maxLength: 200
-            recipientTaxId:
-              type: string
-              minLength: 11
-              maxLength: 18
-          required:
-            - method
-            - amountCents
-            - pixKeyType
-            - pixKey
-            - recipientTaxId
-          additionalProperties: false
-        - type: object
-          properties:
-            method:
-              type: string
-              enum:
-                - onchain
-            amountCents:
-              type: integer
-              minimum: 100
-              maximum: 5000000
-            toAddress:
-              type: string
-          required:
-            - method
-            - amountCents
-            - toAddress
-          additionalProperties: false
+      type: object
+      properties:
+        method:
+          type: string
+          enum:
+            - pix
+        amountCents:
+          type: integer
+          minimum: 1000
+          maximum: 500000
+        pixKeyType:
+          type: string
+          enum:
+            - RANDOM
+            - CPF
+            - CNPJ
+            - EMAIL
+            - PHONE
+        pixKey:
+          type: string
+          minLength: 1
+          maxLength: 255
+        recipientName:
+          nullable: true
+          type: string
+          maxLength: 200
+        recipientTaxId:
+          type: string
+          minLength: 11
+          maxLength: 18
+      required:
+        - method
+        - amountCents
+        - pixKeyType
+        - pixKey
+        - recipientTaxId
+      additionalProperties: false
     PartnerWithdrawResult:
       type: object
       properties:
@@ -255,13 +237,13 @@ components:
           type: string
           enum:
             - pix
-            - onchain
         amountCents:
           type: integer
           minimum: -9007199254740991
           maximum: 9007199254740991
         onchainTxId:
           nullable: true
+          description: txid Liquid da liquidação, quando houver.
           type: string
       required:
         - id

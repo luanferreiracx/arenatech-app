@@ -24,5 +24,5 @@ export function isValidScope(s: string): s is PartnerScope {
 export const PARTNER_SCOPE_LABELS: Record<PartnerScope, string> = {
   "depix:read": "DePix — leitura (saldo, status, extrato)",
   "depix:deposit": "DePix — criar depósito (gerar QR)",
-  "depix:withdraw": "DePix — sacar (PIX/on-chain)",
+  "depix:withdraw": "DePix — sacar via PIX (off-ramp Eulen)",
 };

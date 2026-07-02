@@ -1,8 +1,9 @@
 /**
  * API de parceiros — escrita DePix (ADR 0057, Fase 3): criar depósito e sacar.
- * Reusa os services internos (`createDeposit`/`createWithdraw`/`createOnchainWithdraw`),
- * SEM 2FA (parceiro é máquina). Mantém os guards de negócio (CPF≥R$500, cap diário,
- * advisory lock, cross-check). Adiciona um CAP PRÓPRIO da API por tenant.
+ * Reusa os services internos (`createDeposit`/`createWithdraw`), SEM 2FA (parceiro
+ * é máquina). Saque é SÓ PIX (off-ramp Eulen); on-chain não é exposto na API (só no
+ * painel). Mantém os guards de negócio (CPF, cap diário, advisory lock, cross-check).
+ * Adiciona um CAP PRÓPRIO da API por tenant.
  *
  * Atribuição: sem usuário humano, a ação é registrada num membro do tenant
  * (mesmo padrão do depósito externo/QR estático). O `keyPrefix` vai no log.
@@ -13,7 +14,6 @@ import { logger } from "@/lib/logger";
 import {
   createDeposit,
   createWithdraw,
-  createOnchainWithdraw,
 } from "@/server/services/depix-transaction.service";
 import type { PartnerDepositInput, PartnerWithdrawInput } from "@/lib/partner-api/write-schemas";
 import type { PartnerDepositResult, PartnerWithdrawResult } from "@/lib/partner-api/openapi-schemas";
@@ -123,30 +123,11 @@ export async function partnerCreateWithdraw(args: {
   logger.info("partner-api: saque", {
     tenantId: args.tenantId,
     keyPrefix: args.keyPrefix,
-    method: args.input.method,
+    method: "pix",
     amountCents: args.input.amountCents,
   });
 
-  if (args.input.method === "onchain") {
-    const tx = await createOnchainWithdraw({
-      tenantId: args.tenantId,
-      userId,
-      userName: `API:${args.keyPrefix}`,
-      toAddress: args.input.toAddress,
-      amountCents: args.input.amountCents,
-      idempotencyKey: args.idempotencyKey ?? undefined,
-    });
-    return {
-      id: tx.id,
-      number: tx.number,
-      status: tx.status,
-      method: "onchain",
-      amountCents: tx.netAmountCents ?? args.input.amountCents,
-      onchainTxId: tx.withdrawTxId ?? null,
-    };
-  }
-
-  // PIX
+  // Só PIX (off-ramp Eulen). On-chain não é exposto na API — ver partnerWithdrawSchema.
   const tx = await createWithdraw({
     tenantId: args.tenantId,
     userId,
