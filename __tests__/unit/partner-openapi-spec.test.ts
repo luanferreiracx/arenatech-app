@@ -70,8 +70,13 @@ describe("buildOpenApiSpec", () => {
     );
   });
 
-  it("renders the discriminated withdraw request as oneOf", () => {
-    expect(spec.components.schemas.PartnerWithdrawRequest?.oneOf).toBeInstanceOf(Array);
+  it("withdraw request é PIX-only (sem on-chain exposto)", () => {
+    const schema = spec.components.schemas.PartnerWithdrawRequest;
+    // Nao e mais um oneOf (discriminated union PIX/on-chain) — so PIX.
+    expect(schema?.oneOf).toBeUndefined();
+    expect(JSON.stringify(schema)).not.toContain("onchain");
+    expect(JSON.stringify(schema)).not.toContain("toAddress");
+    expect(schema?.properties).toHaveProperty("pixKey");
   });
 
   it("references the real scope constants in the security description", () => {

@@ -4,7 +4,6 @@
  */
 import { z } from "zod";
 import { isValidTaxId } from "@/lib/utils/tax-id";
-import { looksLikeLiquidAddress } from "@/lib/validators/depix-onchain";
 
 /** POST /depix/deposits — gera QR de cobrança. */
 export const partnerDepositSchema = z.object({
@@ -21,22 +20,22 @@ export const partnerDepositSchema = z.object({
 });
 export type PartnerDepositInput = z.infer<typeof partnerDepositSchema>;
 
-/** POST /depix/withdrawals — saque PIX ou on-chain. */
-export const partnerWithdrawSchema = z.discriminatedUnion("method", [
-  z.object({
-    method: z.literal("pix"),
-    /** Valor LÍQUIDO que o destinatário recebe (centavos). */
-    amountCents: z.number().int().min(1000).max(500000),
-    pixKeyType: z.enum(["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"]),
-    pixKey: z.string().min(1).max(255),
-    recipientName: z.string().max(200).optional().nullable(),
-    recipientTaxId: z.string().min(11).max(18).refine(isValidTaxId, { message: "CPF/CNPJ inválido" }),
-  }),
-  z.object({
-    method: z.literal("onchain"),
-    /** Valor enviado on-chain (centavos). */
-    amountCents: z.number().int().min(100).max(5_000_000),
-    toAddress: z.string().trim().refine(looksLikeLiquidAddress, { message: "Endereço Liquid inválido" }),
-  }),
-]);
+/**
+ * POST /depix/withdrawals — saque via PIX (off-ramp Eulen) APENAS.
+ *
+ * Saque ON-CHAIN (envio Liquid direto pela LWK) NÃO é exposto na API de
+ * parceiros: é irreversível, para endereço arbitrário e sem 2FA — risco
+ * desproporcional para uma chave de máquina. On-chain segue disponível só no
+ * PAINEL (humano + step-up 2FA + confirmação de endereço). O PIX mantém
+ * rastreabilidade (CPF do destinatário) e o mecanismo de disputa do PIX.
+ */
+export const partnerWithdrawSchema = z.object({
+  method: z.literal("pix"),
+  /** Valor LÍQUIDO que o destinatário recebe (centavos). */
+  amountCents: z.number().int().min(1000).max(500000),
+  pixKeyType: z.enum(["RANDOM", "CPF", "CNPJ", "EMAIL", "PHONE"]),
+  pixKey: z.string().min(1).max(255),
+  recipientName: z.string().max(200).optional().nullable(),
+  recipientTaxId: z.string().min(11).max(18).refine(isValidTaxId, { message: "CPF/CNPJ inválido" }),
+});
 export type PartnerWithdrawInput = z.infer<typeof partnerWithdrawSchema>;

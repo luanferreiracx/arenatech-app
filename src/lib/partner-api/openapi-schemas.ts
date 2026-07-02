@@ -63,9 +63,10 @@ export const partnerWithdrawResultSchema = z
     id: z.string(),
     number: z.string(),
     status: z.string(),
-    method: z.enum(["pix", "onchain"]),
+    // Só PIX na API de parceiros; on-chain não é exposto (ver write-schemas).
+    method: z.literal("pix"),
     amountCents: z.number().int(),
-    onchainTxId: z.string().nullable(),
+    onchainTxId: z.string().nullable().describe("txid Liquid da liquidação, quando houver."),
   })
   .meta({ id: "PartnerWithdrawResult" });
 

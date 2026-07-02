@@ -59,7 +59,7 @@ focado, não um retrabalho. Seguro iniciar **com este ADR como base**.
   - `POST /api/v1/partner/depix/deposits` → cria depósito (gera QR). `depix:deposit`.
   - `GET  /api/v1/partner/depix/transactions/:id` → status de uma tx. `depix:read`.
   - `GET  /api/v1/partner/depix/balance` → saldo. `depix:read`.
-  - `POST /api/v1/partner/depix/withdrawals` → saque PIX/on-chain. `depix:withdraw`.
+  - `POST /api/v1/partner/depix/withdrawals` → saque **só PIX** (off-ramp Eulen). `depix:withdraw`. On-chain NÃO é exposto na API (irreversível + endereço arbitrário + sem 2FA = risco desproporcional p/ chave de máquina); segue só no painel com step-up 2FA.
   - `GET  /api/v1/partner/depix/transactions` → extrato paginado. `depix:read`.
 - Cada handler: valida API-key → resolve tenant → **`withTenant(tenantId, …)`**
   (RLS aplicado, isolamento garantido) → chama o **service existente** → DTO de

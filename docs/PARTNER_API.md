@@ -1,9 +1,9 @@
 # API de Parceiros — DePix
 
 API REST para parceiros integrarem o DePix de um tenant da Arena Tech: consultar
-saldo e extrato, gerar cobranças (depósito via QR PIX) e sacar (PIX ou on-chain
-Liquid). Pensada para integração **máquina-a-máquina** — sem interface, autenticada
-por API-key.
+saldo e extrato, gerar cobranças (depósito via QR PIX) e sacar via **PIX**
+(off-ramp Eulen). Pensada para integração **máquina-a-máquina** — sem interface,
+autenticada por API-key. (Saque on-chain Liquid é só no painel, não pela API.)
 
 | | |
 |---|---|
@@ -82,7 +82,7 @@ Cada key carrega um conjunto de **escopos** — peça só o que a integração p
 |---|---|---|
 | `depix:read` | saldo, detalhe de transação, extrato | 60 req/min |
 | `depix:deposit` | criar depósito (gerar QR PIX) | 30 req/min |
-| `depix:withdraw` | sacar (PIX ou on-chain) | 10 req/min |
+| `depix:withdraw` | sacar via PIX (off-ramp Eulen) | 10 req/min |
 
 ---
 
@@ -221,19 +221,26 @@ Acompanhe a confirmação por [webhook](#webhooks) ou polling — o `status` vir
 
 ### POST /depix/withdrawals
 
-Saque **PIX** ou **on-chain** (Liquid). **Escopo:** `depix:withdraw`.
+Saque via **PIX** (off-ramp Eulen). **Escopo:** `depix:withdraw`.
 Aceita `Idempotency-Key`.
+
+> [!NOTE]
+> **Só PIX pela API.** O saque **on-chain** (envio Liquid direto) **não** é exposto
+> na API de parceiros — é irreversível, para endereço arbitrário e sem 2FA, risco
+> desproporcional para uma chave de máquina. On-chain segue disponível apenas no
+> **painel** (humano, com step-up 2FA + confirmação de endereço).
 
 > [!WARNING]
 > **Saque move dinheiro.** A chamada não pede 2FA (é máquina), mas é cercada por
 > guardas: só funciona em carteira **custodial** (a non-custodial exige a senha do
-> titular — use o painel), respeita um **cap diário próprio da API** somado ao cap do
-> painel, e passa pela validação on-chain. Use `Idempotency-Key` em todo saque.
+> titular — use o painel) e respeita um **cap diário próprio da API** somado ao cap
+> do painel. Use `Idempotency-Key` em todo saque.
 
-**Body — PIX** (`method: "pix"`)
+**Body** (`method: "pix"`)
 
 | Campo | Tipo | Descrição |
 |---|---|---|
+| `method` | `"pix"` | Único método aceito |
 | `amountCents` | int | Valor em centavos |
 | `pixKeyType` | enum | `RANDOM` · `CPF` · `CNPJ` · `EMAIL` · `PHONE` |
 | `pixKey` | string | A chave PIX de destino |
@@ -243,17 +250,6 @@ Aceita `Idempotency-Key`.
 ```json
 { "method": "pix", "amountCents": 5000, "pixKeyType": "CPF",
   "pixKey": "12345678909", "recipientTaxId": "12345678909", "recipientName": "Fulano" }
-```
-
-**Body — on-chain** (`method: "onchain"`)
-
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `amountCents` | int | Valor em centavos (on-chain: R$ 1,00 a R$ 50.000,00 — limites distintos do PIX) |
-| `toAddress` | string | Endereço **Liquid** de destino (validado) |
-
-```json
-{ "method": "onchain", "amountCents": 5000, "toAddress": "lq1qq..." }
 ```
 
 **`201 Created`**
