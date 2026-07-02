@@ -34,7 +34,7 @@ jobs:
   # ============================================================
   setup:
     name: Setup (deps + prisma)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     outputs:
       pnpm-store: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
@@ -81,7 +81,7 @@ jobs:
   lint:
     name: Lint
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
   typecheck:
     name: Typecheck
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -172,7 +172,7 @@ jobs:
   test:
     name: Unit tests
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 8
 
     services:
@@ -246,7 +246,7 @@ jobs:
   # ============================================================
   lwk-test:
     name: LWK Python tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -268,7 +268,7 @@ jobs:
     name: Build & push Docker image
     needs: [lint, typecheck, test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 12
     permissions:
       contents: read
@@ -326,7 +326,7 @@ jobs:
   e2e:
     name: E2E
     needs: [lint, typecheck, test]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     # @smoke (branch/PR) termina em ~3-4min. O FULL (push na main, ~126 testes
     # serial — workers=1 por ADR 0039) leva ~25min (setup ~9min + testes ~16min).
     # Era 18min e a suite FULL era cancelada no meio toda run da main (sinal zero
@@ -467,7 +467,7 @@ jobs:
     name: Deploy to VPS
     needs: build-image
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 8
     # SERIALIZA deploys: dois pushes proximos NAO disputam a VPS ao mesmo tempo.
     # Group fixo (nao por ref/sha) => todo deploy entra na MESMA fila.

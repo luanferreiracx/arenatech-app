@@ -47,7 +47,7 @@ jobs:
   mark-overdue:
     # Roda no schedule 03:00 BRT (06:00 UTC) ou manualmente.
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'mark-overdue' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron mark-overdue
         run: |
@@ -60,7 +60,7 @@ jobs:
 
   close-abandoned-cash-sessions:
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'close-abandoned-cash-sessions' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron close-abandoned-cash-sessions
         run: |
@@ -72,7 +72,7 @@ jobs:
 
   expire-rewards:
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'expire-rewards' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron expire-rewards
         run: |
@@ -86,7 +86,7 @@ jobs:
     # Roda de hora em hora (schedule horario) ou manualmente. Resolve conversas
     # do Talison paradas ha 12h+ (paridade Laravel).
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 * * * *') || inputs.job == 'resolve-stale-conversations' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron resolve-stale-conversations
         run: |
@@ -100,7 +100,7 @@ jobs:
     # Roda a cada 10 min (schedule */10) ou manualmente. Rede de captura: reprocessa
     # conversas com mensagem do cliente pendente cujo disparo em memoria se perdeu.
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'process-pending-talison' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron process-pending-talison
         run: |
@@ -114,7 +114,7 @@ jobs:
     # Roda a cada 10 min (schedule */10) ou manualmente. Libera reservas de
     # StockItem presas (carrinho PDV abandonado sem finalizar/abandonar).
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'release-stale-reservations' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron release-stale-reservations
         run: |
@@ -129,7 +129,7 @@ jobs:
     # PENDING da carteira de taxas (ADR 0052): depósito non-custodial cujo
     # repasse do líquido ao tenant falhou (LWK fora, fee L-BTC). Idempotente.
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *') || inputs.job == 'process-deposit-repayments' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron process-deposit-repayments
         run: |
@@ -146,7 +146,7 @@ jobs:
     # deploy/systemd/arenatech-reconcile-depix.{service,timer}. AQUI fica so como
     # break-glass MANUAL (workflow_dispatch), nunca no schedule.
     if: ${{ inputs.job == 'reconcile-depix-transactions' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron reconcile-depix-transactions
         run: |
@@ -161,7 +161,7 @@ jobs:
     # deploy/systemd/arenatech-reconcile-eulen-extract.{service,timer}. AQUI fica so
     # como break-glass MANUAL (workflow_dispatch), nunca no schedule.
     if: ${{ inputs.job == 'reconcile-eulen-extract' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Invoca cron reconcile-eulen-extract
         run: |
