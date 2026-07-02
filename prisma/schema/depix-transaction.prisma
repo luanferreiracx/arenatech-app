@@ -110,6 +110,11 @@ model TenantDepixTransaction {
   /// repassa o liquido. null = legado/custodial (recebe na propria carteira do
   /// tenant). Explicito p/ o settle rotear sem reconsultar custodyModel.
   depositReceivingTenantId String?              @map("deposit_receiving_tenant_id") @db.Uuid
+  /// BYOW: o DePix cai numa carteira PRÓPRIA do tenant (allowlist), não no LWK
+  /// gerenciado. Snapshot no momento da criação — o webhook Eulen usa esse flag
+  /// pra confirmar via `valueInCents` da Eulen SEM cross-check on-chain (a Arena
+  /// não custodia esse endereço, então não pode verificar no LWK).
+  isByow                Boolean                 @default(false) @map("is_byow")
   confirmations         Int?                    @default(0)
   /// Sinal INTERMEDIARIO: PixPay confirmou o PIX (status approved/paid) — o
   /// DePix esta a caminho on-chain. NAO credita saldo: o credito real so
