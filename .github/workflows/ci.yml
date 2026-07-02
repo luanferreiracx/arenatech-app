@@ -420,6 +420,9 @@ jobs:
           DATABASE_URL: ${{ env.DB_URL }}
           NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
 
+      - name: Liberar porta 3000 (self-hosted runner reusa o host)
+        run: fuser -k 3000/tcp || true
+
       - name: Subir app (next start)
         run: |
           pnpm start >/tmp/app.log 2>&1 &
@@ -455,6 +458,10 @@ jobs:
           name: playwright-report-${{ steps.scope.outputs.label }}
           path: playwright-report/
           retention-days: 7
+
+      - name: Cleanup porta 3000 (self-hosted runner)
+        if: always()
+        run: fuser -k 3000/tcp || true
 
   # ============================================================
   # Deploy: VPS so faz `docker pull` + restart + migrate
