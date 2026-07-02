@@ -1,0 +1,28 @@
+/// Allowlist de carteiras Liquid do tenant para o modo BYOW ("bring your own
+/// wallet" / self-custody) do DePix. Em vez de depender da carteira LWK
+/// gerenciada pela Arena, o tenant recebe o DePix direto numa carteira PRÓPRIA
+/// (ou de terceiro).
+///
+/// SEGURANÇA: a API de parceiro só pode usar um endereço que JÁ ESTEJA nesta
+/// lista. Cadastrar um endereço exige confirmação humana forte (senha + 2FA +
+/// código por EMAIL + código por WhatsApp) no painel — a API NUNCA cadastra.
+/// Assim, uma API-key vazada não consegue desviar fundos para uma carteira do
+/// atacante: ela só pode mandar para destinos já aprovados por um humano.
+model TenantByowWallet {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  /// Endereço Liquid de recebimento (validado por looksLikeLiquidAddress).
+  address         String
+  /// Apelido para o tenant identificar a carteira na lista.
+  label           String
+  /// O tenant declarou que este endereço é de TERCEIRO (auditoria).
+  isThirdParty    Boolean  @default(false) @map("is_third_party")
+  active          Boolean  @default(true)
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, address])
+  @@index([tenantId, active])
+  @@map("tenant_byow_wallets")
+}
