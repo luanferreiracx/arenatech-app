@@ -410,8 +410,8 @@ jobs:
           DATABASE_URL: ${{ env.DB_URL }}
 
       - name: Install Playwright browser
-        # --no-deps: system deps já instalados no runner self-hosted (root, one-time)
-        run: pnpm exec playwright install --no-deps chromium
+        # sem --with-deps: system deps já instalados no runner self-hosted (root, one-time)
+        run: pnpm exec playwright install chromium
 
       # ── App: build de producao local (sem buildar imagem Docker) ──
       - name: Build app (next build)
