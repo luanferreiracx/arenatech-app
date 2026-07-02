@@ -230,6 +230,15 @@ Aceita `Idempotency-Key`.
 > desproporcional para uma chave de máquina. On-chain segue disponível apenas no
 > **painel** (humano, com step-up 2FA + confirmação de endereço).
 
+> [!NOTE]
+> **Como o PIX é efetivado (Eulen + Liquid).** Não é PIX instantâneo direto: a Arena
+> pede o off-ramp à Eulen, que devolve um endereço Liquid; a carteira Liquid do
+> tenant envia o DePix on-chain pra esse endereço; a Eulen então paga o PIX ao
+> destinatário. Por isso o saque nasce `PROCESSING` e conclui de forma **assíncrona**
+> — acompanhe por `GET /depix/transactions/:id` ou pelo webhook `withdrawal.completed`.
+> Depende de **saldo DePix on-chain** do tenant + gás de rede; se a janela do
+> provedor expirar antes do envio, o saque falha **sem debitar** e deve ser refeito.
+
 > [!WARNING]
 > **Saque move dinheiro.** A chamada não pede 2FA (é máquina), mas é cercada por
 > guardas: só funciona em carteira **custodial** (a non-custodial exige a senha do
