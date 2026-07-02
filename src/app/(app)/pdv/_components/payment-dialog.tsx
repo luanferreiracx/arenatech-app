@@ -221,33 +221,6 @@ export function PaymentDialog({
   const activeAcquirers = (acquirersQuery.data ?? []).filter((a) => a.active);
   const activeBrands = (brandsQuery.data ?? []).filter((b) => b.active);
 
-  // Preview de liquidacao do cartao: taxa do adquirente + liquido que a loja
-  // recebe + data de liquidacao (D+N), pela AcquirerRate configurada. So roda
-  // quando adquirente+bandeira+parcelas+valor estao definidos; se nao houver
-  // taxa cadastrada pra combinacao, `found=false` e nao mostramos nada.
-  const previewInstallments = parseInt(formInstallments, 10) || 1;
-  const previewGrossCents = Math.round((parseFloat(formAmount) || 0) * 100);
-  const cardPreviewQuery = useQuery(
-    trpc.receiving.previewCardSettlement.queryOptions(
-      {
-        acquirerId: selectedAcquirerId ?? "",
-        cardBrandId: selectedCardBrandId ?? "",
-        kind: selectedCardKind ?? "CREDIT",
-        installments: previewInstallments,
-        grossCents: previewGrossCents,
-      },
-      {
-        enabled:
-          open &&
-          isCardPayment &&
-          !!selectedAcquirerId &&
-          !!selectedCardBrandId &&
-          previewGrossCents > 0,
-      },
-    ),
-  );
-  const cardPreview = cardPreviewQuery.data;
-
   // Parcelas disponiveis = as que tem taxa cadastrada no adquirente×bandeira×tipo
   // selecionado. O maximo real vem daqui, nao de um numero fixo na forma. Sem
   // adquirente/bandeira escolhidos (ou combinacao sem taxa), cai pro fallback
@@ -264,12 +237,6 @@ export function PaymentDialog({
       },
     ),
   );
-
-  const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
-
-  // Opcoes de parcela do dropdown: se ha taxas cadastradas no adquirente×bandeira
-  // selecionado, usa exatamente essas (o maximo real). Senao, fallback ao maximo
-  // da forma (1..N) — cobre crediario e cartao sem maquininha escolhida.
   const acquirerInstallments = installmentsQuery.data ?? [];
   const methodMax =
     methodOptions.find((m) => m.key === selectedMethod)?.installmentsMax ?? MAX_INSTALLMENTS;
@@ -278,11 +245,41 @@ export function PaymentDialog({
       ? acquirerInstallments
       : Array.from({ length: methodMax }, (_, i) => i + 1);
   // Se a selecao atual nao existe nas opcoes (ex.: adquirente so tem 2x/3x e o
-  // valor era 1x), usa a primeira disponivel — mantem display e submit consistentes.
+  // valor era 1x), usa a primeira disponivel — mantem display, PREVIEW e submit
+  // consistentes (mesmo nº de parcelas em todos).
   const selectedInstallments = parseInt(formInstallments, 10) || 1;
   const effectiveInstallments = installmentOptions.includes(selectedInstallments)
     ? selectedInstallments
     : (installmentOptions[0] ?? 1);
+
+  // Preview de liquidacao do cartao: taxa do adquirente + liquido que a loja
+  // recebe + data de liquidacao (D+N), pela AcquirerRate configurada. So roda
+  // quando adquirente+bandeira+parcelas+valor estao definidos; se nao houver
+  // taxa cadastrada pra combinacao, `found=false` e nao mostramos nada. Usa o
+  // nº de parcelas EFETIVO (clamped) — mesmo que entra no recebivel.
+  const previewGrossCents = Math.round((parseFloat(formAmount) || 0) * 100);
+  const cardPreviewQuery = useQuery(
+    trpc.receiving.previewCardSettlement.queryOptions(
+      {
+        acquirerId: selectedAcquirerId ?? "",
+        cardBrandId: selectedCardBrandId ?? "",
+        kind: selectedCardKind ?? "CREDIT",
+        installments: effectiveInstallments,
+        grossCents: previewGrossCents,
+      },
+      {
+        enabled:
+          open &&
+          isCardPayment &&
+          !!selectedAcquirerId &&
+          !!selectedCardBrandId &&
+          previewGrossCents > 0,
+      },
+    ),
+  );
+  const cardPreview = cardPreviewQuery.data;
+
+  const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
 
   const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = Math.max(0, totalAmount - paidTotal);
