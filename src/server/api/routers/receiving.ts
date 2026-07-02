@@ -12,6 +12,7 @@ import {
   toggleActiveSchema,
   upsertAcquirerRatesSchema,
   previewCardSettlementSchema,
+  availableInstallmentsSchema,
   listCardReceivablesSchema,
   settleCardReceivablesSchema,
   unsettleCardReceivablesSchema,
@@ -252,6 +253,31 @@ export const receivingRouter = createTRPCRouter({
             orderBy: [{ cardBrandId: "asc" }, { kind: "asc" }, { installments: "asc" }],
           });
           return rates.map(serializeRate);
+        });
+      }),
+
+    /**
+     * Parcelas com taxa ATIVA cadastrada para um adquirente×bandeira×tipo — usado
+     * pelo PDV pra montar o dropdown de parcelas (o máximo real é o que tem taxa
+     * cadastrada, não um número fixo na forma de pagamento). Retorna a lista de
+     * `installments` ordenada; vazio quando não há taxa pra combinação.
+     */
+    availableInstallments: tenantProcedure
+      .input(availableInstallmentsSchema)
+      .query(async ({ ctx, input }) => {
+        return ctx.withTenant(async (tx) => {
+          const rates = await tx.acquirerRate.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              acquirerId: input.acquirerId,
+              cardBrandId: input.cardBrandId,
+              kind: input.kind,
+              active: true,
+            },
+            select: { installments: true },
+            orderBy: { installments: "asc" },
+          });
+          return rates.map((r) => r.installments);
         });
       }),
 

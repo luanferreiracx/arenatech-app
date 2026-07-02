@@ -91,6 +91,13 @@ export const previewCardSettlementSchema = z.object({
   grossCents: z.number().int().min(0),
 });
 
+/** Parcelas com taxa ativa cadastrada p/ um adquirente×bandeira×tipo (dropdown PDV). */
+export const availableInstallmentsSchema = z.object({
+  acquirerId: z.string().uuid(),
+  cardBrandId: z.string().uuid(),
+  kind: cardKindEnum,
+});
+
 // ── Card receivables (listagem/visão) ──
 
 export const cardReceivableStatusEnum = z.enum(["PENDING", "SETTLED", "CANCELLED"]);
