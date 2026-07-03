@@ -1,11 +1,19 @@
 name: CI/CD
 
 on:
+  # ARQUITETURA (2026-07-03): lint/typecheck/unit/lwk/E2E rodam em runners
+  # GITHUB-HOSTED (ubuntu-latest) — paralelos, sem fila, auto-recuperam. O runner
+  # SELF-HOSTED do VPS fica SO pro build-image + deploy (precisam de GHCR/SSH/docker
+  # na maquina). Antes tudo era self-hosted num runner unico: uma trava dele
+  # (busy sem job) ou os crons */5,*/10 competindo paravam PRs por 45+min.
+  #
+  # push SO na main: full E2E (pos-merge, github-hosted) + build + deploy (self-hosted).
+  # Branches de trabalho NAO disparam no push — a validacao acontece no PR (abaixo),
+  # evitando 2 runs por PR. O gate do merge continua sendo o @smoke do PR.
   push:
-    branches: ["**"] # main (deploy) + branches de trabalho (smoke E2E rapido)
+    branches: [main]
     # Mudancas SO de documentacao nao tem codigo a testar/buildar/deployar —
-    # pulam o CI inteiro (PR de doc fica verde na hora, sem esperar E2E ~7min).
-    # Se o PR misturar doc + codigo, o codigo dispara o CI normalmente.
+    # pulam o CI inteiro (verde na hora, sem esperar E2E ~7min).
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -17,8 +25,8 @@ on:
       - "docs/**"
       - ".vscode/**"
 
-# Cancela runs antigos no mesmo branch quando um novo push chega.
-# Inclui event_name no group pra um push e o PR do mesmo ref nao se cancelarem.
+# Cancela runs antigos do mesmo contexto quando um novo chega (ex.: novo push na
+# branch do PR). push na main NAO cancela (cada merge precisa buildar/deployar).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -34,7 +42,7 @@ jobs:
   # ============================================================
   setup:
     name: Setup (deps + prisma)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       pnpm-store: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
@@ -52,7 +60,7 @@ jobs:
       - name: Get pnpm store path
         id: pnpm-cache
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
       - name: Cache node_modules + prisma client
         id: cache-deps
@@ -80,7 +88,7 @@ jobs:
   lint:
     name: Lint
     needs: setup
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +130,7 @@ jobs:
   typecheck:
     name: Typecheck
     needs: setup
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -169,7 +177,7 @@ jobs:
   test:
     name: Unit tests
     needs: setup
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 8
 
     services:
@@ -242,7 +250,7 @@ jobs:
   # ============================================================
   lwk-test:
     name: LWK Python tests
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -322,12 +330,11 @@ jobs:
   e2e:
     name: E2E
     needs: [lint, typecheck, test]
-    runs-on: self-hosted
-    # @smoke (branch/PR) termina em ~3-4min. O FULL (push na main, ~126 testes
-    # serial — workers=1 por ADR 0039) leva ~25min (setup ~9min + testes ~16min).
-    # Era 18min e a suite FULL era cancelada no meio toda run da main (sinal zero
-    # desde que a suite cresceu). 35min dá folga p/ ela completar e voltar a AVISAR
-    # (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy e não bloqueia).
+    runs-on: ubuntu-latest
+    # @smoke (branch/PR) termina em ~4-6min. O FULL (push na main, ~126 testes
+    # serial — workers=1 por ADR 0039) leva ~25min. 35min dá folga p/ completar e
+    # AVISAR (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy self-hosted
+    # e não o bloqueia: `deploy` só depende de `build-image`, não de `e2e`).
     timeout-minutes: 35
     env:
       DB_URL: postgresql://arenatech:testpass@localhost:5435/arenatech_e2e
@@ -409,9 +416,15 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DB_URL }}
 
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install Playwright browser
-        # sem --with-deps: system deps já instalados no runner self-hosted (root, one-time)
-        run: pnpm exec playwright install chromium
+        # --with-deps: runner GitHub-hosted efêmero não tem as system deps do Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       # ── App: build de producao local (sem buildar imagem Docker) ──
       - name: Build app (next build)
@@ -420,7 +433,7 @@ jobs:
           DATABASE_URL: ${{ env.DB_URL }}
           NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
 
-      - name: Liberar porta 3000 (self-hosted runner reusa o host)
+      - name: Liberar porta 4000 (defensivo)
         run: fuser -k 4000/tcp || true
 
       - name: Subir app (next start)
@@ -459,7 +472,7 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-      - name: Cleanup porta 3000 (self-hosted runner)
+      - name: Cleanup porta 4000
         if: always()
         run: fuser -k 4000/tcp || true
 
