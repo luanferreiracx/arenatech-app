@@ -9,6 +9,7 @@ import { StaticQrCard } from "./_components/static-qr-card";
 import { RecentTransactions } from "./_components/recent-transactions";
 import { RecoveryPhraseCard } from "./_components/recovery-phrase-card";
 import { WalletManagementCard } from "./_components/wallet-management-card";
+import { ByowWalletsCard } from "./_components/byow-wallets-card";
 import { WalletSetupGate } from "./_components/wallet-setup-gate";
 
 /**
@@ -83,6 +84,9 @@ export default function DepixWalletPage() {
         canRevealMnemonic={walletInfo?.canRevealMnemonic === true}
         custodyModel={walletInfo?.custodyModel ?? "custodial"}
       />
+
+      {/* Allowlist de carteiras próprias (BYOW) que a API pode usar. */}
+      <ByowWalletsCard canManage={walletInfo?.canWithdraw === true} />
 
       {/* Atividade recente */}
       <RecentTransactions />
