@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispara release-stale-reservations a cada 10 minutos
+
+[Timer]
+OnCalendar=*:0/10
+AccuracySec=30s
+# Persistent: se o VPS ficou fora no horario, roda assim que voltar.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

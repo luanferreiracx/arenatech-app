@@ -1,0 +1,11 @@
+[Unit]
+Description=Expira recompensas vencidas (expire-rewards)
+After=network.target
+
+[Service]
+Type=oneshot
+# Carrega CRON_SECRET (e demais vars) do env de producao do app.
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+# Roda por systemd no VPS (nao GitHub Actions, que atrasa/pula schedules) pra
+# NAO disputar o runner self-hosted com build/deploy. bash -c expande $CRON_SECRET.
+ExecStart=/bin/bash -c 'curl -fsS -m 60 -X POST http://127.0.0.1:3001/api/cron/expire-rewards -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'

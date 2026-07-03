@@ -1,22 +1,15 @@
 name: Cron Jobs
 
+# CADENCIA REGULAR migrou 100% pra SYSTEMD no VPS (deploy/systemd/*.{service,timer}).
+# Motivo duplo: (1) o GitHub Actions atrasa/pula schedules — inaceitavel pra jobs
+# sensiveis a tempo e a DINHEIRO; (2) rodar de */5 em */5 no runner self-hosted UNICO
+# disputava a vez com build/deploy. Agora o self-hosted e' 100% dedicado a deploy.
+#
+# Este workflow fica so como BREAK-GLASS MANUAL (workflow_dispatch) — dispara um
+# cron pontual se o systemd estiver fora ou pra teste. Roda em github-hosted
+# (ubuntu-latest) pra NAO depender do runner self-hosted (que pode estar ocupado
+# com um deploy ou travado). O curl bate no APP_URL publico.
 on:
-  schedule:
-    # Sao Paulo BRT = UTC-3. Horarios em UTC.
-    # 03:00 BRT (06:00 UTC): mark-overdue + close-abandoned-cash-sessions + expire-rewards
-    - cron: "0 6 * * *"
-    # De hora em hora: resolve-stale-conversations (precisa de granularidade
-    # pra o corte de 12h ser preciso, nao so 1x/dia).
-    # (reconcile-eulen-extract NAO roda mais aqui — migrou pra systemd no VPS.)
-    - cron: "0 * * * *"
-    # A cada 10 min: process-pending-talison + release-stale-reservations (rede de
-    # captura). talison-waiting-sweep e reconcile-depix-transactions NAO rodam aqui —
-    # precisam de confiabilidade/granularidade e rodam por systemd no VPS
-    # (ver deploy/systemd/*.{service,timer}).
-    - cron: "*/10 * * * *"
-    # A cada 5 min: process-deposit-repayments (ADR 0052). Reprocessa repasses
-    # PENDING da carteira de taxas (depósito non-custodial cujo repasse falhou).
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       job:
@@ -45,9 +38,8 @@ defaults:
 
 jobs:
   mark-overdue:
-    # Roda no schedule 03:00 BRT (06:00 UTC) ou manualmente.
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'mark-overdue' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'mark-overdue' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron mark-overdue
         run: |
@@ -59,8 +51,8 @@ jobs:
           # Falha o job se status != 200 (curl -f ja faz isso)
 
   close-abandoned-cash-sessions:
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'close-abandoned-cash-sessions' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'close-abandoned-cash-sessions' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron close-abandoned-cash-sessions
         run: |
@@ -71,8 +63,8 @@ jobs:
             | tee /tmp/response.json
 
   expire-rewards:
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.job == '' || inputs.job == 'expire-rewards' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'expire-rewards' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron expire-rewards
         run: |
@@ -83,10 +75,8 @@ jobs:
             | tee /tmp/response.json
 
   resolve-stale-conversations:
-    # Roda de hora em hora (schedule horario) ou manualmente. Resolve conversas
-    # do Talison paradas ha 12h+ (paridade Laravel).
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 * * * *') || inputs.job == 'resolve-stale-conversations' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'resolve-stale-conversations' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron resolve-stale-conversations
         run: |
@@ -97,10 +87,8 @@ jobs:
             | tee /tmp/response.json
 
   process-pending-talison:
-    # Roda a cada 10 min (schedule */10) ou manualmente. Rede de captura: reprocessa
-    # conversas com mensagem do cliente pendente cujo disparo em memoria se perdeu.
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'process-pending-talison' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'process-pending-talison' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron process-pending-talison
         run: |
@@ -111,10 +99,8 @@ jobs:
             | tee /tmp/response.json
 
   release-stale-reservations:
-    # Roda a cada 10 min (schedule */10) ou manualmente. Libera reservas de
-    # StockItem presas (carrinho PDV abandonado sem finalizar/abandonar).
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/10 * * * *') || inputs.job == 'release-stale-reservations' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'release-stale-reservations' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron release-stale-reservations
         run: |
@@ -125,11 +111,8 @@ jobs:
             | tee /tmp/response.json
 
   process-deposit-repayments:
-    # Roda a cada 5 min (schedule */5) ou manualmente. Reprocessa repasses
-    # PENDING da carteira de taxas (ADR 0052): depósito non-custodial cujo
-    # repasse do líquido ao tenant falhou (LWK fora, fee L-BTC). Idempotente.
-    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *') || inputs.job == 'process-deposit-repayments' }}
-    runs-on: self-hosted
+    if: ${{ inputs.job == '' || inputs.job == 'process-deposit-repayments' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron process-deposit-repayments
         run: |
@@ -140,13 +123,10 @@ jobs:
             | tee /tmp/response.json
 
   reconcile-depix-transactions:
-    # CADENCIA REGULAR agora roda por SYSTEMD no VPS (a cada 10 min) — GitHub Actions
-    # atrasa/pula schedules e isso e' dependencia de DINHEIRO (deposito static-QR
-    # ficou preso em PROCESSING por o reconcile agendado nao rodar). Ver
-    # deploy/systemd/arenatech-reconcile-depix.{service,timer}. AQUI fica so como
-    # break-glass MANUAL (workflow_dispatch), nunca no schedule.
+    # Cadencia regular por SYSTEMD no VPS (arenatech-reconcile-depix.timer, 10 min).
+    # Aqui so como break-glass manual.
     if: ${{ inputs.job == 'reconcile-depix-transactions' }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron reconcile-depix-transactions
         run: |
@@ -157,11 +137,10 @@ jobs:
             | tee /tmp/response.json
 
   reconcile-eulen-extract:
-    # CADENCIA REGULAR agora roda por SYSTEMD no VPS (de hora em hora) — ver
-    # deploy/systemd/arenatech-reconcile-eulen-extract.{service,timer}. AQUI fica so
-    # como break-glass MANUAL (workflow_dispatch), nunca no schedule.
+    # Cadencia regular por SYSTEMD no VPS (arenatech-reconcile-eulen-extract.timer, 1h).
+    # Aqui so como break-glass manual.
     if: ${{ inputs.job == 'reconcile-eulen-extract' }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Invoca cron reconcile-eulen-extract
         run: |
