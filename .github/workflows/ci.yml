@@ -1,11 +1,14 @@
 name: CI/CD
 
 on:
+  # push SO na main: full E2E (pos-merge) + build + deploy. Branches de trabalho
+  # NAO disparam no push — a validacao de uma branch acontece no PR (abaixo). Isso
+  # evita RODAR O CI 2X por PR (push da branch + pull_request), que dobrava a fila
+  # do runner self-hosted unico. O gate do merge continua sendo o @smoke do PR.
   push:
-    branches: ["**"] # main (deploy) + branches de trabalho (smoke E2E rapido)
+    branches: [main]
     # Mudancas SO de documentacao nao tem codigo a testar/buildar/deployar —
-    # pulam o CI inteiro (PR de doc fica verde na hora, sem esperar E2E ~7min).
-    # Se o PR misturar doc + codigo, o codigo dispara o CI normalmente.
+    # pulam o CI inteiro (verde na hora, sem esperar E2E ~7min).
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -17,8 +20,8 @@ on:
       - "docs/**"
       - ".vscode/**"
 
-# Cancela runs antigos no mesmo branch quando um novo push chega.
-# Inclui event_name no group pra um push e o PR do mesmo ref nao se cancelarem.
+# Cancela runs antigos do mesmo contexto quando um novo chega (ex.: novo push na
+# branch do PR). push na main NAO cancela (cada merge precisa buildar/deployar).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
