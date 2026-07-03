@@ -45,7 +45,11 @@ function isPublicRoute(pathname: string): boolean {
     // Documentação pública da API de parceiros (Swagger UI + spec OpenAPI).
     // O contrato é público; não expõe segredo.
     pathname.startsWith("/docs/partner-api") ||
-    pathname === "/api/v1/partner/openapi.yaml"
+    pathname === "/api/v1/partner/openapi.yaml" ||
+    // Endpoints tRPC públicos do onboarding NO-KYC (ADR 0050) — o procedimento
+    // usa publicProcedure, não precisa de sessão. Sem isso o middleware redireciona
+    // a chamada fetch para /login e o cliente recebe HTML em vez de JSON.
+    pathname.startsWith("/api/trpc/noKyc.")
   );
 }
 
