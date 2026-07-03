@@ -106,6 +106,29 @@ focado, não um retrabalho. Seguro iniciar **com este ADR como base**.
 - **Fase 5 — Endurecimento + go-live:**
   OpenAPI publicada, sandbox/keys de teste, quotas finais, runbook, Sentry alertas,
   rotação de key. (Opcional futuro: OAuth2 client-credentials por cima da mesma base.)
+- **Fase 6 (pós-go-live) — BYOW / self-custody (carteira própria do tenant):**
+  o tenant recebe o DePix numa carteira Liquid **própria** (ou de terceiro) em vez
+  da carteira LWK gerenciada — mais autonomia, sem depender do saldo/gás da carteira
+  central. A Eulen é carteira-agnóstica (manda o DePix pro `depixAddress` informado),
+  então o depósito BYOW é natural.
+  - **Trava de segurança = allowlist por tenant** (`TenantByowWallet`): a API só
+    pode receber num endereço que **já esteja cadastrado**. Cadastrar é operação de
+    custódia → exige, no **painel**, senha + step-up 2FA + **código por EMAIL + código
+    por WhatsApp** (reusa `verification.service`, mesmo padrão do recovery de 2FA).
+    **A API NUNCA cadastra endereço** — só usa um já aprovado por um humano. Logo,
+    uma API-key vazada **não** consegue desviar fundos pra carteira do atacante
+    (diferente do saque on-chain removido no #353). Remover carteira exige só 2FA.
+  - **Depósito BYOW** (implementado): `createDeposit` aceita `byowAddress` →
+    `assertAddressAllowed` (barra fora da lista) → usa como `depixAddress` da Eulen
+    (pula o LWK), marca `isByow`, mantém o split nativo da taxa Arena. Confirmação
+    pelo **webhook Eulen** (`depix_sent` → COMPLETED via `valueInCents`), **sem
+    cross-check on-chain** (a Arena não custodia esse endereço). API de parceiro:
+    campo `depositAddress` opcional no `POST /depix/deposits`. PRs #355–#358.
+  - **Saque BYOW / intent** (2ª leva, ainda NÃO implementado): a Arena geraria a
+    intenção na Eulen e devolveria `{depositAddress, depositAmountCents, expiresAt}`;
+    **o tenant deposita** da carteira dele (a Arena não move fundos, não tem a chave).
+    Muda a responsabilidade: Arena vira geradora de intenção, não executora. A
+    decidir quando priorizar.
 
 ## Verificação (por fase)
 - **Unit:** emissão/validação de API-key (hash, prefix lookup, timing-safe, scope,
@@ -127,3 +150,11 @@ focado, não um retrabalho. Seguro iniciar **com este ADR como base**.
   (ADR informal recente) e os limites/CPF aplicam-se igualmente às chamadas de parceiro.
 - **Não** reusar o flag `ALLOW_UNSIGNED_*` nem caminhos de bypass de dev na borda de
   parceiro.
+- **BYOW — endereço errado = fundos perdidos.** No depósito self-custody a validação
+  é só de formato (`looksLikeLiquidAddress`) — a Arena não custodia o endereço, então
+  não há a validação autoritativa do LWK. Mitigação: cadastro só no painel, com colar-
+  e-conferir + 2FA + email + WhatsApp (o humano confirma o destino). Endereço de
+  terceiro é registrado com flag de auditoria. A API nunca cadastra; uma key vazada
+  não muda o destino. Sem cross-check on-chain no BYOW, confia-se no `valueInCents`
+  da Eulen (aceitável: não há saldo próprio sendo creditado — só a tx é marcada e a
+  taxa Arena já foi splitada na origem).
