@@ -391,6 +391,14 @@ export interface CreateDepositArgs {
    * depósito (QR), sem duplicar. Usada pela API de parceiros (`Idempotency-Key`).
    */
   idempotencyKey?: string | null;
+  /**
+   * BYOW (self-custody): endereço Liquid PRÓPRIO do tenant onde a Eulen deve
+   * mandar o DePix — em vez do LWK gerenciado. Precisa estar na allowlist do
+   * tenant (`assertAddressAllowed`) senão o depósito é barrado. Quando presente,
+   * o LWK não participa e a confirmação vem do webhook Eulen (sem cross-check
+   * on-chain). Ausente = fluxo gerenciado (LWK) atual, intocado.
+   */
+  byowAddress?: string | null;
 }
 
 export async function createDeposit(args: CreateDepositArgs) {
@@ -409,6 +417,14 @@ export async function createDeposit(args: CreateDepositArgs) {
   }
 
   // ETAPA 1: cria registro PENDING + gera numero. Se duas chamadas concorrentes
+  // BYOW: o endereço PRÓPRIO informado precisa estar na allowlist do tenant.
+  // Fail-fast ANTES de criar o PENDING (não deixa registro órfão se barrado).
+  const isByow = !!args.byowAddress;
+  if (isByow) {
+    const { assertAddressAllowed } = await import("@/server/services/depix-byow.service");
+    await assertAddressAllowed(args.tenantId, args.byowAddress!);
+  }
+
   // usarem a mesma idempotencyKey, o unique constraint rejeita a 2a (P2002) — nesse
   // caso devolvemos a transacao ja criada em vez de estourar 500.
   let created;
@@ -430,6 +446,7 @@ export async function createDeposit(args: CreateDepositArgs) {
           userId: args.userId,
           userName: args.userName ?? null,
           idempotencyKey: args.idempotencyKey ?? null,
+          isByow,
           // 30 min de validade do PIX (padrao PixPay).
           expiresAt: new Date(Date.now() + 30 * 60_000),
         },
@@ -451,23 +468,30 @@ export async function createDeposit(args: CreateDepositArgs) {
     throw err;
   }
 
-  // ETAPA 2: o DePix cai SEMPRE na carteira do PRÓPRIO tenant. A taxa Arena é
-  // descontada NA ORIGEM via SPLIT NATIVO da Eulen (depixSplitAddress + splitFee):
-  // a Eulen manda o líquido pro tenant e a taxa pra master da Arena, já dividido
-  // on-chain. Sem carteira de taxas intermediária, sem 2ª tx (custodial e
-  // non-custodial seguem o mesmo caminho).
-  const addr = await lwk.generateAddress(args.tenantId, created.id);
-  if (!addr.success || !addr.address) {
-    await withTenant(args.tenantId, async (tx) =>
-      tx.tenantDepixTransaction.update({
-        where: { id: created.id },
-        data: { status: "FAILED", errorMessage: addr.error ?? "LWK indisponivel" },
-      }),
-    );
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Falha ao gerar endereco de recebimento",
-    });
+  // ETAPA 2: define o endereço de recebimento do DePix.
+  //  - BYOW: a carteira PRÓPRIA do tenant (allowlist) — o LWK NÃO participa.
+  //  - Gerenciado: gera um endereço LWK dedicado por depósito (match no monitor).
+  // A taxa Arena é descontada NA ORIGEM via SPLIT NATIVO da Eulen em ambos os
+  // casos (depixSplitAddress + splitFee) — a Eulen manda o líquido pro endereço
+  // e a taxa pra master da Arena, já dividido on-chain.
+  let depixAddress: string;
+  if (isByow) {
+    depixAddress = args.byowAddress!.trim();
+  } else {
+    const addr = await lwk.generateAddress(args.tenantId, created.id);
+    if (!addr.success || !addr.address) {
+      await withTenant(args.tenantId, async (tx) =>
+        tx.tenantDepixTransaction.update({
+          where: { id: created.id },
+          data: { status: "FAILED", errorMessage: addr.error ?? "LWK indisponivel" },
+        }),
+      );
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Falha ao gerar endereco de recebimento",
+      });
+    }
+    depixAddress = addr.address;
   }
 
   // Split: % equivalente da taxa Arena (fixo + %) sobre o valor. Central é isento
@@ -495,24 +519,25 @@ export async function createDeposit(args: CreateDepositArgs) {
     }
   }
 
-  logger.info("Deposito DePix wallet usando endereco LWK dedicado", {
+  logger.info("Deposito DePix: endereco de recebimento definido", {
     tenantId: args.tenantId,
     transactionId: created.id,
     sourceType: args.sourceType ?? "WALLET",
     sourceId: args.sourceId ?? null,
-    depixAddress: addr.address,
+    isByow,
+    depixAddress,
     splitFeePercent,
     hasSplit: !!depixSplitAddress,
   });
 
-  // ETAPA 3: gera PIX na Eulen apontando pro endereco LWK do tenant, com o split
+  // ETAPA 3: gera PIX na Eulen apontando pro endereco de recebimento, com o split
   // nativo da taxa Arena. nonce = created.id (idempotente: retry nao duplica).
   const pix = await createPixPayment(
     args.grossAmountCents / 100,
     args.sourceDescription ?? `Deposito DePix ${created.number}`,
     created.id,
     payerTaxId,
-    { depixAddress: addr.address, requireDepixAddress: true, depixSplitAddress, splitFeePercent },
+    { depixAddress, requireDepixAddress: true, depixSplitAddress, splitFeePercent },
   );
   if (!pix.success || !pix.transactionId) {
     await withTenant(args.tenantId, async (tx) =>
@@ -532,17 +557,12 @@ export async function createDeposit(args: CreateDepositArgs) {
     tx.tenantDepixTransaction.update({
       where: { id: created.id },
       data: {
-        depositAddress: addr.address,
-        // O monitor LWK reporta o label do deposito como `label.user` no
-        // webhook (lwk-deposit-handler usa payload.label.user) — que eh o
-        // `user` que passamos a generateAddress, i.e. created.id. NAO usar
-        // addr.label: o servico LWK transforma o user num label proprio
-        // (trunca sem hifen + sufixo aleatorio, ex "<uuid-sem-hifen>_a1b2"),
-        // que NUNCA bate com o que o webhook envia → deposito travava em
-        // PROCESSING/PENDING sem nunca confirmar.
-        depositLabel: created.id,
-        // Split nativo: o DePix cai sempre na carteira do PRÓPRIO tenant.
-        depositReceivingTenantId: args.tenantId,
+        depositAddress: depixAddress,
+        // Label do monitor LWK (= created.id, batendo com `label.user` do webhook)
+        // SÓ no fluxo gerenciado. BYOW não passa pelo monitor LWK (o endereço não
+        // é da nossa carteira) — confirma pelo webhook Eulen; sem label/receiving.
+        depositLabel: isByow ? null : created.id,
+        depositReceivingTenantId: isByow ? null : args.tenantId,
         pixpayDepixId: pix.transactionId,
         qrCode: pix.qrCode ?? null,
         qrCodeBase64: pix.qrCodeBase64 ?? null,

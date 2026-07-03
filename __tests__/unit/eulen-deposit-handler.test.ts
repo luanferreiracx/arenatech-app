@@ -53,6 +53,7 @@ function tx(over: Record<string, unknown> = {}) {
     depositLabel: "tx-1",
     depositAddress: "lq1addr",
     depositReceivingTenantId: null,
+    isByow: false,
     ...over,
   };
 }
@@ -130,6 +131,24 @@ describe("handleEulenDepositWebhook", () => {
       expect.objectContaining({ feeWalletTenantId: "fee-tenant" }),
     );
     expect(settleDepositConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("BYOW depix_sent -> COMPLETED via valueInCents, SEM cross-check nem settle LWK", async () => {
+    findFirst.mockResolvedValue(tx({ isByow: true }));
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "qb", status: "depix_sent", valueInCents: 9800, blockchainTxID: "bc-byow" },
+      null,
+    );
+    // Não toca no LWK (a Arena não custodia o endereço BYOW).
+    expect(verifyDepositOnChain).not.toHaveBeenCalled();
+    expect(settleDepositConfirmed).not.toHaveBeenCalled();
+    expect(settleDepositViaFeeWallet).not.toHaveBeenCalled();
+    // Marca COMPLETED com o valor da Eulen; libera a venda.
+    expect(updateMany.mock.calls[0]![0]).toMatchObject({
+      data: { status: "COMPLETED", netAmountCents: 9800, depositTxId: "bc-byow" },
+    });
+    expect(applyPixReceivedEffects).toHaveBeenCalledWith(TENANT, "tx-1");
+    expect(res.body).toMatchObject({ byow: true, completed: true });
   });
 
   it("depix_sent ainda NAO confirmado -> PROCESSING sem creditar", async () => {
