@@ -9,6 +9,62 @@
 import { TRPCError } from "@trpc/server";
 import { withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
+import { getRedis } from "@/lib/redis";
+
+// ── Payload pendente do cadastro em 2 passos ────────────────────────────────
+// O que o usuário digitou e VALIDOU no passo 1 (`startAdd`) fica no Redis com TTL
+// curto, chaveado por tenant+user. No passo 2 (`confirmAdd`) lemos daqui — o
+// cliente só manda os códigos, não o endereço de novo. Assim o destino que o
+// humano confirmou por email+WhatsApp é exatamente o que digitou, sem o cliente
+// poder trocar entre os passos. Fallback (sem Redis): o router usa o payload do
+// cliente — a barreira dos 2 códigos permanece.
+const PENDING_TTL_SECONDS = 15 * 60;
+
+export type PendingByowPayload = {
+  address: string;
+  label: string;
+  isThirdParty: boolean;
+};
+
+function pendingKey(tenantId: string, userId: string): string {
+  return `byow:pending-add:${tenantId}:${userId}`;
+}
+
+/** Guarda o payload validado do passo 1 (TTL curto). No-op se Redis indisponível. */
+export async function stashPendingByowAdd(
+  tenantId: string,
+  userId: string,
+  payload: PendingByowPayload,
+): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  await redis.set(pendingKey(tenantId, userId), JSON.stringify(payload), "EX", PENDING_TTL_SECONDS);
+}
+
+/** Lê o payload do passo 1. Devolve null se Redis indisponível ou expirado. */
+export async function readPendingByowAdd(
+  tenantId: string,
+  userId: string,
+): Promise<PendingByowPayload | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  const raw = await redis.get(pendingKey(tenantId, userId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PendingByowPayload;
+    if (typeof parsed.address !== "string" || typeof parsed.label !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Apaga o payload pendente (após gravar ou cancelar). No-op se Redis indisponível. */
+export async function clearPendingByowAdd(tenantId: string, userId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  await redis.del(pendingKey(tenantId, userId));
+}
 
 export interface ByowWalletDto {
   id: string;
