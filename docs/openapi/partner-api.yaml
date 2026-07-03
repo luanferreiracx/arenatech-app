@@ -153,6 +153,10 @@ components:
           nullable: true
           type: string
           maxLength: 200
+        depositAddress:
+          nullable: true
+          type: string
+          maxLength: 110
       required:
         - amountCents
         - payerTaxId

@@ -44,11 +44,16 @@ export async function partnerCreateDeposit(args: {
   idempotencyKey?: string | null;
 }): Promise<PartnerDepositResult> {
   const userId = await resolveTenantUserId(args.tenantId);
+  const byowAddress = args.input.depositAddress?.trim() || null;
   logger.info("partner-api: deposito", {
     tenantId: args.tenantId,
     keyPrefix: args.keyPrefix,
     amountCents: args.input.amountCents,
+    byow: !!byowAddress,
   });
+  // byowAddress: o createDeposit valida contra a allowlist do tenant
+  // (assertAddressAllowed) — endereço não autorizado → 400. A API NUNCA cadastra
+  // endereço; só pode usar um já aprovado por um humano no painel (2FA+email+WA).
   const tx = await createDeposit({
     tenantId: args.tenantId,
     userId,
@@ -58,6 +63,7 @@ export async function partnerCreateDeposit(args: {
     sourceDescription: args.input.description ?? "Depósito via API de parceiro",
     payerTaxId: args.input.payerTaxId ?? null,
     idempotencyKey: args.idempotencyKey ?? undefined,
+    byowAddress,
   });
   return {
     id: tx.id,
