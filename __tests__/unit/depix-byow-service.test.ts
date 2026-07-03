@@ -20,10 +20,27 @@ vi.mock("@/server/db", () => ({
   withTenant: (_tenantId: string, fn: (t: typeof tx) => unknown) => fn(tx),
 }));
 
+// Redis fake in-memory: cobre o stash/read/clear do payload pendente (passo 1→2).
+// `redisEnabled=false` simula ambiente sem Redis (fallback pro payload do request).
+let redisEnabled = true;
+const redisStore = new Map<string, string>();
+const redisGet = vi.fn(async (k: string) => redisStore.get(k) ?? null);
+const redisSet = vi.fn(async (k: string, v: string) => {
+  redisStore.set(k, v);
+  return "OK";
+});
+const redisDel = vi.fn(async (k: string) => (redisStore.delete(k) ? 1 : 0));
+vi.mock("@/lib/redis", () => ({
+  getRedis: () => (redisEnabled ? { get: redisGet, set: redisSet, del: redisDel } : null),
+}));
+
 import {
   assertAddressAllowed,
   addByowWallet,
   removeByowWallet,
+  stashPendingByowAdd,
+  readPendingByowAdd,
+  clearPendingByowAdd,
 } from "@/server/services/depix-byow.service";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
@@ -31,6 +48,11 @@ const ADDR = "lq1qqexternaldestaddr00000000000000000000";
 
 beforeEach(() => {
   for (const m of [findFirst, findUnique, create, update, updateMany, findMany]) m.mockReset();
+  redisEnabled = true;
+  redisStore.clear();
+  redisGet.mockClear();
+  redisSet.mockClear();
+  redisDel.mockClear();
 });
 
 describe("assertAddressAllowed (barreira de segurança)", () => {
@@ -94,5 +116,44 @@ describe("removeByowWallet", () => {
   it("NOT_FOUND quando não afeta nenhuma linha", async () => {
     updateMany.mockResolvedValue({ count: 0 });
     await expect(removeByowWallet(TENANT, "w1")).rejects.toThrow(/não encontrada/i);
+  });
+});
+
+describe("payload pendente do cadastro (passo 1 → passo 2)", () => {
+  const USER = "22222222-2222-2222-2222-222222222222";
+  const payload = { address: ADDR, label: "Principal", isThirdParty: false };
+
+  it("stash grava e read devolve o MESMO endereço validado no passo 1", async () => {
+    await stashPendingByowAdd(TENANT, USER, payload);
+    expect(redisSet).toHaveBeenCalledWith(
+      expect.stringContaining(`byow:pending-add:${TENANT}:${USER}`),
+      JSON.stringify(payload),
+      "EX",
+      expect.any(Number),
+    );
+    await expect(readPendingByowAdd(TENANT, USER)).resolves.toEqual(payload);
+  });
+
+  it("clear apaga o pending (confirmAdd não reusa endereço antigo)", async () => {
+    await stashPendingByowAdd(TENANT, USER, payload);
+    await clearPendingByowAdd(TENANT, USER);
+    await expect(readPendingByowAdd(TENANT, USER)).resolves.toBeNull();
+  });
+
+  it("read é isolado por tenant+user (não vaza entre usuários)", async () => {
+    await stashPendingByowAdd(TENANT, USER, payload);
+    await expect(readPendingByowAdd(TENANT, "33333333-3333-3333-3333-333333333333")).resolves.toBeNull();
+  });
+
+  it("sem Redis: stash é no-op e read devolve null (fallback pro request)", async () => {
+    redisEnabled = false;
+    await expect(stashPendingByowAdd(TENANT, USER, payload)).resolves.toBeUndefined();
+    await expect(readPendingByowAdd(TENANT, USER)).resolves.toBeNull();
+    expect(redisSet).not.toHaveBeenCalled();
+  });
+
+  it("read tolera JSON corrompido (devolve null)", async () => {
+    redisStore.set(`byow:pending-add:${TENANT}:${USER}`, "{ nao-e-json");
+    await expect(readPendingByowAdd(TENANT, USER)).resolves.toBeNull();
   });
 });

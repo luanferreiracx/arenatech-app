@@ -26,6 +26,9 @@ import {
   listByowWallets,
   addByowWallet,
   removeByowWallet,
+  stashPendingByowAdd,
+  readPendingByowAdd,
+  clearPendingByowAdd,
 } from "@/server/services/depix-byow.service";
 import {
   startAddByowWalletSchema,
@@ -110,6 +113,13 @@ export const depixByowRouter = createTRPCRouter({
       );
       await issueVerificationCode({ target: email, channel: "EMAIL" });
       await issueVerificationCode({ target: phone, channel: "WHATSAPP" });
+      // Guarda o endereço que o humano ACABOU de validar. No confirmAdd lemos
+      // daqui — o cliente não pode trocar o destino entre os dois passos.
+      await stashPendingByowAdd(ctx.tenantId, ctx.session.user.id, {
+        address: input.address,
+        label: input.label,
+        isThirdParty: input.isThirdParty,
+      });
       logger.info("byow: códigos de confirmação enviados (email + whatsapp)", {
         tenantId: ctx.tenantId,
         userId: ctx.session.user.id,
@@ -154,13 +164,20 @@ export const depixByowRouter = createTRPCRouter({
       await consumeCode(user.email, "EMAIL");
       await consumeCode(user.phone, "WHATSAPP");
 
-      return addByowWallet({
+      // Prefere o endereço VALIDADO no passo 1 (Redis) — assim o destino gravado
+      // é o mesmo que o humano confirmou por email+WhatsApp, não podendo ser
+      // trocado entre os passos. Sem Redis, cai no payload do request (a barreira
+      // dos 2 códigos permanece).
+      const pending = await readPendingByowAdd(ctx.tenantId, ctx.session.user.id);
+      const wallet = await addByowWallet({
         tenantId: ctx.tenantId,
         createdByUserId: ctx.session.user.id,
-        address: input.address,
-        label: input.label,
-        isThirdParty: input.isThirdParty,
+        address: pending?.address ?? input.address,
+        label: pending?.label ?? input.label,
+        isThirdParty: pending?.isThirdParty ?? input.isThirdParty,
       });
+      await clearPendingByowAdd(ctx.tenantId, ctx.session.user.id);
+      return wallet;
     }),
 
   /** Remove (desativa) uma carteira — exige só step-up 2FA (operação segura). */
