@@ -13,6 +13,13 @@ export const partnerDepositSchema = z.object({
   payerTaxId: z.string().min(11).max(18),
   /** Descrição livre (aparece no registro). */
   description: z.string().max(200).optional().nullable(),
+  /**
+   * BYOW (self-custody): endereço Liquid PRÓPRIO onde receber o DePix, em vez da
+   * carteira gerenciada. PRECISA estar cadastrado na allowlist do tenant (painel,
+   * com 2FA+email+WhatsApp) — senão o depósito é barrado (400). Ausente = carteira
+   * gerenciada (fluxo atual).
+   */
+  depositAddress: z.string().trim().max(110).optional().nullable(),
 }).superRefine((v, ctx) => {
   if (!isValidTaxId(v.payerTaxId)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["payerTaxId"], message: "CPF/CNPJ inválido" });

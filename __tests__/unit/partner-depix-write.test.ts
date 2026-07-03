@@ -63,7 +63,21 @@ describe("partnerCreateDeposit", () => {
     expect(createDeposit.mock.calls[0]![0]).toMatchObject({
       tenantId: TENANT, userId: "member-1", grossAmountCents: 10000, payerTaxId: "12345678909",
     });
+    // Sem depositAddress -> byowAddress null (fluxo gerenciado).
+    expect(createDeposit.mock.calls[0]![0]).toMatchObject({ byowAddress: null });
     expect(res).toMatchObject({ id: "tx-1", qrCode: "00020...", status: "PENDING" });
+  });
+
+  it("BYOW: repassa depositAddress como byowAddress pro createDeposit", async () => {
+    createDeposit.mockResolvedValue({
+      id: "tx-2", number: "TXD-2", status: "PENDING", grossAmountCents: 10000, qrCode: "q", qrCodeBase64: "b",
+    });
+    await partnerCreateDeposit({
+      tenantId: TENANT, keyPrefix: "k",
+      input: { amountCents: 10000, payerTaxId: "12345678909", description: null, depositAddress: "  lq1qbyow  " },
+    });
+    // createDeposit valida contra a allowlist; aqui só garantimos o pass-through (trim).
+    expect(createDeposit.mock.calls[0]![0]).toMatchObject({ byowAddress: "lq1qbyow" });
   });
 
   it("tenant sem membro -> PRECONDITION_FAILED", async () => {

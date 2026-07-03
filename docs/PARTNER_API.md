@@ -192,10 +192,21 @@ Aceita `Idempotency-Key`.
 | `amountCents` | int | sim | R$ 10,00 a R$ 5.000,00 (`1000`–`500000`) |
 | `payerTaxId` | string | condicional | CPF/CNPJ do pagador — **obrigatório a partir de R$ 500,00** (regra da rede) |
 | `description` | string | não | Descrição livre da cobrança |
+| `depositAddress` | string | não | **BYOW:** endereço Liquid próprio onde receber o DePix (ver nota abaixo) |
 
 ```json
 { "amountCents": 10000, "payerTaxId": "12345678909", "description": "Pedido #42" }
 ```
+
+> [!NOTE]
+> **Carteira própria (BYOW).** Por padrão o DePix cai na carteira gerenciada do
+> tenant. Para receber numa carteira **própria** (self-custody), informe
+> `depositAddress` — a Eulen manda o DePix direto pra ela. O endereço **precisa
+> estar cadastrado na allowlist** do tenant (painel → DePix, com 2FA + confirmação
+> por email e WhatsApp); um endereço não autorizado retorna **`400`**. A API
+> **nunca** cadastra endereços — só um humano aprova destinos, então uma key
+> vazada não consegue desviar fundos. O crédito é confirmado pela Eulen (não há
+> cross-check on-chain, pois a Arena não custodia esse endereço).
 
 **`201 Created`**
 ```json
