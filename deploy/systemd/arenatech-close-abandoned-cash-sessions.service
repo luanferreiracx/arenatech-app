@@ -1,0 +1,11 @@
+[Unit]
+Description=Fecha sessoes de caixa abandonadas (close-abandoned-cash-sessions)
+After=network.target
+
+[Service]
+Type=oneshot
+# Carrega CRON_SECRET (e demais vars) do env de producao do app.
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+# Roda por systemd no VPS (nao GitHub Actions, que atrasa/pula schedules) pra
+# NAO disputar o runner self-hosted com build/deploy. bash -c expande $CRON_SECRET.
+ExecStart=/bin/bash -c 'curl -fsS -m 60 -X POST http://127.0.0.1:3001/api/cron/close-abandoned-cash-sessions -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'
