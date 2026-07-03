@@ -89,6 +89,7 @@ export async function handleEulenDepositWebhook(
         depositLabel: true,
         depositAddress: true,
         depositReceivingTenantId: true,
+        isByow: true,
       },
     }),
   );
@@ -113,6 +114,39 @@ export async function handleEulenDepositWebhook(
     await applyPixReceivedEffects(txRow.tenantId, txRow.id);
     await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
     return { status: 200, body: { ok: true, pixApproved: true } };
+  }
+
+  // ── BYOW: o DePix foi pra carteira PRÓPRIA do tenant (não a nossa). Não dá
+  //    pra cross-check on-chain (o endereço não está no nosso LWK) — a Eulen é a
+  //    fonte de verdade. Marca COMPLETED com o valueInCents dela e encerra. Não
+  //    credita saldo interno (a Arena não custodia esse endereço) nem faz 2ª tx.
+  if (txRow.isByow && PAID_ONCHAIN_STATUSES.has(statusRaw)) {
+    if (["COMPLETED", "COMPLETED_FEE_PENDING"].includes(txRow.status)) {
+      await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
+      return { status: 200, body: { ok: true, byow: true, alreadyCompleted: true } };
+    }
+    const netCents = payload.valueInCents ?? null;
+    await withAdmin((tx) =>
+      tx.tenantDepixTransaction.updateMany({
+        where: { id: txRow.id, status: { in: ["PENDING", "PROCESSING"] } },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          depositTxId: payload.blockchainTxID ?? null,
+          netAmountCents: netCents,
+          pixApprovedAt: new Date(),
+          ...payerNamePatch(payload),
+        },
+      }),
+    );
+    // Libera efeito de venda (QuickSale/PDV) — idempotente.
+    await applyPixReceivedEffects(txRow.tenantId, txRow.id);
+    await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
+    logger.info("Eulen-deposit webhook: depósito BYOW concluído (sem cross-check LWK)", {
+      qrId,
+      id: txRow.id,
+    });
+    return { status: 200, body: { ok: true, byow: true, completed: true } };
   }
 
   // ── DePix enviado on-chain: cross-check + credita ──
