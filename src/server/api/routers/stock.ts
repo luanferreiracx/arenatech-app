@@ -73,59 +73,13 @@ import {
   adjustInventory,
   changeItemStatus,
   disposeStockItem,
+  resolveCurrentStockByProduct,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
-
-type StockSourceProduct = {
-  id: string;
-  currentStock: number;
-  hasVariations: boolean;
-  isSerialized: boolean;
-};
-
-async function resolveCurrentStockByProduct(
-  tx: Prisma.TransactionClient,
-  products: StockSourceProduct[],
-): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  if (products.length === 0) return result;
-
-  const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id);
-  const variationIds = products
-    .filter((p) => !p.isSerialized && p.hasVariations)
-    .map((p) => p.id);
-
-  const [serializedCounts, variationSums] = await Promise.all([
-    serializedIds.length > 0
-      ? tx.stockItem.groupBy({
-          by: ["productId"],
-          where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
-          _count: { _all: true },
-        })
-      : Promise.resolve([]),
-    variationIds.length > 0
-      ? tx.productVariation.groupBy({
-          by: ["productId"],
-          where: { productId: { in: variationIds }, deletedAt: null, active: true },
-          _sum: { currentStock: true },
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const serializedMap = new Map(serializedCounts.map((row) => [row.productId, row._count._all]));
-  const variationMap = new Map(variationSums.map((row) => [row.productId, row._sum.currentStock ?? 0]));
-
-  for (const product of products) {
-    if (product.isSerialized) result.set(product.id, serializedMap.get(product.id) ?? 0);
-    else if (product.hasVariations) result.set(product.id, variationMap.get(product.id) ?? 0);
-    else result.set(product.id, product.currentStock);
-  }
-  return result;
-}
 
 /**
  * Libera o StockItem criado por essa compra: BLOCKED -> AVAILABLE.
@@ -223,43 +177,15 @@ export const stockRouter = createTRPCRouter({
         // - Serializados: count(StockItem WHERE status='AVAILABLE')
         // - Com variations: SUM(productVariations.currentStock)
         // - Simples: usa products.current_stock direto
-        const ids = data.map((p) => p.id);
-        const serializedIds = data.filter((p) => p.isSerialized).map((p) => p.id);
-        const variationParentIds = data.filter((p) => p.hasVariations).map((p) => p.id);
-
-        const [stockItemCounts, variationStocks] = await Promise.all([
-          serializedIds.length
-            ? tx.stockItem.groupBy({
-                by: ["productId"],
-                where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
-                _count: { _all: true },
-              })
-            : Promise.resolve([] as Array<{ productId: string; _count: { _all: number } }>),
-          variationParentIds.length
-            ? tx.productVariation.groupBy({
-                by: ["productId"],
-                where: { productId: { in: variationParentIds }, deletedAt: null },
-                _sum: { currentStock: true },
-              })
-            : Promise.resolve([] as Array<{ productId: string; _sum: { currentStock: number | null } }>),
-        ]);
-        // Variavel `ids` apenas referenciada caso linter reclame de unused.
-        void ids;
-
-        const stockItemMap = new Map(stockItemCounts.map((c) => [c.productId, c._count._all]));
-        const variationMap = new Map(
-          variationStocks.map((v) => [v.productId, v._sum.currentStock ?? 0]),
-        );
+        // Estoque efetivo por produto — fonte única resolveCurrentStockByProduct
+        // (serializado=count AVAILABLE, com variações=SUM active, simples=
+        // currentStock). Antes o cálculo era reimplementado inline aqui SEM o
+        // filtro active:true nas variações, então a listagem divergia dos
+        // relatórios (contava estoque de variação inativa).
+        const stockByProduct = await resolveCurrentStockByProduct(tx, data);
 
         const withStock = data.map((p) => {
-          let currentStock: number;
-          if (p.isSerialized) {
-            currentStock = stockItemMap.get(p.id) ?? 0;
-          } else if (p.hasVariations) {
-            currentStock = variationMap.get(p.id) ?? 0;
-          } else {
-            currentStock = p.currentStock;
-          }
+          const currentStock = stockByProduct.get(p.id) ?? 0;
           const primaryPhoto = p.photos[0];
           const thumbnailUrl = primaryPhoto?.thumbUrl ?? primaryPhoto?.mediumUrl ?? primaryPhoto?.url ?? p.imageUrl;
           return { ...p, currentStock, thumbnailUrl };
@@ -306,23 +232,11 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
         }
 
-        // Calcula currentStock real (paridade stock.list):
-        // - serializado: count(StockItem AVAILABLE)
-        // - com variations: SUM(variations.currentStock)
-        // - simples: usa products.currentStock
-        let currentStock: number;
-        if (product.isSerialized) {
-          currentStock = await tx.stockItem.count({
-            where: { productId: product.id, status: "AVAILABLE", deletedAt: null },
-          });
-        } else if (product.hasVariations) {
-          currentStock = product.variations.reduce(
-            (acc, v) => acc + (v.currentStock ?? 0),
-            0,
-          );
-        } else {
-          currentStock = product.currentStock;
-        }
+        // Estoque efetivo — mesma fonte única de stock.list e dos relatórios
+        // (resolveCurrentStockByProduct). Antes somava as variações carregadas
+        // em memória (sem filtro active), divergindo dos demais.
+        const stockByProduct = await resolveCurrentStockByProduct(tx, [product]);
+        const currentStock = stockByProduct.get(product.id) ?? 0;
 
         return { ...product, currentStock };
       });
@@ -2475,7 +2389,9 @@ export const stockRouter = createTRPCRouter({
         LEFT JOIN (
           SELECT product_id, COALESCE(SUM(current_stock), 0)::int AS qty
           FROM product_variations
-          WHERE deleted_at IS NULL
+          -- active = true: mesma regra de resolveCurrentStockByProduct (variação
+          -- inativa não conta), senão o dashboard diverge da listagem/relatórios.
+          WHERE deleted_at IS NULL AND active = true
           GROUP BY product_id
         ) pv ON pv.product_id = p.id
         WHERE p.deleted_at IS NULL AND p.active = true
