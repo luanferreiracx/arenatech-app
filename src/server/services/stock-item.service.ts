@@ -4,6 +4,64 @@ import { TRPCError } from "@trpc/server"
 import { isValidTransition } from "@/lib/validators/stock-item"
 import { isValidLuhn } from "@/lib/validators/imei"
 
+export type StockSourceProduct = {
+  id: string
+  currentStock: number
+  hasVariations: boolean
+  isSerialized: boolean
+}
+
+/**
+ * Estoque efetivo por produto (fonte ÚNICA), cobrindo os três tipos:
+ *  - serializado: COUNT(StockItem AVAILABLE, não deletado)
+ *  - com variações: SUM(ProductVariation.currentStock) apenas ATIVAS/não deletadas
+ *  - simples: products.currentStock
+ *
+ * Antes esta regra era reimplementada inline em stock.list, stock.getById e no
+ * SQL do stockDashboard, com filtros divergentes (list/getById esqueciam
+ * `active:true` nas variações), então o MESMO produto mostrava estoque diferente
+ * entre a listagem e os relatórios. Centralizado aqui.
+ */
+export async function resolveCurrentStockByProduct(
+  tx: Prisma.TransactionClient,
+  products: StockSourceProduct[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (products.length === 0) return result
+
+  const serializedIds = products.filter((p) => p.isSerialized).map((p) => p.id)
+  const variationIds = products
+    .filter((p) => !p.isSerialized && p.hasVariations)
+    .map((p) => p.id)
+
+  const [serializedCounts, variationSums] = await Promise.all([
+    serializedIds.length > 0
+      ? tx.stockItem.groupBy({
+          by: ["productId"],
+          where: { productId: { in: serializedIds }, status: "AVAILABLE", deletedAt: null },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    variationIds.length > 0
+      ? tx.productVariation.groupBy({
+          by: ["productId"],
+          where: { productId: { in: variationIds }, deletedAt: null, active: true },
+          _sum: { currentStock: true },
+        })
+      : Promise.resolve([]),
+  ])
+
+  const serializedMap = new Map(serializedCounts.map((row) => [row.productId, row._count._all]))
+  const variationMap = new Map(variationSums.map((row) => [row.productId, row._sum.currentStock ?? 0]))
+
+  for (const product of products) {
+    if (product.isSerialized) result.set(product.id, serializedMap.get(product.id) ?? 0)
+    else if (product.hasVariations) result.set(product.id, variationMap.get(product.id) ?? 0)
+    else result.set(product.id, product.currentStock)
+  }
+  return result
+}
+
 /**
  * Entry of serialized items (creates StockItem + StockMovement per item).
  */
