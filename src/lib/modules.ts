@@ -81,10 +81,12 @@ export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
 export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
- * Teto rígido de módulos para tenants NO-KYC (ADR 0050): carteira DePix + link
- * público de pagamento, independente do plano. Constante própria (não reaproveita
- * DEFAULT_RELEASED_MODULES) para que mudar o default de tenants novos no futuro
- * não eleve acidentalmente o acesso de um tenant sem documento.
+ * Módulos de um tenant NO-KYC (sem documento) ENQUANTO ele não tem plano ativo:
+ * carteira DePix + link público de pagamento. NO-KYC é o ESTADO INICIAL de todo
+ * tenant (cadastro por email/WhatsApp), não um teto permanente — ao ativar o
+ * plano, o superadmin libera os módulos do plano mesmo sem CNPJ (revisão da
+ * política do ADR 0050). Constante própria (não reaproveita DEFAULT_RELEASED_MODULES)
+ * para que mudar o default de tenants novos no futuro não altere o piso NO-KYC.
  */
 export const NO_KYC_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
@@ -210,15 +212,19 @@ function resolveBaseModules(args: {
   if (args.tenantSlug === TOTAL_ACCESS_TENANT_SLUG) {
     return [...MODULE_KEYS];
   }
-  // NO-KYC fica SEMPRE limitado ao DePix Wallet, independente do plano — o
-  // plano nunca eleva um tenant sem documento acima da carteira (ADR 0050).
+  // Com plano ATIVO, o plano manda — inclusive para NO-KYC. Ativar = liberar os
+  // módulos do plano; NO-KYC deixa de ser teto e vira apenas o estado inicial
+  // "sem plano" (revisão da política do ADR 0050). O superadmin só atribui plano
+  // a tenant NO-KYC de forma explícita.
+  if (args.hasPlan) {
+    return modulesFromPlanFeatures(args.planFeatures);
+  }
+  // Sem plano: NO-KYC fica no piso (wallet + link de cobrança); demais tenants
+  // caem no default liberado.
   if (args.isNoKyc) {
     return [...NO_KYC_MODULES];
   }
-  if (!args.hasPlan) {
-    return [...DEFAULT_RELEASED_MODULES];
-  }
-  return modulesFromPlanFeatures(args.planFeatures);
+  return [...DEFAULT_RELEASED_MODULES];
 }
 
 /**

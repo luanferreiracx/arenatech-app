@@ -59,6 +59,17 @@ Resend, WhatsApp Cloud API). Decisões fechadas com o dono:
    **já é o comportamento padrão**. Reforçamos que NO-KYC nunca acesse além de `wallet`,
    mesmo que o plano mude.
 
+   > **Revisão de política (2026-07-04).** O item 5 acima ("NO-KYC nunca acessa
+   > além de wallet mesmo com plano") foi **revogado**. NO-KYC passa a ser o
+   > **estado inicial** de todo tenant (sem plano → piso `wallet` + `depix-ops`),
+   > não um teto permanente. A **ativação** pelo superadmin (`admin.updateTenant`)
+   > atribui um plano ativo, e **o plano define os módulos liberados, inclusive
+   > sem CNPJ**. O onboarding inicial (`createTenant`/`approvePreRegistration`)
+   > continua nascendo wallet-only. Motivação: todo tenant se cadastra por
+   > email/WhatsApp e é ativado atribuindo o plano escolhido — travar em wallet
+   > por ausência de CNPJ impedia a ativação. Ver `allowedModulesForTenant`
+   > (`src/lib/modules.ts`) e commit `fix(gating): plano ativo vence o teto NO-KYC`.
+
 ## Template WhatsApp OTP (a criar na Meta)
 
 Categoria **AUTHENTICATION** — a Meta **gera o corpo** (não se escreve texto livre);

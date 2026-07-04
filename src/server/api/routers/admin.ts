@@ -155,15 +155,21 @@ function isWalletOnlyModules(modules: readonly string[]): boolean {
   return modules.length === 1 && modules[0] === "wallet";
 }
 
-async function resolveWalletOnlyActivePlanId(
+/**
+ * Valida que o plano existe e está ATIVO, retornando seu id (ou null se nenhum
+ * plano foi selecionado). Usado na ATIVAÇÃO de um tenant (updateTenant): o
+ * superadmin pode atribuir qualquer plano ativo, que passa a definir os módulos
+ * liberados — inclusive para tenant NO-KYC (revisão do ADR 0050).
+ */
+async function resolveActivePlanId(
   tx: Prisma.TransactionClient,
   planId: string | null | undefined,
-): Promise<string | null> {
+): Promise<{ id: string; features: Prisma.JsonValue } | null> {
   if (!planId) return null;
 
   const plan = await tx.plan.findUnique({
     where: { id: planId },
-    select: { id: true, name: true, status: true, features: true },
+    select: { id: true, status: true, features: true },
   });
   if (!plan) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado nao existe" });
@@ -171,6 +177,21 @@ async function resolveWalletOnlyActivePlanId(
   if (plan.status !== "ACTIVE") {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado esta inativo" });
   }
+  return { id: plan.id, features: plan.features };
+}
+
+/**
+ * Como resolveActivePlanId, mas restringe ao plano wallet-only. Usado no
+ * ONBOARDING inicial (createTenant, approvePreRegistration): todo tenant nasce
+ * só com a Carteira DePix; a liberação dos demais módulos acontece depois, na
+ * ativação, quando o superadmin escolhe o plano definitivo.
+ */
+async function resolveWalletOnlyActivePlanId(
+  tx: Prisma.TransactionClient,
+  planId: string | null | undefined,
+): Promise<string | null> {
+  const plan = await resolveActivePlanId(tx, planId);
+  if (!plan) return null;
 
   const modules = modulesFromPlanFeatures(plan.features);
   if (!isWalletOnlyModules(modules)) {
@@ -179,7 +200,6 @@ async function resolveWalletOnlyActivePlanId(
       message: "Onboarding inicial permite apenas planos com Carteira DePix",
     });
   }
-
   return plan.id;
 }
 
@@ -387,9 +407,11 @@ export const adminRouter = createTRPCRouter({
         });
         if (!currentTenant) throw new TRPCError({ code: "NOT_FOUND" });
 
+        // Ativação: o superadmin pode atribuir QUALQUER plano ativo, que define
+        // os módulos liberados do tenant (inclusive NO-KYC).
         const planId = input.plan === currentTenant.plan
           ? currentTenant.plan
-          : await resolveWalletOnlyActivePlanId(tx, input.plan);
+          : (await resolveActivePlanId(tx, input.plan))?.id ?? null;
         await tx.tenant.update({
           where: { id: input.id },
           data: {
