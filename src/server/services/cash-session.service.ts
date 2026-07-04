@@ -12,6 +12,20 @@ export function refundNeedsOpenCashSession(refundAmountCents: number): boolean {
 }
 
 /**
+ * Contribuição líquida de um movimento DEPOSIT ao caixa esperado, em centavos.
+ *
+ * `manualAdjustment` grava `type=DEPOSIT` com `nature` variável: OUTCOME =
+ * dinheiro RETIRADO da gaveta (ex.: "gerente removeu R$200"). O fechamento
+ * (buildSummary) somava todo DEPOSIT como positivo, então uma retirada entrava
+ * como entrada — erro de 2× o valor na conferência. Este helper assina por
+ * nature, espelhando o cálculo de periodStats. Depósito comum (nature=INCOME)
+ * segue positivo. Fonte única do invariante, testável sem banco.
+ */
+export function signedDepositCents(amountCents: number, nature: string): number {
+  return nature === "OUTCOME" ? -amountCents : amountCents
+}
+
+/**
  * Calculate the current balance for a cash session.
  * Formula: initialBalance + sum(INCOME amounts) - sum(OUTCOME amounts)
  */
