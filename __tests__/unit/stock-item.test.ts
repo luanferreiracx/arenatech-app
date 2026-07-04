@@ -9,6 +9,7 @@ import {
   changeStockItemStatusSchema,
   listStockItemsSchema,
   isValidTransition,
+  isManualStatusChangeAllowed,
   ALLOWED_STATUS_TRANSITIONS,
   isRepurchasableStatus,
   isPurchaseReversibleStatus,
@@ -126,6 +127,22 @@ describe("Stock Item State Machine", () => {
 
   it("invalid source status returns false", () => {
     expect(isValidTransition("UNKNOWN", "AVAILABLE")).toBe(false)
+  })
+})
+
+describe("isManualStatusChangeAllowed (endpoint manual não pode vender)", () => {
+  it("permite os status de operação manual", () => {
+    for (const s of ["AVAILABLE", "RESERVED", "DEFECTIVE", "BLOCKED"]) {
+      expect(isManualStatusChangeAllowed(s)).toBe(true)
+    }
+  })
+
+  it("bloqueia SOLD (baixa por venda pertence ao PDV — evita venda fantasma)", () => {
+    expect(isManualStatusChangeAllowed("SOLD")).toBe(false)
+  })
+
+  it("bloqueia RETURNED (devolução pertence ao estorno)", () => {
+    expect(isManualStatusChangeAllowed("RETURNED")).toBe(false)
   })
 })
 
