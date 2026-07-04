@@ -67,7 +67,10 @@ import {
 } from "@/server/services/os-stock.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { resolveOsAssignee } from "@/server/services/os-assignee.service";
-import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
+import {
+  refundNeedsOpenCashSession,
+  writeCashMovement,
+} from "@/server/services/cash-session.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
 import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
@@ -907,19 +910,17 @@ export const serviceOrderRouter = createTRPCRouter({
             });
 
             if (openSession) {
-              await tx.cashMovement.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  cashSessionId: openSession.id,
-                  type: "SALE",
-                  amount: centsToPrisma(paidCents),
-                  nature: "INCOME",
-                  paymentMethod: paymentMethodUsed,
-                  description: `Pagamento OS ${order.number}`,
-                  referenceType: "service_order",
-                  referenceId: order.id,
-                  createdByUserId: userId,
-                },
+              await writeCashMovement(tx, {
+                tenantId: ctx.tenantId,
+                cashSessionId: openSession.id,
+                type: "SALE",
+                nature: "INCOME",
+                amountCents: paidCents,
+                paymentMethod: paymentMethodUsed,
+                description: `Pagamento OS ${order.number}`,
+                referenceType: "service_order",
+                referenceId: order.id,
+                createdByUserId: userId,
               });
             }
 
@@ -1360,19 +1361,17 @@ export const serviceOrderRouter = createTRPCRouter({
             // refundOpenSession foi validado no guard inicial (linked sale paga
             // com valor > 0 => caixa aberto), entao a saida sempre e registrada.
             if (refundOpenSession && refundedCents > 0) {
-              await tx.cashMovement.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  cashSessionId: refundOpenSession.id,
-                  type: "WITHDRAWAL",
-                  amount: centsToPrisma(refundedCents),
-                  nature: "OUTCOME",
-                  paymentMethod: null,
-                  description: `Estorno venda ${linkedSale.number} (OS ${order.number})`,
-                  referenceId: linkedSale.id,
-                  referenceType: "SALE_REFUND",
-                  createdByUserId: ctx.session.user.id,
-                },
+              await writeCashMovement(tx, {
+                tenantId: ctx.tenantId,
+                cashSessionId: refundOpenSession.id,
+                type: "WITHDRAWAL",
+                nature: "OUTCOME",
+                amountCents: refundedCents,
+                paymentMethod: null,
+                description: `Estorno venda ${linkedSale.number} (OS ${order.number})`,
+                referenceId: linkedSale.id,
+                referenceType: "SALE_REFUND",
+                createdByUserId: ctx.session.user.id,
               });
             }
             const saleTx = await tx.financialTransaction.findMany({
@@ -1741,19 +1740,17 @@ export const serviceOrderRouter = createTRPCRouter({
         // So quando ha valor recebido (cortesia/garantia gratuita = R$0 nao gera
         // movimento de caixa).
         if (openSession && collectedCents > 0) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: openSession.id,
-              type: "SALE",
-              amount: centsToPrisma(collectedCents),
-              nature: "INCOME",
-              paymentMethod: input.paymentMethod,
-              description: `Pagamento OS ${order.number}`,
-              referenceType: "service_order",
-              referenceId: order.id,
-              createdByUserId: userId,
-            },
+          await writeCashMovement(tx, {
+            tenantId: ctx.tenantId,
+            cashSessionId: openSession.id,
+            type: "SALE",
+            nature: "INCOME",
+            amountCents: collectedCents,
+            paymentMethod: input.paymentMethod,
+            description: `Pagamento OS ${order.number}`,
+            referenceType: "service_order",
+            referenceId: order.id,
+            createdByUserId: userId,
           });
         }
 

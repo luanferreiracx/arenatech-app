@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
+import { writeCashMovement } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
@@ -499,19 +500,17 @@ export const financialRouter = createTRPCRouter({
         if (openSession) {
           const isReceivable = installment.transaction.type === "RECEIVABLE";
 
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: openSession.id,
-              type: isReceivable ? "SALE" : "EXPENSE",
-              amount: centsToPrismaDecimal(input.amountPaid),
-              nature: isReceivable ? "INCOME" : "OUTCOME",
-              paymentMethod: input.paymentMethod ?? "outros",
-              description: `Baixa parcela #${installment.number} - ${installment.transaction.type === "RECEIVABLE" ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
-              referenceType: "installment",
-              referenceId: installment.id,
-              createdByUserId: userId,
-            },
+          await writeCashMovement(tx, {
+            tenantId: ctx.tenantId,
+            cashSessionId: openSession.id,
+            type: isReceivable ? "SALE" : "EXPENSE",
+            nature: isReceivable ? "INCOME" : "OUTCOME",
+            amountCents: input.amountPaid,
+            paymentMethod: input.paymentMethod ?? "outros",
+            description: `Baixa parcela #${installment.number} - ${installment.transaction.type === "RECEIVABLE" ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
+            referenceType: "installment",
+            referenceId: installment.id,
+            createdByUserId: userId,
           });
         }
 
@@ -621,20 +620,18 @@ export const financialRouter = createTRPCRouter({
         if (openSession && reversedAmount > 0) {
           const isReceivable = installment.transaction.type === "RECEIVABLE";
 
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: openSession.id,
-              // Receivable reversal = withdrawal (money going out), Payable reversal = deposit (money coming back)
-              type: isReceivable ? "WITHDRAWAL" : "DEPOSIT",
-              amount: centsToPrismaDecimal(reversedAmount),
-              nature: isReceivable ? "OUTCOME" : "INCOME",
-              paymentMethod: originalPaymentMethod ?? "outros",
-              description: `Estorno ${isFullReversal ? "total" : "parcial"} parcela #${installment.number} - ${isReceivable ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
-              referenceType: "installment_reversal",
-              referenceId: installment.id,
-              createdByUserId: userId,
-            },
+          await writeCashMovement(tx, {
+            tenantId: ctx.tenantId,
+            cashSessionId: openSession.id,
+            // Estorno de recebível = saída (WITHDRAWAL); de pagável = entrada (DEPOSIT).
+            type: isReceivable ? "WITHDRAWAL" : "DEPOSIT",
+            nature: isReceivable ? "OUTCOME" : "INCOME",
+            amountCents: reversedAmount,
+            paymentMethod: originalPaymentMethod ?? "outros",
+            description: `Estorno ${isFullReversal ? "total" : "parcial"} parcela #${installment.number} - ${isReceivable ? "CR" : "CP"}#${installment.transactionId.slice(0, 8)}`,
+            referenceType: "installment_reversal",
+            referenceId: installment.id,
+            createdByUserId: userId,
           });
         }
 

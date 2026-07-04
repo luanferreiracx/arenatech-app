@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import {
   computeCashDrawerCents,
   signedDepositCents,
+  writeCashMovement,
 } from "@/server/services/cash-session.service"
 
 /**
@@ -105,5 +106,79 @@ describe("computeCashDrawerCents", () => {
       { nature: "OUTCOME", amountCents: 1000, paymentMethod: "ajuste_manual" }, // -1000
     ])
     expect(r).toBe(12000) // 10000 + 5000 - 2000 - 1000
+  })
+})
+
+/**
+ * Escritor canônico de CashMovement. Antes o shape era remontado à mão em ~14
+ * lugares — foi assim que um DEPOSIT ganhou nature OUTCOME por engano (#369).
+ * O writer impõe o invariante type↔nature e centraliza centavos→Decimal.
+ */
+describe("writeCashMovement", () => {
+  function makeTx() {
+    const create = vi.fn().mockResolvedValue({ id: "cm-1" })
+    return { tx: { cashMovement: { create } }, create }
+  }
+
+  const base = {
+    tenantId: "t1",
+    cashSessionId: "s1",
+    amountCents: 5000,
+    createdByUserId: "u1",
+    description: "teste",
+  }
+
+  it("grava SALE+INCOME com amount convertido para Decimal (reais)", async () => {
+    const { tx, create } = makeTx()
+    await writeCashMovement(tx as never, { ...base, type: "SALE", nature: "INCOME" })
+    const data = create.mock.calls[0]![0].data
+    expect(data.type).toBe("SALE")
+    expect(data.nature).toBe("INCOME")
+    expect(Number(data.amount)).toBe(50) // 5000 centavos = R$50,00
+  })
+
+  it("DEPOSIT aceita INCOME (depósito) e OUTCOME (ajuste de retirada)", async () => {
+    const { tx } = makeTx()
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "DEPOSIT", nature: "INCOME" }),
+    ).resolves.toEqual({ id: "cm-1" })
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "DEPOSIT", nature: "OUTCOME" }),
+    ).resolves.toEqual({ id: "cm-1" })
+  })
+
+  it("REJEITA SALE+OUTCOME (nature errada = bug de dados)", async () => {
+    const { tx } = makeTx()
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "SALE", nature: "OUTCOME" }),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" })
+  })
+
+  it("REJEITA WITHDRAWAL+INCOME e EXPENSE+INCOME", async () => {
+    const { tx } = makeTx()
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "WITHDRAWAL", nature: "INCOME" }),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" })
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "EXPENSE", nature: "INCOME" }),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" })
+  })
+
+  it("não chama o banco quando o invariante falha", async () => {
+    const { tx, create } = makeTx()
+    await expect(
+      writeCashMovement(tx as never, { ...base, type: "WITHDRAWAL", nature: "INCOME" }),
+    ).rejects.toThrow()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("normaliza opcionais ausentes para null", async () => {
+    const { tx, create } = makeTx()
+    await writeCashMovement(tx as never, { ...base, type: "SALE", nature: "INCOME" })
+    const data = create.mock.calls[0]![0].data
+    expect(data.paymentMethod).toBeNull()
+    expect(data.paymentMethodId).toBeNull()
+    expect(data.referenceType).toBeNull()
+    expect(data.referenceId).toBeNull()
   })
 })

@@ -75,6 +75,7 @@ import {
   resolveCurrentStockByProduct,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
+import { writeCashMovement } from "@/server/services/cash-session.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -1114,19 +1115,17 @@ export const stockRouter = createTRPCRouter({
                 select: { id: true },
               });
               if (openSession) {
-                await tx.cashMovement.create({
-                  data: {
-                    tenantId: ctx.tenantId,
-                    cashSessionId: openSession.id,
-                    type: "WITHDRAWAL",
-                    amount: new Prisma.Decimal(totalCents).div(100),
-                    nature: "OUTCOME",
-                    paymentMethod: method.code ?? method.type.toLowerCase(),
-                    description: `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`,
-                    referenceId: purchase.id,
-                    referenceType: "device_purchase",
-                    createdByUserId: ctx.session.user.id,
-                  },
+                await writeCashMovement(tx, {
+                  tenantId: ctx.tenantId,
+                  cashSessionId: openSession.id,
+                  type: "WITHDRAWAL",
+                  nature: "OUTCOME",
+                  amountCents: totalCents,
+                  paymentMethod: method.code ?? method.type.toLowerCase(),
+                  description: `Compra ${product.name}${input.imei ? ` — IMEI ${input.imei}` : ""}`,
+                  referenceId: purchase.id,
+                  referenceType: "device_purchase",
+                  createdByUserId: ctx.session.user.id,
                 });
               }
             }

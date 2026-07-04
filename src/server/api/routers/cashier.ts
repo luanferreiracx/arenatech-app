@@ -6,6 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   computeCashDrawerCents,
   signedDepositCents,
+  writeCashMovement,
 } from "@/server/services/cash-session.service";
 import {
   openCashRegisterSchema,
@@ -120,16 +121,14 @@ export const cashierRouter = createTRPCRouter({
         }
 
         // Create opening deposit movement
-        await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "DEPOSIT",
-            amount: initialDecimal,
-            nature: "INCOME",
-            description: "Abertura de caixa",
-            createdByUserId: userId,
-          },
+        await writeCashMovement(tx, {
+          tenantId: ctx.tenantId,
+          cashSessionId: session.id,
+          type: "DEPOSIT",
+          nature: "INCOME",
+          amountCents: input.initialBalance,
+          description: "Abertura de caixa",
+          createdByUserId: userId,
         });
 
         return serializeSession(session);
@@ -250,17 +249,15 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "WITHDRAWAL",
-            amount: centsToPrismaDecimal(input.amount),
-            nature: "OUTCOME",
-            paymentMethod: "dinheiro",
-            description: input.description,
-            createdByUserId: userId,
-          },
+        await writeCashMovement(tx, {
+          tenantId: ctx.tenantId,
+          cashSessionId: session.id,
+          type: "WITHDRAWAL",
+          nature: "OUTCOME",
+          amountCents: input.amount,
+          paymentMethod: "dinheiro",
+          description: input.description,
+          createdByUserId: userId,
         });
 
         return { success: true };
@@ -286,17 +283,15 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "DEPOSIT",
-            amount: centsToPrismaDecimal(input.amount),
-            nature: "INCOME",
-            paymentMethod: "dinheiro",
-            description: input.description,
-            createdByUserId: userId,
-          },
+        await writeCashMovement(tx, {
+          tenantId: ctx.tenantId,
+          cashSessionId: session.id,
+          type: "DEPOSIT",
+          nature: "INCOME",
+          amountCents: input.amount,
+          paymentMethod: "dinheiro",
+          description: input.description,
+          createdByUserId: userId,
         });
 
         return { success: true };
@@ -607,18 +602,16 @@ export const cashierRouter = createTRPCRouter({
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
         }
 
-        await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "EXPENSE",
-            nature: "OUTCOME",
-            amount: new Prisma.Decimal(input.amount).div(100),
-            paymentMethod: input.paymentMethod,
-            description: input.description,
-            referenceType: "manual",
-            createdByUserId: ctx.session.user.id,
-          },
+        await writeCashMovement(tx, {
+          tenantId: ctx.tenantId,
+          cashSessionId: session.id,
+          type: "EXPENSE",
+          nature: "OUTCOME",
+          amountCents: input.amount,
+          paymentMethod: input.paymentMethod,
+          description: input.description,
+          referenceType: "manual",
+          createdByUserId: ctx.session.user.id,
         });
 
         return { success: true };
@@ -717,18 +710,18 @@ export const cashierRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
         }
 
-        const movement = await tx.cashMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            cashSessionId: session.id,
-            type: "DEPOSIT",
-            amount: new Prisma.Decimal(input.amount / 100),
-            nature: input.nature,
-            paymentMethod: "ajuste_manual",
-            description: `[AJUSTE] ${input.reason}`,
-            referenceType: "manual_adjustment",
-            createdByUserId: ctx.session.user.id,
-          },
+        // DEPOSIT com nature variável: OUTCOME = retirada da gaveta pelo gerente.
+        // O writer aceita ambos para DEPOSIT (ver REQUIRED_NATURE).
+        const movement = await writeCashMovement(tx, {
+          tenantId: ctx.tenantId,
+          cashSessionId: session.id,
+          type: "DEPOSIT",
+          nature: input.nature,
+          amountCents: input.amount,
+          paymentMethod: "ajuste_manual",
+          description: `[AJUSTE] ${input.reason}`,
+          referenceType: "manual_adjustment",
+          createdByUserId: ctx.session.user.id,
         });
 
         const { logAudit } = await import("@/server/services/audit-log.service");
