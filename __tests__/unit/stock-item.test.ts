@@ -4,7 +4,6 @@ import {
   createStockItemSchema,
   createStockItemBatchSchema,
   stockEntryQuantitySchema,
-  stockWriteOffSchema,
   stockAdjustmentSchema,
   changeStockItemStatusSchema,
   listStockItemsSchema,
@@ -271,35 +270,6 @@ describe("Stock Item Validators", () => {
       const result = changeStockItemStatusSchema.safeParse({
         stockItemId: validUuid,
         newStatus: "INVALID",
-      })
-      expect(result.success).toBe(false)
-    })
-  })
-
-  describe("stockWriteOffSchema", () => {
-    it("accepts serialized write-off", () => {
-      const result = stockWriteOffSchema.safeParse({
-        productId: validUuid,
-        stockItemId: validUuid,
-        reason: "Item danificado irreparavelmente",
-      })
-      expect(result.success).toBe(true)
-    })
-
-    it("accepts non-serialized write-off with quantity", () => {
-      const result = stockWriteOffSchema.safeParse({
-        productId: validUuid,
-        quantity: 3,
-        reason: "Furto identificado na auditoria",
-      })
-      expect(result.success).toBe(true)
-    })
-
-    it("rejects without reason", () => {
-      const result = stockWriteOffSchema.safeParse({
-        productId: validUuid,
-        quantity: 1,
-        reason: "ab", // too short
       })
       expect(result.success).toBe(false)
     })

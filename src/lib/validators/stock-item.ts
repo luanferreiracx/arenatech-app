@@ -60,17 +60,6 @@ export const stockEntryQuantitySchema = z.object({
 
 export type StockEntryQuantityInput = z.infer<typeof stockEntryQuantitySchema>
 
-// ── Exit/write-off ──
-
-export const stockWriteOffSchema = z.object({
-  productId: z.string().uuid(),
-  stockItemId: z.string().uuid().optional().nullable(), // for serialized
-  quantity: z.number().int().min(1).optional(), // for non-serialized
-  reason: z.string().min(3, "Motivo obrigatorio").max(200),
-})
-
-export type StockWriteOffInput = z.infer<typeof stockWriteOffSchema>
-
 // ── Adjustment ──
 
 export const stockAdjustmentSchema = z.object({

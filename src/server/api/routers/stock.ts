@@ -56,7 +56,6 @@ import { logger } from "@/lib/logger";
 import {
   createStockItemBatchSchema,
   stockEntryQuantitySchema,
-  stockWriteOffSchema,
   stockAdjustmentSchema,
   changeStockItemStatusSchema,
   disposeStockItemSchema,
@@ -4118,61 +4117,6 @@ export const stockRouter = createTRPCRouter({
           supplierId: input.supplierId,
           invoiceNumber: input.invoiceNumber,
         });
-        return { success: true };
-      });
-    }),
-
-  /** Write-off (baixa) */
-  writeOff: tenantProcedure
-    .input(stockWriteOffSchema)
-    .mutation(async ({ ctx, input }) => {
-      if (!can(ctx.session, ctx.tenantId, "disposeStock")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
-      return ctx.withTenant(async (tx) => {
-        if (input.stockItemId) {
-          // Serialized: soft delete the StockItem. Lê ANTES para validar o status —
-          // dar baixa num item vendido/reservado quebraria o vínculo da venda/reserva
-          // (paridade com a guarda de disposeStockItem). SOLD/RESERVED têm fluxo
-          // próprio (estorno/liberação) e não podem ser baixados por write-off.
-          const item = await tx.stockItem.findUnique({ where: { id: input.stockItemId } });
-          if (!item || item.deletedAt) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado ou ja baixado." });
-          }
-          if (item.status === "SOLD" || item.status === "RESERVED") {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message:
-                item.status === "SOLD"
-                  ? "Item vendido: a baixa e feita por estorno da venda, nao por write-off."
-                  : "Item reservado: libere a reserva antes de dar baixa.",
-            });
-          }
-          await tx.stockItem.update({
-            where: { id: input.stockItemId },
-            data: { deletedAt: new Date() },
-          });
-          await tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: item.productId,
-              stockItemId: input.stockItemId,
-              type: "EXIT",
-              quantity: 1,
-              reason: input.reason,
-              referenceType: "write_off",
-              userId: ctx.session.user.id,
-            },
-          });
-        } else {
-          // Non-serialized
-          await exitNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
-            productId: input.productId,
-            quantity: input.quantity ?? 1,
-            reason: input.reason,
-            referenceType: "write_off",
-          });
-        }
         return { success: true };
       });
     }),
