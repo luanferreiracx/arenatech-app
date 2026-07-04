@@ -4,6 +4,8 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
+import { addMonthsSafe } from "@/lib/date/add-months-safe";
+import { generateInstallments } from "@/server/services/installment-generator.service";
 
 // RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
 // (ou superadmin) faz tudo. Retorna "admin" | "operator" para os checks abaixo.
@@ -37,25 +39,6 @@ function decimalToCents(v: Prisma.Decimal | null | undefined): number {
 
 function centsToPrismaDecimal(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
-}
-
-/**
- * Adiciona N meses a uma data preservando o dia ate o limite do mes alvo.
- * Ex: addMonthsSafe(2026-01-31, 1) = 2026-02-28 (nao 2026-03-03 como setMonth nativo).
- * Equivale ao Carbon addMonthsNoOverflow do PHP.
- */
-function addMonthsSafe(base: Date, months: number): Date {
-  const d = new Date(base);
-  const targetDay = d.getDate();
-  d.setDate(1);
-  d.setMonth(d.getMonth() + months);
-  const lastDayOfTargetMonth = new Date(
-    d.getFullYear(),
-    d.getMonth() + 1,
-    0,
-  ).getDate();
-  d.setDate(Math.min(targetDay, lastDayOfTargetMonth));
-  return d;
 }
 
 function serializeTransaction(t: {
@@ -282,8 +265,15 @@ export const financialRouter = createTRPCRouter({
 
         const totalAmountDecimal = centsToPrismaDecimal(input.totalAmount);
 
-        // Ultima parcela = firstDueDate + (n-1) meses.
-        const lastDueDate = addMonthsSafe(firstDueDate, input.numInstallments - 1);
+        // Fonte única: mesma geração usada no preview das telas de criar conta —
+        // garante que o que o usuário vê é exatamente o que é gravado.
+        const installments = generateInstallments(
+          input.totalAmount,
+          input.numInstallments,
+          firstDueDate,
+        );
+        // dueDate da transação = vencimento da última parcela.
+        const lastDueDate = installments[installments.length - 1]!.dueDate;
 
         const transaction = await tx.financialTransaction.create({
           data: {
@@ -309,27 +299,16 @@ export const financialRouter = createTRPCRouter({
           },
         });
 
-        // Generate installments (faithful to Laravel logic).
-        // A ULTIMA parcela absorve o resto da divisao (total - parcela*(n-1)) para
-        // a soma das parcelas bater exatamente com o total — sem perder centavos
-        // quando totalAmount nao e divisivel por numInstallments.
-        const valorParcelaCents = Math.floor(input.totalAmount / input.numInstallments);
-        const valorUltimaCents = input.totalAmount - valorParcelaCents * (input.numInstallments - 1);
-
-        for (let i = 1; i <= input.numInstallments; i++) {
-          // i=1 -> firstDueDate; i=2 -> +1 mes; etc. addMonthsSafe trata
-          // overflow (31/jan +1mes = 28 ou 29/fev).
-          const dueDate = addMonthsSafe(firstDueDate, i - 1);
-
+        // A última parcela absorve o resto (total - parcela*(n-1)) para a soma
+        // bater exatamente com o total — lógica centralizada no service.
+        for (const parcela of installments) {
           await tx.installment.create({
             data: {
               tenantId: ctx.tenantId,
               transactionId: transaction.id,
-              number: i,
-              amount: centsToPrismaDecimal(
-                i === input.numInstallments ? valorUltimaCents : valorParcelaCents,
-              ),
-              dueDate,
+              number: parcela.number,
+              amount: centsToPrismaDecimal(parcela.amountCents),
+              dueDate: parcela.dueDate,
               paidAmount: new Prisma.Decimal(0),
               status: "PENDING",
             },

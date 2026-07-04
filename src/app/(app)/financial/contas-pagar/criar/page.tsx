@@ -64,8 +64,9 @@ export default function CreatePayablePage() {
   const numInstallments = form.watch("numInstallments");
   const firstDueDate = form.watch("firstDueDate");
 
+  // Fonte única com financial.create: preview = o que será gravado. Centavos.
   const preview = totalAmount > 0 && numInstallments >= 1 && firstDueDate
-    ? generateInstallments(totalAmount / 100, numInstallments, new Date(firstDueDate))
+    ? generateInstallments(totalAmount, numInstallments, new Date(firstDueDate))
     : [];
 
   const createMut = useMutation(
@@ -215,7 +216,7 @@ export default function CreatePayablePage() {
                 <div className="space-y-1 text-sm">
                   {preview.map((p) => (
                     <div key={p.number} className="flex justify-between">
-                      <span>Parcela {p.number}: {formatCurrency(Math.round(p.amount * 100))}</span>
+                      <span>Parcela {p.number}: {formatCurrency(p.amountCents)}</span>
                       <span className="text-muted-foreground">{p.dueDate.toLocaleDateString("pt-BR")}</span>
                     </div>
                   ))}

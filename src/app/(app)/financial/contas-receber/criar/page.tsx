@@ -65,9 +65,10 @@ export default function CreateReceivablePage() {
   const numInstallments = form.watch("numInstallments");
   const firstDueDate = form.watch("firstDueDate");
 
-  // Generate preview
+  // Generate preview — mesma função que financial.create usa (fonte única):
+  // o que aparece aqui é exatamente o que será gravado. totalAmount já em centavos.
   const preview = totalAmount > 0 && numInstallments >= 1 && firstDueDate
-    ? generateInstallments(totalAmount / 100, numInstallments, new Date(firstDueDate))
+    ? generateInstallments(totalAmount, numInstallments, new Date(firstDueDate))
     : [];
 
   const createMut = useMutation(
@@ -217,7 +218,7 @@ export default function CreateReceivablePage() {
                 <div className="space-y-1 text-sm">
                   {preview.map((p) => (
                     <div key={p.number} className="flex justify-between">
-                      <span>Parcela {p.number}: {formatCurrency(Math.round(p.amount * 100))}</span>
+                      <span>Parcela {p.number}: {formatCurrency(p.amountCents)}</span>
                       <span className="text-muted-foreground">{p.dueDate.toLocaleDateString("pt-BR")}</span>
                     </div>
                   ))}
