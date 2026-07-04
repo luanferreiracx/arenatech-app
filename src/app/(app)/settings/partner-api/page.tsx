@@ -35,7 +35,7 @@ export default function PartnerApiPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<PartnerScope[]>(["depix:read"]);
+  const [scopes, setScopes] = useState<PartnerScope[]>(["depix:deposit"]);
   // Segredo recém-emitido — mostrado UMA vez.
   const [issuedSecret, setIssuedSecret] = useState<string | null>(null);
 
@@ -49,7 +49,7 @@ export default function PartnerApiPage() {
         setIssuedSecret(res.plaintextKey);
         setCreateOpen(false);
         setName("");
-        setScopes(["depix:read"]);
+        setScopes(["depix:deposit"]);
         invalidate();
       },
       onError: (err) => toast.error(err.message),

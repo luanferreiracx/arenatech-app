@@ -1,9 +1,10 @@
 # API de Parceiros — DePix
 
-API REST para parceiros integrarem o DePix de um tenant da Arena Tech: consultar
-saldo e extrato, gerar cobranças (depósito via QR PIX) e sacar via **PIX**
-(off-ramp Eulen). Pensada para integração **máquina-a-máquina** — sem interface,
-autenticada por API-key. (Saque on-chain Liquid é só no painel, não pela API.)
+API REST para parceiros movimentarem o DePix de um tenant da Arena Tech: gerar
+cobranças (depósito via QR PIX), sacar via **PIX** (off-ramp Eulen) e consultar o
+**status** da transação criada. Pensada para integração **máquina-a-máquina** — sem
+interface, autenticada por API-key. (Saldo, extrato e saque on-chain Liquid são só no
+painel, não pela API.)
 
 | | |
 |---|---|
@@ -30,11 +31,9 @@ autenticada por API-key. (Saque on-chain Liquid é só no painel, não pela API.
 - [Autenticação e escopos](#autenticação-e-escopos)
 - [Convenções](#convenções) — valores, idempotência, paginação, rate limit, erros
 - [Endpoints](#endpoints)
-  - [GET /depix/balance](#get-depixbalance)
-  - [GET /depix/transactions](#get-depixtransactions)
-  - [GET /depix/transactions/:id](#get-depixtransactionsid)
   - [POST /depix/deposits](#post-depixdeposits)
   - [POST /depix/withdrawals](#post-depixwithdrawals)
+  - [GET /depix/transactions/:id](#get-depixtransactionsid) — status
 - [Objeto `Transaction`](#objeto-transaction)
 - [Webhooks](#webhooks)
 - [Segurança e isolamento](#segurança-e-isolamento)
@@ -45,17 +44,17 @@ autenticada por API-key. (Saque on-chain Liquid é só no painel, não pela API.
 ## Início rápido
 
 ```bash
-# 1. Consulte o saldo (escopo depix:read)
-curl https://app.arenatechpi.com.br/api/v1/partner/depix/balance \
-  -H "Authorization: Bearer at_ab12cd34_SEU_SEGREDO"
-
-# 2. Gere uma cobrança de R$ 25,00 (escopo depix:deposit)
+# 1. Gere uma cobrança de R$ 25,00 (escopo depix:deposit)
 curl -X POST https://app.arenatechpi.com.br/api/v1/partner/depix/deposits \
   -H "Authorization: Bearer at_ab12cd34_SEU_SEGREDO" \
   -H "Idempotency-Key: 6f1e...uuid" \
   -H "Content-Type: application/json" \
-  -d '{ "amountCents": 2500, "description": "Pedido #42" }'
-# → 201 { "id": "...", "qrCode": "00020126...", "qrCodeBase64": "data:image/png;base64,..." }
+  -d '{ "amountCents": 2500, "payerTaxId": "12345678909", "description": "Pedido #42" }'
+# → 201 { "id": "tx-uuid", "qrCode": "00020126...", "qrCodeBase64": "data:image/png;base64,..." }
+
+# 2. Consulte o status (a key de depósito OU de saque autoriza)
+curl https://app.arenatechpi.com.br/api/v1/partner/depix/transactions/tx-uuid \
+  -H "Authorization: Bearer at_ab12cd34_SEU_SEGREDO"
 ```
 
 A confirmação do pagamento chega por [webhook](#webhooks) (`deposit.completed`) ou
@@ -80,9 +79,13 @@ Cada key carrega um conjunto de **escopos** — peça só o que a integração p
 
 | Escopo | Permite | Rate limit |
 |---|---|---|
-| `depix:read` | saldo, detalhe de transação, extrato | 60 req/min |
 | `depix:deposit` | criar depósito (gerar QR PIX) | 30 req/min |
 | `depix:withdraw` | sacar via PIX (off-ramp Eulen) | 10 req/min |
+
+> A API se limita a **depósito + saque**. O **status** de uma transação
+> (`GET /depix/transactions/:id`) é autorizado por **qualquer** dos escopos acima —
+> quem cria acompanha o desfecho. Não há escopo de leitura dedicado (saldo e extrato
+> completo ficam só no painel).
 
 ---
 
@@ -95,9 +98,6 @@ R$ 25,00). Nunca usamos float para dinheiro.
 `Idempotency-Key: <uuid>`. Repetir a mesma chamada com a mesma chave **não duplica**
 a operação: você recebe o resultado da primeira. Gere um UUID por intenção (ex.: por
 pedido) e reenvie-o em retries de rede.
-
-**Paginação** — listas usam `page` (0-based) + `pageSize` (1–100) e retornam
-`total`/`pageCount` para você iterar.
 
 **Rate limit** — por API-key, por minuto (ver tabela de escopos). Ao estourar, a API
 responde `429`; respeite o backoff e reduza a cadência.
@@ -126,59 +126,6 @@ Erros usam o status HTTP adequado e um corpo JSON uniforme:
 ---
 
 ## Endpoints
-
-### GET /depix/balance
-
-Saldo DePix on-chain do tenant. **Escopo:** `depix:read`.
-
-**`200 OK`**
-```json
-{ "depix": 1234.56, "provisioned": true }
-```
-
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `depix` | number | Saldo em reais (DePix on-chain real, não um contador interno) |
-| `provisioned` | boolean | `false` se a carteira ainda não foi provisionada (saldo é 0) |
-
----
-
-### GET /depix/transactions
-
-Extrato paginado, mais recentes primeiro. **Escopo:** `depix:read`.
-
-**Query params**
-
-| Param | Tipo | Default | Descrição |
-|---|---|---|---|
-| `page` | int ≥ 0 | `0` | Página (0-based) |
-| `pageSize` | int 1–100 | `20` | Itens por página |
-| `kind` | enum | — | `DEPOSIT` ou `WITHDRAW` |
-| `status` | enum | — | Filtra por status (ex.: `COMPLETED`); valores inválidos são ignorados |
-
-**`200 OK`**
-```json
-{
-  "data": [ /* Transaction[] — ver abaixo */ ],
-  "total": 137,
-  "page": 0,
-  "pageSize": 20,
-  "pageCount": 7
-}
-```
-
----
-
-### GET /depix/transactions/:id
-
-Detalhe de uma transação. **Escopo:** `depix:read`.
-
-Retorna **`404`** se a transação não existir — ou se pertencer a **outro tenant**
-(transações de terceiros são invisíveis por design; ver [isolamento](#segurança-e-isolamento)).
-
-**`200 OK`** — um objeto [`Transaction`](#objeto-transaction).
-
----
 
 ### POST /depix/deposits
 
@@ -282,9 +229,21 @@ Erros específicos: **`412`** carteira non-custodial · **`400`** cap diário es
 
 ---
 
+### GET /depix/transactions/:id
+
+Status/detalhe de **uma** transação — o depósito ou saque que o parceiro criou.
+**Escopo:** `depix:deposit` **ou** `depix:withdraw` (quem cria acompanha o desfecho).
+
+Retorna **`404`** se a transação não existir — ou se pertencer a **outro tenant**
+(transações de terceiros são invisíveis por design; ver [isolamento](#segurança-e-isolamento)).
+
+**`200 OK`** — um objeto [`Transaction`](#objeto-transaction).
+
+---
+
 ## Objeto `Transaction`
 
-Retornado por `GET /depix/transactions` (em `data[]`) e `GET /depix/transactions/:id`.
+Retornado por `GET /depix/transactions/:id`.
 
 ```json
 {
@@ -393,8 +352,8 @@ res.status(200).end(); // responda rápido; processe de forma assíncrona
 - **Isolamento por tenant (RLS):** toda leitura/escrita roda sob Row Level Security
   com o `tenant_id` da API-key. Uma key **nunca** enxerga ou movimenta dados de outro
   tenant — transações de terceiros respondem `404`, não `403`.
-- **Saldo real:** `balance` reflete o DePix on-chain real da carteira do tenant, não
-  um contador interno.
+- **Superfície mínima:** a API só cria depósito/saque e consulta o status do que foi
+  criado. Saldo, extrato completo e saque on-chain ficam **só no painel**.
 - **Sem segredos em trânsito desnecessário:** o segredo da API-key e o secret de
   webhook são exibidos uma única vez; o backend guarda apenas o hash da key.
 - **Webhooks assinados (HMAC-SHA256):** valide sempre `X-Signature` com comparação em

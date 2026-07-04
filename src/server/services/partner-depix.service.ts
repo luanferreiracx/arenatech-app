@@ -1,22 +1,13 @@
 /**
- * API de parceiros — DePix read-only (ADR 0057, Fase 2). Fornece DTOs ESTÁVEIS e
- * versionados (v1) sobre os dados DePix do tenant, sem vazar tipos Prisma. Cada
- * função roda em `withTenant(tenantId, …)` (RLS aplicado — isolamento garantido).
+ * API de parceiros — status de transação DePix (ADR 0057). A API se limita a
+ * depósito + saque; a única leitura é o STATUS de UMA transação que o parceiro
+ * criou. Roda em `withTenant(tenantId, …)` (RLS — isolamento garantido) e devolve
+ * um DTO estável (sem vazar tipos Prisma).
  */
-import { Prisma, DepixTransactionStatus } from "@prisma/client";
 import { withTenant } from "@/server/db";
-import * as lwk from "@/lib/services/lwk-service";
-import type {
-  PartnerBalanceDTO,
-  PartnerTransactionDTO,
-  PartnerTransactionListDTO,
-} from "@/lib/partner-api/openapi-schemas";
+import type { PartnerTransactionDTO } from "@/lib/partner-api/openapi-schemas";
 
-export type { PartnerBalanceDTO, PartnerTransactionDTO, PartnerTransactionListDTO };
-
-const VALID_STATUSES = new Set<string>(Object.values(DepixTransactionStatus));
-
-// DTOs são definidos em openapi-schemas.ts (fonte única req/resp + OpenAPI).
+export type { PartnerTransactionDTO };
 
 // Shape mínimo lido do banco (só o que o DTO precisa).
 interface TxRow {
@@ -74,24 +65,6 @@ function toDTO(t: TxRow): PartnerTransactionDTO {
   };
 }
 
-// ── Funções ─────────────────────────────────────────────────────────────────
-
-export async function getPartnerBalance(tenantId: string): Promise<PartnerBalanceDTO> {
-  // Só consulta o LWK se a carteira está provisionada (evita auto-criar carteira
-  // fantasma — mesma guarda do getOverview interno).
-  const wallet = await withTenant(tenantId, async (db) =>
-    db.tenantDepixWallet.findUnique({
-      where: { tenantId },
-      select: { provisionedAt: true },
-    }),
-  );
-  const provisioned = !!wallet?.provisionedAt;
-  if (!provisioned) return { depix: 0, provisioned: false };
-
-  const balance = await lwk.getBalance(tenantId);
-  return { depix: balance.success ? (balance.depixBalance ?? 0) : 0, provisioned: true };
-}
-
 export async function getPartnerTransaction(
   tenantId: string,
   id: string,
@@ -100,50 +73,4 @@ export async function getPartnerTransaction(
     db.tenantDepixTransaction.findUnique({ where: { id }, select: TX_SELECT }),
   );
   return row ? toDTO(row as TxRow) : null;
-}
-
-export interface ListPartnerTxParams {
-  page?: number; // 0-based
-  pageSize?: number; // <= 100
-  kind?: "DEPOSIT" | "WITHDRAW";
-  status?: string;
-}
-
-export async function listPartnerTransactions(
-  tenantId: string,
-  params: ListPartnerTxParams,
-): Promise<PartnerTransactionListDTO> {
-  // Coerção robusta: query params chegam como `Number("abc") = NaN`. Math.max/min
-  // propagam NaN (→ skip:NaN → erro no Prisma), então caímos no default antes.
-  const page = Number.isFinite(params.page) ? Math.max(0, Math.floor(params.page!)) : 0;
-  const pageSize = Number.isFinite(params.pageSize)
-    ? Math.min(100, Math.max(1, Math.floor(params.pageSize!)))
-    : 20;
-  const where: Prisma.TenantDepixTransactionWhereInput = { tenantId };
-  if (params.kind) where.kind = params.kind;
-  // status filtra só se for um valor válido do enum (ignora lixo silenciosamente).
-  if (params.status && VALID_STATUSES.has(params.status)) {
-    where.status = params.status as DepixTransactionStatus;
-  }
-
-  const [rows, total] = await withTenant(tenantId, async (db) =>
-    Promise.all([
-      db.tenantDepixTransaction.findMany({
-        where,
-        select: TX_SELECT,
-        orderBy: { createdAt: "desc" },
-        skip: page * pageSize,
-        take: pageSize,
-      }),
-      db.tenantDepixTransaction.count({ where }),
-    ]),
-  );
-
-  return {
-    data: (rows as TxRow[]).map(toDTO),
-    total,
-    page,
-    pageSize,
-    pageCount: Math.ceil(total / pageSize),
-  };
 }

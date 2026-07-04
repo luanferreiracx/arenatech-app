@@ -28,11 +28,9 @@ describe("buildOpenApiSpec", () => {
     expect(spec.servers[0]?.url).toBe("https://example.test");
   });
 
-  it("documents the five partner endpoints", () => {
+  it("documents apenas depósito, saque e status (sem saldo/extrato)", () => {
     expect(Object.keys(spec.paths).sort()).toEqual([
-      "/api/v1/partner/depix/balance",
       "/api/v1/partner/depix/deposits",
-      "/api/v1/partner/depix/transactions",
       "/api/v1/partner/depix/transactions/{id}",
       "/api/v1/partner/depix/withdrawals",
     ]);
@@ -60,14 +58,14 @@ describe("buildOpenApiSpec", () => {
     }
   });
 
-  it("exposes reusable schemas with cross-references", () => {
+  it("expõe os schemas do contrato e NÃO os de saldo/extrato (removidos)", () => {
     const { schemas } = spec.components;
     expect(schemas.PartnerTransaction).toBeDefined();
-    expect(schemas.PartnerBalance).toBeDefined();
-    // A lista referencia a transação por $ref (reuso, não cópia).
-    expect(JSON.stringify(schemas.PartnerTransactionList)).toContain(
-      "#/components/schemas/PartnerTransaction",
-    );
+    expect(schemas.PartnerDepositResult).toBeDefined();
+    expect(schemas.PartnerWithdrawResult).toBeDefined();
+    // Saldo e lista saíram da API.
+    expect(schemas.PartnerBalance).toBeUndefined();
+    expect(schemas.PartnerTransactionList).toBeUndefined();
   });
 
   it("withdraw request é PIX-only (sem on-chain exposto)", () => {
@@ -81,7 +79,7 @@ describe("buildOpenApiSpec", () => {
 
   it("references the real scope constants in the security description", () => {
     const description = JSON.stringify(spec.components.securitySchemes.bearerAuth);
-    expect(description).toContain(PARTNER_SCOPES.DEPIX_READ);
+    expect(description).toContain(PARTNER_SCOPES.DEPIX_DEPOSIT);
     expect(description).toContain(PARTNER_SCOPES.DEPIX_WITHDRAW);
   });
 });

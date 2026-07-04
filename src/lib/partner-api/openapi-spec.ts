@@ -5,12 +5,10 @@
  * e o `openapi:check` (CI) falha se o arquivo commitado estiver desatualizado.
  */
 import { z } from "zod";
-import { PARTNER_SCOPES } from "@/lib/partner-api/scopes";
+import { PARTNER_SCOPES, TRANSACTION_READ_SCOPES } from "@/lib/partner-api/scopes";
 import { partnerDepositSchema, partnerWithdrawSchema } from "@/lib/partner-api/write-schemas";
 import {
-  partnerBalanceResponseSchema,
   partnerTransactionResponseSchema,
-  partnerTransactionListResponseSchema,
   partnerDepositResultSchema,
   partnerWithdrawResultSchema,
   partnerErrorResponseSchema,
@@ -22,9 +20,7 @@ export const PARTNER_API_VERSION = "1.0.0";
 
 // Cada schema reutilizável vira um component com id estável (referenciável por $ref).
 const COMPONENTS: Array<[string, z.ZodType]> = [
-  ["PartnerBalance", partnerBalanceResponseSchema],
   ["PartnerTransaction", partnerTransactionResponseSchema],
-  ["PartnerTransactionList", partnerTransactionListResponseSchema],
   ["PartnerDepositRequest", partnerDepositSchema],
   ["PartnerDepositResult", partnerDepositResultSchema],
   ["PartnerWithdrawRequest", partnerWithdrawSchema],
@@ -61,17 +57,20 @@ const IDEMPOTENCY_HEADER = {
 
 function op(args: {
   summary: string;
-  scope: string;
+  scope: string | string[];
   responses: Record<string, unknown>;
   requestBodyId?: string;
   parameters?: unknown[];
   idempotent?: boolean;
 }) {
   const parameters = [...(args.parameters ?? []), ...(args.idempotent ? [IDEMPOTENCY_HEADER] : [])];
+  const scopeText = (Array.isArray(args.scope) ? args.scope : [args.scope])
+    .map((s) => `\`${s}\``)
+    .join(" ou ");
   return {
     summary: args.summary,
     security: [{ bearerAuth: [] }],
-    description: `Escopo necessário: \`${args.scope}\`.`,
+    description: `Escopo necessário: ${scopeText}.`,
     ...(parameters.length ? { parameters } : {}),
     ...(args.requestBodyId ? { requestBody: jsonBody(args.requestBodyId) } : {}),
     responses: { ...args.responses, ...COMMON_ERRORS },
@@ -98,9 +97,10 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
       title: "Arena Tech — API de Parceiros (DePix)",
       version: PARTNER_API_VERSION,
       description:
-        "API REST para parceiros consumirem o DePix de um tenant: saldo, extrato, " +
-        "depósito e saque. Autentique com `Authorization: Bearer at_<prefix>_<secret>` " +
-        "(API-key emitida pelo admin do tenant). Webhooks de saída assinados (HMAC).",
+        "API REST para parceiros movimentarem o DePix de um tenant: criar depósito " +
+        "(QR PIX), sacar (PIX) e consultar o status da transação criada. Autentique com " +
+        "`Authorization: Bearer at_<prefix>_<secret>` (API-key emitida pelo admin do " +
+        "tenant). Webhooks de saída assinados (HMAC).",
     },
     servers: [{ url: serverUrl }],
     security: [{ bearerAuth: [] }],
@@ -111,36 +111,16 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
           scheme: "bearer",
           description:
             "API-key do parceiro no formato `at_<prefix>_<secret>`. Escopos: " +
-            `${PARTNER_SCOPES.DEPIX_READ}, ${PARTNER_SCOPES.DEPIX_DEPOSIT}, ${PARTNER_SCOPES.DEPIX_WITHDRAW}.`,
+            `${PARTNER_SCOPES.DEPIX_DEPOSIT}, ${PARTNER_SCOPES.DEPIX_WITHDRAW}.`,
         },
       },
       schemas,
     },
     paths: {
-      "/api/v1/partner/depix/balance": {
-        get: op({
-          summary: "Saldo DePix do tenant",
-          scope: PARTNER_SCOPES.DEPIX_READ,
-          responses: { "200": jsonResponse("PartnerBalance", "Saldo atual.") },
-        }),
-      },
-      "/api/v1/partner/depix/transactions": {
-        get: op({
-          summary: "Extrato paginado",
-          scope: PARTNER_SCOPES.DEPIX_READ,
-          parameters: [
-            { name: "page", in: "query", schema: { type: "integer", minimum: 0 }, description: "0-based." },
-            { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
-            { name: "kind", in: "query", schema: { type: "string", enum: ["DEPOSIT", "WITHDRAW"] } },
-            { name: "status", in: "query", schema: { type: "string" } },
-          ],
-          responses: { "200": jsonResponse("PartnerTransactionList", "Página de transações.") },
-        }),
-      },
       "/api/v1/partner/depix/transactions/{id}": {
         get: op({
-          summary: "Detalhe de uma transação",
-          scope: PARTNER_SCOPES.DEPIX_READ,
+          summary: "Status de uma transação (depósito/saque criado)",
+          scope: TRANSACTION_READ_SCOPES,
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             "200": jsonResponse("PartnerTransaction", "Transação."),
@@ -163,7 +143,7 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
       },
       "/api/v1/partner/depix/withdrawals": {
         post: op({
-          summary: "Sacar (PIX ou on-chain)",
+          summary: "Sacar (PIX)",
           scope: PARTNER_SCOPES.DEPIX_WITHDRAW,
           requestBodyId: "PartnerWithdrawRequest",
           idempotent: true,

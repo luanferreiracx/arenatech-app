@@ -9,13 +9,6 @@ import { z } from "zod";
 
 // ── Respostas ────────────────────────────────────────────────────────────────
 
-export const partnerBalanceResponseSchema = z
-  .object({
-    depix: z.number().describe("Saldo DePix on-chain do tenant, em reais."),
-    provisioned: z.boolean().describe("Carteira provisionada? (sem provisão, saldo é 0)."),
-  })
-  .meta({ id: "PartnerBalance" });
-
 export const partnerTransactionResponseSchema = z
   .object({
     id: z.string(),
@@ -36,16 +29,6 @@ export const partnerTransactionResponseSchema = z
     completedAt: z.string().nullable().describe("ISO 8601."),
   })
   .meta({ id: "PartnerTransaction" });
-
-export const partnerTransactionListResponseSchema = z
-  .object({
-    data: z.array(partnerTransactionResponseSchema),
-    total: z.number().int(),
-    page: z.number().int().describe("0-based."),
-    pageSize: z.number().int(),
-    pageCount: z.number().int(),
-  })
-  .meta({ id: "PartnerTransactionList" });
 
 export const partnerDepositResultSchema = z
   .object({
@@ -91,9 +74,7 @@ export const partnerWebhookEventSchema = z
 
 // ── Tipos derivados (não duplicar à mão) ─────────────────────────────────────
 
-export type PartnerBalanceDTO = z.infer<typeof partnerBalanceResponseSchema>;
 export type PartnerTransactionDTO = z.infer<typeof partnerTransactionResponseSchema>;
-export type PartnerTransactionListDTO = z.infer<typeof partnerTransactionListResponseSchema>;
 export type PartnerDepositResult = z.infer<typeof partnerDepositResultSchema>;
 export type PartnerWithdrawResult = z.infer<typeof partnerWithdrawResultSchema>;
 export type PartnerWebhookEvent = z.infer<typeof partnerWebhookEventSchema>;
