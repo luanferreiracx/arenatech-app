@@ -3086,7 +3086,12 @@ export const stockRouter = createTRPCRouter({
           },
           select: {
             sellerId: true,
-            totalAmount: true,
+            // Receita de mercadoria = subtotal - desconto (centavos), NÃO
+            // totalAmount (líquido do trade-in). Espelha reportVendasPeriodo:
+            // usar totalAmount subestimava receita/lucro do vendedor em vendas
+            // com upgrade (podia ficar negativo) e não batia com o relatório por
+            // período. Ver lib/sales/sale-revenue.
+            subtotal: true,
             discountAmount: true,
             items: {
               select: { costPrice: true, quantity: true },
@@ -3094,29 +3099,32 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        // Group by seller
+        // Group by seller — tudo em centavos (evita drift de float).
         const sellerMap = new Map<
           string,
           { qty: number; total: number; discount: number; cost: number }
         >();
 
         for (const s of sales) {
-          const existing = sellerMap.get(s.sellerId);
-          const cost = s.items.reduce(
-            (sum, i) => sum + Number(i.costPrice) * i.quantity,
+          const subtotalCents = Math.round(Number(s.subtotal) * 100);
+          const discountCents = Math.round(Number(s.discountAmount) * 100);
+          const revenueCents = saleGoodsRevenueCents(subtotalCents, discountCents);
+          const costCents = s.items.reduce(
+            (sum, i) => sum + Math.round(Number(i.costPrice) * 100) * i.quantity,
             0,
           );
+          const existing = sellerMap.get(s.sellerId);
           if (existing) {
             existing.qty++;
-            existing.total += Number(s.totalAmount);
-            existing.discount += Number(s.discountAmount);
-            existing.cost += cost;
+            existing.total += revenueCents;
+            existing.discount += discountCents;
+            existing.cost += costCents;
           } else {
             sellerMap.set(s.sellerId, {
               qty: 1,
-              total: Number(s.totalAmount),
-              discount: Number(s.discountAmount),
-              cost,
+              total: revenueCents,
+              discount: discountCents,
+              cost: costCents,
             });
           }
         }
@@ -3136,11 +3144,11 @@ export const stockRouter = createTRPCRouter({
             sellerId,
             sellerName: nameMap.get(sellerId) ?? "Sem vendedor",
             quantity: data.qty,
-            totalAmount: Math.round(data.total * 100),
-            discountAmount: Math.round(data.discount * 100),
-            ticketMedio:
-              data.qty > 0 ? Math.round((data.total / data.qty) * 100) : 0,
-            profit: Math.round((data.total - data.cost) * 100),
+            // data.* já estão em centavos.
+            totalAmount: data.total,
+            discountAmount: data.discount,
+            ticketMedio: data.qty > 0 ? Math.round(data.total / data.qty) : 0,
+            profit: data.total - data.cost,
           }))
           .sort((a, b) => b.totalAmount - a.totalAmount);
 
