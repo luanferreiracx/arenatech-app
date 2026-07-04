@@ -9,7 +9,7 @@
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
 **Ultima atualizacao:** 2026-07-04
-**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓. Próximo: auditoria, billing manual (Subscription), UI admin.
+**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓, Fase 1 (auditoria) ✓. Próximo: billing manual (Subscription), UI admin.
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/os-technician-provider-validation`
@@ -17,6 +17,14 @@
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-07-04 — Tenants/Planos: auditoria do fluxo (Fase 1 de 4)
+Varredura dos 3 furos mapeados antes de empilhar billing. Resultado:
+- **Cache de módulos ao trocar plano** (`modulesCache`, TTL 60s em `auth.ts`): a troca reflete em ≤60s sem relogin. **Aceitável por design** (ação de superadmin; decisão do dono documentada no código) — não mexer, seria over-engineering.
+- **`deletePlan` de plano em uso — BUG REAL corrigido (PR #381):** `Tenant.plan` é String solta (não FK); deletar um plano referenciado deixava tenants órfãos e o gating os rebaixava a wallet-only silenciosamente. Agora bloqueia (`CONFLICT`) enquanto houver tenant no plano; UI já exibe via toast.
+- **Downgrade não revoga módulos:** falso alarme — o gating recalcula sozinho no ciclo de cache ao trocar o plano. `Refund` (downgrade) é fluxo manual separado, alinhado ao billing manual (Fase 2), não um furo.
+- Nota de teste: a guarda do `deletePlan` ficou inline (não extraída) — testar via import do router não roda no ambiente unit (puxa cadeia next-auth); montar harness de caller seria desproporcional p/ `count>0 → throw`.
+- **Próximo:** Fase 2 (Subscription/billing manual), Fase 3 (UI admin de ativação + editor de módulos por plano).
 
 ### 2026-07-04 — Tenants/Planos: plano ativo vence o teto NO-KYC (Fase 0 de 4)
 Início do trabalho de criação de tenants + planos + ativação. **Modelo definido com o dono:** todo tenant nasce NO-KYC (email/WhatsApp), sem plano, com piso `wallet`+`depix-ops`; a **ativação pelo superadmin = atribuir um plano ativo**, que define os módulos liberados **mesmo sem CNPJ**.
