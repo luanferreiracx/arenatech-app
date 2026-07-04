@@ -80,9 +80,10 @@ export default function ReceivingSettingsPage() {
       {/* D6 da auditoria de config: parte dos ajustes ja vale (min. parcela +
           CPF), o resto ainda nao — aviso honesto por campo. */}
       <div className="mb-6 rounded-md border border-info bg-info/10 p-3 text-sm">
-        <strong>Já aplicados no PDV:</strong> &quot;Valor mínimo de parcela&quot; e
-        &quot;Exigir CPF/CNPJ acima de&quot; — barram a finalização da venda quando
-        a regra é violada.
+        <strong>Já aplicados no PDV:</strong> &quot;Valor mínimo de parcela&quot;,
+        &quot;Exigir CPF/CNPJ acima de&quot; e &quot;Desconto máximo
+        (não-administradores)&quot; — barram/limitam a venda quando a regra é
+        violada.
         <br />
         <strong>Em breve:</strong> políticas de taxa, fechar caixa automático,
         metas e alíquotas ainda não são aplicados automaticamente.
