@@ -8,7 +8,8 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-06-20
+**Ultima atualizacao:** 2026-07-04
+**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓. Próximo: auditoria, billing manual (Subscription), UI admin.
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/os-technician-provider-validation`
@@ -16,6 +17,15 @@
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-07-04 — Tenants/Planos: plano ativo vence o teto NO-KYC (Fase 0 de 4)
+Início do trabalho de criação de tenants + planos + ativação. **Modelo definido com o dono:** todo tenant nasce NO-KYC (email/WhatsApp), sem plano, com piso `wallet`+`depix-ops`; a **ativação pelo superadmin = atribuir um plano ativo**, que define os módulos liberados **mesmo sem CNPJ**.
+- **Nó central corrigido:** `isNoKyc` é derivado de `!cnpj` (`auth.ts`), e o gating tratava NO-KYC como **teto permanente** — atribuir plano completo não liberava nada. `allowedModulesForTenant` (`src/lib/modules.ts`) agora: com **plano ativo** o plano vence (inclusive NO-KYC); **sem plano**, NO-KYC fica no piso e os demais no default.
+- **Router:** extraído `resolveActivePlanId` (existe + ACTIVE, sem filtro de módulos) usado na **ativação** (`admin.updateTenant` aceita qualquer plano ativo). Onboarding inicial (`createTenant`/`approvePreRegistration`) segue wallet-only via `resolveWalletOnlyActivePlanId` (agora reusa o novo).
+- **Decisões travadas com o dono:** (1) plano vence teto NO-KYC; (2) billing = **controle manual** 1º (Subscription: plano/ciclo/vencimento/status; superadmin marca pago/suspende; suspender já corta login via `auth.ts:86`); (3) sem gateway ainda (cobrança DePix/PIX automática é fase futura).
+- **Política revista:** item 5 do ADR 0050 (NO-KYC nunca além de wallet) **revogado** — anotado no próprio ADR.
+- Validação: typecheck (0), lint (0), unit 1481 passando (27 do gating incl. novo caso NO-KYC+plano parcial). Falhas de integração RLS são só ambiente sem Postgres (pré-existentes).
+- **Próximo:** Fase 1 (auditoria: bust de cache ao trocar plano, downgrade revoga, guarda em deletePlan de plano em uso), Fase 2 (Subscription/billing manual), Fase 3 (UI admin ativação + editor de módulos por plano).
 
 ### 2026-06-22 — PDV: pagamento via InfinitePay (ADR 0054)
 Nova forma "InfinitePay" no PDV (PIX manual continua). Substitui a confirmação manual por checkout real com confirmação automática. Espelha o fluxo de QR do DePix.
