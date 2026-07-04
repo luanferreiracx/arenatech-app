@@ -171,6 +171,25 @@ export function isValidTransition(currentStatus: string, newStatus: string): boo
   return allowed.includes(newStatus)
 }
 
+/**
+ * Status que o endpoint MANUAL de mudança de status (stock.changeItemStatus)
+ * pode aplicar. SOLD e RETURNED são transições válidas na máquina de estados,
+ * mas pertencem exclusivamente ao fluxo de venda/estorno (sale.finalize/refund
+ * marcam o StockItem direto, com Sale vinculada). Marcá-los manualmente criaria
+ * uma "venda fantasma": unidade fora do estoque com soldAt setado e saleId null
+ * — sem receita, sem Sale, quebrando o histórico de IMEI. Fonte única do gate.
+ */
+const MANUAL_STATUS_CHANGE_ALLOWED = new Set([
+  "AVAILABLE",
+  "RESERVED",
+  "DEFECTIVE",
+  "BLOCKED",
+])
+
+export function isManualStatusChangeAllowed(newStatus: string): boolean {
+  return MANUAL_STATUS_CHANGE_ALLOWED.has(newStatus)
+}
+
 // ── Recompra de aparelho ──
 
 /**

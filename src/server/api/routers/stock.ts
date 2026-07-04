@@ -63,6 +63,7 @@ import {
   listStockItemsSchema,
   searchImeiSchema,
   isRepurchasableStatus,
+  isManualStatusChangeAllowed,
   PURCHASE_REVERSIBLE_STATUSES,
 } from "@/lib/validators/stock-item";
 import {
@@ -4297,6 +4298,17 @@ export const stockRouter = createTRPCRouter({
   changeItemStatus: tenantProcedure
     .input(changeStockItemStatusSchema)
     .mutation(async ({ ctx, input }) => {
+      // SOLD/RETURNED pertencem ao fluxo de venda/estorno, não ao endpoint
+      // manual — ver isManualStatusChangeAllowed. Bloqueado no boundary (o
+      // serviço changeItemStatus só é alcançado por esta procedure).
+      if (!isManualStatusChangeAllowed(input.newStatus)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Baixa por venda/devolução acontece no PDV. Aqui só reserva, defeito, disponível ou bloqueio.",
+        });
+      }
+
       // ADR 0053: operador pode marcar defeito/devolução (movimento do dia a dia).
       // Bloquear item é perda/segurança — continua exigindo admin do tenant.
       if (input.newStatus === "BLOCKED" && !can(ctx.session, ctx.tenantId, "disposeStock")) {
