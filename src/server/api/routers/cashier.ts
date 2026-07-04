@@ -3,7 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
-import { signedDepositCents } from "@/server/services/cash-session.service";
+import {
+  computeCashDrawerCents,
+  signedDepositCents,
+} from "@/server/services/cash-session.service";
 import {
   openCashRegisterSchema,
   closeCashRegisterSchema,
@@ -635,14 +638,24 @@ export const cashierRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const session = await tx.cashSession.findFirst({
           where: { id: input.sessionId, closedAt: null },
+          include: { movements: true },
         });
         if (!session) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Sessao nao encontrada ou ja fechada" });
         }
 
-        // Calculate balance and close
-        const { calculateSessionBalance } = await import("@/server/services/cash-session.service");
-        const calculatedBalance = await calculateSessionBalance(tx as never, session.id);
+        // Mesmo cálculo do fechamento manual (dinheiro na gaveta) — antes usava
+        // calculateSessionBalance (INCOME−OUTCOME de qualquer forma), então o
+        // caixa forçado divergia do que o manual calcularia. Em centavos.
+        const calculatedCents = computeCashDrawerCents(
+          decimalToCents(session.initialBalance),
+          session.movements.map((m) => ({
+            nature: m.nature,
+            amountCents: decimalToCents(m.amount),
+            paymentMethod: m.paymentMethod,
+          })),
+        );
+        const calculatedBalance = calculatedCents / 100;
 
         await tx.cashSession.update({
           where: { id: session.id },
@@ -902,8 +915,19 @@ function buildSummary(session: SessionWithMovements): Summary {
     }
   }
 
-  const expectedCashBalance =
-    opening + totalSalesCash + totalDeposits - totalWithdrawals - totalExpenses;
+  // Dinheiro esperado na gaveta: só os movimentos que tocam a gaveta (dinheiro
+  // + ajuste_manual). Fonte única compartilhada com o fechamento forçado/auto —
+  // ver computeCashDrawerCents. Os totais acima seguem informativos (todas as
+  // formas), mas a conferência do caixa é drawer-only: uma despesa paga no
+  // cartão, p.ex., não reduz mais o dinheiro contado.
+  const expectedCashBalance = computeCashDrawerCents(
+    opening,
+    session.movements.map((m) => ({
+      nature: m.nature,
+      amountCents: decimalToCents(m.amount),
+      paymentMethod: m.paymentMethod,
+    })),
+  );
 
   return {
     openingBalance: opening,
