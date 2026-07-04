@@ -938,6 +938,7 @@ export const adminRouter = createTRPCRouter({
           : `${generateSlug(pr.tradeName)}-${Date.now().toString(36)}`;
 
         // Create tenant
+        // NO-KYC tenants são parceiros de API DePix — apiAccessEnabled ativo por padrão.
         const tenant = await tx.tenant.create({
           data: {
             name: pr.tradeName,
@@ -945,6 +946,7 @@ export const adminRouter = createTRPCRouter({
             cnpj,
             plan: planId,
             status: "ACTIVE",
+            apiAccessEnabled: isNoKyc ? true : false,
           },
         });
 
