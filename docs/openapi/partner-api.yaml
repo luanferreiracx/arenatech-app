@@ -5,9 +5,10 @@ info:
   title: Arena Tech — API de Parceiros (DePix)
   version: 1.0.0
   description: >-
-    API REST para parceiros consumirem o DePix de um tenant: saldo, extrato, depósito e saque.
-    Autentique com `Authorization: Bearer at_<prefix>_<secret>` (API-key emitida pelo admin do
-    tenant). Webhooks de saída assinados (HMAC).
+    API REST para parceiros movimentarem o DePix de um tenant: criar depósito (QR PIX), sacar (PIX)
+    e consultar o status da transação criada. Autentique com `Authorization: Bearer
+    at_<prefix>_<secret>` (API-key emitida pelo admin do tenant). Webhooks de saída assinados
+    (HMAC).
 servers:
   - url: https://app.arenatechpi.com.br
 security:
@@ -18,22 +19,9 @@ components:
       type: http
       scheme: bearer
       description: >-
-        API-key do parceiro no formato `at_<prefix>_<secret>`. Escopos: depix:read, depix:deposit,
+        API-key do parceiro no formato `at_<prefix>_<secret>`. Escopos: depix:deposit,
         depix:withdraw.
   schemas:
-    PartnerBalance:
-      type: object
-      properties:
-        depix:
-          type: number
-          description: Saldo DePix on-chain do tenant, em reais.
-        provisioned:
-          type: boolean
-          description: Carteira provisionada? (sem provisão, saldo é 0).
-      required:
-        - depix
-        - provisioned
-      additionalProperties: false
     PartnerTransaction:
       type: object
       properties:
@@ -106,37 +94,6 @@ components:
         - onchainAddress
         - createdAt
         - completedAt
-      additionalProperties: false
-    PartnerTransactionList:
-      type: object
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/PartnerTransaction'
-        total:
-          type: integer
-          minimum: -9007199254740991
-          maximum: 9007199254740991
-        page:
-          type: integer
-          minimum: -9007199254740991
-          maximum: 9007199254740991
-          description: 0-based.
-        pageSize:
-          type: integer
-          minimum: -9007199254740991
-          maximum: 9007199254740991
-        pageCount:
-          type: integer
-          minimum: -9007199254740991
-          maximum: 9007199254740991
-      required:
-        - data
-        - total
-        - page
-        - pageSize
-        - pageCount
       additionalProperties: false
     PartnerDepositRequest:
       type: object
@@ -299,110 +256,12 @@ components:
         - occurredAt
       additionalProperties: false
 paths:
-  /api/v1/partner/depix/balance:
-    get:
-      summary: Saldo DePix do tenant
-      security:
-        - bearerAuth: []
-      description: 'Escopo necessário: `depix:read`.'
-      responses:
-        '200':
-          description: Saldo atual.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerBalance'
-        '401':
-          description: API-key ausente/inválida/revogada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '403':
-          description: Escopo insuficiente.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '429':
-          description: Acima da quota.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '503':
-          description: Serviço temporariamente indisponível.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-  /api/v1/partner/depix/transactions:
-    get:
-      summary: Extrato paginado
-      security:
-        - bearerAuth: []
-      description: 'Escopo necessário: `depix:read`.'
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-          description: 0-based.
-        - name: pageSize
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-        - name: kind
-          in: query
-          schema:
-            type: string
-            enum:
-              - DEPOSIT
-              - WITHDRAW
-        - name: status
-          in: query
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Página de transações.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerTransactionList'
-        '401':
-          description: API-key ausente/inválida/revogada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '403':
-          description: Escopo insuficiente.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '429':
-          description: Acima da quota.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
-        '503':
-          description: Serviço temporariamente indisponível.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartnerError'
   /api/v1/partner/depix/transactions/{id}:
     get:
-      summary: Detalhe de uma transação
+      summary: Status de uma transação (depósito/saque criado)
       security:
         - bearerAuth: []
-      description: 'Escopo necessário: `depix:read`.'
+      description: 'Escopo necessário: `depix:deposit` ou `depix:withdraw`.'
       parameters:
         - name: id
           in: path
@@ -513,7 +372,7 @@ paths:
                 $ref: '#/components/schemas/PartnerError'
   /api/v1/partner/depix/withdrawals:
     post:
-      summary: Sacar (PIX ou on-chain)
+      summary: Sacar (PIX)
       security:
         - bearerAuth: []
       description: 'Escopo necessário: `depix:withdraw`.'

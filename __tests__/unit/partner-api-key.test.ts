@@ -68,7 +68,7 @@ describe("partner-api-key service", () => {
     const issued = await issuePartnerApiKey({
       tenantId: TENANT,
       name: "ACME",
-      scopes: ["depix:read", "depix:deposit"],
+      scopes: ["depix:deposit", "depix:withdraw"],
       createdById: "u1",
     });
     // Formato at_<prefix>_<secret>.
@@ -78,11 +78,11 @@ describe("partner-api-key service", () => {
     const v = await validatePartnerApiKey(issued.plaintextKey);
     expect(v).not.toBeNull();
     expect(v!.tenantId).toBe(TENANT);
-    expect(v!.scopes).toEqual(["depix:read", "depix:deposit"]);
+    expect(v!.scopes).toEqual(["depix:deposit", "depix:withdraw"]);
   });
 
   it("rejeita segredo errado mesmo com prefixo certo", async () => {
-    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:read"], createdById: "u1" });
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:deposit"], createdById: "u1" });
     const tampered = `at_${issued.keyPrefix}_segredoErrado_aaaaaaaaaaaaaaaaaaaa`;
     expect(await validatePartnerApiKey(tampered)).toBeNull();
   });
@@ -94,13 +94,13 @@ describe("partner-api-key service", () => {
   });
 
   it("rejeita key revogada", async () => {
-    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:read"], createdById: "u1" });
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:deposit"], createdById: "u1" });
     await revokePartnerApiKey({ tenantId: TENANT, keyId: issued.id });
     expect(await validatePartnerApiKey(issued.plaintextKey)).toBeNull();
   });
 
   it("revogar de OUTRO tenant nao afeta (isolamento)", async () => {
-    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:read"], createdById: "u1" });
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:deposit"], createdById: "u1" });
     await revokePartnerApiKey({ tenantId: OTHER, keyId: issued.id }); // tenant errado
     // Continua valida (a updateMany filtra por tenantId).
     expect(await validatePartnerApiKey(issued.plaintextKey)).not.toBeNull();
@@ -110,10 +110,10 @@ describe("partner-api-key service", () => {
     const issued = await issuePartnerApiKey({
       tenantId: TENANT,
       name: "x",
-      scopes: ["depix:read", "admin:everything", "lixo"],
+      scopes: ["depix:deposit", "admin:everything", "lixo"],
       createdById: "u1",
     });
     const v = await validatePartnerApiKey(issued.plaintextKey);
-    expect(v!.scopes).toEqual(["depix:read"]);
+    expect(v!.scopes).toEqual(["depix:deposit"]);
   });
 });

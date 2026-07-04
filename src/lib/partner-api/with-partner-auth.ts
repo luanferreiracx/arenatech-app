@@ -58,8 +58,11 @@ export interface PartnerContext {
 }
 
 interface PartnerAuthOptions {
-  /** Escopo exigido pra esta rota. */
-  scope: PartnerScope;
+  /**
+   * Escopo exigido pra esta rota. Um array significa "QUALQUER um destes" (any-of) —
+   * usado pelo status da transação, que aceita a key de depósito OU de saque.
+   */
+  scope: PartnerScope | PartnerScope[];
   /** Limite de req/min por key (default 60). Saques usam um menor. */
   ratePerMinute?: number;
 }
@@ -87,12 +90,17 @@ export async function withPartnerAuth(
     return json(401, { error: "invalid_key", message: "API-key inválida ou revogada" });
   }
 
-  if (!validated.scopes.includes(opts.scope)) {
+  const requiredScopes = Array.isArray(opts.scope) ? opts.scope : [opts.scope];
+  const hasScope = requiredScopes.some((s) => validated.scopes.includes(s));
+  if (!hasScope) {
     logger.warn("partner-api: escopo insuficiente", {
       keyPrefix: validated.keyPrefix,
-      required: opts.scope,
+      required: requiredScopes,
     });
-    return json(403, { error: "insufficient_scope", message: `Escopo necessário: ${opts.scope}` });
+    return json(403, {
+      error: "insufficient_scope",
+      message: `Escopo necessário: ${requiredScopes.join(" ou ")}`,
+    });
   }
 
   // FAIL-CLOSED: sem backend distribuído de rate-limit em produção, recusa.
@@ -105,7 +113,7 @@ export async function withPartnerAuth(
 
   const limit = opts.ratePerMinute ?? 60;
   const rl = await rateLimit({
-    key: `partner:${validated.keyPrefix}:${opts.scope}`,
+    key: `partner:${validated.keyPrefix}:${requiredScopes.join(",")}`,
     limit,
     windowMs: 60_000,
   });

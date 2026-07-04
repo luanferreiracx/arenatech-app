@@ -1,16 +1,17 @@
 import { NextRequest } from "next/server";
 import { withPartnerAuth } from "@/lib/partner-api/with-partner-auth";
-import { PARTNER_SCOPES } from "@/lib/partner-api/scopes";
+import { TRANSACTION_READ_SCOPES } from "@/lib/partner-api/scopes";
 import { getPartnerTransaction } from "@/server/services/partner-depix.service";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/v1/partner/depix/transactions/:id — detalhe de uma transação do tenant.
- * Escopo depix:read. 404 se não existir (ou for de outro tenant — RLS isola).
+ * GET /api/v1/partner/depix/transactions/:id — status/detalhe de UMA transação do
+ * tenant (o depósito/saque que o parceiro criou). Autoriza com a key de depósito OU
+ * de saque (any-of). 404 se não existir (ou for de outro tenant — RLS isola).
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await withPartnerAuth(req, { scope: PARTNER_SCOPES.DEPIX_READ });
+  const auth = await withPartnerAuth(req, { scope: TRANSACTION_READ_SCOPES });
   if (auth instanceof Response) return auth;
 
   const { id } = await ctx.params;
