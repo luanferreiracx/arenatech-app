@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
+import { signedDepositCents } from "@/server/services/cash-session.service";
 import {
   openCashRegisterSchema,
   closeCashRegisterSchema,
@@ -891,7 +892,9 @@ function buildSummary(session: SessionWithMovements): Summary {
         totalWithdrawals += amount;
         break;
       case "DEPOSIT":
-        totalDeposits += amount;
+        // Ajuste manual grava type=DEPOSIT com nature variável (OUTCOME =
+        // retirada). Assina por nature — ver signedDepositCents.
+        totalDeposits += signedDepositCents(amount, m.nature);
         break;
       case "EXPENSE":
         totalExpenses += amount;
