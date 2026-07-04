@@ -26,6 +26,7 @@ const receivingSchema = z.object({
   defaultPolicyNonDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]),
   minInstallmentAmount: z.number().int().min(0),
   requireCpfAbove: z.number().int().min(0),
+  maxDiscountPercentNonAdmin: z.number().int().min(0).max(100).nullable(),
   autoCloseTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
   monthlySalesGoal: z.number().int().min(0).nullable(),
   defaultDasRate: z.number().min(0).max(100).nullable(),
@@ -48,6 +49,7 @@ export default function ReceivingSettingsPage() {
           defaultPolicyNonDevice: data.defaultPolicyNonDevice as "STORE_ABSORBS" | "CUSTOMER_PAYS",
           minInstallmentAmount: data.minInstallmentAmount,
           requireCpfAbove: data.requireCpfAbove,
+          maxDiscountPercentNonAdmin: data.maxDiscountPercentNonAdmin,
           autoCloseTime: data.autoCloseTime,
           monthlySalesGoal: data.monthlySalesGoal,
           defaultDasRate: data.defaultDasRate ? Number(data.defaultDasRate) : null,
@@ -133,6 +135,27 @@ export default function ReceivingSettingsPage() {
                 value={form.watch("requireCpfAbove")}
                 onChange={(v: number) => form.setValue("requireCpfAbove", v)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Desconto máximo (não-administradores)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                placeholder="Sem limite"
+                value={form.watch("maxDiscountPercentNonAdmin") ?? ""}
+                onChange={(e) =>
+                  form.setValue(
+                    "maxDiscountPercentNonAdmin",
+                    e.target.value === "" ? null : Math.min(100, Math.max(0, Number(e.target.value))),
+                  )
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Teto de desconto (%) no PDV para quem não é administrador — vale
+                para o desconto do carrinho e para alterar o preço do item.
+                Administradores não têm limite. Vazio = sem limite.
+              </p>
             </div>
           </div>
         </FormSection>

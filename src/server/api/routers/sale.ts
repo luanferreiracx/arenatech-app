@@ -17,6 +17,7 @@ import {
   isSameFinalizeRequest,
 } from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
+import { isDiscountAllowed, discountPercentOf } from "@/lib/sales/discount-cap";
 import {
   addSaleItemSchema,
   updateSaleItemSchema,
@@ -61,6 +62,33 @@ function decimalToCents(v: Prisma.Decimal | null | undefined): number {
 
 function centsToPrisma(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
+}
+
+/**
+ * Aplica o teto de desconto do PDV. Admin do tenant é irrestrito; operador fica
+ * limitado ao maxDiscountPercentNonAdmin do TenantReceivingSettings (null = sem
+ * teto). Fonte única usada por applyDiscount e updateItemPrice — assim o operador
+ * não contorna o teto do carrinho baixando o preço do item.
+ */
+async function enforceSaleDiscountCap(
+  tx: Prisma.TransactionClient,
+  ctx: { session: { user: { id: string; isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> }; tenantId: string },
+  requestedPercent: number,
+): Promise<void> {
+  if (isTenantAdmin(ctx.session, ctx.tenantId)) return; // admin irrestrito
+  const settings = await tx.tenantReceivingSettings.findUnique({
+    where: { tenantId: ctx.tenantId },
+    select: { maxDiscountPercentNonAdmin: true },
+  });
+  const cap = settings?.maxDiscountPercentNonAdmin ?? null;
+  if (
+    !isDiscountAllowed({ requestedPercent, isAdmin: false, maxPercentNonAdmin: cap })
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Desconto acima do limite de ${cap}% permitido para o seu perfil. Peça a um gerente.`,
+    });
+  }
 }
 
 /**
@@ -757,6 +785,14 @@ export const saleRouter = createTRPCRouter({
           fixedNominalCents: Math.round(input.discountValue),
           subtotalCents,
         });
+
+        // Teto de desconto: admin é irrestrito; operador limitado ao % do tenant.
+        // Fonte única com o override de preço de item (updateItemPrice).
+        await enforceSaleDiscountCap(
+          tx,
+          ctx,
+          discountPercentOf(discountAmountCents, subtotalCents),
+        );
 
         const totalCents = subtotalCents - discountAmountCents;
 
@@ -2766,6 +2802,38 @@ export const saleRouter = createTRPCRouter({
         const item = await tx.saleItem.findUnique({ where: { id: input.itemId } });
         if (!item || item.saleId !== input.saleId) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
+        }
+
+        // Teto de desconto também no override de preço: mede o desconto implícito
+        // contra o PREÇO DE TABELA (variação quando houver e tiver preço próprio,
+        // senão o do produto). Sem isso o operador contornaria o teto do carrinho
+        // baixando o item. Preço acima da tabela (markup) = desconto 0 (sempre ok).
+        const productPriceCents = decimalToCents(
+          (
+            await tx.product.findUnique({
+              where: { id: item.productId },
+              select: { salePrice: true },
+            })
+          )?.salePrice,
+        );
+        const variationPriceCents = item.variationId
+          ? decimalToCents(
+              (
+                await tx.productVariation.findUnique({
+                  where: { id: item.variationId },
+                  select: { salePrice: true },
+                })
+              )?.salePrice,
+            )
+          : 0;
+        const listPriceCents = variationPriceCents > 0 ? variationPriceCents : productPriceCents;
+        if (listPriceCents > 0 && input.unitPrice < listPriceCents) {
+          const implicitDiscountCents = listPriceCents - input.unitPrice;
+          await enforceSaleDiscountCap(
+            tx,
+            ctx,
+            discountPercentOf(implicitDiscountCents, listPriceCents),
+          );
         }
 
         const totalCents = input.unitPrice * item.quantity;
