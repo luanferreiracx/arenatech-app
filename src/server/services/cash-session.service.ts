@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
+import { TRPCError } from "@trpc/server"
 
 /** Decimal (reais) → centavos inteiros. */
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -71,6 +72,75 @@ export function computeCashDrawerCents(
     drawer += m.nature === "OUTCOME" ? -m.amountCents : m.amountCents
   }
   return drawer
+}
+
+// ── Escritor canônico de CashMovement ──
+
+export type CashMovementType = "SALE" | "WITHDRAWAL" | "DEPOSIT" | "EXPENSE"
+export type CashMovementNature = "INCOME" | "OUTCOME"
+
+/**
+ * Nature obrigatória por tipo. DEPOSIT aceita as duas (depósito/abertura =
+ * INCOME; ajuste_manual de retirada = OUTCOME). Os demais têm nature fixa —
+ * gravar SALE como OUTCOME (ou WITHDRAWAL como INCOME) é bug de dados.
+ */
+const REQUIRED_NATURE: Record<CashMovementType, CashMovementNature | null> = {
+  SALE: "INCOME",
+  WITHDRAWAL: "OUTCOME",
+  EXPENSE: "OUTCOME",
+  DEPOSIT: null, // ambos (ver acima)
+}
+
+export interface WriteCashMovementInput {
+  tenantId: string
+  cashSessionId: string
+  type: CashMovementType
+  nature: CashMovementNature
+  /** Valor em centavos inteiros (o writer converte para Decimal). */
+  amountCents: number
+  createdByUserId: string
+  description: string
+  paymentMethod?: string | null
+  paymentMethodId?: string | null
+  referenceType?: string | null
+  referenceId?: string | null
+}
+
+/**
+ * Escritor ÚNICO de CashMovement. Antes o shape era remontado à mão em ~14
+ * lugares (sale/cashier/financial/stock/service-order/operation/provider-
+ * commission), e foi assim que um DEPOSIT ganhou nature OUTCOME por engano
+ * (bug do fechamento, #369). Aqui o invariante type↔nature é validado uma vez,
+ * e a conversão centavos→Decimal fica num lugar só.
+ *
+ * @throws {TRPCError} INTERNAL_SERVER_ERROR se o par type/nature for inválido.
+ */
+export async function writeCashMovement(
+  tx: Prisma.TransactionClient,
+  input: WriteCashMovementInput,
+): Promise<{ id: string }> {
+  const required = REQUIRED_NATURE[input.type]
+  if (required !== null && input.nature !== required) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `CashMovement inválido: ${input.type} exige nature=${required}, recebeu ${input.nature}.`,
+    })
+  }
+  return tx.cashMovement.create({
+    data: {
+      tenantId: input.tenantId,
+      cashSessionId: input.cashSessionId,
+      type: input.type,
+      nature: input.nature,
+      amount: new Prisma.Decimal(input.amountCents).div(100),
+      paymentMethod: input.paymentMethod ?? null,
+      paymentMethodId: input.paymentMethodId ?? null,
+      description: input.description,
+      referenceType: input.referenceType ?? null,
+      referenceId: input.referenceId ?? null,
+      createdByUserId: input.createdByUserId,
+    },
+  })
 }
 
 /**

@@ -7,7 +7,10 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
-import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
+import {
+  refundNeedsOpenCashSession,
+  writeCashMovement,
+} from "@/server/services/cash-session.service";
 import { requiresCpf, installmentBelowMinimum } from "@/lib/receiving-rules";
 import {
   claimDraftSaleForFinalize,
@@ -1250,23 +1253,23 @@ export const saleRouter = createTRPCRouter({
         }
 
         if (openSession && payments.length > 0) {
-          await tx.cashMovement.createMany({
-            data: payments.map((payment) => ({
+          // Uma leg de caixa por forma de pagamento. paymentMethodId liga à
+          // PaymentMethod cadastrada (relatórios por forma com taxa real).
+          for (const payment of payments) {
+            await writeCashMovement(tx, {
               tenantId: ctx.tenantId,
               cashSessionId: openSession.id,
-              type: "SALE" as const,
-              amount: centsToPrisma(payment.amount),
-              nature: "INCOME" as const,
+              type: "SALE",
+              nature: "INCOME",
+              amountCents: payment.amount,
               paymentMethod: payment.method,
-              // Liga o movimento à PaymentMethod cadastrada (coluna existia mas
-              // nunca era populada). Habilita relatórios por forma com taxa real.
               paymentMethodId: payment.paymentMethodId ?? null,
               description: `Venda ${saleNumber}`,
               referenceId: sale.id,
               referenceType: "SALE",
               createdByUserId: ctx.session.user.id,
-            })),
-          });
+            });
+          }
         }
 
         // Gera recebíveis de cartão (adquirente + bandeira informados). Cada
@@ -1303,19 +1306,17 @@ export const saleRouter = createTRPCRouter({
         // Downgrade em DINHEIRO: saida do caixa. Paridade Laravel
         // PdvService::registrarDevolucaoDowngrade.
         if (downgradeInCash && openSession) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: openSession.id,
-              type: "WITHDRAWAL",
-              amount: centsToPrisma(refundDueCents),
-              nature: "OUTCOME",
-              paymentMethod: "dinheiro",
-              description: `Devolucao downgrade venda ${saleNumber}`,
-              referenceId: sale.id,
-              referenceType: "SALE_DOWNGRADE",
-              createdByUserId: ctx.session.user.id,
-            },
+          await writeCashMovement(tx, {
+            tenantId: ctx.tenantId,
+            cashSessionId: openSession.id,
+            type: "WITHDRAWAL",
+            nature: "OUTCOME",
+            amountCents: refundDueCents,
+            paymentMethod: "dinheiro",
+            description: `Devolucao downgrade venda ${saleNumber}`,
+            referenceId: sale.id,
+            referenceType: "SALE_DOWNGRADE",
+            createdByUserId: ctx.session.user.id,
           });
         }
 
@@ -2010,21 +2011,19 @@ export const saleRouter = createTRPCRouter({
         // (refundedCents), nao o total da venda — paridade Laravel estornarParcial.
         // refundSession ja foi validado acima (refundedCents > 0 => caixa aberto).
         if (refundSession) {
-          await tx.cashMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              cashSessionId: refundSession.id,
-              type: "WITHDRAWAL",
-              amount: centsToPrisma(refundedCents),
-              nature: "OUTCOME",
-              paymentMethod: null,
-              description: isPartial
-                ? `Estorno parcial venda ${sale.number}`
-                : `Estorno venda ${sale.number}`,
-              referenceId: sale.id,
-              referenceType: "SALE_REFUND",
-              createdByUserId: ctx.session.user.id,
-            },
+          await writeCashMovement(tx, {
+            tenantId: ctx.tenantId,
+            cashSessionId: refundSession.id,
+            type: "WITHDRAWAL",
+            nature: "OUTCOME",
+            amountCents: refundedCents,
+            paymentMethod: null,
+            description: isPartial
+              ? `Estorno parcial venda ${sale.number}`
+              : `Estorno venda ${sale.number}`,
+            referenceId: sale.id,
+            referenceType: "SALE_REFUND",
+            createdByUserId: ctx.session.user.id,
           });
         }
 
