@@ -1,34 +1,35 @@
+import { addMonthsSafe } from "@/lib/date/add-months-safe"
+
 /**
- * Proportional division with rounding correction (dízima).
- * All but last installment have identical amount.
- * Last installment absorbs any rounding remainder.
- * Sum always equals totalAmount exactly.
+ * Divisão de um total em N parcelas, em CENTAVOS inteiros (sem float).
  *
- * Source: legacy FinanceiroService.gerarParcelasReceber()
+ * Todas as parcelas têm o mesmo valor (floor da divisão); a ÚLTIMA absorve o
+ * resto, então a soma bate exatamente com o total. Vencimentos mensais via
+ * addMonthsSafe (trata 31/jan → 28/fev; o setMonth nativo transbordava).
+ *
+ * Fonte ÚNICA da geração de parcelas: o preview das telas de criar conta e a
+ * persistência em financial.create usam esta função — antes o router fazia o
+ * split inline (floor/centavos) e o preview usava uma cópia em reais com round,
+ * então o que o usuário via podia diferir do que era gravado.
  */
 export function generateInstallments(
-  totalAmount: number,
+  totalCents: number,
   numInstallments: number,
-  firstDueDate: Date
-): Array<{ number: number; amount: number; dueDate: Date }> {
+  firstDueDate: Date,
+): Array<{ number: number; amountCents: number; dueDate: Date }> {
   if (numInstallments < 1) throw new Error("Mínimo 1 parcela")
-  if (totalAmount <= 0) throw new Error("Valor total deve ser positivo")
+  if (totalCents <= 0) throw new Error("Valor total deve ser positivo")
 
-  const installmentAmount = Math.round((totalAmount / numInstallments) * 100) / 100
-  const lastAmount = Math.round((totalAmount - installmentAmount * (numInstallments - 1)) * 100) / 100
+  const baseCents = Math.floor(totalCents / numInstallments)
+  const lastCents = totalCents - baseCents * (numInstallments - 1)
 
-  const result: Array<{ number: number; amount: number; dueDate: Date }> = []
-
+  const result: Array<{ number: number; amountCents: number; dueDate: Date }> = []
   for (let i = 1; i <= numInstallments; i++) {
-    const dueDate = new Date(firstDueDate)
-    dueDate.setMonth(dueDate.getMonth() + (i - 1))
-
     result.push({
       number: i,
-      amount: i === numInstallments ? lastAmount : installmentAmount,
-      dueDate,
+      amountCents: i === numInstallments ? lastCents : baseCents,
+      dueDate: addMonthsSafe(firstDueDate, i - 1),
     })
   }
-
   return result
 }

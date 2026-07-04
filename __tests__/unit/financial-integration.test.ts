@@ -51,26 +51,27 @@ describe("Financial Integration — Listagem", () => {
 
 describe("Financial Integration — Criação manual", () => {
   it("6. create RECEIVABLE with 1 installment — single amount", () => {
+    // Valores em centavos (R$5,00 = 500).
     const parcelas = generateInstallments(500, 1, new Date("2026-06-15"))
     expect(parcelas).toHaveLength(1)
-    expect(parcelas[0]!.amount).toBe(500)
+    expect(parcelas[0]!.amountCents).toBe(500)
   })
 
   it("7. create RECEIVABLE with 3 installments — exact division R$300", () => {
-    const parcelas = generateInstallments(300, 3, new Date("2026-06-01"))
+    const parcelas = generateInstallments(30000, 3, new Date("2026-06-01"))
     expect(parcelas).toHaveLength(3)
-    expect(parcelas[0]!.amount).toBe(100)
-    expect(parcelas[1]!.amount).toBe(100)
-    expect(parcelas[2]!.amount).toBe(100)
+    expect(parcelas[0]!.amountCents).toBe(10000)
+    expect(parcelas[1]!.amountCents).toBe(10000)
+    expect(parcelas[2]!.amountCents).toBe(10000)
   })
 
   it("8. create with dízima R$100/3 — last absorbs remainder", () => {
-    const parcelas = generateInstallments(100, 3, new Date("2026-06-01"))
-    expect(parcelas[0]!.amount).toBe(33.33)
-    expect(parcelas[1]!.amount).toBe(33.33)
-    expect(parcelas[2]!.amount).toBe(33.34)
-    const sum = parcelas.reduce((s, p) => s + p.amount, 0)
-    expect(Math.round(sum * 100) / 100).toBe(100)
+    const parcelas = generateInstallments(10000, 3, new Date("2026-06-01"))
+    expect(parcelas[0]!.amountCents).toBe(3333)
+    expect(parcelas[1]!.amountCents).toBe(3333)
+    expect(parcelas[2]!.amountCents).toBe(3334)
+    const sum = parcelas.reduce((s, p) => s + p.amountCents, 0)
+    expect(sum).toBe(10000)
   })
 
   it("9. operator cannot create PAYABLE — RBAC blocks", () => {
