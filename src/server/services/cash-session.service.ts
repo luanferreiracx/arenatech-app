@@ -1,6 +1,12 @@
 import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 
+/** Decimal (reais) → centavos inteiros. */
+function decimalToCents(v: Prisma.Decimal | null | undefined): number {
+  if (v == null) return 0
+  return Math.round(Number(v) * 100)
+}
+
 /**
  * Regra de negocio (auditoria 2026-06-26, P2-1): um estorno com valor > 0 gera
  * uma saida (WITHDRAWAL) na gaveta, entao EXIGE caixa aberto. Sem isso a saida
@@ -26,33 +32,45 @@ export function signedDepositCents(amountCents: number, nature: string): number 
 }
 
 /**
- * Calculate the current balance for a cash session.
- * Formula: initialBalance + sum(INCOME amounts) - sum(OUTCOME amounts)
+ * Formas de pagamento que movimentam a GAVETA física de dinheiro. Só estas
+ * entram no caixa esperado: dinheiro (venda/sangria/suprimento em espécie) e
+ * ajuste_manual (correção deliberada da gaveta pelo gerente). Cartão/PIX/DePix
+ * não passam pela gaveta — uma despesa paga no cartão NÃO reduz o dinheiro
+ * contado no fechamento.
  */
-export async function calculateSessionBalance(
-  tx: PrismaClient,
-  cashSessionId: string
-): Promise<number> {
-  const session = await tx.cashSession.findUniqueOrThrow({
-    where: { id: cashSessionId },
-    select: { initialBalance: true },
-  })
+const CASH_DRAWER_METHODS = new Set(["dinheiro", "ajuste_manual"])
 
-  const incomeResult = await tx.cashMovement.aggregate({
-    where: { cashSessionId, nature: "INCOME" },
-    _sum: { amount: true },
-  })
+export interface CashDrawerMovement {
+  nature: string
+  amountCents: number
+  /** null = movimento de abertura (o valor já entra via openingCents). */
+  paymentMethod: string | null
+}
 
-  const outcomeResult = await tx.cashMovement.aggregate({
-    where: { cashSessionId, nature: "OUTCOME" },
-    _sum: { amount: true },
-  })
-
-  const initial = Number(session.initialBalance)
-  const income = Number(incomeResult._sum.amount ?? 0)
-  const outcome = Number(outcomeResult._sum.amount ?? 0)
-
-  return Math.round((initial + income - outcome) * 100) / 100
+/**
+ * Dinheiro ESPERADO na gaveta ao fechar, em centavos. Fonte ÚNICA da conferência
+ * de caixa — usada pelo fechamento manual (buildSummary), pelo forçado e pelo
+ * automático, que antes divergiam:
+ *   - buildSummary somava TODA despesa (mesmo paga no cartão) contra o dinheiro;
+ *   - calculateSessionBalance (force/auto) somava INCOME−OUTCOME de QUALQUER
+ *     forma, então o mesmo caixa fechado manual × forçado dava saldos diferentes.
+ *
+ * Regra correta: abertura + (INCOME − OUTCOME) apenas dos movimentos que tocam
+ * a gaveta (CASH_DRAWER_METHODS). O movimento de abertura (paymentMethod null)
+ * já está em openingCents; os demais null (se houver) ficam de fora por não
+ * serem dinheiro em espécie.
+ */
+export function computeCashDrawerCents(
+  openingCents: number,
+  movements: CashDrawerMovement[],
+): number {
+  let drawer = openingCents
+  for (const m of movements) {
+    if (m.paymentMethod === null) continue // abertura já contabilizada
+    if (!CASH_DRAWER_METHODS.has(m.paymentMethod)) continue // não é dinheiro
+    drawer += m.nature === "OUTCOME" ? -m.amountCents : m.amountCents
+  }
+  return drawer
 }
 
 /**
@@ -118,35 +136,6 @@ export async function getPaymentMethodSummary(
   }))
 }
 
-/**
- * Close a session: calculate balance, compute difference, set close fields.
- */
-export async function closeSession(
-  tx: PrismaClient,
-  sessionId: string,
-  declaredBalance: number,
-  closingNote: string | null,
-  closedByUserId: string,
-  closeType: "MANUAL" | "AUTOMATIC"
-): Promise<void> {
-  const calculatedBalance = await calculateSessionBalance(tx, sessionId)
-  const difference = Math.round((declaredBalance - calculatedBalance) * 100) / 100
-
-  await tx.cashSession.update({
-    where: { id: sessionId },
-    data: {
-      calculatedBalance: new Prisma.Decimal(calculatedBalance),
-      declaredBalance: new Prisma.Decimal(declaredBalance),
-      difference: new Prisma.Decimal(difference),
-      closingNote,
-      closeType,
-      closedByUserId,
-      closedAt: new Date(),
-      verified: difference === 0 && closeType === "MANUAL", // no difference = auto-verified
-    },
-  })
-}
-
 export interface AutoCloseResult {
   closedCount: number
   sessions: Array<{ id: string; userId: string; hoursOpen: number }>
@@ -168,12 +157,24 @@ export async function autoCloseAbandonedSessions(
       closedAt: null,
       openedAt: { lt: cutoff },
     },
+    include: { movements: true },
   })
 
   const closedSessions: AutoCloseResult["sessions"] = []
 
   for (const session of openSessions) {
-    const calculatedBalance = await calculateSessionBalance(tx, session.id)
+    // Mesmo cálculo do fechamento manual/forçado (dinheiro na gaveta) — fonte
+    // única computeCashDrawerCents. Antes usava calculateSessionBalance
+    // (INCOME−OUTCOME de qualquer forma), divergindo do manual.
+    const calculatedCents = computeCashDrawerCents(
+      decimalToCents(session.initialBalance),
+      session.movements.map((m) => ({
+        nature: m.nature,
+        amountCents: decimalToCents(m.amount),
+        paymentMethod: m.paymentMethod,
+      })),
+    )
+    const calculatedBalance = calculatedCents / 100
     const hoursOpen = Math.round((Date.now() - session.openedAt.getTime()) / (1000 * 60 * 60))
 
     await tx.cashSession.update({
