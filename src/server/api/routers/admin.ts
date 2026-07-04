@@ -866,6 +866,18 @@ export const adminRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withAdmin(async (tx) => {
+        // Tenant.plan é uma String solta (não FK): deletar um plano em uso
+        // deixaria o tenant com plano órfão e o gating cairia para wallet-only
+        // silenciosamente. Bloqueia enquanto houver tenant no plano.
+        const tenantsUsingPlan = await tx.tenant.count({
+          where: { plan: input.id },
+        });
+        if (tenantsUsingPlan > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Plano em uso por ${tenantsUsingPlan} tenant(s). Migre-os para outro plano antes de excluir.`,
+          });
+        }
         await tx.plan.delete({ where: { id: input.id } });
         return { success: true };
       });
