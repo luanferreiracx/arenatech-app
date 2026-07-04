@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
+import { TRPCError } from "@trpc/server"
 import {
   buildPaymentSignature,
+  claimDraftSaleForFinalize,
   isSameFinalizeRequest,
 } from "@/server/services/finalize-idempotency.service"
 
@@ -111,5 +113,38 @@ describe("isSameFinalizeRequest", () => {
         { payments: [{ method: "pix", amount: 100 }] },
       ),
     ).toBe(false)
+  })
+})
+
+describe("claimDraftSaleForFinalize", () => {
+  function makeTx(count: number) {
+    return {
+      sale: {
+        updateMany: vi.fn().mockResolvedValue({ count }),
+      },
+    }
+  }
+
+  it("marca DRAFT→COMPLETED via compare-and-set quando ainda em rascunho", async () => {
+    const tx = makeTx(1)
+    await expect(claimDraftSaleForFinalize(tx, "sale-1")).resolves.toBeUndefined()
+    expect(tx.sale.updateMany).toHaveBeenCalledWith({
+      where: { id: "sale-1", status: "DRAFT" },
+      data: { status: "COMPLETED" },
+    })
+  })
+
+  it("aborta com CONFLICT quando outra finalização já reivindicou a venda (count=0)", async () => {
+    const tx = makeTx(0)
+    await expect(claimDraftSaleForFinalize(tx, "sale-1")).rejects.toMatchObject({
+      code: "CONFLICT",
+    })
+  })
+
+  it("o erro de corrida é um TRPCError (não vaza como erro genérico)", async () => {
+    const tx = makeTx(0)
+    await expect(claimDraftSaleForFinalize(tx, "sale-1")).rejects.toBeInstanceOf(
+      TRPCError,
+    )
   })
 })

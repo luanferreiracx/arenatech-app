@@ -9,7 +9,10 @@ import { createOsServiceProviderPayable } from "@/server/services/os-service-pro
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import { refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { requiresCpf, installmentBelowMinimum } from "@/lib/receiving-rules";
-import { isSameFinalizeRequest } from "@/server/services/finalize-idempotency.service";
+import {
+  claimDraftSaleForFinalize,
+  isSameFinalizeRequest,
+} from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
 import {
   addSaleItemSchema,
@@ -843,6 +846,11 @@ export const saleRouter = createTRPCRouter({
             message: "Venda nao encontrada ou nao esta em rascunho",
           });
         }
+
+        // Claim atômico do rascunho antes de qualquer write de dinheiro/estoque.
+        // Fecha a janela de duplo-finalize concorrente (botão manual +
+        // auto-finalize por SSE/polling). Ver claimDraftSaleForFinalize.
+        await claimDraftSaleForFinalize(tx, input.saleId);
 
         // Pagamento de OS e checkout puro (sem sale_items — o total vem da OS).
         // Para vendas normais, carrinho vazio e erro.

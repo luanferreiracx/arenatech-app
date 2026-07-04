@@ -14,6 +14,8 @@
  * comparáveis. Funções puras, em centavos, testáveis sem banco.
  */
 
+import { TRPCError } from "@trpc/server";
+
 export interface FinalizePayment {
   method: string;
   /** Valor da mercadoria desta forma de pagamento, em centavos. */
@@ -89,4 +91,45 @@ export function isSameFinalizeRequest(
     incoming.refundDueMethod ?? null,
   );
   return recordedSignature === incomingSignature;
+}
+
+/** Subconjunto do client Prisma que o claim precisa (testável sem banco). */
+export interface SaleClaimTx {
+  sale: {
+    updateMany: (args: {
+      where: { id: string; status: "DRAFT" };
+      data: { status: "COMPLETED" };
+    }) => Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Claim atômico do rascunho antes de finalizar (compare-and-set DRAFT→COMPLETED).
+ *
+ * Fecha a janela de duplo-finalize concorrente: o botão manual e o auto-finalize
+ * (SSE/polling) podem disparar em paralelo e, sob READ COMMITTED, ambos leem
+ * DRAFT. Sem este claim, vendas com estoque folgado ou de pagamento de OS (que
+ * não têm o CAS de estoque como rede) gravariam caixa/recebível/comissão em
+ * dobro. O perdedor da corrida vê `count !== 1` e aborta antes de qualquer write
+ * de dinheiro. Espelha o CAS de status que `refund` já usa.
+ *
+ * Deve rodar dentro da transação do finalize; o update terminal preenche número
+ * e demais campos calculados sobre a mesma linha já marcada COMPLETED.
+ *
+ * @throws {TRPCError} CONFLICT quando a venda não estava mais em DRAFT.
+ */
+export async function claimDraftSaleForFinalize(
+  tx: SaleClaimTx,
+  saleId: string,
+): Promise<void> {
+  const claim = await tx.sale.updateMany({
+    where: { id: saleId, status: "DRAFT" },
+    data: { status: "COMPLETED" },
+  });
+  if (claim.count !== 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "Esta venda já está sendo finalizada.",
+    });
+  }
 }
