@@ -166,9 +166,12 @@ export async function sendCloudTemplate(
       logger.error("WhatsApp Cloud template failed", { to: normalized, templateName, error });
       return { success: false, error, rawResponse: json };
     }
-    return { success: true, messageId: json.messages?.[0]?.id, rawResponse: json };
+    const messageId = json.messages?.[0]?.id;
+    logger.info("WhatsApp Cloud template sent", { to: normalized, templateName, messageId });
+    return { success: true, messageId, rawResponse: json };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+    logger.error("WhatsApp Cloud template exception", { to: normalized, templateName, error });
     return { success: false, error };
   }
 }
