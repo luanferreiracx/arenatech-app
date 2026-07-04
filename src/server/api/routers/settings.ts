@@ -899,6 +899,7 @@ export const settingsRouter = createTRPCRouter({
       defaultPolicyNonDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]).optional(),
       minInstallmentAmount: z.number().int().min(0).optional(),
       requireCpfAbove: z.number().int().min(0).optional(),
+      maxDiscountPercentNonAdmin: z.number().int().min(0).max(100).nullable().optional(),
       autoCloseTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
       monthlySalesGoal: z.number().int().min(0).nullable().optional(),
       defaultDasRate: z.number().min(0).max(100).nullable().optional(),
