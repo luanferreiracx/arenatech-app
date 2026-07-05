@@ -43,6 +43,7 @@ import { FormSection } from "@/components/domain/forms/form-section";
 import { LoadingState } from "@/components/domain/loading-state";
 import { CpfInput } from "@/components/inputs/cpf-input";
 import { PhoneInput } from "@/components/inputs/phone-input";
+import { SubscriptionPanel } from "./subscription-panel";
 import { toast } from "@/lib/toast";
 import {
   createTenantUserSchema,
@@ -107,7 +108,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
 
   const tenantQuery = useQuery(trpc.admin.getTenant.queryOptions({ id: tenantId }));
-  const plansQuery = useQuery(trpc.admin.listPlans.queryOptions({ status: "ACTIVE" }));
   const updateTenantMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
   const createUserMutation = useMutation(trpc.admin.createTenantUser.mutationOptions());
   const updateUserMutation = useMutation(trpc.admin.updateTenantUser.mutationOptions());
@@ -116,12 +116,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const resetTwoFactorMutation = useMutation(trpc.admin.resetTenantUserTwoFactor.mutationOptions());
 
   const tenant = tenantQuery.data;
-  const walletOnlyPlans = plansQuery.data?.filter(
-    (plan) => plan.modules.length === 1 && plan.modules[0] === "wallet",
-  ) ?? [];
-  const hasCurrentPlanInOptions = tenant?.plan
-    ? walletOnlyPlans.some((plan) => plan.id === tenant.plan)
-    : true;
 
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
@@ -154,7 +148,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     },
   });
   const tenantStatus = useWatch({ control: tenantForm.control, name: "status" });
-  const tenantPlan = useWatch({ control: tenantForm.control, name: "plan" });
   const tenantApiAccess = useWatch({ control: tenantForm.control, name: "apiAccessEnabled" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
@@ -303,26 +296,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Plano</Label>
-              <Select
-                value={tenantPlan ?? "__wallet_only__"}
-                onValueChange={(v) => tenantForm.setValue("plan", v === "__wallet_only__" ? null : v)}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__wallet_only__">Sem plano - somente Carteira DePix</SelectItem>
-                  {tenant?.plan && !hasCurrentPlanInOptions && (
-                    <SelectItem value={tenant.plan}>Plano atual - fora do onboarding wallet-only</SelectItem>
-                  )}
-                  {walletOnlyPlans.map((plan) => (
-                    <SelectItem key={plan.id} value={plan.id}>
-                      {plan.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
           <div className="flex items-start justify-between gap-4 rounded-md border p-3">
             <div className="min-w-0">
@@ -343,6 +316,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           <Button type="button" variant="outline" onClick={() => router.push("/admin/tenants")}>Voltar</Button>
         </div>
       </form>
+
+      <SubscriptionPanel tenantId={tenantId} />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
