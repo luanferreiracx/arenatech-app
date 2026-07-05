@@ -786,6 +786,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: participacao nas vendas da loja (origem STORE) [PR 3/4]
+
+Prestador pode ganhar % sobre as vendas que NAO fez (participacao no faturamento da loja):
+
+- **`collectProviderEvents`** ganha a fonte STORE: quando o contrato tem ao menos uma regra
+  `source=STORE` (`includeStoreSales`), varre as vendas `COMPLETED` do periodo de OUTROS vendedores
+  (`sellerId != prestador` — exclui as proprias, decisao do dono). Reusa o mapeamento de item→evento
+  (helper local `pushSaleEvents`) e o batch de product flags (sem N+1, cobre own+store).
+- Eventos STORE caem no balde `(categoria, escopo, STORE)`, separado das proprias — a regra STORE
+  aplica % sobre o total/lucro acumulado das vendas de outros.
+- **Limitacao conhecida (follow-up):** o estorno automatico so reverte a comissao do vendedor da
+  venda (OWN). Participacao STORE numa venda de outro que seja estornada NAO e revertida
+  automaticamente hoje — anotado para um PR futuro (o admin pode lancar estorno manual).
+- typecheck 0, lint 0. Suite 1558 verde. Cobertura: `computeBucketCommission` (math por balde) +
+  validators STORE (PR1); fluxo STORE ponta-a-ponta validado manualmente.
+
 ### 2026-07-05 — Comissoes: calculo flexivel — base lucro/total + valor fixo/unidade [PR 2/4]
 
 Motor de calculo passa a respeitar os eixos do PR1 (ainda so origem=OWN; STORE vem no PR3):

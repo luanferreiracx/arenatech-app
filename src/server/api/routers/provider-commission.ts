@@ -350,12 +350,16 @@ export const providerCommissionRouter = createTRPCRouter({
           };
         }
 
-        // Collect events: sales and service orders
+        // Coleta eventos: vendas/OS proprias e — se houver regra de participacao —
+        // vendas da loja (de outros). So varre as vendas de outros quando o
+        // contrato tem ao menos uma regra source=STORE (evita scan desnecessario).
+        const hasStoreRule = contract.rules.some((r) => r.source === "STORE");
         const events = await collectProviderEvents(
           tx,
           provider,
           periodStart,
           periodEnd,
+          hasStoreRule,
         );
 
         // Agrupa por (categoria, escopo, ORIGEM) — proprias e loja acumulam separado.
@@ -985,16 +989,17 @@ async function collectProviderEvents(
   provider: { id: string; userId: string; profile: string },
   periodStart: Date,
   periodEnd: Date,
+  includeStoreSales = false,
 ): Promise<ProviderEvent[]> {
   const events: ProviderEvent[] = [];
 
   // ── SALES ──
   // Base (LBC) = (preco_unit − custo_unit) × qtd, apenas custo do produto.
-  // Categoria = Product.isDevice (aparelho/acessorio); escopo = Product.isPremium
-  // (normal/premium). Paridade ComissaoEngine::coletarEventosPrestador (Laravel),
-  // sem deducao fiscal (decisao do dono 2026-07-05).
+  // Categoria = Product.isDevice (aparelho/acessorio); escopo = Product.isPremium.
+  // Coleta vendas PROPRIAS (sellerId = prestador, origem OWN) e — se o contrato
+  // tiver regra de participacao — as vendas da LOJA (de OUTROS, origem STORE).
   try {
-    const sales = await tx.sale.findMany({
+    const ownSales = await tx.sale.findMany({
       where: {
         status: "COMPLETED",
         saleDate: { gte: periodStart, lte: periodEnd },
@@ -1004,17 +1009,33 @@ async function collectProviderEvents(
       include: { items: true },
     });
 
-    // Batch-load product flags (isDevice/isPremium) — evita N+1.
+    // Participacao na loja: vendas de OUTROS vendedores (exclui as proprias —
+    // decisao do dono, evita comissionar a mesma venda 2× na mesma regra).
+    const storeSales = includeStoreSales
+      ? await tx.sale.findMany({
+          where: {
+            status: "COMPLETED",
+            saleDate: { gte: periodStart, lte: periodEnd },
+            sellerId: { not: provider.userId },
+            deletedAt: null,
+          },
+          include: { items: true },
+        })
+      : [];
+
+    // Batch-load product flags (isDevice/isPremium) — evita N+1, cobre ambos.
+    const allSales = [...ownSales, ...storeSales];
     const productIds = Array.from(
       new Set(
-        sales.flatMap((s: { items: Array<{ productId: string }> }) =>
+        allSales.flatMap((s: { items: Array<{ productId: string }> }) =>
           s.items.map((i) => i.productId),
         ) as string[],
       ),
     );
     const productFlags = await loadProductFlags(tx, productIds);
 
-    for (const sale of sales) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pushSaleEvents = (sale: any, source: "OWN" | "STORE") => {
       for (const item of sale.items) {
         // Item estornado (parcial) tem total=0 — nao comissiona. O estorno zera
         // o total do item; ignora-los aqui mantem o re-calculo correto enquanto a
@@ -1023,8 +1044,6 @@ async function collectProviderEvents(
         if (grossNet <= 0) continue;
 
         const unitPrice = decimalToNumber(item.unitPrice);
-        // SaleItem.costPrice e o custo unitario (o codigo antigo lia `unitCost`,
-        // campo inexistente → custo 0 → comissao sobre a receita inteira).
         const unitCost = decimalToNumber(item.costPrice);
         const qty = item.quantity;
         // Duas bases possiveis; a regra do balde escolhe qual usar:
@@ -1035,17 +1054,21 @@ async function collectProviderEvents(
         const flags = productFlags.get(item.productId);
         const category = flags?.isDevice ? "produto_aparelho" : "produto_acessorio";
         const scope = flags?.isPremium ? "premium" : "normal";
+        const label =
+          source === "STORE"
+            ? `Venda #${sale.number} (loja) — ${item.description ?? "Item"}`
+            : `Venda #${sale.number} — ${item.description ?? "Item"}`;
 
         events.push({
-          tipo: "venda",
+          tipo: source === "STORE" ? "venda_loja" : "venda",
           referencia_id: sale.id,
-          referencia_label: `Venda #${sale.number} — ${item.description ?? "Item"}`,
+          referencia_label: label,
           data: sale.saleDate?.toISOString().split("T")[0] ?? sale.createdAt.toISOString().split("T")[0],
           categoria: category,
           escopo: scope,
           category,
           scope,
-          source: "OWN",
+          source,
           base: lbc,
           baseProfit: lbc,
           baseGrossNet: grossNet,
@@ -1059,7 +1082,10 @@ async function collectProviderEvents(
           },
         });
       }
-    }
+    };
+
+    for (const sale of ownSales) pushSaleEvents(sale, "OWN");
+    for (const sale of storeSales) pushSaleEvents(sale, "STORE");
   } catch {
     // Sale table might not exist in test env
   }
