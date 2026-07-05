@@ -18,7 +18,7 @@ import {
   isKnownHost,
   CANONICAL_APP_HOST,
 } from "@/lib/brand-host";
-import { isPathAllowed } from "@/lib/modules";
+import { isRouteAllowedForTenant } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 
 const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
@@ -225,7 +225,7 @@ export const proxy = auth((req) => {
   //  - arena-tech e demais: a lista `modules` já vem resolvida na sessão
   //    (arena-tech tem todos). Rota sem módulo (painel, settings) passa.
   if (activeTenant && !session.user.isSuperAdmin) {
-    if (!isPathAllowed(pathname, activeTenant.modules)) {
+    if (!isRouteAllowedForTenant(pathname, activeTenant)) {
       return NextResponse.redirect(selfUrl("/painel?error=modulo-indisponivel"));
     }
   }
