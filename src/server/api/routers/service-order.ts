@@ -1401,7 +1401,7 @@ export const serviceOrderRouter = createTRPCRouter({
         // Estorno automatico da comissao do Provider interno (tecnico executor e/ou
         // vendedor intermediador) — nao se paga comissao por OS estornada. So gera
         // reversal se a apuracao do mes ja estiver fechada (senao o re-calculo ja
-        // exclui a OS, que passa a REFUNDED). Idempotente por (referencia). (ADR 0056)
+        // exclui a OS, que passa a REFUNDED). Idempotente. (ADR 0056)
         const reversalUserIds = [...new Set([order.technicianId, order.vendorId].filter(Boolean) as string[])];
         for (const providerUserId of reversalUserIds) {
           await createProviderReversalForRefund(tx, ctx.tenantId, {
@@ -1409,7 +1409,7 @@ export const serviceOrderRouter = createTRPCRouter({
             referenceType: "service_order",
             referenceId: order.id,
             factDate: order.paymentDate ?? new Date(),
-            refundedFraction: 1,
+            cumulativeRefundedFraction: 1, // OS e estorno total (nao ha parcial)
             registeredById: ctx.session.user.id,
           });
         }
