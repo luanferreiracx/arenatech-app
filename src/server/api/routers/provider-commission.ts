@@ -256,106 +256,25 @@ export const providerCommissionRouter = createTRPCRouter({
     .input(getProviderDetailSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const provider = await tx.provider.findUnique({
-          where: { id: input.providerId },
-          include: {
-            contracts: {
-              orderBy: { startDate: "desc" },
-              include: {
-                rules: {
-                  orderBy: [{ category: "asc" }, { scope: "asc" }, { rangeMin: "asc" }],
-                },
-              },
-            },
-          },
+        return buildProviderDetail(tx, input.providerId, input.year, input.month);
+      });
+    }),
+
+  /** Self-service: prestador ve a PROPRIA apuracao (read-only). Resolve o
+   *  providerId a partir do usuario logado — nao expoe dados de outro prestador. */
+  getMyDetail: tenantProcedure
+    .input(z.object({
+      month: z.number().int().min(1).max(12),
+      year: z.number().int().min(2020).max(2100),
+    }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const provider = await tx.provider.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { id: true },
         });
-
-        if (!provider) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
-        }
-
-        // Get user name
-        const users = await withAdmin(async (adminTx) => {
-          return adminTx.user.findMany({
-            where: { id: provider.userId },
-            select: { id: true, name: true },
-          });
-        });
-        const userName = users[0]?.name ?? "Desconhecido";
-
-        // Find current contract
-        const now = new Date();
-        const currentContract = provider.contracts.find((c) => {
-          const start = new Date(c.startDate);
-          const end = c.endDate ? new Date(c.endDate) : null;
-          return start <= now && (!end || end >= now);
-        }) ?? provider.contracts[0] ?? null;
-
-        // Get apuracao for this month
-        const apuracao = await tx.providerApuracao.findFirst({
-          where: {
-            providerId: input.providerId,
-            year: input.year,
-            month: input.month,
-          },
-        });
-
-        // Get reversals for the month
-        const startOfMonth = new Date(input.year, input.month - 1, 1);
-        const endOfMonth = new Date(input.year, input.month, 0);
-        const reversals = await tx.providerReversal.findMany({
-          where: {
-            providerId: input.providerId,
-            factDate: { gte: startOfMonth, lte: endOfMonth },
-          },
-          orderBy: { factDate: "desc" },
-        });
-
-        // Get uncovered days
-        const uncoveredDays = await tx.providerUncoveredDay.findMany({
-          where: {
-            providerId: input.providerId,
-            day: { gte: startOfMonth, lte: endOfMonth },
-          },
-          orderBy: { day: "asc" },
-        });
-
-        return {
-          provider: {
-            ...provider,
-            userName,
-          },
-          currentContract: currentContract
-            ? {
-                ...currentContract,
-                allowanceCap: decimalToNumber(currentContract.allowanceCap),
-                dailyMeal: decimalToNumber(currentContract.dailyMeal),
-                dailyTransport: decimalToNumber(currentContract.dailyTransport),
-                monthlyCellphone: decimalToNumber(currentContract.monthlyCellphone),
-                rules: currentContract.rules.map((r) => ({
-                  ...r,
-                  rangeMin: decimalToNumber(r.rangeMin),
-                  rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax) : null,
-                  rate: decimalToNumber(r.rate),
-                })),
-              }
-            : null,
-          apuracao: apuracao
-            ? {
-                ...apuracao,
-                grossCommission: decimalToNumber(apuracao.grossCommission),
-                totalReversals: decimalToNumber(apuracao.totalReversals),
-                totalAllowance: decimalToNumber(apuracao.totalAllowance),
-                capReduction: decimalToNumber(apuracao.capReduction),
-                netAmount: decimalToNumber(apuracao.netAmount),
-              }
-            : null,
-          reversals: reversals.map((r) => ({
-            ...r,
-            amount: decimalToNumber(r.amount),
-          })),
-          uncoveredDays,
-        };
+        if (!provider) return null; // usuario nao e prestador — a UI mostra empty state
+        return buildProviderDetail(tx, provider.id, input.year, input.month);
       });
     }),
 
@@ -777,6 +696,60 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 
+  /** Self-service: prestador marca/desmarca um dia nao coberto SEU. Resolve o
+   *  providerId pelo usuario logado — nao permite mexer no dia de outro prestador.
+   *  Bloqueado se a apuracao do mes ja estiver fechada. */
+  toggleMyUncoveredDay: tenantProcedure
+    .input(z.object({
+      day: z.string().min(1, "Data obrigatoria"),
+      reason: z.string().max(200).optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const provider = await tx.provider.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { id: true },
+        });
+        if (!provider) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Voce nao e um prestador." });
+        }
+
+        const day = new Date(input.day);
+
+        // Nao permite editar dia de mes com apuracao ja fechada.
+        const closed = await tx.providerApuracao.findFirst({
+          where: {
+            providerId: provider.id,
+            year: day.getFullYear(),
+            month: day.getMonth() + 1,
+            status: { not: "OPEN" },
+          },
+          select: { id: true },
+        });
+        if (closed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao do mes ja fechada." });
+        }
+
+        const existing = await tx.providerUncoveredDay.findFirst({
+          where: { providerId: provider.id, day },
+        });
+        if (existing) {
+          await tx.providerUncoveredDay.delete({ where: { id: existing.id } });
+          return { action: "removed" as const };
+        }
+
+        await tx.providerUncoveredDay.create({
+          data: {
+            tenantId: ctx.tenantId,
+            providerId: provider.id,
+            day,
+            reason: input.reason ?? null,
+          },
+        });
+        return { action: "added" as const };
+      });
+    }),
+
   // ═══════════════════════════════════════
   // AVAILABLE USERS (for create provider)
   // ═══════════════════════════════════════
@@ -806,6 +779,173 @@ export const providerCommissionRouter = createTRPCRouter({
       });
     }),
 });
+
+// ═══════════════════════════════════════
+// Detail builder (shared por getDetail e getMyDetail)
+// ═══════════════════════════════════════
+
+type DetailRule = {
+  id: string;
+  category: string;
+  scope: string;
+  rangeMin: number;
+  rangeMax: number | null;
+  rate: number;
+};
+type DetailReversal = {
+  id: string;
+  factDate: Date;
+  type: string;
+  amount: number;
+  description: string | null;
+  apuracaoId: string | null;
+};
+type DetailUncoveredDay = { id: string; day: Date; reason: string | null };
+type DetailContract = {
+  id: string;
+  startDate: Date;
+  endDate: Date | null;
+  allowanceCap: number;
+  dailyMeal: number;
+  dailyTransport: number;
+  monthlyCellphone: number;
+  notes: string | null;
+  rules: DetailRule[];
+};
+type DetailApuracao = {
+  id: string;
+  status: string;
+  year: number;
+  month: number;
+  grossCommission: number;
+  totalReversals: number;
+  totalAllowance: number;
+  capReduction: number;
+  netAmount: number;
+  memoryJson: unknown;
+};
+type ProviderDetail = {
+  provider: {
+    id: string;
+    userId: string;
+    userName: string;
+    profile: string;
+    bondType: string;
+    razaoSocial: string | null;
+    cnpjMei: string | null;
+    active: boolean;
+  };
+  currentContract: DetailContract | null;
+  apuracao: DetailApuracao | null;
+  reversals: DetailReversal[];
+  uncoveredDays: DetailUncoveredDay[];
+};
+
+/**
+ * Monta a ficha de apuracao de um prestador para um mes: dados, contrato
+ * vigente + regras, apuracao, estornos e dias nao cobertos. Compartilhado pela
+ * visao admin (`getDetail`, por providerId) e pela self-service (`getMyDetail`,
+ * resolvido pelo usuario logado).
+ */
+async function buildProviderDetail(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
+  providerId: string,
+  year: number,
+  month: number,
+): Promise<ProviderDetail> {
+  const provider = await tx.provider.findUnique({
+    where: { id: providerId },
+    include: {
+      contracts: {
+        orderBy: { startDate: "desc" },
+        include: {
+          rules: {
+            orderBy: [{ category: "asc" }, { scope: "asc" }, { rangeMin: "asc" }],
+          },
+        },
+      },
+    },
+  });
+
+  if (!provider) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
+  }
+
+  const users = await withAdmin(async (adminTx) => {
+    return adminTx.user.findMany({
+      where: { id: provider.userId },
+      select: { id: true, name: true },
+    });
+  });
+  const userName = users[0]?.name ?? "Desconhecido";
+
+  const now = new Date();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currentContract = provider.contracts.find((c: any) => {
+    const start = new Date(c.startDate);
+    const end = c.endDate ? new Date(c.endDate) : null;
+    return start <= now && (!end || end >= now);
+  }) ?? provider.contracts[0] ?? null;
+
+  const apuracao = await tx.providerApuracao.findFirst({
+    where: { providerId, year, month },
+  });
+
+  const startOfMonth = new Date(year, month - 1, 1);
+  const endOfMonth = new Date(year, month, 0);
+  const reversals = await tx.providerReversal.findMany({
+    where: { providerId, factDate: { gte: startOfMonth, lte: endOfMonth } },
+    orderBy: { factDate: "desc" },
+  });
+
+  const uncoveredDays = await tx.providerUncoveredDay.findMany({
+    where: { providerId, day: { gte: startOfMonth, lte: endOfMonth } },
+    orderBy: { day: "asc" },
+  });
+
+  return {
+    provider: { ...provider, userName },
+    currentContract: currentContract
+      ? {
+          ...currentContract,
+          allowanceCap: decimalToNumber(currentContract.allowanceCap),
+          dailyMeal: decimalToNumber(currentContract.dailyMeal),
+          dailyTransport: decimalToNumber(currentContract.dailyTransport),
+          monthlyCellphone: decimalToNumber(currentContract.monthlyCellphone),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          rules: currentContract.rules.map((r: any): DetailRule => ({
+            id: r.id,
+            category: r.category,
+            scope: r.scope,
+            rangeMin: decimalToNumber(r.rangeMin),
+            rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax) : null,
+            rate: decimalToNumber(r.rate),
+          })),
+        }
+      : null,
+    apuracao: apuracao
+      ? {
+          ...apuracao,
+          grossCommission: decimalToNumber(apuracao.grossCommission),
+          totalReversals: decimalToNumber(apuracao.totalReversals),
+          totalAllowance: decimalToNumber(apuracao.totalAllowance),
+          capReduction: decimalToNumber(apuracao.capReduction),
+          netAmount: decimalToNumber(apuracao.netAmount),
+        }
+      : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reversals: reversals.map((r: any): DetailReversal => ({
+      id: r.id,
+      factDate: r.factDate,
+      type: r.type,
+      amount: decimalToNumber(r.amount),
+      description: r.description ?? null,
+      apuracaoId: r.apuracaoId ?? null,
+    })),
+    uncoveredDays: uncoveredDays as DetailUncoveredDay[],
+  };
+}
 
 // ═══════════════════════════════════════
 // Event collection helpers

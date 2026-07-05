@@ -136,6 +136,7 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
 
   // commissions
   ["/commissions", "commissions"],
+  ["/my-commission", "commissions"],
 
   // partner-api ANTES de /settings (mais específico vence). Módulo próprio com
   // override por-tenant (apiAccessEnabled) — ver allowedModulesForTenant.
