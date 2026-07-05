@@ -9,7 +9,7 @@
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
 **Ultima atualizacao:** 2026-07-05
-**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓, Fase 1 (auditoria) ✓, Fase 2 (billing manual/Subscription) ✓. Próximo: **Fase 3 — UI admin** (painel de ativação + editor de módulos por plano).
+**Épico Tenants + Planos + Ativação CONCLUÍDO** (Fases 0–3, PRs #380/#381/#383/#385). Modelo: tenant nasce NO-KYC sem plano (piso wallet+depix-ops); a ativação pelo superadmin = atribuir plano ativo → plano define os módulos (mesmo sem CNPJ). Billing MANUAL (Subscription 1:1, sem gateway): ativar/marcar pago/suspender. UI no detalhe do tenant (card Assinatura). Cobrança automática (DePix/PIX) fica como fase futura.
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/os-technician-provider-validation`
@@ -17,6 +17,16 @@
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-07-05 — Tenants/Planos: UI admin de ativação (Fase 3 de 4 — FECHA O ÉPICO)
+Liga a UI de admin ao billing manual — PR #385. No detalhe do tenant (`/admin/tenants/[id]`), card **"Assinatura"** novo (`subscription-panel.tsx`):
+- Estado atual: situação (badge), ciclo, valor, vencimento.
+- **Ativar/trocar plano:** escolhe plano ATIVO (qualquer, não só wallet) + ciclo + valor opcional (branco = preço do plano). Ativar aponta `Tenant.plan` e libera os módulos (Fase 0).
+- **Marcar pago** (empurra vencimento) e **suspender/cancelar** (corta login), com confirmação.
+- **Removido o Select de plano cru** do form do tenant (herança do onboarding que só listava planos wallet-only) — plano agora se define só pela ativação (fonte única). Status/nome/API seguem no form cru.
+- Editor de módulos por plano (`/admin/plans`): já estava claro (checkboxes + `MODULE_LABELS`) — não inflei escopo.
+- Validação: typecheck (0), lint (0), build OK, CI verde. UI não verificada com dados reais (dev local com banco divergente — ver Fase 2); build de produção compila os componentes.
+- **Roadmap futuro (não feito, decisão do dono):** cobrança AUTOMÁTICA (gerar cobrança DePix/PIX da mensalidade, webhook confirma, renova/suspende sozinho) — reaproveita a infra DePix. Hoje é 100% manual.
 
 ### 2026-07-05 — Tenants/Planos: billing manual / Subscription (Fase 2 de 4)
 Modela a assinatura de billing **manual** (sem gateway) — PR #383. Decisões travadas com o dono: valor = **snapshot** do preço na ativação (sobrescrevível); **1:1** tenant↔subscription (evolui in-place).
