@@ -14,6 +14,24 @@ export const planModulesSchema = z.array(moduleKeyEnum).default([]);
 export const preRegistrationStatusEnum = z.enum(["PENDING", "APPROVED", "REJECTED"]);
 export type PreRegistrationStatus = z.infer<typeof preRegistrationStatusEnum>;
 
+// Espelha o enum TenantStatus do schema Prisma (tenant.prisma).
+export const tenantStatusEnum = z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]);
+export type TenantStatus = z.infer<typeof tenantStatusEnum>;
+
+export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
+  PENDING: "Pendente",
+  ACTIVE: "Ativo",
+  SUSPENDED: "Suspenso",
+  CANCELLED: "Cancelado",
+};
+
+export const TENANT_STATUS_VARIANT: Record<TenantStatus, "default" | "success" | "warning" | "destructive" | "info"> = {
+  PENDING: "warning",
+  ACTIVE: "success",
+  SUSPENDED: "warning",
+  CANCELLED: "destructive",
+};
+
 export const PLAN_STATUS_LABELS: Record<string, string> = {
   ACTIVE: "Ativo",
   INACTIVE: "Inativo",

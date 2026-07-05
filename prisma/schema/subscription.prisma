@@ -1,0 +1,46 @@
+/// Assinatura de billing MANUAL de um tenant (Fase 2 — sem gateway).
+///
+/// Uma linha por tenant (1:1, evolui in-place — trocar de plano atualiza a mesma
+/// linha). A fonte da verdade do ACESSO continua sendo `Tenant.status` + `Tenant.plan`
+/// (o gating lê deles); a Subscription é o registro de billing. Suspender a
+/// assinatura seta `Tenant.status = SUSPENDED` (que já corta o login) em conjunto.
+///
+/// Tabela GLOBAL (sem tenant_id de RLS — a chave é o próprio tenant): só o
+/// superadmin (adminProcedure, bypass RLS) lê/escreve, como `plans`/`addons`.
+/// Sem campos de gateway (asaas/pix/boleto) — cobrança automática é fase futura.
+model Subscription {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @map("tenant_id") @db.Uuid
+  planId   String @map("plan_id") @db.Uuid
+
+  status       SubscriptionStatus @default(ACTIVE)
+  billingCycle BillingCycle       @default(MONTHLY) @map("billing_cycle")
+
+  /// Snapshot do preço na ativação, em centavos. Congela mesmo se o preço do
+  /// plano mudar depois; o superadmin pode sobrescrever na ativação (desconto).
+  amountCents Int @map("amount_cents")
+
+  startedAt        DateTime  @default(now()) @map("started_at")
+  /// Fim do período pago atual (vencimento). "Marcar pago" empurra esta data.
+  currentPeriodEnd DateTime? @map("current_period_end")
+  cancelReason     String?   @map("cancel_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}

@@ -1,26 +1,58 @@
 import { z } from "zod";
 import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
 
-// ── Subscription status ──
+// ── Subscription (billing manual — Fase 2) ──
 
-export const subscriptionStatusEnum = z.enum(["ACTIVE", "TRIAL", "SUSPENDED", "CANCELLED", "EXPIRED"]);
+// Espelha o enum SubscriptionStatus do schema Prisma (subscription.prisma).
+export const subscriptionStatusEnum = z.enum(["ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED"]);
 export type SubscriptionStatus = z.infer<typeof subscriptionStatusEnum>;
 
-export const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+export const billingCycleEnum = z.enum(["MONTHLY", "YEARLY"]);
+export type BillingCycle = z.infer<typeof billingCycleEnum>;
+
+export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
   ACTIVE: "Ativa",
-  TRIAL: "Trial",
+  PAST_DUE: "Vencida",
   SUSPENDED: "Suspensa",
   CANCELLED: "Cancelada",
-  EXPIRED: "Expirada",
 };
 
-export const SUBSCRIPTION_STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
+export const SUBSCRIPTION_STATUS_VARIANT: Record<SubscriptionStatus, "default" | "success" | "warning" | "destructive" | "info"> = {
   ACTIVE: "success",
-  TRIAL: "info",
+  PAST_DUE: "warning",
   SUSPENDED: "warning",
   CANCELLED: "destructive",
-  EXPIRED: "destructive",
 };
+
+export const BILLING_CYCLE_LABELS: Record<BillingCycle, string> = {
+  MONTHLY: "Mensal",
+  YEARLY: "Anual",
+};
+
+// Ativa (ou troca o plano de) um tenant, criando/atualizando a assinatura.
+// amountCents opcional: se ausente, usa o snapshot do preço do plano no ciclo.
+export const activateSubscriptionSchema = z.object({
+  tenantId: z.string().uuid(),
+  planId: z.string().uuid(),
+  billingCycle: billingCycleEnum.default("MONTHLY"),
+  amountCents: z.number().int().min(0).optional(),
+});
+export type ActivateSubscriptionInput = z.infer<typeof activateSubscriptionSchema>;
+
+// Marca a assinatura como paga: empurra o vencimento em 1 ciclo (a partir do
+// vencimento atual, ou de hoje se já vencida/sem vencimento) e reativa o acesso.
+export const markSubscriptionPaidSchema = z.object({
+  tenantId: z.string().uuid(),
+});
+export type MarkSubscriptionPaidInput = z.infer<typeof markSubscriptionPaidSchema>;
+
+// Suspende a assinatura (corta o acesso do tenant) ou cancela definitivamente.
+export const suspendSubscriptionSchema = z.object({
+  tenantId: z.string().uuid(),
+  cancel: z.boolean().default(false),
+  reason: z.string().max(500).optional().nullable(),
+});
+export type SuspendSubscriptionInput = z.infer<typeof suspendSubscriptionSchema>;
 
 // ── Refund status ──
 
