@@ -8,12 +8,16 @@
  * - Gating POR PLANO: a lista de módulos liberados vem de `Plan.features.modules`.
  * - O tenant `arena-tech` tem acesso TOTAL (bypass — não é afetado pela matriz).
  * - Módulo não liberado: some do menu E a rota é bloqueada (redirect /painel).
- * - Por enquanto só `wallet` é liberado para tenants novos; os demais serão
- *   liberados conforme validamos cada módulo.
+ * - Tenant sem plano (NO-KYC = estado inicial): piso `wallet` + `depix-ops`.
+ *   A ativação atribui um plano ativo, que define os módulos (mesmo sem CNPJ).
  *
- * Módulos em ALWAYS_ON estão sempre disponíveis (infra mínima de operação:
- * painel, troca de tenant, sair). Settings é always-on porque um tenant precisa
- * configurar a própria conta independentemente do plano.
+ * Duas dimensões de gating de ROTA (ver `isRouteAllowedForTenant`, usada no proxy):
+ * 1. Módulo/plano — a maioria das rotas casa um prefixo em ROUTE_MODULE_PREFIXES.
+ * 2. Slug — ferramentas internas restritas a um tenant (SLUG_RESTRICTED_ROUTES).
+ *
+ * Rotas sem módulo nem restrição de slug passam livres (painel, troca de tenant).
+ * `/settings/security` é sempre-on (2FA é pré-requisito de saque DePix, não pode
+ * ficar num beco). As demais `/settings/*` são gateadas pelo módulo `settings`.
  */
 
 export const MODULE_KEYS = [
@@ -70,6 +74,26 @@ export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
 
 /** Slug do tenant com acesso total (bypass do gating). */
 export const TOTAL_ACCESS_TENANT_SLUG = "arena-tech";
+
+/**
+ * Rotas restritas a slugs específicos, INDEPENDENTE de módulo/plano. Ferramentas
+ * internas que não pertencem a nenhum módulo comercializável (ex.: o buscador de
+ * iPhones em grupos, só do arena-tech). Sem isto, a rota não casa nenhum prefixo
+ * de módulo → `resolveModuleForPath` retorna null → passaria livre por URL para
+ * qualquer tenant, ainda que o menu a esconda (o menu usa `requiresTenantSlug`,
+ * que não bloqueia a rota). `isRouteAllowedForTenant` fecha esse buraco.
+ */
+const SLUG_RESTRICTED_ROUTES: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["/iphone-hunter", [TOTAL_ACCESS_TENANT_SLUG]],
+];
+
+/** Slugs autorizados para uma rota restrita por slug, ou null se não for restrita. */
+function slugAllowlistForPath(pathname: string): readonly string[] | null {
+  for (const [prefix, slugs] of SLUG_RESTRICTED_ROUTES) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) return slugs;
+  }
+  return null;
+}
 
 /**
  * Módulos liberados por padrão para tenants novos enquanto validamos os demais.
@@ -250,4 +274,22 @@ export function isPathAllowed(
   const mod = resolveModuleForPath(pathname);
   if (mod === null) return true; // rota sem gating de módulo
   return allowedModules.includes(mod);
+}
+
+/**
+ * Autorização de rota do tenant, combinando as duas dimensões de gating:
+ * 1. Restrição por SLUG (ferramentas internas — allowlist explícita de slugs).
+ * 2. Gating por MÓDULO/plano (isPathAllowed).
+ * Uma rota restrita por slug exige que o tenant esteja na allowlist E que o
+ * módulo (se houver) esteja liberado. É a função que o proxy deve usar.
+ */
+export function isRouteAllowedForTenant(
+  pathname: string,
+  tenant: { slug: string | null | undefined; modules: readonly string[] },
+): boolean {
+  const slugAllowlist = slugAllowlistForPath(pathname);
+  if (slugAllowlist && !slugAllowlist.includes(tenant.slug ?? "")) {
+    return false;
+  }
+  return isPathAllowed(pathname, tenant.modules);
 }
