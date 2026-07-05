@@ -39,7 +39,11 @@ import {
 import {
   createTenantSchema,
   listWhatsappLogsSchema,
+  activateSubscriptionSchema,
+  markSubscriptionPaidSchema,
+  suspendSubscriptionSchema,
 } from "@/lib/validators/subscription";
+import { nextPeriodEnd, snapshotAmountCents } from "@/lib/billing/subscription";
 import {
   createAddonSchema,
   updateAddonSchema,
@@ -423,6 +427,191 @@ export const adminRouter = createTRPCRouter({
               : {}),
           },
         });
+        return { success: true };
+      });
+    }),
+
+  // ═══════════════════════════════════════
+  // SUBSCRIPTION (billing manual — Fase 2)
+  // ═══════════════════════════════════════
+
+  getSubscription: adminProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const subscription = await tx.subscription.findUnique({
+          where: { tenantId: input.tenantId },
+        });
+        if (!subscription) return null;
+        return {
+          id: subscription.id,
+          tenantId: subscription.tenantId,
+          planId: subscription.planId,
+          status: subscription.status,
+          billingCycle: subscription.billingCycle,
+          amountCents: subscription.amountCents,
+          startedAt: subscription.startedAt,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelReason: subscription.cancelReason,
+        };
+      });
+    }),
+
+  /**
+   * Ativa (ou troca o plano de) um tenant. Cria/atualiza a assinatura 1:1,
+   * congela o valor (snapshot do preço do plano no ciclo, ou override), aponta
+   * `Tenant.plan` para o plano escolhido e reativa o acesso (`Tenant.status`).
+   */
+  activateSubscription: adminProcedure
+    .input(activateSubscriptionSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const tenant = await tx.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { id: true },
+        });
+        if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant nao encontrado" });
+
+        const plan = await tx.plan.findUnique({
+          where: { id: input.planId },
+          select: { id: true, status: true, monthlyPrice: true, yearlyPrice: true },
+        });
+        if (!plan) throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado nao existe" });
+        if (plan.status !== "ACTIVE") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Plano selecionado esta inativo" });
+        }
+
+        const amountCents =
+          input.amountCents ??
+          snapshotAmountCents({
+            cycle: input.billingCycle,
+            monthlyCents: decimalToCents(plan.monthlyPrice),
+            yearlyCents: plan.yearlyPrice == null ? null : decimalToCents(plan.yearlyPrice),
+          });
+        const periodEnd = nextPeriodEnd({
+          cycle: input.billingCycle,
+          currentPeriodEnd: null,
+          now: new Date(),
+        });
+
+        const subscription = await tx.subscription.upsert({
+          where: { tenantId: input.tenantId },
+          create: {
+            tenantId: input.tenantId,
+            planId: input.planId,
+            status: "ACTIVE",
+            billingCycle: input.billingCycle,
+            amountCents,
+            currentPeriodEnd: periodEnd,
+          },
+          update: {
+            planId: input.planId,
+            status: "ACTIVE",
+            billingCycle: input.billingCycle,
+            amountCents,
+            cancelReason: null,
+          },
+        });
+
+        // O gating lê Tenant.plan/status: apontar pro plano e reativar o acesso.
+        await tx.tenant.update({
+          where: { id: input.tenantId },
+          data: { plan: input.planId, status: "ACTIVE" },
+        });
+
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: "subscription.activate",
+          entity: "subscription",
+          entityId: subscription.id,
+          payload: { planId: input.planId, billingCycle: input.billingCycle, amountCents },
+        });
+
+        return { success: true };
+      });
+    }),
+
+  /**
+   * Marca a assinatura como paga: empurra o vencimento em 1 ciclo e garante o
+   * acesso ativo (status ACTIVE no tenant e na assinatura).
+   */
+  markSubscriptionPaid: adminProcedure
+    .input(markSubscriptionPaidSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const subscription = await tx.subscription.findUnique({
+          where: { tenantId: input.tenantId },
+        });
+        if (!subscription) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tenant sem assinatura ativa" });
+        }
+        if (subscription.status === "CANCELLED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Assinatura cancelada; reative pelo plano" });
+        }
+
+        const periodEnd = nextPeriodEnd({
+          cycle: subscription.billingCycle,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          now: new Date(),
+        });
+
+        await tx.subscription.update({
+          where: { tenantId: input.tenantId },
+          data: { status: "ACTIVE", currentPeriodEnd: periodEnd },
+        });
+        await tx.tenant.update({
+          where: { id: input.tenantId },
+          data: { status: "ACTIVE" },
+        });
+
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: "subscription.markPaid",
+          entity: "subscription",
+          entityId: subscription.id,
+          payload: { currentPeriodEnd: periodEnd.toISOString() },
+        });
+
+        return { success: true, currentPeriodEnd: periodEnd };
+      });
+    }),
+
+  /**
+   * Suspende (corta acesso) ou cancela a assinatura. Suspender/cancelar seta
+   * `Tenant.status = SUSPENDED`, que já remove o tenant do login (auth.ts).
+   */
+  suspendSubscription: adminProcedure
+    .input(suspendSubscriptionSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withAdmin(async (tx) => {
+        const subscription = await tx.subscription.findUnique({
+          where: { tenantId: input.tenantId },
+        });
+        if (!subscription) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tenant sem assinatura" });
+        }
+
+        const nextStatus = input.cancel ? "CANCELLED" : "SUSPENDED";
+        await tx.subscription.update({
+          where: { tenantId: input.tenantId },
+          data: { status: nextStatus, cancelReason: input.reason ?? null },
+        });
+        await tx.tenant.update({
+          where: { id: input.tenantId },
+          data: { status: "SUSPENDED" },
+        });
+
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: input.cancel ? "subscription.cancel" : "subscription.suspend",
+          entity: "subscription",
+          entityId: subscription.id,
+          payload: { reason: input.reason ?? null },
+        });
+
         return { success: true };
       });
     }),

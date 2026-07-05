@@ -7,9 +7,9 @@ import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import {
-  SUBSCRIPTION_STATUS_LABELS,
-  SUBSCRIPTION_STATUS_VARIANT,
-} from "@/lib/validators/subscription";
+  TENANT_STATUS_LABELS,
+  TENANT_STATUS_VARIANT,
+} from "@/lib/validators/admin";
 
 function formatCents(cents: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
@@ -39,8 +39,8 @@ export default function SubscriptionPage() {
               <span className="text-sm text-muted-foreground font-normal">/mes</span>
             </div>
             <StatusBadge
-              variant={SUBSCRIPTION_STATUS_VARIANT[data.status] ?? "default"}
-            >{SUBSCRIPTION_STATUS_LABELS[data.status] ?? data.status}</StatusBadge>
+              variant={TENANT_STATUS_VARIANT[data.status] ?? "default"}
+            >{TENANT_STATUS_LABELS[data.status] ?? data.status}</StatusBadge>
             <div className="border-t pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Limite de usuarios:</span>
@@ -68,8 +68,8 @@ export default function SubscriptionPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status:</span>
                 <StatusBadge
-                  variant={SUBSCRIPTION_STATUS_VARIANT[data.status] ?? "default"}
-                >{SUBSCRIPTION_STATUS_LABELS[data.status] ?? data.status}</StatusBadge>
+                  variant={TENANT_STATUS_VARIANT[data.status] ?? "default"}
+                >{TENANT_STATUS_LABELS[data.status] ?? data.status}</StatusBadge>
               </div>
             </div>
             <div className="border-t pt-4">
