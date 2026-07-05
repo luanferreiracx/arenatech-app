@@ -6,6 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
+import { createProviderReversalForRefund } from "@/server/services/provider-reversal.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
   refundNeedsOpenCashSession,
@@ -2241,6 +2242,33 @@ export const saleRouter = createTRPCRouter({
               + (isPartial ? ` [PARCIAL: ${itemsToRefund.length} item(s)]` : ""),
           },
         });
+
+        // Estorno automatico da comissao do vendedor (Provider) — nao se paga
+        // comissao sobre venda estornada. Fracao = LBC estornada / LBC total da
+        // venda (comissao e proporcional a base). So gera reversal se a apuracao
+        // do mes ja estiver fechada (senao o re-calculo exclui a venda). (ADR 0056)
+        const lbcCents = (items: typeof sale.items) =>
+          items.reduce(
+            (sum, it) =>
+              sum +
+              Math.max(
+                0,
+                (decimalToCents(it.unitPrice) - decimalToCents(it.costPrice)) * it.quantity,
+              ),
+            0,
+          );
+        const totalLbc = lbcCents(sale.items);
+        const refundedLbc = lbcCents(itemsToRefund);
+        if (totalLbc > 0 && refundedLbc > 0) {
+          await createProviderReversalForRefund(tx, ctx.tenantId, {
+            providerUserId: sale.sellerId,
+            referenceType: "sale",
+            referenceId: sale.id,
+            factDate: sale.saleDate ?? sale.createdAt,
+            refundedFraction: Math.min(1, refundedLbc / totalLbc),
+            registeredById: ctx.session.user.id,
+          });
+        }
 
         logger.info("Sale refunded", {
           saleId: sale.id,

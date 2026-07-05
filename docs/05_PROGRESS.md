@@ -799,6 +799,25 @@ comissao no fluxo de contas a pagar. Extrai a criacao para `provider-apuracao-pa
 - Mantem o lock CAS e o rollback do `closeApuracao`. So gera se `netAmount > 0`.
 - Testes: 2 unit do service (campos canonicos + parcela; vencimento dia 10 do mes seguinte).
   typecheck 0, lint 0 erros.
+### 2026-07-05 — Comissoes: estorno automatico da comissao (Epico PR 3/6)
+
+Venda/OS comissionada desfeita nao pode continuar pagando comissao ao Provider. Novo service
+`provider-reversal.service.ts` (`createProviderReversalForRefund`), espelhando a idempotencia do
+`os-service-provider-payable`:
+
+- **Quando age (decisao do dono):** so cria `ProviderReversal` se a apuracao do mes do FATO ja
+  estiver **fechada** (CLOSED/PAID). Se ainda OPEN, no-op — o proximo `Calcular` re-varre e ja
+  exclui a transacao estornada (venda COMPLETED→REFUNDED / OS PAID→REFUNDED / item com total=0),
+  evitando descontar em dobro.
+- **Valor revertido:** a comissao efetivamente creditada sobre o fato, lida da `memoryJson` da
+  apuracao fechada (casa com faixas progressivas), × fracao estornada. Estorno parcial de venda usa
+  fracao = LBC estornada / LBC total. Tipo = `RETURN_SAME_MONTH`/`RETURN_LATER_MONTH` conforme o mes.
+- **Idempotente** por (referenceType, referenceId): reenvio/retry nao duplica.
+- **Integracao:** dentro das transacoes de `sale.refund` (total e parcial) e `serviceOrder.refund`
+  (tecnico executor e/ou vendedor intermediador). `collectProviderEvents` passou a ignorar
+  `SaleItem` com total=0 (corrige o re-calculo do estorno parcial com apuracao aberta).
+- Testes: 9 unit do service (apuracao fechada/aberta/ausente, sem Provider, idempotencia, fracao
+  parcial, comissao zero, tipo por mes). typecheck 0, lint 0 erros. Suite 1517 verde.
 
 ### 2026-07-05 — Comissoes: UI de contrato/aliquotas + calculo categoria/escopo correto (Epico PR 1/6)
 
