@@ -21,7 +21,60 @@ import {
   APURACAO_STATUS_LABELS,
   REVERSAL_TYPE_LABELS,
   COMMISSION_CATEGORY_LABELS,
+  validateBracketSet,
 } from "@/lib/validators/provider-commission";
+
+describe("validateBracketSet", () => {
+  it("accepts an empty set", () => {
+    expect(validateBracketSet([]).ok).toBe(true);
+  });
+
+  it("accepts a single open bracket", () => {
+    expect(validateBracketSet([{ rangeMin: 0, rangeMax: null }]).ok).toBe(true);
+  });
+
+  it("accepts contiguous brackets ending open", () => {
+    const result = validateBracketSet([
+      { rangeMin: 0, rangeMax: 5000 },
+      { rangeMin: 5000, rangeMax: 10000 },
+      { rangeMin: 10000, rangeMax: null },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("sorts before validating (order-independent)", () => {
+    const result = validateBracketSet([
+      { rangeMin: 5000, rangeMax: null },
+      { rangeMin: 0, rangeMax: 5000 },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects overlap", () => {
+    expect(validateBracketSet([
+      { rangeMin: 0, rangeMax: 6000 },
+      { rangeMin: 5000, rangeMax: null },
+    ]).ok).toBe(false);
+  });
+
+  it("rejects gap", () => {
+    expect(validateBracketSet([
+      { rangeMin: 0, rangeMax: 4000 },
+      { rangeMin: 5000, rangeMax: null },
+    ]).ok).toBe(false);
+  });
+
+  it("rejects max <= min", () => {
+    expect(validateBracketSet([{ rangeMin: 5000, rangeMax: 5000 }]).ok).toBe(false);
+  });
+
+  it("rejects open bracket that is not last", () => {
+    expect(validateBracketSet([
+      { rangeMin: 0, rangeMax: null },
+      { rangeMin: 5000, rangeMax: null },
+    ]).ok).toBe(false);
+  });
+});
 
 const validUuid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 
@@ -180,7 +233,7 @@ describe("provider-commission validators", () => {
     it("accepts rule with _delete", () => {
       const result = providerRuleSchema.parse({
         id: validUuid,
-        category: "x",
+        category: "produto_acessorio",
         scope: "normal",
         rangeMin: 0,
         rate: 5,
@@ -192,10 +245,32 @@ describe("provider-commission validators", () => {
     it("rejects rate above 100", () => {
       expect(() =>
         providerRuleSchema.parse({
-          category: "x",
+          category: "produto_acessorio",
           scope: "normal",
           rangeMin: 0,
           rate: 101,
+        }),
+      ).toThrow();
+    });
+
+    it("rejects unknown category", () => {
+      expect(() =>
+        providerRuleSchema.parse({
+          category: "x",
+          scope: "normal",
+          rangeMin: 0,
+          rate: 5,
+        }),
+      ).toThrow();
+    });
+
+    it("rejects unknown scope", () => {
+      expect(() =>
+        providerRuleSchema.parse({
+          category: "produto_acessorio",
+          scope: "proprio",
+          rangeMin: 0,
+          rate: 5,
         }),
       ).toThrow();
     });
@@ -204,15 +279,16 @@ describe("provider-commission validators", () => {
   // ── Update Rules ──
 
   describe("updateProviderRulesSchema", () => {
-    it("accepts valid rules array", () => {
+    it("accepts contiguous brackets", () => {
       const result = updateProviderRulesSchema.parse({
         contractId: validUuid,
         rules: [
-          { category: "produto_acessorio", scope: "normal", rangeMin: 0, rate: 10 },
-          { category: "produto_aparelho", scope: "premium", rangeMin: 0, rangeMax: 10000, rate: 5 },
+          { category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: 5000, rate: 10 },
+          { category: "produto_acessorio", scope: "normal", rangeMin: 5000, rangeMax: null, rate: 15 },
+          { category: "produto_aparelho", scope: "premium", rangeMin: 0, rangeMax: null, rate: 5 },
         ],
       });
-      expect(result.rules).toHaveLength(2);
+      expect(result.rules).toHaveLength(3);
     });
 
     it("accepts empty rules", () => {
@@ -221,6 +297,53 @@ describe("provider-commission validators", () => {
         rules: [],
       });
       expect(result.rules).toHaveLength(0);
+    });
+
+    it("rejects overlapping brackets in same category+scope", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: 6000, rate: 10 },
+            { category: "produto_acessorio", scope: "normal", rangeMin: 5000, rangeMax: null, rate: 15 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("rejects gap between brackets", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: 4000, rate: 10 },
+            { category: "produto_acessorio", scope: "normal", rangeMin: 5000, rangeMax: null, rate: 15 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("rejects open bracket that is not the last", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: null, rate: 10 },
+            { category: "produto_acessorio", scope: "normal", rangeMin: 5000, rangeMax: null, rate: 15 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("allows same rangeMin across different scopes (independent bracket sets)", () => {
+      const result = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: null, rate: 10 },
+          { category: "produto_acessorio", scope: "premium", rangeMin: 0, rangeMax: null, rate: 20 },
+        ],
+      });
+      expect(result.rules).toHaveLength(2);
     });
   });
 

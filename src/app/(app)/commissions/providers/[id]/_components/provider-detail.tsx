@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { ContractRulesEditor } from "./contract-rules-editor";
 import { toast } from "@/lib/toast";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import {
@@ -271,10 +272,11 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
 
       {/* No contract warning */}
       {!currentContract && (
-        <Card className="p-4 border-yellow-500/30 bg-yellow-500/5">
+        <Card className="p-4 border-yellow-500/30 bg-yellow-500/5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-yellow-500">
             Prestador sem contrato vigente. Cadastre um contrato para habilitar o calculo de comissoes.
           </p>
+          {isAdmin && <ContractRulesEditor providerId={providerId} currentContract={null} />}
         </Card>
       )}
 
@@ -319,7 +321,12 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Rules */}
         <Card className="p-4">
-          <h3 className="text-sm font-semibold text-primary mb-3">Aliquotas do contrato</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-primary">Aliquotas do contrato</h3>
+            {isAdmin && currentContract && (
+              <ContractRulesEditor providerId={providerId} currentContract={currentContract} />
+            )}
+          </div>
           {currentContract && currentContract.rules.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">

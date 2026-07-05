@@ -79,3 +79,23 @@ pagar existente e trata o prestador externo como custo, que é o que ele é.
 
 > **Futuro:** se algum dia houver comissão para **usuário interno que não é Provider** (ex.: CLT na
 > régua de % simples), o caminho é cadastrá-lo como `Provider` (sistema único), não ressuscitar o legado.
+
+---
+
+## Adendo (2026-07-05) — Fase de conclusão: UI + regra real de categoria/escopo
+
+Auditoria posterior mostrou que, embora o backend do Provider existisse, **faltava a UI de contrato/
+alíquotas** — sem ela toda apuração dava zero. Fechando o épico (plano `proud-chasing-dahl.md`),
+começando pela UI e pela correção do cálculo. Engenharia reversa do `ComissaoEngine::coletarEventosPrestador`
+(Laravel) fixou a regra **real** do sistema Provider (que difere do sistema sócio legado, removido):
+
+- **Categoria** do produto = `Product.isDevice` (paridade `eh_aparelho`) → `produto_aparelho` vs
+  `produto_acessorio`. Não é `isSerialized` (rastreio IMEI, conceito diferente).
+- **Escopo** = `Product.isPremium` (paridade `eh_premium`) → `premium` vs `normal`. **Não** é
+  `proprio`/`loja` — esse par pertencia ao `SocioRegraComissao` legado (removido). OS é sempre `normal`.
+- **Base de cálculo (decisão do dono):** **sem parte fiscal**. Ignora taxa de operadora e tributos
+  DAS/ICMS que o Laravel deduzia. Custos = só custo de produto / outros custos informados:
+  - Venda LBC = `(precoUnit − costPrice) × qtd`.
+  - OS LBS = `serviceAmount − (partsCost + otherCost)`; sem peça = `serviceAmount`.
+- **Bugs corrigidos no cálculo TS:** custo do item lia campo inexistente `unitCost` (→ comissão sobre
+  receita cheia); categoria/escopo hardcoded; base da OS usava `totalAmount` (inclui peças).
