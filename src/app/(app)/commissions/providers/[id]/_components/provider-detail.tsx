@@ -24,6 +24,7 @@ import {
   APURACAO_STATUS_VARIANT,
   REVERSAL_TYPE_LABELS,
   COMMISSION_CATEGORY_LABELS,
+  COMMISSION_SOURCE_LABELS,
 } from "@/lib/validators/provider-commission";
 
 function formatCurrency(value: number): string {
@@ -354,21 +355,33 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left p-2">Categoria</th>
                     <th className="text-left p-2">Escopo</th>
+                    <th className="text-left p-2">Origem</th>
                     <th className="text-right p-2">Min</th>
                     <th className="text-right p-2">Max</th>
-                    <th className="text-right p-2">%</th>
+                    <th className="text-right p-2">Valor</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {currentContract.rules.map((r) => (
-                    <tr key={r.id} className="border-b">
-                      <td className="p-2">{COMMISSION_CATEGORY_LABELS[r.category] ?? r.category}</td>
-                      <td className="p-2 capitalize">{r.scope}</td>
-                      <td className="p-2 text-right">{formatCurrency(r.rangeMin)}</td>
-                      <td className="p-2 text-right">{r.rangeMax ? formatCurrency(r.rangeMax) : "---"}</td>
-                      <td className="p-2 text-right font-medium">{r.rate}%</td>
-                    </tr>
-                  ))}
+                  {currentContract.rules.map((r) => {
+                    const isFixed = r.valueType === "FIXED_PER_UNIT";
+                    return (
+                      <tr key={r.id} className="border-b">
+                        <td className="p-2">{COMMISSION_CATEGORY_LABELS[r.category] ?? r.category}</td>
+                        <td className="p-2 capitalize">
+                          {r.scope}
+                          {r.base === "GROSS_NET" ? " · total" : ""}
+                        </td>
+                        <td className="p-2 text-muted-foreground">
+                          {COMMISSION_SOURCE_LABELS[r.source] ?? "Propria"}
+                        </td>
+                        <td className="p-2 text-right">{isFixed ? "—" : formatCurrency(r.rangeMin)}</td>
+                        <td className="p-2 text-right">{isFixed ? "—" : r.rangeMax ? formatCurrency(r.rangeMax) : "---"}</td>
+                        <td className="p-2 text-right font-medium">
+                          {isFixed ? `${formatCurrency(r.rate)}/un` : `${r.rate}%`}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -391,6 +404,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                     <th className="text-left p-2">Data</th>
                     <th className="text-left p-2">Referencia</th>
                     <th className="text-left p-2">Cat/Escopo</th>
+                    <th className="text-left p-2">Origem</th>
                     <th className="text-right p-2">Base</th>
                     <th className="text-right p-2">Comissao</th>
                   </tr>
@@ -402,6 +416,9 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                       <td className="p-2">{l.referencia_label as string}</td>
                       <td className="p-2">
                         {COMMISSION_CATEGORY_LABELS[l.categoria as string] ?? String(l.categoria)} / {l.escopo as string}
+                      </td>
+                      <td className="p-2 text-muted-foreground">
+                        {COMMISSION_SOURCE_LABELS[(l.origem as string) ?? "OWN"] ?? "Propria"}
                       </td>
                       <td className="p-2 text-right">{formatCurrency(l.base as number)}</td>
                       <td className="p-2 text-right font-medium text-primary">

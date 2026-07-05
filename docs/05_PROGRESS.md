@@ -786,6 +786,24 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: UI dos tipos de regra + exibicao origem/tipo [PR 4/4 — fim do epico de tipos]
+
+Expoe na interface os 3 eixos (tipo/base/origem) e mostra a origem na memoria/PDF/CSV:
+
+- **Editor** (`contract-rules-editor.tsx`) reescrito: regras agrupadas por (categoria, escopo,
+  ORIGEM) = mesmo balde do calculo. Cada grupo tem selects **Tipo** (Percentual / Valor fixo por
+  unidade) e **Base** (Lucro / Valor total, so no percentual). Origem "Participacao na loja" so para
+  produtos. Regra fixa esconde piso/teto (e por unidade, sem faixa) e rotula o campo "Valor por
+  unidade (R$)". Validacao no cliente por (cat,escopo,origem), pulando regras fixas.
+- **Exibicao:** ficha (`provider-detail`) e self-service (`my-commission`) ganham coluna **Origem** na
+  memoria; a tabela de aliquotas mostra origem, "· total" quando base=total, e "R$ X/un" para fixo.
+- **Export:** `apuracao-memory` (CSV) e `provider-apuracao-pdf` ganham coluna Origem. PDF renderizado
+  e validado (smoke).
+- typecheck 0, lint 0. Suite 1555 verde (com integracao local).
+
+**Epico de tipos de regra concluido** (PRs 393/394/395 + este): valor fixo por aparelho, base
+lucro/total e participacao nas vendas da loja — ponta a ponta (schema → calculo → UI → export).
+
 ### 2026-07-05 — Comissoes: participacao nas vendas da loja (origem STORE) [PR 3/4]
 
 Prestador pode ganhar % sobre as vendas que NAO fez (participacao no faturamento da loja):
@@ -815,6 +833,23 @@ Motor de calculo passa a respeitar os eixos do PR1 (ainda so origem=OWN; STORE v
   sem faixa). O router chama o helper — sem logica duplicada. Memoria por linha ganha `tipo_valor` e
   `origem`; subtotais por (cat|escopo|origem).
 - Testes: 6 do helper (lucro vs total, fixo × qtd, faixas rateadas). typecheck 0, lint 0. Suite 1558.
+### 2026-07-05 — Comissoes: UI dos tipos de regra + exibicao origem/tipo [PR 4/4 — fim do epico de tipos]
+
+Expoe na interface os 3 eixos (tipo/base/origem) e mostra a origem na memoria/PDF/CSV:
+
+- **Editor** (`contract-rules-editor.tsx`) reescrito: regras agrupadas por (categoria, escopo,
+  ORIGEM) = mesmo balde do calculo. Cada grupo tem selects **Tipo** (Percentual / Valor fixo por
+  unidade) e **Base** (Lucro / Valor total, so no percentual). Origem "Participacao na loja" so para
+  produtos. Regra fixa esconde piso/teto (e por unidade, sem faixa) e rotula o campo "Valor por
+  unidade (R$)". Validacao no cliente por (cat,escopo,origem), pulando regras fixas.
+- **Exibicao:** ficha (`provider-detail`) e self-service (`my-commission`) ganham coluna **Origem** na
+  memoria; a tabela de aliquotas mostra origem, "· total" quando base=total, e "R$ X/un" para fixo.
+- **Export:** `apuracao-memory` (CSV) e `provider-apuracao-pdf` ganham coluna Origem. PDF renderizado
+  e validado (smoke).
+- typecheck 0, lint 0. Suite 1555 verde (com integracao local).
+
+**Epico de tipos de regra concluido** (PRs 393/394/395 + este): valor fixo por aparelho, base
+lucro/total e participacao nas vendas da loja — ponta a ponta (schema → calculo → UI → export).
 
 ### 2026-07-05 — Comissoes: tipos de regra flexiveis — fundacao (schema + validators) [PR 1/4]
 
