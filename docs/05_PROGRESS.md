@@ -10,6 +10,7 @@
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
 **Ultima atualizacao:** 2026-07-05
 **Épico Tenants + Planos + Ativação CONCLUÍDO** (Fases 0–3, PRs #380/#381/#383/#385). Modelo: tenant nasce NO-KYC sem plano (piso wallet+depix-ops); a ativação pelo superadmin = atribuir plano ativo → plano define os módulos (mesmo sem CNPJ). Billing MANUAL (Subscription 1:1, sem gateway): ativar/marcar pago/suspender. UI no detalhe do tenant (card Assinatura). Cobrança automática (DePix/PIX) fica como fase futura.
+**Definição de MÓDULOS CONCLUÍDA** (Fases A–D, PRs #395/#398/#399). Fechado buraco de gating (iphone-hunter acessível por URL) + guardião de cobertura; dependências entre módulos com auto-inclusão (pdv→cashier+financial; service-orders/fiscal/commissions→pdv; depix-ops→wallet); settings sempre-on (fora da matriz de plano); menu depix-ops (era órfão); 4 planos-modelo semeados (Wallet/Assistência/Loja/Completo, preços placeholder).
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/os-technician-provider-validation`
@@ -17,6 +18,14 @@
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-07-05 — Definição de módulos (Fases A–D) — gating fechado, deps, planos nomeados
+Trabalho de "deixar os módulos bem definidos" (dono). 4 fases, todas em prod.
+- **Fase A — buracos de gating (PR #395):** `/iphone-hunter` era escondido no menu (`requiresTenantSlug: arena-tech`) mas SEM gating de rota — passava por URL a qualquer tenant. `requiresTenantSlug` é do menu, não bloqueia rota. Fix: `SLUG_RESTRICTED_ROUTES` + `isRouteAllowedForTenant` (modules.ts) combinando módulo+slug; proxy passa a usar. **Teste-guardião** varre `(app)` e falha se rota nova não tiver gating (validado com teste negativo). `/dev` já se auto-protege.
+- **Fase B — dependências + settings (PR #398):** `MODULE_DEPENDENCIES` + `withModuleDependencies` (grafo do acoplamento REAL: pdv→cashier+financial; depix-ops→wallet; service-orders/fiscal/commissions→pdv). `allowedModulesForTenant` expande transitivamente → não dá pra ativar plano quebrado. `ALWAYS_ON_MODULES=[settings]` (todo tenant configura a loja, fora da matriz). Menu: item "Vendas Avulsas (DePix)" p/ `depix-ops` (era órfão).
+- **Fase D — planos nomeados (PR #399):** seed idempotente (upsert por slug) de 4 planos: Wallet, Assistência, Loja, Completo. Preços placeholder (R$0, ajustar em /admin/plans). `features.modules` guarda a intenção; deps auto-incluídas em runtime.
+- **Decisões do dono:** auto-incluir pré-requisitos (não avisar/bloquear); settings sempre-on.
+- **Processo:** Fase B/D feitas em git worktree ISOLADO (`/tmp/arena-*`) após colisão com outra sessão no worktree compartilhado (ela trocou a branch e stashou meu WIP). Nada perdido; recriado limpo de origin/main. Ver [[parallel-session-branch-collision]].
 
 ### 2026-07-05 — Tenants/Planos: UI admin de ativação (Fase 3 de 4 — FECHA O ÉPICO)
 Liga a UI de admin ao billing manual — PR #385. No detalhe do tenant (`/admin/tenants/[id]`), card **"Assinatura"** novo (`subscription-panel.tsx`):
