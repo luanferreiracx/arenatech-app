@@ -4,10 +4,16 @@ import {
   modulesFromPlanFeatures,
   allowedModulesForTenant,
   isPathAllowed,
+  withModuleDependencies,
   MODULE_KEYS,
   DEFAULT_RELEASED_MODULES,
   TOTAL_ACCESS_TENANT_SLUG,
+  ALWAYS_ON_MODULES,
+  PLAN_SELECTABLE_MODULES,
 } from "@/lib/modules";
+
+// Comparação robusta a ordem (a expansão de dependências não garante ordem).
+const asSet = (mods: readonly string[]) => [...mods].sort();
 
 describe("resolveModuleForPath", () => {
   it("mapeia Wallet e redirects legados /depix para wallet; vendas avulsas para depix-ops", () => {
@@ -41,7 +47,7 @@ describe("resolveModuleForPath", () => {
     expect(resolveModuleForPath("/select-tenant")).toBeNull();
   });
 
-  it("settings agora É gateado (modulo settings, fora do plano por enquanto)", () => {
+  it("settings resolve pro módulo settings (sempre-on: todo tenant tem)", () => {
     expect(resolveModuleForPath("/settings")).toBe("settings");
     expect(resolveModuleForPath("/settings/payment-methods")).toBe("settings");
     expect(resolveModuleForPath("/settings/installments")).toBe("settings");
@@ -52,11 +58,9 @@ describe("resolveModuleForPath", () => {
     // ser bloqueada por modulo, senao ficam num beco.
     expect(resolveModuleForPath("/settings/security")).toBeNull();
     expect(resolveModuleForPath("/settings/security/anything")).toBeNull();
-    // wallet-only (sem modulo settings) PODE acessar /settings/security:
-    expect(isPathAllowed("/settings/security", ["wallet", "depix-ops"])).toBe(true);
-    // mas continua sem as demais paginas de settings:
-    expect(isPathAllowed("/settings/general", ["wallet", "depix-ops"])).toBe(false);
-    expect(isPathAllowed("/settings/payment-methods", ["wallet", "depix-ops"])).toBe(false);
+    // settings é sempre-on: todo tenant acessa as páginas de configuração da loja.
+    expect(isPathAllowed("/settings/security", ["wallet", "depix-ops", "settings"])).toBe(true);
+    expect(isPathAllowed("/settings/general", ["wallet", "depix-ops", "settings"])).toBe(true);
   });
 
   it("não casa prefixo parcial de outra rota (/stockfoo)", () => {
@@ -84,59 +88,90 @@ describe("modulesFromPlanFeatures", () => {
   });
 });
 
+describe("withModuleDependencies (auto-inclusão de pré-requisitos)", () => {
+  it("pdv puxa cashier + financial", () => {
+    expect(asSet(withModuleDependencies(["pdv"]))).toEqual(["cashier", "financial", "pdv"]);
+  });
+
+  it("service-orders puxa pdv e, por transitividade, cashier + financial", () => {
+    expect(asSet(withModuleDependencies(["service-orders"]))).toEqual(
+      ["cashier", "financial", "pdv", "service-orders"],
+    );
+  });
+
+  it("depix-ops puxa wallet", () => {
+    expect(asSet(withModuleDependencies(["depix-ops"]))).toEqual(["depix-ops", "wallet"]);
+  });
+
+  it("módulo sem dependência fica inalterado; é idempotente", () => {
+    expect(withModuleDependencies(["customers"])).toEqual(["customers"]);
+    expect(asSet(withModuleDependencies(["pdv", "cashier"]))).toEqual(["cashier", "financial", "pdv"]);
+  });
+});
+
+describe("catálogo de módulos", () => {
+  it("settings é sempre-on e NÃO aparece no editor de plano", () => {
+    expect(ALWAYS_ON_MODULES).toContain("settings");
+    expect(PLAN_SELECTABLE_MODULES).not.toContain("settings");
+    expect(PLAN_SELECTABLE_MODULES).not.toContain("partner-api"); // override por-tenant
+  });
+});
+
 describe("allowedModulesForTenant", () => {
+  // settings é sempre-on; pdv auto-inclui cashier+financial; service-orders/fiscal/
+  // commissions auto-incluem pdv (e por transitividade cashier+financial).
   it("arena-tech tem acesso TOTAL", () => {
     const mods = allowedModulesForTenant({
       tenantSlug: TOTAL_ACCESS_TENANT_SLUG,
       planFeatures: { modules: ["wallet"] },
       hasPlan: true,
     });
-    expect(mods).toEqual([...MODULE_KEYS]);
+    expect(asSet(mods)).toEqual(asSet([...MODULE_KEYS]));
   });
 
-  it("tenant sem plano cai no padrão (só wallet)", () => {
+  it("tenant sem plano cai no padrão (wallet+depix-ops) + settings sempre-on", () => {
     expect(
-      allowedModulesForTenant({ tenantSlug: "loja-x", planFeatures: null, hasPlan: false }),
-    ).toEqual(DEFAULT_RELEASED_MODULES);
+      asSet(allowedModulesForTenant({ tenantSlug: "loja-x", planFeatures: null, hasPlan: false })),
+    ).toEqual(asSet([...DEFAULT_RELEASED_MODULES, "settings"]));
   });
 
-  it("tenant com plano usa o que o plano libera", () => {
+  it("tenant com plano usa o que o plano libera + pré-requisitos + settings", () => {
     expect(
-      allowedModulesForTenant({
+      asSet(allowedModulesForTenant({
         tenantSlug: "loja-x",
         planFeatures: { modules: ["wallet", "pdv"] },
         hasPlan: true,
-      }),
-    ).toEqual(["wallet", "pdv"]);
+      })),
+    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "settings"]));
   });
 
   // ── NO-KYC: piso wallet SEM plano; plano ativo vence o piso (revisão ADR 0050) ──
-  it("NO-KYC COM plano ativo passa a ter os módulos do plano (ativar = liberar)", () => {
+  it("NO-KYC COM plano ativo passa a ter os módulos do plano (+ deps + settings)", () => {
     expect(
-      allowedModulesForTenant({
+      asSet(allowedModulesForTenant({
         tenantSlug: "pdv-7f3a9c",
         planFeatures: { modules: ["wallet", "pdv", "stock", "financial"] },
         hasPlan: true,
         isNoKyc: true,
-      }),
-    ).toEqual(["wallet", "pdv", "stock", "financial"]);
+      })),
+    ).toEqual(asSet(["wallet", "pdv", "stock", "financial", "cashier", "settings"]));
   });
 
-  it("NO-KYC sem plano fica no piso (wallet+depix-ops)", () => {
+  it("NO-KYC sem plano fica no piso (wallet+depix-ops) + settings", () => {
     expect(
-      allowedModulesForTenant({ tenantSlug: "pdv-x", planFeatures: null, hasPlan: false, isNoKyc: true }),
-    ).toEqual(["wallet", "depix-ops"]);
+      asSet(allowedModulesForTenant({ tenantSlug: "pdv-x", planFeatures: null, hasPlan: false, isNoKyc: true })),
+    ).toEqual(asSet(["wallet", "depix-ops", "settings"]));
   });
 
-  it("NO-KYC com plano parcial libera exatamente o plano (não força wallet-only nem tudo)", () => {
+  it("NO-KYC com plano parcial libera o plano + pré-requisitos (service-orders→pdv→...)", () => {
     expect(
-      allowedModulesForTenant({
+      asSet(allowedModulesForTenant({
         tenantSlug: "pdv-x",
         planFeatures: { modules: ["wallet", "service-orders", "customers"] },
         hasPlan: true,
         isNoKyc: true,
-      }),
-    ).toEqual(["wallet", "service-orders", "customers"]);
+      })),
+    ).toEqual(asSet(["wallet", "service-orders", "customers", "pdv", "cashier", "financial", "settings"]));
   });
 
   it("isNoKyc não afeta o tenant de acesso total (arena-tech)", () => {
@@ -150,15 +185,15 @@ describe("allowedModulesForTenant", () => {
     expect(mods).toContain("pdv");
   });
 
-  it("KYC (isNoKyc=false) segue respeitando o plano", () => {
+  it("KYC (isNoKyc=false) segue respeitando o plano (+ deps + settings)", () => {
     expect(
-      allowedModulesForTenant({
+      asSet(allowedModulesForTenant({
         tenantSlug: "loja-kyc",
         planFeatures: { modules: ["wallet", "pdv"] },
         hasPlan: true,
         isNoKyc: false,
-      }),
-    ).toEqual(["wallet", "pdv"]);
+      })),
+    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "settings"]));
   });
 });
 
@@ -168,7 +203,7 @@ describe("isPathAllowed", () => {
     expect(isPathAllowed("/select-tenant", [])).toBe(true);
   });
 
-  it("bloqueia rota de módulo não liberado (inclusive settings)", () => {
+  it("bloqueia rota de módulo não liberado", () => {
     expect(isPathAllowed("/pdv", ["wallet"])).toBe(false);
     expect(isPathAllowed("/service-orders", ["wallet"])).toBe(false);
     expect(isPathAllowed("/settings", ["wallet"])).toBe(false);
@@ -188,15 +223,16 @@ describe("partner-api — módulo com override por-tenant (ADR 0057)", () => {
     expect(resolveModuleForPath("/settings/general")).toBe("settings");
   });
 
-  it("apiAccessEnabled libera partner-api MESMO sem o módulo settings (tenant wallet-only)", () => {
+  it("apiAccessEnabled libera partner-api por override (tenant wallet-only sem plano)", () => {
     const mods = allowedModulesForTenant({
       tenantSlug: "pdv-x",
-      hasPlan: false, // cai no default (wallet, depix-ops) — sem settings
+      hasPlan: false, // cai no default (wallet, depix-ops)
       planFeatures: null,
       apiAccessEnabled: true,
     });
     expect(mods).toContain("partner-api");
-    expect(mods).not.toContain("settings");
+    // partner-api NÃO vem do plano nem das deps: é override puro do superadmin.
+    expect(mods).not.toContain("pdv");
   });
 
   it("sem apiAccessEnabled, partner-api NÃO entra", () => {
@@ -216,7 +252,7 @@ describe("partner-api — módulo com override por-tenant (ADR 0057)", () => {
       isNoKyc: true,
       apiAccessEnabled: true,
     });
-    expect(mods).toContain("wallet"); // teto NO-KYC
+    expect(mods).toContain("wallet"); // piso NO-KYC
     expect(mods).toContain("partner-api"); // + override
   });
 

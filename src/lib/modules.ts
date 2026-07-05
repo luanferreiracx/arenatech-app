@@ -16,8 +16,9 @@
  * 2. Slug — ferramentas internas restritas a um tenant (SLUG_RESTRICTED_ROUTES).
  *
  * Rotas sem módulo nem restrição de slug passam livres (painel, troca de tenant).
- * `/settings/security` é sempre-on (2FA é pré-requisito de saque DePix, não pode
- * ficar num beco). As demais `/settings/*` são gateadas pelo módulo `settings`.
+ * `settings` é SEMPRE-ON (ALWAYS_ON_MODULES): todo tenant configura a própria
+ * loja, independente do plano. `/settings/security` também (2FA é pré-requisito
+ * de saque DePix). Ambos ficam fora da matriz de plano.
  */
 
 export const MODULE_KEYS = [
@@ -62,14 +63,60 @@ export function isModuleKey(value: string): value is ModuleKey {
 }
 
 /**
+ * Dependências entre módulos, derivadas do acoplamento REAL no backend. Selecionar
+ * um módulo exige (e auto-inclui) seus pré-requisitos — não dá pra montar um plano
+ * quebrado. Fatos do código:
+ * - `pdv` → `cashier` (venda em dinheiro exige caixa aberto — sale.ts) + `financial`
+ *   (toda venda cria financialTransaction).
+ * - `depix-ops` → `wallet` (quick-sale cria depósito na carteira).
+ * - `service-orders` → `pdv` (OS é paga via PDV — createFromOS), logo herda pdv→...
+ * - `fiscal` → `pdv` (NF-e é emitida a partir de uma venda).
+ * - `commissions` → `pdv` (comissão deriva de venda/OS).
+ */
+export const MODULE_DEPENDENCIES: Partial<Record<ModuleKey, ModuleKey[]>> = {
+  pdv: ["cashier", "financial"],
+  "depix-ops": ["wallet"],
+  "service-orders": ["pdv"],
+  fiscal: ["pdv"],
+  commissions: ["pdv"],
+};
+
+/**
+ * Expande uma lista de módulos incluindo todos os pré-requisitos (transitivo).
+ * Ex.: ["service-orders"] → ["service-orders", "pdv", "cashier", "financial"].
+ * Idempotente e resistente a ciclos (guarda por `resolved`).
+ */
+export function withModuleDependencies(modules: readonly ModuleKey[]): ModuleKey[] {
+  const resolved = new Set<ModuleKey>();
+  const visit = (mod: ModuleKey) => {
+    if (resolved.has(mod)) return;
+    resolved.add(mod);
+    for (const dep of MODULE_DEPENDENCIES[mod] ?? []) visit(dep);
+  };
+  for (const mod of modules) visit(mod);
+  return [...resolved];
+}
+
+/**
  * Módulos controlados por OVERRIDE por-tenant (não pelo plano). Ficam fora do
  * editor de plano — quem libera é o superadmin no detalhe do tenant.
  */
 export const PER_TENANT_OVERRIDE_MODULES: ModuleKey[] = ["partner-api"];
 
-/** Módulos selecionáveis no editor de PLANO (exclui os de override por-tenant). */
+/**
+ * Módulos SEMPRE ligados, independente do plano (decisão do dono): todo tenant
+ * configura a própria loja. `settings` (formas de pagamento, equipe, integrações,
+ * fiscal-config, etc.) sai da matriz de plano — como `/settings/security` já era.
+ * Ficam fora do editor de plano e são concedidos a qualquer tenant.
+ */
+export const ALWAYS_ON_MODULES: ModuleKey[] = ["settings"];
+
+/**
+ * Módulos selecionáveis no editor de PLANO: exclui os de override por-tenant e os
+ * sempre-ligados (esses não são escolha de plano).
+ */
 export const PLAN_SELECTABLE_MODULES: ModuleKey[] = MODULE_KEYS.filter(
-  (m) => !PER_TENANT_OVERRIDE_MODULES.includes(m),
+  (m) => !PER_TENANT_OVERRIDE_MODULES.includes(m) && !ALWAYS_ON_MODULES.includes(m),
 );
 
 /** Slug do tenant com acesso total (bypass do gating). */
@@ -173,7 +220,7 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
 /**
  * Resolve o módulo de uma rota. Retorna `null` para rotas sem gating de módulo
  * (painel, troca de tenant, admin, públicas) — essas passam livres.
- * Settings agora É gateado (módulo `settings`) — fica fora do plano por enquanto.
+ * `/settings/*` resolve pro módulo `settings`, que é sempre-on (todo tenant tem).
  */
 export function resolveModuleForPath(pathname: string): ModuleKey | null {
   // /settings/security e primitivo de seguranca (2FA + troca de senha) que TODO
@@ -225,7 +272,11 @@ export function allowedModulesForTenant(args: {
   apiAccessEnabled?: boolean;
 }): ModuleKey[] {
   const base = resolveBaseModules(args);
-  return applyPerTenantOverrides(base, args);
+  const withOverrides = applyPerTenantOverrides(base, args);
+  // Auto-inclui pré-requisitos (plano quebrado não vira acesso quebrado) e soma
+  // os módulos sempre-ligados (settings). arena-tech já tem tudo — o Set dedup.
+  const complete = withModuleDependencies(withOverrides);
+  return [...new Set<ModuleKey>([...complete, ...ALWAYS_ON_MODULES])];
 }
 
 function resolveBaseModules(args: {
