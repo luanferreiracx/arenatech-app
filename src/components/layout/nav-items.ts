@@ -157,6 +157,10 @@ export const appNavGroups: NavGroup[] = [
     title: "Comissoes",
     items: [
       { label: "Comissoes", href: "/commissions/providers", icon: Percent, module: "commissions" },
+      // Self-service: cada prestador ve a propria apuracao. Gateado pelo modulo
+      // (fora de tenants sem comissao); a pagina mostra empty state para quem
+      // nao e prestador.
+      { label: "Minha Comissao", href: "/my-commission", icon: Wallet, module: "commissions" },
     ],
   },
   {
