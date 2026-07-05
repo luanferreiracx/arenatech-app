@@ -786,6 +786,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: calculo flexivel — base lucro/total + valor fixo/unidade [PR 2/4]
+
+Motor de calculo passa a respeitar os eixos do PR1 (ainda so origem=OWN; STORE vem no PR3):
+
+- **`collectProviderEvents`:** cada evento de venda carrega `baseProfit` (LBC), `baseGrossNet`
+  (`SaleItem.total`, total liquido) e `qty`; origem `OWN`. Deixa de pular item de lucro 0 (um item
+  com total>0 comissiona por GROSS_NET). OS: baseProfit=baseGrossNet=base, qty=1.
+- **Balde por (categoria, escopo, origem):** proprias/loja separadas (base p/ o PR3).
+- **Novo helper puro** `lib/commission/bucket-commission.ts` (`computeBucketCommission`): escolhe a
+  base pela regra (PROFIT/GROSS_NET) e aplica PERCENT-progressivo OU FIXED_PER_UNIT (R$ rate × qtd,
+  sem faixa). O router chama o helper — sem logica duplicada. Memoria por linha ganha `tipo_valor` e
+  `origem`; subtotais por (cat|escopo|origem).
+- Testes: 6 do helper (lucro vs total, fixo × qtd, faixas rateadas). typecheck 0, lint 0. Suite 1558.
+
 ### 2026-07-05 — Comissoes: tipos de regra flexiveis — fundacao (schema + validators) [PR 1/4]
 
 Ao cadastrar a equipe real, o dono pediu 3 modelos de remuneracao que o sistema nao suportava: valor

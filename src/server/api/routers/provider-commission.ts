@@ -18,7 +18,7 @@ import {
   getProviderDetailSchema,
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
-import { applyProgressiveBrackets } from "@/lib/commission/progressive-brackets";
+import { computeBucketCommission } from "@/lib/commission/bucket-commission";
 import { monthRange } from "@/lib/commission/month-range";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 
@@ -358,18 +358,16 @@ export const providerCommissionRouter = createTRPCRouter({
           periodEnd,
         );
 
-        // Group by category+scope for progressive brackets
-        const buckets: Record<string, { category: string; scope: string; baseTotal: number; events: typeof events }> = {};
+        // Agrupa por (categoria, escopo, ORIGEM) — proprias e loja acumulam separado.
+        const buckets: Record<string, { category: string; scope: string; source: string; events: typeof events }> = {};
         for (const ev of events) {
-          const key = `${ev.category}|${ev.scope}`;
+          const key = `${ev.category}|${ev.scope}|${ev.source}`;
           if (!buckets[key]) {
-            buckets[key] = { category: ev.category, scope: ev.scope, baseTotal: 0, events: [] };
+            buckets[key] = { category: ev.category, scope: ev.scope, source: ev.source, events: [] };
           }
-          buckets[key]!.baseTotal += ev.base;
           buckets[key]!.events.push(ev);
         }
 
-        // Apply progressive brackets
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const lines: Array<Record<string, any>> = [];
         const contractRules = contract.rules.map((r) => ({
@@ -380,25 +378,24 @@ export const providerCommissionRouter = createTRPCRouter({
         }));
 
         for (const bucket of Object.values(buckets)) {
-          const matchingRules = contractRules
-            .filter((r) => r.category === bucket.category && r.scope === bucket.scope)
-            .sort((a, b) => a.rangeMin - b.rangeMin);
-
+          const matchingRules = contractRules.filter(
+            (r) => r.category === bucket.category && r.scope === bucket.scope && r.source === bucket.source,
+          );
           if (matchingRules.length === 0) continue;
 
-          const totalCommission = applyProgressiveBrackets(bucket.baseTotal, matchingRules);
-
-          // Prorate commission among events
-          for (const ev of bucket.events) {
-            const proportion = bucket.baseTotal > 0 ? ev.base / bucket.baseTotal : 0;
-            const eventCommission = Math.round(totalCommission * proportion * 100) / 100;
-            const effectiveRate = ev.base > 0 ? Math.round((eventCommission / ev.base) * 10000) / 100 : 0;
+          // Calculo do balde (percent-progressivo ou fixo/unidade) num helper puro.
+          const results = computeBucketCommission(matchingRules, bucket.events);
+          bucket.events.forEach((ev, i) => {
+            const r = results[i]!;
             lines.push({
               ...ev,
-              comissao: eventCommission,
-              aliquota_efetiva: effectiveRate,
+              base: r.base,
+              comissao: r.comissao,
+              aliquota_efetiva: r.aliquotaEfetiva,
+              tipo_valor: r.tipoValor,
+              origem: bucket.source,
             });
-          }
+          });
         }
 
         const grossCommission = Math.round(lines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100;
@@ -436,14 +433,15 @@ export const providerCommissionRouter = createTRPCRouter({
           subtotais_por_categoria: Object.fromEntries(
             Object.entries(buckets).map(([key, bucket]) => {
               const bucketLines = lines.filter(
-                (l) => `${l.categoria}|${l.escopo}` === key,
+                (l) => `${l.categoria}|${l.escopo}|${l.origem}` === key,
               );
               return [
                 key,
                 {
                   categoria: bucket.category,
                   escopo: bucket.scope,
-                  base: Math.round(bucket.baseTotal * 100) / 100,
+                  origem: bucket.source,
+                  base: Math.round(bucketLines.reduce((s, l) => s + (l.base as number), 0) * 100) / 100,
                   comissao: Math.round(
                     bucketLines.reduce((s, l) => s + (l.comissao as number), 0) * 100,
                   ) / 100,
@@ -971,6 +969,14 @@ interface ProviderEvent {
   // Aliases used in bucket grouping
   category: string;
   scope: string;
+  // Origem: OWN (venda propria / OS) ou STORE (participacao nas vendas de outros).
+  source: string;
+  // Bases alternativas para escolher conforme a regra do balde:
+  // baseProfit = lucro (LBC); baseGrossNet = valor total liquido do item.
+  // Servicos/OS so tem baseProfit (== base). qty = unidades (p/ valor fixo).
+  baseProfit: number;
+  baseGrossNet: number;
+  qty: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1013,16 +1019,18 @@ async function collectProviderEvents(
         // Item estornado (parcial) tem total=0 — nao comissiona. O estorno zera
         // o total do item; ignora-los aqui mantem o re-calculo correto enquanto a
         // apuracao esta aberta (o estorno automatico so gera reversal apos fechada).
-        if (decimalToNumber(item.total) <= 0) continue;
+        const grossNet = decimalToNumber(item.total);
+        if (grossNet <= 0) continue;
 
         const unitPrice = decimalToNumber(item.unitPrice);
         // SaleItem.costPrice e o custo unitario (o codigo antigo lia `unitCost`,
         // campo inexistente → custo 0 → comissao sobre a receita inteira).
         const unitCost = decimalToNumber(item.costPrice);
         const qty = item.quantity;
-        const lbc = Math.round((unitPrice - unitCost) * qty * 100) / 100;
-
-        if (lbc <= 0) continue;
+        // Duas bases possiveis; a regra do balde escolhe qual usar:
+        //  - lucro (LBC) = (preco − custo) × qtd
+        //  - total liquido = o que o cliente pagou pelo item (SaleItem.total)
+        const lbc = Math.round(Math.max(0, (unitPrice - unitCost) * qty) * 100) / 100;
 
         const flags = productFlags.get(item.productId);
         const category = flags?.isDevice ? "produto_aparelho" : "produto_acessorio";
@@ -1037,7 +1045,11 @@ async function collectProviderEvents(
           escopo: scope,
           category,
           scope,
+          source: "OWN",
           base: lbc,
+          baseProfit: lbc,
+          baseGrossNet: grossNet,
+          qty,
           detalhe: {
             preco_unitario: unitPrice,
             preco_custo_unitario: unitCost,
@@ -1084,6 +1096,8 @@ async function collectProviderEvents(
         const base = hasParts ? lbs : serviceAmount;
 
         if (base > 0) {
+          // OS so tem uma base (nao ha lucro/total configuravel nem unidade):
+          // baseProfit=baseGrossNet=base, qty=1, origem sempre propria.
           events.push({
             tipo: "servico_execucao",
             referencia_id: so.id,
@@ -1093,7 +1107,11 @@ async function collectProviderEvents(
             escopo: "normal",
             category,
             scope: "normal",
+            source: "OWN",
             base,
+            baseProfit: base,
+            baseGrossNet: base,
+            qty: 1,
             detalhe: {
               valor_servico: serviceAmount,
               custo_total: costsTotal,
@@ -1114,7 +1132,11 @@ async function collectProviderEvents(
           escopo: "normal",
           category: "intermediacao_at",
           scope: "normal",
+          source: "OWN",
           base: lbs,
+          baseProfit: lbs,
+          baseGrossNet: lbs,
+          qty: 1,
           detalhe: {
             valor_servico: serviceAmount,
             custo_total: costsTotal,
