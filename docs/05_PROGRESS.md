@@ -802,6 +802,19 @@ read-only + toggle de dias nao cobertos do proprio prestador:
 - **Nav/gating:** item "Minha Comissao" no grupo Comissoes, gateado por `module=commissions`
   (fora de tenants sem comissao); `resolveModuleForPath` mapeia `/my-commission`. typecheck 0, lint 0.
 
+### 2026-07-05 — Comissoes: fechamento gera PAYABLE canonica com parcela (Epico PR 4/6)
+
+`closeApuracao` criava a `FinancialTransaction` PAYABLE **sem `Installment`** e sem os campos
+canonicos (categoria/supplier/paidAmount/installmentsTotal/referencia) — o financeiro nao listava a
+comissao no fluxo de contas a pagar. Extrai a criacao para `provider-apuracao-payable.service.ts`
+(`createProviderApuracaoPayable`), espelhando o `os-service-provider-payable`:
+
+- FinancialTransaction PAYABLE + **Installment unica**, com `category="Comissao de prestador"`,
+  `supplier`, `paidAmount=0`, `installmentsTotal=1`, `referenceType="provider_apuracao"`/`referenceId`,
+  `createdByUserId`. Vencimento = dia 10 do mes seguinte (constante `COMMISSION_PAYABLE_DUE_DAY`).
+- Mantem o lock CAS e o rollback do `closeApuracao`. So gera se `netAmount > 0`.
+- Testes: 2 unit do service (campos canonicos + parcela; vencimento dia 10 do mes seguinte).
+  typecheck 0, lint 0 erros.
 ### 2026-07-05 — Comissoes: estorno automatico da comissao (Epico PR 3/6)
 
 Venda/OS comissionada desfeita nao pode continuar pagando comissao ao Provider. Novo service

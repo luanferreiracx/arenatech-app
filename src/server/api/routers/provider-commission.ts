@@ -19,6 +19,7 @@ import {
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
 import { applyProgressiveBrackets } from "@/lib/commission/progressive-brackets";
+import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 
 // ── Helpers ──
 
@@ -562,22 +563,14 @@ export const providerCommissionRouter = createTRPCRouter({
               })) ?? "Prestador"
             : "Prestador";
 
-          const monthLabel = `${String(input.month).padStart(2, "0")}/${input.year}`;
-
-          const ft = await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "PAYABLE",
-              description: `Comissao ${userName} — ${monthLabel}`,
-              totalAmount: apuracao.netAmount,
-              status: "PENDING",
-              dueDate: new Date(input.year, input.month, 10), // 10th of next month
-              emissionDate: new Date(),
-              notes: `Apuracao #${apuracao.id}. Aguardando NFS-e do prestador.`,
-            },
+          financialTransactionId = await createProviderApuracaoPayable(tx, ctx.tenantId, {
+            apuracaoId: apuracao.id,
+            providerName: userName,
+            netAmount: apuracao.netAmount,
+            year: input.year,
+            month: input.month,
+            createdByUserId: ctx.session.user.id,
           });
-
-          financialTransactionId = ft.id;
         }
 
         // Close apuracao
