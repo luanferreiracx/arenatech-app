@@ -19,6 +19,7 @@ import {
   APURACAO_STATUS_VARIANT,
   REVERSAL_TYPE_LABELS,
   COMMISSION_CATEGORY_LABELS,
+  COMMISSION_SOURCE_LABELS,
 } from "@/lib/validators/provider-commission";
 
 function formatCurrency(value: number): string {
@@ -207,6 +208,7 @@ export function MyCommission() {
                   <th className="text-left p-2">Data</th>
                   <th className="text-left p-2">Referencia</th>
                   <th className="text-left p-2">Categoria</th>
+                  <th className="text-left p-2">Origem</th>
                   <th className="text-right p-2">Base</th>
                   <th className="text-right p-2">Comissao</th>
                 </tr>
@@ -218,6 +220,9 @@ export function MyCommission() {
                     <td className="p-2">{l.referencia_label as string}</td>
                     <td className="p-2">
                       {COMMISSION_CATEGORY_LABELS[l.categoria as string] ?? String(l.categoria)}
+                    </td>
+                    <td className="p-2 text-muted-foreground">
+                      {COMMISSION_SOURCE_LABELS[(l.origem as string) ?? "OWN"] ?? "Propria"}
                     </td>
                     <td className="p-2 text-right">{formatCurrency(l.base as number)}</td>
                     <td className="p-2 text-right font-medium text-primary">

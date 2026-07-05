@@ -1,6 +1,7 @@
 import {
   COMMISSION_CATEGORY_LABELS,
   COMMISSION_SCOPE_LABELS,
+  COMMISSION_SOURCE_LABELS,
 } from "@/lib/validators/provider-commission";
 
 export type ApuracaoLine = {
@@ -8,6 +9,7 @@ export type ApuracaoLine = {
   referencia: string;
   categoria: string;
   escopo: string;
+  origem: string;
   base: number; // reais
   comissao: number; // reais
 };
@@ -31,11 +33,13 @@ export function extractApuracaoLines(memoryJson: unknown): ApuracaoLine[] {
     const row = (raw ?? {}) as Record<string, unknown>;
     const categoria = String(row.categoria ?? "");
     const escopo = String(row.escopo ?? "");
+    const origem = String(row.origem ?? "OWN");
     return {
       data: String(row.data ?? ""),
       referencia: String(row.referencia_label ?? ""),
       categoria: COMMISSION_CATEGORY_LABELS[categoria] ?? categoria,
       escopo: COMMISSION_SCOPE_LABELS[escopo] ?? escopo,
+      origem: COMMISSION_SOURCE_LABELS[origem] ?? origem,
       base: toNumber(row.base),
       comissao: toNumber(row.comissao),
     };
@@ -53,9 +57,9 @@ export function csvField(value: string | number): string {
  * Monta o CSV (separador `;`, com BOM UTF-8 para o Excel) da memoria de calculo.
  */
 export function buildApuracaoCsv(lines: ApuracaoLine[]): string {
-  const header = ["Data", "Referencia", "Categoria", "Escopo", "Base", "Comissao"];
+  const header = ["Data", "Referencia", "Categoria", "Escopo", "Origem", "Base", "Comissao"];
   const rows = lines.map((l) =>
-    [l.data, l.referencia, l.categoria, l.escopo, l.base.toFixed(2), l.comissao.toFixed(2)]
+    [l.data, l.referencia, l.categoria, l.escopo, l.origem, l.base.toFixed(2), l.comissao.toFixed(2)]
       .map(csvField)
       .join(";"),
   );

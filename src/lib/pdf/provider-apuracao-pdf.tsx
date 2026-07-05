@@ -7,6 +7,7 @@ export type ApuracaoPdfLine = {
   referencia: string;
   categoria: string;
   escopo: string;
+  origem: string;
   base: number; // reais
   comissao: number; // reais
 };
@@ -152,7 +153,7 @@ const fmtDateBr = (s: string) => {
 };
 
 // Larguras das colunas (somam 100)
-const COLS = { data: 12, ref: 40, cat: 18, escopo: 10, base: 10, comissao: 10 };
+const COLS = { data: 11, ref: 33, cat: 15, escopo: 9, origem: 12, base: 10, comissao: 10 };
 
 export function ProviderApuracaoPdfDocument({
   store,
@@ -226,6 +227,7 @@ export function ProviderApuracaoPdfDocument({
               <Text style={[styles.th, { width: `${COLS.ref}%` }]}>Referencia</Text>
               <Text style={[styles.th, { width: `${COLS.cat}%` }]}>Categoria</Text>
               <Text style={[styles.th, { width: `${COLS.escopo}%` }]}>Escopo</Text>
+              <Text style={[styles.th, { width: `${COLS.origem}%` }]}>Origem</Text>
               <Text style={[styles.th, styles.tdRight, { width: `${COLS.base}%` }]}>Base</Text>
               <Text style={[styles.th, styles.tdRight, { width: `${COLS.comissao}%` }]}>Comissao</Text>
             </View>
@@ -235,6 +237,7 @@ export function ProviderApuracaoPdfDocument({
                 <Text style={[styles.td, { width: `${COLS.ref}%` }]}>{l.referencia}</Text>
                 <Text style={[styles.td, { width: `${COLS.cat}%` }]}>{l.categoria}</Text>
                 <Text style={[styles.td, { width: `${COLS.escopo}%` }]}>{l.escopo}</Text>
+                <Text style={[styles.td, { width: `${COLS.origem}%` }]}>{l.origem}</Text>
                 <Text style={[styles.td, styles.tdRight, { width: `${COLS.base}%` }]}>
                   {fmtBRL(l.base)}
                 </Text>
