@@ -1037,14 +1037,18 @@ async function collectProviderEvents(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pushSaleEvents = (sale: any, source: "OWN" | "STORE") => {
       for (const item of sale.items) {
-        // Item estornado (parcial) tem total=0 — nao comissiona.
+        // Item estornado (parcial) tem total=0 — nao comissiona. O estorno zera
+        // o total do item; ignora-los aqui mantem o re-calculo correto enquanto a
+        // apuracao esta aberta (o estorno automatico so gera reversal apos fechada).
         const grossNet = decimalToNumber(item.total);
         if (grossNet <= 0) continue;
 
         const unitPrice = decimalToNumber(item.unitPrice);
         const unitCost = decimalToNumber(item.costPrice);
         const qty = item.quantity;
-        // Duas bases; a regra do balde escolhe: lucro (LBC) ou total liquido.
+        // Duas bases possiveis; a regra do balde escolhe qual usar:
+        //  - lucro (LBC) = (preco − custo) × qtd
+        //  - total liquido = o que o cliente pagou pelo item (SaleItem.total)
         const lbc = Math.round(Math.max(0, (unitPrice - unitCost) * qty) * 100) / 100;
 
         const flags = productFlags.get(item.productId);
