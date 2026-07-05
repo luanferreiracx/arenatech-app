@@ -8,8 +8,8 @@
 ## Estado atual
 
 **Fase atual:** Sistema rodando em produção (https://app.arenatechpi.com.br). Migração de dados Laravel → Postgres concluída (clientes, produtos, vendas, OS, financeiro, configurações, recompensas, chatbot, dashboard custom). PDFs refeitos com identidade Arena Tech (dourado #c9a84c + preto-noite). Upload de logo via MinIO. Onda 1+2+3 de paridade PDV+Estoque entregue. Fotos de produto em Cloudinary expostas na UI interna de estoque. Fluxo de upgrade/downgrade de aparelhos auditado e corrigido. Catálogo público novo em domínio próprio. DePix Wallet usa PixPay para depósitos e LiquidX Pro para saques.
-**Ultima atualizacao:** 2026-07-04
-**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓, Fase 1 (auditoria) ✓. Próximo: billing manual (Subscription), UI admin.
+**Ultima atualizacao:** 2026-07-05
+**Em curso:** Tenants + Planos + Ativação (4 fases). Modelo: tenant nasce NO-KYC sem plano (piso wallet); ativar = superadmin atribui plano ativo → plano define módulos (mesmo sem CNPJ). Fase 0 (gating) ✓, Fase 1 (auditoria) ✓, Fase 2 (billing manual/Subscription) ✓. Próximo: **Fase 3 — UI admin** (painel de ativação + editor de módulos por plano).
 **Módulos totais:** 29 routers tRPC + 7 webhooks/API routes
 **Progresso E2E:** 126/126 @business verde no pre-push (paridade total na suite reduzida)
 **Branch atual:** `fix/os-technician-provider-validation`
@@ -17,6 +17,15 @@
 **DePix wallet:** non-custodial (ADR 0051) — carteira nasce cifrada no 1º acesso (criar/importar + passphrase); central segue custodial. **LWK rebuildado 3x em prod**: `/setup-noncustodial` + endpoints de leitura watch-only + monitor watch-only. 1º acesso validado ponta-a-ponta (tenant `pdv-e5348bf7`). **ETAPA 7 (ADR 0052) implementada** (taxa de depósito non-custodial via carteira de taxas custodial) — falta provisionar `arena-fees` em prod + agendar cron p/ ligar.
 
 ---
+
+### 2026-07-05 — Tenants/Planos: billing manual / Subscription (Fase 2 de 4)
+Modela a assinatura de billing **manual** (sem gateway) — PR #383. Decisões travadas com o dono: valor = **snapshot** do preço na ativação (sobrescrevível); **1:1** tenant↔subscription (evolui in-place).
+- **Schema `subscriptions`** (global, admin-only, **sem RLS** como `plans`): `status` (ACTIVE/PAST_DUE/SUSPENDED/CANCELLED), `billing_cycle` (MONTHLY/YEARLY), `amount_cents` (snapshot), `current_period_end` (vencimento), `cancel_reason`. Migration gerada por `prisma migrate diff` (ambiente dev local estava com porta divergente 5432 vs env 5435 + roles RLS ausentes — não mexi em `.env`; gerei o SQL offline; CI validou `migrate deploy` limpo).
+- **Fonte da verdade do acesso** segue em `Tenant.status`/`plan` (o gating lê deles); a Subscription é o registro de billing. Espelha o domínio do Laravel (`tenant_assinaturas`) mas SEM campos de gateway (asaas/pix) — cobrança automática é fase futura.
+- **Procedures admin:** `activateSubscription` (cria/atualiza + snapshot/override + aponta `Tenant.plan` + reativa `Tenant.status` → com a Fase 0, libera os módulos), `markSubscriptionPaid` (empurra vencimento 1 ciclo; renovação antecipada não perde dias, vencida parte de hoje), `suspendSubscription` (suspende/cancela → `Tenant.status=SUSPENDED`, corta login), `getSubscription`. Trilha em `audit_logs` nas 3 mutações.
+- **Lógica pura testável** `src/lib/billing/subscription.ts` (`nextPeriodEnd`/`snapshotAmountCents`) + 7 testes. Alinhei enums vestigiais de `validators/subscription.ts` ao schema; adicionei `TENANT_STATUS_LABELS/VARIANT` e corrigi a página `settings/subscription` (mostra `Tenant.status`, não o de subscription).
+- Validação: typecheck (0), lint (0), unit 1488, CI verde ponta-a-ponta (migration aplica limpo).
+- **Próximo:** Fase 3 — UI admin de ativação (escolher plano+ciclo, marcar pago/suspender, ver vencimento) + editor de módulos por plano mais claro.
 
 ### 2026-07-04 — Tenants/Planos: auditoria do fluxo (Fase 1 de 4)
 Varredura dos 3 furos mapeados antes de empilhar billing. Resultado:
