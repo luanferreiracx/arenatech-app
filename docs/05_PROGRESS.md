@@ -786,6 +786,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: self-service "Minha Comissao" (Epico PR 5/6)
+
+O prestador nao via a propria apuracao (paridade Laravel MinhaComissao). Nova rota `/my-commission`
+read-only + toggle de dias nao cobertos do proprio prestador:
+
+- **Procedures self-scoped** (`tenantProcedure`, nao admin): `getMyDetail` e `toggleMyUncoveredDay`
+  resolvem o `providerId` a partir de `ctx.session.user.id` — o prestador so ve/edita a si mesmo.
+  `getMyDetail` retorna `null` se o usuario nao e prestador (UI mostra empty state).
+  `toggleMyUncoveredDay` bloqueia se a apuracao do mes ja esta fechada.
+- **Refactor:** extrai `buildProviderDetail` (helper com retorno tipado explicito) compartilhado por
+  `getDetail` (admin) e `getMyDetail` (self) — sem duplicar a montagem da ficha.
+- **UI** `my-commission/`: cards de resumo, memoria de calculo, estornos (read-only) e dias nao
+  cobertos (self-toggle). Reaproveita a linguagem visual da ficha admin.
+- **Nav/gating:** item "Minha Comissao" no grupo Comissoes, gateado por `module=commissions`
+  (fora de tenants sem comissao); `resolveModuleForPath` mapeia `/my-commission`. typecheck 0, lint 0.
+
 ### 2026-07-05 — Comissoes: estorno automatico da comissao (Epico PR 3/6)
 
 Venda/OS comissionada desfeita nao pode continuar pagando comissao ao Provider. Novo service
