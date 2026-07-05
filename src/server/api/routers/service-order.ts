@@ -66,6 +66,7 @@ import {
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
+import { createProviderReversalForRefund } from "@/server/services/provider-reversal.service";
 import { resolveOsAssignee } from "@/server/services/os-assignee.service";
 import {
   refundNeedsOpenCashSession,
@@ -1395,6 +1396,22 @@ export const serviceOrderRouter = createTRPCRouter({
               });
             }
           }
+        }
+
+        // Estorno automatico da comissao do Provider interno (tecnico executor e/ou
+        // vendedor intermediador) — nao se paga comissao por OS estornada. So gera
+        // reversal se a apuracao do mes ja estiver fechada (senao o re-calculo ja
+        // exclui a OS, que passa a REFUNDED). Idempotente por (referencia). (ADR 0056)
+        const reversalUserIds = [...new Set([order.technicianId, order.vendorId].filter(Boolean) as string[])];
+        for (const providerUserId of reversalUserIds) {
+          await createProviderReversalForRefund(tx, ctx.tenantId, {
+            providerUserId,
+            referenceType: "service_order",
+            referenceId: order.id,
+            factDate: order.paymentDate ?? new Date(),
+            refundedFraction: 1,
+            registeredById: ctx.session.user.id,
+          });
         }
 
         await tx.serviceOrderHistory.create({

@@ -869,6 +869,11 @@ async function collectProviderEvents(
 
     for (const sale of sales) {
       for (const item of sale.items) {
+        // Item estornado (parcial) tem total=0 — nao comissiona. O estorno zera
+        // o total do item; ignora-los aqui mantem o re-calculo correto enquanto a
+        // apuracao esta aberta (o estorno automatico so gera reversal apos fechada).
+        if (decimalToNumber(item.total) <= 0) continue;
+
         const unitPrice = decimalToNumber(item.unitPrice);
         // SaleItem.costPrice e o custo unitario (o codigo antigo lia `unitCost`,
         // campo inexistente → custo 0 → comissao sobre a receita inteira).
