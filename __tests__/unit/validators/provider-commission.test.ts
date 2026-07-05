@@ -242,13 +242,25 @@ describe("provider-commission validators", () => {
       expect(result._delete).toBe(true);
     });
 
-    it("rejects rate above 100", () => {
+    it("aplica defaults dos novos eixos (percent/profit/own)", () => {
+      const r = providerRuleSchema.parse({
+        category: "produto_acessorio",
+        scope: "normal",
+        rangeMin: 0,
+        rate: 10,
+      });
+      expect(r.valueType).toBe("PERCENT");
+      expect(r.base).toBe("PROFIT");
+      expect(r.source).toBe("OWN");
+    });
+
+    it("rejects rate negativo", () => {
       expect(() =>
         providerRuleSchema.parse({
           category: "produto_acessorio",
           scope: "normal",
           rangeMin: 0,
-          rate: 101,
+          rate: -1,
         }),
       ).toThrow();
     });
@@ -344,6 +356,82 @@ describe("provider-commission validators", () => {
         ],
       });
       expect(result.rules).toHaveLength(2);
+    });
+
+    // ── Novos eixos: tipo/base/origem ──
+
+    it("rejects rate > 100 quando percentual", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [{ category: "produto_acessorio", scope: "normal", rangeMin: 0, rangeMax: null, rate: 101 }],
+        }),
+      ).toThrow();
+    });
+
+    it("aceita valor fixo por unidade acima de 100 (R$/unidade, sem faixa)", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "produto_aparelho", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 500 },
+        ],
+      });
+      expect(r.rules[0]!.valueType).toBe("FIXED_PER_UNIT");
+      expect(r.rules[0]!.rate).toBe(500);
+    });
+
+    it("rejeita faixa (rangeMax) em regra de valor fixo", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "produto_aparelho", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rangeMax: 1000, rate: 50 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("rejeita base GROSS_NET com valor fixo", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "produto_aparelho", scope: "normal", valueType: "FIXED_PER_UNIT", base: "GROSS_NET", rangeMin: 0, rate: 50 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("aceita percentual sobre valor total (GROSS_NET) em produto", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "produto_acessorio", scope: "normal", base: "GROSS_NET", rangeMin: 0, rangeMax: null, rate: 5 },
+        ],
+      });
+      expect(r.rules[0]!.base).toBe("GROSS_NET");
+    });
+
+    it("rejeita eixos nao-padrao em categoria de servico", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "servico_at_sem_peca", scope: "normal", source: "STORE", rangeMin: 0, rangeMax: null, rate: 5 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("faixas de origens diferentes acumulam separado (own vs store)", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "produto_acessorio", scope: "normal", source: "OWN", rangeMin: 0, rangeMax: null, rate: 10 },
+          { category: "produto_acessorio", scope: "normal", source: "STORE", rangeMin: 0, rangeMax: null, rate: 2 },
+        ],
+      });
+      expect(r.rules).toHaveLength(2);
     });
   });
 

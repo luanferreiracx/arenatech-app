@@ -92,9 +92,16 @@ model ProviderCommissionRule {
   contractId String   @map("contract_id") @db.Uuid
   category   String
   scope      String   @default("normal")
+  // Tipo do valor: PERCENT (rate = %) ou FIXED_PER_UNIT (rate = R$ por unidade).
+  valueType  String   @default("PERCENT") @map("value_type")
+  // Base do percentual: PROFIT (lucro/LBC) ou GROSS_NET (total liquido do item).
+  base       String   @default("PROFIT")
+  // Origem: OWN (vendas proprias) ou STORE (participacao nas vendas de outros).
+  source     String   @default("OWN")
   rangeMin   Decimal  @map("range_min") @db.Decimal(10, 2)
   rangeMax   Decimal? @map("range_max") @db.Decimal(10, 2)
-  rate       Decimal  @db.Decimal(7, 4)
+  // Quando valueType=PERCENT: aliquota %. Quando FIXED_PER_UNIT: valor por unidade (R$).
+  rate       Decimal  @db.Decimal(10, 4)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

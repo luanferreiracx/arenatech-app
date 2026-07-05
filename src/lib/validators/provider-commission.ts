@@ -92,6 +92,42 @@ export const CATEGORIES_WITH_SCOPE: readonly CommissionCategory[] = [
   "produto_aparelho",
 ];
 
+// ── Eixos do tipo de regra (evolucao pos-epico) ──
+
+/** Tipo do valor da regra: percentual sobre base, ou valor fixo por unidade. */
+export const commissionValueTypeEnum = z.enum(["PERCENT", "FIXED_PER_UNIT"]);
+export type CommissionValueType = z.infer<typeof commissionValueTypeEnum>;
+
+/** Base do percentual: lucro (LBC) ou total liquido do item (o que o cliente pagou). */
+export const commissionBaseEnum = z.enum(["PROFIT", "GROSS_NET"]);
+export type CommissionBase = z.infer<typeof commissionBaseEnum>;
+
+/** Origem: vendas proprias ou participacao nas vendas de outros (loja). */
+export const commissionSourceEnum = z.enum(["OWN", "STORE"]);
+export type CommissionSource = z.infer<typeof commissionSourceEnum>;
+
+export const COMMISSION_VALUE_TYPE_LABELS: Record<string, string> = {
+  PERCENT: "Percentual",
+  FIXED_PER_UNIT: "Valor fixo por unidade",
+};
+
+export const COMMISSION_BASE_LABELS: Record<string, string> = {
+  PROFIT: "Lucro",
+  GROSS_NET: "Valor total",
+};
+
+export const COMMISSION_SOURCE_LABELS: Record<string, string> = {
+  OWN: "Propria",
+  STORE: "Participacao na loja",
+};
+
+/** Categorias de PRODUTO — unicas que aceitam os eixos tipo/base/origem (loja,
+ *  valor fixo por unidade, base total). Servicos seguem PERCENT/PROFIT/OWN. */
+export const PRODUCT_CATEGORIES: readonly CommissionCategory[] = [
+  "produto_acessorio",
+  "produto_aparelho",
+];
+
 // ── Create Provider ──
 
 export const createProviderSchema = z.object({
@@ -163,9 +199,14 @@ export const providerRuleSchema = z.object({
   id: z.string().uuid().optional().nullable(),
   category: commissionCategoryEnum,
   scope: commissionScopeEnum,
+  valueType: commissionValueTypeEnum.default("PERCENT"),
+  base: commissionBaseEnum.default("PROFIT"),
+  source: commissionSourceEnum.default("OWN"),
   rangeMin: z.number().min(0),
   rangeMax: z.number().positive().optional().nullable(),
-  rate: z.number().min(0).max(100),
+  // PERCENT: aliquota % (0..100). FIXED_PER_UNIT: valor por unidade em R$ (>= 0).
+  // O teto de 100 nao se aplica ao fixo — validado no superRefine por valueType.
+  rate: z.number().min(0),
   _delete: z.boolean().optional(),
 });
 export type ProviderRuleInput = z.infer<typeof providerRuleSchema>;
@@ -213,11 +254,38 @@ export const updateProviderRulesSchema = z
     rules: z.array(providerRuleSchema).min(0),
   })
   .superRefine((data, ctx) => {
-    // Agrupa por categoria|escopo e valida cada conjunto de faixas (ignora as marcadas para delete).
-    const buckets = new Map<string, Array<{ rangeMin: number; rangeMax: number | null | undefined }>>();
+    const addIssue = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rules"], message });
+
     for (const rule of data.rules) {
       if (rule._delete) continue;
-      const key = `${rule.category}|${rule.scope}`;
+      const label = `${COMMISSION_CATEGORY_LABELS[rule.category] ?? rule.category} (${COMMISSION_SCOPE_LABELS[rule.scope] ?? rule.scope})`;
+
+      // Percentual nao passa de 100%; fixo (R$/unidade) nao tem esse teto.
+      if (rule.valueType === "PERCENT" && rule.rate > 100) {
+        addIssue(`${label}: a aliquota percentual nao pode passar de 100%.`);
+      }
+      // Regra fixa e por unidade — nao usa faixa (teto).
+      if (rule.valueType === "FIXED_PER_UNIT" && rule.rangeMax != null) {
+        addIssue(`${label}: valor fixo por unidade nao usa faixa (remova o teto).`);
+      }
+      // Base sobre total so faz sentido para percentual (o fixo ja e por unidade).
+      if (rule.base === "GROSS_NET" && rule.valueType !== "PERCENT") {
+        addIssue(`${label}: base "valor total" so vale para regra percentual.`);
+      }
+      // Eixos tipo/base/origem so valem para categorias de produto.
+      const isProduct = (PRODUCT_CATEGORIES as readonly string[]).includes(rule.category);
+      if (!isProduct && (rule.source !== "OWN" || rule.base !== "PROFIT" || rule.valueType !== "PERCENT")) {
+        addIssue(`${label}: servicos so aceitam percentual sobre lucro, origem propria.`);
+      }
+    }
+
+    // Faixas progressivas: agrupa por (categoria, escopo, origem); regras fixas nao
+    // participam da checagem de contiguidade (nao tem faixa).
+    const buckets = new Map<string, Array<{ rangeMin: number; rangeMax: number | null | undefined }>>();
+    for (const rule of data.rules) {
+      if (rule._delete || rule.valueType === "FIXED_PER_UNIT") continue;
+      const key = `${rule.category}|${rule.scope}|${rule.source}`;
       const list = buckets.get(key) ?? [];
       list.push({ rangeMin: rule.rangeMin, rangeMax: rule.rangeMax });
       buckets.set(key, list);
@@ -225,12 +293,10 @@ export const updateProviderRulesSchema = z
     for (const [key, list] of buckets) {
       const result = validateBracketSet(list);
       if (!result.ok) {
-        const [category, scope] = key.split("|");
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["rules"],
-          message: `${COMMISSION_CATEGORY_LABELS[category!] ?? category} (${COMMISSION_SCOPE_LABELS[scope!] ?? scope}): ${result.message}`,
-        });
+        const [category, scope, source] = key.split("|");
+        addIssue(
+          `${COMMISSION_CATEGORY_LABELS[category!] ?? category} (${COMMISSION_SCOPE_LABELS[scope!] ?? scope} / ${COMMISSION_SOURCE_LABELS[source!] ?? source}): ${result.message}`,
+        );
       }
     }
   });
