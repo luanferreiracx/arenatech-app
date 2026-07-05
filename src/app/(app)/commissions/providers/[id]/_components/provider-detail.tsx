@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Lock, FileText, Calendar, Undo2, Plus, X, Calculator } from "lucide-react";
+import { Search, Lock, FileText, Calendar, Undo2, Plus, X, Calculator, FileDown, Sheet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -266,6 +266,26 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
               <Calculator className="h-4 w-4 mr-1" />
               {calculateMutation.isPending ? "Calculando..." : "Calcular"}
             </Button>
+          )}
+          {apuracao && (
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={`/api/commissions/${providerId}/apuracao/${year}/${month}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FileDown className="h-4 w-4 mr-1" />
+                  PDF
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href={`/api/commissions/${providerId}/apuracao/${year}/${month}/csv`}>
+                  <Sheet className="h-4 w-4 mr-1" />
+                  CSV
+                </a>
+              </Button>
+            </>
           )}
         </div>
       </div>

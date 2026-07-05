@@ -786,6 +786,26 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: export PDF/CSV da apuracao (Epico PR 6/6 — FIM DO EPICO)
+
+Ultimo PR do epico. Export da memoria de calculo da apuracao em PDF e CSV (paridade Laravel
+`exportarPdf`/`exportarCsv`), no padrao de PDF ja usado no projeto (`@react-pdf/renderer` +
+`renderPdfToBuffer` + route handler):
+
+- **Documento** `provider-apuracao-pdf.tsx` (identidade Arena: dourado/preto, header do tenant via
+  `loadTenantHeader`): cabecalho, cards de resumo (bruto/estornos/ajuda/liquido) e tabela da memoria
+  (data, referencia, categoria, escopo, base, comissao).
+- **Rotas** `GET /api/commissions/[providerId]/apuracao/[year]/[month]/{pdf,csv}`. Auth compartilhada
+  `assertCanExportApuracao`: admin do tenant OU o proprio prestador. 404 sem apuracao, 403 cross-user.
+- **Nucleo puro** `lib/commission/apuracao-memory.ts` (`extractApuracaoLines`, `csvField`,
+  `buildApuracaoCsv` — CSV `;` + BOM UTF-8 p/ Excel, sem lib nova) — testavel sem DB.
+- **UI:** botoes PDF/CSV na ficha do prestador (admin) quando ha apuracao. (Botoes no self-service
+  entram junto, ja que /my-commission passa a existir apos o PR 5.)
+- Testes: 7 unit (extracao de memoria + escaping CSV). typecheck 0, lint 0 erros.
+
+**EPICO DE COMISSOES CONCLUIDO** (PRs #387/#388/#389/#390 + este): sistema utilizavel ponta-a-ponta
+— contrato/aliquotas, calculo categoria/escopo correto, estorno automatico, fechamento canonico,
+self-service e export. Ver ADR 0056 (adendo) e plano `proud-chasing-dahl.md`.
 ### 2026-07-05 — Comissoes: self-service "Minha Comissao" (Epico PR 5/6)
 
 O prestador nao via a propria apuracao (paridade Laravel MinhaComissao). Nova rota `/my-commission`

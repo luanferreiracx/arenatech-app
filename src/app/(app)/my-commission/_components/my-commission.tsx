@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileText, Calendar, Undo2, UserX } from "lucide-react";
+import { FileText, Calendar, Undo2, UserX, FileDown, Sheet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,7 +111,7 @@ export function MyCommission() {
     );
   }
 
-  const { apuracao, reversals, uncoveredDays } = detailQuery.data;
+  const { provider, apuracao, reversals, uncoveredDays } = detailQuery.data;
   const isClosed = apuracao && apuracao.status !== "OPEN";
   const currentMonthValue = `${year}-${String(month).padStart(2, "0")}`;
   const memoryLinhas =
@@ -123,18 +123,40 @@ export function MyCommission() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div />
-        <Select value={currentMonthValue} onValueChange={handleMonthChange}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Mes" />
-          </SelectTrigger>
-          <SelectContent>
-            {monthOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 items-center">
+          <Select value={currentMonthValue} onValueChange={handleMonthChange}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Mes" />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {apuracao && (
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={`/api/commissions/${provider.id}/apuracao/${year}/${month}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FileDown className="h-4 w-4 mr-1" />
+                  PDF
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href={`/api/commissions/${provider.id}/apuracao/${year}/${month}/csv`}>
+                  <Sheet className="h-4 w-4 mr-1" />
+                  CSV
+                </a>
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Summary cards */}
