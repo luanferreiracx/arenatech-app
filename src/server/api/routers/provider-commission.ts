@@ -226,6 +226,9 @@ export const providerCommissionRouter = createTRPCRouter({
             contractId: input.contractId,
             category: rule.category,
             scope: rule.scope,
+            valueType: rule.valueType,
+            base: rule.base,
+            source: rule.source,
             rangeMin: new Prisma.Decimal(rule.rangeMin),
             rangeMax: rule.rangeMax != null ? new Prisma.Decimal(rule.rangeMax) : null,
             rate: new Prisma.Decimal(rule.rate),
@@ -788,6 +791,9 @@ type DetailRule = {
   id: string;
   category: string;
   scope: string;
+  valueType: string;
+  base: string;
+  source: string;
   rangeMin: number;
   rangeMax: number | null;
   rate: number;
@@ -917,6 +923,9 @@ async function buildProviderDetail(
             id: r.id,
             category: r.category,
             scope: r.scope,
+            valueType: r.valueType,
+            base: r.base,
+            source: r.source,
             rangeMin: decimalToNumber(r.rangeMin),
             rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax) : null,
             rate: decimalToNumber(r.rate),

@@ -786,6 +786,26 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: tipos de regra flexiveis — fundacao (schema + validators) [PR 1/4]
+
+Ao cadastrar a equipe real, o dono pediu 3 modelos de remuneracao que o sistema nao suportava: valor
+FIXO por aparelho, base configuravel (lucro OU total), e participacao nas vendas da LOJA (vendas de
+outros). Este PR e a fundacao — sem mudanca de comportamento (defaults = atual):
+
+- **Schema:** `ProviderCommissionRule` ganha 3 colunas (String com default): `value_type`
+  (PERCENT|FIXED_PER_UNIT), `base` (PROFIT|GROSS_NET), `source` (OWN|STORE). `rate` alargado
+  7,4→10,4 (comporta valor fixo em R$). Migration `20260705120000_commission_rule_types` — aditiva,
+  DEFAULT constante (zero-downtime); aplica limpa do zero (validado em DB clean CI-equivalente).
+- **Validators:** novos enums + labels; `providerRuleSchema` ganha os 3 campos (default). `superRefine`:
+  faixas agrupadas por (categoria, escopo, ORIGEM); regra fixa nao usa faixa; rate>100 so barra
+  percentual; base GROSS_NET so com percentual; servicos so aceitam PERCENT/PROFIT/OWN.
+- **Router:** `updateRules` persiste os 3 campos; `getDetail`/`buildProviderDetail` os expoe (p/ a UI).
+- Testes: +8 casos de validacao. typecheck 0, lint 0 erros. Suite 1552 verde (com integracao local).
+
+**Decisoes do dono (travadas):** loja=vendas de OUTROS (exclui proprias); "total"=liquido
+(`SaleItem.total`); por categoria+escopo mantendo faixas; faixas por origem acumulam separado; fixo=
+por UNIDADE. Proximo: PR2 calculo (lucro/total + fixo), PR3 fonte STORE, PR4 UI.
+
 ### 2026-07-05 — Comissoes: correcao de 3 bugs do estorno automatico (pos-auditoria)
 
 Auditoria (investigate + review-project + security-review) do epico achou 3 bugs no estorno
