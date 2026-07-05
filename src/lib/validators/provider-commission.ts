@@ -68,10 +68,29 @@ export const COMMISSION_CATEGORY_LABELS: Record<string, string> = {
   intermediacao_at: "Intermediacao",
 };
 
+export const commissionScopeEnum = z.enum(["normal", "premium"]);
+export type CommissionScope = z.infer<typeof commissionScopeEnum>;
+
+export const commissionCategoryEnum = z.enum([
+  "produto_acessorio",
+  "produto_aparelho",
+  "servico_at_sem_peca",
+  "servico_at_com_peca",
+  "intermediacao_at",
+]);
+export type CommissionCategory = z.infer<typeof commissionCategoryEnum>;
+
 export const COMMISSION_SCOPE_LABELS: Record<string, string> = {
   normal: "Normal",
   premium: "Premium",
 };
+
+/** Categorias que aceitam o eixo de escopo (normal/premium). Servicos/intermediacao
+ *  sao sempre `normal` — o escopo premium so faz sentido para produtos. */
+export const CATEGORIES_WITH_SCOPE: readonly CommissionCategory[] = [
+  "produto_acessorio",
+  "produto_aparelho",
+];
 
 // ── Create Provider ──
 
@@ -126,23 +145,95 @@ export const createContractSchema = z.object({
 });
 export type CreateContractInput = z.infer<typeof createContractSchema>;
 
+export const updateContractSchema = z.object({
+  contractId: z.string().uuid(),
+  startDate: z.string().min(1, "Data inicio obrigatoria"),
+  endDate: z.string().optional().nullable(),
+  allowanceCap: z.number().min(0).optional().nullable(),
+  dailyMeal: z.number().min(0).optional().nullable(),
+  dailyTransport: z.number().min(0).optional().nullable(),
+  monthlyCellphone: z.number().min(0).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+export type UpdateContractInput = z.infer<typeof updateContractSchema>;
+
 // ── Commission Rule ──
 
 export const providerRuleSchema = z.object({
   id: z.string().uuid().optional().nullable(),
-  category: z.string().min(1).max(40),
-  scope: z.string().min(1).max(20),
+  category: commissionCategoryEnum,
+  scope: commissionScopeEnum,
   rangeMin: z.number().min(0),
-  rangeMax: z.number().optional().nullable(),
+  rangeMax: z.number().positive().optional().nullable(),
   rate: z.number().min(0).max(100),
   _delete: z.boolean().optional(),
 });
 export type ProviderRuleInput = z.infer<typeof providerRuleSchema>;
 
-export const updateProviderRulesSchema = z.object({
-  contractId: z.string().uuid(),
-  rules: z.array(providerRuleSchema).min(0),
-});
+/**
+ * Valida a integridade das faixas progressivas de uma categoria+escopo:
+ * ordenadas por rangeMin, cada faixa comeca onde a anterior terminou (sem
+ * buraco), sem sobreposicao, e apenas a ultima pode ser aberta (rangeMax null).
+ * Aplicado tanto no cliente (RHF) quanto no server (defense in depth).
+ */
+export function validateBracketSet(
+  rules: Array<{ rangeMin: number; rangeMax: number | null | undefined }>,
+): { ok: true } | { ok: false; message: string } {
+  if (rules.length === 0) return { ok: true };
+
+  const sorted = [...rules].sort((a, b) => a.rangeMin - b.rangeMin);
+
+  for (let i = 0; i < sorted.length; i++) {
+    const rule = sorted[i]!;
+    const isLast = i === sorted.length - 1;
+
+    if (rule.rangeMax != null && rule.rangeMax <= rule.rangeMin) {
+      return { ok: false, message: "O teto da faixa deve ser maior que o piso." };
+    }
+    if (rule.rangeMax == null && !isLast) {
+      return { ok: false, message: "Apenas a ultima faixa pode ser aberta (sem teto)." };
+    }
+    if (!isLast) {
+      const next = sorted[i + 1]!;
+      if (rule.rangeMax !== next.rangeMin) {
+        return {
+          ok: false,
+          message: "As faixas devem ser continuas (o teto de uma e o piso da seguinte), sem sobreposicao nem buraco.",
+        };
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
+export const updateProviderRulesSchema = z
+  .object({
+    contractId: z.string().uuid(),
+    rules: z.array(providerRuleSchema).min(0),
+  })
+  .superRefine((data, ctx) => {
+    // Agrupa por categoria|escopo e valida cada conjunto de faixas (ignora as marcadas para delete).
+    const buckets = new Map<string, Array<{ rangeMin: number; rangeMax: number | null | undefined }>>();
+    for (const rule of data.rules) {
+      if (rule._delete) continue;
+      const key = `${rule.category}|${rule.scope}`;
+      const list = buckets.get(key) ?? [];
+      list.push({ rangeMin: rule.rangeMin, rangeMax: rule.rangeMax });
+      buckets.set(key, list);
+    }
+    for (const [key, list] of buckets) {
+      const result = validateBracketSet(list);
+      if (!result.ok) {
+        const [category, scope] = key.split("|");
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rules"],
+          message: `${COMMISSION_CATEGORY_LABELS[category!] ?? category} (${COMMISSION_SCOPE_LABELS[scope!] ?? scope}): ${result.message}`,
+        });
+      }
+    }
+  });
 export type UpdateProviderRulesInput = z.infer<typeof updateProviderRulesSchema>;
 
 // ── Apuracao ──

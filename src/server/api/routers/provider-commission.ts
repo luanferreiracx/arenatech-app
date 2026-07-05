@@ -8,6 +8,7 @@ import {
   updateProviderSchema,
   listProvidersSchema,
   createContractSchema,
+  updateContractSchema,
   updateProviderRulesSchema,
   apurarProviderSchema,
   closeApuracaoSchema,
@@ -17,34 +18,13 @@ import {
   getProviderDetailSchema,
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
+import { applyProgressiveBrackets } from "@/lib/commission/progressive-brackets";
 
 // ── Helpers ──
 
 function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
   return Number(v);
-}
-
-/**
- * Progressive bracket calculation.
- * Each portion of the base is taxed at the bracket's rate.
- */
-function applyProgressiveBrackets(
-  baseTotal: number,
-  rules: Array<{ rangeMin: number; rangeMax: number | null; rate: number }>,
-): number {
-  let commission = 0;
-
-  for (const rule of rules) {
-    const cap = rule.rangeMax ?? Number.MAX_SAFE_INTEGER;
-    const topApplicable = Math.min(baseTotal, cap);
-    const portion = Math.max(0, topApplicable - rule.rangeMin);
-    if (portion <= 0) continue;
-
-    commission += portion * (rule.rate / 100);
-  }
-
-  return Math.round(commission * 100) / 100;
 }
 
 export const providerCommissionRouter = createTRPCRouter({
@@ -174,6 +154,35 @@ export const providerCommissionRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             providerId: input.providerId,
+            startDate: new Date(input.startDate),
+            endDate: input.endDate ? new Date(input.endDate) : null,
+            allowanceCap: input.allowanceCap != null ? new Prisma.Decimal(input.allowanceCap) : null,
+            dailyMeal: input.dailyMeal != null ? new Prisma.Decimal(input.dailyMeal) : null,
+            dailyTransport: input.dailyTransport != null ? new Prisma.Decimal(input.dailyTransport) : null,
+            monthlyCellphone: input.monthlyCellphone != null ? new Prisma.Decimal(input.monthlyCellphone) : null,
+            notes: input.notes ?? null,
+          },
+        });
+        return { id: contract.id };
+      });
+    }),
+
+  /** Atualiza os campos do contrato vigente (datas, ajuda de custo) sem criar
+   *  nova versao. Regras sao geridas a parte via `updateRules`. */
+  updateContract: tenantAdminProcedure
+    .input(updateContractSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const contract = await tx.providerContract.findUnique({
+          where: { id: input.contractId },
+        });
+        if (!contract) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Contrato nao encontrado" });
+        }
+
+        await tx.providerContract.update({
+          where: { id: input.contractId },
+          data: {
             startDate: new Date(input.startDate),
             endDate: input.endDate ? new Date(input.endDate) : null,
             allowanceCap: input.allowanceCap != null ? new Prisma.Decimal(input.allowanceCap) : null,
@@ -833,6 +842,10 @@ async function collectProviderEvents(
   const events: ProviderEvent[] = [];
 
   // ── SALES ──
+  // Base (LBC) = (preco_unit − custo_unit) × qtd, apenas custo do produto.
+  // Categoria = Product.isDevice (aparelho/acessorio); escopo = Product.isPremium
+  // (normal/premium). Paridade ComissaoEngine::coletarEventosPrestador (Laravel),
+  // sem deducao fiscal (decisao do dono 2026-07-05).
   try {
     const sales = await tx.sale.findMany({
       where: {
@@ -844,17 +857,30 @@ async function collectProviderEvents(
       include: { items: true },
     });
 
+    // Batch-load product flags (isDevice/isPremium) — evita N+1.
+    const productIds = Array.from(
+      new Set(
+        sales.flatMap((s: { items: Array<{ productId: string }> }) =>
+          s.items.map((i) => i.productId),
+        ) as string[],
+      ),
+    );
+    const productFlags = await loadProductFlags(tx, productIds);
+
     for (const sale of sales) {
       for (const item of sale.items) {
         const unitPrice = decimalToNumber(item.unitPrice);
-        const unitCost = decimalToNumber(item.unitCost);
+        // SaleItem.costPrice e o custo unitario (o codigo antigo lia `unitCost`,
+        // campo inexistente → custo 0 → comissao sobre a receita inteira).
+        const unitCost = decimalToNumber(item.costPrice);
         const qty = item.quantity;
         const lbc = Math.round((unitPrice - unitCost) * qty * 100) / 100;
 
         if (lbc <= 0) continue;
 
-        // SaleItem does not carry isSerialized; default to acessorio
-        const category = "produto_acessorio";
+        const flags = productFlags.get(item.productId);
+        const category = flags?.isDevice ? "produto_aparelho" : "produto_acessorio";
+        const scope = flags?.isPremium ? "premium" : "normal";
 
         events.push({
           tipo: "venda",
@@ -862,14 +888,16 @@ async function collectProviderEvents(
           referencia_label: `Venda #${sale.number} — ${item.description ?? "Item"}`,
           data: sale.saleDate?.toISOString().split("T")[0] ?? sale.createdAt.toISOString().split("T")[0],
           categoria: category,
-          escopo: "normal",
+          escopo: scope,
           category,
-          scope: "normal",
+          scope,
           base: lbc,
           detalhe: {
             preco_unitario: unitPrice,
             preco_custo_unitario: unitCost,
             quantidade: qty,
+            eh_aparelho: flags?.isDevice ?? false,
+            eh_premium: flags?.isPremium ?? false,
           },
         });
       }
@@ -879,21 +907,27 @@ async function collectProviderEvents(
   }
 
   // ── SERVICE ORDERS ──
+  // Base = valor do SERVICO (serviceAmount), nao o total da OS. O total inclui
+  // pecas — comissionar sobre ele pagaria comissao sobre o custo de peca. Com peca:
+  // LBS = serviceAmount − (partsCost + otherCost). Sem peca: serviceAmount cheio.
+  // OS sempre escopo `normal`. Sem deducao fiscal.
   try {
     const serviceOrders = await tx.serviceOrder.findMany({
       where: {
         status: { in: ["PAID", "DELIVERED"] },
         paymentDate: { gte: periodStart, lte: periodEnd },
         deletedAt: null,
+        OR: [{ technicianId: provider.userId }, { vendorId: provider.userId }],
       },
     });
 
     for (const so of serviceOrders) {
-      const totalAmount = decimalToNumber(so.totalAmount);
+      const serviceAmount = decimalToNumber(so.serviceAmount);
       const partsCost = decimalToNumber(so.partsCost);
       const otherCost = decimalToNumber(so.otherCost);
       const costsTotal = partsCost + otherCost;
       const hasParts = costsTotal > 0;
+      const lbs = Math.round((serviceAmount - costsTotal) * 100) / 100;
 
       const isExecutor = so.technicianId === provider.userId;
       const isIntermediary = so.vendorId === provider.userId;
@@ -901,9 +935,7 @@ async function collectProviderEvents(
       // Technician executor: execution commission
       if (isExecutor && provider.profile === "TECHNICIAN") {
         const category = hasParts ? "servico_at_com_peca" : "servico_at_sem_peca";
-        const base = hasParts
-          ? Math.round((totalAmount - costsTotal) * 100) / 100
-          : totalAmount;
+        const base = hasParts ? lbs : serviceAmount;
 
         if (base > 0) {
           events.push({
@@ -917,7 +949,7 @@ async function collectProviderEvents(
             scope: "normal",
             base,
             detalhe: {
-              valor_total: totalAmount,
+              valor_servico: serviceAmount,
               custo_total: costsTotal,
               tem_peca: hasParts,
             },
@@ -925,26 +957,23 @@ async function collectProviderEvents(
         }
       }
 
-      // Seller intermediary: intermediation commission
-      if (isIntermediary && provider.profile === "SELLER") {
-        const lbs = Math.round((totalAmount - costsTotal) * 100) / 100;
-        if (lbs > 0) {
-          events.push({
-            tipo: "servico_intermediacao",
-            referencia_id: so.id,
-            referencia_label: `OS #${so.number} (intermediacao)`,
-            data: so.paymentDate?.toISOString().split("T")[0] ?? so.updatedAt.toISOString().split("T")[0],
-            categoria: "intermediacao_at",
-            escopo: "normal",
-            category: "intermediacao_at",
-            scope: "normal",
-            base: lbs,
-            detalhe: {
-              valor_total: totalAmount,
-              custo_total: costsTotal,
-            },
-          });
-        }
+      // Seller intermediary: intermediation commission over LBS
+      if (isIntermediary && provider.profile === "SELLER" && lbs > 0) {
+        events.push({
+          tipo: "servico_intermediacao",
+          referencia_id: so.id,
+          referencia_label: `OS #${so.number} (intermediacao)`,
+          data: so.paymentDate?.toISOString().split("T")[0] ?? so.updatedAt.toISOString().split("T")[0],
+          categoria: "intermediacao_at",
+          escopo: "normal",
+          category: "intermediacao_at",
+          scope: "normal",
+          base: lbs,
+          detalhe: {
+            valor_servico: serviceAmount,
+            custo_total: costsTotal,
+          },
+        });
       }
     }
   } catch {
@@ -952,6 +981,29 @@ async function collectProviderEvents(
   }
 
   return events;
+}
+
+/**
+ * Carrega flags de categoria/escopo dos produtos em lote (isDevice → aparelho,
+ * isPremium → premium). Query unica pelos ids — evita N+1 no loop de itens.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadProductFlags(
+  tx: any,
+  productIds: string[],
+): Promise<Map<string, { isDevice: boolean; isPremium: boolean }>> {
+  const flags = new Map<string, { isDevice: boolean; isPremium: boolean }>();
+  if (productIds.length === 0) return flags;
+
+  const products: Array<{ id: string; isDevice: boolean; isPremium: boolean }> =
+    await tx.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, isDevice: true, isPremium: true },
+    });
+  for (const p of products) {
+    flags.set(p.id, { isDevice: p.isDevice, isPremium: p.isPremium });
+  }
+  return flags;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

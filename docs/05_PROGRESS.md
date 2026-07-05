@@ -786,6 +786,38 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: UI de contrato/aliquotas + calculo categoria/escopo correto (Epico PR 1/6)
+
+Auditoria do sistema de comissoes (ADR 0056, sistema Provider) achou o modulo **inutilizavel**: sem
+UI para cadastrar contrato/aliquotas → `createContract`/`updateRules` existiam no router mas nenhum
+componente os chamava → toda apuracao dava zero. Alem disso, 3 bugs de calculo. Escopo deste PR
+(PR 1+2 do epico, unidos por decisao do dono — o escopo depende do calculo pra casar):
+
+- **UI nova** `contract-rules-editor.tsx` (Dialog admin na ficha do prestador): edita periodo do
+  contrato, ajuda de custo (refeicao/deslocamento/celular/teto) e a grade de **5 categorias × faixas
+  progressivas** (com escopo normal/premium nas categorias de produto). Novo prestador → cria
+  contrato; contrato existente → atualiza campos (`updateContract`, procedure nova) + regras.
+- **Validacao de faixas** (`validateBracketSet`, no validador Zod + no cliente): faixas contiguas,
+  sem sobreposicao/buraco, so a ultima aberta. `updateProviderRulesSchema` ganhou `superRefine`
+  (server valida junto). `providerRuleSchema` passou a usar enums (`commissionCategoryEnum`/`commissionScopeEnum`).
+- **Bugs de calculo corrigidos** em `collectProviderEvents` (engenharia reversa do
+  `ComissaoEngine` Laravel — ver ADR 0056 adendo):
+  - **Custo do item:** lia `item.unitCost` (campo inexistente → custo 0 → comissao sobre a receita
+    inteira). Agora usa `item.costPrice`. LBC = `(preco − custo) × qtd`.
+  - **Categoria/escopo:** eram hardcoded `produto_acessorio`/`normal`. Agora categoria = `Product.isDevice`
+    (aparelho/acessorio) e escopo = `Product.isPremium` (normal/premium), via batch-load dos produtos
+    (sem N+1). OS sempre `normal`.
+  - **Base da OS:** usava `totalAmount` (inclui pecas). Agora `serviceAmount` (mao de obra):
+    com peca = `serviceAmount − (partsCost + otherCost)`, sem peca = `serviceAmount`.
+- **Decisao do dono (2026-07-05):** base de calculo **sem parte fiscal** (ignora taxa de operadora e
+  tributos DAS/ICMS que o Laravel deduzia); custos = so custo de produto / outros custos informados.
+- **Nucleo puro:** `applyProgressiveBrackets` movido para `src/lib/commission/progressive-brackets.ts`
+  (testavel sem arrastar tRPC/NextAuth).
+- Testes: 56 unit (validacao de faixas + faixas progressivas). Typecheck 0, lint 0 erros.
+
+**Proximo (epico comissoes):** PR 3 estorno automatico (venda/OS desfeita → ProviderReversal);
+PR 4 fechamento canonico (+Installment); PR 5 self-service "Minha Comissao"; PR 6 export PDF/CSV.
+
 ### 2026-06-03 — TALISON IA: agente de atendimento reescrito do zero (DeepSeek + tools)
 
 Dono insatisfeito com o agente do Laravel (`ChatbotController`, 6.5k linhas, Haiku alucinando valores). Decisao: migrar a infra (ja estava no Next), mas **reescrever o cerebro do zero** com **DeepSeek** (conversa+tools) e **Claude so para visao** (imagem→texto). Escopo v1: atendimento + vendas (sem venda/PIX automatico). Branch `feat/talison-agent`.
