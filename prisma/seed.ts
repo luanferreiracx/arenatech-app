@@ -1,6 +1,72 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashSync } from "bcryptjs";
+import type { ModuleKey } from "../src/lib/modules";
+
+/**
+ * Planos-modelo (seed idempotente por slug). Preços placeholder — o superadmin
+ * ajusta em /admin/plans. `modules` guarda a INTENÇÃO; os pré-requisitos são
+ * auto-incluídos em runtime pelo gating (withModuleDependencies) e `settings`
+ * é sempre-on. Por isso não repetimos cashier/financial em cada plano.
+ */
+const SEED_PLANS: Array<{
+  slug: string;
+  name: string;
+  description: string;
+  modules: ModuleKey[];
+}> = [
+  {
+    slug: "wallet",
+    name: "Wallet",
+    description: "Carteira DePix e cobrança por link. O piso.",
+    modules: ["wallet", "depix-ops"],
+  },
+  {
+    slug: "assistencia",
+    name: "Assistência",
+    description: "Foco em conserto: ordens de serviço, clientes, ferramentas e estoque.",
+    modules: ["wallet", "depix-ops", "service-orders", "customers", "tools", "stock"],
+  },
+  {
+    slug: "loja",
+    name: "Loja",
+    description: "Foco em varejo: PDV, estoque, clientes, fiscal e comissões.",
+    modules: ["wallet", "depix-ops", "pdv", "stock", "customers", "fiscal", "commissions"],
+  },
+  {
+    slug: "completo",
+    name: "Completo",
+    description: "Venda + assistência + fiscal + comissões. Todos os módulos.",
+    modules: [
+      "wallet", "depix-ops", "service-orders", "customers", "tools",
+      "pdv", "stock", "cashier", "financial", "fiscal", "commissions",
+    ],
+  },
+];
+
+async function seedPlans(): Promise<void> {
+  for (const plan of SEED_PLANS) {
+    await prisma.plan.upsert({
+      where: { slug: plan.slug },
+      update: {
+        name: plan.name,
+        description: plan.description,
+        features: { modules: plan.modules } as Prisma.InputJsonValue,
+      },
+      create: {
+        slug: plan.slug,
+        name: plan.name,
+        description: plan.description,
+        monthlyPrice: 0,
+        maxUsers: 5,
+        maxImeiQueries: 50,
+        status: "ACTIVE",
+        features: { modules: plan.modules } as Prisma.InputJsonValue,
+      },
+    });
+  }
+  console.log(`Plans seeded: ${SEED_PLANS.map((p) => p.slug).join(", ")}.`);
+}
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -215,6 +281,8 @@ async function main() {
     create: { tenantId: tenantTest.id },
   });
   console.log("DePix fee config seeded (arena-tech, loja-teste).");
+
+  await seedPlans();
 }
 
 main()
