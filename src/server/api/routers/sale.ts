@@ -2244,9 +2244,12 @@ export const saleRouter = createTRPCRouter({
         });
 
         // Estorno automatico da comissao do vendedor (Provider) — nao se paga
-        // comissao sobre venda estornada. Fracao = LBC estornada / LBC total da
-        // venda (comissao e proporcional a base). So gera reversal se a apuracao
-        // do mes ja estiver fechada (senao o re-calculo exclui a venda). (ADR 0056)
+        // comissao sobre venda estornada. Passamos a fracao ACUMULADA estornada
+        // (LBC de tudo ja devolvido / LBC total): itens ja estornados antes tem
+        // total=0 no `sale.items` carregado; somamos esses + os deste lote. O
+        // service reverte so o delta que falta, permitindo varios parciais. So
+        // age se a apuracao do mes ja estiver fechada (senao o re-calculo da conta
+        // da venda estornada). (ADR 0056)
         const lbcCents = (items: typeof sale.items) =>
           items.reduce(
             (sum, it) =>
@@ -2258,14 +2261,16 @@ export const saleRouter = createTRPCRouter({
             0,
           );
         const totalLbc = lbcCents(sale.items);
-        const refundedLbc = lbcCents(itemsToRefund);
-        if (totalLbc > 0 && refundedLbc > 0) {
+        // Itens ja estornados em refunds anteriores (total=0 no snapshot carregado).
+        const previouslyRefundedItems = sale.items.filter((it) => decimalToCents(it.total) <= 0);
+        const cumulativeRefundedLbc = lbcCents(previouslyRefundedItems) + lbcCents(itemsToRefund);
+        if (totalLbc > 0 && cumulativeRefundedLbc > 0) {
           await createProviderReversalForRefund(tx, ctx.tenantId, {
             providerUserId: sale.sellerId,
             referenceType: "sale",
             referenceId: sale.id,
             factDate: sale.saleDate ?? sale.createdAt,
-            refundedFraction: Math.min(1, refundedLbc / totalLbc),
+            cumulativeRefundedFraction: Math.min(1, cumulativeRefundedLbc / totalLbc),
             registeredById: ctx.session.user.id,
           });
         }

@@ -786,6 +786,28 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: correcao de 3 bugs do estorno automatico (pos-auditoria)
+
+Auditoria (investigate + review-project + security-review) do epico achou 3 bugs no estorno
+automatico (PR #388), todos no cenario "refund DEPOIS de fechar a apuracao" (o fluxo comum — refund
+antes de fechar — sempre funcionou). Security-review: limpo (auth/authz/injecao OK). Correcoes:
+
+- **BUG-3 (fronteira de data):** `new Date(y, m, 0)` = ultimo dia as 00:00 → estorno com timestamp no
+  ultimo dia do mes ficava fora do link (closeApuracao) e da exibicao (ficha/self-service), embora o
+  calculate o contasse. Fix: helper `lib/commission/month-range.ts` (`monthRange`, fim 23:59:59.999)
+  usado em calculate/closeApuracao/buildProviderDetail — fonte unica da fronteira.
+- **BUG-1 (reversal orfao em mes fechado):** o reversal usava `factDate = now`; se o mes corrente ja
+  estava fechado, o calculate nao recalculava e o reversal se perdia. Fix: `resolveOpenMonthAnchor`
+  ancora no primeiro mes com apuracao AINDA ABERTA (a partir do corrente). Como o fato sempre esta num
+  mes fechado, o reversal e sempre `RETURN_LATER_MONTH` (branch SAME_MONTH virou morta → removida).
+- **BUG-4 (parciais multiplos):** idempotencia `(refType, refId)` fazia so o 1o refund parcial da
+  venda estornar. Fix: o caller passa a fracao ACUMULADA estornada; o service calcula o alvo total e
+  cria reversal so pelo DELTA ainda nao revertido (soma dos reversals existentes). Parciais sucessivos
+  somam; retry vira no-op (delta<=0) — idempotente por construcao. `sale.refund` computa a fracao
+  acumulada dos itens ja estornados (total=0 no snapshot) + os deste lote.
+- Testes: reversal reescrito (11 casos, incl. BUG-1/BUG-4) + `month-range` (4). Suite 1544 verde
+  (com integracao local). typecheck 0, lint 0 erros.
+
 ### 2026-07-05 — Comissoes: export PDF/CSV da apuracao (Epico PR 6/6 — FIM DO EPICO)
 
 Ultimo PR do epico. Export da memoria de calculo da apuracao em PDF e CSV (paridade Laravel

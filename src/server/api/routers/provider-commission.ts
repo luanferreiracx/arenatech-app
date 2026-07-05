@@ -19,6 +19,7 @@ import {
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
 import { applyProgressiveBrackets } from "@/lib/commission/progressive-brackets";
+import { monthRange } from "@/lib/commission/month-range";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 
 // ── Helpers ──
@@ -298,8 +299,7 @@ export const providerCommissionRouter = createTRPCRouter({
         }
 
         // Find active contract for the period
-        const periodStart = new Date(input.year, input.month - 1, 1);
-        const periodEnd = new Date(input.year, input.month, 0, 23, 59, 59, 999);
+        const { start: periodStart, end: periodEnd } = monthRange(input.year, input.month);
         const contract = provider.contracts.find((c) => {
           const start = new Date(c.startDate);
           const end = c.endDate ? new Date(c.endDate) : null;
@@ -584,9 +584,9 @@ export const providerCommissionRouter = createTRPCRouter({
           },
         });
 
-        // Link reversals to this apuracao
-        const periodStart = new Date(input.year, input.month - 1, 1);
-        const periodEnd = new Date(input.year, input.month, 0);
+        // Link reversals to this apuracao (fronteira inclusiva ate 23:59:59.999 —
+        // senao um estorno com factDate no ultimo dia do mes ficava sem apuracaoId).
+        const { start: periodStart, end: periodEnd } = monthRange(input.year, input.month);
         await tx.providerReversal.updateMany({
           where: {
             providerId: input.providerId,
@@ -892,8 +892,7 @@ async function buildProviderDetail(
     where: { providerId, year, month },
   });
 
-  const startOfMonth = new Date(year, month - 1, 1);
-  const endOfMonth = new Date(year, month, 0);
+  const { start: startOfMonth, end: endOfMonth } = monthRange(year, month);
   const reversals = await tx.providerReversal.findMany({
     where: { providerId, factDate: { gte: startOfMonth, lte: endOfMonth } },
     orderBy: { factDate: "desc" },
