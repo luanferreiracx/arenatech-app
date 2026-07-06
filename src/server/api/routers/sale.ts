@@ -6,7 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
-import { createProviderReversalForRefund } from "@/server/services/provider-reversal.service";
+import { reverseSaleCommissions } from "@/server/services/provider-reversal.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
   refundNeedsOpenCashSession,
@@ -2265,11 +2265,15 @@ export const saleRouter = createTRPCRouter({
         const previouslyRefundedItems = sale.items.filter((it) => decimalToCents(it.total) <= 0);
         const cumulativeRefundedLbc = lbcCents(previouslyRefundedItems) + lbcCents(itemsToRefund);
         if (totalLbc > 0 && cumulativeRefundedLbc > 0) {
-          await createProviderReversalForRefund(tx, ctx.tenantId, {
-            providerUserId: sale.sellerId,
-            referenceType: "sale",
-            referenceId: sale.id,
-            factDate: sale.saleDate ?? sale.createdAt,
+          // Reverte a comissao do vendedor (OWN) E a participacao de quem tem
+          // regra source=STORE (ganha sobre vendas de outros). Orquestrado no service.
+          await reverseSaleCommissions(tx, ctx.tenantId, {
+            sale: {
+              id: sale.id,
+              sellerId: sale.sellerId,
+              saleDate: sale.saleDate,
+              createdAt: sale.createdAt,
+            },
             cumulativeRefundedFraction: Math.min(1, cumulativeRefundedLbc / totalLbc),
             registeredById: ctx.session.user.id,
           });

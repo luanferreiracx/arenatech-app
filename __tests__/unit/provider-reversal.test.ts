@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { createProviderReversalForRefund } from "@/server/services/provider-reversal.service";
+import {
+  createProviderReversalForRefund,
+  reverseSaleCommissions,
+} from "@/server/services/provider-reversal.service";
 
 /**
  * Comportamento (ADR 0056, epico comissoes): ao estornar uma venda/OS
@@ -240,5 +243,120 @@ describe("createProviderReversalForRefund", () => {
       { ...baseInput, factDate },
     );
     expect(tx._created[0]!.type).toBe("RETURN_LATER_MONTH");
+  });
+});
+
+describe("reverseSaleCommissions", () => {
+  /**
+   * Mock que resolve cada provider por userId e devolve os STORE providers.
+   * Registra os userIds efetivamente processados (via provider.findFirst).
+   */
+  function makeSaleTx(opts: {
+    // userId → { providerId, comissaoNaVenda }: quem tem apuracao fechada com a venda.
+    providersByUser: Record<string, { id: string; comissao: number }>;
+    storeProviderUserIds: string[];
+  }) {
+    const processedUserIds: string[] = [];
+    const created: Record<string, unknown>[] = [];
+    return {
+      _processed: processedUserIds,
+      _created: created,
+      provider: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        findFirst: vi.fn().mockImplementation(async ({ where }: any) => {
+          processedUserIds.push(where.userId);
+          const p = opts.providersByUser[where.userId];
+          return p ? { id: p.id } : null;
+        }),
+        findMany: vi
+          .fn()
+          .mockResolvedValue(opts.storeProviderUserIds.map((userId) => ({ userId }))),
+      },
+      providerReversal: {
+        findMany: vi.fn().mockResolvedValue([]),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        create: vi.fn().mockImplementation(async ({ data }: any) => {
+          created.push(data);
+          return { id: `rev-${created.length}`, ...data };
+        }),
+      },
+      providerApuracao: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        findFirst: vi.fn().mockImplementation(async ({ where }: any) => {
+          // Apuracao do fato: fechada, com a comissao do provider sobre a venda.
+          const entry = Object.values(opts.providersByUser).find((p) => p.id === where.providerId);
+          if (entry && where.year && where.month) {
+            // Distingue lookup do fato (com memoryJson) do anchor (sem): ambos
+            // usam findFirst; retornamos fechada com memoria no 1o e null depois.
+            return {
+              status: "CLOSED",
+              memoryJson: { linhas: [{ referencia_id: "sale-1", comissao: entry.comissao }] },
+            };
+          }
+          return null;
+        }),
+      },
+    };
+  }
+
+  const sale = {
+    id: "sale-1",
+    sellerId: "seller-user",
+    saleDate: new Date(),
+    createdAt: new Date(),
+  };
+
+  it("reverte a comissao do vendedor (OWN) E dos prestadores com regra STORE", async () => {
+    const tx = makeSaleTx({
+      providersByUser: {
+        "seller-user": { id: "prov-seller", comissao: 20 },
+        "store-user": { id: "prov-store", comissao: 5 },
+      },
+      storeProviderUserIds: ["store-user"],
+    });
+    await reverseSaleCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { sale, cumulativeRefundedFraction: 1, registeredById: "admin-1" },
+    );
+    // Processou o vendedor E o prestador STORE.
+    expect(new Set(tx._processed)).toEqual(new Set(["seller-user", "store-user"]));
+    // Gerou reversal para ambos, com os valores das respectivas memorias.
+    const amounts = tx._created.map((r) => Number(r.amount)).sort((a, b) => a - b);
+    expect(amounts).toEqual([5, 20]);
+  });
+
+  it("dedup: vendedor que TAMBEM tem regra STORE e processado uma vez so", async () => {
+    const tx = makeSaleTx({
+      providersByUser: { "seller-user": { id: "prov-seller", comissao: 10 } },
+      storeProviderUserIds: ["seller-user"], // mesmo user aparece nas duas fontes
+    });
+    await reverseSaleCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { sale, cumulativeRefundedFraction: 1, registeredById: "admin-1" },
+    );
+    expect(tx._processed.filter((u) => u === "seller-user")).toHaveLength(1);
+  });
+
+  it("prestador STORE que nao ganhou nesta venda: no-op (guard de comissao zero)", async () => {
+    const tx = makeSaleTx({
+      providersByUser: {
+        "seller-user": { id: "prov-seller", comissao: 20 },
+        // store-user existe mas sem entrada em providersByUser → apuracao/memoria vazia
+      },
+      storeProviderUserIds: ["store-user"],
+    });
+    await reverseSaleCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { sale, cumulativeRefundedFraction: 1, registeredById: "admin-1" },
+    );
+    // So o vendedor gerou reversal; o STORE sem comissao na venda nao gera.
+    const amounts = tx._created.map((r) => Number(r.amount));
+    expect(amounts).toEqual([20]);
   });
 });
