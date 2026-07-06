@@ -412,7 +412,7 @@ describe("provider-commission validators", () => {
       expect(r.rules[0]!.base).toBe("GROSS_NET");
     });
 
-    it("rejeita eixos nao-padrao em categoria de servico", () => {
+    it("rejeita origem loja em categoria de servico de execucao", () => {
       expect(() =>
         updateProviderRulesSchema.parse({
           contractId: validUuid,
@@ -421,6 +421,30 @@ describe("provider-commission validators", () => {
           ],
         }),
       ).toThrow();
+    });
+
+    it("rejeita valor fixo em categoria de servico de execucao", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "servico_at_com_peca", scope: "normal", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 5 },
+          ],
+        }),
+      ).toThrow();
+    });
+
+    it("aceita base lucro/total nas categorias de AT de execucao", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "servico_at_sem_peca", scope: "normal", base: "GROSS_NET", rangeMin: 0, rangeMax: null, rate: 5 },
+          { category: "servico_at_com_peca", scope: "normal", base: "PROFIT", rangeMin: 0, rangeMax: null, rate: 8 },
+          { category: "intermediacao_at", scope: "normal", base: "GROSS_NET", rangeMin: 0, rangeMax: null, rate: 3 },
+        ],
+      });
+      expect(r.rules).toHaveLength(3);
+      expect(r.rules[0]!.base).toBe("GROSS_NET");
     });
 
     it("faixas de origens diferentes acumulam separado (own vs store)", () => {
@@ -587,7 +611,8 @@ describe("provider-commission validators", () => {
 
     it("has all commission category labels", () => {
       expect(COMMISSION_CATEGORY_LABELS.produto_acessorio).toBe("Acessorio");
-      expect(COMMISSION_CATEGORY_LABELS.intermediacao_at).toBe("Intermediacao");
+      expect(COMMISSION_CATEGORY_LABELS.intermediacao_at).toBe("Intermediacao de OS (captou o servico)");
+      expect(COMMISSION_CATEGORY_LABELS.servico_at_loja).toBe("Participacao em AT da loja (OS de outros)");
     });
   });
 
