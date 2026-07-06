@@ -795,6 +795,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-06 — Comissoes: participacao em AT (OS de outros tecnicos) — calculo [PR 1/3]
+
+Analogo ao STORE de vendas, agora para assistencia: o prestador ganha por OS executada na loja por
+OUTRO tecnico. Nova categoria `servico_at_loja` ("Participacao em AT"), origem STORE.
+
+- **Validators:** enum + label `servico_at_loja`; `CATEGORIES_WITH_AXES` (produtos + servico_at_loja)
+  libera os eixos tipo/base/origem para ela; `STORE_ONLY_CATEGORIES` forca origem STORE (participacao
+  e sempre na loja). Demais categorias de servico seguem restritas a PERCENT/PROFIT/OWN.
+- **Coleta** (`collectProviderEvents`): gate `includeStoreServiceOrders` (so quando ha regra
+  servico_at_loja). Varre OS PAID/DELIVERED do periodo com `technicianId != prestador` (exclui as
+  proprias execucoes). Evento origem STORE: baseProfit=LBS, baseGrossNet=serviceAmount, qty=Σ
+  quantidade dos itens SERVICE (fallback 1 se a OS nao itemiza — mao de obra so e cobrada se houve
+  servico). Balde (servico_at_loja, normal, STORE) processado pelo `computeBucketCommission` existente
+  (percentual lucro/total OU fixo por servico) — sem calculo novo.
+- Testes: +4 validators (aceita %/lucro, %/total, fixo; rejeita origem propria). typecheck 0, lint 0.
+  Suite 1576 verde (com integracao). Proximo: PR2 estorno de OS reverte participacao; PR3 UI.
+
 ### 2026-07-05 — Comissoes: estorno automatico tambem reverte participacao STORE (follow-up)
 
 Fecha a limitacao anotada no epico de tipos: o estorno automatico so revertia a comissao do vendedor

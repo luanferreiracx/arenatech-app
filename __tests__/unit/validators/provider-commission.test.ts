@@ -433,6 +433,50 @@ describe("provider-commission validators", () => {
       });
       expect(r.rules).toHaveLength(2);
     });
+
+    // ── Participacao em AT (servico_at_loja) ──
+
+    it("aceita servico_at_loja com % sobre lucro, origem loja", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "servico_at_loja", scope: "normal", source: "STORE", base: "PROFIT", rangeMin: 0, rangeMax: null, rate: 3 },
+        ],
+      });
+      expect(r.rules[0]!.category).toBe("servico_at_loja");
+    });
+
+    it("aceita servico_at_loja com % sobre o valor total (GROSS_NET)", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "servico_at_loja", scope: "normal", source: "STORE", base: "GROSS_NET", rangeMin: 0, rangeMax: null, rate: 2 },
+        ],
+      });
+      expect(r.rules[0]!.base).toBe("GROSS_NET");
+    });
+
+    it("aceita servico_at_loja com valor fixo por servico", () => {
+      const r = updateProviderRulesSchema.parse({
+        contractId: validUuid,
+        rules: [
+          { category: "servico_at_loja", scope: "normal", source: "STORE", valueType: "FIXED_PER_UNIT", rangeMin: 0, rate: 10 },
+        ],
+      });
+      expect(r.rules[0]!.valueType).toBe("FIXED_PER_UNIT");
+      expect(r.rules[0]!.rate).toBe(10);
+    });
+
+    it("rejeita servico_at_loja com origem propria (participacao e sempre loja)", () => {
+      expect(() =>
+        updateProviderRulesSchema.parse({
+          contractId: validUuid,
+          rules: [
+            { category: "servico_at_loja", scope: "normal", source: "OWN", rangeMin: 0, rangeMax: null, rate: 3 },
+          ],
+        }),
+      ).toThrow();
+    });
   });
 
   // ── Apuracao ──

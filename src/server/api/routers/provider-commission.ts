@@ -351,15 +351,21 @@ export const providerCommissionRouter = createTRPCRouter({
         }
 
         // Coleta eventos: vendas/OS proprias e — se houver regra de participacao —
-        // vendas da loja (de outros). So varre as vendas de outros quando o
-        // contrato tem ao menos uma regra source=STORE (evita scan desnecessario).
-        const hasStoreRule = contract.rules.some((r) => r.source === "STORE");
+        // vendas da loja (de outros) e OS da loja (de outros tecnicos). Cada fonte
+        // extra so e varrida quando ha regra correspondente (evita scan desnecessario):
+        //  - vendas da loja: qualquer regra source=STORE de produto;
+        //  - OS da loja: regra da categoria servico_at_loja.
+        const hasStoreSaleRule = contract.rules.some(
+          (r) => r.source === "STORE" && r.category !== "servico_at_loja",
+        );
+        const hasStoreServiceRule = contract.rules.some((r) => r.category === "servico_at_loja");
         const events = await collectProviderEvents(
           tx,
           provider,
           periodStart,
           periodEnd,
-          hasStoreRule,
+          hasStoreSaleRule,
+          hasStoreServiceRule,
         );
 
         // Agrupa por (categoria, escopo, ORIGEM) — proprias e loja acumulam separado.
@@ -990,6 +996,7 @@ async function collectProviderEvents(
   periodStart: Date,
   periodEnd: Date,
   includeStoreSales = false,
+  includeStoreServiceOrders = false,
 ): Promise<ProviderEvent[]> {
   const events: ProviderEvent[] = [];
 
@@ -1172,6 +1179,65 @@ async function collectProviderEvents(
     }
   } catch {
     // ServiceOrder table might not exist in test env
+  }
+
+  // ── PARTICIPACAO EM AT (OS da loja, de OUTROS tecnicos) ──
+  // Analogo ao STORE de vendas: o prestador ganha por OS executada na loja por
+  // OUTRO tecnico. So varre quando ha regra da categoria `servico_at_loja`.
+  // Base: baseProfit = LBS (serviceAmount − custos); baseGrossNet = serviceAmount.
+  // qty = Σ quantidade dos itens SERVICE (fixo "por servico"); fallback 1 se a OS
+  // nao itemiza servicos (mao de obra so e cobrada se houve servico — evita R$0).
+  if (includeStoreServiceOrders) {
+    try {
+      const storeOrders = await tx.serviceOrder.findMany({
+        where: {
+          status: { in: ["PAID", "DELIVERED"] },
+          paymentDate: { gte: periodStart, lte: periodEnd },
+          deletedAt: null,
+          technicianId: { not: provider.userId },
+        },
+        include: { items: true },
+      });
+
+      for (const so of storeOrders) {
+        // Guard extra: technicianId nao-nulo (executor definido) e != prestador.
+        if (!so.technicianId || so.technicianId === provider.userId) continue;
+
+        const serviceAmount = decimalToNumber(so.serviceAmount);
+        const costsTotal = decimalToNumber(so.partsCost) + decimalToNumber(so.otherCost);
+        const lbs = Math.round((serviceAmount - costsTotal) * 100) / 100;
+        if (serviceAmount <= 0 && lbs <= 0) continue;
+
+        // qty = numero de servicos (itens type=SERVICE); fallback 1.
+        const serviceItemsQty = (so.items ?? [])
+          .filter((it: { type: string }) => it.type === "SERVICE")
+          .reduce((sum: number, it: { quantity: unknown }) => sum + decimalToNumber(it.quantity as never), 0);
+        const qty = serviceItemsQty > 0 ? serviceItemsQty : 1;
+
+        events.push({
+          tipo: "servico_loja",
+          referencia_id: so.id,
+          referencia_label: `OS #${so.number} (participacao)`,
+          data: so.paymentDate?.toISOString().split("T")[0] ?? so.updatedAt.toISOString().split("T")[0],
+          categoria: "servico_at_loja",
+          escopo: "normal",
+          category: "servico_at_loja",
+          scope: "normal",
+          source: "STORE",
+          base: lbs,
+          baseProfit: lbs,
+          baseGrossNet: serviceAmount,
+          qty,
+          detalhe: {
+            valor_servico: serviceAmount,
+            custo_total: costsTotal,
+            qtd_servicos: qty,
+          },
+        });
+      }
+    } catch {
+      // ServiceOrder table might not exist in test env
+    }
   }
 
   return events;
