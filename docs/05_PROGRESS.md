@@ -795,6 +795,23 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-06 — Comissoes: ajuda de custo = valor TOTAL no mes (nao diaria)
+
+Auditoria da comissao da Samya (comissao CORRETA, R$1.870,94) revelou que a ajuda de custo modelava
+DIARIA × dias (heranca Laravel) — confuso (le-se "R$200" como mensal) e ruim de operar. Decisao do
+dono: os 3 campos (refeicao/deslocamento/celular) passam a ser o VALOR TOTAL DO MES; os tres descontam
+proporcionalmente os dias nao cobertos; teto limita o total.
+
+- Novo helper puro `lib/commission/allowance.ts` (`calcAllowance`): `total = (meal+transport+cellphone)
+  × diasEfetivos/diasNoMes`, limitado ao teto. `calculateAllowance` do router delega pra ele (mantem
+  so a contagem de dias nao cobertos no DB).
+- **Sem migration/backfill:** so 1 contrato em prod tem ajuda (Samya); os valores dela ja refletem
+  "total do mes" (verificado no banco). Sem mudanca de schema (colunas mantem nome; muda a semantica).
+- UI: rotulos "Refeicao/Deslocamento no mes" (era "Diaria ..."), "Celular no mes"; linha de ajuda
+  explicando total-mes + proporcao. Ficha/self-service ja diziam "proporcional" — ok.
+- Testes: +8 do helper (total cheio, proporcao nos 3 campos, teto, zeros, arredondamento). typecheck 0,
+  lint 0. Suite 1589 verde. Pos-deploy: recalcular junho da Samya → ajuda R$600, liquido R$2.470,94.
+
 ### 2026-07-06 — Comissoes: base (lucro/total) configuravel nas AT de execucao + rotulos
 
 Dono reportou: nas categorias de AT de execucao (sem/com peca, intermediacao) nao dava pra escolher

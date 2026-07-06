@@ -20,6 +20,7 @@ import {
 import { logger } from "@/lib/logger";
 import { computeBucketCommission } from "@/lib/commission/bucket-commission";
 import { monthRange } from "@/lib/commission/month-range";
+import { calcAllowance } from "@/lib/commission/allowance";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 
 // ── Helpers ──
@@ -1275,25 +1276,20 @@ async function calculateAllowance(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<number> {
-  const daysInMonth = periodEnd.getDate();
-
-  const uncoveredCount = await tx.providerUncoveredDay.count({
+  const uncoveredDays = await tx.providerUncoveredDay.count({
     where: {
       providerId,
       day: { gte: periodStart, lte: periodEnd },
     },
   });
 
-  const effectiveDays = Math.max(0, daysInMonth - uncoveredCount);
-
-  const dailyMeal = decimalToNumber(contract.dailyMeal);
-  const dailyTransport = decimalToNumber(contract.dailyTransport);
-  const monthlyCellphone = decimalToNumber(contract.monthlyCellphone);
-  const cap = decimalToNumber(contract.allowanceCap);
-
-  const mealTotal = effectiveDays * dailyMeal;
-  const transportTotal = effectiveDays * dailyTransport;
-  const total = mealTotal + transportTotal + monthlyCellphone;
-
-  return Math.round(Math.min(total, cap > 0 ? cap : total) * 100) / 100;
+  // Os campos do contrato sao VALORES DO MES (nao diarias) — ver calcAllowance.
+  return calcAllowance({
+    meal: decimalToNumber(contract.dailyMeal),
+    transport: decimalToNumber(contract.dailyTransport),
+    cellphone: decimalToNumber(contract.monthlyCellphone),
+    cap: decimalToNumber(contract.allowanceCap),
+    daysInMonth: periodEnd.getDate(),
+    uncoveredDays,
+  });
 }

@@ -323,18 +323,22 @@ export function ContractRulesEditor({
             <ReaisInput value={allowanceCap} onChange={setAllowanceCap} ariaLabel="Teto ajuda de custo" />
           </div>
           <div>
-            <Label className="text-xs">Diaria refeicao (R$)</Label>
-            <ReaisInput value={dailyMeal} onChange={setDailyMeal} ariaLabel="Diaria refeicao" />
+            <Label className="text-xs">Refeicao no mes (R$)</Label>
+            <ReaisInput value={dailyMeal} onChange={setDailyMeal} ariaLabel="Refeicao no mes" />
           </div>
           <div>
-            <Label className="text-xs">Diaria deslocamento (R$)</Label>
-            <ReaisInput value={dailyTransport} onChange={setDailyTransport} ariaLabel="Diaria deslocamento" />
+            <Label className="text-xs">Deslocamento no mes (R$)</Label>
+            <ReaisInput value={dailyTransport} onChange={setDailyTransport} ariaLabel="Deslocamento no mes" />
           </div>
           <div>
-            <Label className="text-xs">Celular mensal (R$)</Label>
-            <ReaisInput value={monthlyCellphone} onChange={setMonthlyCellphone} ariaLabel="Celular mensal" />
+            <Label className="text-xs">Celular no mes (R$)</Label>
+            <ReaisInput value={monthlyCellphone} onChange={setMonthlyCellphone} ariaLabel="Celular no mes" />
           </div>
         </section>
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          Informe o valor TOTAL do mes (nao a diaria). Os tres sao pagos proporcionalmente aos dias
+          efetivos — descontando os dias nao cobertos; o teto limita o total.
+        </p>
 
         <Separator />
 
