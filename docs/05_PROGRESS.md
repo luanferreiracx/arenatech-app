@@ -795,6 +795,15 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-06 — Comissoes: estorno de OS reverte tambem a participacao em AT [PR 2/3]
+
+Espelha o `reverseSaleCommissions` (#401), agora para OS: novo `reverseServiceOrderCommissions` no
+`provider-reversal.service`. Ao estornar uma OS, reverte a comissao do executor/vendedor (OWN) E dos
+prestadores com regra `category=servico_at_loja` (participacao em AT). Guard por-prestador
+(creditedCommission<=0) = no-op de quem nao ganhou naquela OS; dedup por userId; delta/idempotente.
+`serviceOrder.refund` passa a chamar o orquestrador (era loop OWN-only). +3 testes. typecheck 0,
+lint 0. Suite 1579.
+
 ### 2026-07-06 — Comissoes: participacao em AT (OS de outros tecnicos) — calculo [PR 1/3]
 
 Analogo ao STORE de vendas, agora para assistencia: o prestador ganha por OS executada na loja por

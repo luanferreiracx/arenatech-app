@@ -169,6 +169,55 @@ export async function reverseSaleCommissions(
 }
 
 /**
+ * Estorna as comissoes de TODOS os prestadores impactados por uma OS estornada:
+ *  - o tecnico executor e/ou vendedor intermediador (OWN), como antes;
+ *  - todo prestador com regra de PARTICIPACAO EM AT (categoria `servico_at_loja`),
+ *    que ganha por OS executada na loja por outros. Guard por-prestador
+ *    (creditedCommission<=0) no-op em quem nao ganhou nesta OS. OS e estorno total
+ *    (fracao 1). Idempotente/delta como o reversal individual. Dedup por userId.
+ *
+ * Chamado por `serviceOrder.refund`. Espelha `reverseSaleCommissions` (ADR 0056).
+ */
+export async function reverseServiceOrderCommissions(
+  tx: TxClient,
+  tenantId: string,
+  input: {
+    order: { id: string; technicianId: string | null; vendorId: string | null; paymentDate: Date | null };
+    registeredById: string;
+  },
+): Promise<void> {
+  const { order } = input;
+  const factDate = order.paymentDate ?? new Date();
+
+  const targets = new Set<string>();
+  if (order.technicianId) targets.add(order.technicianId);
+  if (order.vendorId) targets.add(order.vendorId);
+
+  // Prestadores com regra de participacao em AT (servico_at_loja) — ganham por OS
+  // de outros tecnicos, entao podem ter comissionado esta OS mesmo sem ser o
+  // executor/vendedor. O guard por-prestador filtra quem realmente ganhou.
+  const participationProviders = await tx.provider.findMany({
+    where: {
+      tenantId,
+      contracts: { some: { rules: { some: { category: "servico_at_loja" } } } },
+    },
+    select: { userId: true },
+  });
+  for (const p of participationProviders) targets.add(p.userId);
+
+  for (const providerUserId of targets) {
+    await createProviderReversalForRefund(tx, tenantId, {
+      providerUserId,
+      referenceType: "service_order",
+      referenceId: order.id,
+      factDate,
+      cumulativeRefundedFraction: 1, // OS e estorno total (nao ha parcial)
+      registeredById: input.registeredById,
+    });
+  }
+}
+
+/**
  * Primeira data (dia 1) de um mes cuja apuracao do prestador ainda NAO esta
  * fechada — a partir do mes corrente, andando pra frente. Garante que o reversal
  * caia num mes que o `calculate` ainda vai processar. Limite de guarda de 24
