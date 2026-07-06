@@ -90,13 +90,15 @@ describe("modulesFromPlanFeatures", () => {
 });
 
 describe("withModuleDependencies (auto-inclusão de pré-requisitos)", () => {
-  it("pdv puxa cashier + financial", () => {
-    expect(asSet(withModuleDependencies(["pdv"]))).toEqual(["cashier", "financial", "pdv"]);
+  it("pdv puxa cashier + financial + stock + customers", () => {
+    expect(asSet(withModuleDependencies(["pdv"]))).toEqual(
+      ["cashier", "customers", "financial", "pdv", "stock"],
+    );
   });
 
-  it("service-orders puxa pdv e, por transitividade, cashier + financial", () => {
+  it("service-orders puxa pdv e, por transitividade, cashier+financial+stock+customers", () => {
     expect(asSet(withModuleDependencies(["service-orders"]))).toEqual(
-      ["cashier", "financial", "pdv", "service-orders"],
+      ["cashier", "customers", "financial", "pdv", "service-orders", "stock"],
     );
   });
 
@@ -105,18 +107,21 @@ describe("withModuleDependencies (auto-inclusão de pré-requisitos)", () => {
   });
 
   it("módulo sem dependência fica inalterado; é idempotente", () => {
-    expect(withModuleDependencies(["customers"])).toEqual(["customers"]);
-    expect(asSet(withModuleDependencies(["pdv", "cashier"]))).toEqual(["cashier", "financial", "pdv"]);
+    expect(withModuleDependencies(["tools"])).toEqual(["tools"]);
+    expect(asSet(withModuleDependencies(["pdv", "cashier"]))).toEqual(
+      ["cashier", "customers", "financial", "pdv", "stock"],
+    );
   });
 });
 
 describe("modulesRequiredBySelection (editor de plano: travar exigidos)", () => {
-  it("com pdv na seleção, cashier+financial ficam exigidos (não pdv nem outros)", () => {
+  it("com pdv na seleção, cashier+financial+stock+customers ficam exigidos (não pdv)", () => {
     const required = modulesRequiredBySelection(["pdv"]);
     expect(required.has("cashier")).toBe(true);
     expect(required.has("financial")).toBe(true);
+    expect(required.has("stock")).toBe(true);
+    expect(required.has("customers")).toBe(true);
     expect(required.has("pdv")).toBe(false); // pdv não é dependência de ninguém aqui
-    expect(required.has("stock")).toBe(false);
   });
 
   it("sem dependências, nada é exigido", () => {
@@ -164,7 +169,7 @@ describe("allowedModulesForTenant", () => {
         planFeatures: { modules: ["wallet", "pdv"] },
         hasPlan: true,
       })),
-    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "settings"]));
+    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "stock", "customers", "settings"]));
   });
 
   // ── NO-KYC: piso wallet SEM plano; plano ativo vence o piso (revisão ADR 0050) ──
@@ -176,7 +181,7 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
         isNoKyc: true,
       })),
-    ).toEqual(asSet(["wallet", "pdv", "stock", "financial", "cashier", "settings"]));
+    ).toEqual(asSet(["wallet", "pdv", "stock", "financial", "cashier", "customers", "settings"]));
   });
 
   it("NO-KYC sem plano fica no piso (wallet+depix-ops) + settings", () => {
@@ -193,7 +198,7 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
         isNoKyc: true,
       })),
-    ).toEqual(asSet(["wallet", "service-orders", "customers", "pdv", "cashier", "financial", "settings"]));
+    ).toEqual(asSet(["wallet", "service-orders", "customers", "pdv", "cashier", "financial", "stock", "settings"]));
   });
 
   it("isNoKyc não afeta o tenant de acesso total (arena-tech)", () => {
@@ -215,7 +220,7 @@ describe("allowedModulesForTenant", () => {
         hasPlan: true,
         isNoKyc: false,
       })),
-    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "settings"]));
+    ).toEqual(asSet(["wallet", "pdv", "cashier", "financial", "stock", "customers", "settings"]));
   });
 });
 

@@ -1,13 +1,14 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashSync } from "bcryptjs";
-import type { ModuleKey } from "../src/lib/modules";
+import { withModuleDependencies, type ModuleKey } from "../src/lib/modules";
 
 /**
  * Planos-modelo (seed idempotente por slug). Preços placeholder — o superadmin
- * ajusta em /admin/plans. `modules` guarda a INTENÇÃO; os pré-requisitos são
- * auto-incluídos em runtime pelo gating (withModuleDependencies) e `settings`
- * é sempre-on. Por isso não repetimos cashier/financial em cada plano.
+ * ajusta em /admin/plans. `modules` guarda a INTENÇÃO; `seedPlans` expande os
+ * pré-requisitos ao gravar (withModuleDependencies), e `settings` é sempre-on.
+ * Por isso listamos só o essencial de cada plano (ex.: `pdv` já traz stock,
+ * customers, cashier, financial).
  */
 const SEED_PLANS: Array<{
   slug: string;
@@ -46,12 +47,15 @@ const SEED_PLANS: Array<{
 
 async function seedPlans(): Promise<void> {
   for (const plan of SEED_PLANS) {
+    // Grava já expandido (pré-requisitos), como o editor de plano faz — o plano
+    // persistido reflete o que o tenant realmente terá.
+    const modules = withModuleDependencies(plan.modules);
     await prisma.plan.upsert({
       where: { slug: plan.slug },
       update: {
         name: plan.name,
         description: plan.description,
-        features: { modules: plan.modules } as Prisma.InputJsonValue,
+        features: { modules } as Prisma.InputJsonValue,
       },
       create: {
         slug: plan.slug,
@@ -61,7 +65,7 @@ async function seedPlans(): Promise<void> {
         maxUsers: 5,
         maxImeiQueries: 50,
         status: "ACTIVE",
-        features: { modules: plan.modules } as Prisma.InputJsonValue,
+        features: { modules } as Prisma.InputJsonValue,
       },
     });
   }
