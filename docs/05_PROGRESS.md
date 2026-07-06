@@ -795,6 +795,22 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-05 — Comissoes: estorno automatico tambem reverte participacao STORE (follow-up)
+
+Fecha a limitacao anotada no epico de tipos: o estorno automatico so revertia a comissao do vendedor
+da venda (OWN); a participacao na loja (STORE) de OUTROS prestadores nunca era revertida ao estornar
+a venda.
+
+- Novo orquestrador `reverseSaleCommissions` no `provider-reversal.service`: alem do vendedor (OWN),
+  varre os prestadores com regra `source=STORE` (via `Provider.contracts.rules.some(source=STORE)`) e
+  chama o reversal por-prestador pra cada um. O guard de `creditedCommission<=0` (le a memoryJson do
+  proprio prestador) faz no-op em quem nao ganhou nesta venda. Dedup por userId (vendedor que tambem
+  tem regra STORE conta 1×). Mesma fracao acumulada e logica delta/idempotente do reversal individual.
+- `sale.refund` passa a chamar `reverseSaleCommissions` (era `createProviderReversalForRefund` so pro
+  seller). OS refund inalterado (STORE e sobre vendas, nao OS).
+- Testes: +3 do orquestrador (OWN+STORE, dedup, no-op de STORE sem comissao). typecheck 0, lint 0.
+  Suite 1569 verde (com integracao local).
+
 ### 2026-07-05 — Comissoes: UI dos tipos de regra + exibicao origem/tipo [PR 4/4 — fim do epico de tipos]
 
 Expoe na interface os 3 eixos (tipo/base/origem) e mostra a origem na memoria/PDF/CSV:

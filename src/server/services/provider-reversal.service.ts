@@ -116,6 +116,59 @@ export async function createProviderReversalForRefund(
 }
 
 /**
+ * Estorna as comissoes de TODOS os prestadores impactados por uma venda estornada:
+ *  - o vendedor da venda (OWN), como antes;
+ *  - todo prestador com regra de PARTICIPACAO NA LOJA (source=STORE), que ganha %
+ *    sobre as vendas de outros. Para cada um, chama o reversal por-prestador — que
+ *    no-op se aquele prestador nao ganhou comissao sobre esta venda (guard de
+ *    creditedCommission<=0). A fracao estornada e a mesma da venda (LBC devolvida
+ *    / LBC total). Idempotente e delta-aware como o reversal individual. (ADR 0056)
+ *
+ * Chamado por `sale.refund`. Concentra aqui a orquestracao para o caller ficar
+ * simples e para nao esquecer a participacao STORE (a limitacao que este fix fecha).
+ */
+export async function reverseSaleCommissions(
+  tx: TxClient,
+  tenantId: string,
+  input: {
+    sale: { id: string; sellerId: string | null; saleDate: Date | null; createdAt: Date };
+    cumulativeRefundedFraction: number;
+    registeredById: string;
+  },
+): Promise<void> {
+  const { sale } = input;
+  const factDate = sale.saleDate ?? sale.createdAt;
+
+  // 1) Vendedor da venda (OWN).
+  const targets = new Set<string>();
+  if (sale.sellerId) targets.add(sale.sellerId);
+
+  // 2) Prestadores com regra de participacao na loja (STORE) — eles ganham sobre
+  //    vendas de OUTROS, entao podem ter comissionado esta venda mesmo nao sendo o
+  //    vendedor. Coletamos os userIds distintos e deixamos o guard por-prestador
+  //    filtrar quem realmente ganhou nesta venda.
+  const storeProviders = await tx.provider.findMany({
+    where: {
+      tenantId,
+      contracts: { some: { rules: { some: { source: "STORE" } } } },
+    },
+    select: { userId: true },
+  });
+  for (const p of storeProviders) targets.add(p.userId);
+
+  for (const providerUserId of targets) {
+    await createProviderReversalForRefund(tx, tenantId, {
+      providerUserId,
+      referenceType: "sale",
+      referenceId: sale.id,
+      factDate,
+      cumulativeRefundedFraction: input.cumulativeRefundedFraction,
+      registeredById: input.registeredById,
+    });
+  }
+}
+
+/**
  * Primeira data (dia 1) de um mes cuja apuracao do prestador ainda NAO esta
  * fechada — a partir do mes corrente, andando pra frente. Garante que o reversal
  * caia num mes que o `calculate` ainda vai processar. Limite de guarda de 24
