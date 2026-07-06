@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { experimental_standaloneMiddleware } from "@trpc/server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimit, refundRateLimit } from "@/lib/rate-limit";
 import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import type { Context } from "@/server/api/trpc";
 
@@ -13,6 +13,13 @@ import type { Context } from "@/server/api/trpc";
  * (session: Session | null, tenantId: string | null), causando erros TS
  * quando a procedure depende do narrowing feito antes.
  */
+/** Handle devolvido pelo rate-limit: permite DEVOLVER o token consumido (refund)
+ *  quando a tentativa não deve contar (ex.: saque recusado pelo provedor). */
+export interface RateLimitHandle {
+  /** Devolve 1 token à janela atual (não zera o balde, não mexe no TTL). */
+  refund: () => Promise<void>;
+}
+
 export function enforceRateLimit({
   limit,
   windowMs,
@@ -23,14 +30,11 @@ export function enforceRateLimit({
   return async function rateLimitCheck(
     ctx: { headers: Headers; session: { user?: { id: string } } | null | undefined },
     path: string,
-  ) {
+  ): Promise<RateLimitHandle> {
     const key =
       ctx.session?.user?.id ?? extractSourceIp(ctx.headers) ?? "anon";
-    const result = await rateLimit({
-      key: `trpc:${path}:${key}`,
-      limit,
-      windowMs,
-    });
+    const fullKey = `trpc:${path}:${key}`;
+    const result = await rateLimit({ key: fullKey, limit, windowMs });
     if (!result.success) {
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
@@ -39,6 +43,7 @@ export function enforceRateLimit({
         )}s.`,
       });
     }
+    return { refund: () => refundRateLimit(fullKey) };
   };
 }
 

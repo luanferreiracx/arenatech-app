@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { rateLimit, clearRateLimitStore } from "@/lib/rate-limit";
+import { rateLimit, refundRateLimit, clearRateLimitStore } from "@/lib/rate-limit";
 
 describe("rateLimit", () => {
   beforeEach(() => {
@@ -71,5 +71,38 @@ describe("rateLimit", () => {
     const before = Date.now();
     const result = await rateLimit({ key: "test", limit: 5, windowMs: 60_000 });
     expect(result.reset).toBeGreaterThanOrEqual(before + 60_000);
+  });
+
+  describe("refundRateLimit (falha não conta)", () => {
+    it("devolve 1 token consumido: libera um slot extra (padrão do saque)", async () => {
+      // Fluxo real: consome dentro do limite, a última tentativa FALHA e é devolvida.
+      for (let i = 0; i < 5; i++) {
+        expect((await rateLimit({ key: "w", limit: 5, windowMs: 60_000 })).success).toBe(true);
+      }
+      // A 5ª (last) falhou no provedor → devolve o token.
+      await refundRateLimit("w");
+      // Cabe exatamente MAIS UMA (o retry imediato), depois bloqueia.
+      expect((await rateLimit({ key: "w", limit: 5, windowMs: 60_000 })).success).toBe(true);
+      expect((await rateLimit({ key: "w", limit: 5, windowMs: 60_000 })).success).toBe(false);
+    });
+
+    it("não desce abaixo de 0 (refund sem consumo prévio é no-op seguro)", async () => {
+      await refundRateLimit("z"); // nunca consumiu
+      const r = await rateLimit({ key: "z", limit: 5, windowMs: 60_000 });
+      expect(r.success).toBe(true);
+      expect(r.remaining).toBe(4); // 1ª tentativa normal, sem crédito fantasma
+    });
+
+    it("preserva a janela (TTL) — não é um reset", async () => {
+      vi.useFakeTimers();
+      await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 }); // count 1
+      await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 }); // count 2 (esgota)
+      await refundRateLimit("ttl"); // devolve → count 1
+      expect((await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 })).success).toBe(true); // count 2
+      // A janela original segue: passado o windowMs, zera de vez.
+      vi.advanceTimersByTime(10_100);
+      expect((await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 })).remaining).toBe(1);
+      vi.useRealTimers();
+    });
   });
 });
