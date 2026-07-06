@@ -795,6 +795,27 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-06 — Comissoes: base (lucro/total) configuravel nas AT de execucao + rotulos
+
+Dono reportou: nas categorias de AT de execucao (sem/com peca, intermediacao) nao dava pra escolher
+se a base e o lucro ou o valor total. Duas causas: (1) UI/validador travavam essas categorias em
+PROFIT; (2) o evento de OS de execucao carregava baseProfit==baseGrossNet (o seletor nao teria efeito).
+
+- **Calculo:** OS de execucao agora emite bases DISTINTAS — baseProfit=LBS (serviceAmount−custos),
+  baseGrossNet=serviceAmount — para os 3 tipos (execucao com/sem peca, intermediacao).
+- **Validador:** novo eixo `CATEGORIES_WITH_BASE_AXIS` (produtos + servico_at_loja + AT de execucao)
+  libera a base; source/valor-fixo continuam restritos (AT de execucao e sempre percentual, origem
+  propria). `DEFAULT_BASE_BY_CATEGORY` preserva o comportamento historico (com peca/intermediacao=
+  lucro; sem peca=total).
+- **Migration** `20260706120000_at_sem_peca_base_gross_net`: backfill das regras `servico_at_sem_peca`
+  existentes de PROFIT→GROSS_NET (elas comissionavam sobre o valor do servico, nao o lucro) — ninguem
+  passa a receber valor diferente.
+- **UI:** seletor Base aparece nas AT de execucao (Tipo so nas de eixos completos). Default da base
+  por categoria ao adicionar regra.
+- **Rotulos autoexplicativos** + linha de ajuda por categoria: "Servico executado (sem/com peca)",
+  "Intermediacao de OS (captou o servico)", "Participacao em AT da loja (OS de outros)" etc.
+- Testes: +4 validators; rotulos atualizados. typecheck 0, lint 0. Suite 1581 verde.
+
 ### 2026-07-06 — Comissoes: UI da participacao em AT [PR 3/3 — fim]
 
 Editor de aliquotas expoe a categoria "Participacao em AT" (`servico_at_loja`):

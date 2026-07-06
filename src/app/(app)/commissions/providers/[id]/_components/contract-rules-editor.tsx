@@ -22,12 +22,15 @@ import { DateInput } from "@/components/inputs/date-input";
 import { toast } from "@/lib/toast";
 import {
   COMMISSION_CATEGORY_LABELS,
+  COMMISSION_CATEGORY_HELP,
   COMMISSION_SCOPE_LABELS,
   COMMISSION_VALUE_TYPE_LABELS,
   COMMISSION_BASE_LABELS,
   COMMISSION_SOURCE_LABELS,
   CATEGORIES_WITH_SCOPE,
   CATEGORIES_WITH_AXES,
+  CATEGORIES_WITH_BASE_AXIS,
+  DEFAULT_BASE_BY_CATEGORY,
   STORE_ONLY_CATEGORIES,
   commissionCategoryEnum,
   validateBracketSet,
@@ -75,10 +78,20 @@ type CurrentContract = {
 
 const CATEGORIES = commissionCategoryEnum.options;
 
-/** Categoria aceita os eixos flexiveis (tipo fixo/percentual, base lucro/total,
- *  origem loja): produtos + participacao em AT (servico_at_loja). */
+/** Categoria aceita os eixos COMPLETOS (tipo fixo/percentual + origem loja):
+ *  produtos + participacao em AT (servico_at_loja). */
 function categoryAllowsAxes(category: CommissionCategory): boolean {
   return (CATEGORIES_WITH_AXES as readonly string[]).includes(category);
+}
+
+/** Categoria permite escolher a BASE (lucro/total): eixos completos + AT de execucao. */
+function categoryAllowsBaseAxis(category: CommissionCategory): boolean {
+  return (CATEGORIES_WITH_BASE_AXIS as readonly string[]).includes(category);
+}
+
+/** Base padrao da categoria (preserva o comportamento historico dos servicos). */
+function defaultBaseFor(category: CommissionCategory): CommissionBase {
+  return DEFAULT_BASE_BY_CATEGORY[category] ?? "PROFIT";
 }
 
 /** Categoria e participacao na loja (origem sempre STORE). */
@@ -163,7 +176,9 @@ export function ContractRulesEditor({
           category,
           scope,
           valueType: mode?.valueType ?? "PERCENT",
-          base: mode?.base ?? "PROFIT",
+          // Herda a base do grupo; se e a 1a regra, usa o default da categoria
+          // (AT com peca/intermediacao=lucro; AT sem peca=total).
+          base: mode?.base ?? defaultBaseFor(category),
           source,
           rangeMin: isFixed ? 0 : startAt,
           rangeMax: null,
@@ -369,10 +384,14 @@ function CategoryRules({
   const scopes = scopesFor(category);
   const sources = sourcesFor(category);
   const allowsAxes = categoryAllowsAxes(category);
+  const allowsBaseAxis = categoryAllowsBaseAxis(category);
 
   return (
     <div className="rounded-md border border-border p-3 bg-muted/30">
-      <h4 className="text-sm font-semibold text-primary mb-2">{COMMISSION_CATEGORY_LABELS[category]}</h4>
+      <h4 className="text-sm font-semibold text-primary">{COMMISSION_CATEGORY_LABELS[category]}</h4>
+      {COMMISSION_CATEGORY_HELP[category] && (
+        <p className="text-[11px] text-muted-foreground mb-2">{COMMISSION_CATEGORY_HELP[category]}</p>
+      )}
       <div className="space-y-4">
         {scopes.map((scope) =>
           sources.map((source) => (
@@ -384,6 +403,7 @@ function CategoryRules({
               showScope={scopes.length > 1}
               showSource={sources.length > 1}
               allowsAxes={allowsAxes}
+              allowsBaseAxis={allowsBaseAxis}
               rules={rules}
               onAdd={onAdd}
               onUpdate={onUpdate}
@@ -404,6 +424,7 @@ function RuleGroup({
   showScope,
   showSource,
   allowsAxes,
+  allowsBaseAxis,
   rules,
   onAdd,
   onUpdate,
@@ -416,6 +437,7 @@ function RuleGroup({
   showScope: boolean;
   showSource: boolean;
   allowsAxes: boolean;
+  allowsBaseAxis: boolean;
   rules: RuleRow[];
   onAdd: (category: CommissionCategory, scope: CommissionScope, source: CommissionSource) => void;
   onUpdate: (index: number, patch: Partial<RuleRow>) => void;
@@ -429,7 +451,7 @@ function RuleGroup({
 
   const mode = groupIndexes[0]?.r;
   const valueType: CommissionValueType = mode?.valueType ?? "PERCENT";
-  const base: CommissionBase = mode?.base ?? "PROFIT";
+  const base: CommissionBase = mode?.base ?? defaultBaseFor(category);
   const isFixed = valueType === "FIXED_PER_UNIT";
   // Rotulo do valor fixo: "por servico" para participacao em AT; "por unidade" p/ produtos.
   const isServiceParticipation = category === "servico_at_loja";
@@ -446,28 +468,31 @@ function RuleGroup({
         <p className="text-[11px] uppercase text-muted-foreground mb-1">{subtitleParts.join(" · ")}</p>
       )}
 
-      {/* Modo do grupo (tipo/base): categorias flexiveis (produtos + participacao em AT). */}
-      {allowsAxes && groupIndexes.length > 0 && (
+      {/* Modo do grupo: Tipo (so categorias de eixos completos) e Base (categorias
+          com eixo de base, incl. AT de execucao). */}
+      {(allowsAxes || allowsBaseAxis) && groupIndexes.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
-          <div>
-            <Label className="text-[10px] text-muted-foreground">Tipo</Label>
-            <Select
-              value={valueType}
-              onValueChange={(v) => onUpdateGroupMode(key, { valueType: v as CommissionValueType })}
-            >
-              <SelectTrigger className="h-7 text-xs w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(COMMISSION_VALUE_TYPE_LABELS).map(([v, label]) => (
-                  <SelectItem key={v} value={v} className="text-xs">
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {!isFixed && (
+          {allowsAxes && (
+            <div>
+              <Label className="text-[10px] text-muted-foreground">Tipo</Label>
+              <Select
+                value={valueType}
+                onValueChange={(v) => onUpdateGroupMode(key, { valueType: v as CommissionValueType })}
+              >
+                <SelectTrigger className="h-7 text-xs w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(COMMISSION_VALUE_TYPE_LABELS).map(([v, label]) => (
+                    <SelectItem key={v} value={v} className="text-xs">
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {allowsBaseAxis && !isFixed && (
             <div>
               <Label className="text-[10px] text-muted-foreground">Base</Label>
               <Select value={base} onValueChange={(v) => onUpdateGroupMode(key, { base: v as CommissionBase })}>

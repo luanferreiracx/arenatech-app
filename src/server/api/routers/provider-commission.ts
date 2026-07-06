@@ -1123,14 +1123,15 @@ async function collectProviderEvents(
       const isExecutor = so.technicianId === provider.userId;
       const isIntermediary = so.vendorId === provider.userId;
 
-      // Technician executor: execution commission
+      // Technician executor: execution commission.
+      // Bases DISTINTAS para o eixo base ser configuravel (lucro vs total):
+      //   baseProfit = LBS (serviceAmount − custos); baseGrossNet = serviceAmount.
+      // O default por categoria preserva o comportamento antigo (com peca=lucro,
+      // sem peca=total) via `base` da regra (ver validators/UI).
       if (isExecutor && provider.profile === "TECHNICIAN") {
         const category = hasParts ? "servico_at_com_peca" : "servico_at_sem_peca";
-        const base = hasParts ? lbs : serviceAmount;
 
-        if (base > 0) {
-          // OS so tem uma base (nao ha lucro/total configuravel nem unidade):
-          // baseProfit=baseGrossNet=base, qty=1, origem sempre propria.
+        if (serviceAmount > 0 || lbs > 0) {
           events.push({
             tipo: "servico_execucao",
             referencia_id: so.id,
@@ -1141,9 +1142,9 @@ async function collectProviderEvents(
             category,
             scope: "normal",
             source: "OWN",
-            base,
-            baseProfit: base,
-            baseGrossNet: base,
+            base: lbs,
+            baseProfit: lbs,
+            baseGrossNet: serviceAmount,
             qty: 1,
             detalhe: {
               valor_servico: serviceAmount,
@@ -1154,8 +1155,8 @@ async function collectProviderEvents(
         }
       }
 
-      // Seller intermediary: intermediation commission over LBS
-      if (isIntermediary && provider.profile === "SELLER" && lbs > 0) {
+      // Seller intermediary: intermediation commission. Bases distintas tambem.
+      if (isIntermediary && provider.profile === "SELLER" && (serviceAmount > 0 || lbs > 0)) {
         events.push({
           tipo: "servico_intermediacao",
           referencia_id: so.id,
@@ -1168,7 +1169,7 @@ async function collectProviderEvents(
           source: "OWN",
           base: lbs,
           baseProfit: lbs,
-          baseGrossNet: lbs,
+          baseGrossNet: serviceAmount,
           qty: 1,
           detalhe: {
             valor_servico: serviceAmount,

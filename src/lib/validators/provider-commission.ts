@@ -63,10 +63,20 @@ export const REVERSAL_TYPE_LABELS: Record<string, string> = {
 export const COMMISSION_CATEGORY_LABELS: Record<string, string> = {
   produto_acessorio: "Acessorio",
   produto_aparelho: "Aparelho",
-  servico_at_sem_peca: "AT sem peca",
-  servico_at_com_peca: "AT com peca",
-  intermediacao_at: "Intermediacao",
-  servico_at_loja: "Participacao em AT",
+  servico_at_sem_peca: "Servico executado (sem peca)",
+  servico_at_com_peca: "Servico executado (com peca)",
+  intermediacao_at: "Intermediacao de OS (captou o servico)",
+  servico_at_loja: "Participacao em AT da loja (OS de outros)",
+};
+
+/** Frase curta de ajuda por categoria — quem recebe a comissao. Exibida no editor. */
+export const COMMISSION_CATEGORY_HELP: Record<string, string> = {
+  produto_acessorio: "Venda de acessorios feita pelo prestador.",
+  produto_aparelho: "Venda de aparelhos feita pelo prestador.",
+  servico_at_sem_peca: "OS que o proprio prestador executou, sem troca de peca.",
+  servico_at_com_peca: "OS que o proprio prestador executou, com troca de peca.",
+  intermediacao_at: "OS que o prestador captou/intermediou (nao executou).",
+  servico_at_loja: "Participacao sobre OS executadas na loja por OUTROS tecnicos.",
 };
 
 export const commissionScopeEnum = z.enum(["normal", "premium"]);
@@ -132,14 +142,33 @@ export const PRODUCT_CATEGORIES: readonly CommissionCategory[] = [
   "produto_aparelho",
 ];
 
-/** Categorias que aceitam os EIXOS flexiveis (tipo fixo/percentual, base
- *  lucro/total, origem loja): produtos + `servico_at_loja` (participacao em AT).
- *  As demais categorias de servico seguem PERCENT/PROFIT/OWN. */
+/** Categorias que aceitam os EIXOS COMPLETOS (tipo fixo/percentual + origem loja):
+ *  produtos + `servico_at_loja` (participacao em AT). As demais seguem PERCENT/OWN. */
 export const CATEGORIES_WITH_AXES: readonly CommissionCategory[] = [
   "produto_acessorio",
   "produto_aparelho",
   "servico_at_loja",
 ];
+
+/** Categorias onde a BASE (lucro/total) e configuravel: as de eixos completos +
+ *  as de AT de execucao (AT sem/com peca, intermediacao). Nestas ultimas so a base
+ *  e configuravel — tipo e sempre percentual e origem sempre propria. */
+export const CATEGORIES_WITH_BASE_AXIS: readonly CommissionCategory[] = [
+  "produto_acessorio",
+  "produto_aparelho",
+  "servico_at_loja",
+  "servico_at_sem_peca",
+  "servico_at_com_peca",
+  "intermediacao_at",
+];
+
+/** Base padrao por categoria (preserva o comportamento historico dos servicos:
+ *  AT com peca e intermediacao sobre o lucro; AT sem peca sobre o valor total). */
+export const DEFAULT_BASE_BY_CATEGORY: Record<string, CommissionBase> = {
+  servico_at_sem_peca: "GROSS_NET",
+  servico_at_com_peca: "PROFIT",
+  intermediacao_at: "PROFIT",
+};
 
 /** `servico_at_loja` e participacao na loja: origem sempre STORE (nao ha "propria"). */
 export const STORE_ONLY_CATEGORIES: readonly CommissionCategory[] = ["servico_at_loja"];
@@ -289,11 +318,19 @@ export const updateProviderRulesSchema = z
       if (rule.base === "GROSS_NET" && rule.valueType !== "PERCENT") {
         addIssue(`${label}: base "valor total" so vale para regra percentual.`);
       }
-      // Eixos tipo/base/origem so valem para categorias flexiveis (produtos +
-      // participacao em AT). As demais categorias de servico seguem PERCENT/PROFIT/OWN.
+      // Eixos COMPLETOS (tipo fixo + origem loja) so valem para categorias flexiveis
+      // (produtos + participacao em AT). Demais categorias: sempre percentual, origem
+      // propria. A BASE (lucro/total) e um eixo a parte, liberado tambem para as
+      // categorias de AT de execucao (ver abaixo).
       const allowsAxes = (CATEGORIES_WITH_AXES as readonly string[]).includes(rule.category);
-      if (!allowsAxes && (rule.source !== "OWN" || rule.base !== "PROFIT" || rule.valueType !== "PERCENT")) {
-        addIssue(`${label}: esta categoria so aceita percentual sobre lucro, origem propria.`);
+      if (!allowsAxes && (rule.source !== "OWN" || rule.valueType !== "PERCENT")) {
+        addIssue(`${label}: esta categoria so aceita percentual, origem propria.`);
+      }
+      // A base (lucro/total) so e configuravel nas categorias com eixo de base;
+      // nas demais (ex.: comissao de venda por escopo) fica travada em lucro.
+      const allowsBaseAxis = (CATEGORIES_WITH_BASE_AXIS as readonly string[]).includes(rule.category);
+      if (!allowsBaseAxis && rule.base !== "PROFIT") {
+        addIssue(`${label}: esta categoria comissiona sobre o lucro.`);
       }
       // Participacao na loja (servico_at_loja) e sempre origem STORE — nao ha "propria".
       if ((STORE_ONLY_CATEGORIES as readonly string[]).includes(rule.category) && rule.source !== "STORE") {
