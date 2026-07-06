@@ -27,7 +27,8 @@ import {
   COMMISSION_BASE_LABELS,
   COMMISSION_SOURCE_LABELS,
   CATEGORIES_WITH_SCOPE,
-  PRODUCT_CATEGORIES,
+  CATEGORIES_WITH_AXES,
+  STORE_ONLY_CATEGORIES,
   commissionCategoryEnum,
   validateBracketSet,
   type CommissionCategory,
@@ -74,8 +75,15 @@ type CurrentContract = {
 
 const CATEGORIES = commissionCategoryEnum.options;
 
-function isProductCategory(category: CommissionCategory): boolean {
-  return (PRODUCT_CATEGORIES as readonly string[]).includes(category);
+/** Categoria aceita os eixos flexiveis (tipo fixo/percentual, base lucro/total,
+ *  origem loja): produtos + participacao em AT (servico_at_loja). */
+function categoryAllowsAxes(category: CommissionCategory): boolean {
+  return (CATEGORIES_WITH_AXES as readonly string[]).includes(category);
+}
+
+/** Categoria e participacao na loja (origem sempre STORE). */
+function isStoreOnlyCategory(category: CommissionCategory): boolean {
+  return (STORE_ONLY_CATEGORIES as readonly string[]).includes(category);
 }
 
 function toDateInput(value: string | Date | null): string {
@@ -89,9 +97,10 @@ function scopesFor(category: CommissionCategory): CommissionScope[] {
   return CATEGORIES_WITH_SCOPE.includes(category) ? ["normal", "premium"] : ["normal"];
 }
 
-/** Origens disponiveis: participacao na loja (STORE) so vale para produtos. */
+/** Origens disponiveis. Participacao em AT: so STORE. Produtos: OWN+STORE. Demais: OWN. */
 function sourcesFor(category: CommissionCategory): CommissionSource[] {
-  return isProductCategory(category) ? ["OWN", "STORE"] : ["OWN"];
+  if (isStoreOnlyCategory(category)) return ["STORE"];
+  return categoryAllowsAxes(category) ? ["OWN", "STORE"] : ["OWN"];
 }
 
 /** Chave do grupo (mesmo balde do calculo): categoria × escopo × origem. */
@@ -359,7 +368,7 @@ function CategoryRules({
 }) {
   const scopes = scopesFor(category);
   const sources = sourcesFor(category);
-  const isProduct = isProductCategory(category);
+  const allowsAxes = categoryAllowsAxes(category);
 
   return (
     <div className="rounded-md border border-border p-3 bg-muted/30">
@@ -374,7 +383,7 @@ function CategoryRules({
               source={source}
               showScope={scopes.length > 1}
               showSource={sources.length > 1}
-              isProduct={isProduct}
+              allowsAxes={allowsAxes}
               rules={rules}
               onAdd={onAdd}
               onUpdate={onUpdate}
@@ -394,7 +403,7 @@ function RuleGroup({
   source,
   showScope,
   showSource,
-  isProduct,
+  allowsAxes,
   rules,
   onAdd,
   onUpdate,
@@ -406,7 +415,7 @@ function RuleGroup({
   source: CommissionSource;
   showScope: boolean;
   showSource: boolean;
-  isProduct: boolean;
+  allowsAxes: boolean;
   rules: RuleRow[];
   onAdd: (category: CommissionCategory, scope: CommissionScope, source: CommissionSource) => void;
   onUpdate: (index: number, patch: Partial<RuleRow>) => void;
@@ -422,6 +431,9 @@ function RuleGroup({
   const valueType: CommissionValueType = mode?.valueType ?? "PERCENT";
   const base: CommissionBase = mode?.base ?? "PROFIT";
   const isFixed = valueType === "FIXED_PER_UNIT";
+  // Rotulo do valor fixo: "por servico" para participacao em AT; "por unidade" p/ produtos.
+  const isServiceParticipation = category === "servico_at_loja";
+  const fixedLabel = isServiceParticipation ? "Valor por servico (R$)" : "Valor por unidade (R$)";
 
   const subtitleParts = [
     showScope ? COMMISSION_SCOPE_LABELS[scope] : null,
@@ -434,8 +446,8 @@ function RuleGroup({
         <p className="text-[11px] uppercase text-muted-foreground mb-1">{subtitleParts.join(" · ")}</p>
       )}
 
-      {/* Modo do grupo: so para produtos (servico e sempre %/lucro). */}
-      {isProduct && groupIndexes.length > 0 && (
+      {/* Modo do grupo (tipo/base): categorias flexiveis (produtos + participacao em AT). */}
+      {allowsAxes && groupIndexes.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
           <div>
             <Label className="text-[10px] text-muted-foreground">Tipo</Label>
@@ -507,7 +519,7 @@ function RuleGroup({
               )}
               <div>
                 <Label className="text-[10px] text-muted-foreground">
-                  {isFixed ? "Valor por unidade (R$)" : "Aliquota (%)"}
+                  {isFixed ? fixedLabel : "Aliquota (%)"}
                 </Label>
                 <Input
                   type="number"
@@ -517,7 +529,7 @@ function RuleGroup({
                   value={r.rate || ""}
                   onChange={(e) => onUpdate(i, { rate: Number(e.target.value) || 0 })}
                   className="h-8 text-xs"
-                  aria-label={isFixed ? "Valor por unidade" : "Aliquota da faixa"}
+                  aria-label={isFixed ? fixedLabel : "Aliquota da faixa"}
                 />
               </div>
               {/* Regra fixa e unica; percentual mostra remover a partir da 2a faixa. */}
