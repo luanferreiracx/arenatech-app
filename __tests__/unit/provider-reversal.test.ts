@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   createProviderReversalForRefund,
   reverseSaleCommissions,
+  reverseServiceOrderCommissions,
 } from "@/server/services/provider-reversal.service";
 
 /**
@@ -358,5 +359,106 @@ describe("reverseSaleCommissions", () => {
     // So o vendedor gerou reversal; o STORE sem comissao na venda nao gera.
     const amounts = tx._created.map((r) => Number(r.amount));
     expect(amounts).toEqual([20]);
+  });
+});
+
+describe("reverseServiceOrderCommissions", () => {
+  function makeOrderTx(opts: {
+    providersByUser: Record<string, { id: string; comissao: number }>;
+    participationProviderUserIds: string[];
+  }) {
+    const processedUserIds: string[] = [];
+    const created: Record<string, unknown>[] = [];
+    return {
+      _processed: processedUserIds,
+      _created: created,
+      provider: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        findFirst: vi.fn().mockImplementation(async ({ where }: any) => {
+          processedUserIds.push(where.userId);
+          const p = opts.providersByUser[where.userId];
+          return p ? { id: p.id } : null;
+        }),
+        findMany: vi
+          .fn()
+          .mockResolvedValue(opts.participationProviderUserIds.map((userId) => ({ userId }))),
+      },
+      providerReversal: {
+        findMany: vi.fn().mockResolvedValue([]),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        create: vi.fn().mockImplementation(async ({ data }: any) => {
+          created.push(data);
+          return { id: `rev-${created.length}`, ...data };
+        }),
+      },
+      providerApuracao: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        findFirst: vi.fn().mockImplementation(async ({ where }: any) => {
+          const entry = Object.values(opts.providersByUser).find((p) => p.id === where.providerId);
+          if (entry && where.year && where.month) {
+            return {
+              status: "CLOSED",
+              memoryJson: { linhas: [{ referencia_id: "os-1", comissao: entry.comissao }] },
+            };
+          }
+          return null;
+        }),
+      },
+    };
+  }
+
+  const order = {
+    id: "os-1",
+    technicianId: "tech-user",
+    vendorId: null,
+    paymentDate: new Date(),
+  };
+
+  it("reverte o executor (OWN) E os prestadores com participacao em AT", async () => {
+    const tx = makeOrderTx({
+      providersByUser: {
+        "tech-user": { id: "prov-tech", comissao: 40 },
+        "particip-user": { id: "prov-particip", comissao: 8 },
+      },
+      participationProviderUserIds: ["particip-user"],
+    });
+    await reverseServiceOrderCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { order, registeredById: "admin-1" },
+    );
+    expect(new Set(tx._processed)).toEqual(new Set(["tech-user", "particip-user"]));
+    const amounts = tx._created.map((r) => Number(r.amount)).sort((a, b) => a - b);
+    expect(amounts).toEqual([8, 40]);
+  });
+
+  it("dedup: executor que TAMBEM tem participacao e processado uma vez so", async () => {
+    const tx = makeOrderTx({
+      providersByUser: { "tech-user": { id: "prov-tech", comissao: 10 } },
+      participationProviderUserIds: ["tech-user"],
+    });
+    await reverseServiceOrderCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { order, registeredById: "admin-1" },
+    );
+    expect(tx._processed.filter((u) => u === "tech-user")).toHaveLength(1);
+  });
+
+  it("participante que nao ganhou nesta OS: no-op (guard de comissao zero)", async () => {
+    const tx = makeOrderTx({
+      providersByUser: { "tech-user": { id: "prov-tech", comissao: 40 } },
+      participationProviderUserIds: ["particip-user"], // sem entrada → sem comissao
+    });
+    await reverseServiceOrderCommissions(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx as any,
+      "tenant-1",
+      { order, registeredById: "admin-1" },
+    );
+    const amounts = tx._created.map((r) => Number(r.amount));
+    expect(amounts).toEqual([40]);
   });
 });

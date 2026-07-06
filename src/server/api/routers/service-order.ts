@@ -66,7 +66,7 @@ import {
   releaseAllOsItems,
 } from "@/server/services/os-stock.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
-import { createProviderReversalForRefund } from "@/server/services/provider-reversal.service";
+import { reverseServiceOrderCommissions } from "@/server/services/provider-reversal.service";
 import { resolveOsAssignee } from "@/server/services/os-assignee.service";
 import {
   refundNeedsOpenCashSession,
@@ -1398,21 +1398,19 @@ export const serviceOrderRouter = createTRPCRouter({
           }
         }
 
-        // Estorno automatico da comissao do Provider interno (tecnico executor e/ou
-        // vendedor intermediador) — nao se paga comissao por OS estornada. So gera
-        // reversal se a apuracao do mes ja estiver fechada (senao o re-calculo ja
-        // exclui a OS, que passa a REFUNDED). Idempotente. (ADR 0056)
-        const reversalUserIds = [...new Set([order.technicianId, order.vendorId].filter(Boolean) as string[])];
-        for (const providerUserId of reversalUserIds) {
-          await createProviderReversalForRefund(tx, ctx.tenantId, {
-            providerUserId,
-            referenceType: "service_order",
-            referenceId: order.id,
-            factDate: order.paymentDate ?? new Date(),
-            cumulativeRefundedFraction: 1, // OS e estorno total (nao ha parcial)
-            registeredById: ctx.session.user.id,
-          });
-        }
+        // Estorno automatico das comissoes da OS: o executor/vendedor (OWN) E os
+        // prestadores com participacao em AT (servico_at_loja, ganham sobre OS de
+        // outros). Orquestrado no service. So gera reversal se a apuracao do mes ja
+        // estiver fechada (senao o re-calculo ja exclui a OS REFUNDED). (ADR 0056)
+        await reverseServiceOrderCommissions(tx, ctx.tenantId, {
+          order: {
+            id: order.id,
+            technicianId: order.technicianId,
+            vendorId: order.vendorId,
+            paymentDate: order.paymentDate,
+          },
+          registeredById: ctx.session.user.id,
+        });
 
         await tx.serviceOrderHistory.create({
           data: {
