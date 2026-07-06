@@ -165,6 +165,31 @@ export async function rateLimit({ key, limit, windowMs }: RateLimitOptions): Pro
 }
 
 /**
+ * Devolve UM token consumido de uma janela (sem mexer no TTL — a janela segue
+ * correndo). Usado quando uma tentativa NÃO deve contar contra o limite (ex.: saque
+ * recusado pelo provedor: a falha não é do usuário e não deve travá-lo). Diferente de
+ * `resetRateLimit`, que zera o balde inteiro. Nunca desce abaixo de 0.
+ */
+export async function refundRateLimit(key: string): Promise<void> {
+  const r = getRedis();
+  if (r) {
+    try {
+      const redisKey = `rl:${key}`;
+      const v = await r.decr(redisKey);
+      // Guarda contra underflow (refund sem incr prévio) — devolve a 0 sem perder TTL.
+      if (v < 0) await r.incr(redisKey);
+      return;
+    } catch (err) {
+      logger.warn("Rate-limit refund Redis falhou", {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  const entry = store.get(key);
+  if (entry && entry.count > 0) entry.count -= 1;
+}
+
+/**
  * Reset rate limit for a given key (e.g. after successful login).
  */
 export async function resetRateLimit(key: string): Promise<void> {

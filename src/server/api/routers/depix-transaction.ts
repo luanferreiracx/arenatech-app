@@ -41,7 +41,11 @@ function serialize(t: Prisma.JsonObject | Record<string, unknown> | null) {
 // (preserva o ctx refinado dos middlewares anteriores, ao contrario do
 // `.use(rateLimitMiddleware)` que reseta o tipo).
 const rlCreateDeposit = enforceRateLimit({ limit: 10, windowMs: 60_000 });
-const rlCreateWithdraw = enforceRateLimit({ limit: 5, windowMs: 60 * 60 * 1000 });
+// Janela CURTA anti-flood (não mais 5/hora): uma recusa da Eulen não pode travar o
+// operador por 1h. O anti-drain real vem do 2FA step-up + cap diário por VALOR +
+// admin-only. Falhas PÓS-2FA (recusa do provedor/cap) são DEVOLVIDAS (refund) e não
+// contam; erro de 2FA ainda conta (anti-brute-force cabe nos 5/min).
+const rlCreateWithdraw = enforceRateLimit({ limit: 5, windowMs: 60_000 });
 const rlCheckStatus = enforceRateLimit({ limit: 30, windowMs: 60_000 });
 const rlSearchRecipients = enforceRateLimit({ limit: 30, windowMs: 60_000 });
 const rlPreviewFee = enforceRateLimit({ limit: 60, windowMs: 60_000 });
@@ -76,17 +80,18 @@ export const depixTransactionRouter = createTRPCRouter({
    *   - tenantAdminProcedure: so OWNER/MANAGER (saque move dinheiro on-chain
    *     irreversivel; nao queremos operador comum drenando carteira via
    *     sessao roubada/XSS)
-   *   - rate-limit: 5/hora por usuario
+   *   - rate-limit: janela curta anti-flood (falha pos-2FA nao conta)
    *   - cap diario por tenant: aplicado no service (DAILY_WITHDRAW_CAP_CENTS) */
   createWithdraw: tenantAdminProcedure
     .input(createWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
-      await rlCreateWithdraw(ctx, "depixTransaction.createWithdraw");
+      const rl = await rlCreateWithdraw(ctx, "depixTransaction.createWithdraw");
 
       // Step-up 2FA: saque move dinheiro on-chain irreversivel. Alem de ser
       // admin (tenantAdminProcedure), o usuario re-confirma a identidade com
       // um codigo 2FA. Sem 2FA habilitado, o saque eh BLOQUEADO (forca o 2FA
       // como pre-requisito) — defesa contra sessao roubada/XSS.
+      // 2FA falho NAO devolve o token (conta contra os 5/min — anti-brute-force).
       const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
       if (!stepUp.ok) {
         if (stepUp.reason === "not_enrolled") {
@@ -99,21 +104,28 @@ export const depixTransactionRouter = createTRPCRouter({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
       }
 
-      const tx = await createWithdraw({
-        tenantId: ctx.tenantId,
-        userId: ctx.session.user.id,
-        userName: ctx.session.user.name ?? null,
-        pixKeyType: input.pixKeyType,
-        pixKey: input.pixKey,
-        recipientName: input.recipientName ?? null,
-        recipientTaxId: input.recipientTaxId,
-        netAmountCents: input.netAmountCents,
-        idempotencyKey: input.idempotencyKey,
-        // Non-custodial (ADR 0051): repassa a passphrase da carteira. O service
-        // exige-a se o tenant for non_custodial; ignora se custodial.
-        passphrase: input.walletPassphrase,
-      });
-      return tx;
+      // 2FA passou: uma falha daqui pra frente (recusa do provedor, cap, etc.) NAO
+      // é culpa do operador — devolve o token pra ele poder tentar de novo na hora.
+      try {
+        const tx = await createWithdraw({
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? null,
+          pixKeyType: input.pixKeyType,
+          pixKey: input.pixKey,
+          recipientName: input.recipientName ?? null,
+          recipientTaxId: input.recipientTaxId,
+          netAmountCents: input.netAmountCents,
+          idempotencyKey: input.idempotencyKey,
+          // Non-custodial (ADR 0051): repassa a passphrase da carteira. O service
+          // exige-a se o tenant for non_custodial; ignora se custodial.
+          passphrase: input.walletPassphrase,
+        });
+        return tx;
+      } catch (err) {
+        await rl.refund();
+        throw err;
+      }
     }),
 
   /** Saque DePix ON-CHAIN para um endereco Liquid externo (Sideswap, hardware
@@ -121,15 +133,16 @@ export const depixTransactionRouter = createTRPCRouter({
    *
    *  Seguranca (igual ao saque PIX + 2ª etapa):
    *   - tenantAdminProcedure (so OWNER/MANAGER)
-   *   - rate-limit 5/hora
+   *   - rate-limit: janela curta anti-flood (falha pos-2FA nao conta)
    *   - step-up 2FA obrigatorio
    *   - confirmacao: endereco colado + conferido (acknowledgedAddress no schema)
    *   - cap diario + advisory lock no service */
   createOnchainWithdraw: tenantAdminProcedure
     .input(onchainWithdrawSchema)
     .mutation(async ({ ctx, input }) => {
-      await rlCreateWithdraw(ctx, "depixTransaction.createOnchainWithdraw");
+      const rl = await rlCreateWithdraw(ctx, "depixTransaction.createOnchainWithdraw");
 
+      // 2FA falho NAO devolve o token (conta contra os 5/min — anti-brute-force).
       const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
       if (!stepUp.ok) {
         if (stepUp.reason === "not_enrolled") {
@@ -142,26 +155,32 @@ export const depixTransactionRouter = createTRPCRouter({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
       }
 
-      const tx = await createOnchainWithdraw({
-        tenantId: ctx.tenantId,
-        userId: ctx.session.user.id,
-        userName: ctx.session.user.name ?? null,
-        toAddress: input.toAddress,
-        amountCents: Math.round(input.amountReais * 100),
-        passphrase: input.passphrase,
-      });
-      return {
-        id: tx.id,
-        number: tx.number,
-        status: tx.status,
-        withdrawTxId: tx.withdrawTxId,
-        onchainAddress: tx.onchainAddress,
-        amountCents: tx.netAmountCents,
-        grossAmountCents: tx.grossAmountCents,
-        explorerUrl: tx.withdrawTxId
-          ? `https://blockstream.info/liquid/tx/${tx.withdrawTxId}`
-          : null,
-      };
+      // 2FA passou: falha posterior (provedor/cap/LWK) devolve o token pra retry na hora.
+      try {
+        const tx = await createOnchainWithdraw({
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? null,
+          toAddress: input.toAddress,
+          amountCents: Math.round(input.amountReais * 100),
+          passphrase: input.passphrase,
+        });
+        return {
+          id: tx.id,
+          number: tx.number,
+          status: tx.status,
+          withdrawTxId: tx.withdrawTxId,
+          onchainAddress: tx.onchainAddress,
+          amountCents: tx.netAmountCents,
+          grossAmountCents: tx.grossAmountCents,
+          explorerUrl: tx.withdrawTxId
+            ? `https://blockstream.info/liquid/tx/${tx.withdrawTxId}`
+            : null,
+        };
+      } catch (err) {
+        await rl.refund();
+        throw err;
+      }
     }),
 
   /** Polling: consulta status remoto (PixPay/LWK) e atualiza estado local.
