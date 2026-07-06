@@ -63,20 +63,24 @@ export function isModuleKey(value: string): value is ModuleKey {
 }
 
 /**
- * Dependências entre módulos, derivadas do acoplamento REAL no backend. Selecionar
- * um módulo exige (e auto-inclui) seus pré-requisitos — não dá pra montar um plano
- * quebrado. Fatos do código:
- * - `pdv` → `cashier` (venda em dinheiro exige caixa aberto — sale.ts) + `financial`
- *   (toda venda cria financialTransaction).
+ * Dependências entre módulos. Selecionar um módulo exige (e auto-inclui) seus
+ * pré-requisitos — não dá pra montar um plano quebrado. Mistura de acoplamento
+ * TÉCNICO (o código quebra sem) e regra de PRODUTO (decisão do dono):
+ * - `pdv` → `cashier` (venda em dinheiro exige caixa aberto — sale.ts) +
+ *   `financial` (toda venda cria financialTransaction) + `stock` (todo item de
+ *   venda exige `productId`, e Product é do módulo stock — sem estoque não há o
+ *   que vender) + `customers` (produto: não se vende um aparelho sem cadastrar
+ *   o cliente).
+ * - `service-orders` → `pdv` (OS é paga via PDV — createFromOS, herda pdv→...) +
+ *   `customers` (produto: uma OS é sempre de um cliente).
  * - `depix-ops` → `wallet` (quick-sale cria depósito na carteira).
- * - `service-orders` → `pdv` (OS é paga via PDV — createFromOS), logo herda pdv→...
  * - `fiscal` → `pdv` (NF-e é emitida a partir de uma venda).
  * - `commissions` → `pdv` (comissão deriva de venda/OS).
  */
 export const MODULE_DEPENDENCIES: Partial<Record<ModuleKey, ModuleKey[]>> = {
-  pdv: ["cashier", "financial"],
+  pdv: ["cashier", "financial", "stock", "customers"],
+  "service-orders": ["pdv", "customers"],
   "depix-ops": ["wallet"],
-  "service-orders": ["pdv"],
   fiscal: ["pdv"],
   commissions: ["pdv"],
 };
