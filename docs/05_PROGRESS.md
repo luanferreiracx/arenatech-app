@@ -795,6 +795,20 @@ O "Pixpay" mencionado no plano de migração é na verdade o serviço "Depix" qu
 
 ## Historico de execucao
 
+### 2026-07-06 — Comissoes: UI da participacao em AT [PR 3/3 — fim]
+
+Editor de aliquotas expoe a categoria "Participacao em AT" (`servico_at_loja`):
+
+- Helpers `categoryAllowsAxes` (produtos + servico_at_loja mostram selects Tipo/Base) e
+  `isStoreOnlyCategory` (participacao em AT tem origem fixa STORE — sem toggle propria/loja).
+  `sourcesFor` retorna `["STORE"]` para ela. Campo do valor fixo rotula "Valor por servico (R$)".
+- Exibicao (ficha/self-service/PDF/CSV) automatica via `COMMISSION_CATEGORY_LABELS` + coluna Origem
+  ja existente (#397).
+- typecheck 0, lint 0. Suite 1579 verde.
+
+**Participacao em AT concluida** (PRs 404/405 + este): prestador ganha % (lucro/total) ou valor fixo
+por servico sobre OS executadas na loja por outros tecnicos; estorno de OS reverte; UI completa.
+
 ### 2026-07-06 — Comissoes: estorno de OS reverte tambem a participacao em AT [PR 2/3]
 
 Espelha o `reverseSaleCommissions` (#401), agora para OS: novo `reverseServiceOrderCommissions` no
