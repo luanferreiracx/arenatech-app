@@ -98,6 +98,23 @@ export function withModuleDependencies(modules: readonly ModuleKey[]): ModuleKey
 }
 
 /**
+ * Módulos que são PRÉ-REQUISITO de algum OUTRO módulo presente na seleção. A UI
+ * do editor de plano usa isto para travar (não desmarcar) um módulo enquanto
+ * quem depende dele estiver marcado — ex.: com `pdv` na seleção, `cashier` e
+ * `financial` ficam exigidos (travados). Semântica robusta a "escolhido direto
+ * vs auto-incluído": o que importa é se ALGUÉM na seleção depende do módulo.
+ */
+export function modulesRequiredBySelection(selection: readonly ModuleKey[]): Set<ModuleKey> {
+  const required = new Set<ModuleKey>();
+  for (const mod of selection) {
+    for (const dep of withModuleDependencies([mod])) {
+      if (dep !== mod) required.add(dep);
+    }
+  }
+  return required;
+}
+
+/**
  * Módulos controlados por OVERRIDE por-tenant (não pelo plano). Ficam fora do
  * editor de plano — quem libera é o superadmin no detalhe do tenant.
  */

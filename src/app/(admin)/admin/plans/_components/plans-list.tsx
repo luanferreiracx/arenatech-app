@@ -17,7 +17,13 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
 import { createPlanSchema, type CreatePlanInput } from "@/lib/validators/admin";
-import { PLAN_SELECTABLE_MODULES, MODULE_LABELS, type ModuleKey } from "@/lib/modules";
+import {
+  PLAN_SELECTABLE_MODULES,
+  MODULE_LABELS,
+  withModuleDependencies,
+  modulesRequiredBySelection,
+  type ModuleKey,
+} from "@/lib/modules";
 
 function formatCurrency(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -41,9 +47,15 @@ export function PlansList() {
   });
 
   const selectedModules = (form.watch("modules") ?? []) as ModuleKey[];
+  // Módulos exigidos por algum selecionado (ex.: pdv exige cashier+financial).
+  // Ficam marcados e travados — não dá pra desmarcá-los sem tirar quem os exige.
+  const requiredModules = modulesRequiredBySelection(selectedModules);
   const toggleModule = (mod: ModuleKey, checked: boolean) => {
+    // Marcar auto-inclui os pré-requisitos; desmarcar um exigido é ignorado
+    // (o checkbox já vem travado, mas guardamos contra chamadas diretas).
+    if (!checked && requiredModules.has(mod)) return;
     const next = checked
-      ? Array.from(new Set([...selectedModules, mod]))
+      ? withModuleDependencies([...selectedModules, mod])
       : selectedModules.filter((m) => m !== mod);
     form.setValue("modules", next);
   };
@@ -74,7 +86,9 @@ export function PlansList() {
       maxUsers: plan.maxUsers,
       maxImeiQueries: plan.maxImeiQueries,
       description: plan.description,
-      modules: plan.modules,
+      // Expande deps ao abrir: planos antigos salvos sem os pré-requisitos
+      // (ex.: só "pdv") aparecem com cashier+financial já marcados/travados.
+      modules: withModuleDependencies(plan.modules),
     });
     setShowForm(true);
   };
@@ -146,18 +160,28 @@ export function PlansList() {
             <div>
               <Label>Modulos liberados</Label>
               <p className="text-xs text-muted-foreground mb-2">
-                Define o que os tenants deste plano podem acessar. (arena-tech tem acesso total, independente do plano.)
+                Define o que os tenants deste plano podem acessar. Alguns módulos exigem
+                outros (ex.: Vendas / PDV precisa de Caixa e Financeiro) — os exigidos são
+                marcados automaticamente. (arena-tech tem acesso total, independente do plano.)
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {PLAN_SELECTABLE_MODULES.map((mod) => (
-                  <label key={mod} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <Checkbox
-                      checked={selectedModules.includes(mod)}
-                      onCheckedChange={(c) => toggleModule(mod, c === true)}
-                    />
-                    {MODULE_LABELS[mod]}
-                  </label>
-                ))}
+                {PLAN_SELECTABLE_MODULES.map((mod) => {
+                  const isRequired = requiredModules.has(mod);
+                  return (
+                    <label
+                      key={mod}
+                      className={`flex items-center gap-2 text-sm ${isRequired ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}`}
+                    >
+                      <Checkbox
+                        checked={selectedModules.includes(mod)}
+                        disabled={isRequired}
+                        onCheckedChange={(c) => toggleModule(mod, c === true)}
+                      />
+                      {MODULE_LABELS[mod]}
+                      {isRequired && <span className="text-xs">(exigido)</span>}
+                    </label>
+                  );
+                })}
               </div>
             </div>
             <DialogFooter>
