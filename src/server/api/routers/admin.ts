@@ -5,12 +5,16 @@ import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
 import { logAudit } from "@/server/services/audit-log.service";
-import { modulesFromPlanFeatures } from "@/lib/modules";
+import { modulesFromPlanFeatures, withModuleDependencies, isModuleKey } from "@/lib/modules";
 
 /**
  * Funde a lista de módulos (gating) dentro do JSON `features` do plano,
  * preservando quaisquer outras chaves já existentes. Quando `modules` é
  * undefined, mantém `features` como veio (sem mexer no gating).
+ *
+ * Expande os pré-requisitos (withModuleDependencies): salvar um plano com `pdv`
+ * grava também `cashier`+`financial`, para o plano refletir o que o tenant
+ * realmente terá (o gating já auto-inclui em runtime; aqui é a fonte gravada).
  */
 function mergeModulesIntoFeatures(
   features: Record<string, unknown> | null | undefined,
@@ -19,7 +23,8 @@ function mergeModulesIntoFeatures(
   if (modules === undefined) {
     return (features as Prisma.InputJsonValue) ?? Prisma.DbNull;
   }
-  return { ...(features ?? {}), modules: [...modules] } as Prisma.InputJsonValue;
+  const complete = withModuleDependencies(modules.filter(isModuleKey));
+  return { ...(features ?? {}), modules: complete } as Prisma.InputJsonValue;
 }
 import {
   createPlanSchema,

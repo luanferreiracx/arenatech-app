@@ -5,6 +5,7 @@ import {
   allowedModulesForTenant,
   isPathAllowed,
   withModuleDependencies,
+  modulesRequiredBySelection,
   MODULE_KEYS,
   DEFAULT_RELEASED_MODULES,
   TOTAL_ACCESS_TENANT_SLUG,
@@ -106,6 +107,27 @@ describe("withModuleDependencies (auto-inclusão de pré-requisitos)", () => {
   it("módulo sem dependência fica inalterado; é idempotente", () => {
     expect(withModuleDependencies(["customers"])).toEqual(["customers"]);
     expect(asSet(withModuleDependencies(["pdv", "cashier"]))).toEqual(["cashier", "financial", "pdv"]);
+  });
+});
+
+describe("modulesRequiredBySelection (editor de plano: travar exigidos)", () => {
+  it("com pdv na seleção, cashier+financial ficam exigidos (não pdv nem outros)", () => {
+    const required = modulesRequiredBySelection(["pdv"]);
+    expect(required.has("cashier")).toBe(true);
+    expect(required.has("financial")).toBe(true);
+    expect(required.has("pdv")).toBe(false); // pdv não é dependência de ninguém aqui
+    expect(required.has("stock")).toBe(false);
+  });
+
+  it("sem dependências, nada é exigido", () => {
+    expect(modulesRequiredBySelection(["customers", "tools"]).size).toBe(0);
+  });
+
+  it("cashier fica travado mesmo estando também na seleção, enquanto pdv o exige", () => {
+    // robusto a "direto vs auto-incluído": quem importa é se ALGUÉM depende dele.
+    expect(modulesRequiredBySelection(["pdv", "cashier", "financial"]).has("cashier")).toBe(true);
+    // sem pdv, cashier deixa de ser exigido (pode desmarcar).
+    expect(modulesRequiredBySelection(["cashier"]).size).toBe(0);
   });
 });
 
