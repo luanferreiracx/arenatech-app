@@ -66,6 +66,7 @@ export const COMMISSION_CATEGORY_LABELS: Record<string, string> = {
   servico_at_sem_peca: "AT sem peca",
   servico_at_com_peca: "AT com peca",
   intermediacao_at: "Intermediacao",
+  servico_at_loja: "Participacao em AT",
 };
 
 export const commissionScopeEnum = z.enum(["normal", "premium"]);
@@ -77,6 +78,9 @@ export const commissionCategoryEnum = z.enum([
   "servico_at_sem_peca",
   "servico_at_com_peca",
   "intermediacao_at",
+  // Participacao em assistencia: prestador ganha por OS executada na loja por
+  // OUTRO tecnico (analogo ao STORE de vendas). Aceita os eixos tipo/base/origem.
+  "servico_at_loja",
 ]);
 export type CommissionCategory = z.infer<typeof commissionCategoryEnum>;
 
@@ -121,12 +125,24 @@ export const COMMISSION_SOURCE_LABELS: Record<string, string> = {
   STORE: "Participacao na loja",
 };
 
-/** Categorias de PRODUTO — unicas que aceitam os eixos tipo/base/origem (loja,
- *  valor fixo por unidade, base total). Servicos seguem PERCENT/PROFIT/OWN. */
+/** Categorias de PRODUTO — aceitam o eixo de escopo (normal/premium) e origem
+ *  propria/loja com faixas. */
 export const PRODUCT_CATEGORIES: readonly CommissionCategory[] = [
   "produto_acessorio",
   "produto_aparelho",
 ];
+
+/** Categorias que aceitam os EIXOS flexiveis (tipo fixo/percentual, base
+ *  lucro/total, origem loja): produtos + `servico_at_loja` (participacao em AT).
+ *  As demais categorias de servico seguem PERCENT/PROFIT/OWN. */
+export const CATEGORIES_WITH_AXES: readonly CommissionCategory[] = [
+  "produto_acessorio",
+  "produto_aparelho",
+  "servico_at_loja",
+];
+
+/** `servico_at_loja` e participacao na loja: origem sempre STORE (nao ha "propria"). */
+export const STORE_ONLY_CATEGORIES: readonly CommissionCategory[] = ["servico_at_loja"];
 
 // ── Create Provider ──
 
@@ -273,10 +289,15 @@ export const updateProviderRulesSchema = z
       if (rule.base === "GROSS_NET" && rule.valueType !== "PERCENT") {
         addIssue(`${label}: base "valor total" so vale para regra percentual.`);
       }
-      // Eixos tipo/base/origem so valem para categorias de produto.
-      const isProduct = (PRODUCT_CATEGORIES as readonly string[]).includes(rule.category);
-      if (!isProduct && (rule.source !== "OWN" || rule.base !== "PROFIT" || rule.valueType !== "PERCENT")) {
-        addIssue(`${label}: servicos so aceitam percentual sobre lucro, origem propria.`);
+      // Eixos tipo/base/origem so valem para categorias flexiveis (produtos +
+      // participacao em AT). As demais categorias de servico seguem PERCENT/PROFIT/OWN.
+      const allowsAxes = (CATEGORIES_WITH_AXES as readonly string[]).includes(rule.category);
+      if (!allowsAxes && (rule.source !== "OWN" || rule.base !== "PROFIT" || rule.valueType !== "PERCENT")) {
+        addIssue(`${label}: esta categoria so aceita percentual sobre lucro, origem propria.`);
+      }
+      // Participacao na loja (servico_at_loja) e sempre origem STORE — nao ha "propria".
+      if ((STORE_ONLY_CATEGORIES as readonly string[]).includes(rule.category) && rule.source !== "STORE") {
+        addIssue(`${label}: participacao em AT e sempre origem "participacao na loja".`);
       }
     }
 
