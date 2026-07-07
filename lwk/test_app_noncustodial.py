@@ -63,6 +63,7 @@ _lwk_stub.Wollet = mock.MagicMock()
 _lwk_stub.WolletDescriptor = mock.MagicMock()
 _lwk_stub.Address = mock.MagicMock()
 _lwk_stub.TxBuilder = mock.MagicMock()
+_lwk_stub.Pset = mock.MagicMock()
 sys.modules["lwk"] = _lwk_stub
 
 os.environ.setdefault("API_KEY", "test-key")
@@ -362,6 +363,28 @@ class TestReadEndpointsNeverAutoCreate(unittest.TestCase):
     def test_utxos_requires_auth(self):
         r = self.client.get(f"/wallet/{self.tenant}/utxos?sync=false")
         self.assertEqual(r.status_code, 401)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_sign_pset_requires_auth(self):
+        r = self.client.post(f"/wallet/{self.tenant}/sign-pset", json={"pset": "x", "encrypted_seed": _blob(), "passphrase": PASSPHRASE})
+        self.assertEqual(r.status_code, 401)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_sign_pset_requires_pset(self):
+        r = self.client.post(f"/wallet/{self.tenant}/sign-pset", json={"encrypted_seed": _blob(), "passphrase": PASSPHRASE}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("pset", r.get_json()["error"])
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_sign_pset_requires_passphrase(self):
+        r = self.client.post(f"/wallet/{self.tenant}/sign-pset", json={"pset": "x", "encrypted_seed": _blob()}, headers=HEADERS)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("passphrase", r.get_json()["error"])
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_sign_pset_unprovisioned_returns_404(self):
+        r = self.client.post(f"/wallet/{self.tenant}/sign-pset", json={"pset": "x", "encrypted_seed": _blob(), "passphrase": PASSPHRASE}, headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
         self.assertTrue(self._no_wallet_on_disk())
 
 

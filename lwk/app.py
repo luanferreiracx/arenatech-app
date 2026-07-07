@@ -1067,6 +1067,67 @@ def wallet_utxos(tenant_id):
         return fail("internal_error", 500, log_detail=f"utxos[{tenant_id}]: {e}")
 
 
+@app.route("/wallet/<tenant_id>/sign-pset", methods=["POST"])
+def wallet_sign_pset(tenant_id):
+    """Assina um PSET EXTERNO (recebido do Sideswap) com a chave do tenant.
+
+    Usado no swap DePix->L-USDt: o Sideswap monta o PSET (get_quote), o tenant
+    assina só os próprios inputs aqui, e o PSET assinado volta pro Sideswap
+    (taker_sign), que finaliza e faz o broadcast. Diferente do /transfer, este
+    endpoint NÃO constrói tx, NÃO finaliza e NÃO faz broadcast — só assina.
+
+    Non-custodial (ADR 0051): exige {encrypted_seed, passphrase}. A passphrase
+    nunca é logada nem persistida. Body: { pset: <base64>, encrypted_seed, passphrase }.
+    """
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+
+    data = request.get_json(silent=True) or {}
+    pset_b64 = data.get("pset")
+    encrypted_seed = data.get("encrypted_seed")
+    passphrase = data.get("passphrase")
+
+    if not pset_b64 or not isinstance(pset_b64, str):
+        return fail("pset (base64) obrigatorio")
+    if encrypted_seed is None:
+        return fail("encrypted_seed obrigatorio (assinatura non-custodial)")
+    if not passphrase or not isinstance(passphrase, str):
+        return fail("passphrase obrigatoria para carteira non-custodial")
+
+    with wallet_lock(tenant_id):
+        try:
+            # Carteira watch-only precisa existir (404 se não provisionada).
+            try:
+                load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
+            try:
+                signer, _ = derive_signer_from_blob(encrypted_seed, passphrase)
+            except crypto.InvalidPassphraseError:
+                return fail("invalid_passphrase", 400)
+
+            # Parseia o PSET externo, assina os inputs do tenant e re-serializa.
+            # A lib lwk 0.17 aceita lwk.Pset(base64) e str(pset) — CONFIRMAR no
+            # primeiro rebuild (como no /utxos). signer.sign é idempotente p/
+            # inputs que não são do tenant (ignora o que não pode assinar).
+            pset = lwk.Pset(pset_b64)
+            signed = signer.sign(pset)
+            signed_b64 = str(signed)
+        except Exception as e:
+            return fail("falha ao assinar pset", 500, log_detail=f"sign-pset[{tenant_id}]: {e}")
+
+    logger.info(f"[{tenant_id}] PSET de swap assinado")
+    return jsonify({
+        "tenant_id": tenant_id,
+        "signed_pset": signed_b64,
+        "network": NETWORK_NAME,
+    })
+
+
 @app.route("/wallet/<tenant_id>/address/new", methods=["POST"])
 def new_address(tenant_id):
     err = auth_required()
