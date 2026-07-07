@@ -1475,7 +1475,15 @@ export const adminRouter = createTRPCRouter({
     return ctx.withAdmin(async (tx) => {
       const tenants = await tx.tenant.findMany({
         include: {
-          users: { select: { userId: true } },
+          _count: { select: { users: true } },
+          // Responsável (admin mais antigo) — diferencia tenants de nome genérico
+          // ("Loja NO-KYC"). Espelha a coluna da lista de tenants.
+          users: {
+            where: { role: "admin" },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+            select: { user: { select: { name: true, email: true } } },
+          },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -1486,7 +1494,8 @@ export const adminRouter = createTRPCRouter({
         slug: t.slug,
         status: t.status,
         plan: t.plan,
-        userCount: t.users.length,
+        userCount: t._count.users,
+        owner: t.users[0]?.user ?? null,
         createdAt: t.createdAt,
       }));
     });
