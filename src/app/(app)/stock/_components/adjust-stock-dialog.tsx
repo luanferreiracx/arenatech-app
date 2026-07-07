@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTRPC } from "@/trpc/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { adjustStockSchema, type AdjustStockInput } from "@/lib/validators/stock";
 import {
@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { VariationPicker } from "@/components/inputs/variation-picker";
 
 interface AdjustStockDialogProps {
   open: boolean;
@@ -32,6 +33,8 @@ interface AdjustStockDialogProps {
   productId: string;
   productName: string;
   currentStock: number;
+  /** Produto com variacoes: o ajuste incide sobre a variacao escolhida, nao o pai. */
+  hasVariations?: boolean;
 }
 
 export function AdjustStockDialog({
@@ -40,6 +43,7 @@ export function AdjustStockDialog({
   productId,
   productName,
   currentStock,
+  hasVariations = false,
 }: AdjustStockDialogProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -48,6 +52,7 @@ export function AdjustStockDialog({
     resolver: zodResolver(adjustStockSchema),
     defaultValues: {
       productId,
+      variationId: null,
       quantity: 0,
       reason: "",
     },
@@ -65,11 +70,31 @@ export function AdjustStockDialog({
   );
 
   function onSubmit(data: AdjustStockInput) {
+    if (hasVariations && !data.variationId) {
+      form.setError("variationId", { message: "Selecione uma variacao" });
+      return;
+    }
     mutation.mutate(data);
   }
 
   const watchedQty = form.watch("quantity");
-  const newStock = currentStock + (watchedQty || 0);
+  const watchedVariationId = form.watch("variationId");
+
+  // Para produtos com variacoes, o saldo relevante eh o da variacao escolhida
+  // (o currentStock do pai eh a soma de todas). Busca as variacoes so nesse caso.
+  const variationsQuery = useQuery({
+    ...trpc.stock.listVariations.queryOptions({ productId }),
+    enabled: open && hasVariations,
+  });
+  const selectedVariation = variationsQuery.data?.find(
+    (v) => v.id === watchedVariationId,
+  );
+
+  // Saldo base do preview: variacao escolhida (se houver) ou o produto simples.
+  const baseStock = hasVariations
+    ? selectedVariation?.currentStock ?? null
+    : currentStock;
+  const newStock = baseStock === null ? null : baseStock + (watchedQty || 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,12 +102,34 @@ export function AdjustStockDialog({
         <DialogHeader>
           <DialogTitle>Ajustar Estoque</DialogTitle>
           <DialogDescription>
-            {productName} — Estoque atual: {currentStock}
+            {hasVariations
+              ? `${productName} — selecione a variacao para ajustar`
+              : `${productName} — Estoque atual: ${currentStock}`}
           </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {hasVariations && (
+              <FormField
+                control={form.control}
+                name="variationId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <VariationPicker
+                        productId={productId}
+                        value={field.value ?? null}
+                        onChange={(v) => field.onChange(v)}
+                        showStock
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <FormField
               control={form.control}
               name="quantity"
@@ -98,7 +145,7 @@ export function AdjustStockDialog({
                     />
                   </FormControl>
                   <FormMessage />
-                  {watchedQty !== 0 && (
+                  {watchedQty !== 0 && newStock !== null && (
                     <p className="text-xs text-muted-foreground">
                       Novo estoque: <span className={newStock < 0 ? "text-destructive" : "text-emerald-500 font-medium"}>{newStock}</span>
                     </p>

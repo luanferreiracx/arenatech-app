@@ -296,6 +296,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           productId={product.id}
           productName={product.name}
           currentStock={product.currentStock}
+          hasVariations={product.hasVariations}
         />
       )}
     </div>

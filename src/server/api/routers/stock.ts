@@ -653,9 +653,47 @@ export const stockRouter = createTRPCRouter({
         const isExit = input.quantity < 0;
         const qty = Math.abs(input.quantity);
 
-        // Atualiza saldo de fato (antes era TODO).
-        // Em saida: where currentStock >= qty evita negativo.
-        if (isExit) {
+        // Produto com variacoes: o saldo real vive em ProductVariation.currentStock
+        // (o currentStock do pai eh derivado). Exige a variacao e ajusta ela —
+        // sem isso, o ajuste mexia no campo errado. Paridade com stockEntry/Exit.
+        if (product.hasVariations) {
+          if (!input.variationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Selecione uma variacao para ajustar o estoque.",
+            });
+          }
+          const variation = await tx.productVariation.findFirst({
+            where: { id: input.variationId, deletedAt: null },
+          });
+          if (!variation || variation.productId !== input.productId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Variacao nao pertence a este produto.",
+            });
+          }
+
+          if (isExit) {
+            // where currentStock >= qty evita saldo negativo (mesma guarda do pai).
+            const r = await tx.productVariation.updateMany({
+              where: { id: input.variationId, currentStock: { gte: qty } },
+              data: { currentStock: { decrement: qty } },
+            });
+            if (r.count !== 1) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Estoque insuficiente: ${variation.currentStock} unidades disponiveis nesta variacao.`,
+              });
+            }
+          } else {
+            await tx.productVariation.update({
+              where: { id: input.variationId },
+              data: { currentStock: { increment: qty } },
+            });
+          }
+        } else if (isExit) {
+          // Produto simples — ajusta o proprio currentStock.
+          // where currentStock >= qty evita negativo.
           const r = await tx.product.updateMany({
             where: { id: input.productId, currentStock: { gte: qty } },
             data: { currentStock: { decrement: qty } },
@@ -677,6 +715,7 @@ export const stockRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             productId: input.productId,
+            variationId: input.variationId || null,
             type: isExit ? "EXIT" : "ENTRY",
             quantity: qty,
             reason: input.reason,
