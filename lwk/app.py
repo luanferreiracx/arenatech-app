@@ -1001,6 +1001,72 @@ def wallet_balance(tenant_id):
         return fail("internal_error", 500, log_detail=f"balance[{tenant_id}]: {e}")
 
 
+@app.route("/wallet/<tenant_id>/utxos", methods=["GET"])
+def wallet_utxos(tenant_id):
+    """Lista os UTXOs confidenciais da carteira com os blinding factors (abf/vbf).
+
+    Necessario para o `start_quotes` do Sideswap (sondagem/swap DePix->L-USDt): a
+    API exige {txid, vout, asset, value, asset_bf, value_bf} de cada input.
+
+    SEGURANCA: abf/vbf sao dados sensiveis (revelam valor/asset de saidas
+    confidenciais). Retornados so sob auth (auth_required) e NUNCA logados —
+    seguem o mesmo cuidado do reveal de mnemonic. Watch-only: nao expoe chave.
+    Filtro opcional `?asset=<id>` restringe ao asset (ex.: so DePix).
+    """
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    try:
+        asset_filter = request.args.get("asset")
+        do_sync = request.args.get("sync", "true").lower() != "false"
+        lock = wallet_lock(tenant_id)
+        acquired = lock.acquire(timeout=15 if do_sync else 1)
+        try:
+            try:
+                wollet, _ = load_watch_only(tenant_id)
+            except FileNotFoundError:
+                return fail("carteira nao provisionada", 404)
+            if do_sync and acquired:
+                sync_wallet(wollet, silent=True)
+            wallet_utxos_list = wollet.utxos()
+        finally:
+            if acquired:
+                lock.release()
+
+        # API lwk 0.17: WalletTxOut.outpoint() -> {txid, vout}; .unblinded() ->
+        # TxOutSecrets com .asset()/.value()/.asset_bf()/.value_bf(). Confirmar os
+        # nomes exatos dos getters no PRIMEIRO rebuild (ver docs.rs/lwk_bindings) —
+        # se algum diferir, ajustar aqui; a estrutura de retorno e estavel.
+        items = []
+        for u in wallet_utxos_list:
+            outpoint = u.outpoint()
+            secrets = u.unblinded()
+            asset_id = str(secrets.asset())
+            if asset_filter and asset_id != asset_filter:
+                continue
+            items.append({
+                "txid":     str(outpoint.txid()),
+                "vout":     outpoint.vout(),
+                "asset":    asset_id,
+                "value":    secrets.value(),          # satoshis
+                "asset_bf": str(secrets.asset_bf()),  # asset blinding factor (hex)
+                "value_bf": str(secrets.value_bf()),  # value blinding factor (hex)
+                "is_depix": asset_id == DEPIX_ASSET_ID,
+            })
+
+        return jsonify({
+            "tenant_id": tenant_id,
+            "utxos":     items,
+            "count":     len(items),
+            "network":   NETWORK_NAME,
+        })
+    except Exception as e:
+        return fail("internal_error", 500, log_detail=f"utxos[{tenant_id}]: {e}")
+
+
 @app.route("/wallet/<tenant_id>/address/new", methods=["POST"])
 def new_address(tenant_id):
     err = auth_required()
