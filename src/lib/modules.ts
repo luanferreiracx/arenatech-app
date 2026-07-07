@@ -183,6 +183,43 @@ export const DEFAULT_RELEASED_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 export const NO_KYC_MODULES: ModuleKey[] = ["wallet", "depix-ops"];
 
 /**
+ * Gating por ABA de Configurações. `settings` é sempre-ligado (todo tenant
+ * configura a própria loja), mas as ABAS não são todas universais: um tenant que
+ * só opera a carteira DePix não precisa de Fiscal, Formas de Pagamento, Cartões,
+ * etc. Cada sub-rota declara o módulo FUNCIONAL de que depende — a aba (e a rota)
+ * só aparece quando o tenant tem esse módulo.
+ *
+ * `null` = sempre-on (dados da loja, equipe, plano, auditoria, 2FA): visível a
+ * qualquer tenant, inclusive wallet/NO-KYC.
+ *
+ * Decisões do dono:
+ * - Geral, Equipe, Assinatura, Logs, Segurança → sempre-on.
+ * - Fiscal → `fiscal`; Formas de Pagamento / Cartões / Regras de Venda → `pdv`;
+ *   Integrações / Taxas do Simulador → `tools`; Assistência / Entregadores →
+ *   `service-orders`; API de Parceiros → `partner-api`.
+ *
+ * Ordem: prefixos mais específicos primeiro (`resolveModuleForPath` casa o 1º).
+ */
+const SETTINGS_TAB_MODULE: ReadonlyArray<readonly [string, ModuleKey | null]> = [
+  ["/settings/security", null],
+  ["/settings/general", null],
+  ["/settings/users", null],
+  ["/settings/team", null],
+  ["/settings/subscription", null],
+  ["/settings/logs", null],
+  ["/settings/partner-api", "partner-api"],
+  ["/settings/depix", "wallet"],
+  ["/settings/fiscal", "fiscal"],
+  ["/settings/payment-methods", "pdv"],
+  ["/settings/card-acquirers", "pdv"],
+  ["/settings/receiving", "pdv"],
+  ["/settings/installments", "tools"],
+  ["/settings/integrations", "tools"],
+  ["/settings/assistance", "service-orders"],
+  ["/settings/delivery-persons", "service-orders"],
+];
+
+/**
  * Mapa de prefixo de rota → módulo. A ordem importa: prefixos mais específicos
  * vêm antes dos genéricos (ex.: `/depix-wallet` antes de qualquer rota financeira).
  * `resolveModuleForPath` casa pelo primeiro prefixo que bate.
@@ -230,26 +267,26 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/commissions", "commissions"],
   ["/my-commission", "commissions"],
 
-  // partner-api ANTES de /settings (mais específico vence). Módulo próprio com
-  // override por-tenant (apiAccessEnabled) — ver allowedModulesForTenant.
-  ["/settings/partner-api", "partner-api"],
-
-  // settings (configurações do tenant). Gateado: por enquanto NÃO liberado.
+  // settings/* é resolvido por SETTINGS_TAB_MODULE (por aba) antes deste mapa;
+  // este prefixo é o fallback pra qualquer /settings/* não listado lá.
   ["/settings", "settings"],
 ];
 
 /**
  * Resolve o módulo de uma rota. Retorna `null` para rotas sem gating de módulo
- * (painel, troca de tenant, admin, públicas) — essas passam livres.
- * `/settings/*` resolve pro módulo `settings`, que é sempre-on (todo tenant tem).
+ * (painel, troca de tenant, admin, públicas, e abas de settings sempre-on) — essas
+ * passam livres. Cada ABA de `/settings/*` é gateada pelo módulo funcional de que
+ * depende (ver SETTINGS_TAB_MODULE), não pelo genérico `settings`.
  */
 export function resolveModuleForPath(pathname: string): ModuleKey | null {
-  // /settings/security e primitivo de seguranca (2FA + troca de senha) que TODO
-  // usuario precisa — em especial tenants wallet/NO-KYC, que sao OBRIGADOS a
-  // habilitar 2FA pra sacar/transferir. Nunca gateado por modulo/plano, senao o
-  // tenant fica num beco: o saque exige 2FA mas a pagina de habilitar e bloqueada.
-  if (pathname === "/settings/security" || pathname.startsWith("/settings/security/")) {
-    return null;
+  // As abas de settings vêm ANTES do prefixo genérico `/settings` — cada uma casa
+  // seu módulo funcional (fiscal/pdv/tools/service-orders) ou `null` (sempre-on,
+  // ex.: security/general/users/subscription/logs). Um tenant só-wallet, p.ex.,
+  // não vê Fiscal nem Formas de Pagamento, mas mantém Geral/Equipe/Segurança.
+  for (const [prefix, mod] of SETTINGS_TAB_MODULE) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) {
+      return mod;
+    }
   }
   for (const [prefix, key] of ROUTE_MODULE_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {

@@ -32,9 +32,10 @@ export default async function SettingsLayout({ children }: { children: React.Rea
     : null;
   const allowedModules = activeTenant?.modules ?? [];
 
-  // Só mostra as abas que o tenant pode acessar — senão um tenant wallet/NO-KYC
-  // (que alcança /settings/security pra habilitar 2FA) veria abas gateadas que
-  // o redirecionam ao clicar. Aba sem módulo (ex.: Segurança) aparece pra todos.
+  // Cada aba é gateada pelo módulo funcional de que depende (resolveModuleForPath
+  // consulta SETTINGS_TAB_MODULE): um tenant só-wallet vê Geral/Equipe/Assinatura/
+  // Logs/Segurança (sempre-on → módulo null), mas não Fiscal, Formas de Pagamento,
+  // Cartões etc. — que não fazem sentido sem os módulos pdv/fiscal/tools/service-orders.
   const tabs = ALL_TABS.filter((tab) => {
     const mod = resolveModuleForPath(tab.href);
     return mod === null || allowedModules.includes(mod);
