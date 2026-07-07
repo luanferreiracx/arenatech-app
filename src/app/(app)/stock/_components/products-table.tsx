@@ -60,7 +60,7 @@ export function ProductsTable() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; currentStock: number } | null>(null);
+  const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; currentStock: number; hasVariations: boolean } | null>(null);
   // Seleção keyed por id do produto (getRowId) — persiste ao trocar de página.
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
@@ -234,6 +234,7 @@ export function ProductsTable() {
                 id: row.original.id,
                 name: row.original.name,
                 currentStock: row.original.currentStock,
+                hasVariations: row.original.hasVariations,
               })}
             >
               <span className="text-xs font-medium">+/-</span>
@@ -344,6 +345,7 @@ export function ProductsTable() {
           productId={adjustTarget.id}
           productName={adjustTarget.name}
           currentStock={adjustTarget.currentStock}
+          hasVariations={adjustTarget.hasVariations}
         />
       )}
     </>

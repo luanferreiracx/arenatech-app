@@ -101,6 +101,8 @@ export type ListProductsInput = z.infer<typeof listProductsSchema>;
 
 export const adjustStockSchema = z.object({
   productId: z.string().uuid(),
+  /** Obrigatorio quando product.has_variations = true (validado no backend). */
+  variationId: z.string().uuid().optional().nullable(),
   quantity: z
     .number({ error: "Informe a quantidade do ajuste" })
     .int("Quantidade deve ser um numero inteiro")
