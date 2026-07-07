@@ -23,6 +23,7 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, Save, Lock, Trash2 } from "lucide-react";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
+import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
 import Link from "next/link";
 import {
   deviceTypeEnum,
@@ -209,7 +210,7 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
         }
       />
 
-      <form onSubmit={doSubmit} className="space-y-6">
+      <form onSubmit={doSubmit} onKeyDown={blockEnterSubmit} className="space-y-6">
         {/* Aviso de edição restrita — torna explícito o lock (que ja existe por
             campo) para o operador nao achar que "salvou" algo bloqueado. */}
         {(isSigned || isCompleted) && (
