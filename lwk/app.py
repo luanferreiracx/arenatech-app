@@ -1102,7 +1102,7 @@ def wallet_sign_pset(tenant_id):
         try:
             # Carteira watch-only precisa existir (404 se não provisionada).
             try:
-                load_watch_only(tenant_id)
+                wollet, _ = load_watch_only(tenant_id)
             except FileNotFoundError:
                 return fail("carteira nao provisionada", 404)
             try:
@@ -1110,11 +1110,17 @@ def wallet_sign_pset(tenant_id):
             except crypto.InvalidPassphraseError:
                 return fail("invalid_passphrase", 400)
 
-            # Parseia o PSET externo, assina os inputs do tenant e re-serializa.
-            # A lib lwk 0.17 aceita lwk.Pset(base64) e str(pset) — CONFIRMAR no
-            # primeiro rebuild (como no /utxos). signer.sign é idempotente p/
-            # inputs que não são do tenant (ignora o que não pode assinar).
+            # Num PSET EXTERNO (do Sideswap), o signer só assina os inputs do
+            # tenant se o PSET tiver os detalhes de derivação (bip32) desses inputs.
+            # `wollet.add_details(pset)` os adiciona — mas RETORNA um novo PSET (não
+            # modifica in-place). Descartar o retorno = assinar o PSET cru, e o signer
+            # não reconhece nenhum input (fingerprints_missing vazio) → o Sideswap
+            # rejeita com "missing signature for input :N". Capturar o retorno faz o
+            # missing apontar a nossa chave e o signer assinar. Exige o wollet
+            # sincronizado (conhecer os UTXOs). Confirmado ao vivo na lib lwk 0.17.
+            sync_wallet(wollet, silent=True)
             pset = lwk.Pset(pset_b64)
+            pset = wollet.add_details(pset)
             signed = signer.sign(pset)
             signed_b64 = str(signed)
         except Exception as e:
