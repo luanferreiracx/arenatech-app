@@ -7,9 +7,11 @@ import { swapPreviewSchema, swapExecuteSchema } from "@/lib/validators/depix-swa
 
 const SATS_PER_UNIT = 100_000_000;
 
-// Cotar é barato (read-only); executar move ativo on-chain → limite baixo.
+// Cotar é barato (read-only). Executar move ativo on-chain, mas conversão é uma
+// operação recorrente de tesouraria (diferente do saque, raro) — janela curta de
+// 10 min com folga evita travar o uso legítimo por longos períodos.
 const rlPreview = enforceRateLimit({ limit: 30, windowMs: 60_000 });
-const rlExecute = enforceRateLimit({ limit: 5, windowMs: 60 * 60 * 1000 });
+const rlExecute = enforceRateLimit({ limit: 10, windowMs: 10 * 60 * 1000 });
 
 /**
  * Swap DePix → L-USDt via Sideswap (Fase 2). O L-USDt fica na própria carteira
