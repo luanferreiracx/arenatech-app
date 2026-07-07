@@ -700,3 +700,81 @@ export async function createCustodialWallet(
     return { success: false, error: "LWK indisponivel" };
   }
 }
+
+// ── Swap Sideswap (Fase 2): UTXOs confidenciais + assinatura de PSET externo ──
+
+/** UTXO confidencial com blinding factors — o que o start_quotes do Sideswap exige. */
+export interface LwkUtxo {
+  txid: string;
+  vout: number;
+  asset: string;
+  value: number;
+  asset_bf: string;
+  value_bf: string;
+  is_depix: boolean;
+}
+
+export type LwkUtxosResult =
+  | { success: true; utxos: LwkUtxo[] }
+  | { success: false; error: string };
+
+/** Lista os UTXOs da carteira (com blinding factors), opcionalmente filtrados por asset. */
+export async function getUtxos(
+  tenantId: string,
+  opts: { assetId?: string } = {},
+): Promise<LwkUtxosResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) {
+    logger.warn("LWK getUtxos: mock mode", { tenantId });
+    return { success: true, utxos: [] };
+  }
+  try {
+    const query = opts.assetId ? `?asset=${encodeURIComponent(opts.assetId)}` : "";
+    const { ok, status, body } = await lwkFetch(config, "GET", `/wallet/${tenantId}/utxos${query}`, {
+      timeoutMs: 60_000,
+    });
+    if (!ok) return { success: false, error: String(body.error ?? `HTTP ${status}`) };
+    return { success: true, utxos: (body.utxos as LwkUtxo[]) ?? [] };
+  } catch (error) {
+    logger.error("LWK getUtxos erro", { tenantId, error: error instanceof Error ? error.message : String(error) });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
+
+export type LwkSignPsetResult =
+  | { success: true; signedPset: string }
+  | { success: false; error: string };
+
+/**
+ * Assina um PSET externo (do Sideswap) com a chave non-custodial do tenant.
+ * `encryptedSeed`+`passphrase` obrigatórios; a passphrase nunca é logada.
+ */
+export async function signPset(
+  tenantId: string,
+  pset: string,
+  opts: { encryptedSeed: unknown; passphrase: string },
+): Promise<LwkSignPsetResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { success: false, error: cfgErr };
+  if (!config) {
+    logger.warn("LWK signPset: mock mode", { tenantId });
+    return { success: true, signedPset: pset };
+  }
+  try {
+    const { ok, status, body } = await lwkFetch(config, "POST", `/wallet/${tenantId}/sign-pset`, {
+      body: { pset, encrypted_seed: opts.encryptedSeed, passphrase: opts.passphrase },
+      timeoutMs: 60_000,
+    });
+    if (!ok) {
+      const code = String(body.error ?? `HTTP ${status}`);
+      // Não logamos a passphrase; só o código do erro.
+      logger.error("LWK signPset falhou", { tenantId, status, error: code });
+      return { success: false, error: code };
+    }
+    return { success: true, signedPset: body.signed_pset as string };
+  } catch (error) {
+    logger.error("LWK signPset erro", { tenantId, error: error instanceof Error ? error.message : String(error) });
+    return { success: false, error: "LWK indisponivel" };
+  }
+}
