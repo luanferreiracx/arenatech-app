@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { resolveCurrentStockByProduct } from "@/server/services/stock-item.service";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -81,15 +82,26 @@ export const dashboardRouter = createTRPCRouter({
             deletedAt: null,
           },
         }),
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub as count of all active products
-        tx.product.count({
-          where: {
-            active: true,
-            deletedAt: null,
-            minStock: { gt: 0 },
+        // Candidatos a estoque baixo: produtos com minimo definido. O saldo real
+        // (serializado/variacoes/simples) e resolvido abaixo — contar so por
+        // minStock>0 marcaria como "baixo" todo produto com minimo, mesmo cheio.
+        tx.product.findMany({
+          where: { active: true, deletedAt: null, minStock: { gt: 0 } },
+          select: {
+            id: true,
+            minStock: true,
+            currentStock: true,
+            hasVariations: true,
+            isSerialized: true,
           },
         }),
       ]);
+
+      // Estoque efetivo por produto (fonte unica) e conta so os <= minimo.
+      const lowStockCandidateStock = await resolveCurrentStockByProduct(tx, productsLowStock);
+      const productsLowStockCount = productsLowStock.filter(
+        (p) => (lowStockCandidateStock.get(p.id) ?? 0) <= p.minStock,
+      ).length;
 
       const salesTodayTotal = salesToday.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
       const salesMonthTotal = salesMonth.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
@@ -124,7 +136,7 @@ export const dashboardRouter = createTRPCRouter({
           ticketMedio,
         },
         financialOverdue,
-        productsLowStock,
+        productsLowStock: productsLowStockCount,
       };
     });
   }),
@@ -266,18 +278,26 @@ export const dashboardRouter = createTRPCRouter({
     return ctx.withTenant(async (tx) => {
       const now = new Date();
 
-      const [lowStockProducts, overdueFinancials, lateOrders] = await Promise.all([
-        // TODO: Estoque-B will handle stock tracking via StockItem — stub as products with minStock > 0
+      const [lowStockCandidates, overdueFinancials, lateOrders] = await Promise.all([
+        // Candidatos a estoque baixo (minimo definido). O saldo real e resolvido
+        // depois; so entao filtramos <= minimo e cortamos em 10 — cortar antes
+        // (take:10 no DB) podia trazer 10 produtos cheios e esconder os baixos.
         tx.product.findMany({
           where: {
             active: true,
             deletedAt: null,
             minStock: { gt: 0 },
           },
-          select: { id: true, name: true, minStock: true },
+          select: {
+            id: true,
+            name: true,
+            minStock: true,
+            currentStock: true,
+            hasVariations: true,
+            isSerialized: true,
+          },
           orderBy: { name: "asc" },
-          take: 10,
-        }).then((products) => products.map((p) => ({ ...p, currentStock: 0 }))),
+        }),
 
         // Overdue financial transactions
         tx.financialTransaction.findMany({
@@ -317,6 +337,18 @@ export const dashboardRouter = createTRPCRouter({
           take: 10,
         }),
       ]);
+
+      // Resolve o saldo real e mantem so quem esta <= minimo (max 10 no card).
+      const lowStockByProduct = await resolveCurrentStockByProduct(tx, lowStockCandidates);
+      const lowStockProducts = lowStockCandidates
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          minStock: p.minStock,
+          currentStock: lowStockByProduct.get(p.id) ?? 0,
+        }))
+        .filter((p) => p.currentStock <= p.minStock)
+        .slice(0, 10);
 
       return {
         lowStock: lowStockProducts,

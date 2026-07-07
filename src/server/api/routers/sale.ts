@@ -662,8 +662,10 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Item nao encontrado" });
         }
 
-        // TODO: Estoque-B will handle stock validation via StockItem
-
+        // Estoque nao e validado aqui (edicao de quantidade no rascunho): a
+        // checagem de oversell acontece no finalize, atomica (compare-and-set no
+        // decremento). Validar no rascunho seria UX melhor, mas nao e barreira
+        // de integridade.
         const unitPriceCents = decimalToCents(item.unitPrice);
         const totalCents = unitPriceCents * input.quantity;
 
