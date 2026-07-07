@@ -1,15 +1,20 @@
 /**
- * Sondagem Sideswap (Fase 1 — read-only) para avaliar a conversão DePix → L-USDt.
+ * Sondagem Sideswap para avaliar a conversão DePix → L-USDt.
  *
- * NÃO executa swap nem gasta nada. Só consulta a API pública (WebSocket JSON-RPC)
- * em mainnet para responder, com dados reais:
- *   1. Existe par DIRETO DePix/L-USDt? Qual a orientação base/quote e o fee_asset?
- *   2. Se não houver direto, existem as pernas DePix/L-BTC e L-BTC/L-USDt?
- *   3. Preço de referência recente (via chart OHLCV) — aproxima o spread sem UTXOs.
+ * NÃO executa swap nem gasta nada (nunca chama `taker_sign`). Duas fases:
  *
- * A curva preço×volume real (start_quotes) exige UTXOs com blinding factors da
- * carteira, que o container LWK ainda não expõe — fica para a Fase 1b (endpoint
- * /utxos no LWK). Rodar: `pnpm tsx scripts/sideswap-probe.ts`
+ * Fase 1 (read-only, sempre roda): consulta a API pública (mainnet):
+ *   1. Existe par DIRETO DePix/L-USDt? Orientação base/quote e fee_asset?
+ *   2. Se não, existem as pernas DePix/L-BTC e L-BTC/L-USDt?
+ *   3. Preço de referência recente (chart OHLCV).
+ *
+ * Fase 1b (spread real, só com env do LWK): busca UTXOs de DePix da carteira via
+ * o endpoint /utxos do LWK e chama `start_quotes` em vários amounts, tabulando a
+ * curva preço×volume (o spread executável e onde a liquidez seca). Ativa quando
+ * LWK_API_URL + LWK_API_KEY + PROBE_TENANT_ID estão no ambiente (rodar na VPS).
+ *
+ * Rodar Fase 1:  `pnpm tsx scripts/sideswap-probe.ts`
+ * Rodar 1b:      `LWK_API_URL=... LWK_API_KEY=... PROBE_TENANT_ID=... pnpm tsx scripts/sideswap-probe.ts`
  */
 
 const WS_URL = "wss://api.sideswap.io/json-rpc-ws";
@@ -57,6 +62,181 @@ function findPair(markets: Market[], a: string, b: string): Market | null {
         (m.asset_pair.base === b && m.asset_pair.quote === a),
     ) ?? null
   );
+}
+
+// ── Fase 1b: spread real via start_quotes ──────────────────────────────────
+
+/** UTXO retornado pelo endpoint /wallet/{id}/utxos do LWK. */
+type LwkUtxo = {
+  txid: string;
+  vout: number;
+  asset: string;
+  value: number;
+  asset_bf: string;
+  value_bf: string;
+  is_depix: boolean;
+};
+
+/** Chama o LWK e devolve o JSON. Fail-closed: erro vira exceção. */
+async function lwkGet(path: string): Promise<Record<string, unknown>> {
+  const url = `${process.env.LWK_API_URL}${path}`;
+  const resp = await fetch(url, { headers: { "X-API-Key": process.env.LWK_API_KEY ?? "" } });
+  if (!resp.ok) throw new Error(`LWK ${path} → ${resp.status}`);
+  return (await resp.json()) as Record<string, unknown>;
+}
+
+async function lwkPost(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const url = `${process.env.LWK_API_URL}${path}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "X-API-Key": process.env.LWK_API_KEY ?? "", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`LWK ${path} → ${resp.status}`);
+  return (await resp.json()) as Record<string, unknown>;
+}
+
+/**
+ * Aguarda a PRIMEIRA notificação `quote` de um `quote_sub_id`. O quote vem como
+ * notificação (sem `id` de resposta), regenerada a cada ~5s pelo servidor. Só
+ * lemos — nunca aceitamos (taker_sign). Timeout evita travar se o book não cotar.
+ */
+function awaitFirstQuote(ws: WebSocket, quoteSubId: unknown, timeoutMs = 12000): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeEventListener("message", onMessage);
+      reject(new Error("timeout esperando quote"));
+    }, timeoutMs);
+    const onMessage = (event: MessageEvent) => {
+      const msg = JSON.parse(String(event.data));
+      const q = msg?.params?.quote ?? msg?.quote;
+      if (!q) return; // não é notificação de quote
+      if (quoteSubId !== undefined && q.quote_sub_id !== undefined && q.quote_sub_id !== quoteSubId) return;
+      clearTimeout(timer);
+      ws.removeEventListener("message", onMessage);
+      resolve(q as Record<string, unknown>);
+    };
+    ws.addEventListener("message", onMessage);
+  });
+}
+
+/** Formata um valor em satoshis do asset dado como número legível (2 casas p/ stablecoins). */
+function fmt(sats: number): string {
+  return (sats / 1e8).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+}
+
+/** Dólar comercial oficial (ask). Override por env USD_BRL (útil quando o container
+ *  não tem egress p/ a API de câmbio); senão tenta a AwesomeAPI. Null se indisponível. */
+async function fetchUsdBrl(): Promise<number | null> {
+  const override = Number(process.env.USD_BRL);
+  if (Number.isFinite(override) && override > 0) return override;
+  try {
+    const resp = await fetch("https://economia.awesomeapi.com.br/last/USD-BRL");
+    if (!resp.ok) return null;
+    const j = (await resp.json()) as { USDBRL?: { ask?: string } };
+    const ask = Number(j.USDBRL?.ask);
+    return Number.isFinite(ask) ? ask : null;
+  } catch {
+    return null;
+  }
+}
+
+async function probeSpread(ws: WebSocket, market: Market): Promise<void> {
+  const tenantId = process.env.PROBE_TENANT_ID as string;
+  console.log(`\n═══ Fase 1b: spread real (start_quotes) — tenant ${tenantId} ═══`);
+
+  // UTXOs de DePix da carteira (com blinding factors) via LWK.
+  const utxosResp = await lwkGet(`/wallet/${tenantId}/utxos?asset=${DEPIX}`);
+  const utxos = (utxosResp.utxos as LwkUtxo[]) ?? [];
+  const totalDepix = utxos.reduce((acc, u) => acc + u.value, 0);
+  console.log(`UTXOs DePix: ${utxos.length} (saldo ${fmt(totalDepix)} DePix)`);
+  if (utxos.length === 0) {
+    console.log("Sem UTXOs de DePix — não dá pra cotar. (deposite DePix na carteira central p/ sondar)");
+    return;
+  }
+
+  // Endereços de recebimento (L-USDt) e troco (DePix). O LWK gera address confidencial.
+  const recv = (await lwkPost(`/wallet/${tenantId}/address/new`, {})).address as string;
+  const change = (await lwkPost(`/wallet/${tenantId}/address/new`, {})).address as string;
+
+  // Formato de UTXO esperado pelo start_quotes (campos da pesquisa).
+  const swapUtxos = utxos.map((u) => ({
+    txid: u.txid,
+    vout: u.vout,
+    asset: u.asset,
+    value: u.value,
+    asset_bf: u.asset_bf,
+    value_bf: u.value_bf,
+  }));
+
+  // Dólar oficial (comercial) p/ calcular o PRÊMIO real do DePix vs USD.
+  const usdBrl = await fetchUsdBrl();
+  console.log(usdBrl ? `Dólar oficial (ask): R$${usdBrl.toFixed(4)}` : "Dólar oficial: indisponível (prêmio não calculado)");
+
+  // Cota valores GRANDES independente do saldo da carteira — start_quotes é
+  // read-only; se exceder a liquidez, o servidor devolve LowBalance (= book seco).
+  // O prêmio cai com volume, então o interesse é a curva em tickets reais.
+  const amountsDepix = [1000, 5000, 10000, 50000, 100000].map((brl) => Math.round(brl * 1e8));
+
+  console.log(`\n  vende(DePix)  │ preço(DePix │ vs dólar  │ swap fee  │ custo total │ status`);
+  console.log(`                │  /USDt)     │ (prêmio)  │           │ (c/ prêmio) │`);
+  console.log(`  ──────────────┼─────────────┼───────────┼───────────┼─────────────┼────────`);
+
+  let qid = 100;
+  for (const amount of amountsDepix) {
+    try {
+      const started = (await rpc(ws, qid++, {
+        start_quotes: {
+          asset_pair: market.asset_pair,
+          asset_type: "Quote", // DePix é o quote no par L-USDt/DePix
+          trade_dir: "Sell",
+          amount,
+          utxos: swapUtxos,
+          receive_address: recv,
+          change_address: change,
+        },
+      })) as { start_quotes?: { quote_sub_id?: unknown } };
+      const subId = started.start_quotes?.quote_sub_id;
+      const q = await awaitFirstQuote(ws, subId);
+      if (process.env.DEBUG) console.log("    RAW quote:", JSON.stringify(q));
+
+      // O status vem aninhado: q.status.Success | q.status.LowBalance | q.status.Error.
+      // LowBalance = você não tem saldo p/ EXECUTAR, mas o preço marginal cotado é
+      // válido p/ aquele volume (mesmos campos) — serve p/ medir a curva de ágio
+      // sem precisar do saldo. Só não dá pra taker_sign (que nem fazemos).
+      const st = (q.status ?? {}) as Record<string, unknown>;
+      const s = (st.Success ?? st.LowBalance) as Record<string, unknown> | undefined;
+      const isLowBal = st.LowBalance !== undefined;
+      if (s) {
+        const base = Number(s.base_amount); // L-USDt recebido (bruto, antes das fees)
+        const quote = Number(s.quote_amount); // DePix vendido
+        const serverFee = Number(s.server_fee); // em L-USDt (fee_asset=Base)
+        const fixedFee = Number(s.fixed_fee); // rede, em L-USDt
+        const price = quote / base; // DePix por L-USDt (executável)
+        const netUsdt = base - serverFee - fixedFee; // L-USDt líquido que sobra de fato
+        const swapFeePct = (serverFee / base) * 100;
+        // PRÊMIO vs dólar oficial: quanto o DePix vale a menos que o BRL "real".
+        const premiumPct = usdBrl ? ((price - usdBrl) / usdBrl) * 100 : null;
+        // Custo TOTAL real = quanto você perde vs converter ao dólar oficial:
+        // (DePix vendido / USDt líquido) vs dólar oficial.
+        const effectivePrice = quote / netUsdt; // DePix por USDt já líquido de fees
+        const totalCostPct = usdBrl ? ((effectivePrice - usdBrl) / usdBrl) * 100 : null;
+        console.log(
+          `  ${fmt(amount).padStart(13)} │ ${price.toFixed(4).padStart(11)} │ ` +
+          `${(premiumPct === null ? "?" : premiumPct.toFixed(2) + "%").padStart(9)} │ ` +
+          `${swapFeePct.toFixed(3).padStart(8)}% │ ` +
+          `${(totalCostPct === null ? "?" : totalCostPct.toFixed(2) + "%").padStart(11)} │ ${isLowBal ? "cotado*" : "Success"}`,
+        );
+      } else {
+        const status = Object.keys(st)[0] ?? "?";
+        const detail = JSON.stringify(st[status] ?? {}).slice(0, 45);
+        console.log(`  ${fmt(amount).padStart(13)} │ ${(status + " " + detail).padStart(50)}`);
+      }
+    } catch (err) {
+      console.log(`  ${fmt(amount).padStart(13)} │ erro: ${(err as Error).message}`);
+    }
+  }
+  console.log("\n  (comparar o preço executável vs o preço médio do chart = spread real; onde vira LowBalance = liquidez seca)");
 }
 
 async function main(): Promise<void> {
@@ -130,8 +310,21 @@ async function main(): Promise<void> {
     }
   }
 
+  // Fase 1b: spread real (só se o env do LWK estiver presente e houver par).
+  const lwkReady = process.env.LWK_API_URL && process.env.LWK_API_KEY && process.env.PROBE_TENANT_ID;
+  if (lwkReady && target) {
+    try {
+      await probeSpread(ws, target);
+    } catch (err) {
+      console.log(`\nFase 1b falhou: ${(err as Error).message}`);
+      if (process.env.DEBUG) console.error(err);
+    }
+  } else if (!lwkReady) {
+    console.log("\n(Fase 1b pulada: defina LWK_API_URL + LWK_API_KEY + PROBE_TENANT_ID p/ medir o spread real.)");
+  }
+
   ws.close();
-  console.log("\nSondagem concluída (read-only, nada foi gasto).");
+  console.log("\nSondagem concluída (read-only, nada foi gasto — nenhum swap executado).");
 }
 
 main().catch((err) => {
