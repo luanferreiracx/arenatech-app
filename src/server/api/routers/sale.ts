@@ -48,6 +48,7 @@ import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
+import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
 import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
@@ -105,10 +106,6 @@ function isCashMethod(method: string): boolean {
     .trim()
     .toLowerCase();
   return norm === "dinheiro" || norm === "cash" || norm === "money" || norm === "especie";
-}
-
-function isCompletedDepixStatus(status: string): boolean {
-  return status === "COMPLETED" || status === "COMPLETED_FEE_PENDING";
 }
 
 function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
@@ -987,10 +984,10 @@ export const saleRouter = createTRPCRouter({
               message: "Transacao DePix nao pertence a esta venda.",
             });
           }
-          if (!isCompletedDepixStatus(walletTx.status)) {
+          if (!isSettledForSaleDepixStatus(walletTx.status)) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "DePix ainda nao liquidado. Aguarde a confirmacao do pagamento.",
+              message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
             });
           }
         }
