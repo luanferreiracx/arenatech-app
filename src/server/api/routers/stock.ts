@@ -152,9 +152,10 @@ export const stockRouter = createTRPCRouter({
         }
 
         if (input.lowStock) {
+          // Pre-filtra por minimo definido no DB; o corte por saldo real
+          // (<= minStock) e feito em memoria abaixo, apos resolver o estoque
+          // efetivo (serializado/variacoes nao dao pra comparar em SQL puro).
           where.minStock = { gt: 0 };
-          // TODO: Estoque-B will handle stock tracking via StockItem
-          // For now we can't filter by stock level at the DB level
         }
 
         const [data, total] = await Promise.all([
@@ -4297,7 +4298,7 @@ export const stockRouter = createTRPCRouter({
     .input(z.object({ productId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        return getAvailableQuantity(tx as any, ctx.tenantId, input.productId);
+        return getAvailableQuantity(tx, ctx.tenantId, input.productId);
       });
     }),
 });
