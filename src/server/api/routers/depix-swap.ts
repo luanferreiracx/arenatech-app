@@ -1,3 +1,9 @@
+// ⚠️ ROUTER DESATIVADO — NÃO registrado no root (src/server/api/root.ts).
+// A conversão DePix→USDT (Sideswap) foi pausada: o LWK 0.17 não assina o PSET de
+// swap de forma que o Sideswap aceite (rejeita o taker_sign). A solução é assinatura
+// manual estilo GDK (wallycore) — projeto à parte. Código mantido pronto para
+// retomar; ver a memória `depix-usdt-conversao-sideswap`. Para reativar: reimportar
+// e registrar `depixSwap` no root + recriar a UI (/depix-wallet/swap-usdt + botão).
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure, tenantAdminProcedure } from "@/server/api/trpc";
 import { enforceRateLimit } from "@/server/api/middleware/rate-limit";

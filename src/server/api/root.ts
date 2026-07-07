@@ -23,7 +23,7 @@ import { adminRouter } from "@/server/api/routers/admin";
 import { depixWithdrawRouter } from "@/server/api/routers/depix-withdraw";
 import { depixWalletRouter } from "@/server/api/routers/depix-wallet";
 import { depixTransactionRouter } from "@/server/api/routers/depix-transaction";
-import { depixSwapRouter } from "@/server/api/routers/depix-swap";
+// depixSwapRouter (conversão DePix→USDT) DESATIVADO — ver depix-swap.ts.
 import { depixByowRouter } from "@/server/api/routers/depix-byow";
 import { depixLbtcAdminRouter } from "@/server/api/routers/depix-lbtc-admin";
 import { depixFeeWalletAdminRouter } from "@/server/api/routers/depix-fee-wallet-admin";
@@ -48,7 +48,6 @@ export const appRouter = createTRPCRouter({
   depixWithdraw: depixWithdrawRouter,
   depixWallet: depixWalletRouter,
   depixTransaction: depixTransactionRouter,
-  depixSwap: depixSwapRouter,
   depixByow: depixByowRouter,
   depixLbtcAdmin: depixLbtcAdminRouter,
   depixFeeWalletAdmin: depixFeeWalletAdminRouter,
