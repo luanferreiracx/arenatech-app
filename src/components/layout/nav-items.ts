@@ -170,10 +170,14 @@ export const appNavGroups: NavGroup[] = [
   {
     title: "Configuracoes",
     items: [
+      // Cada item aponta pro módulo FUNCIONAL da aba (mesmo mapa de
+      // SETTINGS_TAB_MODULE/resolveModuleForPath): um tenant só-wallet vê
+      // Config. Gerais e Segurança, mas não Formas de Pagamento/Simulador/
+      // Entregadores — que dependem de pdv/tools/service-orders.
       { label: "Config. Gerais", href: "/settings", icon: Settings, module: "settings" },
-      { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "settings" },
-      { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "settings" },
-      { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck, module: "settings" },
+      { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "pdv" },
+      { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "tools" },
+      { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck, module: "service-orders" },
       // Sem `module`: Seguranca (2FA + senha) e disponivel a QUALQUER tenant —
       // tenants wallet/NO-KYC precisam habilitar 2FA pra sacar (sem isso ficavam
       // sem acesso a pagina, num beco). Veja resolveModuleForPath em modules.ts.

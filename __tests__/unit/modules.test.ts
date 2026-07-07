@@ -48,20 +48,37 @@ describe("resolveModuleForPath", () => {
     expect(resolveModuleForPath("/select-tenant")).toBeNull();
   });
 
-  it("settings resolve pro módulo settings (sempre-on: todo tenant tem)", () => {
-    expect(resolveModuleForPath("/settings")).toBe("settings");
-    expect(resolveModuleForPath("/settings/payment-methods")).toBe("settings");
-    expect(resolveModuleForPath("/settings/installments")).toBe("settings");
+  it("cada aba de settings é gateada pelo módulo funcional de que depende", () => {
+    // Um tenant só-wallet não deve ver Fiscal, Formas de Pagamento, Cartões etc.
+    expect(resolveModuleForPath("/settings/fiscal")).toBe("fiscal");
+    expect(resolveModuleForPath("/settings/payment-methods")).toBe("pdv");
+    expect(resolveModuleForPath("/settings/card-acquirers")).toBe("pdv");
+    expect(resolveModuleForPath("/settings/receiving")).toBe("pdv");
+    expect(resolveModuleForPath("/settings/installments")).toBe("tools");
+    expect(resolveModuleForPath("/settings/integrations")).toBe("tools");
+    expect(resolveModuleForPath("/settings/assistance")).toBe("service-orders");
+    expect(resolveModuleForPath("/settings/delivery-persons")).toBe("service-orders");
+    expect(resolveModuleForPath("/settings/depix")).toBe("wallet");
+    expect(resolveModuleForPath("/settings/partner-api")).toBe("partner-api");
   });
 
-  it("EXCETO /settings/security: nunca gateado (2FA/senha p/ qualquer tenant)", () => {
-    // Tenants wallet/NO-KYC precisam habilitar 2FA pra sacar — a pagina nao pode
-    // ser bloqueada por modulo, senao ficam num beco.
+  it("abas sempre-on (dados da loja/equipe/plano/auditoria/2FA) nunca gateadas", () => {
+    // Tenants wallet/NO-KYC precisam habilitar 2FA pra sacar e ver plano/equipe —
+    // essas abas nao podem ser bloqueadas por modulo, senao ficam num beco.
     expect(resolveModuleForPath("/settings/security")).toBeNull();
     expect(resolveModuleForPath("/settings/security/anything")).toBeNull();
-    // settings é sempre-on: todo tenant acessa as páginas de configuração da loja.
-    expect(isPathAllowed("/settings/security", ["wallet", "depix-ops", "settings"])).toBe(true);
-    expect(isPathAllowed("/settings/general", ["wallet", "depix-ops", "settings"])).toBe(true);
+    expect(resolveModuleForPath("/settings/general")).toBeNull();
+    expect(resolveModuleForPath("/settings/users")).toBeNull();
+    expect(resolveModuleForPath("/settings/subscription")).toBeNull();
+    expect(resolveModuleForPath("/settings/logs")).toBeNull();
+    // Visíveis a um tenant só-wallet (sem 'settings' na lista sequer):
+    const walletOnly = ["wallet", "depix-ops"];
+    expect(isPathAllowed("/settings/security", walletOnly)).toBe(true);
+    expect(isPathAllowed("/settings/general", walletOnly)).toBe(true);
+    expect(isPathAllowed("/settings/subscription", walletOnly)).toBe(true);
+    // Bloqueadas pro mesmo tenant só-wallet:
+    expect(isPathAllowed("/settings/fiscal", walletOnly)).toBe(false);
+    expect(isPathAllowed("/settings/payment-methods", walletOnly)).toBe(false);
   });
 
   it("não casa prefixo parcial de outra rota (/stockfoo)", () => {
@@ -246,8 +263,8 @@ describe("partner-api — módulo com override por-tenant (ADR 0057)", () => {
   it("/settings/partner-api resolve pro módulo partner-api (não settings)", () => {
     expect(resolveModuleForPath("/settings/partner-api")).toBe("partner-api");
     expect(resolveModuleForPath("/settings/partner-api/x")).toBe("partner-api");
-    // O /settings genérico segue em settings.
-    expect(resolveModuleForPath("/settings/general")).toBe("settings");
+    // Geral é sempre-on (null), não mais o genérico settings.
+    expect(resolveModuleForPath("/settings/general")).toBeNull();
   });
 
   it("apiAccessEnabled libera partner-api por override (tenant wallet-only sem plano)", () => {
