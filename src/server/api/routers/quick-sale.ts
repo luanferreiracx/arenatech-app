@@ -13,16 +13,13 @@ import {
   createDeposit,
   checkTransactionStatus,
 } from "@/server/services/depix-transaction.service";
+import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { validateDepixLimit } from "@/lib/services/depix-limit-service";
 import { logger } from "@/lib/logger";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
   return Math.round(Number(v) * 100);
-}
-
-function isCompletedDepixStatus(status: string): boolean {
-  return status === "COMPLETED" || status === "COMPLETED_FEE_PENDING";
 }
 
 // Generico: preserva todas as chaves da entrada (id, number, status, buyerName,
@@ -287,10 +284,10 @@ export const quickSaleRouter = createTRPCRouter({
               message: "Transacao DePix nao pertence a esta venda avulsa.",
             });
           }
-          if (!isCompletedDepixStatus(walletTx.status)) {
+          if (!isSettledForSaleDepixStatus(walletTx.status)) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "DePix ainda nao liquidado. Use 'Verificar PIX' ou aguarde a confirmacao.",
+              message: "DePix ainda nao confirmado. Use 'Verificar PIX' ou aguarde a confirmacao.",
             });
           }
         } else if (existing.depixTransactionId) {

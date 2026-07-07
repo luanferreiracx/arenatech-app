@@ -57,6 +57,24 @@ export const DEPIX_LIMITS = {
   MAX_CENTS: 500000,
 } as const;
 
+/**
+ * Estados em que o DePix de uma venda pode ser finalizado: o PIX (fiat) já caiu.
+ *
+ * PROCESSING é o marco "PIX recebido" (`applyPixReceivedEffects`): o dinheiro
+ * entrou e o serviço já dispara o SSE `paid` que faz o PDV chamar `finalize`. O
+ * crédito on-chain (COMPLETED) é uma etapa financeira posterior e NÃO deve travar
+ * a venda — senão o operador vê "Pagamento confirmado" e um X ao finalizar, porque
+ * o finalize corria com o on-chain ainda pendente. Num depósito de venda, PROCESSING
+ * só é gravado após o PIX cair, então aceitá-lo é seguro.
+ */
+export function isSettledForSaleDepixStatus(status: string): boolean {
+  return (
+    status === "PROCESSING" ||
+    status === "COMPLETED" ||
+    status === "COMPLETED_FEE_PENDING"
+  );
+}
+
 function roundCents(n: number): number {
   // ROUND_HALF_UP via Math.round (positivo: identico). Centavos sao positivos.
   return Math.round(n);
