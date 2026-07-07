@@ -9,6 +9,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2, Mail, MessageCircle } from "lucide-react";
@@ -32,6 +33,8 @@ export function RegisterForm() {
   const [emailMasked, setEmailMasked] = useState("");
   const [phoneMasked, setPhoneMasked] = useState("");
   const [code, setCode] = useState("");
+  // Aceite dos termos: obrigatório antes de criar a conta (compliance).
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const form = useForm<StartNoKycRegistrationInput>({
     resolver: zodResolver(startNoKycRegistrationSchema),
@@ -152,7 +155,27 @@ export function RegisterForm() {
             </AlertDescription>
           </Alert>
 
-          <Button type="submit" className="w-full" disabled={startMutation.isPending}>
+          <label className="flex items-start gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={acceptedTerms}
+              onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+              className="mt-0.5"
+              aria-label="Aceito os termos"
+            />
+            <span>
+              Li e concordo com os{" "}
+              <a href="/legal/termos" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+                Termos de Uso
+              </a>{" "}
+              e a{" "}
+              <a href="/legal/privacidade" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+                Política de Privacidade
+              </a>
+              .
+            </span>
+          </label>
+
+          <Button type="submit" className="w-full" disabled={startMutation.isPending || !acceptedTerms}>
             {startMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

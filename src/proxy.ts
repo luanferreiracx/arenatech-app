@@ -28,6 +28,10 @@ function isPublicRoute(pathname: string): boolean {
     PUBLIC_ROUTES.has(pathname) ||
     // Landing publica (marketing) — servida na raiz por host em pdvdepix.app.
     pathname === "/landing" ||
+    // Documentos legais (Termos, Privacidade, Reembolso, Avisos) — públicos por
+    // exigência dos parceiros de pagamento (KYC) e do consumidor. Sem auth.
+    pathname === "/legal" ||
+    pathname.startsWith("/legal/") ||
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/api/cron/") ||
