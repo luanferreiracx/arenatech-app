@@ -125,6 +125,22 @@ function fmt(sats: number): string {
   return (sats / 1e8).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
 }
 
+/** Dólar comercial oficial (ask). Override por env USD_BRL (útil quando o container
+ *  não tem egress p/ a API de câmbio); senão tenta a AwesomeAPI. Null se indisponível. */
+async function fetchUsdBrl(): Promise<number | null> {
+  const override = Number(process.env.USD_BRL);
+  if (Number.isFinite(override) && override > 0) return override;
+  try {
+    const resp = await fetch("https://economia.awesomeapi.com.br/last/USD-BRL");
+    if (!resp.ok) return null;
+    const j = (await resp.json()) as { USDBRL?: { ask?: string } };
+    const ask = Number(j.USDBRL?.ask);
+    return Number.isFinite(ask) ? ask : null;
+  } catch {
+    return null;
+  }
+}
+
 async function probeSpread(ws: WebSocket, market: Market): Promise<void> {
   const tenantId = process.env.PROBE_TENANT_ID as string;
   console.log(`\n═══ Fase 1b: spread real (start_quotes) — tenant ${tenantId} ═══`);
@@ -153,13 +169,18 @@ async function probeSpread(ws: WebSocket, market: Market): Promise<void> {
     value_bf: u.value_bf,
   }));
 
-  // Vende DePix (quote no par L-USDt/DePix, base=L-USDt). Amounts crescentes em DePix.
-  const amountsDepix = [50, 200, 1000, 5000].map((brl) => Math.round(brl * 1e8)).filter((s) => s <= totalDepix);
-  if (amountsDepix.length === 0) amountsDepix.push(Math.min(totalDepix, Math.round(50 * 1e8)));
+  // Dólar oficial (comercial) p/ calcular o PRÊMIO real do DePix vs USD.
+  const usdBrl = await fetchUsdBrl();
+  console.log(usdBrl ? `Dólar oficial (ask): R$${usdBrl.toFixed(4)}` : "Dólar oficial: indisponível (prêmio não calculado)");
 
-  console.log(`\n  vende(DePix)  │ bruto(L-USDt)  │ preço(DePix │ swap fee  │ rede(L-USDt) │ líq(L-USDt)   │ custo tot`);
-  console.log(`                │                │  /USDt)     │           │              │               │`);
-  console.log(`  ──────────────┼────────────────┼─────────────┼───────────┼──────────────┼───────────────┼──────────`);
+  // Cota valores GRANDES independente do saldo da carteira — start_quotes é
+  // read-only; se exceder a liquidez, o servidor devolve LowBalance (= book seco).
+  // O prêmio cai com volume, então o interesse é a curva em tickets reais.
+  const amountsDepix = [1000, 5000, 10000, 50000, 100000].map((brl) => Math.round(brl * 1e8));
+
+  console.log(`\n  vende(DePix)  │ preço(DePix │ vs dólar  │ swap fee  │ custo total │ status`);
+  console.log(`                │  /USDt)     │ (prêmio)  │           │ (c/ prêmio) │`);
+  console.log(`  ──────────────┼─────────────┼───────────┼───────────┼─────────────┼────────`);
 
   let qid = 100;
   for (const amount of amountsDepix) {
@@ -179,24 +200,37 @@ async function probeSpread(ws: WebSocket, market: Market): Promise<void> {
       const q = await awaitFirstQuote(ws, subId);
       if (process.env.DEBUG) console.log("    RAW quote:", JSON.stringify(q));
 
-      // O status vem aninhado: q.status.Success | q.status.LowBalance | q.status.Error
+      // O status vem aninhado: q.status.Success | q.status.LowBalance | q.status.Error.
+      // LowBalance = você não tem saldo p/ EXECUTAR, mas o preço marginal cotado é
+      // válido p/ aquele volume (mesmos campos) — serve p/ medir a curva de ágio
+      // sem precisar do saldo. Só não dá pra taker_sign (que nem fazemos).
       const st = (q.status ?? {}) as Record<string, unknown>;
-      const s = st.Success as Record<string, unknown> | undefined;
+      const s = (st.Success ?? st.LowBalance) as Record<string, unknown> | undefined;
+      const isLowBal = st.LowBalance !== undefined;
       if (s) {
         const base = Number(s.base_amount); // L-USDt recebido (bruto, antes das fees)
         const quote = Number(s.quote_amount); // DePix vendido
         const serverFee = Number(s.server_fee); // em L-USDt (fee_asset=Base)
         const fixedFee = Number(s.fixed_fee); // rede, em L-USDt
         const price = quote / base; // DePix por L-USDt (executável)
-        const netUsdt = base - serverFee - fixedFee; // L-USDt líquido que sobra
-        const totalFeePct = ((serverFee + fixedFee) / base) * 100;
+        const netUsdt = base - serverFee - fixedFee; // L-USDt líquido que sobra de fato
+        const swapFeePct = (serverFee / base) * 100;
+        // PRÊMIO vs dólar oficial: quanto o DePix vale a menos que o BRL "real".
+        const premiumPct = usdBrl ? ((price - usdBrl) / usdBrl) * 100 : null;
+        // Custo TOTAL real = quanto você perde vs converter ao dólar oficial:
+        // (DePix vendido / USDt líquido) vs dólar oficial.
+        const effectivePrice = quote / netUsdt; // DePix por USDt já líquido de fees
+        const totalCostPct = usdBrl ? ((effectivePrice - usdBrl) / usdBrl) * 100 : null;
         console.log(
-          `  ${fmt(amount).padStart(13)} │ ${fmt(base).padStart(14)} │ ${price.toFixed(4).padStart(11)} │ ` +
-          `${(serverFee / base * 100).toFixed(3).padStart(9)}% │ ${fmt(fixedFee).padStart(11)} │ ${fmt(netUsdt).padStart(13)} │ ${totalFeePct.toFixed(2)}%`,
+          `  ${fmt(amount).padStart(13)} │ ${price.toFixed(4).padStart(11)} │ ` +
+          `${(premiumPct === null ? "?" : premiumPct.toFixed(2) + "%").padStart(9)} │ ` +
+          `${swapFeePct.toFixed(3).padStart(8)}% │ ` +
+          `${(totalCostPct === null ? "?" : totalCostPct.toFixed(2) + "%").padStart(11)} │ ${isLowBal ? "cotado*" : "Success"}`,
         );
       } else {
         const status = Object.keys(st)[0] ?? "?";
-        console.log(`  ${fmt(amount).padStart(13)} │ ${status} (${JSON.stringify(st[status] ?? {}).slice(0, 40)})`);
+        const detail = JSON.stringify(st[status] ?? {}).slice(0, 45);
+        console.log(`  ${fmt(amount).padStart(13)} │ ${(status + " " + detail).padStart(50)}`);
       }
     } catch (err) {
       console.log(`  ${fmt(amount).padStart(13)} │ erro: ${(err as Error).message}`);
