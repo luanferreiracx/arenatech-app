@@ -381,6 +381,8 @@ export type StockExitInput = z.infer<typeof stockExitSchema>;
 
 export const bulkAdjustItemSchema = z.object({
   productId: z.string().uuid(),
+  /** Obrigatorio quando product.has_variations = true (validado no backend). */
+  variationId: z.string().uuid().optional().nullable(),
   newQuantity: z.number().int().min(0),
 });
 

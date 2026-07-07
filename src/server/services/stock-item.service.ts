@@ -262,6 +262,7 @@ export async function adjustInventory(
   userId: string,
   params: {
     productId: string
+    variationId?: string | null
     newQuantity: number
     reason: string
   }
@@ -277,6 +278,52 @@ export async function adjustInventory(
       code: "BAD_REQUEST",
       message: `"${product.name}" e um produto serializado — ajuste o estoque pelo item (IMEI/serie), nao por quantidade.`,
     })
+  }
+
+  // Produto com variacoes: o saldo real vive em ProductVariation.currentStock
+  // (o do pai eh a soma derivada). Ajustar o pai aqui nao persistiria — a
+  // proxima leitura recalcula a soma das variacoes. Exige e ajusta a variacao.
+  if (product.hasVariations) {
+    if (!params.variationId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `"${product.name}" tem variacoes — informe qual variacao ajustar.`,
+      })
+    }
+    const variation = await tx.productVariation.findFirst({
+      where: { id: params.variationId, deletedAt: null },
+    })
+    if (!variation || variation.productId !== params.productId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Variacao nao pertence a este produto.",
+      })
+    }
+
+    const beforeVar = variation.currentStock
+    const diffVar = params.newQuantity - beforeVar
+    if (diffVar === 0) return // no change
+
+    await tx.productVariation.update({
+      where: { id: params.variationId },
+      data: { currentStock: params.newQuantity },
+    })
+
+    await tx.stockMovement.create({
+      data: {
+        tenantId,
+        productId: params.productId,
+        variationId: params.variationId,
+        type: "ADJUSTMENT",
+        quantity: Math.abs(diffVar),
+        quantityBefore: beforeVar,
+        quantityAfter: params.newQuantity,
+        reason: params.reason,
+        referenceType: "manual",
+        userId,
+      },
+    })
+    return
   }
 
   const before = product.currentStock

@@ -4186,6 +4186,7 @@ export const stockRouter = createTRPCRouter({
         for (const item of input.items) {
           await adjustInventory(tx as any, ctx.tenantId, ctx.session.user.id, {
             productId: item.productId,
+            variationId: item.variationId ?? null,
             newQuantity: item.newQuantity,
             reason: input.reason,
           });
