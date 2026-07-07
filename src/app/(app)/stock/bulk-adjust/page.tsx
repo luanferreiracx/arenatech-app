@@ -4,10 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Plus, Save } from "lucide-react";
+import { Trash2, Save } from "lucide-react";
 import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
-import { FormActions } from "@/components/domain/forms/form-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -18,6 +17,9 @@ import { toast } from "@/lib/toast";
 type Row = {
   productId: string;
   productName: string;
+  /** Preenchido quando o produto tem variacoes — uma linha por variacao. */
+  variationId: string | null;
+  variationLabel: string | null;
   currentStock: number;
   newQuantity: number;
 };
@@ -28,6 +30,7 @@ type ProductSearchResult = {
   sku: string | null;
   salePrice: unknown;
   currentStock: number;
+  hasVariations: boolean;
 };
 
 export default function BulkAdjustStockPage() {
@@ -48,12 +51,42 @@ export default function BulkAdjustStockPage() {
     }),
   );
 
-  const addRow = (product: {
-    id: string;
-    name: string;
-    currentStock?: number;
-  }) => {
-    if (rows.some((r) => r.productId === product.id)) {
+  const addRow = async (product: ProductSearchResult) => {
+    // Produto com variacoes: expande em uma linha por variacao. O saldo do pai
+    // eh a soma das variacoes — ajustar por total agregado nao faz sentido.
+    if (product.hasVariations) {
+      const variations = (await queryClient.fetchQuery(
+        trpc.stock.listVariations.queryOptions({ productId: product.id, active: true }),
+      )) as Array<{ id: string; label: string; currentStock: number }>;
+
+      if (variations.length === 0) {
+        toast.error(`"${product.name}" nao tem variacoes ativas para ajustar.`);
+        return;
+      }
+
+      setRows((prev) => {
+        const novas = variations
+          .filter(
+            (v) => !prev.some((r) => r.productId === product.id && r.variationId === v.id),
+          )
+          .map((v) => ({
+            productId: product.id,
+            productName: product.name,
+            variationId: v.id,
+            variationLabel: v.label,
+            currentStock: v.currentStock,
+            newQuantity: v.currentStock,
+          }));
+        if (novas.length === 0) {
+          toast.error("Variacoes deste produto ja adicionadas");
+          return prev;
+        }
+        return [...prev, ...novas];
+      });
+      return;
+    }
+
+    if (rows.some((r) => r.productId === product.id && r.variationId === null)) {
       toast.error("Produto ja adicionado");
       return;
     }
@@ -62,20 +95,25 @@ export default function BulkAdjustStockPage() {
       {
         productId: product.id,
         productName: product.name,
+        variationId: null,
+        variationLabel: null,
         currentStock: product.currentStock ?? 0,
         newQuantity: product.currentStock ?? 0,
       },
     ]);
   };
 
-  const updateQty = (id: string, qty: number) => {
+  const rowKey = (r: Pick<Row, "productId" | "variationId">) =>
+    `${r.productId}:${r.variationId ?? ""}`;
+
+  const updateQty = (key: string, qty: number) => {
     setRows((prev) =>
-      prev.map((r) => (r.productId === id ? { ...r, newQuantity: qty } : r)),
+      prev.map((r) => (rowKey(r) === key ? { ...r, newQuantity: qty } : r)),
     );
   };
 
-  const removeRow = (id: string) => {
-    setRows((prev) => prev.filter((r) => r.productId !== id));
+  const removeRow = (key: string) => {
+    setRows((prev) => prev.filter((r) => rowKey(r) !== key));
   };
 
   const handleSubmit = () => {
@@ -91,6 +129,7 @@ export default function BulkAdjustStockPage() {
       reason: reason.trim(),
       items: rows.map((r) => ({
         productId: r.productId,
+        variationId: r.variationId,
         newQuantity: r.newQuantity,
       })),
     });
@@ -108,13 +147,9 @@ export default function BulkAdjustStockPage() {
           <EntitySelector<ProductSearchResult>
             value=""
             onChange={() => {}}
-            onSelect={(p) =>
-              addRow({
-                id: p.id,
-                name: p.name,
-                currentStock: p.currentStock,
-              })
-            }
+            onSelect={(p) => {
+              void addRow(p);
+            }}
             searchFn={async (search) => {
               // Ajuste por quantidade nao se aplica a serializados (saldo deriva
               // dos StockItems) — escondidos da busca para evitar erro tardio.
@@ -152,9 +187,18 @@ export default function BulkAdjustStockPage() {
                 <tbody>
                   {rows.map((r) => {
                     const diff = r.newQuantity - r.currentStock;
+                    const key = rowKey(r);
                     return (
-                      <tr key={r.productId} className="border-b border-border">
-                        <td className="px-4 py-2">{r.productName}</td>
+                      <tr key={key} className="border-b border-border">
+                        <td className="px-4 py-2">
+                          {r.productName}
+                          {r.variationLabel && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · {r.variationLabel}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2 text-right tabular-nums">
                           {r.currentStock}
                         </td>
@@ -164,7 +208,7 @@ export default function BulkAdjustStockPage() {
                             min={0}
                             value={r.newQuantity}
                             onChange={(e) =>
-                              updateQty(r.productId, Math.max(0, Number(e.target.value) || 0))
+                              updateQty(key, Math.max(0, Number(e.target.value) || 0))
                             }
                             className="text-right"
                           />
@@ -186,7 +230,7 @@ export default function BulkAdjustStockPage() {
                             variant="ghost"
                             size="icon"
                             aria-label="Remover linha do ajuste"
-                            onClick={() => removeRow(r.productId)}
+                            onClick={() => removeRow(key)}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
-import { adjustStockSchema } from "@/lib/validators/stock";
+import { adjustStockSchema, bulkAdjustStockSchema } from "@/lib/validators/stock";
 
 /**
  * Regressao: o ajuste rapido de estoque (+/-) nao aceitava `variationId`, entao
@@ -68,6 +68,28 @@ describe("adjustStockSchema", () => {
       variationId: randomUUID(),
       quantity: 4,
       reason: "",
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("bulkAdjustStockSchema", () => {
+  it("aceita itens com e sem variationId no mesmo lote", () => {
+    const r = bulkAdjustStockSchema.safeParse({
+      reason: "Contagem fisica",
+      items: [
+        { productId: randomUUID(), newQuantity: 10 },
+        { productId: randomUUID(), variationId: randomUUID(), newQuantity: 5 },
+        { productId: randomUUID(), variationId: null, newQuantity: 0 },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejeita variationId invalido num item", () => {
+    const r = bulkAdjustStockSchema.safeParse({
+      reason: "Ajuste",
+      items: [{ productId: randomUUID(), variationId: "x", newQuantity: 1 }],
     });
     expect(r.success).toBe(false);
   });
