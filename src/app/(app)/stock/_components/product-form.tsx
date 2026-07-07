@@ -25,7 +25,7 @@ import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { NcmInput } from "@/components/inputs/ncm-input";
-import { shouldBlockEnterSubmit } from "@/lib/utils/form-keyboard";
+import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
 import { VariationsEditor } from "./variations-editor";
 import { ProductPhotoManager } from "./product-photo-manager";
 import { VariationImagesPanel } from "./variation-images-panel";
@@ -126,29 +126,11 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
     );
   }
 
-  // Leitores de codigo de barras digitam o codigo e emitem um Enter no fim.
-  // Num <form>, Enter dentro de um <input> de linha unica dispara o submit —
-  // entao passar o leitor no campo de codigo (ou em qualquer texto) salvava o
-  // produto pela metade. Bloqueia Enter vindo de inputs de linha unica; deixa
-  // passar em textarea (quebra de linha) e no botao de submit (acao explicita).
-  function preventEnterSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
-    const target = e.target as HTMLElement;
-    if (
-      shouldBlockEnterSubmit({
-        key: e.key,
-        tagName: target.tagName,
-        type: (target as HTMLInputElement).type,
-      })
-    ) {
-      e.preventDefault();
-    }
-  }
-
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit, onInvalid)}
-        onKeyDown={preventEnterSubmit}
+        onKeyDown={blockEnterSubmit}
         className="space-y-8"
       >
         <FormSection title="Dados do Produto">

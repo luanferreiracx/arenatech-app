@@ -21,6 +21,7 @@ import {
   stockEntryBatchSchema,
   type StockEntryBatchInput,
 } from "@/lib/validators/stock";
+import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
 
 type ProductSearchResult = {
   id: string;
@@ -90,6 +91,7 @@ export default function StockEntryPage() {
           (data) => entryMutation.mutate(data),
           () => toast.error("Revise os campos destacados antes de registrar a entrada."),
         )}
+        onKeyDown={blockEnterSubmit}
         className="space-y-6"
       >
         {/* Header: dados compartilhados pelo lote */}

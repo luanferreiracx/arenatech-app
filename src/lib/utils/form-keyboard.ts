@@ -19,3 +19,23 @@ export function shouldBlockEnterSubmit(params: {
   if (tag === "BUTTON" || params.type === "submit") return false;
   return true;
 }
+
+/**
+ * Handler pronto para \`onKeyDown\` de um <form>: impede que o Enter de um leitor
+ * de codigo de barras (ou de qualquer input de linha unica) submeta o form antes
+ * da hora. Use em forms com campos escaneaveis (codigo de barras, IMEI, serie).
+ */
+export function blockEnterSubmit(
+  e: React.KeyboardEvent<HTMLFormElement>,
+): void {
+  const target = e.target as HTMLElement;
+  if (
+    shouldBlockEnterSubmit({
+      key: e.key,
+      tagName: target.tagName,
+      type: (target as HTMLInputElement).type,
+    })
+  ) {
+    e.preventDefault();
+  }
+}

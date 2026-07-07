@@ -20,6 +20,7 @@ import { EntitySelector } from "@/components/domain/entity-selector";
 import { VariationPicker } from "@/components/inputs/variation-picker";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { DateInput } from "@/components/inputs/date-input";
+import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
 import {
   Form,
   FormControl,
@@ -146,7 +147,11 @@ export default function NewPurchasePage() {
       />
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-8">
+        <form
+          onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+          onKeyDown={blockEnterSubmit}
+          className="space-y-8"
+        >
           <FormSection title="Vendedor">
             <FormField
               control={form.control}

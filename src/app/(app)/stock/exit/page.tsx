@@ -27,6 +27,7 @@ import {
   type StockExitInput,
   STOCK_WRITEOFF_REASONS,
 } from "@/lib/validators/stock";
+import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
 
 type ProductSearchResult = {
   id: string;
@@ -84,7 +85,7 @@ export default function StockExitPage() {
     <div>
       <PageHeader title="Baixa de Estoque" subtitle="Registre a saida de produtos do estoque" />
 
-      <form onSubmit={submit} className="space-y-6">
+      <form onSubmit={submit} onKeyDown={blockEnterSubmit} className="space-y-6">
         <FormSection title="Produto">
           <div className="space-y-2">
             <Label>Produto *</Label>
