@@ -355,18 +355,37 @@ export const adminRouter = createTRPCRouter({
           where.OR = [
             { name: { contains: input.search, mode: "insensitive" } },
             { slug: { contains: input.search, mode: "insensitive" } },
+            // Muitos tenants NO-KYC ficam com nome genérico ("Loja NO-KYC"): a
+            // busca também casa o responsável (nome/e-mail do dono) para achá-los.
+            { users: { some: { user: { name: { contains: input.search, mode: "insensitive" } } } } },
+            { users: { some: { user: { email: { contains: input.search, mode: "insensitive" } } } } },
           ];
         }
 
-        const [data, total] = await Promise.all([
+        const [rows, total] = await Promise.all([
           tx.tenant.findMany({
             where,
             orderBy: { createdAt: "desc" },
             skip: page * pageSize,
             take: pageSize,
+            include: {
+              // O responsável (admin do tenant) diferencia tenants de nome genérico.
+              // Um só — o admin mais antigo — basta para a coluna da lista.
+              users: {
+                where: { role: "admin" },
+                orderBy: { createdAt: "asc" },
+                take: 1,
+                select: { user: { select: { name: true, email: true } } },
+              },
+            },
           }),
           tx.tenant.count({ where }),
         ]);
+
+        const data = rows.map(({ users, ...tenant }) => ({
+          ...tenant,
+          owner: users[0]?.user ?? null,
+        }));
 
         return {
           data,

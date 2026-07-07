@@ -31,6 +31,20 @@ export function TenantsTable() {
 
   const columns = [
     { accessorKey: "name", header: "Nome" },
+    {
+      id: "owner",
+      header: "Responsável",
+      cell: ({ row }: { row: { original: { owner: { name: string; email: string | null } | null } } }) => {
+        const owner = row.original.owner;
+        if (!owner) return <span className="text-muted-foreground">—</span>;
+        return (
+          <div className="min-w-0">
+            <p className="truncate">{owner.name}</p>
+            {owner.email && <p className="truncate text-xs text-muted-foreground">{owner.email}</p>}
+          </div>
+        );
+      },
+    },
     { accessorKey: "slug", header: "Slug" },
     {
       accessorKey: "status",
