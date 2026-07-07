@@ -25,6 +25,29 @@ import * as lwk from "@/lib/services/lwk-service";
 
 const REPAYMENT_STATUSES = ["PENDING", "COMPLETED", "FAILED"] as const;
 
+/** Select do responsável (admin mais antigo) para diferenciar tenants. */
+const OWNER_SELECT = {
+  users: {
+    where: { role: "admin" },
+    orderBy: { createdAt: "asc" as const },
+    take: 1,
+    select: { user: { select: { email: true } } },
+  },
+} as const;
+
+type TenantWithOwner = { name: string | null; slug: string; users: { user: { email: string | null } }[] };
+
+/**
+ * Rótulo identificável do tenant. Anexa o e-mail do responsável quando houver —
+ * muitos tenants NO-KYC ficam com nome genérico ("Loja NO-KYC") e o slug é opaco;
+ * o e-mail do dono é o que os diferencia no seletor de taxas.
+ */
+function tenantLabel(t: TenantWithOwner): string {
+  const base = t.name ?? t.slug;
+  const email = t.users[0]?.user.email;
+  return email ? `${base} (${email})` : base;
+}
+
 export const depixFeeWalletAdminRouter = createTRPCRouter({
   /** Provisiona (idempotente) a carteira de taxas custodial no LWK. */
   provision: adminProcedure.mutation(async () => {
@@ -86,9 +109,9 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
       );
       const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
       const tenants = await withAdmin((tx) =>
-        tx.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true, slug: true } }),
+        tx.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true, slug: true, ...OWNER_SELECT } }),
       );
-      const nameById = new Map(tenants.map((t) => [t.id, t.name ?? t.slug]));
+      const nameById = new Map(tenants.map((t) => [t.id, tenantLabel(t)]));
       const settledSum = rows
         .filter((r) => r.status === "SETTLED")
         .reduce((acc, r) => acc + r.amountCents, 0);
@@ -181,10 +204,10 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
       const tenants = await withAdmin(async (tx) =>
         tx.tenant.findMany({
           where: { id: { in: tenantIds } },
-          select: { id: true, name: true, slug: true },
+          select: { id: true, name: true, slug: true, ...OWNER_SELECT },
         }),
       );
-      const nameById = new Map(tenants.map((t) => [t.id, t.name ?? t.slug]));
+      const nameById = new Map(tenants.map((t) => [t.id, tenantLabel(t)]));
       return rows.map((r) => ({
         id: r.id,
         tenantName: nameById.get(r.tenantId) ?? r.tenantId,
@@ -216,7 +239,7 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
     const [tenants, configs] = await withAdmin(async (tx) => [
       await tx.tenant.findMany({
         where: { slug: { notIn: [CENTRAL_TENANT_SLUG, FEE_WALLET_TENANT_SLUG] } },
-        select: { id: true, name: true, slug: true },
+        select: { id: true, name: true, slug: true, ...OWNER_SELECT },
         orderBy: { name: "asc" },
       }),
       await tx.tenantDepixFeeConfig.findMany(),
@@ -226,7 +249,7 @@ export const depixFeeWalletAdminRouter = createTRPCRouter({
       const c = byTenant.get(t.id);
       return {
         tenantId: t.id,
-        tenantName: t.name ?? t.slug,
+        tenantName: tenantLabel(t),
         entryFeeFixed: c?.entryFeeFixed ?? DEFAULT_DEPIX_FEE.entryFeeFixed,
         entryFeePercent: Number(c?.entryFeePercent ?? DEFAULT_DEPIX_FEE.entryFeePercent),
         exitFeeFixed: c?.exitFeeFixed ?? DEFAULT_DEPIX_FEE.exitFeeFixed,
