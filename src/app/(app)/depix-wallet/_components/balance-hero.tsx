@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, Copy, Link2, Send, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Copy, Link2, Send, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GenerateLinkDialog } from "./generate-link-dialog";
@@ -96,6 +96,14 @@ export function BalanceHero({
                   <Link href="/depix-wallet/withdraw-onchain">
                     <Send className="mr-2 h-4 w-4" />
                     Enviar on-chain
+                  </Link>
+                </Button>
+              )}
+              {canWithdraw && (
+                <Button asChild size="lg" variant="outline">
+                  <Link href="/depix-wallet/swap-usdt">
+                    <ArrowRightLeft className="mr-2 h-4 w-4" />
+                    Converter USDT
                   </Link>
                 </Button>
               )}
