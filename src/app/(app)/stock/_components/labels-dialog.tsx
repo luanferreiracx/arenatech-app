@@ -38,7 +38,6 @@ function buildLabelsUrl(items: SelectedItem[], mode: "one" | "stock"): string {
   if (mode === "stock") {
     // Não passa qtys — a rota usa currentStock de cada produto.
     params.set("qty", "stock");
-    params.set("expand", "true");
   } else {
     params.set("qtys", items.map((i) => i.qty).join(","));
   }
@@ -344,7 +343,7 @@ export function LabelsDialog({
                     <span className="flex flex-col">
                       <span>Quantidade definida acima</span>
                       <span className="text-xs text-muted-foreground">
-                        Usa os valores de qty que você configurou
+                        Uma etiqueta por unidade que você configurou
                       </span>
                     </span>
                   </a>
@@ -354,7 +353,7 @@ export function LabelsDialog({
                     <span className="flex flex-col">
                       <span>Quantidade conforme estoque</span>
                       <span className="text-xs text-muted-foreground">
-                        Repete cada etiqueta pelo saldo em estoque
+                        Uma etiqueta por unidade em estoque
                       </span>
                     </span>
                   </a>

@@ -6,8 +6,11 @@ import ExcelJS from "exceljs";
  * O app Niimbot importa uma planilha limpa (cabeçalho na linha 1, uma etiqueta por
  * linha, colunas simples) e vincula cada coluna a um elemento da etiqueta. Para a
  * etiqueta de produto desta loja, o conteúdo impresso são 3 campos: nome (reduzido
- * para caber), preço e código de barras. `Quantidade` é apenas controle de cópias —
- * não é impresso. Ver docs/pesquisa no PR.
+ * para caber), preço e código de barras.
+ *
+ * O app Niimbot imprime SEMPRE 1 etiqueta por linha — não existe coluna de "cópias"
+ * que ele multiplique. Por isso a quantidade é resolvida aqui, repetindo cada linha
+ * N vezes (`expandByQuantity`). A planilha final não tem coluna Quantidade.
  */
 
 /** Valor numérico aceito (number ou Prisma.Decimal — qualquer coisa com toString). */
@@ -87,38 +90,24 @@ export function expandByQuantity(rows: LabelRow[]): Omit<LabelRow, "quantidade">
   return expanded;
 }
 
-type BuildOptions = {
-  /** Repete N linhas iguais em vez de usar a coluna Quantidade. */
-  expand?: boolean;
-};
-
 /**
  * Monta o workbook .xlsx no formato de importação do Niimbot e retorna o buffer.
  * Uma única aba, cabeçalho na linha 1, sem células mescladas nem estilos pesados.
+ *
+ * Cada linha da planilha é UMA etiqueta física: a quantidade de cada produto é
+ * expandida em linhas repetidas, pois o Niimbot imprime 1 etiqueta por linha e
+ * ignora qualquer coluna de contagem.
  */
-export async function buildNiimbotWorkbook(
-  rows: LabelRow[],
-  options: BuildOptions = {},
-): Promise<Buffer> {
+export async function buildNiimbotWorkbook(rows: LabelRow[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Etiquetas");
 
-  if (options.expand) {
-    sheet.columns = [
-      { header: "Nome", key: "nome", width: 28 },
-      { header: "Preço", key: "preco", width: 14 },
-      { header: "Código de barras", key: "barcode", width: 20 },
-    ];
-    for (const row of expandByQuantity(rows)) sheet.addRow(row);
-  } else {
-    sheet.columns = [
-      { header: "Nome", key: "nome", width: 28 },
-      { header: "Preço", key: "preco", width: 14 },
-      { header: "Código de barras", key: "barcode", width: 20 },
-      { header: "Quantidade", key: "quantidade", width: 12 },
-    ];
-    for (const row of rows) sheet.addRow(row);
-  }
+  sheet.columns = [
+    { header: "Nome", key: "nome", width: 28 },
+    { header: "Preço", key: "preco", width: 14 },
+    { header: "Código de barras", key: "barcode", width: 20 },
+  ];
+  for (const row of expandByQuantity(rows)) sheet.addRow(row);
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

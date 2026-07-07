@@ -97,15 +97,9 @@ describe("buildNiimbotWorkbook", () => {
     return { sheet, header, dataRows: sheet.rowCount - 1 };
   }
 
-  it("usa coluna Quantidade no modo padrão", async () => {
+  it("expande a quantidade em linhas repetidas e omite a coluna Quantidade", async () => {
+    // O Niimbot imprime 1 etiqueta por linha, então a planilha nunca tem coluna de cópias.
     const buffer = await buildNiimbotWorkbook(rows);
-    const { header, dataRows } = await readSheet(buffer);
-    expect(header).toEqual(["Nome", "Preço", "Código de barras", "Quantidade"]);
-    expect(dataRows).toBe(2);
-  });
-
-  it("expande linhas e omite Quantidade no modo expand", async () => {
-    const buffer = await buildNiimbotWorkbook(rows, { expand: true });
     const { header, dataRows } = await readSheet(buffer);
     expect(header).toEqual(["Nome", "Preço", "Código de barras"]);
     // 2 + 1 cópias = 3 linhas.
