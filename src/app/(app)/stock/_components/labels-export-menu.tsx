@@ -19,18 +19,14 @@ type LabelsExportMenuProps = {
 };
 
 /**
- * Monta a URL de download das etiquetas. `withStockQty` repete cada linha pela
- * quantidade em estoque (qty=stock + expand) — no app mobile Niimbot a coluna
- * Quantidade não multiplica cópias sozinha, então repetir linhas é o que de fato
- * imprime N etiquetas por produto.
+ * Monta a URL de download das etiquetas. O backend sempre gera 1 linha por etiqueta
+ * física (o app Niimbot imprime linha a linha). `withStockQty` repete cada produto
+ * pelo saldo em estoque; sem ele, sai 1 etiqueta por produto.
  */
 function buildLabelsUrl(ids: string[] | undefined, withStockQty: boolean): string {
   const params = new URLSearchParams();
   if (ids && ids.length > 0) params.set("ids", ids.join(","));
-  if (withStockQty) {
-    params.set("qty", "stock");
-    params.set("expand", "true");
-  }
+  if (withStockQty) params.set("qty", "stock");
   const qs = params.toString();
   return `/api/stock/labels${qs ? `?${qs}` : ""}`;
 }
@@ -53,7 +49,7 @@ export function LabelsExportMenu({ ids, buttonLabel, size = "default" }: LabelsE
             <span className="flex flex-col">
               <span>1 etiqueta por produto</span>
               <span className="text-xs text-muted-foreground">
-                Coluna Quantidade = 1 (edite na planilha se quiser mais)
+                Uma única etiqueta de cada produto selecionado
               </span>
             </span>
           </a>
@@ -63,7 +59,7 @@ export function LabelsExportMenu({ ids, buttonLabel, size = "default" }: LabelsE
             <span className="flex flex-col">
               <span>Quantidade conforme estoque</span>
               <span className="text-xs text-muted-foreground">
-                Repete cada etiqueta pelo saldo em estoque
+                Uma etiqueta por unidade em estoque
               </span>
             </span>
           </a>

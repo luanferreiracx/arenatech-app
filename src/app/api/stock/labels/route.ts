@@ -13,14 +13,14 @@ import {
 const MAX_PRODUCTS = 2000;
 
 /**
- * GET /api/stock/labels?ids=...&search=...&active=true&qty=one|stock&expand=false
+ * GET /api/stock/labels?ids=...&search=...&active=true&qty=one|stock&qtys=1,2,...
  *
  * Gera uma planilha .xlsx no formato de importação do Niimbot (B1) para etiquetas de
- * produto. Conteúdo da etiqueta: nome (reduzido), preço e código de barras. A coluna
- * Quantidade controla cópias; com `expand=true` as linhas são repetidas N vezes.
+ * produto. Conteúdo da etiqueta: nome (reduzido), preço e código de barras.
  *
- * No app mobile Niimbot a impressão é 1 etiqueta por linha — a coluna Quantidade não
- * multiplica cópias automaticamente (ajuste no app ou use expand=true).
+ * A quantidade de cada produto vira linhas repetidas (1 etiqueta por linha), pois o
+ * app Niimbot imprime linha a linha e ignora coluna de cópias. A origem da quantidade:
+ * `qty=stock` usa o saldo em estoque; caso contrário usa `qtys` (definido no dialog).
  */
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
   const search = url.searchParams.get("search")?.trim();
   const activeParam = url.searchParams.get("active");
   const qty = url.searchParams.get("qty") === "stock" ? "stock" : "one";
-  const expand = url.searchParams.get("expand") === "true";
   // Mapa id→qty customizada (quando o dialog passa qtys individuais por produto)
   const perProductQty = ids && qtysRaw && ids.length === qtysRaw.length
     ? new Map(ids.map((id, i) => [id, qtysRaw[i]!]))
@@ -101,7 +100,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const buffer = await buildNiimbotWorkbook(rows, { expand });
+    const buffer = await buildNiimbotWorkbook(rows);
     const filename = `etiquetas-niimbot-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
