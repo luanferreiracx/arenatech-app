@@ -16,7 +16,7 @@ vi.mock("@/lib/services/lwk-service", () => ({
   generateAddress: (...a: unknown[]) => generateAddress(...a),
 }));
 
-import { executeSwap, DEPIX_ASSET } from "@/server/services/sideswap-swap.service";
+import { executeSwap, previewSwap, DEPIX_ASSET } from "@/server/services/sideswap-swap.service";
 
 const BASE = {
   tenantId: "11111111-1111-1111-1111-111111111111",
@@ -127,5 +127,27 @@ describe("executeSwap — fluxo com Sideswap mockado", () => {
     const r = await executeSwap(BASE);
     expect(r.success).toBe(false);
     if (!r.success) expect(r.error).toMatch(/cotação/i);
+  });
+});
+
+describe("previewSwap — cota sem executar", () => {
+  it("retorna preço, fees e líquido sem assinar nem broadcastar", async () => {
+    getUtxos.mockResolvedValue({ success: true, utxos: [depixUtxo(200_000_000)] });
+    installMockWebSocket(SUCCESS_QUOTE);
+    const r = await previewSwap({ tenantId: BASE.tenantId, amountSats: 100_000_000 });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.grossUsdtSats).toBe(18_000_000);
+      expect(r.netUsdtSats).toBe(18_000_000 - 36_000 - 6_000_000);
+      expect(r.priceDepixPerUsdt).toBeCloseTo(100_000_000 / 18_000_000, 4);
+    }
+    expect(signPset).not.toHaveBeenCalled(); // preview nunca assina
+  });
+
+  it("rejeita saldo insuficiente sem tocar o Sideswap", async () => {
+    getUtxos.mockResolvedValue({ success: true, utxos: [depixUtxo(50_000_000)] });
+    const r = await previewSwap({ tenantId: BASE.tenantId, amountSats: 100_000_000 });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error).toMatch(/insuficiente/i);
   });
 });
