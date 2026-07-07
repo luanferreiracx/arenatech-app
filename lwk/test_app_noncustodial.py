@@ -354,6 +354,16 @@ class TestReadEndpointsNeverAutoCreate(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
         self.assertTrue(self._no_wallet_on_disk())
 
+    def test_utxos_unprovisioned_returns_404(self):
+        r = self.client.get(f"/wallet/{self.tenant}/utxos?sync=false", headers=HEADERS)
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(self._no_wallet_on_disk())
+
+    def test_utxos_requires_auth(self):
+        r = self.client.get(f"/wallet/{self.tenant}/utxos?sync=false")
+        self.assertEqual(r.status_code, 401)
+        self.assertTrue(self._no_wallet_on_disk())
+
 
 class TestMonitorNeverRewritesNonCustodial(unittest.TestCase):
     """Regressao critica: o monitor NAO pode recriar/sobrescrever uma carteira
