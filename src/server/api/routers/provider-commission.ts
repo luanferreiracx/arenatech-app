@@ -216,13 +216,29 @@ export const providerCommissionRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Contrato nao encontrado" });
         }
 
+        // O payload e a lista COMPLETA de regras desejadas para o contrato. Regras
+        // existentes ausentes do payload (removidas ou zeradas na UI, que as filtra
+        // por rate > 0) devem ser apagadas — senao reaparecem ao reabrir o editor.
+        const existing = await tx.providerCommissionRule.findMany({
+          where: { contractId: input.contractId },
+          select: { id: true },
+        });
+        const keepIds = new Set(
+          input.rules
+            .filter((rule) => !rule._delete && rule.id != null)
+            .map((rule) => rule.id as string),
+        );
+        const idsToDelete = existing
+          .filter((rule) => !keepIds.has(rule.id))
+          .map((rule) => rule.id);
+        if (idsToDelete.length > 0) {
+          await tx.providerCommissionRule.deleteMany({
+            where: { id: { in: idsToDelete } },
+          });
+        }
+
         for (const rule of input.rules) {
-          if (rule._delete && rule.id) {
-            await tx.providerCommissionRule.delete({
-              where: { id: rule.id },
-            });
-            continue;
-          }
+          if (rule._delete) continue; // ja coberto pela reconciliacao acima
 
           const payload = {
             tenantId: ctx.tenantId,
@@ -242,11 +258,9 @@ export const providerCommissionRouter = createTRPCRouter({
               where: { id: rule.id },
               data: payload,
             });
-          } else {
-            // Only create if rate > 0
-            if (rule.rate > 0) {
-              await tx.providerCommissionRule.create({ data: payload });
-            }
+          } else if (rule.rate > 0) {
+            // Regra nova so e criada se tiver aliquota; rate 0 e ignorado.
+            await tx.providerCommissionRule.create({ data: payload });
           }
         }
 
