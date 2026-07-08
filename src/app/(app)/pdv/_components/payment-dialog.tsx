@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
@@ -280,6 +281,7 @@ export function PaymentDialog({
   const cardPreview = cardPreviewQuery.data;
 
   const finalizeMutation = useMutation(trpc.sale.finalize.mutationOptions());
+  const router = useRouter();
 
   const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = Math.max(0, totalAmount - paidTotal);
@@ -407,7 +409,23 @@ export function PaymentDialog({
         },
         {
           onSuccess: (data) => {
-            toast.success("Venda finalizada — devolucao registrada.");
+            // PDV2: devolucao NAO em dinheiro fica PENDENTE em contas a pagar —
+            // alerta o operador e oferece ir resolver a pendencia (nao ha mais
+            // saque automatico via DePix).
+            if (refundDueMethod !== "cash") {
+              toast.warning(
+                `Venda finalizada. A devolucao de ${formatCurrency(refundDueAmount)} ficara PENDENTE em contas a pagar — resolva por la.`,
+                {
+                  duration: 12000,
+                  action: {
+                    label: "Ir para contas a pagar",
+                    onClick: () => router.push("/financial?type=PAYABLE"),
+                  },
+                },
+              );
+            } else {
+              toast.success("Venda finalizada — devolucao em dinheiro registrada.");
+            }
             onSuccess(data.id);
           },
           onError: (err) => toast.error(err.message),
