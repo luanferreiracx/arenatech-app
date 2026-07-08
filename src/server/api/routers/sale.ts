@@ -827,6 +827,40 @@ export const saleRouter = createTRPCRouter({
   finalize: tenantProcedure
     .input(finalizeSaleSchema)
     .mutation(async ({ ctx, input }) => {
+      // DePix wallet-first — revalidacao FORA da transacao de finalizacao.
+      // `checkTransactionStatus` faz polling externo (Eulen/PixPay via HTTP) E
+      // PERSISTE o status (PENDING->PROCESSING, credita deposito). Rodá-lo aqui,
+      // ANTES de abrir a tx de finalizacao, evita transacao ANINHADA + HTTP dentro
+      // da tx que segura os locks de estoque (risco de deadlock/starvation de pool
+      // no hot-path do PDV). O frontend auto-finaliza no SSE; o servidor revalida
+      // contra tampering/corrida com status ainda pendente. `input.saleId` === a
+      // sale carregada dentro da tx, entao o bind sourceId->venda e o mesmo.
+      for (const payment of input.payments ?? []) {
+        if (payment.method !== "depix" || isManualDepixPayment(payment)) continue;
+        if (!payment.walletTransactionId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
+          });
+        }
+        const walletTx = await checkTransactionStatus(ctx.tenantId, payment.walletTransactionId);
+        if (!walletTx) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
+        }
+        if (walletTx.sourceType !== "SALE" || walletTx.sourceId !== input.saleId) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Transacao DePix nao pertence a esta venda.",
+          });
+        }
+        if (!isSettledForSaleDepixStatus(walletTx.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
+          });
+        }
+      }
+
       const txResult = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.saleId },
@@ -965,34 +999,9 @@ export const saleRouter = createTRPCRouter({
           });
         }
 
-        // DePix via QR so pode finalizar depois de liquidado na wallet. O
-        // frontend auto-finaliza quando recebe SSE/polling, mas o servidor
-        // revalida para impedir tampering ou corrida com status ainda pendente.
-        for (const payment of payments) {
-          if (payment.method !== "depix" || isManualDepixPayment(payment)) continue;
-          if (!payment.walletTransactionId) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
-            });
-          }
-          const walletTx = await checkTransactionStatus(ctx.tenantId, payment.walletTransactionId);
-          if (!walletTx) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
-          }
-          if (walletTx.sourceType !== "SALE" || walletTx.sourceId !== sale.id) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "Transacao DePix nao pertence a esta venda.",
-            });
-          }
-          if (!isSettledForSaleDepixStatus(walletTx.status)) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
-            });
-          }
-        }
+        // DePix wallet-first JÁ revalidado FORA desta transacao (ver topo do
+        // finalize) — evita transacao aninhada + HTTP no meio da tx que segura
+        // os locks de estoque. Aqui a venda so avanca com o status ja liquidado.
 
         // InfinitePay: o leg so finaliza depois que o webhook (revalidado via
         // payment_check) marcou o pagamento como pago em paymentDetails. O
