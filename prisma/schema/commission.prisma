@@ -19,8 +19,10 @@ enum ProviderBondType {
 
 enum ProviderApuracaoStatus {
   OPEN
-  // Estado transitório usado como lock anti-race em closeApuracao
-  // (CAS update OPEN→CLOSING para reservar; depois CLOSING→CLOSED ao final).
+  // LEGADO: já foi o estado transitório do lock de fechamento. O closeApuracao
+  // agora fecha OPEN→CLOSED atomicamente numa transação só (o próprio UPDATE é o
+  // lock), sem estado intermediário. Valor mantido no enum apenas por compat de
+  // dados; nenhum código o escreve. Não reintroduzir sem necessidade real.
   CLOSING
   CLOSED
   PAID
