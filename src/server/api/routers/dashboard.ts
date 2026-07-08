@@ -25,9 +25,9 @@ export const dashboardRouter = createTRPCRouter({
         osOpen,
         osMonth,
         osPrevMonth,
-        salesToday,
-        salesMonth,
-        salesPrevMonth,
+        salesTodayAgg,
+        salesMonthAgg,
+        salesPrevMonthAgg,
         financialOverdue,
         productsLowStock,
       ] = await Promise.all([
@@ -50,29 +50,26 @@ export const dashboardRouter = createTRPCRouter({
         tx.serviceOrder.count({
           where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, deletedAt: null },
         }),
-        tx.sale.findMany({
-          where: {
-            status: "COMPLETED",
-            createdAt: { gte: startOfDay },
-            deletedAt: null,
-          },
-          select: { totalAmount: true },
+        // RPT1: soma + contagem via aggregate — sem carregar N linhas em memória
+        // (antes: findMany({select:totalAmount}) + reduce/length, ilimitado).
+        tx.sale.aggregate({
+          _sum: { totalAmount: true },
+          _count: true,
+          where: { status: "COMPLETED", createdAt: { gte: startOfDay }, deletedAt: null },
         }),
-        tx.sale.findMany({
-          where: {
-            status: "COMPLETED",
-            createdAt: { gte: startOfMonth },
-            deletedAt: null,
-          },
-          select: { totalAmount: true },
+        tx.sale.aggregate({
+          _sum: { totalAmount: true },
+          _count: true,
+          where: { status: "COMPLETED", createdAt: { gte: startOfMonth }, deletedAt: null },
         }),
-        tx.sale.findMany({
+        tx.sale.aggregate({
+          _sum: { totalAmount: true },
+          _count: true,
           where: {
             status: "COMPLETED",
             createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth },
             deletedAt: null,
           },
-          select: { totalAmount: true },
         }),
         tx.financialTransaction.count({
           where: {
@@ -103,10 +100,13 @@ export const dashboardRouter = createTRPCRouter({
         (p) => (lowStockCandidateStock.get(p.id) ?? 0) <= p.minStock,
       ).length;
 
-      const salesTodayTotal = salesToday.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
-      const salesMonthTotal = salesMonth.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
-      const salesPrevMonthTotal = salesPrevMonth.reduce((s, sale) => s + decimalToCents(sale.totalAmount), 0);
-      const ticketMedio = salesMonth.length > 0 ? Math.round(salesMonthTotal / salesMonth.length) : 0;
+      const salesTodayCount = salesTodayAgg._count;
+      const salesMonthCount = salesMonthAgg._count;
+      const salesPrevMonthCount = salesPrevMonthAgg._count;
+      const salesTodayTotal = decimalToCents(salesTodayAgg._sum.totalAmount);
+      const salesMonthTotal = decimalToCents(salesMonthAgg._sum.totalAmount);
+      const salesPrevMonthTotal = decimalToCents(salesPrevMonthAgg._sum.totalAmount);
+      const ticketMedio = salesMonthCount > 0 ? Math.round(salesMonthTotal / salesMonthCount) : 0;
 
       // Calcula delta % (current vs previous). 0 prev = 100% se current > 0, senao 0.
       const pctDelta = (curr: number, prev: number) =>
@@ -126,12 +126,12 @@ export const dashboardRouter = createTRPCRouter({
           deltaPercent: pctDelta(osMonth, osPrevMonth),
         },
         sales: {
-          todayCount: salesToday.length,
+          todayCount: salesTodayCount,
           todayTotal: salesTodayTotal,
-          monthCount: salesMonth.length,
+          monthCount: salesMonthCount,
           monthTotal: salesMonthTotal,
           previousMonthTotal: salesPrevMonthTotal,
-          previousMonthCount: salesPrevMonth.length,
+          previousMonthCount: salesPrevMonthCount,
           deltaPercent: pctDelta(salesMonthTotal, salesPrevMonthTotal),
           ticketMedio,
         },
