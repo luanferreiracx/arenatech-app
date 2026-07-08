@@ -219,6 +219,8 @@ export const listCustomersSchema = z.object({
   search: z.string().optional(),
   type: z.enum(["PF", "PJ", "ALL"]).optional(),
   includeDeleted: z.boolean().optional(),
+  // Pagina APENAS inativos (deletedAt IS NOT NULL) — usado pela aba "Inativos".
+  onlyDeleted: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["name", "createdAt"]).optional(),

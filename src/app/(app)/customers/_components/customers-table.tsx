@@ -184,7 +184,7 @@ export function CustomersTable() {
     return () => clearTimeout(timeoutId);
   }, []);
 
-  const includeDeleted = isAdmin && statusFilter === "INACTIVE";
+  const onlyDeleted = isAdmin && statusFilter === "INACTIVE";
 
   const { data, isLoading } = useQuery(
     trpc.customer.list.queryOptions({
@@ -192,7 +192,7 @@ export function CustomersTable() {
       type: typeFilter,
       page,
       pageSize,
-      includeDeleted,
+      onlyDeleted,
     }),
   );
 
@@ -206,10 +206,8 @@ export function CustomersTable() {
     }),
   );
 
-  // Quando vendo INACTIVE, filtra so quem tem deletedAt
-  const rows = ((data?.data ?? []) as CustomerRow[]).filter((c) =>
-    includeDeleted ? c.deletedAt !== null : true,
-  );
+  // Paginação já filtra server-side (onlyDeleted) — sem filtro client-side.
+  const rows = (data?.data ?? []) as CustomerRow[];
 
   const columns = buildColumns(
     isAdmin,
