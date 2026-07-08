@@ -144,7 +144,6 @@ export const cashierRouter = createTRPCRouter({
 
         const session = await tx.cashSession.findFirst({
           where: { userId, closedAt: null },
-          include: { movements: true },
         });
 
         if (!session) {
@@ -154,7 +153,30 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        const summary = buildSummary(session);
+        // FIN1: claim atômico do fechamento (CAS). O row-lock do UPDATE serializa
+        // closes concorrentes (anti duplo-close); count 0 = já fechado por outra
+        // operação. Um throw depois (validação da nota) rola este claim de volta.
+        const closedAt = new Date();
+        const claim = await tx.cashSession.updateMany({
+          where: { id: session.id, closedAt: null },
+          data: { closedAt, closedByUserId: userId, closeType: "MANUAL" },
+        });
+        if (claim.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Este caixa já foi fechado por outra operação.",
+          });
+        }
+
+        // Re-lê os movimentos TÃO TARDE quanto possível (após o claim) para o
+        // resumo incluir vendas que caíram na sessão até aqui — encolhe a janela
+        // da corrida fechar-caixa × finalizar-venda a ~zero. (Eliminação total
+        // exigiria SELECT ... FOR UPDATE no finalize — follow-up documentado.)
+        const movements = await tx.cashMovement.findMany({
+          where: { cashSessionId: session.id },
+          select: { type: true, amount: true, nature: true, paymentMethod: true, createdAt: true },
+        });
+        const summary = buildSummary({ ...session, movements });
         const calculatedCents = summary.expectedCashBalance;
         const declaredCents = input.declaredBalance;
         const differenceCents = declaredCents - calculatedCents;
@@ -200,13 +222,11 @@ export const cashierRouter = createTRPCRouter({
         }
         const finalNote = noteParts.length > 0 ? noteParts.join("\n").slice(0, 1500) : null;
 
-        // Update session to close it
+        // Grava os saldos apurados (closedAt/closedByUserId/closeType já foram
+        // setados atomicamente no claim acima).
         await tx.cashSession.update({
           where: { id: session.id },
           data: {
-            closedAt: new Date(),
-            closedByUserId: userId,
-            closeType: "MANUAL",
             declaredBalance: centsToPrismaDecimal(declaredCents),
             calculatedBalance: centsToPrismaDecimal(calculatedCents),
             difference: centsToPrismaDecimal(differenceCents),
