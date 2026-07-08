@@ -53,7 +53,17 @@ function buildCsp(): string {
   // Turbopack/React Refresh usam eval e websocket de HMR em dev.
   const scriptSrc = ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com", turnstileHost];
   // *.sentry.io: o SDK do browser envia eventos pro ingest do DSN (no-op sem DSN).
-  const connectSrc = ["'self'", "https://cloudflareinsights.com", turnstileHost, "https://*.sentry.io"];
+  // viacep/brasilapi: a busca de endereço por CEP é client-side (CepInput) — sem
+  // liberar aqui, o navegador BLOQUEIA o fetch (connect-src) e TODO cadastro cai
+  // em "CEP não encontrado, preencha manualmente".
+  const connectSrc = [
+    "'self'",
+    "https://cloudflareinsights.com",
+    turnstileHost,
+    "https://*.sentry.io",
+    "https://viacep.com.br",
+    "https://brasilapi.com.br",
+  ];
   if (isDev) {
     scriptSrc.push("'unsafe-eval'");
     connectSrc.push("ws:");
