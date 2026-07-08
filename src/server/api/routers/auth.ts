@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "@/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { prisma, withTenant } from "@/server/db";
+import { prisma, withTenant, withAdmin } from "@/server/db";
 import { hashPassword, validatePasswordPolicy } from "@/lib/password";
 import {
   enforcePasswordPolicy,
+  resolveUserPasswordPolicy,
   DEFAULT_PASSWORD_POLICY,
 } from "@/server/services/password-policy.service";
 import { sendEmail } from "@/lib/services/email-service";
@@ -150,6 +151,17 @@ export const authRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message: "Este link expirou. Solicite um novo.",
         });
+      }
+
+      // D4: o reset por email deve respeitar a política de senha (antes só exigia
+      // 6 chars, furando a política que o changePassword aplica). Como a senha é
+      // global, exige a política mais estrita entre os tenants do usuário.
+      const policy = await withAdmin((tx) =>
+        resolveUserPasswordPolicy(tx as never, resetToken.userId),
+      );
+      const policyError = validatePasswordPolicy(input.newPassword, policy);
+      if (policyError) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
       }
 
       const passwordHash = hashPassword(input.newPassword);
