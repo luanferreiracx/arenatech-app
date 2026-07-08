@@ -13,18 +13,51 @@ import { sendTextMessage, sendTemplateMessage } from "@/lib/services/whatsapp-se
 import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { sendEmail } from "@/lib/services/email-service";
 import { logger } from "@/lib/logger";
+import { withTenant } from "@/server/db";
+
+/**
+ * LGPD (opt-out): o destinatário casa com um cliente que optou por NÃO receber
+ * comunicações? Gate único do módulo — evita que o `send` (telefone livre), o
+ * `resend` e as notificações furem o opt-out que o `sendToCustomer` já respeita.
+ * Casa por telefone (só dígitos) OU email. Roda FORA de tx (fase de envio).
+ */
+async function isRecipientUnsubscribed(
+  tenantId: string,
+  recipient: { phone: string | null; email: string | null },
+): Promise<boolean> {
+  const phoneDigits = recipient.phone ? recipient.phone.replace(/\D/g, "") : null;
+  const email = recipient.email?.trim() || null;
+  if (!phoneDigits && !email) return false;
+
+  const or: Prisma.CustomerWhereInput[] = [];
+  if (phoneDigits) or.push({ phone: phoneDigits });
+  if (email) or.push({ email: { equals: email, mode: "insensitive" } });
+
+  const hit = await withTenant(tenantId, (tx) =>
+    tx.customer.findFirst({
+      where: { unsubscribed: true, deletedAt: null, OR: or },
+      select: { id: true },
+    }),
+  );
+  return hit !== null;
+}
 
 /**
  * Helper: despacha mensagem por canal e retorna resultado normalizado.
  * Chamado FORA de qualquer tx (HTTP/SMTP pode demorar varios segundos).
+ * Aplica o gate LGPD (opt-out) antes de chamar o provedor.
  */
 async function dispatchMessage(
+  tenantId: string,
   channel: string,
   recipientPhone: string | null,
   recipientEmail: string | null,
   subject: string | null,
   body: string,
 ): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+  if (await isRecipientUnsubscribed(tenantId, { phone: recipientPhone, email: recipientEmail })) {
+    return { success: false, error: "Cliente optou por nao receber comunicacoes (unsubscribe)." };
+  }
   try {
     if (channel === "WHATSAPP" && recipientPhone) {
       const r = await sendTextMessage(recipientPhone, body);
@@ -129,6 +162,7 @@ export const communicationRouter = createTRPCRouter({
 
       // Envio fora da tx (HTTP/SMTP pode levar varios segundos).
       const result = await dispatchMessage(
+        ctx.tenantId,
         input.channel,
         input.channel === "WHATSAPP" ? input.recipientPhone ?? null : null,
         input.channel === "EMAIL" ? input.recipientEmail ?? null : null,
@@ -201,6 +235,7 @@ export const communicationRouter = createTRPCRouter({
       });
 
       const result = await dispatchMessage(
+        ctx.tenantId,
         input.channel,
         input.channel === "WHATSAPP" ? prep.customer.phone : null,
         input.channel === "EMAIL" ? prep.customer.email : null,
@@ -239,6 +274,7 @@ export const communicationRouter = createTRPCRouter({
       });
 
       const result = await dispatchMessage(
+        ctx.tenantId,
         message.channel,
         message.recipientPhone,
         message.recipientEmail,
@@ -301,6 +337,15 @@ export const communicationRouter = createTRPCRouter({
 
         return { customerPhone: phone, customerName, body, osNumber: so.number };
       });
+
+      // LGPD (opt-out): não notifica cliente que optou por não receber (mesmo
+      // gate do dispatchMessage — esta rota envia por sendTextWithFallback).
+      if (await isRecipientUnsubscribed(ctx.tenantId, { phone: prep.customerPhone, email: null })) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cliente optou por nao receber comunicacoes (unsubscribe).",
+        });
+      }
 
       // Antes usava sendTextMessage (texto cru), que só entrega DENTRO da janela
       // de 24h. Uma OS recém-concluída quase nunca está nessa janela → Meta
