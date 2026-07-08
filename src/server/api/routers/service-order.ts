@@ -11,6 +11,7 @@ import { buildServiceOrderQuotePdf } from "@/lib/pdf/service-order-quote-builder
 import { buildServiceOrderTermoEntregaPdf, buildServiceOrderTermoDevolucaoPdf } from "@/lib/pdf/service-order-terms-builder";
 import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
+import { osPaymentShortfallCents } from "@/lib/service-order/payment-reconciliation";
 import { logger } from "@/lib/logger";
 import {
   createServiceOrderSchema,
@@ -1715,6 +1716,23 @@ export const serviceOrderRouter = createTRPCRouter({
         // recebivel/caixa/paidAmount refletem o liquido (nao o bruto). Para o
         // caso comum (sem recompensa) `collected` == input.paidAmount.
         const collectedCents = Math.max(0, input.paidAmount - rewardDiscountCents);
+
+        // OS1: reconcilia o valor — nao marca PAID por menos do que e devido.
+        // Cobertura = paidAmount + desconto (paymentDiscount + rewardDiscount).
+        // Garantia / OS sem valor (canSkipPdv) pulam. Fecho por menos = aplicar
+        // um desconto que registra o porque (espelha a guarda de subpagamento do PDV).
+        const shortfallCents = osPaymentShortfallCents({
+          orderTotalCents: decimalToCents(order.totalAmount),
+          paidCents: input.paidAmount,
+          discountCents: discount,
+          skip: canSkipPdv,
+        });
+        if (shortfallCents > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Valor insuficiente para quitar a OS: faltam R$ ${(shortfallCents / 100).toFixed(2)}. Ajuste o valor recebido ou aplique um desconto.`,
+          });
+        }
 
         // F (CAS): compare-and-set no status para evitar que dois callers
         // paralelos passem o check de COMPLETED e criem cash/comissao em dobro.
