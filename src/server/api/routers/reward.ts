@@ -390,7 +390,19 @@ export const rewardRouter = createTRPCRouter({
         if (input.value !== undefined) data.value = centsToPrisma(input.value)
         if (input.percentage !== undefined) data.percentage = new Prisma.Decimal(input.percentage)
 
-        await tx.rewardAction.update({ where: { id: input.actionId }, data })
+        // REW-1 (CAS): claim atômico PENDING→APPROVED antes de creditar o cashback.
+        // Sem isto, duplo-clique/concorrência aprovava a MESMA recompensa 2x e
+        // creditava o cashback em DOBRO (creditCashback não deduplica por actionId).
+        const claimed = await tx.rewardAction.updateMany({
+          where: { id: input.actionId, status: "PENDING" },
+          data,
+        })
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Recompensa já foi aprovada ou processada por outra operação.",
+          })
+        }
 
         // If cashback, credit to balance
         const updatedAction = await tx.rewardAction.findUnique({ where: { id: input.actionId } })
@@ -452,22 +464,32 @@ export const rewardRouter = createTRPCRouter({
         if (!action || !["PENDING", "APPROVED"].includes(action.status)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa nao pode ser cancelada" })
         }
+        const wasApprovedCashback =
+          action.status === "APPROVED" && action.rewardType === "CASHBACK"
 
-        // If was approved cashback, debit from balance
-        if (action.status === "APPROVED" && action.rewardType === "CASHBACK") {
-          const cashbackValue = Number(action.value)
-          if (cashbackValue > 0) {
-            await debitCashback(tx, ctx.tenantId, action.customerId, cashbackValue, input.actionId)
-          }
-        }
-
-        await tx.rewardAction.update({
-          where: { id: input.actionId },
+        // REW-1 (CAS): claim atômico antes de reverter o cashback — impede que dois
+        // cancelamentos concorrentes debitem o saldo do cliente duas vezes.
+        const claimed = await tx.rewardAction.updateMany({
+          where: { id: input.actionId, status: { in: ["PENDING", "APPROVED"] } },
           data: {
             status: "CANCELLED",
             notes: `[CANCELADO] ${input.reason}`,
           },
         })
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Recompensa já foi processada por outra operação.",
+          })
+        }
+
+        // Só o vencedor do claim reverte o cashback (era APPROVED cashback).
+        if (wasApprovedCashback) {
+          const cashbackValue = Number(action.value)
+          if (cashbackValue > 0) {
+            await debitCashback(tx, ctx.tenantId, action.customerId, cashbackValue, input.actionId)
+          }
+        }
 
         return { success: true }
       })
