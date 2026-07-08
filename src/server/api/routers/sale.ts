@@ -1156,6 +1156,19 @@ export const saleRouter = createTRPCRouter({
               "Nao e possivel entregar troco em venda com DePix pendente. Aguarde a confirmacao do DePix ou ajuste os valores.",
           });
         }
+        // PDV4: troco é dinheiro DEVOLVIDO — não pode exceder o dinheiro recebido
+        // (não há troco de pagamento em cartão/PIX). Sem isto, um overpay em cartão
+        // gravaria um changeAmount fantasma (saída de caixa não lastreada).
+        const cashPaidCents = payments
+          .filter((p) => isCashMethod(p.method))
+          .reduce((sum, p) => sum + p.amount, 0);
+        if (rawChangeCents > cashPaidCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Troco só é possível com dinheiro recebido suficiente — não há como devolver troco de pagamento em cartão/PIX. Ajuste os valores.",
+          });
+        }
         const changeCents = rawChangeCents;
 
         // Gera numero atomico via sequencia tenant-scoped (M25). Antes era
@@ -1619,6 +1632,17 @@ export const saleRouter = createTRPCRouter({
               totalCents,
               ctx.session.user.id,
             );
+          } else {
+            // PDV5: o rascunho só nasce de uma OS COMPLETED (createFromOS), mas o
+            // status pode ter mudado até aqui (paga por outra via / cancelada).
+            // Antes o pagamento entrava SEM avançar a OS (dinheiro sem quitar ou
+            // duplicando). Agora bloqueia — rollback da transação.
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: order
+                ? `Nao e possivel registrar o pagamento: a OS ${order.number} nao esta concluida (status atual: ${order.status}). Atualize a tela.`
+                : "OS do pagamento nao encontrada.",
+            });
           }
         }
 
