@@ -86,6 +86,103 @@ function centsToPrisma(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
 }
 
+/**
+ * OS2: fonte ÚNICA dos registros financeiros do pagamento de uma OS —
+ * CashMovement (se caixa aberto) + recebível (dedup) + parcela + comissão de
+ * prestador. Antes essa lógica estava DUPLICADA em `registerPayment` e no
+ * PAID-path do `updateStatus` (risco de números divergirem por caminho). Cada
+ * entrypoint decide o valor/método; aqui só se criam os registros. No-op quando
+ * `paidCents <= 0` (cortesia/garantia = R$0 não gera movimento; a comissão com
+ * base 0 já era no-op). `dinheiro`/`pix`/`depix` = recebível instantâneo (PAID).
+ */
+async function settleOsPaymentRecords(
+  tx: Prisma.TransactionClient,
+  args: {
+    tenantId: string;
+    order: { id: string; number: string; customerId: string; serviceProviderId: string | null };
+    paidCents: number;
+    paymentMethod: string;
+    userId: string;
+  },
+): Promise<void> {
+  if (args.paidCents <= 0) return;
+
+  const openSession = await tx.cashSession.findFirst({
+    where: { userId: args.userId, closedAt: null },
+  });
+  if (openSession) {
+    await writeCashMovement(tx, {
+      tenantId: args.tenantId,
+      cashSessionId: openSession.id,
+      type: "SALE",
+      nature: "INCOME",
+      amountCents: args.paidCents,
+      paymentMethod: args.paymentMethod,
+      description: `Pagamento OS ${args.order.number}`,
+      referenceType: "service_order",
+      referenceId: args.order.id,
+      createdByUserId: args.userId,
+    });
+  }
+
+  // Recebível — evita duplicidade (um por OS não-cancelado).
+  const existing = await tx.financialTransaction.findFirst({
+    where: {
+      referenceType: "service_order",
+      referenceId: args.order.id,
+      type: "RECEIVABLE",
+      status: { not: "CANCELLED" },
+      deletedAt: null,
+    },
+  });
+  if (!existing) {
+    const customer = await tx.customer.findUnique({
+      where: { id: args.order.customerId },
+      select: { name: true },
+    });
+    const instantPay = ["dinheiro", "pix", "depix"].includes(args.paymentMethod);
+    const amtDec = centsToPrisma(args.paidCents);
+
+    const receivable = await tx.financialTransaction.create({
+      data: {
+        tenantId: args.tenantId,
+        type: "RECEIVABLE",
+        status: instantPay ? "PAID" : "PENDING",
+        description: `OS #${args.order.number}`,
+        category: "Ordem de Servico",
+        customerName: customer?.name ?? null,
+        customerId: args.order.customerId,
+        totalAmount: amtDec,
+        paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
+        dueDate: new Date(),
+        emissionDate: new Date(),
+        paidAt: instantPay ? new Date() : null,
+        paymentMethod: args.paymentMethod,
+        serviceOrderId: args.order.id,
+        referenceType: "service_order",
+        referenceId: args.order.id,
+        createdByUserId: args.userId,
+      },
+    });
+
+    await tx.installment.create({
+      data: {
+        tenantId: args.tenantId,
+        transactionId: receivable.id,
+        number: 1,
+        amount: amtDec,
+        dueDate: new Date(),
+        paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
+        paidAt: instantPay ? new Date() : null,
+        paymentMethod: instantPay ? args.paymentMethod : null,
+        status: instantPay ? "PAID" : "PENDING",
+      },
+    });
+  }
+
+  await createOsServiceProviderPayable(tx, args.tenantId, args.order, args.paidCents, args.userId);
+}
+
 function generatePublicLink(): string {
   return generatePublicToken(12);
 }
@@ -904,100 +1001,15 @@ export const serviceOrderRouter = createTRPCRouter({
           const paidCents = decimalToCents(updateData.paidAmount ?? order.totalAmount);
           const paymentMethodUsed = input.paymentMethod ?? "dinheiro";
 
-          if (paidCents > 0) {
-            // Cash movement
-            const userId = ctx.session.user.id;
-            const openSession = await tx.cashSession.findFirst({
-              where: { userId, closedAt: null },
-            });
-
-            if (openSession) {
-              await writeCashMovement(tx, {
-                tenantId: ctx.tenantId,
-                cashSessionId: openSession.id,
-                type: "SALE",
-                nature: "INCOME",
-                amountCents: paidCents,
-                paymentMethod: paymentMethodUsed,
-                description: `Pagamento OS ${order.number}`,
-                referenceType: "service_order",
-                referenceId: order.id,
-                createdByUserId: userId,
-              });
-            }
-
-            // Financial receivable (avoid duplicates)
-            const existingRcv = await tx.financialTransaction.findFirst({
-              where: {
-                referenceType: "service_order",
-                referenceId: order.id,
-                type: "RECEIVABLE",
-                status: { not: "CANCELLED" },
-                deletedAt: null,
-              },
-            });
-
-            if (!existingRcv) {
-              const customerData = await tx.customer.findUnique({
-                where: { id: order.customerId },
-                select: { name: true },
-              });
-              // Paridade Laravel FinanceiroService: dinheiro/pix/depix sao
-              // pagamentos instantaneos (recebivel ja nasce PAID).
-              const instantPay = ["dinheiro", "pix", "depix"].includes(paymentMethodUsed);
-              const amtDec = centsToPrisma(paidCents);
-
-              const rcv = await tx.financialTransaction.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  type: "RECEIVABLE",
-                  status: instantPay ? "PAID" : "PENDING",
-                  description: `OS #${order.number}`,
-                  category: "Ordem de Servico",
-                  customerName: customerData?.name ?? null,
-                  customerId: order.customerId,
-                  totalAmount: amtDec,
-                  paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
-                  dueDate: new Date(),
-                  emissionDate: new Date(),
-                  paidAt: instantPay ? new Date() : null,
-                  paymentMethod: paymentMethodUsed,
-                  // serviceOrderId e o link da discriminated union (queries
-                  // de cancelamento, refund, dashboard). referenceId permanece
-                  // pra compat com queries antigas que usam referenceType.
-                  serviceOrderId: order.id,
-                  referenceType: "service_order",
-                  referenceId: order.id,
-                  createdByUserId: ctx.session.user.id,
-                },
-              });
-
-              await tx.installment.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  transactionId: rcv.id,
-                  number: 1,
-                  amount: amtDec,
-                  dueDate: new Date(),
-                  paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
-                  paidAt: instantPay ? new Date() : null,
-                  paymentMethod: instantPay ? paymentMethodUsed : null,
-                  status: instantPay ? "PAID" : "PENDING",
-                },
-              });
-            }
-
-            // PAYABLE da comissao do prestador externo tambem no pagamento
-            // forcado/garantia (paridade com registerPayment — ADR 0056).
-            // Idempotente; sem ServiceProvider na OS → no-op.
-            await createOsServiceProviderPayable(
-              tx,
-              ctx.tenantId,
-              order,
-              paidCents,
-              userId,
-            );
-          }
+          // OS2: registros financeiros pela fonte única (compartilhada com
+          // registerPayment). No-op quando paidCents <= 0.
+          await settleOsPaymentRecords(tx, {
+            tenantId: ctx.tenantId,
+            order,
+            paidCents,
+            paymentMethod: paymentMethodUsed,
+            userId: ctx.session.user.id,
+          });
         }
 
         // C8: Notificar conclusao via WhatsApp Cloud (best-effort, nao bloqueia).
@@ -1769,96 +1781,15 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        // ── Register cash movement (parity with Laravel CaixaService) ──
-        // So quando ha valor recebido (cortesia/garantia gratuita = R$0 nao gera
-        // movimento de caixa).
-        if (openSession && collectedCents > 0) {
-          await writeCashMovement(tx, {
-            tenantId: ctx.tenantId,
-            cashSessionId: openSession.id,
-            type: "SALE",
-            nature: "INCOME",
-            amountCents: collectedCents,
-            paymentMethod: input.paymentMethod,
-            description: `Pagamento OS ${order.number}`,
-            referenceType: "service_order",
-            referenceId: order.id,
-            createdByUserId: userId,
-          });
-        }
-
-        // ── Generate financial receivable (parity with Laravel gerarRecebiveisOS) ──
-        const paidAmountDecimal = centsToPrisma(collectedCents);
-        // Paridade Laravel: dinheiro/pix/depix = instantaneo (recebivel PAID).
-        const instantPayment = ["dinheiro", "pix", "depix"].includes(input.paymentMethod);
-
-        // Avoid duplicates
-        const existingReceivable = await tx.financialTransaction.findFirst({
-          where: {
-            referenceType: "service_order",
-            referenceId: order.id,
-            type: "RECEIVABLE",
-            status: { not: "CANCELLED" },
-            deletedAt: null,
-          },
-        });
-
-        if (!existingReceivable && collectedCents > 0) {
-          // Load customer name
-          const customer = await tx.customer.findUnique({
-            where: { id: order.customerId },
-            select: { name: true },
-          });
-
-          const receivable = await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "RECEIVABLE",
-              status: instantPayment ? "PAID" : "PENDING",
-              description: `OS #${order.number}`,
-              category: "Ordem de Servico",
-              customerName: customer?.name ?? null,
-              customerId: order.customerId,
-              totalAmount: paidAmountDecimal,
-              paidAmount: instantPayment ? paidAmountDecimal : new Prisma.Decimal(0),
-              dueDate: new Date(),
-              emissionDate: new Date(),
-              paidAt: instantPayment ? new Date() : null,
-              paymentMethod: input.paymentMethod,
-              serviceOrderId: order.id,
-              referenceType: "service_order",
-              referenceId: order.id,
-              createdByUserId: userId,
-            },
-          });
-
-          // Create single installment
-          await tx.installment.create({
-            data: {
-              tenantId: ctx.tenantId,
-              transactionId: receivable.id,
-              number: 1,
-              amount: paidAmountDecimal,
-              dueDate: new Date(),
-              paidAmount: instantPayment ? paidAmountDecimal : new Prisma.Decimal(0),
-              paidAt: instantPayment ? new Date() : null,
-              paymentMethod: instantPayment ? input.paymentMethod : null,
-              status: instantPayment ? "PAID" : "PENDING",
-            },
-          });
-        }
-
-        // ── Conta a pagar da comissao do prestador externo (ADR 0056) ──
-        // Se a OS tem um ServiceProvider atribuido, gera PAYABLE com a comissao
-        // (mesma logica no finalize do PDV — service compartilhado, idempotente).
-        // Base = valor liquido recebido (cortesia/garantia gratuita = 0 → no-op).
-        await createOsServiceProviderPayable(
-          tx,
-          ctx.tenantId,
+        // OS2: registros financeiros pela fonte única (compartilhada com o
+        // PAID-path do updateStatus). No-op quando collectedCents <= 0.
+        await settleOsPaymentRecords(tx, {
+          tenantId: ctx.tenantId,
           order,
-          collectedCents,
+          paidCents: collectedCents,
+          paymentMethod: input.paymentMethod,
           userId,
-        );
+        });
 
         return { success: true };
       });
