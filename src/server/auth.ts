@@ -9,6 +9,7 @@
  */
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { createHash } from "node:crypto";
 import { compare } from "bcryptjs";
 import { hashPassword } from "@/lib/password";
 import { resolveLoginIdentifier, maskIdentifier } from "@/lib/auth/login-identifier";
@@ -36,25 +37,42 @@ const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
 const ACTIVE_TENANT_STATUS = "ACTIVE";
 const USER_SECURITY_CACHE_TTL_MS = 15_000;
-const userSecurityCache = new Map<string, { mustChangePassword: boolean; expiresAt: number }>();
+type UserSecurity = { mustChangePassword: boolean; pwdSig: string };
+const userSecurityCache = new Map<string, UserSecurity & { expiresAt: number }>();
 
-async function resolveMustChangePassword(userId: string): Promise<boolean> {
+/**
+ * A5: fingerprint do passwordHash (não reversível, não expõe o hash). Muda quando
+ * a senha muda → o refresh do JWT compara e INVALIDA sessões antigas após
+ * troca/reset de senha, fechando a janela de 7d em que a sessão de um atacante
+ * sobreviveria a um reset de recuperação. Sem migration (deriva do hash existente).
+ */
+function passwordFingerprint(passwordHash: string): string {
+  return createHash("sha256").update(passwordHash).digest("hex").slice(0, 16);
+}
+
+/**
+ * Estado de segurança do usuário (mustChangePassword + fingerprint da senha), com
+ * cache de curta duração. Re-checado no refresh do JWT.
+ */
+async function resolveUserSecurity(userId: string): Promise<UserSecurity> {
   const now = Date.now();
   const cached = userSecurityCache.get(userId);
-  if (cached && cached.expiresAt > now) return cached.mustChangePassword;
+  if (cached && cached.expiresAt > now) {
+    return { mustChangePassword: cached.mustChangePassword, pwdSig: cached.pwdSig };
+  }
 
   const user = await withAdmin((tx) =>
     tx.user.findUnique({
       where: { id: userId },
-      select: { mustChangePassword: true },
+      select: { mustChangePassword: true, passwordHash: true },
     }),
   );
-  const mustChangePassword = user?.mustChangePassword === true;
-  userSecurityCache.set(userId, {
-    mustChangePassword,
-    expiresAt: now + USER_SECURITY_CACHE_TTL_MS,
-  });
-  return mustChangePassword;
+  const sec: UserSecurity = {
+    mustChangePassword: user?.mustChangePassword === true,
+    pwdSig: user ? passwordFingerprint(user.passwordHash) : "",
+  };
+  userSecurityCache.set(userId, { ...sec, expiresAt: now + USER_SECURITY_CACHE_TTL_MS });
+  return sec;
 }
 
 /**
@@ -288,6 +306,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           cpf: user.cpf,
           isSuperAdmin: user.isSuperAdmin,
           mustChangePassword: user.mustChangePassword,
+          // A5: fingerprint da senha no momento do login — o refresh invalida a
+          // sessão se a senha mudar (troca/reset).
+          pwdSig: passwordFingerprint(user.passwordHash),
         };
       },
     }),
@@ -302,6 +323,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.cpf = (user as { cpf: string | null }).cpf;
           token.isSuperAdmin = (user as { isSuperAdmin: boolean }).isSuperAdmin;
           token.mustChangePassword = (user as { mustChangePassword: boolean }).mustChangePassword;
+          token.pwdSig = (user as { pwdSig?: string }).pwdSig;
 
           const userTenants = await withAdmin(async (tx) => {
             return tx.userTenant.findMany({
@@ -350,7 +372,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
           token.impersonatedTenantId = null;
         } else if (typeof token.id === "string") {
-          token.mustChangePassword = await resolveMustChangePassword(token.id);
+          const sec = await resolveUserSecurity(token.id);
+          token.mustChangePassword = sec.mustChangePassword;
+          // A5: se a senha mudou desde a emissão do token (fingerprint diverge),
+          // invalida a sessão — força re-login após troca/reset de senha, fechando
+          // a janela em que a sessão de um atacante sobreviveria a um reset.
+          if (typeof token.pwdSig === "string" && token.pwdSig && token.pwdSig !== sec.pwdSig) {
+            logger.info("Sessao invalidada — senha alterada desde a emissao do token", {
+              userId: token.id,
+            });
+            return null;
+          }
 
           // Refresh (sem `user`, roda em TODA navegação via proxy): re-checa
           // membership + papel no banco (cache TTL curto) E re-resolve os módulos

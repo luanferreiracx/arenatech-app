@@ -39,6 +39,8 @@ declare module "next-auth/jwt" {
     cpf: string | null;
     isSuperAdmin: boolean;
     mustChangePassword: boolean;
+    /** A5: fingerprint da senha na emissão do token — invalida sessão se a senha mudar. */
+    pwdSig?: string;
     activeTenantId: string | null;
     impersonatedTenantId?: string | null;
     availableTenants: Array<{
