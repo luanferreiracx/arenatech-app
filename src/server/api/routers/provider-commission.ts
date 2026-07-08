@@ -21,6 +21,7 @@ import { logger } from "@/lib/logger";
 import { computeBucketCommission } from "@/lib/commission/bucket-commission";
 import { monthRange } from "@/lib/commission/month-range";
 import { calcAllowance } from "@/lib/commission/allowance";
+import { rethrowUnlessMissingTable } from "@/lib/commission/collect-events-error";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 
 // ── Helpers ──
@@ -29,6 +30,7 @@ function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
   return Number(v);
 }
+
 
 export const providerCommissionRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -1092,8 +1094,8 @@ async function collectProviderEvents(
 
     for (const sale of ownSales) pushSaleEvents(sale, "OWN");
     for (const sale of storeSales) pushSaleEvents(sale, "STORE");
-  } catch {
-    // Sale table might not exist in test env
+  } catch (err) {
+    rethrowUnlessMissingTable(err, "vendas");
   }
 
   // ── SERVICE ORDERS ──
@@ -1177,8 +1179,8 @@ async function collectProviderEvents(
         });
       }
     }
-  } catch {
-    // ServiceOrder table might not exist in test env
+  } catch (err) {
+    rethrowUnlessMissingTable(err, "ordens de servico");
   }
 
   // ── PARTICIPACAO EM AT (OS da loja, de OUTROS tecnicos) ──
@@ -1235,8 +1237,8 @@ async function collectProviderEvents(
           },
         });
       }
-    } catch {
-      // ServiceOrder table might not exist in test env
+    } catch (err) {
+      rethrowUnlessMissingTable(err, "participacao em AT da loja");
     }
   }
 
