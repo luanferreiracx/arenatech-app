@@ -17,6 +17,7 @@ import {
   verifyTotp,
 } from "@/lib/auth/two-factor";
 import { consumeCode, issueVerificationCode, verifyCode } from "@/server/services/verification.service";
+import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
 import { rateLimit } from "@/lib/rate-limit";
 
 const totpCodeSchema = z
@@ -43,9 +44,35 @@ export const twoFactorRouter = createTRPCRouter({
    * Inicia o enrollment: gera um segredo (cifrado, ainda NÃO habilitado) e
    * devolve a URI otpauth + QR. O 2FA só é ativado após confirm().
    */
-  startEnrollment: protectedProcedure.mutation(async ({ ctx }) => {
+  startEnrollment: protectedProcedure
+    .input(z.object({ code: z.string().trim().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
     if (!isTwoFactorConfigured()) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está disponível neste ambiente." });
+    }
+
+    // Se o 2FA JÁ está ativo, re-enrolar EXIGE um código atual válido (TOTP ou
+    // backup). Sem isto, uma sessão sequestrada trocaria o 2FA para o dispositivo
+    // do atacante SEM conhecer o fator atual, derrotando o step-up que protege
+    // ações sensíveis (ex.: saque DePix irreversível). A UI só chama startEnrollment
+    // quando o 2FA está desativado; este gate fecha o caminho via API direta (A1).
+    const current = await prisma.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { twoFactorEnabled: true },
+    });
+    if (current?.twoFactorEnabled) {
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input?.code ?? "");
+      if (!stepUp.ok) {
+        logger.warn("2FA: re-enrollment bloqueado — código atual ausente/inválido", {
+          userId: ctx.session.user.id,
+          reason: stepUp.reason,
+        });
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "Informe um código 2FA válido (do app ou um backup code) para reconfigurar a verificação em duas etapas.",
+        });
+      }
     }
 
     const secret = generateTotpSecret();
