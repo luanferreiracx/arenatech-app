@@ -417,19 +417,21 @@ export async function createDeposit(args: CreateDepositArgs) {
   }
 
   // ETAPA 1: cria registro PENDING + gera numero. Se duas chamadas concorrentes
-  // BYOW: o endereço PRÓPRIO informado precisa estar na allowlist do tenant.
-  // Fail-fast ANTES de criar o PENDING (não deixa registro órfão se barrado).
-  const isByow = !!args.byowAddress;
-  if (isByow) {
-    const { assertAddressAllowed } = await import("@/server/services/depix-byow.service");
-    await assertAddressAllowed(args.tenantId, args.byowAddress!);
-  }
-
   // usarem a mesma idempotencyKey, o unique constraint rejeita a 2a (P2002) — nesse
   // caso devolvemos a transacao ja criada em vez de estourar 500.
+  const isByow = !!args.byowAddress;
   let created;
   try {
     created = await withTenant(args.tenantId, async (tx) => {
+      // BYOW: o endereço PRÓPRIO precisa estar na allowlist ATIVA do tenant.
+      // Validado DENTRO desta transação (mesmo `tx` do create) — a checagem e a
+      // criação do PENDING são atômicas, fechando a janela TOCTOU em que uma
+      // remoção concorrente da allowlist se intercalaria entre validar e criar
+      // (auditoria backend R2, 2026-07-08). Barra antes do create → sem órfão.
+      if (isByow) {
+        const { assertAddressAllowed } = await import("@/server/services/depix-byow.service");
+        await assertAddressAllowed(args.tenantId, args.byowAddress!, tx);
+      }
       const number = await nextTransactionNumber(tx, "DEPOSIT");
       return tx.tenantDepixTransaction.create({
         data: {
