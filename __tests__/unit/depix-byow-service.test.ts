@@ -74,6 +74,28 @@ describe("assertAddressAllowed (barreira de segurança)", () => {
     await assertAddressAllowed(TENANT, `  ${ADDR}  `);
     expect(findFirst.mock.calls[0]![0]).toMatchObject({ where: { address: ADDR } });
   });
+
+  // Anti-TOCTOU (auditoria R2): quando recebe um `tx`, valida DENTRO dele —
+  // atômico com o create do depósito. NÃO deve abrir outra transação (withTenant).
+  it("usa o tx recebido (não abre transação nova) — checagem atômica com o create", async () => {
+    const externalFindFirst = vi.fn().mockResolvedValue({ id: "w1" });
+    const externalTx = { tenantByowWallet: { findFirst: externalFindFirst } };
+
+    await assertAddressAllowed(TENANT, ADDR, externalTx);
+
+    // A query rodou no tx externo, não no tx do withTenant mockado.
+    expect(externalFindFirst).toHaveBeenCalledOnce();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(externalFindFirst.mock.calls[0]![0]).toMatchObject({
+      where: { tenantId: TENANT, address: ADDR, active: true },
+    });
+  });
+
+  it("barra (lança) usando o tx recebido quando o endereço saiu da allowlist", async () => {
+    const externalTx = { tenantByowWallet: { findFirst: vi.fn().mockResolvedValue(null) } };
+    await expect(assertAddressAllowed(TENANT, ADDR, externalTx)).rejects.toThrow(/carteiras autorizadas/i);
+    expect(findFirst).not.toHaveBeenCalled();
+  });
 });
 
 describe("addByowWallet", () => {

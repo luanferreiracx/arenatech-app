@@ -160,19 +160,32 @@ export async function removeByowWallet(tenantId: string, id: string): Promise<vo
   logger.info("byow: carteira removida da allowlist", { tenantId, walletId: id });
 }
 
+// `any` para aceitar o tx de withTenant — padrao do repo.
+type TxClient = any;
+
 /**
  * BARREIRA DE SEGURANCA: o endereço informado (ex.: no depósito via API) precisa
  * estar na allowlist ATIVA do tenant. Senão, lança — impede que uma API-key
  * vazada mande DePix pra uma carteira que não foi aprovada por um humano.
+ *
+ * TOCTOU: passe `tx` para validar DENTRO da mesma transação que consome o
+ * endereço (ex.: o create do depósito PENDING). Assim a checagem e o uso são
+ * atômicos — uma remoção concorrente da allowlist não pode se intercalar entre
+ * "validei" e "criei". Sem `tx`, abre a própria transação (compat: callers que
+ * só querem a barreira isolada). Ver auditoria backend R2 (2026-07-08).
  */
-export async function assertAddressAllowed(tenantId: string, address: string): Promise<void> {
+export async function assertAddressAllowed(
+  tenantId: string,
+  address: string,
+  tx?: TxClient,
+): Promise<void> {
   const addr = address.trim();
-  const found = await withTenant(tenantId, (tx) =>
-    tx.tenantByowWallet.findFirst({
+  const query = (client: TxClient) =>
+    client.tenantByowWallet.findFirst({
       where: { tenantId, address: addr, active: true },
       select: { id: true },
-    }),
-  );
+    });
+  const found = tx ? await query(tx) : await withTenant(tenantId, query);
   if (!found) {
     throw new TRPCError({
       code: "BAD_REQUEST",
