@@ -51,6 +51,55 @@ async function resolveMustChangePassword(userId: string): Promise<boolean> {
   return mustChangePassword;
 }
 
+/**
+ * Membership atual do usuário (tenants ativos + papel + flags), com cache de
+ * curta duração. Usado no REFRESH do JWT para que remover um usuário de um
+ * tenant OU rebaixar seu papel (admin→operator) surta efeito em ~TTL, sem
+ * esperar a expiração do token (7d) e sem relogin (S1/A2). Antes o refresh só
+ * re-resolvia módulos, mantendo role/membership congelados do login.
+ */
+const MEMBERSHIP_CACHE_TTL_MS = 30_000;
+type MembershipTenant = {
+  id: string;
+  slug: string;
+  name: string;
+  plan: string | null;
+  status: string;
+  role: string;
+  isTechnician: boolean;
+};
+const membershipCache = new Map<string, { tenants: MembershipTenant[]; expiresAt: number }>();
+
+function primeMembershipCache(userId: string, tenants: MembershipTenant[]): void {
+  membershipCache.set(userId, { tenants, expiresAt: Date.now() + MEMBERSHIP_CACHE_TTL_MS });
+}
+
+async function resolveMembership(userId: string): Promise<MembershipTenant[]> {
+  const now = Date.now();
+  const cached = membershipCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.tenants;
+
+  const rows = await withAdmin((tx) =>
+    tx.userTenant.findMany({
+      where: { userId, tenant: { status: ACTIVE_TENANT_STATUS } },
+      include: {
+        tenant: { select: { id: true, slug: true, name: true, plan: true, status: true } },
+      },
+    }),
+  );
+  const tenants: MembershipTenant[] = rows.map((ut) => ({
+    id: ut.tenant.id,
+    slug: ut.tenant.slug,
+    name: ut.tenant.name,
+    plan: ut.tenant.plan,
+    status: ut.tenant.status,
+    role: ut.role,
+    isTechnician: ut.isTechnician,
+  }));
+  membershipCache.set(userId, { tenants, expiresAt: now + MEMBERSHIP_CACHE_TTL_MS });
+  return tenants;
+}
+
 async function resolveModulesByTenant(
   tenants: Array<{ id: string; slug: string; plan: string | null; status?: string }>,
   opts?: { withPlan?: boolean },
@@ -274,44 +323,55 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             modules: modulesByTenantId.get(ut.tenant.id) ?? [],
           }));
 
+          // Prime o cache de membership para o 1º refresh não re-consultar de imediato.
+          primeMembershipCache(
+            user.id!,
+            userTenants.map((ut) => ({
+              id: ut.tenant.id,
+              slug: ut.tenant.slug,
+              name: ut.tenant.name,
+              plan: ut.tenant.plan,
+              status: ut.tenant.status,
+              role: ut.role,
+              isTechnician: ut.isTechnician,
+            })),
+          );
+
           token.activeTenantId = userTenants.length === 1 ? userTenants[0]!.tenant.id : null;
           token.impersonatedTenantId = null;
-        } else if (Array.isArray(token.availableTenants) && token.availableTenants.length > 0) {
-          if (typeof token.id === "string") {
-            token.mustChangePassword = await resolveMustChangePassword(token.id);
-          }
+        } else if (typeof token.id === "string") {
+          token.mustChangePassword = await resolveMustChangePassword(token.id);
 
-          // Requisições subsequentes (sem `user`): re-resolve os módulos a partir
-          // do plano atual, com cache de curta duração (TTL). Garante que mudar o
-          // plano de um tenant no admin reflita SEM exigir relogin — em ~60s, sem
-          // bater no banco a cada request. (Decisão: "JWT + invalidar ao mudar plano".)
-          const current = token.availableTenants as Array<{
-            id: string;
-            slug: string;
-            name: string;
-            role: string;
-            isTechnician?: boolean;
-            modules: string[];
-          }>;
-          const fresh = await resolveModulesByTenant(
-            current.map((t) => ({ slug: t.slug, plan: null, id: t.id })),
+          // Refresh (sem `user`, roda em TODA navegação via proxy): re-checa
+          // membership + papel no banco (cache TTL curto) E re-resolve os módulos
+          // por plano. Assim, remover o usuário de um tenant OU rebaixar
+          // admin→operator surte efeito em ~TTL — inclusive nas procedures
+          // sensíveis (saque DePix) que leem role/membership da sessão. Antes só
+          // os módulos eram re-resolvidos, deixando role/membership congelados do
+          // login até a expiração do JWT (7d). Também reflete troca de plano
+          // (withPlan:true) como antes.
+          const membership = await resolveMembership(token.id);
+          const modulesByTenantId = await resolveModulesByTenant(
+            membership.map((t) => ({ slug: t.slug, plan: t.plan, id: t.id, status: t.status })),
             { withPlan: true },
           );
-          token.availableTenants = current
-            .filter((t) => fresh.has(t.id))
+          token.availableTenants = membership
+            .filter((t) => modulesByTenantId.has(t.id))
             .map((t) => ({
-              ...t,
-              modules: fresh.get(t.id) ?? t.modules,
+              id: t.id,
+              slug: t.slug,
+              name: t.name,
+              role: t.role,
+              isTechnician: t.isTechnician,
+              modules: modulesByTenantId.get(t.id) ?? [],
             }));
 
           if (
             typeof token.activeTenantId === "string" &&
-            !fresh.has(token.activeTenantId)
+            !token.availableTenants.some((t) => t.id === token.activeTenantId)
           ) {
             token.activeTenantId = null;
           }
-        } else if (typeof token.id === "string") {
-          token.mustChangePassword = await resolveMustChangePassword(token.id);
         }
 
         return token;
