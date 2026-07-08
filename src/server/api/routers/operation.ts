@@ -506,6 +506,21 @@ export const operationRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: `Despesa nao esta pendente (status: ${expense.status})` });
         }
 
+        // OP-1 (CAS): claim atômico PENDING_APPROVAL→APPROVED ANTES de gerar o
+        // payable. Sem isto, duplo-clique/concorrência aprovava a MESMA despesa 2x
+        // e criava DOIS PAYABLE (obrigação de pagamento em dobro).
+        const claimed = await tx.expense.updateMany({
+          where: { id: input.id, status: "PENDING_APPROVAL" },
+          data: {
+            status: "APPROVED",
+            approvedByUserId: ctx.session.user.id,
+            approvedAt: new Date(),
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new TRPCError({ code: "CONFLICT", message: "Despesa já foi processada por outra operação." });
+        }
+
         let payableId: string | null = null;
         if (input.generatePayable) {
           const dueDate = input.payableDueDate ? new Date(input.payableDueDate) : (expense.dueDate ?? new Date());
@@ -538,15 +553,14 @@ export const operationRouter = createTRPCRouter({
           payableId = ft.id;
         }
 
-        await tx.expense.update({
-          where: { id: input.id },
-          data: {
-            status: "APPROVED",
-            approvedByUserId: ctx.session.user.id,
-            approvedAt: new Date(),
-            payableTransactionId: payableId,
-          },
-        });
+        // status/approvedBy/approvedAt já foram setados atomicamente no claim;
+        // aqui só linka o payable gerado (se houver).
+        if (payableId) {
+          await tx.expense.update({
+            where: { id: input.id },
+            data: { payableTransactionId: payableId },
+          });
+        }
 
         return { success: true, payableTransactionId: payableId };
       });
