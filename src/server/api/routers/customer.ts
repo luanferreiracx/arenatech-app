@@ -9,6 +9,23 @@ import {
   normalizeCnpj,
 } from "@/lib/validators/customer";
 import { normalizeCpf } from "@/lib/validators/cpf";
+import { Prisma } from "@prisma/client";
+
+/**
+ * Traduz a violação do índice único parcial de CPF/CNPJ (P2002) — que fecha a
+ * corrida TOCTOU entre o findFirst e o create/update sob concorrência — na mesma
+ * mensagem CONFLICT amigável, em vez de vazar um 500 cru. (C2)
+ */
+function translateCustomerUniqueError(err: unknown): never {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    const target = Array.isArray(err.meta?.target)
+      ? err.meta.target.join(",")
+      : String(err.meta?.target ?? "");
+    const field = target.toLowerCase().includes("cnpj") ? "CNPJ" : "CPF";
+    throw new TRPCError({ code: "CONFLICT", message: `Já existe cliente com este ${field}` });
+  }
+  throw err;
+}
 
 export const customerRouter = createTRPCRouter({
   // SPEC 4.1: List customers with pagination, search, soft-delete filter
@@ -180,31 +197,33 @@ export const customerRouter = createTRPCRouter({
           }
         }
 
-        const customer = await tx.customer.create({
-          data: {
-            tenantId: ctx.tenantId,
-            type: input.type,
-            name: input.name,
-            cpf,
-            cnpj,
-            tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
-            birthDate: input.type === "PF" ? birthDate : null,
-            phone: input.phone,
-            phoneSecondary: input.phoneSecondary || null,
-            email: input.email || null,
-            zipCode: input.zipCode || null,
-            street: input.street || null,
-            streetNumber: input.streetNumber || null,
-            complement: input.complement || null,
-            neighborhood: input.neighborhood || null,
-            city: input.city || null,
-            state: input.state || null,
-            notes: input.notes || null,
-            createdById: ctx.session.user.id,
-          },
-        });
-
-        return customer;
+        try {
+          return await tx.customer.create({
+            data: {
+              tenantId: ctx.tenantId,
+              type: input.type,
+              name: input.name,
+              cpf,
+              cnpj,
+              tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
+              birthDate: input.type === "PF" ? birthDate : null,
+              phone: input.phone,
+              phoneSecondary: input.phoneSecondary || null,
+              email: input.email || null,
+              zipCode: input.zipCode || null,
+              street: input.street || null,
+              streetNumber: input.streetNumber || null,
+              complement: input.complement || null,
+              neighborhood: input.neighborhood || null,
+              city: input.city || null,
+              state: input.state || null,
+              notes: input.notes || null,
+              createdById: ctx.session.user.id,
+            },
+          });
+        } catch (err) {
+          translateCustomerUniqueError(err);
+        }
       });
     }),
 
@@ -256,30 +275,32 @@ export const customerRouter = createTRPCRouter({
           }
         }
 
-        const customer = await tx.customer.update({
-          where: { id: input.id },
-          data: {
-            type: input.type,
-            name: input.name,
-            cpf,
-            cnpj,
-            tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
-            birthDate: input.type === "PF" ? birthDate : null,
-            phone: input.phone,
-            phoneSecondary: input.phoneSecondary || null,
-            email: input.email || null,
-            zipCode: input.zipCode || null,
-            street: input.street || null,
-            streetNumber: input.streetNumber || null,
-            complement: input.complement || null,
-            neighborhood: input.neighborhood || null,
-            city: input.city || null,
-            state: input.state || null,
-            notes: input.notes || null,
-          },
-        });
-
-        return customer;
+        try {
+          return await tx.customer.update({
+            where: { id: input.id },
+            data: {
+              type: input.type,
+              name: input.name,
+              cpf,
+              cnpj,
+              tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
+              birthDate: input.type === "PF" ? birthDate : null,
+              phone: input.phone,
+              phoneSecondary: input.phoneSecondary || null,
+              email: input.email || null,
+              zipCode: input.zipCode || null,
+              street: input.street || null,
+              streetNumber: input.streetNumber || null,
+              complement: input.complement || null,
+              neighborhood: input.neighborhood || null,
+              city: input.city || null,
+              state: input.state || null,
+              notes: input.notes || null,
+            },
+          });
+        } catch (err) {
+          translateCustomerUniqueError(err);
+        }
       });
     }),
 
