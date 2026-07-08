@@ -17,6 +17,7 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 const uuidSchema = z.string().uuid();
 
@@ -29,6 +30,18 @@ function createPrismaClient() {
   const connectionString = process.env.APP_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("APP_DATABASE_URL or DATABASE_URL environment variable is required");
+  }
+
+  // S2 (defesa em profundidade): sem APP_DATABASE_URL em produção, o runtime cai
+  // no DATABASE_URL (role privilegiado / BYPASSRLS). Hoje withTenant/withAdmin
+  // fazem `SET LOCAL ROLE`, então as rotas seguem isoladas; mas qualquer query
+  // `prisma.<modelo_tenant>` crua fora delas vazaria entre tenants. Falha ALTO
+  // (logger.error → Sentry em prod) para a misconfiguração não passar silenciosa.
+  // (Endurecer para `throw` quando APP_DATABASE_URL estiver confirmado em prod.)
+  if (process.env.NODE_ENV === "production" && !process.env.APP_DATABASE_URL) {
+    logger.error(
+      "APP_DATABASE_URL ausente em produção: runtime usando DATABASE_URL (role privilegiado, RLS bypass em queries cruas). Configure o role app_login (sujeito a RLS).",
+    );
   }
 
   const adapter = new PrismaPg({ connectionString });
