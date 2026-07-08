@@ -17,10 +17,52 @@ function isError(result: ViaCEPResult): result is ViaCEPError {
 
 export { isError as isViaCEPError };
 
+const LOOKUP_TIMEOUT_MS = 5000;
+
+type ViaCepData = {
+  erro?: boolean;
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+};
+
+type BrasilApiCepData = {
+  street?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+};
+
 /**
- * Consulta endereço por CEP via API ViaCEP.
- * Timeout: 5 segundos. Sem retry.
- * Degradação graciosa: retorna error em qualquer falha.
+ * Busca genérica em um provedor de CEP. Retorna o endereço, ou `null` em
+ * QUALQUER falha (rede/timeout/HTTP) ou "não encontrado" — para o chamador tentar
+ * o próximo provedor. Timeout de 5s por tentativa. Roda no browser (CORS OK em
+ * ViaCEP e BrasilAPI).
+ */
+async function tryProvider<T>(
+  url: string,
+  map: (data: T) => AddressResult | null,
+): Promise<AddressResult | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return null; // inclui 404 (não encontrado) do BrasilAPI
+    return map((await res.json()) as T);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Consulta endereço por CEP, com FALLBACK: ViaCEP (primário) → BrasilAPI.
+ *
+ * Antes usava só o ViaCEP e qualquer falha (CEP fora da base do ViaCEP, timeout,
+ * blip de rede) virava "CEP não encontrado". O BrasilAPI (já usado no app p/
+ * CNPJ/NCM) cobre CEPs que o ViaCEP não tem e dá resiliência a falha transitória.
+ * Só retorna erro se AMBOS falharem/não acharem. Degradação graciosa.
  */
 export async function fetchAddressByCep(cep: string): Promise<ViaCEPResult> {
   const digits = cep.replace(/\D/g, "");
@@ -29,39 +71,35 @@ export async function fetchAddressByCep(cep: string): Promise<ViaCEPResult> {
     return { error: "CEP deve ter 8 dígitos" };
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+  // 1) ViaCEP (primário) — 200 com `erro:true` = não encontrado.
+  const viacep = await tryProvider<ViaCepData>(
+    `https://viacep.com.br/ws/${digits}/json/`,
+    (d) =>
+      d?.erro
+        ? null
+        : {
+            logradouro: d.logradouro ?? "",
+            bairro: d.bairro ?? "",
+            cidade: d.localidade ?? "",
+            estado: d.uf ?? "",
+          },
+  );
+  if (viacep) return viacep;
 
-    const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`, {
-      signal: controller.signal,
-    });
+  // 2) BrasilAPI (fallback) — 404 = não encontrado (tryProvider já trata !res.ok).
+  const brasilapi = await tryProvider<BrasilApiCepData>(
+    `https://brasilapi.com.br/api/cep/v1/${digits}`,
+    (d) =>
+      d?.city
+        ? {
+            logradouro: d.street ?? "",
+            bairro: d.neighborhood ?? "",
+            cidade: d.city ?? "",
+            estado: d.state ?? "",
+          }
+        : null,
+  );
+  if (brasilapi) return brasilapi;
 
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      return { error: "CEP não encontrado, preencha manualmente" };
-    }
-
-    const data = (await res.json()) as {
-      erro?: boolean;
-      logradouro?: string;
-      bairro?: string;
-      localidade?: string;
-      uf?: string;
-    };
-
-    if (data.erro) {
-      return { error: "CEP não encontrado, preencha manualmente" };
-    }
-
-    return {
-      logradouro: data.logradouro ?? "",
-      bairro: data.bairro ?? "",
-      cidade: data.localidade ?? "",
-      estado: data.uf ?? "",
-    };
-  } catch {
-    return { error: "CEP não encontrado, preencha manualmente" };
-  }
+  return { error: "CEP não encontrado, preencha manualmente" };
 }
