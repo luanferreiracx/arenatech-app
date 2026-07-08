@@ -6,8 +6,10 @@ model PartnerWebhookConfig {
   tenantId       String   @id @map("tenant_id") @db.Uuid
   /// URL HTTPS do parceiro. Null/vazio = sem notificação.
   url            String?
-  /// Secret HMAC (gerado pelo sistema; o parceiro valida a assinatura). Em claro
-  /// porque PRECISAMOS dele pra assinar o envio (não é credencial de login).
+  /// Secret HMAC (gerado pelo sistema; o parceiro valida a assinatura).
+  /// CIFRADO em repouso (AES-256-GCM, formato iv:tag:data — ver lib/security/
+  /// secret-box.ts). Precisamos dele em claro só na hora de assinar o envio, então
+  /// decifra-se em memória; um dump do banco não expõe os secrets (auditoria S6).
   secret         String?
   /// Última entrega bem-sucedida (observabilidade).
   lastDeliveryAt DateTime? @map("last_delivery_at")

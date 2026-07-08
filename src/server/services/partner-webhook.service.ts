@@ -11,6 +11,15 @@ import { randomBytes, createHmac } from "node:crypto";
 import { withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { assertPublicHttpsUrl, assertUrlResolvesToPublicIp } from "@/lib/security/ssrf";
+import { sealSecret, openSecret } from "@/lib/security/secret-box";
+
+/**
+ * Domínio de cifragem do secret HMAC do webhook de saída. O secret é guardado
+ * CIFRADO em repouso (AES-256-GCM) — um dump do banco não expõe os secrets de
+ * webhook dos tenants (auditoria de segurança S6, 2026-07-08). Valores legados em
+ * claro continuam sendo lidos até o backfill cifrá-los (openSecret é tolerante).
+ */
+const WEBHOOK_SECRET_CONTEXT = "partner-webhook";
 
 export type PartnerWebhookEventType = "deposit.completed" | "withdrawal.completed";
 
@@ -58,32 +67,36 @@ export async function setPartnerWebhookUrl(args: {
   const existing = await withTenant(args.tenantId, async (tx) =>
     tx.partnerWebhookConfig.findUnique({ where: { tenantId: args.tenantId }, select: { secret: true } }),
   );
-  // Primeira config com URL → gera secret automaticamente.
-  const secret = existing?.secret ?? (args.url ? generateWebhookSecret() : null);
+  // Primeira config com URL → gera secret automaticamente. Novo secret é gerado em
+  // claro (a UI o exibe 1x) mas gravado CIFRADO. Secret existente é preservado como
+  // está (já cifrado, ou legado em claro — o backfill/leitura tolera ambos).
+  const newPlainSecret = existing?.secret ? null : args.url ? generateWebhookSecret() : null;
+  const storedSecret = existing?.secret ?? (newPlainSecret ? sealSecret(newPlainSecret, WEBHOOK_SECRET_CONTEXT) : null);
   await withTenant(args.tenantId, async (tx) =>
     tx.partnerWebhookConfig.upsert({
       where: { tenantId: args.tenantId },
-      create: { tenantId: args.tenantId, url: args.url, secret },
-      update: { url: args.url, secret },
+      create: { tenantId: args.tenantId, url: args.url, secret: storedSecret },
+      update: { url: args.url, secret: storedSecret },
     }),
   );
   logger.info("partner-webhook: url atualizada", { tenantId: args.tenantId, hasUrl: !!args.url });
-  // Retorna o secret só quando acabou de ser criado (pra UI exibir 1x).
-  return { secret: existing?.secret ? null : secret };
+  // Retorna o secret em CLARO só quando acabou de ser criado (pra UI exibir 1x).
+  return { secret: newPlainSecret };
 }
 
-/** Rotaciona o secret (retorna o novo — exibido 1x). */
+/** Rotaciona o secret (retorna o novo em claro — exibido 1x; gravado cifrado). */
 export async function rotatePartnerWebhookSecret(tenantId: string): Promise<{ secret: string }> {
-  const secret = generateWebhookSecret();
+  const plainSecret = generateWebhookSecret();
+  const sealed = sealSecret(plainSecret, WEBHOOK_SECRET_CONTEXT);
   await withTenant(tenantId, async (tx) =>
     tx.partnerWebhookConfig.upsert({
       where: { tenantId },
-      create: { tenantId, secret },
-      update: { secret },
+      create: { tenantId, secret: sealed },
+      update: { secret: sealed },
     }),
   );
   logger.info("partner-webhook: secret rotacionado", { tenantId });
-  return { secret };
+  return { secret: plainSecret };
 }
 
 /**
@@ -110,7 +123,10 @@ export async function notifyPartnerWebhook(
     await assertUrlResolvesToPublicIp(target);
 
     const body = JSON.stringify(event);
-    const signature = "sha256=" + createHmac("sha256", cfg.secret).update(body).digest("hex");
+    // Secret cifrado em repouso — decifra antes de assinar. openSecret tolera
+    // valores legados em claro (retorna como está) durante a transição.
+    const secret = openSecret(cfg.secret, WEBHOOK_SECRET_CONTEXT);
+    const signature = "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
 
     const res = await fetch(target, {
       method: "POST",
