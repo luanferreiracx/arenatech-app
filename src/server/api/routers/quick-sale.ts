@@ -262,48 +262,51 @@ export const quickSaleRouter = createTRPCRouter({
   markPaid: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.quickSale.findUnique({
-          where: { id: input.id },
-        });
-        if (!existing || existing.deletedAt) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Venda avulsa nao encontrada" });
-        }
-        if (existing.status !== "AWAITING_PAYMENT") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao esta aguardando pagamento" });
-        }
+      // QS1: revalidação DePix FORA da transação. `checkTransactionStatus` abre
+      // seu próprio `withTenant` (e pode fazer HTTP externo); chamá-lo dentro da
+      // tx do update criava transação aninhada (2ª conexão do pool — padrão PDV1).
+      const existing = await ctx.withTenant((tx) =>
+        tx.quickSale.findUnique({ where: { id: input.id } }),
+      );
+      if (!existing || existing.deletedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Venda avulsa nao encontrada" });
+      }
+      if (existing.status !== "AWAITING_PAYMENT") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Venda nao esta aguardando pagamento" });
+      }
 
-        if (existing.walletTransactionId) {
-          const walletTx = await checkTransactionStatus(ctx.tenantId, existing.walletTransactionId);
-          if (!walletTx) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
-          }
-          if (walletTx.sourceType !== "QUICK_SALE" || walletTx.sourceId !== existing.id) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "Transacao DePix nao pertence a esta venda avulsa.",
-            });
-          }
-          if (!isSettledForSaleDepixStatus(walletTx.status)) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "DePix ainda nao confirmado. Use 'Verificar PIX' ou aguarde a confirmacao.",
-            });
-          }
-        } else if (existing.depixTransactionId) {
+      if (existing.walletTransactionId) {
+        const walletTx = await checkTransactionStatus(ctx.tenantId, existing.walletTransactionId);
+        if (!walletTx) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transacao DePix nao encontrada." });
+        }
+        if (walletTx.sourceType !== "QUICK_SALE" || walletTx.sourceId !== existing.id) {
           throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Venda avulsa DePix sem transacao wallet confirmada. Use 'Verificar PIX' antes de marcar como paga.",
+            code: "FORBIDDEN",
+            message: "Transacao DePix nao pertence a esta venda avulsa.",
           });
         }
+        if (!isSettledForSaleDepixStatus(walletTx.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "DePix ainda nao confirmado. Use 'Verificar PIX' ou aguarde a confirmacao.",
+          });
+        }
+      } else if (existing.depixTransactionId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Venda avulsa DePix sem transacao wallet confirmada. Use 'Verificar PIX' antes de marcar como paga.",
+        });
+      }
 
-        const updated = await tx.quickSale.update({
+      const updated = await ctx.withTenant((tx) =>
+        tx.quickSale.update({
           where: { id: input.id },
           data: { status: "PAID", paidAt: new Date() },
-        });
+        }),
+      );
 
-        return serializeQuickSale(updated);
-      });
+      return serializeQuickSale(updated);
     }),
 
   /** Cancel quick sale */
