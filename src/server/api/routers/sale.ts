@@ -47,7 +47,7 @@ import { isValidLuhn } from "@/lib/validators/imei";
 import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
-import { createDeposit, checkTransactionStatus, createWithdraw } from "@/server/services/depix-transaction.service";
+import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
 import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
 import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
@@ -899,13 +899,7 @@ export const saleRouter = createTRPCRouter({
               number: sale.number,
               userId: ctx.session.user.id,
             });
-            return {
-              updated: sale,
-              saleNumber: sale.number ?? "",
-              shouldTriggerDepixWithdraw: false,
-              refundDueCents: 0,
-              customerName: null,
-            };
+            return { updated: sale };
           }
           throw new TRPCError({
             code: "CONFLICT",
@@ -1120,15 +1114,10 @@ export const saleRouter = createTRPCRouter({
               message: "Downgrade nao aceita pagamentos do cliente — apenas devolucao.",
             });
           }
-          // DePix saque automatico exige chave + tipo de chave do cliente.
-          if (input.refundDueMethod === "depix") {
-            if (!input.refundDuePixKey || !input.refundDuePixKeyType) {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "Para devolucao via DePix informe a chave PIX e o tipo (CPF/CNPJ/EMAIL/PHONE/RANDOM).",
-              });
-            }
-          }
+          // PDV2: a devolucao NAO e mais sacada automaticamente via DePix. Fica
+          // como PAYABLE (dinheiro = pago do caixa; pix/depix = PENDENTE) e o
+          // operador resolve pela pagina de contas a pagar. Sem exigir chave PIX
+          // aqui (nao ha saque automatico que a consumisse).
         } else if (paidCents < amountDueAfterUpgradeCents) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -1767,58 +1756,13 @@ export const saleRouter = createTRPCRouter({
           upgrades: upgrades.length,
         });
 
-        return {
-          updated,
-          saleNumber,
-          // Flag: depois da tx, dispara saque DePix se for downgrade depix
-          shouldTriggerDepixWithdraw:
-            refundDueCents > 0 && input.refundDueMethod === "depix",
-          refundDueCents,
-          customerName: input.customerId
-            ? (await tx.customer.findUnique({
-                where: { id: input.customerId },
-                select: { name: true, cpf: true, cnpj: true },
-              }))
-            : null,
-        };
+        return { updated };
       });
 
-      // Apos a transacao: se downgrade DePix, dispara saque pela Wallet/LWK.
-      const pixKey = input.refundDuePixKey;
-      const pixKeyType = input.refundDuePixKeyType;
-      if (txResult.shouldTriggerDepixWithdraw && pixKey && pixKeyType) {
-        try {
-          const taxId = (txResult.customerName?.cpf ?? txResult.customerName?.cnpj ?? "").replace(/\D/g, "");
-          if (taxId.length === 11 || taxId.length === 14) {
-            const walletTx = await createWithdraw({
-              tenantId: ctx.tenantId,
-              userId: ctx.session.user.id,
-              userName: ctx.session.user.name ?? null,
-              pixKeyType,
-              pixKey,
-              recipientName: txResult.customerName?.name ?? null,
-              recipientTaxId: taxId,
-              netAmountCents: txResult.refundDueCents,
-              sourceType: "SALE",
-              sourceId: input.saleId,
-              sourceDescription: `Downgrade automatico — venda ${txResult.saleNumber}`,
-              idempotencyKey: `${input.saleId}:downgrade-depix-refund`,
-            });
-            logger.info("Saque DePix Wallet automatico para downgrade enviado", {
-              saleId: input.saleId,
-              walletTransactionId: walletTx.id,
-              number: walletTx.number,
-            });
-          }
-        } catch (e) {
-          logger.error("Erro saque DePix Wallet downgrade", {
-            saleId: input.saleId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-          // Nao bloqueia a venda — operador acompanha/resolve pendencia pela Wallet DePix.
-        }
-      }
-
+      // PDV2: a devolucao de downgrade NAO e mais sacada automaticamente via
+      // DePix — fica como PAYABLE (PENDENTE para pix/depix; PAGA para dinheiro,
+      // ja debitado do caixa) e o operador resolve pela pagina de contas a pagar.
+      // A UI do PDV alerta a pendencia + linka para /financial ao finalizar.
       return serializeSale(txResult.updated);
     }),
 
