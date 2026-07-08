@@ -23,8 +23,12 @@ export const customerRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const where: Record<string, unknown> = {};
 
-        // SPEC RN-7: default filter deletedAt IS NULL
-        if (!input.includeDeleted) {
+        // SPEC RN-7: por padrão só ativos (deletedAt IS NULL). `onlyDeleted`
+        // pagina APENAS os inativos server-side — sem isso a aba "Inativos"
+        // trazia ativos+deletados e o total/pageCount mentiam (achado C1).
+        if (input.onlyDeleted) {
+          where.deletedAt = { not: null };
+        } else if (!input.includeDeleted) {
           where.deletedAt = null;
         }
 
