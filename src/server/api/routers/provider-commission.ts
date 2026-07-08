@@ -508,13 +508,42 @@ export const providerCommissionRouter = createTRPCRouter({
 
   /** Close apuracao and generate financial transaction.
    *
-   * Lock anti-race: usa updateMany(where: status=OPEN) → CLOSING como reserva atômica.
-   * Se 2 chamadas concorrentes tentarem fechar, só 1 vê count=1. A outra recebe count=0
-   * e aborta sem efeito colateral (sem PAYABLE duplicada).
+   * Atomicidade + anti-race numa transacao so (ctx.withTenant): o fechamento
+   * (status OPEN→CLOSED, PAYABLE, vinculo dos estornos) roda dentro de UMA
+   * transacao do tenant. O lock contra duplo-fechamento e o proprio
+   * `updateMany(where: status=OPEN)` — a 2a transacao concorrente bloqueia no
+   * lock de linha ate a 1a commitar e entao ve count=0, abortando limpo.
+   *
+   * NAO usa mais o estado intermediario CLOSING nem rollback manual: se algo
+   * lanca, o Prisma desfaz a transacao inteira (incl. o OPEN→CLOSED) — nao ha
+   * como a apuracao ficar presa num estado transitorio. A busca do nome do
+   * prestador (withAdmin, cross-tenant) e feita ANTES de abrir a transacao,
+   * para nao aninhar transacao/conexao dentro do withTenant (evita starvation
+   * do pool e uma tx orfa que a tx externa nao consegue desfazer).
    */
   closeApuracao: tenantAdminProcedure
     .input(closeApuracaoSchema)
     .mutation(async ({ ctx, input }) => {
+      // Resolve o nome do prestador FORA da transacao do tenant. E cross-tenant
+      // (users nao tem tenant_id), entao usa withAdmin — que abre a propria
+      // transacao. Aninhar isso dentro do withTenant seguraria 2 conexoes do
+      // pool e deixaria trabalho fora do alcance do rollback da tx do tenant.
+      const providerRow = await ctx.withTenant((tx) =>
+        tx.provider.findUnique({
+          where: { id: input.providerId },
+          select: { id: true, userId: true },
+        }),
+      );
+      const providerName = providerRow
+        ? (await withAdmin(async (adminTx) => {
+            const u = await adminTx.user.findUnique({
+              where: { id: providerRow.userId },
+              select: { name: true },
+            });
+            return u?.name;
+          })) ?? "Prestador"
+        : "Prestador";
+
       return ctx.withTenant(async (tx) => {
         const apuracao = await tx.providerApuracao.findFirst({
           where: {
@@ -532,62 +561,28 @@ export const providerCommissionRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao ja fechada" });
         }
 
-        // Tentativa de aquisição do lock — UPDATE atômico no status (CAS).
-        // Postgres serializa este UPDATE; somente uma transação verá count=1.
-        const reservation = await tx.providerApuracao.updateMany({
-          where: { id: apuracao.id, status: "OPEN" },
-          data: { status: "CLOSING" },
-        });
-        if (reservation.count === 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Apuracao esta sendo fechada por outro processo. Tente novamente em alguns segundos.",
-          });
-        }
-
-        // Helper de rollback se algo der errado durante o close.
-        // Restaura status OPEN para que possa ser reprocessada.
-        const rollback = async () => {
-          await tx.providerApuracao.updateMany({
-            where: { id: apuracao.id, status: "CLOSING" },
-            data: { status: "OPEN" },
-          });
-        };
-
-        let financialTransactionId: string | null = null;
+        // Lock anti-race: UPDATE atomico OPEN→CLOSED direto. Postgres pega lock de
+        // linha; uma 2a transacao concorrente bloqueia aqui e depois ve count=0
+        // (status ja nao e OPEN) — aborta sem PAYABLE duplicada. Como tudo roda na
+        // mesma transacao, se qualquer passo abaixo lancar, este UPDATE tambem e
+        // revertido: nao ha estado intermediario para "destravar".
         const netAmount = decimalToNumber(apuracao.netAmount);
 
-        try {
-
         // Create financial transaction (AP) if net > 0
-        if (netAmount > 0) {
-          const provider = await tx.provider.findUnique({
-            where: { id: input.providerId },
-          });
+        const financialTransactionId =
+          netAmount > 0
+            ? await createProviderApuracaoPayable(tx, ctx.tenantId, {
+                apuracaoId: apuracao.id,
+                providerName,
+                netAmount: apuracao.netAmount,
+                year: input.year,
+                month: input.month,
+                createdByUserId: ctx.session.user.id,
+              })
+            : null;
 
-          const userName = provider
-            ? (await withAdmin(async (adminTx) => {
-                const u = await adminTx.user.findUnique({
-                  where: { id: provider.userId },
-                  select: { name: true },
-                });
-                return u?.name;
-              })) ?? "Prestador"
-            : "Prestador";
-
-          financialTransactionId = await createProviderApuracaoPayable(tx, ctx.tenantId, {
-            apuracaoId: apuracao.id,
-            providerName: userName,
-            netAmount: apuracao.netAmount,
-            year: input.year,
-            month: input.month,
-            createdByUserId: ctx.session.user.id,
-          });
-        }
-
-        // Close apuracao
-        await tx.providerApuracao.update({
-          where: { id: apuracao.id },
+        const reservation = await tx.providerApuracao.updateMany({
+          where: { id: apuracao.id, status: "OPEN" },
           data: {
             status: "CLOSED",
             closedAt: new Date(),
@@ -595,6 +590,13 @@ export const providerCommissionRouter = createTRPCRouter({
             financialTransactionId,
           },
         });
+        if (reservation.count === 0) {
+          // Outra transacao fechou primeiro; aborta e desfaz o PAYABLE recem-criado.
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Apuracao esta sendo fechada por outro processo. Tente novamente em alguns segundos.",
+          });
+        }
 
         // Link reversals to this apuracao (fronteira inclusiva ate 23:59:59.999 —
         // senao um estorno com factDate no ultimo dia do mes ficava sem apuracaoId).
@@ -621,10 +623,6 @@ export const providerCommissionRouter = createTRPCRouter({
             ? `Apuracao fechada. Conta a pagar gerada.`
             : "Apuracao fechada. Sem valor liquido positivo — nenhuma conta gerada.",
         };
-        } catch (err) {
-          await rollback();
-          throw err;
-        }
       });
     }),
 
