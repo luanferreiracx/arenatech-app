@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Eye, Pencil, RotateCcw } from "lucide-react";
@@ -173,16 +173,17 @@ export function CustomersTable() {
   const viewerQuery = useQuery(trpc.customer.viewerInfo.queryOptions());
   const isAdmin = viewerQuery.data?.isAdmin === true;
 
-  // Debounce search
+  // Debounce search — o cleanup do setTimeout precisa rodar num useEffect, senão
+  // o timer nunca é cancelado e cada tecla dispara um update (não debounça). (C3)
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const handleSearchChange = useCallback((value: string) => {
-    setSearch(value);
+  const handleSearchChange = useCallback((value: string) => setSearch(value), []);
+  useEffect(() => {
     const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
+      setDebouncedSearch(search);
       setPage(0);
     }, 300);
     return () => clearTimeout(timeoutId);
-  }, []);
+  }, [search]);
 
   const onlyDeleted = isAdmin && statusFilter === "INACTIVE";
 
