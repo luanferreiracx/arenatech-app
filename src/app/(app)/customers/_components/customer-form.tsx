@@ -162,8 +162,8 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
       <FormSection title="Dados do cliente">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>{watchType === "PJ" ? "Razão social" : "Nome completo"} *</Label>
-            <Input {...form.register("name")} placeholder={watchType === "PJ" ? "Razão social" : "Nome completo"} />
+            <Label htmlFor="customer-name">{watchType === "PJ" ? "Razão social" : "Nome completo"} *</Label>
+            <Input id="customer-name" {...form.register("name")} placeholder={watchType === "PJ" ? "Razão social" : "Nome completo"} />
             {form.formState.errors.name && (
               <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
             )}
@@ -171,19 +171,19 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
 
           {watchType === "PJ" && (
             <div className="space-y-2">
-              <Label>Nome fantasia</Label>
-              <Input {...form.register("tradeName")} placeholder="Nome fantasia" />
+              <Label htmlFor="customer-tradeName">Nome fantasia</Label>
+              <Input id="customer-tradeName" {...form.register("tradeName")} placeholder="Nome fantasia" />
             </div>
           )}
 
           {watchType === "PF" ? (
             <div className="space-y-2">
-              <Label>CPF *</Label>
+              <Label htmlFor="customer-cpf">CPF *</Label>
               <Controller
                 control={form.control}
                 name="cpf"
                 render={({ field }) => (
-                  <CpfInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                  <CpfInput id="customer-cpf" value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
                 )}
               />
               {form.formState.errors.cpf && (
@@ -200,12 +200,12 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
             </div>
           ) : (
             <div className="space-y-2">
-              <Label>CNPJ *</Label>
+              <Label htmlFor="customer-cnpj">CNPJ *</Label>
               <Controller
                 control={form.control}
                 name="cnpj"
                 render={({ field }) => (
-                  <CnpjInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                  <CnpjInput id="customer-cnpj" value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
                 )}
               />
               {form.formState.errors.cnpj && (
@@ -224,12 +224,13 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
 
           {watchType === "PF" && (
             <div className="space-y-2">
-              <Label>Data de nascimento</Label>
+              <Label htmlFor="customer-birthDate">Data de nascimento</Label>
               <Controller
                 control={form.control}
                 name="birthDate"
                 render={({ field }) => (
                   <DateInput
+                    id="customer-birthDate"
                     value={field.value ?? ""}
                     onChange={field.onChange}
                     aria-label="Data de nascimento"
@@ -246,12 +247,12 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
       <FormSection title="Contato">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>WhatsApp *</Label>
+            <Label htmlFor="customer-phone">WhatsApp *</Label>
             <Controller
               control={form.control}
               name="phone"
               render={({ field }) => (
-                <PhoneInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                <PhoneInput id="customer-phone" value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
               )}
             />
             {form.formState.errors.phone && (
@@ -259,18 +260,18 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
             )}
           </div>
           <div className="space-y-2">
-            <Label>Telefone alternativo</Label>
+            <Label htmlFor="customer-phoneSecondary">Telefone alternativo</Label>
             <Controller
               control={form.control}
               name="phoneSecondary"
               render={({ field }) => (
-                <PhoneInput value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
+                <PhoneInput id="customer-phoneSecondary" value={field.value ?? ""} onValueChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
               )}
             />
           </div>
           <div className="space-y-2">
-            <Label>E-mail</Label>
-            <Input {...form.register("email")} type="email" placeholder="email@exemplo.com" />
+            <Label htmlFor="customer-email">E-mail</Label>
+            <Input id="customer-email" {...form.register("email")} type="email" placeholder="email@exemplo.com" />
             {form.formState.errors.email && (
               <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
             )}
@@ -282,8 +283,9 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
       <FormSection title="Endereço">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-2">
-            <Label>CEP</Label>
+            <Label htmlFor="customer-zipCode">CEP</Label>
             <CepInput
+              id="customer-zipCode"
               value={form.watch("zipCode") ?? ""}
               onValueChange={(raw) => form.setValue("zipCode", raw)}
               onAddressFound={(address: AddressResult) => {
@@ -295,32 +297,32 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
             />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <Label>Logradouro</Label>
-            <Input {...form.register("street")} placeholder="Rua, Avenida..." />
+            <Label htmlFor="customer-street">Logradouro</Label>
+            <Input id="customer-street" {...form.register("street")} placeholder="Rua, Avenida..." />
           </div>
           <div className="space-y-2">
-            <Label>Número</Label>
-            <Input {...form.register("streetNumber")} placeholder="Nº" />
+            <Label htmlFor="customer-streetNumber">Número</Label>
+            <Input id="customer-streetNumber" {...form.register("streetNumber")} placeholder="Nº" />
           </div>
           <div className="space-y-2">
-            <Label>Complemento</Label>
-            <Input {...form.register("complement")} placeholder="Apto, Sala..." />
+            <Label htmlFor="customer-complement">Complemento</Label>
+            <Input id="customer-complement" {...form.register("complement")} placeholder="Apto, Sala..." />
           </div>
           <div className="space-y-2">
-            <Label>Bairro</Label>
-            <Input {...form.register("neighborhood")} />
+            <Label htmlFor="customer-neighborhood">Bairro</Label>
+            <Input id="customer-neighborhood" {...form.register("neighborhood")} />
           </div>
           <div className="space-y-2">
-            <Label>Cidade</Label>
-            <Input {...form.register("city")} />
+            <Label htmlFor="customer-city">Cidade</Label>
+            <Input id="customer-city" {...form.register("city")} />
           </div>
           <div className="space-y-2">
-            <Label>Estado</Label>
+            <Label htmlFor="customer-state">Estado</Label>
             <Select
               value={form.watch("state") ?? ""}
               onValueChange={(v: string) => form.setValue("state", v)}
             >
-              <SelectTrigger>
+              <SelectTrigger id="customer-state">
                 <SelectValue placeholder="UF" />
               </SelectTrigger>
               <SelectContent>

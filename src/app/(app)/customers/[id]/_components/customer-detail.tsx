@@ -166,7 +166,9 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
             {customer.type === "PF" && customer.birthDate && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Data de nascimento</span>
-                <span>{format(new Date(customer.birthDate), "dd/MM/yyyy")}</span>
+                {/* C4: birthDate é date-only (@db.Date, UTC-meia-noite) — formatar em
+                    fuso local mostraria o dia anterior (UTC-3). Usa os componentes UTC. */}
+                <span>{new Date(customer.birthDate).toISOString().slice(0, 10).split("-").reverse().join("/")}</span>
               </div>
             )}
             <div className="flex justify-between">
