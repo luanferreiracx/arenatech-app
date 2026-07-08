@@ -23,9 +23,13 @@ vi.mock("node:dns/promises", () => ({
 }));
 
 import { notifyPartnerWebhook } from "@/server/services/partner-webhook.service";
+import { sealSecret } from "@/lib/security/secret-box";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
 const SECRET = "supersecret";
+
+// secret-box deriva a chave do NEXTAUTH_SECRET.
+process.env.NEXTAUTH_SECRET = "test-secret-for-partner-webhook";
 
 const event = {
   type: "deposit.completed" as const,
@@ -73,6 +77,41 @@ describe("notifyPartnerWebhook", () => {
     expect(JSON.parse(body)).toMatchObject({ type: "deposit.completed", transactionId: "tx-1" });
     // Marca lastDeliveryAt no sucesso.
     expect(cfgUpdate).toHaveBeenCalled();
+  });
+
+  it("secret CIFRADO em repouso: decifra antes de assinar (S6)", async () => {
+    // O banco guarda o secret cifrado; a assinatura deve usar o PLAINTEXT.
+    cfgFindUnique.mockResolvedValue({
+      url: "https://parceiro.com/hook",
+      secret: sealSecret(SECRET, "partner-webhook"),
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+
+    await notifyPartnerWebhook(TENANT, event);
+
+    const [, init] = fetchSpy.mock.calls[0]!;
+    const body = (init as RequestInit).body as string;
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    // Assinatura usa o secret DECIFRADO, não o ciphertext.
+    const expected = "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
+    expect(headers["x-signature"]).toBe(expected);
+  });
+
+  it("secret LEGADO em claro ainda funciona (transição sem backfill)", async () => {
+    cfgFindUnique.mockResolvedValue({ url: "https://parceiro.com/hook", secret: SECRET });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+
+    await notifyPartnerWebhook(TENANT, event);
+
+    const [, init] = fetchSpy.mock.calls[0]!;
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    const body = (init as RequestInit).body as string;
+    const expected = "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
+    expect(headers["x-signature"]).toBe(expected);
   });
 
   it("não lança se o parceiro retorna erro (best-effort) e não marca entrega", async () => {
