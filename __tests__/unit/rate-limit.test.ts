@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { rateLimit, refundRateLimit, clearRateLimitStore } from "@/lib/rate-limit";
+import {
+  rateLimit,
+  refundRateLimit,
+  clearRateLimitStore,
+  degradedPublicLimit,
+} from "@/lib/rate-limit";
+
 
 describe("rateLimit", () => {
   beforeEach(() => {
@@ -103,6 +109,18 @@ describe("rateLimit", () => {
       vi.advanceTimersByTime(10_100);
       expect((await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 })).remaining).toBe(1);
       vi.useRealTimers();
+    });
+  });
+
+  describe("degradedPublicLimit (S3: fecha o fail-open sem Redis)", () => {
+    // No runtime de teste não há REDIS_URL → hasDistributedRateLimit() é false, o
+    // modo degradado que S3 endurece. O ramo "com Redis" só troca o valor de
+    // retorno (é o hasDistributedRateLimit, já coberto por rate-limit em cluster);
+    // controlá-lo aqui exigiria mexer no singleton interno do Redis (teste de
+    // implementação) — não paga o custo.
+    it("SEM backend distribuído: devolve o teto DEGRADADO (conservador)", () => {
+      expect(degradedPublicLimit(12, 3)).toBe(3);
+      expect(degradedPublicLimit(120, 30)).toBe(30);
     });
   });
 });
