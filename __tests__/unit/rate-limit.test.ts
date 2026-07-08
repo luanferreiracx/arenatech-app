@@ -113,14 +113,17 @@ describe("rateLimit", () => {
   });
 
   describe("degradedPublicLimit (S3: fecha o fail-open sem Redis)", () => {
-    // No runtime de teste não há REDIS_URL → hasDistributedRateLimit() é false, o
-    // modo degradado que S3 endurece. O ramo "com Redis" só troca o valor de
-    // retorno (é o hasDistributedRateLimit, já coberto por rate-limit em cluster);
-    // controlá-lo aqui exigiria mexer no singleton interno do Redis (teste de
-    // implementação) — não paga o custo.
+    // Injeta o predicado (default = hasDistributedRateLimit) para testar os dois
+    // ramos sem depender de REDIS_URL/singleton do ambiente — o CI seta REDIS_URL,
+    // o dev não, então o teste precisa ser determinístico.
     it("SEM backend distribuído: devolve o teto DEGRADADO (conservador)", () => {
-      expect(degradedPublicLimit(12, 3)).toBe(3);
-      expect(degradedPublicLimit(120, 30)).toBe(30);
+      expect(degradedPublicLimit(12, 3, () => false)).toBe(3);
+      expect(degradedPublicLimit(120, 30, () => false)).toBe(30);
+    });
+
+    it("COM backend distribuído: devolve o teto NORMAL", () => {
+      expect(degradedPublicLimit(12, 3, () => true)).toBe(12);
+      expect(degradedPublicLimit(120, 30, () => true)).toBe(120);
     });
   });
 });

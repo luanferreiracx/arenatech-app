@@ -52,8 +52,12 @@ export function hasDistributedRateLimit(): boolean {
  * bem menor (`degraded`) e loga; com Redis, devolve o `normal`. Não é fail-closed
  * duro — a rota pública continua servindo, só com um limite conservador.
  */
-export function degradedPublicLimit(normal: number, degraded: number): number {
-  if (hasDistributedRateLimit()) return normal;
+export function degradedPublicLimit(
+  normal: number,
+  degraded: number,
+  hasDistributed: () => boolean = hasDistributedRateLimit,
+): number {
+  if (hasDistributed()) return normal;
   logger.warn("rate-limit público sem backend distribuído — teto degradado", { normal, degraded });
   return degraded;
 }
