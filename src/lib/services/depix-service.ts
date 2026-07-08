@@ -123,6 +123,16 @@ function extractEulenError(body: unknown): string | undefined {
   );
 }
 
+/**
+ * Há credencial da Eulen configurada (DEPIX_API_KEY)? Usado por quem precisa
+ * distinguir "sem canal para consultar a Eulen" (dev/teste) de uma resposta real
+ * da Eulen — ex.: a revalidação anti-forja do webhook `approved` (S1/S2) não deve
+ * bloquear a venda em ambiente sem Eulen, onde não há como corroborar.
+ */
+export function isDepixConfigured(): boolean {
+  return Boolean(process.env.DEPIX_API_KEY);
+}
+
 function getConfig(): DepixConfig | null {
   const apiKey = process.env.DEPIX_API_KEY;
   if (!apiKey) return null;
@@ -656,7 +666,10 @@ function formatPixKey(
  * enviado on-chain -> `pix_received` (NAO creditavel). `depix_sent` = DePix
  * on-chain -> `paid` (creditavel).
  */
-export async function getPixStatus(transactionId: string): Promise<DepixStatusResult> {
+export async function getPixStatus(
+  transactionId: string,
+  opts?: { timeoutMs?: number },
+): Promise<DepixStatusResult> {
   const config = getConfig();
   if (!config) {
     return { success: true, status: "pending", isFinal: false };
@@ -675,7 +688,9 @@ export async function getPixStatus(transactionId: string): Promise<DepixStatusRe
         Accept: "application/json",
         "X-Nonce": randomUUID(),
       },
-      signal: AbortSignal.timeout(30_000),
+      // Timeout customizável: o webhook Eulen precisa responder rápido (SLA ~15s),
+      // então a revalidação anti-forja passa um teto curto (não o default de 30s).
+      signal: AbortSignal.timeout(opts?.timeoutMs ?? 30_000),
     });
 
     if (!response.ok) {

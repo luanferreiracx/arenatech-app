@@ -11,6 +11,7 @@ import {
 } from "@/server/services/depix-transaction.service";
 import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
+import { getPixStatus, isDepixConfigured } from "@/lib/services/depix-service";
 
 /** Payload do webhook de deposito da Eulen (docs.eulen.app — DepositWebhookBody). */
 export interface EulenDepositPayload {
@@ -28,6 +29,56 @@ export interface EulenDepositPayload {
 
 const PAID_ONCHAIN_STATUSES = new Set(["depix_sent"]);
 const PIX_APPROVED_STATUSES = new Set(["approved"]);
+
+/**
+ * Revalidacao anti-forja do marco `approved` (auditoria de seguranca S1/S2).
+ *
+ * O `approved` (PIX recebido) e o unico marco que LIBERA a venda (marca
+ * QuickSale/PaymentLink como PAID + SSE no PDV) dependendo SO do webhook — e a
+ * auth do webhook e um secret GLOBAL. Se ele vazar, um `approved` forjado
+ * enganaria o vendedor com um "pago" falso. Antes de aplicar o efeito de venda,
+ * consultamos a Eulen ATIVAMENTE (getPixStatus, canal autenticado por API-key,
+ * NAO o webhook) e so liberamos se ela CONCORDAR que o PIX foi recebido/pago.
+ *
+ * Fail-safe: se a Eulen esta fora do ar / responde erro, retornamos `false` —
+ * NAO liberamos a venda por um webhook nao-corroborado. A tx ainda vai a
+ * PROCESSING (o PIX pode ter caido de fato); o proximo ciclo de
+ * checkTransactionStatus/reconciliacao reconsulta e libera a venda legitima.
+ * Assim: forja nao engana o vendedor, e venda real confirma no ciclo seguinte.
+ *
+ * O crédito de SALDO ja tem cross-check on-chain proprio — esta guarda e so pro
+ * efeito de VENDA do marco `approved`.
+ */
+// Timeout curto: o webhook Eulen precisa responder em ~15s. A revalidação usa um
+// teto bem menor para não estourar o SLA (se a Eulen demorar, tratamos como
+// não-corroborado e a reconciliação libera a venda legítima depois).
+const APPROVED_REVALIDATION_TIMEOUT_MS = 5_000;
+
+async function eulenConfirmsPixReceived(qrId: string): Promise<boolean> {
+  // Sem credencial da Eulen (dev/teste) não há canal para corroborar — não
+  // bloqueia (e a forja exige o secret de PROD, que não existe aqui de qualquer
+  // forma). Mantém o comportamento antigo fora de produção.
+  if (!isDepixConfigured()) return true;
+
+  const ps = await getPixStatus(qrId, { timeoutMs: APPROVED_REVALIDATION_TIMEOUT_MS });
+  if (!ps.success) {
+    logger.warn("Eulen-deposit: revalidacao do `approved` falhou (Eulen indisponivel) — nao libera venda ainda", {
+      qrId,
+      error: ps.error,
+    });
+    return false;
+  }
+  // A Eulen concorda se o PIX foi recebido (pix_received) ou ja evoluiu (paid/
+  // depix_sent/completed). `pending` = ela ainda NAO viu o pagamento → nao libera.
+  const corroborated = ps.status !== "pending";
+  if (!corroborated) {
+    logger.warn("Eulen-deposit: `approved` do webhook NAO corroborado pela Eulen (status pending) — possivel forja", {
+      qrId,
+      eulenStatus: ps.status,
+    });
+  }
+  return corroborated;
+}
 const EXPIRED_STATUSES = new Set(["expired"]);
 const FAILED_STATUSES = new Set(["refunded", "will_refund", "canceled", "error"]);
 
@@ -109,11 +160,19 @@ export async function handleEulenDepositWebhook(
         data: { status: "PROCESSING", pixApprovedAt: new Date(), ...payerNamePatch(payload) },
       }),
     );
-    // Efeito de venda (QuickSale->PAID + notify SSE). Tenant REAL (a venda e
-    // dele, nao da carteira de taxas). Idempotente.
-    await applyPixReceivedEffects(txRow.tenantId, txRow.id);
+    // Anti-forja (S1/S2): so LIBERA a venda se a Eulen corroborar o `approved`
+    // por consulta ativa (canal por API-key, nao o webhook). Um webhook forjado
+    // com o secret vazado nao passa daqui. Se a Eulen esta indisponivel, a venda
+    // NAO e liberada agora — fica PROCESSING e o checkTransactionStatus/cron
+    // reconsulta e libera a venda legitima depois.
+    const corroborated = await eulenConfirmsPixReceived(qrId);
+    if (corroborated) {
+      // Efeito de venda (QuickSale->PAID + notify SSE). Tenant REAL (a venda e
+      // dele, nao da carteira de taxas). Idempotente.
+      await applyPixReceivedEffects(txRow.tenantId, txRow.id);
+    }
     await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
-    return { status: 200, body: { ok: true, pixApproved: true } };
+    return { status: 200, body: { ok: true, pixApproved: true, saleReleased: corroborated } };
   }
 
   // ── BYOW: o DePix foi pra carteira PRÓPRIA do tenant (não a nossa). Não dá

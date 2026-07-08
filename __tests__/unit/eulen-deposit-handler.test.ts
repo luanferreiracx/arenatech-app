@@ -16,6 +16,7 @@ const settleDepositViaFeeWallet = vi.fn();
 const getFeeWalletTenantId = vi.fn();
 const propagateDepositNotPaid = vi.fn();
 const applyPixReceivedEffects = vi.fn();
+const getPixStatus = vi.fn();
 
 vi.mock("@/server/db", () => ({
   withAdmin: (fn: (tx: unknown) => unknown) =>
@@ -40,6 +41,12 @@ vi.mock("@/server/services/depix-transaction.service", () => ({
 vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: (...a: unknown[]) => getFeeWalletTenantId(...a),
 }));
+// Revalidacao anti-forja do `approved` (S1/S2): consulta ativa a Eulen.
+// isDepixConfigured=true para exercitar a revalidacao (sem config, ela e pulada).
+vi.mock("@/lib/services/depix-service", () => ({
+  getPixStatus: (...a: unknown[]) => getPixStatus(...a),
+  isDepixConfigured: () => true,
+}));
 
 import { handleEulenDepositWebhook } from "@/lib/webhooks/eulen-deposit-handler";
 
@@ -63,12 +70,16 @@ beforeEach(() => {
     findFirst, updateMany, recordWebhookEvent, markWebhookProcessed,
     verifyDepositOnChain, settleDepositConfirmed, settleDepositViaFeeWallet,
     getFeeWalletTenantId, propagateDepositNotPaid, applyPixReceivedEffects,
+    getPixStatus,
   ]) m.mockReset();
   recordWebhookEvent.mockResolvedValue(true);
   updateMany.mockResolvedValue({ count: 1 });
   markWebhookProcessed.mockResolvedValue(undefined);
   getFeeWalletTenantId.mockResolvedValue("fee-tenant");
   findFirst.mockResolvedValue(tx());
+  // Default: a Eulen CORROBORA o `approved` (caminho feliz). Casos específicos
+  // sobrescrevem para pending/erro (revalidação anti-forja S1/S2).
+  getPixStatus.mockResolvedValue({ success: true, status: "pix_received", isFinal: false });
 });
 
 describe("handleEulenDepositWebhook", () => {
@@ -85,6 +96,30 @@ describe("handleEulenDepositWebhook", () => {
     // ...mas NAO credita saldo (isso so no on-chain/COMPLETED).
     expect(settleDepositConfirmed).not.toHaveBeenCalled();
     expect(settleDepositViaFeeWallet).not.toHaveBeenCalled();
+    // Revalidou com a Eulen (canal ativo, timeout curto) antes de liberar (S1/S2).
+    expect(getPixStatus).toHaveBeenCalledWith("q1", expect.objectContaining({ timeoutMs: expect.any(Number) }));
+  });
+
+  it("approved NAO corroborado pela Eulen (status pending) -> NAO libera a venda (anti-forja S1/S2)", async () => {
+    getPixStatus.mockResolvedValue({ success: true, status: "pending", isFinal: false });
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q1", status: "approved", valueInCents: 10000 },
+      null,
+    );
+    // Ainda marca PROCESSING (o PIX pode ter caido), mas NAO libera a venda.
+    expect(updateMany).toHaveBeenCalled();
+    expect(applyPixReceivedEffects).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ pixApproved: true, saleReleased: false });
+  });
+
+  it("approved com Eulen INDISPONIVEL (getPixStatus falha) -> NAO libera a venda (fail-safe)", async () => {
+    getPixStatus.mockResolvedValue({ success: false, error: "Depix HTTP 503" });
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q1", status: "approved", valueInCents: 10000 },
+      null,
+    );
+    expect(applyPixReceivedEffects).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ saleReleased: false });
   });
 
   it("approved -> persiste o nome do pagador (payerName) quando a Eulen envia", async () => {
