@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
+import { withCronLock } from "@/server/cron-lock"
 
 export const dynamic = "force-dynamic"
 
@@ -31,10 +32,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date()
+    // CRON-1: sem lock, duas execucoes sobrepostas pegam a MESMA rewardAction
+    // APPROVED (o updateMany abaixo casa por id, sem filtrar status) e decrementam
+    // o saldo de cashback em DOBRO. withCronLock serializa (idem aos demais crons).
+    let result: { expiredCount: number; customersAffected?: number } = { expiredCount: 0 }
+    const ran = await withCronLock("expire-rewards", async () => {
     // Cron global cross-tenant (toca reward_* de todos os tenants) -> withAdmin
     // (role app_admin, BYPASSRLS). Com o runtime como app_login (sujeito a RLS),
     // prisma direto veria 0 linhas.
-    const result = await withAdmin(async (tx) => {
+    result = await withAdmin(async (tx) => {
       // Find APPROVED expired
       const expiredActions = await tx.rewardAction.findMany({
         where: {
@@ -100,6 +106,8 @@ export async function POST(request: NextRequest) {
 
       return { expiredCount: expiredActions.length, customersAffected: cashbacksByCustomer.size }
     })
+    })
+    if (!ran) return NextResponse.json({ skipped: "locked" })
 
     logger.info(`[cron-rewards] Expired ${result.expiredCount} rewards`)
     return NextResponse.json({ ok: true, ...result })
