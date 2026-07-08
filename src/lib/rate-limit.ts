@@ -44,6 +44,24 @@ export function hasDistributedRateLimit(): boolean {
   return getRedis() !== null;
 }
 
+/**
+ * Teto efetivo de rate-limit para rotas PÚBLICAS quando NÃO há Redis distribuído.
+ * Sem Redis, o rate-limit cai para in-memory, que não é compartilhado entre
+ * instâncias serverless — o teto real vira `limit × nº_instâncias` (fail-open
+ * silencioso, auditoria de segurança S3). Nesse modo degradado, devolve um teto
+ * bem menor (`degraded`) e loga; com Redis, devolve o `normal`. Não é fail-closed
+ * duro — a rota pública continua servindo, só com um limite conservador.
+ */
+export function degradedPublicLimit(
+  normal: number,
+  degraded: number,
+  hasDistributed: () => boolean = hasDistributedRateLimit,
+): number {
+  if (hasDistributed()) return normal;
+  logger.warn("rate-limit público sem backend distribuído — teto degradado", { normal, degraded });
+  return degraded;
+}
+
 function getRedis(): Redis | null {
   if (redisFailed) return null;
   if (redis) return redis;

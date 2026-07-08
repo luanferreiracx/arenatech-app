@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { rateLimit, refundRateLimit, clearRateLimitStore } from "@/lib/rate-limit";
+import {
+  rateLimit,
+  refundRateLimit,
+  clearRateLimitStore,
+  degradedPublicLimit,
+} from "@/lib/rate-limit";
+
 
 describe("rateLimit", () => {
   beforeEach(() => {
@@ -103,6 +109,21 @@ describe("rateLimit", () => {
       vi.advanceTimersByTime(10_100);
       expect((await rateLimit({ key: "ttl", limit: 2, windowMs: 10_000 })).remaining).toBe(1);
       vi.useRealTimers();
+    });
+  });
+
+  describe("degradedPublicLimit (S3: fecha o fail-open sem Redis)", () => {
+    // Injeta o predicado (default = hasDistributedRateLimit) para testar os dois
+    // ramos sem depender de REDIS_URL/singleton do ambiente — o CI seta REDIS_URL,
+    // o dev não, então o teste precisa ser determinístico.
+    it("SEM backend distribuído: devolve o teto DEGRADADO (conservador)", () => {
+      expect(degradedPublicLimit(12, 3, () => false)).toBe(3);
+      expect(degradedPublicLimit(120, 30, () => false)).toBe(30);
+    });
+
+    it("COM backend distribuído: devolve o teto NORMAL", () => {
+      expect(degradedPublicLimit(12, 3, () => true)).toBe(12);
+      expect(degradedPublicLimit(120, 30, () => true)).toBe(120);
     });
   });
 });

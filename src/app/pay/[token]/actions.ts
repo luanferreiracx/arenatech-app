@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { z } from "zod";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimit, degradedPublicLimit } from "@/lib/rate-limit";
 import { extractSourceIp } from "@/lib/webhooks/replay-guard";
 import {
   generatePublicPix as generatePublicPixService,
@@ -31,7 +31,7 @@ export async function generatePublicPixAction(
 
   const rl = await rateLimit({
     key: `pay-public-generate:${await clientIp()}`,
-    limit: 12,
+    limit: degradedPublicLimit(12, 3),
     windowMs: 10 * 60 * 1000,
   });
   if (!rl.success) {
@@ -45,7 +45,7 @@ export async function generatePublicPixAction(
 export async function getPublicPixStatusAction(token: string): Promise<PublicPixStatus> {
   const rl = await rateLimit({
     key: `pay-public-status:${await clientIp()}`,
-    limit: 120,
+    limit: degradedPublicLimit(120, 30),
     windowMs: 60 * 1000,
   });
   if (!rl.success) return "pending";
