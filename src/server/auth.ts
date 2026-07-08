@@ -9,7 +9,8 @@
  */
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { compareSync } from "bcryptjs";
+import { compare } from "bcryptjs";
+import { hashPassword } from "@/lib/password";
 import { resolveLoginIdentifier, maskIdentifier } from "@/lib/auth/login-identifier";
 import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
@@ -26,6 +27,11 @@ import { RateLimitedError } from "@/lib/auth/login-errors";
  * sessões existentes em ~MODULES_CACHE_TTL_MS, sem exigir relogin e sem bater no
  * banco a cada request. (Decisão do dono: "JWT + invalidar ao mudar plano".)
  */
+// A6 (anti-enumeração): hash dummy (mesmo custo do app) comparado quando o
+// usuário não existe, para o tempo de resposta do login não revelar se o
+// identificador existe. Computado uma vez no boot.
+const DUMMY_PASSWORD_HASH = hashPassword("nonexistent-user-timing-equalizer");
+
 const MODULES_CACHE_TTL_MS = 60_000;
 const modulesCache = new Map<string, { modules: ModuleKey[]; expiresAt: number }>();
 const ACTIVE_TENANT_STATUS = "ACTIVE";
@@ -219,10 +225,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
 
         if (!user) {
+          // A6: compara contra o hash dummy (async, mesmo custo) para equalizar o
+          // tempo de resposta — sem isto, "usuário inexistente" falharia rápido e
+          // vazaria a existência do identificador por timing.
+          await compare(password, DUMMY_PASSWORD_HASH);
           recordFailedAttempt(rateLimitKey);
           return null;
         }
-        if (!compareSync(password, user.passwordHash)) {
+        if (!(await compare(password, user.passwordHash))) {
           const updated = recordFailedAttempt(rateLimitKey);
           logger.warn("Login falhou: senha incorreta", {
             kind: identifier.kind,
