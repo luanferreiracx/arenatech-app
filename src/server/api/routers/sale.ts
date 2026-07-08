@@ -149,6 +149,15 @@ function serializeUpgrade<
   };
 }
 
+/**
+ * PDV3 (observabilidade): limiar de duração da transação de finalização acima do
+ * qual emitimos um aviso alto (Sentry em prod). A tx do finalize segura locks de
+ * estoque até o commit; medir a duração revela contenção REAL antes de decidir
+ * reestruturar o hot-path de dinheiro. 3s é claramente anômalo (normal < 500ms) e
+ * bem abaixo do timeout de 20s da tx — se este aviso nunca dispara, PDV3 é teórico.
+ */
+const FINALIZE_SLOW_MS = 3_000;
+
 function serializeSale<
   TItem extends {
     unitPrice: Prisma.Decimal;
@@ -861,6 +870,7 @@ export const saleRouter = createTRPCRouter({
         }
       }
 
+      const finalizeStartedMs = Date.now();
       const txResult = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({
           where: { id: input.saleId },
@@ -1763,6 +1773,21 @@ export const saleRouter = createTRPCRouter({
       // DePix — fica como PAYABLE (PENDENTE para pix/depix; PAGA para dinheiro,
       // ja debitado do caixa) e o operador resolve pela pagina de contas a pagar.
       // A UI do PDV alerta a pendencia + linka para /financial ao finalizar.
+
+      // PDV3 (observabilidade): duração da transação de finalização. Aviso alto
+      // (Sentry em prod) acima do limiar — sinaliza contenção de lock real no
+      // hot-path, para decidir sobre reestruturação com dado em vez de especular.
+      const finalizeDurationMs = Date.now() - finalizeStartedMs;
+      if (finalizeDurationMs > FINALIZE_SLOW_MS) {
+        logger.warn("Finalize lento — possivel contencao de lock no PDV", {
+          saleId: input.saleId,
+          number: txResult.updated.number,
+          durationMs: finalizeDurationMs,
+          items: Array.isArray(txResult.updated.items) ? txResult.updated.items.length : 0,
+          payments: input.payments?.length ?? 0,
+        });
+      }
+
       return serializeSale(txResult.updated);
     }),
 
