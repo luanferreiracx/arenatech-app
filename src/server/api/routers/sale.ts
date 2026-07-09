@@ -1413,9 +1413,6 @@ export const saleRouter = createTRPCRouter({
         // FT considera só os pagamentos NÃO-cartão (dinheiro/PIX/crediário/OS).
         const nonCardPayments = payments.filter((p) => !paymentIsCard(p));
         const nonCardTotalCents = nonCardPayments.reduce((s, p) => s + p.amount, 0);
-        const hasNonCardInstallments = nonCardPayments.some(
-          (p) => (p.installments ?? 1) > 1,
-        );
 
         if (refundDueCents > 0) {
           // Downgrade: cria PAYABLE para rastrear a devolucao devida ao cliente.
@@ -1453,27 +1450,34 @@ export const saleRouter = createTRPCRouter({
               createdByUserId: ctx.session.user.id,
             },
           });
-        } else if (nonCardPayments.length === 0) {
-          // Venda 100% cartão: o recebível vive no CardReceivable (fonte única).
-          // Não cria FinancialTransaction (evita a dupla representação do R4).
-        } else if (hasNonCardInstallments) {
-          // Create separate transaction for each non-card installment payment
-          for (const payment of nonCardPayments) {
-            const installmentCount = payment.installments ?? 1;
-            if (installmentCount > 1) {
-              const perInstallment = Math.floor(payment.amount / installmentCount);
-              const remainder = payment.amount - perInstallment * installmentCount;
-
+        } else {
+          // Decisão pura (testada) de QUAIS FT criar — só não-cartão (cartão vive
+          // no CardReceivable). Venda 100% cartão → specs=[] → nenhuma FT.
+          const { planSaleReceivables } = await import(
+            "@/server/services/sale-receivables-plan"
+          );
+          const specs = planSaleReceivables(
+            nonCardPayments.map((p) => ({
+              amount: p.amount,
+              installments: p.installments,
+              method: p.method,
+            })),
+            { totalCents: nonCardTotalCents, paymentMethod },
+          );
+          for (const spec of specs) {
+            if (spec.installments > 1) {
+              const perInstallment = Math.floor(spec.amountCents / spec.installments);
+              const remainder = spec.amountCents - perInstallment * spec.installments;
               const ft = await tx.financialTransaction.create({
                 data: {
                   tenantId: ctx.tenantId,
                   type: "RECEIVABLE",
                   status: "PENDING",
-                  description: `Venda ${saleNumber} - ${payment.method}`,
+                  description: `Venda ${saleNumber} - ${spec.paymentMethod}`,
                   category: "venda",
-                  totalAmount: centsToPrisma(payment.amount),
+                  totalAmount: centsToPrisma(spec.amountCents),
                   dueDate: new Date(),
-                  paymentMethod: payment.method,
+                  paymentMethod: spec.paymentMethod,
                   // saleId e o link da discriminated union (consultado por
                   // cancelReceivablesFromSale, refund, dashboard). referenceId
                   // permanece para compat com queries antigas.
@@ -1483,11 +1487,10 @@ export const saleRouter = createTRPCRouter({
                   customerId: input.customerId ?? null,
                 },
               });
-
-              const installments = Array.from({ length: installmentCount }, (_, i) => {
+              const installments = Array.from({ length: spec.installments }, (_, i) => {
                 const dueDate = new Date();
                 dueDate.setMonth(dueDate.getMonth() + i + 1);
-                const amount = i === installmentCount - 1 ? perInstallment + remainder : perInstallment;
+                const amount = i === spec.installments - 1 ? perInstallment + remainder : perInstallment;
                 return {
                   tenantId: ctx.tenantId,
                   transactionId: ft.id,
@@ -1504,13 +1507,13 @@ export const saleRouter = createTRPCRouter({
                   tenantId: ctx.tenantId,
                   type: "RECEIVABLE",
                   status: "PAID",
-                  description: `Venda ${saleNumber} - ${payment.method}`,
+                  description: `Venda ${saleNumber} - ${spec.paymentMethod}`,
                   category: "venda",
-                  totalAmount: centsToPrisma(payment.amount),
-                  paidAmount: centsToPrisma(payment.amount),
+                  totalAmount: centsToPrisma(spec.amountCents),
+                  paidAmount: centsToPrisma(spec.amountCents),
                   dueDate: new Date(),
                   paidAt: new Date(),
-                  paymentMethod: payment.method,
+                  paymentMethod: spec.paymentMethod,
                   saleId: sale.id,
                   referenceId: sale.id,
                   referenceType: "SALE",
@@ -1519,27 +1522,6 @@ export const saleRouter = createTRPCRouter({
               });
             }
           }
-        } else {
-          // Single/misto não-cartão à vista → 1 FT PAID pelo total NÃO-cartão
-          // (o cartão, se houver, já foi para o CardReceivable).
-          await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "RECEIVABLE",
-              status: "PAID",
-              description: `Venda ${saleNumber}`,
-              category: "venda",
-              totalAmount: centsToPrisma(nonCardTotalCents),
-              paidAmount: centsToPrisma(nonCardTotalCents),
-              dueDate: new Date(),
-              paidAt: new Date(),
-              paymentMethod,
-              saleId: sale.id,
-              referenceId: sale.id,
-              referenceType: "SALE",
-              customerId: input.customerId ?? null,
-            },
-          });
         }
 
         // Dados de confirmacao InfinitePay chegam pelo webhook (gravados no leg
