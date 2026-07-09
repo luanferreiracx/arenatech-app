@@ -90,9 +90,13 @@ class WalletPaths:
         self.idempotency = os.path.join(d, "idempotency.json")
 
 # Esploras pra broadcast/sync — primeiro env ESPLORA_URL (se setado), depois defaults.
+# blockstream.info/liquid/api e a Esplora Liquid mainnet VIVA da Blockstream.
+# `esplora.blockstream.com` foi DESCONTINUADO (o DNS nao resolve mais — jul/2026)
+# e foi removido: mante-lo so pendurava o sync (timeout de conexao). `liquid.network`
+# fica como fallback — pode dar 502 temporario, mas falha rapido, sem travar.
 ESPLORA_URLS = [u for u in [ESPLORA_URL.rstrip("/") if ESPLORA_URL else None,
-                            "https://liquid.network/api",
-                            "https://esplora.blockstream.com/liquid/api"] if u]
+                            "https://blockstream.info/liquid/api",
+                            "https://liquid.network/api"] if u]
 # dedup preservando ordem
 ESPLORA_URLS = list(dict.fromkeys(ESPLORA_URLS))
 
