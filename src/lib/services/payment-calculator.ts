@@ -11,8 +11,10 @@
  * (adquirente x bandeira x tipo x parcela) e e calculada com a MESMA funcao do
  * recebivel (`totalCardFeeCents` -> `splitCardReceivable`), pra que o
  * `operatorFee` do breakdown bata centavo a centavo com a soma dos
- * `CardReceivable` da venda (DRE = recebivel). Sem AcquirerRate cadastrada, cai
- * pro fallback `PaymentMethod.feePercent/feeFixed` (mesma matematica).
+ * `CardReceivable` da venda (DRE = recebivel). Cartao (adquirente/bandeira/tipo
+ * informados) SEM taxa cadastrada pra combinacao e ERRO (R3) — nao cai mais no
+ * fallback silencioso. O fallback `PaymentMethod.feePercent/feeFixed` vale so
+ * pra NAO-cartao (dinheiro/PIX = taxa 0).
  *
  * QUEM PAGA A TAXA — DECIDIDO NA VENDA, nao configurado: o operador informa no
  * PDV o valor que o cliente pagou de fato (`totalPaidManual`, o que passou na
@@ -222,6 +224,19 @@ export async function calculatePaymentByMethodId(
         installments: opts.installments,
       })
     : null;
+
+  // R3 (auditoria PDV): cartao COM adquirente/bandeira informados mas SEM taxa
+  // cadastrada pra combinacao (adquirente×bandeira×tipo×parcela) e ERRO — nao cai
+  // mais silenciosamente na taxa-base do metodo (fee errado + quebra da invariante
+  // DRE = recebivel, ja que o CardReceivable nao seria gerado). O finalize lanca;
+  // o preview (previewPaymentBreakdown) exibe.
+  if (opts.card && !cardRate) {
+    return {
+      ...emptyBreakdown(opts.valorMercadoria),
+      error:
+        "Nao ha taxa cadastrada para esta bandeira/parcelas nesta maquininha. Cadastre em Cartoes e Recebimento.",
+    };
+  }
 
   return calculatePayment({
     method,
