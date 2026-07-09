@@ -1011,6 +1011,41 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
+        // R1/R2 (auditoria PDV 2026-07-09): enforcement server-side da config de
+        // cartão. O finalize é a autoridade — não confia só no frontend (#474).
+        // Cartão exige forma configurada + adquirente + bandeira + tipo; débito
+        // não parcela. Sem isto, uma chamada direta à API (ou regressão de UI)
+        // gravaria venda no cartão com taxa 0 e sem CardReceivable.
+        if (payments.length > 0) {
+          const { cardPaymentConfigError } = await import(
+            "@/server/services/card-payment-guard"
+          );
+          const methodIds = [
+            ...new Set(
+              payments
+                .map((p) => p.paymentMethodId)
+                .filter((id): id is string => !!id),
+            ),
+          ];
+          const methodTypeById = new Map<string, string>();
+          if (methodIds.length > 0) {
+            const methods = await tx.paymentMethod.findMany({
+              where: { id: { in: methodIds }, tenantId: ctx.tenantId },
+              select: { id: true, type: true },
+            });
+            for (const m of methods) methodTypeById.set(m.id, m.type);
+          }
+          for (const payment of payments) {
+            const err = cardPaymentConfigError(
+              payment,
+              payment.paymentMethodId
+                ? methodTypeById.get(payment.paymentMethodId) ?? null
+                : null,
+            );
+            if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+          }
+        }
+
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
         // Determina tipo da venda: se TODOS os itens sao aparelhos -> APARELHO;
         // se NENHUM -> NAO_APARELHO; misto -> AMBOS.
