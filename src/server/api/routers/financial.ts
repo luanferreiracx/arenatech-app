@@ -732,11 +732,53 @@ export const financialRouter = createTRPCRouter({
             transaction: { deletedAt: null },
           },
           include: {
+            // saleId: discriminador de cartão (fonte única = CardReceivable).
             transaction: {
-              select: { type: true, description: true },
+              select: { type: true, description: true, saleId: true },
             },
           },
           orderBy: { dueDate: "asc" },
+        });
+
+        // Fonte única do dinheiro de cartão = CardReceivable (R4 fase 2). Parcelas
+        // de vendas que TÊM CardReceivable são puladas aqui; o cartão entra pelos
+        // CardReceivable (líquido, D+N/realizado). Sem isto o mesmo dinheiro
+        // contaria 2× (parcela mensal + recebível).
+        const cfSaleIds = [
+          ...new Set(
+            installments
+              .map((i) => i.transaction.saleId)
+              .filter((id): id is string => !!id),
+          ),
+        ];
+        const cfCardSales =
+          cfSaleIds.length > 0
+            ? await tx.cardReceivable.findMany({
+                where: { saleId: { in: cfSaleIds } },
+                select: { saleId: true },
+                distinct: ["saleId"],
+              })
+            : [];
+        const cfCardSaleIds = new Set(
+          cfCardSales.map((c) => c.saleId).filter((id): id is string => !!id),
+        );
+
+        // CardReceivable no período: PENDING → projetado (expectedSettlementDate,
+        // líquido); SETTLED → realizado (settledAt, líquido efetivo).
+        const cfCardReceivables = await tx.cardReceivable.findMany({
+          where: {
+            OR: [
+              { status: "PENDING", expectedSettlementDate: { gte: dateFrom, lte: dateTo } },
+              { status: "SETTLED", settledAt: { gte: dateFrom, lte: dateTo } },
+            ],
+          },
+          select: {
+            status: true,
+            expectedSettlementDate: true,
+            settledAt: true,
+            netAmount: true,
+            settledNetAmount: true,
+          },
         });
 
         // Group by period com separacao realized (paidAt) vs projected
@@ -776,6 +818,10 @@ export const financialRouter = createTRPCRouter({
         };
 
         for (const inst of installments) {
+          // Cartão: o dinheiro entra pelo CardReceivable (fonte única) — pula.
+          if (inst.transaction.saleId && cfCardSaleIds.has(inst.transaction.saleId)) {
+            continue;
+          }
           const isPaid = inst.status === "PAID" || inst.status === "PARTIALLY_PAID";
           // Cada parcela aparece em UM bucket — paidAt se realizada,
           // senao dueDate. paidAmount conta no realized; saldo pendente
@@ -810,6 +856,23 @@ export const financialRouter = createTRPCRouter({
               grouped[keyP]!.projectedPayable += remainingCents;
               grouped[keyP]!.payable += remainingCents;
             }
+          }
+        }
+
+        // Recebíveis de cartão (fonte única): entram como RECEIVABLE, líquido.
+        for (const cr of cfCardReceivables) {
+          if (cr.status === "SETTLED" && cr.settledAt) {
+            const net = decimalToCents(cr.settledNetAmount ?? cr.netAmount);
+            const keyR = formatKey(cr.settledAt);
+            if (!grouped[keyR]) grouped[keyR] = emptyBucket();
+            grouped[keyR]!.realizedReceivable += net;
+            grouped[keyR]!.receivable += net;
+          } else if (cr.status === "PENDING") {
+            const net = decimalToCents(cr.netAmount);
+            const keyP = formatKey(cr.expectedSettlementDate);
+            if (!grouped[keyP]) grouped[keyP] = emptyBucket();
+            grouped[keyP]!.projectedReceivable += net;
+            grouped[keyP]!.receivable += net;
           }
         }
 

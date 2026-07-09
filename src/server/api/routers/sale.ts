@@ -1011,15 +1011,14 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // R1/R2 (auditoria PDV 2026-07-09): enforcement server-side da config de
-        // cartão. O finalize é a autoridade — não confia só no frontend (#474).
-        // Cartão exige forma configurada + adquirente + bandeira + tipo; débito
-        // não parcela. Sem isto, uma chamada direta à API (ou regressão de UI)
-        // gravaria venda no cartão com taxa 0 e sem CardReceivable.
+        // Classificação de cartão — resolvida UMA vez e usada pelo guard R1/R2 E
+        // pela criação de FinancialTransaction (cartão = fonte única CardReceivable,
+        // não gera FT). Resolve o tipo do PaymentMethod dos pagamentos com id.
+        const { cardPaymentConfigError, isCardPayment } = await import(
+          "@/server/services/card-payment-guard"
+        );
+        const methodTypeById = new Map<string, string>();
         if (payments.length > 0) {
-          const { cardPaymentConfigError } = await import(
-            "@/server/services/card-payment-guard"
-          );
           const methodIds = [
             ...new Set(
               payments
@@ -1027,7 +1026,6 @@ export const saleRouter = createTRPCRouter({
                 .filter((id): id is string => !!id),
             ),
           ];
-          const methodTypeById = new Map<string, string>();
           if (methodIds.length > 0) {
             const methods = await tx.paymentMethod.findMany({
               where: { id: { in: methodIds }, tenantId: ctx.tenantId },
@@ -1035,15 +1033,26 @@ export const saleRouter = createTRPCRouter({
             });
             for (const m of methods) methodTypeById.set(m.id, m.type);
           }
-          for (const payment of payments) {
-            const err = cardPaymentConfigError(
-              payment,
-              payment.paymentMethodId
-                ? methodTypeById.get(payment.paymentMethodId) ?? null
-                : null,
-            );
-            if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
-          }
+        }
+        const paymentIsCard = (p: (typeof payments)[number]): boolean =>
+          isCardPayment(
+            p,
+            p.paymentMethodId ? methodTypeById.get(p.paymentMethodId) ?? null : null,
+          );
+
+        // R1/R2 (auditoria PDV 2026-07-09): enforcement server-side da config de
+        // cartão. O finalize é a autoridade — não confia só no frontend (#474).
+        // Cartão exige forma configurada + adquirente + bandeira + tipo; débito
+        // não parcela. Sem isto, uma chamada direta à API (ou regressão de UI)
+        // gravaria venda no cartão com taxa 0 e sem CardReceivable.
+        for (const payment of payments) {
+          const err = cardPaymentConfigError(
+            payment,
+            payment.paymentMethodId
+              ? methodTypeById.get(payment.paymentMethodId) ?? null
+              : null,
+          );
+          if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
         }
 
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
@@ -1397,7 +1406,14 @@ export const saleRouter = createTRPCRouter({
 
         // Create FinancialTransaction (RECEIVABLE) — pulado em downgrade
         // pois nao ha valor a receber, so devolucao em CashMovement.
-        const hasInstallments = payments.some(
+        //
+        // FONTE ÚNICA (R4 fase 2): o dinheiro de CARTÃO em trânsito vive no
+        // CardReceivable (D+N real, taxa, conta) — NÃO gera FinancialTransaction,
+        // pra não representar o mesmo dinheiro em dois lugares. Aqui a criação de
+        // FT considera só os pagamentos NÃO-cartão (dinheiro/PIX/crediário/OS).
+        const nonCardPayments = payments.filter((p) => !paymentIsCard(p));
+        const nonCardTotalCents = nonCardPayments.reduce((s, p) => s + p.amount, 0);
+        const hasNonCardInstallments = nonCardPayments.some(
           (p) => (p.installments ?? 1) > 1,
         );
 
@@ -1437,9 +1453,12 @@ export const saleRouter = createTRPCRouter({
               createdByUserId: ctx.session.user.id,
             },
           });
-        } else if (hasInstallments) {
-          // Create separate transaction for each installment payment
-          for (const payment of payments) {
+        } else if (nonCardPayments.length === 0) {
+          // Venda 100% cartão: o recebível vive no CardReceivable (fonte única).
+          // Não cria FinancialTransaction (evita a dupla representação do R4).
+        } else if (hasNonCardInstallments) {
+          // Create separate transaction for each non-card installment payment
+          for (const payment of nonCardPayments) {
             const installmentCount = payment.installments ?? 1;
             if (installmentCount > 1) {
               const perInstallment = Math.floor(payment.amount / installmentCount);
@@ -1501,7 +1520,8 @@ export const saleRouter = createTRPCRouter({
             }
           }
         } else {
-          // Single payment - mark as paid
+          // Single/misto não-cartão à vista → 1 FT PAID pelo total NÃO-cartão
+          // (o cartão, se houver, já foi para o CardReceivable).
           await tx.financialTransaction.create({
             data: {
               tenantId: ctx.tenantId,
@@ -1509,8 +1529,8 @@ export const saleRouter = createTRPCRouter({
               status: "PAID",
               description: `Venda ${saleNumber}`,
               category: "venda",
-              totalAmount: centsToPrisma(totalCents),
-              paidAmount: centsToPrisma(totalCents),
+              totalAmount: centsToPrisma(nonCardTotalCents),
+              paidAmount: centsToPrisma(nonCardTotalCents),
               dueDate: new Date(),
               paidAt: new Date(),
               paymentMethod,
