@@ -149,7 +149,7 @@ describe("handleEulenDepositWebhook", () => {
     );
     // Cross-check chamado com timeout CURTO (nao segurar o webhook alem do SLA).
     expect(verifyDepositOnChain).toHaveBeenCalledWith(
-      expect.objectContaining({ lwkTimeoutMs: expect.any(Number) }),
+      expect.objectContaining({ lwkTimeoutMs: expect.any(Number), lwkSync: false }),
     );
     expect(settleDepositConfirmed).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: TENANT, depositTxId: "bc1", depixAmount: 100 }),

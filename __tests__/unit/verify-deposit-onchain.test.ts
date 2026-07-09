@@ -43,6 +43,17 @@ describe("verifyDepositOnChain — tolerancia da taxa Eulen", () => {
     expect(r.reason).toContain("amount_mismatch");
   });
 
+  it("repassa lwkSync/lwkTimeoutMs ao listTransactions (webhook: sync=false, timeout curto)", async () => {
+    listTransactions.mockResolvedValue({ success: true, transactions: [] });
+    await verifyDepositOnChain({
+      tenantId: "x", txid: "t", expectedAmount: 10, expectedAddress: null,
+      lwkTimeoutMs: 8000, lwkSync: false,
+    });
+    expect(listTransactions).toHaveBeenCalledWith(
+      "x", 50, expect.objectContaining({ timeoutMs: 8000, sync: false }),
+    );
+  });
+
   it("REJEITA on-chain MUITO abaixo (alem da taxa Eulen)", async () => {
     // R$30 on-chain p/ um esperado de R$35 = R$5 a menos, bem mais que 99c.
     listTransactions.mockResolvedValue({ success: true, transactions: [txWithDepix("t3", 30)] });
