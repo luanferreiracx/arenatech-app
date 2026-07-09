@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Prisma, type PaymentMethod } from "@prisma/client";
-import { calculatePayment } from "@/lib/services/payment-calculator";
+import { calculatePayment, calculatePaymentByMethodId } from "@/lib/services/payment-calculator";
 import {
   splitCardReceivable,
   type CardSettlementRate,
@@ -192,5 +192,37 @@ describe("calculatePayment", () => {
         expect(bd.netRevenue).toBe(bd.totalPaid - bd.operatorFee);
       },
     );
+  });
+});
+
+describe("calculatePaymentByMethodId — R3 (cartao exige taxa cadastrada)", () => {
+  function makeTx(rateRow: { feePercent: number; feeFixed: number; settlementDays: number } | null) {
+    return {
+      paymentMethod: { findUnique: async () => makeMethod() },
+      acquirerRate: { findFirst: async () => rateRow },
+    };
+  }
+  const card = { acquirerId: "a1", cardBrandId: "b1", cardKind: "CREDIT" as const };
+
+  it("cartao COM adquirente mas SEM taxa cadastrada => erro explicito", async () => {
+    const bd = await calculatePaymentByMethodId(makeTx(null), {
+      paymentMethodId: "m1", installments: 3, valorMercadoria: 10_000, card, tenantId: "t1",
+    });
+    expect(bd.error).toMatch(/taxa cadastrada/i);
+  });
+
+  it("cartao com taxa cadastrada => sem erro", async () => {
+    const bd = await calculatePaymentByMethodId(
+      makeTx({ feePercent: 2, feeFixed: 0, settlementDays: 1 }),
+      { paymentMethodId: "m1", installments: 3, valorMercadoria: 10_000, card, tenantId: "t1" },
+    );
+    expect(bd.error).toBeNull();
+  });
+
+  it("NAO-cartao (sem card) nao dispara o erro de taxa", async () => {
+    const bd = await calculatePaymentByMethodId(makeTx(null), {
+      paymentMethodId: "m1", installments: 1, valorMercadoria: 10_000, card: null, tenantId: "t1",
+    });
+    expect(bd.error).toBeNull();
   });
 });
