@@ -241,6 +241,10 @@ export function PaymentDialog({
       ? activeBrands.filter((b) => allowedBrandIds.includes(b.id))
       : activeBrands;
 
+  // Cartão exige adquirente + bandeira quando há adquirentes cadastradas.
+  const cardSelectionIncomplete =
+    isCardPayment && activeAcquirers.length > 0 && (!selectedAcquirerId || !selectedCardBrandId);
+
   // Parcelas disponiveis = as que tem taxa cadastrada no adquirente×bandeira×tipo
   // selecionado. O maximo real vem daqui, nao de um numero fixo na forma. Sem
   // adquirente/bandeira escolhidos (ou combinacao sem taxa), cai pro fallback
@@ -329,6 +333,20 @@ export function PaymentDialog({
     }
 
     const valorPagoCents = Math.round(amountReais * 100);
+
+    // Cartão: quando há adquirentes cadastradas, exige adquirente + bandeira
+    // (senão a venda ia sem recebível/taxa). Tenant sem adquirente segue no
+    // fallback pra não travar a venda.
+    if (isCardPayment && activeAcquirers.length > 0) {
+      if (!selectedAcquirerId) {
+        toast.error("Selecione a adquirente (maquininha) do cartão.");
+        return;
+      }
+      if (!selectedCardBrandId) {
+        toast.error("Selecione a bandeira do cartão.");
+        return;
+      }
+    }
 
     // DePix deve ser o ULTIMO pagamento: cobre todo o valor restante
     // (paridade Laravel modal-pagamento — depois dele restante=0 e nao ha
@@ -870,7 +888,16 @@ export function PaymentDialog({
               </label>
             )}
 
-            <Button className="w-full gap-2" onClick={handleAddPayment}>
+            {cardSelectionIncomplete && (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                Selecione a adquirente e a bandeira para adicionar o pagamento no cartão.
+              </p>
+            )}
+            <Button
+              className="w-full gap-2"
+              onClick={handleAddPayment}
+              disabled={cardSelectionIncomplete}
+            >
               <Plus className="h-4 w-4" />
               Adicionar Pagamento
             </Button>
