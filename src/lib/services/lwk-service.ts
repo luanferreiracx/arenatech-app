@@ -427,6 +427,7 @@ export interface LwkListTxsResult {
 export async function listTransactions(
   tenantId: string,
   limit = 20,
+  opts?: { timeoutMs?: number },
 ): Promise<LwkListTxsResult> {
   const { config, error: cfgErr } = safeGetConfig();
   if (cfgErr) return { success: false, error: cfgErr };
@@ -436,6 +437,7 @@ export async function listTransactions(
       config,
       "GET",
       `/wallet/${tenantId}/transactions?limit=${Math.max(1, Math.min(limit, 100))}`,
+      { timeoutMs: opts?.timeoutMs },
     );
     if (!ok) {
       return { success: false, error: String(body.error ?? `HTTP ${status}`) };

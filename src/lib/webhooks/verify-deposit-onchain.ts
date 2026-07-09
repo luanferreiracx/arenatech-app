@@ -53,9 +53,12 @@ export async function verifyDepositOnChain(args: {
   /** Quanto o on-chain pode ser MENOR que o esperado (default = taxa Eulen 99c).
    *  Use 0 quando o `expectedAmount` JA e o valor liquido on-chain. */
   maxUnderpayCents?: number;
+  /** Timeout da consulta ao LWK. Curto no caminho do WEBHOOK (SLA ~15s da Eulen);
+   *  default (30s) no cron/reconciliacao, onde a latencia nao importa. */
+  lwkTimeoutMs?: number;
 }): Promise<CrossCheckResult> {
   void args.expectedAddress; // LWK nao expoe address por output ainda — campo reservado
-  const lwkResult = await lwk.listTransactions(args.tenantId, 50);
+  const lwkResult = await lwk.listTransactions(args.tenantId, 50, { timeoutMs: args.lwkTimeoutMs });
   if (!lwkResult.success || !lwkResult.transactions) {
     return { ok: false, reason: `lwk_unavailable: ${lwkResult.error ?? "unknown"}`, onchainAmount: 0 };
   }

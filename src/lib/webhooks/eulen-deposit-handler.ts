@@ -31,6 +31,17 @@ const PAID_ONCHAIN_STATUSES = new Set(["depix_sent"]);
 const PIX_APPROVED_STATUSES = new Set(["approved"]);
 
 /**
+ * Timeout curto do cross-check on-chain (LWK) DENTRO do webhook. A Eulen desiste
+ * em ~15s; o cliente LWK tem default de 30s. Quando o LWK fica lento, o webhook
+ * estourava o SLA ("Timeout, took more than 15 seconds") — bug real observado em
+ * prod (08/07, LWK intermitentemente indisponivel). Com um teto de 8s, se o LWK
+ * nao responde a tempo o cross-check retorna `lwk_unavailable`, a tx fica
+ * PROCESSING (txid ja gravado) e o cron creditDepositIfConfirmedOnChain credita
+ * depois — sem perda, e o webhook responde 200 dentro do SLA.
+ */
+const WEBHOOK_LWK_CROSSCHECK_TIMEOUT_MS = 8_000;
+
+/**
  * Revalidacao anti-forja do marco `approved` (auditoria de seguranca S1/S2).
  *
  * O `approved` (PIX recebido) e o unico marco que LIBERA a venda (marca
@@ -256,6 +267,8 @@ export async function handleEulenDepositWebhook(
         receivingTenantId,
         payload.valueInCents ?? Math.round(expectedAmount * 100),
       ),
+      // Teto curto: nao segurar o webhook alem do SLA da Eulen se o LWK travar.
+      lwkTimeoutMs: WEBHOOK_LWK_CROSSCHECK_TIMEOUT_MS,
     });
     if (!crossCheck.ok) {
       // Ainda nao confirmado (broadcast recente) ou divergencia: NAO credita.
