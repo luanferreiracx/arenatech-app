@@ -147,11 +147,28 @@ describe("handleEulenDepositWebhook", () => {
       { webhookType: "deposit", qrId: "q2", status: "depix_sent", valueInCents: 10000, blockchainTxID: "bc1" },
       null,
     );
-    expect(verifyDepositOnChain).toHaveBeenCalled();
+    // Cross-check chamado com timeout CURTO (nao segurar o webhook alem do SLA).
+    expect(verifyDepositOnChain).toHaveBeenCalledWith(
+      expect.objectContaining({ lwkTimeoutMs: expect.any(Number) }),
+    );
     expect(settleDepositConfirmed).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: TENANT, depositTxId: "bc1", depixAmount: 100 }),
     );
     expect(res.body).toMatchObject({ completed: true });
+  });
+
+  it("depix_sent com LWK lento/indisponivel -> NAO credita, fica PROCESSING (cron completa)", async () => {
+    // Regressao do timeout de webhook (08/07): LWK travou e o cross-check
+    // retornou lwk_unavailable dentro do teto curto. NAO credita; a rede de
+    // seguranca (cron) completa depois. O webhook responde 200 rapido.
+    verifyDepositOnChain.mockResolvedValue({ ok: false, reason: "lwk_unavailable: LWK indisponivel", onchainAmount: 0 });
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q2", status: "depix_sent", valueInCents: 10000, blockchainTxID: "bc1" },
+      null,
+    );
+    expect(settleDepositConfirmed).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ awaitingConfirmation: true });
   });
 
   it("depix_sent na carteira de taxas -> settleDepositViaFeeWallet", async () => {
