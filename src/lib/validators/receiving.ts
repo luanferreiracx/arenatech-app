@@ -40,7 +40,8 @@ export const updateReceivingAccountSchema = createReceivingAccountSchema.partial
 
 export const createAcquirerSchema = z.object({
   name: z.string().min(1, "Nome obrigatório").max(100),
-  receivingAccountId: z.string().uuid().optional().nullable(),
+  // Conta de depósito é obrigatória: sem ela o recebível não sabe onde liquidar.
+  receivingAccountId: z.string().uuid("Selecione a conta de depósito"),
 });
 
 export const updateAcquirerSchema = createAcquirerSchema.partial().extend({
@@ -78,7 +79,8 @@ export const acquirerRateRowSchema = z.object({
 
 export const upsertAcquirerRatesSchema = z.object({
   acquirerId: z.string().uuid(),
-  rates: z.array(acquirerRateRowSchema).max(500),
+  // Ao menos uma taxa: uma adquirente sem taxa não computa recebível/PDV.
+  rates: z.array(acquirerRateRowSchema).min(1, "Cadastre ao menos uma taxa").max(500),
 });
 
 // ── Preview de liquidação (UI do PDV / config) ──

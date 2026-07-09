@@ -1,27 +1,12 @@
 /**
- * Regras de recebimento (D6): valor mínimo de parcela + exigir CPF acima de X.
- * Aplicadas no PDV (sale.finalize). Opt-in via TenantReceivingSettings.
+ * Regras de recebimento (D6): valor mínimo de parcela.
+ * Aplicada no PDV (sale.finalize). Opt-in via TenantReceivingSettings.
  */
 import { describe, it, expect } from "vitest";
-import { requiresCpf, installmentBelowMinimum } from "@/lib/receiving-rules";
-
-describe("requiresCpf", () => {
-  const s = { minInstallmentAmount: 0, requireCpfAbove: 50000 }; // R$500
-
-  it("exige CPF acima do limite", () => {
-    expect(requiresCpf(50001, s)).toBe(true);
-  });
-  it("não exige no limite exato ou abaixo", () => {
-    expect(requiresCpf(50000, s)).toBe(false);
-    expect(requiresCpf(10000, s)).toBe(false);
-  });
-  it("0 desliga a regra", () => {
-    expect(requiresCpf(999999, { minInstallmentAmount: 0, requireCpfAbove: 0 })).toBe(false);
-  });
-});
+import { installmentBelowMinimum } from "@/lib/receiving-rules";
 
 describe("installmentBelowMinimum", () => {
-  const s = { minInstallmentAmount: 5000, requireCpfAbove: 0 }; // parcela mín R$50
+  const s = { minInstallmentAmount: 5000 }; // parcela mín R$50
 
   it("retorna o mínimo quando uma parcela fica abaixo", () => {
     // R$300 em 12x = R$25/parcela < R$50 → viola
@@ -43,7 +28,7 @@ describe("installmentBelowMinimum", () => {
     expect(
       installmentBelowMinimum(
         [{ amount: 30000, installments: 12 }],
-        { minInstallmentAmount: 0, requireCpfAbove: 0 },
+        { minInstallmentAmount: 0 },
       ),
     ).toBeNull();
   });

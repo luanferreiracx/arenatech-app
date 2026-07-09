@@ -318,6 +318,15 @@ export const settingsRouter = createTRPCRouter({
       }
       return ctx.withTenant(async (tx) => {
         const { id, ...rest } = input;
+        // Cartão de débito nunca parcela — força acceptsInstallments=false,
+        // independentemente do que a UI enviar (à prova de bypass).
+        const current = await tx.paymentMethod.findUnique({
+          where: { id },
+          select: { type: true },
+        });
+        if (current?.type === "DEBIT_CARD") {
+          rest.acceptsInstallments = false;
+        }
         return tx.paymentMethod.update({ where: { id }, data: rest });
       });
     }),
@@ -895,15 +904,8 @@ export const settingsRouter = createTRPCRouter({
 
   updateReceiving: tenantProcedure
     .input(z.object({
-      defaultPolicyDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]).optional(),
-      defaultPolicyNonDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]).optional(),
       minInstallmentAmount: z.number().int().min(0).optional(),
-      requireCpfAbove: z.number().int().min(0).optional(),
       maxDiscountPercentNonAdmin: z.number().int().min(0).max(100).nullable().optional(),
-      autoCloseTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
-      monthlySalesGoal: z.number().int().min(0).nullable().optional(),
-      defaultDasRate: z.number().min(0).max(100).nullable().optional(),
-      defaultIcmsDiffRate: z.number().min(0).max(100).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {

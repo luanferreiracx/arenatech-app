@@ -19,3 +19,16 @@ export function useIsTenantAdmin(): boolean {
   const { data: me } = useQuery(trpc.auth.me.queryOptions());
   return !!(me && me.activeTenantId && isTenantAdmin(me, me.activeTenantId));
 }
+
+/**
+ * Hook client: o usuario e super admin (Arena Tech)?
+ *
+ * Mesmo padrao/fail-safe do useIsTenantAdmin. Usado por telas cujas mutations
+ * sao superAdminTenantProcedure (ex.: taxas do simulador) — pra nao mostrar um
+ * form editavel que so daria erro pro admin de tenant comum.
+ */
+export function useIsSuperAdmin(): boolean {
+  const trpc = useTRPC();
+  const { data: me } = useQuery(trpc.auth.me.queryOptions());
+  return me?.user?.isSuperAdmin === true;
+}

@@ -127,8 +127,12 @@ export const receivingRouter = createTRPCRouter({
         const acquirers = await tx.acquirer.findMany({
           where: { tenantId: ctx.tenantId },
           orderBy: [{ active: "desc" }, { name: "asc" }],
+          include: { _count: { select: { rates: true } } },
         });
-        return acquirers.map(serializeAcquirer);
+        return acquirers.map((a) => ({
+          ...serializeAcquirer(a),
+          rateCount: a._count.rates,
+        }));
       });
     }),
 

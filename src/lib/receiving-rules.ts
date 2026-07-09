@@ -8,17 +8,11 @@
 
 export interface ReceivingRuleSettings {
   minInstallmentAmount: number;
-  requireCpfAbove: number;
 }
 
 export interface PaymentForRules {
   amount: number; // centavos
   installments?: number | null;
-}
-
-/** True se a venda EXIGE CPF/CNPJ (total acima do limite e regra ligada). */
-export function requiresCpf(totalCents: number, settings: ReceivingRuleSettings): boolean {
-  return settings.requireCpfAbove > 0 && totalCents > settings.requireCpfAbove;
 }
 
 /**
