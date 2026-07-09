@@ -1060,29 +1060,13 @@ export const financialRouter = createTRPCRouter({
             transaction: { deletedAt: null },
           },
           include: {
-            transaction: { select: { type: true } },
+            // saleId: discriminador de cartão (venda que tem CardReceivable).
+            transaction: { select: { type: true, saleId: true } },
           },
           orderBy: { dueDate: "asc" },
         });
 
-        // Group by day
-        const dailyMap: Record<string, { receivable: number; payable: number }> = {};
-
-        for (const inst of installments) {
-          const key = inst.dueDate.toISOString().split("T")[0]!;
-          if (!dailyMap[key]) {
-            dailyMap[key] = { receivable: 0, payable: 0 };
-          }
-          const remaining = decimalToCents(inst.amount) - decimalToCents(inst.paidAmount);
-          if (inst.transaction.type === "RECEIVABLE") {
-            dailyMap[key]!.receivable += remaining;
-          } else {
-            dailyMap[key]!.payable += remaining;
-          }
-        }
-
-        // Recebíveis de cartão PENDING entram como entrada (líquido) na data de
-        // liquidação esperada. Compõem o fluxo projetado junto das parcelas.
+        // Recebíveis de cartão PENDING no período (líquido, D+N real).
         const cardReceivables = await tx.cardReceivable.findMany({
           where: {
             status: "PENDING",
@@ -1090,41 +1074,48 @@ export const financialRouter = createTRPCRouter({
           },
           select: { expectedSettlementDate: true, netAmount: true },
         });
-        for (const cr of cardReceivables) {
-          const key = cr.expectedSettlementDate.toISOString().split("T")[0]!;
-          if (!dailyMap[key]) {
-            dailyMap[key] = { receivable: 0, payable: 0 };
-          }
-          dailyMap[key]!.receivable += decimalToCents(cr.netAmount);
-        }
 
-        let cumulativeBalance = 0;
-        const projection = Object.entries(dailyMap)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, data]) => {
-            const dayBalance = data.receivable - data.payable;
-            cumulativeBalance += dayBalance;
-            return {
-              date,
-              receivable: data.receivable,
-              payable: data.payable,
-              dayBalance,
-              cumulativeBalance,
-            };
-          });
+        // Fonte única do dinheiro de cartão = CardReceivable. As parcelas de
+        // vendas que TÊM CardReceivable são puladas — senão o mesmo dinheiro
+        // contaria 2× (parcela mensal + recebível D+N). Consulta só os saleIds
+        // presentes nas parcelas do período (barato, índice tenantId+saleId).
+        const saleIds = [
+          ...new Set(
+            installments
+              .map((i) => i.transaction.saleId)
+              .filter((id): id is string => !!id),
+          ),
+        ];
+        const cardSales =
+          saleIds.length > 0
+            ? await tx.cardReceivable.findMany({
+                where: { saleId: { in: saleIds } },
+                select: { saleId: true },
+                distinct: ["saleId"],
+              })
+            : [];
+        const cardSaleIds = new Set(
+          cardSales.map((c) => c.saleId).filter((id): id is string => !!id),
+        );
 
-        const totalReceivable = projection.reduce((s, p) => s + p.receivable, 0);
-        const totalPayable = projection.reduce((s, p) => s + p.payable, 0);
+        const { buildProjectedCashFlow } = await import(
+          "@/server/services/cash-flow-projection"
+        );
+        const { projection, summary } = buildProjectedCashFlow(
+          installments.map((i) => ({
+            dueDate: i.dueDate,
+            remainingCents: decimalToCents(i.amount) - decimalToCents(i.paidAmount),
+            type: i.transaction.type as "RECEIVABLE" | "PAYABLE",
+            saleId: i.transaction.saleId,
+          })),
+          cardReceivables.map((cr) => ({
+            expectedSettlementDate: cr.expectedSettlementDate,
+            netCents: decimalToCents(cr.netAmount),
+          })),
+          cardSaleIds,
+        );
 
-        return {
-          projection,
-          summary: {
-            totalReceivable,
-            totalPayable,
-            projectedBalance: totalReceivable - totalPayable,
-          },
-          days: input.days,
-        };
+        return { projection, summary, days: input.days };
       });
     }),
 
