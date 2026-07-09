@@ -51,9 +51,25 @@ export function TwoFactorCard() {
   const [code, setCode] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
 
-  // Desativação
+  // Desativação — caminho forte (senha + TOTP → email + WhatsApp) ou backup code.
+  const [backupMode, setBackupMode] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
-  const [disableCode, setDisableCode] = useState("");
+  const [disableTotp, setDisableTotp] = useState("");
+  const [disableSent, setDisableSent] = useState<{ emailMasked: string; phoneMasked: string } | null>(null);
+  const [disableEmailCode, setDisableEmailCode] = useState("");
+  const [disableWhatsappCode, setDisableWhatsappCode] = useState("");
+  const [disableBackupCode, setDisableBackupCode] = useState("");
+
+  const resetDisableState = () => {
+    setBackupMode(false);
+    setDisablePassword("");
+    setDisableTotp("");
+    setDisableSent(null);
+    setDisableEmailCode("");
+    setDisableWhatsappCode("");
+    setDisableBackupCode("");
+    setBackupCodes(null);
+  };
 
   const startMutation = useMutation(
     trpc.twoFactor.startEnrollment.mutationOptions({
@@ -75,12 +91,22 @@ export function TwoFactorCard() {
     }),
   );
 
-  const disableMutation = useMutation(
-    trpc.twoFactor.disable.mutationOptions({
+  // Passo 1 do caminho forte: valida senha + TOTP e envia email + WhatsApp.
+  const startDisableMutation = useMutation(
+    trpc.twoFactor.startDisable.mutationOptions({
+      onSuccess: (data) => {
+        setDisableSent({ emailMasked: data.emailMasked, phoneMasked: data.phoneMasked });
+        toast.success("Códigos enviados por email e WhatsApp.");
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
+  // Passo 2 do caminho forte: senha + TOTP + email + WhatsApp.
+  const confirmDisableMutation = useMutation(
+    trpc.twoFactor.confirmDisable.mutationOptions({
       onSuccess: () => {
-        setDisablePassword("");
-        setDisableCode("");
-        setBackupCodes(null);
+        resetDisableState();
         void statusQuery.refetch();
         toast.success("2FA desativado.");
       },
@@ -88,34 +114,13 @@ export function TwoFactorCard() {
     }),
   );
 
-  // Recuperação (perdeu o app + backup codes): step-up por email + WhatsApp.
-  const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [recoverySent, setRecoverySent] = useState<{ emailMasked: string; phoneMasked: string } | null>(null);
-  const [recoveryPassword, setRecoveryPassword] = useState("");
-  const [recoveryEmailCode, setRecoveryEmailCode] = useState("");
-  const [recoveryWhatsappCode, setRecoveryWhatsappCode] = useState("");
-
-  const startRecoveryMutation = useMutation(
-    trpc.twoFactor.startRecovery.mutationOptions({
-      onSuccess: (data) => {
-        setRecoverySent({ emailMasked: data.emailMasked, phoneMasked: data.phoneMasked });
-        toast.success("Códigos enviados por email e WhatsApp.");
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-
-  const confirmRecoveryMutation = useMutation(
-    trpc.twoFactor.confirmRecovery.mutationOptions({
+  // Caminho alternativo: senha + backup code.
+  const disableBackupMutation = useMutation(
+    trpc.twoFactor.disableWithBackupCode.mutationOptions({
       onSuccess: () => {
-        setRecoveryOpen(false);
-        setRecoverySent(null);
-        setRecoveryPassword("");
-        setRecoveryEmailCode("");
-        setRecoveryWhatsappCode("");
-        setBackupCodes(null);
+        resetDisableState();
         void statusQuery.refetch();
-        toast.success("2FA desativado. Cadastre novamente para reativar.");
+        toast.success("2FA desativado.");
       },
       onError: (e) => toast.error(e.message),
     }),
@@ -149,7 +154,7 @@ export function TwoFactorCard() {
     );
   }
 
-  // Já ativo: status + desativar.
+  // Já ativo: status + desativar (2 caminhos).
   if (status?.enabled && !backupCodes) {
     return (
       <Card className="max-w-lg">
@@ -164,126 +169,157 @@ export function TwoFactorCard() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm font-medium">Desativar 2FA</p>
-          <div className="space-y-1.5">
-            <Label htmlFor="disable-password">Senha atual</Label>
-            <Input
-              id="disable-password"
-              type="password"
-              autoComplete="current-password"
-              value={disablePassword}
-              onChange={(e) => setDisablePassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="disable-code">Código do app ou backup code</Label>
-            <Input
-              id="disable-code"
-              autoComplete="one-time-code"
-              maxLength={11}
-              placeholder="000000 ou XXXXX-XXXXX"
-              value={disableCode}
-              onChange={(e) => setDisableCode(e.target.value.toUpperCase().slice(0, 11))}
-            />
-          </div>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={disableMutation.isPending || !disablePassword || !disableCode.trim()}
-            onClick={() =>
-              disableMutation.mutate({ password: disablePassword, code: disableCode.trim() })
-            }
-          >
-            {disableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Desativar 2FA
-          </Button>
 
-          {/* Recuperação: perdeu o app E os backup codes (ou 2FA com erro). */}
-          <div className="border-t pt-3">
-            {!recoveryOpen ? (
-              <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setRecoveryOpen(true)}>
-                Perdi o acesso ao app e aos backup codes — recuperar
-              </Button>
-            ) : (
-              <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-                <p className="text-sm font-medium">Recuperar acesso (sem o app)</p>
-                <p className="text-xs text-muted-foreground">
-                  Enviamos um código por <strong>email</strong> e outro por{" "}
-                  <strong>WhatsApp</strong>. Informe os dois + sua senha para desativar o 2FA
-                  com segurança. Exige email e WhatsApp cadastrados.
-                </p>
-                {!recoverySent ? (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="rec-pass">Senha atual</Label>
-                      <Input
-                        id="rec-pass"
-                        type="password"
-                        autoComplete="current-password"
-                        value={recoveryPassword}
-                        onChange={(e) => setRecoveryPassword(e.target.value)}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={startRecoveryMutation.isPending || !recoveryPassword}
-                      onClick={() => startRecoveryMutation.mutate({ password: recoveryPassword })}
-                    >
-                      {startRecoveryMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Enviar códigos
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground">
-                      Código enviado para {recoverySent.emailMasked} e WhatsApp •••{recoverySent.phoneMasked}.
-                    </p>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="rec-email">Código do email</Label>
-                      <Input
-                        id="rec-email"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={recoveryEmailCode}
-                        onChange={(e) => setRecoveryEmailCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="rec-wa">Código do WhatsApp</Label>
-                      <Input
-                        id="rec-wa"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={recoveryWhatsappCode}
-                        onChange={(e) => setRecoveryWhatsappCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={
-                        confirmRecoveryMutation.isPending ||
-                        !recoveryPassword ||
-                        recoveryEmailCode.length < 6 ||
-                        recoveryWhatsappCode.length < 6
-                      }
-                      onClick={() =>
-                        confirmRecoveryMutation.mutate({
-                          password: recoveryPassword,
-                          emailCode: recoveryEmailCode,
-                          whatsappCode: recoveryWhatsappCode,
-                        })
-                      }
-                    >
-                      {confirmRecoveryMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Desativar 2FA
-                    </Button>
-                  </>
-                )}
+          {!backupMode ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="disable-password">Senha atual</Label>
+                <Input
+                  id="disable-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                />
               </div>
-            )}
-          </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="disable-totp">Código do app (TOTP)</Label>
+                <Input
+                  id="disable-totp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={disableTotp}
+                  onChange={(e) => setDisableTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+              </div>
+
+              {!disableSent ? (
+                <Button
+                  type="button"
+                  disabled={startDisableMutation.isPending || !disablePassword || disableTotp.length < 6}
+                  onClick={() =>
+                    startDisableMutation.mutate({ password: disablePassword, totpCode: disableTotp })
+                  }
+                >
+                  {startDisableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Enviar códigos por email e WhatsApp
+                </Button>
+              ) : (
+                <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Código enviado para {disableSent.emailMasked} e WhatsApp •••{disableSent.phoneMasked}.
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="disable-email-code">Código do email</Label>
+                    <Input
+                      id="disable-email-code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={disableEmailCode}
+                      onChange={(e) => setDisableEmailCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="disable-wa-code">Código do WhatsApp</Label>
+                    <Input
+                      id="disable-wa-code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={disableWhatsappCode}
+                      onChange={(e) => setDisableWhatsappCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      confirmDisableMutation.isPending ||
+                      !disablePassword ||
+                      disableTotp.length < 6 ||
+                      disableEmailCode.length < 6 ||
+                      disableWhatsappCode.length < 6
+                    }
+                    onClick={() =>
+                      confirmDisableMutation.mutate({
+                        password: disablePassword,
+                        totpCode: disableTotp,
+                        emailCode: disableEmailCode,
+                        whatsappCode: disableWhatsappCode,
+                      })
+                    }
+                  >
+                    {confirmDisableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Desativar 2FA
+                  </Button>
+                </div>
+              )}
+
+              <div className="border-t pt-3">
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-xs"
+                  onClick={() => {
+                    setBackupMode(true);
+                    setDisableSent(null);
+                  }}
+                >
+                  Não tem o app? Usar um backup code
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="backup-password">Senha atual</Label>
+                <Input
+                  id="backup-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="backup-code">Backup code</Label>
+                <Input
+                  id="backup-code"
+                  autoComplete="one-time-code"
+                  maxLength={11}
+                  placeholder="XXXXX-XXXXX"
+                  value={disableBackupCode}
+                  onChange={(e) => setDisableBackupCode(e.target.value.toUpperCase().slice(0, 11))}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={disableBackupMutation.isPending || !disablePassword || !disableBackupCode.trim()}
+                onClick={() =>
+                  disableBackupMutation.mutate({
+                    password: disablePassword,
+                    backupCode: disableBackupCode.trim(),
+                  })
+                }
+              >
+                {disableBackupMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Desativar 2FA
+              </Button>
+
+              <div className="border-t pt-3">
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-xs"
+                  onClick={() => setBackupMode(false)}
+                >
+                  Voltar (usar o app)
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     );

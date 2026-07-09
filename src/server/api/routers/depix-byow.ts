@@ -3,7 +3,7 @@
  *
  * Cadastrar um endereço define PARA ONDE o dinheiro pode ir, então é uma
  * operação de custódia de alto risco. Fluxo em 2 passos (mesmo padrão do
- * recovery de 2FA, `two-factor.confirmRecovery`):
+ * desativar 2FA, `two-factor.confirmDisable`):
  *   1. `startAdd` — senha + step-up 2FA → dispara código no EMAIL e no WhatsApp.
  *   2. `confirmAdd` — os DOIS códigos → grava na allowlist.
  * Remover exige só step-up 2FA (reduz destinos = seguro).
@@ -129,7 +129,7 @@ export const depixByowRouter = createTRPCRouter({
 
   /**
    * Passo 2 do cadastro: os DOIS códigos precisam bater. Só então grava. Valida
-   * ambos SEM consumir e consome os dois juntos no sucesso (padrão confirmRecovery
+   * ambos SEM consumir e consome os dois juntos no sucesso (padrão confirmDisable
    * — um código correto não é queimado se o outro canal falhar).
    */
   confirmAdd: tenantAdminProcedure
