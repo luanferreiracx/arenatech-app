@@ -104,17 +104,11 @@ export type UpdatePaymentMethodFullInput = z.infer<typeof updatePaymentMethodFul
 
 // ── Integrations ──
 
+// Só integrações que o LOJISTA configura na própria tela. As demais
+// (Autentique, Chatwoot, WhatsApp, IMEI, fiscal) são credenciais globais da
+// plataforma (variáveis de ambiente), fora do alcance do tenant.
 export const updateIntegrationSchema = z.object({
-  provider: z.enum([
-    "AUTENTIQUE",
-    "DEPIX",
-    "INFINITEPAY",
-    "EVOLUTION_WHATSAPP",
-    "CHATWOOT",
-    "NUVEM_FISCAL",
-    "FOCUS_NFE",
-    "IMEI_CHECK",
-  ]),
+  provider: z.enum(["INFINITEPAY"]),
   enabled: z.boolean(),
   config: z.record(z.string(), z.unknown()).optional().nullable(),
 });
