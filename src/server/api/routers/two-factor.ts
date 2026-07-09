@@ -168,75 +168,18 @@ export const twoFactorRouter = createTRPCRouter({
     }),
 
   /**
-   * Desativa o 2FA com o app FUNCIONANDO: exige senha + código TOTP OU backup
-   * code. NÃO há atalho "só senha" — se o usuário perdeu o acesso ao app/códigos
-   * (ou o segredo está indecifrável), a saída é a RECUPERAÇÃO por email+WhatsApp
-   * (startTwoFactorRecovery/confirmTwoFactorRecovery). Isso fecha o furo de quem
-   * tem só a senha desativar o 2FA e sacar.
+   * DESATIVAR 2FA — passo 1 (caminho forte): valida senha + código TOTP do app e,
+   * se baterem, dispara um código no EMAIL e outro no WHATSAPP. Exige os dois
+   * canais cadastrados. Quem não tem o app usa `disableWithBackupCode`.
+   *
+   * Só emite os códigos DEPOIS de provar senha + TOTP — não dá pra spammar
+   * email/WhatsApp de terceiros sem já ter a senha e o app.
    */
-  disable: protectedProcedure
-    .input(z.object({ password: z.string().min(1), code: z.string().trim().min(1, "Informe o código") }))
-    .mutation(async ({ ctx, input }) => {
-      const user = await prisma.user.findUnique({
-        where: { id: ctx.session.user.id },
-        select: { passwordHash: true, twoFactorSecret: true, twoFactorEnabled: true, twoFactorBackupCodes: true },
-      });
-      if (!user?.twoFactorEnabled) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
-      }
-      if (!compareSync(input.password, user.passwordHash)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
-      }
-
-      const code = input.code.trim();
-      // TOTP (se o segredo decifra) OU backup code (independe do segredo).
-      let totpOk = false;
-      if (user.twoFactorSecret) {
-        try {
-          totpOk = verifyTotp(decryptSecret(user.twoFactorSecret), code);
-        } catch {
-          totpOk = false; // segredo indecifrável → cai pro backup code / recovery
-        }
-      }
-      const backupOk = consumeBackupCode(code, user.twoFactorBackupCodes) !== null;
-
-      if (!totpOk && !backupOk) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Código inválido. Use o código do app ou um backup code. Sem acesso a nenhum dos dois, use 'Recuperar acesso'.",
-        });
-      }
-
-      await prisma.user.update({
-        where: { id: ctx.session.user.id },
-        data: {
-          twoFactorEnabled: false,
-          twoFactorSecret: null,
-          twoFactorConfirmedAt: null,
-          twoFactorBackupCodes: [],
-        },
-      });
-      logger.info("2FA: desativado", {
-        userId: ctx.session.user.id,
-        via: totpOk ? "totp" : "backup_code",
-      });
-      return { success: true };
-    }),
-
-  /**
-   * RECUPERAÇÃO de 2FA (perdeu o app E os backup codes, ou o segredo ficou
-   * indecifrável). Passo 1: valida a senha e dispara um código no EMAIL e outro
-   * no WHATSAPP do usuário. Exige os DOIS canais cadastrados — quem não tem ambos
-   * recupera só via superadmin (resetTenantUserTwoFactor). Fecha o furo de quem
-   * tem só a senha desativar o 2FA: os códigos vão para canais que o atacante
-   * normalmente não controla.
-   */
-  startRecovery: protectedProcedure
-    .input(z.object({ password: z.string().min(1) }))
+  startDisable: protectedProcedure
+    .input(z.object({ password: z.string().min(1), totpCode: totpCodeSchema }))
     .mutation(async ({ ctx, input }) => {
       const rl = await rateLimit({
-        key: `2fa-recovery-start:${ctx.session.user.id}`,
+        key: `2fa-disable-start:${ctx.session.user.id}`,
         limit: 5,
         windowMs: 60 * 60 * 1000,
       });
@@ -245,43 +188,47 @@ export const twoFactorRouter = createTRPCRouter({
       }
       const user = await prisma.user.findUnique({
         where: { id: ctx.session.user.id },
-        select: { passwordHash: true, twoFactorEnabled: true, email: true, phone: true },
+        select: { passwordHash: true, twoFactorSecret: true, twoFactorEnabled: true, email: true, phone: true },
       });
-      if (!user?.twoFactorEnabled) {
+      if (!user?.twoFactorEnabled || !user.twoFactorSecret) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
       }
       if (!compareSync(input.password, user.passwordHash)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
       }
+      if (!verifyTotp(decryptSecret(user.twoFactorSecret), input.totpCode)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Código do app inválido." });
+      }
       if (!user.email || !user.phone) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
-            "Recuperação exige email E WhatsApp cadastrados. Sem ambos, peça ao suporte/administrador para redefinir seu 2FA.",
+            "Desativar exige email E WhatsApp cadastrados. Sem ambos, use um backup code ou peça ao suporte para redefinir seu 2FA.",
         });
       }
 
       await issueVerificationCode({ target: user.email, channel: "EMAIL" });
       await issueVerificationCode({ target: user.phone, channel: "WHATSAPP" });
-      logger.info("2FA recovery: códigos enviados (email + whatsapp)", { userId: ctx.session.user.id });
+      logger.info("2FA disable: códigos enviados (email + whatsapp)", { userId: ctx.session.user.id });
       return { sent: true, emailMasked: maskEmail(user.email), phoneMasked: maskPhone(user.phone) };
     }),
 
   /**
-   * RECUPERAÇÃO passo 2: senha + código do EMAIL + código do WHATSAPP. Os dois
-   * precisam bater. Só então zera o 2FA (o usuário recadastra em seguida).
+   * DESATIVAR 2FA — passo 2 (caminho forte): senha + TOTP + código do EMAIL +
+   * código do WHATSAPP. Os quatro fatores precisam bater. Só então zera o 2FA.
    */
-  confirmRecovery: protectedProcedure
+  confirmDisable: protectedProcedure
     .input(
       z.object({
         password: z.string().min(1),
+        totpCode: totpCodeSchema,
         emailCode: z.string().trim().min(1),
         whatsappCode: z.string().trim().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const rl = await rateLimit({
-        key: `2fa-recovery-confirm:${ctx.session.user.id}`,
+        key: `2fa-disable-confirm:${ctx.session.user.id}`,
         limit: 10,
         windowMs: 60 * 60 * 1000,
       });
@@ -290,25 +237,27 @@ export const twoFactorRouter = createTRPCRouter({
       }
       const user = await prisma.user.findUnique({
         where: { id: ctx.session.user.id },
-        select: { passwordHash: true, twoFactorEnabled: true, email: true, phone: true },
+        select: { passwordHash: true, twoFactorSecret: true, twoFactorEnabled: true, email: true, phone: true },
       });
-      if (!user?.twoFactorEnabled) {
+      if (!user?.twoFactorEnabled || !user.twoFactorSecret) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
       }
       if (!compareSync(input.password, user.passwordHash)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
       }
+      if (!verifyTotp(decryptSecret(user.twoFactorSecret), input.totpCode)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Código do app inválido." });
+      }
       if (!user.email || !user.phone) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "Recuperação exige email E WhatsApp cadastrados.",
+          message: "Desativar exige email E WhatsApp cadastrados.",
         });
       }
 
       // Valida AMBOS os códigos SEM consumir — só queima os dois se os dois
-      // passarem. Senão, um código correto seria invalidado porque o OUTRO canal
-      // falhou (o usuário teria de re-pedir os dois). O contador de tentativas
-      // ainda incrementa no mismatch (anti-brute-force preservado).
+      // passarem (senão um código válido seria invalidado porque o outro canal
+      // falhou). O contador de tentativas ainda incrementa no mismatch.
       const emailRes = await verifyCode(user.email, "EMAIL", input.emailCode, { consume: false });
       const waRes = await verifyCode(user.phone, "WHATSAPP", input.whatsappCode, { consume: false });
       if (!emailRes.ok || !waRes.ok) {
@@ -329,7 +278,50 @@ export const twoFactorRouter = createTRPCRouter({
           twoFactorBackupCodes: [],
         },
       });
-      logger.info("2FA: desativado via recovery (email + whatsapp)", { userId: ctx.session.user.id });
+      logger.info("2FA: desativado (senha + totp + email + whatsapp)", { userId: ctx.session.user.id });
+      return { success: true };
+    }),
+
+  /**
+   * DESATIVAR 2FA — caminho alternativo (perdeu o app): senha + um backup code
+   * válido. É a única saída sem o app; sem app E sem backup code, só o superadmin
+   * redefine (resetTenantUserTwoFactor).
+   */
+  disableWithBackupCode: protectedProcedure
+    .input(z.object({ password: z.string().min(1), backupCode: z.string().trim().min(1, "Informe o backup code") }))
+    .mutation(async ({ ctx, input }) => {
+      const rl = await rateLimit({
+        key: `2fa-disable-backup:${ctx.session.user.id}`,
+        limit: 10,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!rl.success) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Muitas tentativas. Tente mais tarde." });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { passwordHash: true, twoFactorEnabled: true, twoFactorBackupCodes: true },
+      });
+      if (!user?.twoFactorEnabled) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "2FA não está ativo." });
+      }
+      if (!compareSync(input.password, user.passwordHash)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Senha incorreta." });
+      }
+      if (consumeBackupCode(input.backupCode.trim(), user.twoFactorBackupCodes) === null) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Backup code inválido." });
+      }
+
+      await prisma.user.update({
+        where: { id: ctx.session.user.id },
+        data: {
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+          twoFactorConfirmedAt: null,
+          twoFactorBackupCodes: [],
+        },
+      });
+      logger.info("2FA: desativado (senha + backup code)", { userId: ctx.session.user.id });
       return { success: true };
     }),
 });
