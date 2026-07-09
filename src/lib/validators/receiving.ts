@@ -100,6 +100,12 @@ export const availableInstallmentsSchema = z.object({
   kind: cardKindEnum,
 });
 
+/** Bandeiras com taxa ativa p/ um adquirente×tipo (dropdown de bandeira no PDV). */
+export const availableBrandsSchema = z.object({
+  acquirerId: z.string().uuid(),
+  kind: cardKindEnum,
+});
+
 // ── Card receivables (listagem/visão) ──
 
 export const cardReceivableStatusEnum = z.enum(["PENDING", "SETTLED", "CANCELLED"]);

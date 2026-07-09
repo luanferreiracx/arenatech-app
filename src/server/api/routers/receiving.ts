@@ -13,6 +13,7 @@ import {
   upsertAcquirerRatesSchema,
   previewCardSettlementSchema,
   availableInstallmentsSchema,
+  availableBrandsSchema,
   listCardReceivablesSchema,
   settleCardReceivablesSchema,
   unsettleCardReceivablesSchema,
@@ -282,6 +283,30 @@ export const receivingRouter = createTRPCRouter({
             orderBy: { installments: "asc" },
           });
           return rates.map((r) => r.installments);
+        });
+      }),
+
+    /**
+     * Bandeiras que um adquirente RECEBE de fato p/ um tipo (crédito/débito) —
+     * usado pelo PDV pra só mostrar no dropdown as bandeiras com taxa cadastrada
+     * naquele adquirente. Retorna a lista de `cardBrandId`; vazio quando o
+     * adquirente não tem nenhuma taxa ativa pro tipo.
+     */
+    availableBrands: tenantProcedure
+      .input(availableBrandsSchema)
+      .query(async ({ ctx, input }) => {
+        return ctx.withTenant(async (tx) => {
+          const rows = await tx.acquirerRate.findMany({
+            where: {
+              tenantId: ctx.tenantId,
+              acquirerId: input.acquirerId,
+              kind: input.kind,
+              active: true,
+            },
+            select: { cardBrandId: true },
+            distinct: ["cardBrandId"],
+          });
+          return rows.map((r) => r.cardBrandId);
         });
       }),
 
