@@ -90,11 +90,16 @@ class WalletPaths:
         self.idempotency = os.path.join(d, "idempotency.json")
 
 # Esploras pra broadcast/sync — primeiro env ESPLORA_URL (se setado), depois defaults.
-# blockstream.info/liquid/api e a Esplora Liquid mainnet VIVA da Blockstream.
-# `esplora.blockstream.com` foi DESCONTINUADO (o DNS nao resolve mais — jul/2026)
-# e foi removido: mante-lo so pendurava o sync (timeout de conexao). `liquid.network`
-# fica como fallback — pode dar 502 temporario, mas falha rapido, sem travar.
+#
+# waterfalls.liquidwebwallet.org e o backend Waterfalls (Blockstream, R. Casatta):
+# o servidor deriva os enderecos do descriptor server-side, MUITO mais rapido que o
+# Esplora classico. Medido com a lib lwk: tip 0,07s, full_scan 1,8s — vs.
+# blockstream.info que PENDURA ~130s ("Too many retry") e liquid.network que da erro
+# de parsing NA LIB (embora ambos respondam via curl). Por isso waterfalls e a 1a.
+# blockstream.info + liquid.network ficam como FALLBACK (anti-SPOF; se waterfalls
+# cair, o sync/tip ainda tem pra onde ir). Ver [[eulen-webhook-lwk-timeout]] Fase 4.
 ESPLORA_URLS = [u for u in [ESPLORA_URL.rstrip("/") if ESPLORA_URL else None,
+                            "https://waterfalls.liquidwebwallet.org/liquid/api",
                             "https://blockstream.info/liquid/api",
                             "https://liquid.network/api"] if u]
 # dedup preservando ordem

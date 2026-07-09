@@ -10,7 +10,7 @@ services:
     environment:
       # ── Rede ──────────────────────────────────────────────────────
       NETWORK: ${NETWORK:-mainnet}
-      ESPLORA_URL: ${ESPLORA_URL:-https://blockstream.info/liquid/api}
+      ESPLORA_URL: ${ESPLORA_URL:-https://waterfalls.liquidwebwallet.org/liquid/api}
 
       # ── Asset ID do DePix (Liquid mainnet) ─────────────────────────
       # DePix "Decentralized Pix" — issuer depix.info, precision 8.
