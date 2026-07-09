@@ -12,7 +12,7 @@ import {
   refundNeedsOpenCashSession,
   writeCashMovement,
 } from "@/server/services/cash-session.service";
-import { requiresCpf, installmentBelowMinimum } from "@/lib/receiving-rules";
+import { installmentBelowMinimum } from "@/lib/receiving-rules";
 import {
   claimDraftSaleForFinalize,
   isSameFinalizeRequest,
@@ -958,26 +958,9 @@ export const saleRouter = createTRPCRouter({
         // (nao bloqueia quem nunca configurou).
         const receivingSettings = await tx.tenantReceivingSettings.findUnique({
           where: { tenantId: ctx.tenantId },
-          select: { minInstallmentAmount: true, requireCpfAbove: true },
+          select: { minInstallmentAmount: true },
         });
         if (receivingSettings) {
-          // requireCpfAbove: acima do limite, exige CPF/CNPJ do cliente na venda.
-          if (requiresCpf(totalCents, receivingSettings)) {
-            let hasTaxId = false;
-            if (sale.customerId) {
-              const c = await tx.customer.findUnique({
-                where: { id: sale.customerId },
-                select: { cpf: true, cnpj: true },
-              });
-              hasTaxId = !!(c?.cpf || c?.cnpj);
-            }
-            if (!hasTaxId) {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: `Vendas acima de R$ ${(receivingSettings.requireCpfAbove / 100).toFixed(2)} exigem um cliente com CPF/CNPJ. Selecione/cadastre o cliente com documento.`,
-              });
-            }
-          }
           // minInstallmentAmount: cada parcela do cartao precisa ser >= o minimo.
           const minViolated = installmentBelowMinimum(payments, receivingSettings);
           if (minViolated !== null) {

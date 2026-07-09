@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Building2, Loader2, Pencil, Settings2, Trash2 } from "lucide-react";
+import { Plus, Building2, Loader2, Pencil, Settings2, Trash2, AlertTriangle } from "lucide-react";
 
 interface AcquirerDraft {
   id: string | null;
@@ -45,7 +45,6 @@ interface RateRow {
 }
 
 const EMPTY_ACQUIRER: AcquirerDraft = { id: null, name: "", receivingAccountId: null };
-const NO_ACCOUNT = "__none__";
 
 export function AcquirersTab() {
   const trpc = useTRPC();
@@ -65,10 +64,13 @@ export function AcquirersTab() {
 
   const createMutation = useMutation(
     trpc.receiving.acquirers.create.mutationOptions({
-      onSuccess: () => {
-        toast.success("Adquirente criada!");
+      onSuccess: (created) => {
+        toast.success("Adquirente criada! Cadastre as taxas para começar a usá-la.");
         invalidate();
         setDraft(null);
+        // Taxas são obrigatórias — leva direto ao editor da nova adquirente.
+        setRatesAcquirerId(created.id);
+        setRates([]);
       },
       onError: (e) => toast.error(e.message),
     }),
@@ -114,6 +116,11 @@ export function AcquirersTab() {
 
   const handleSave = () => {
     if (!draft || draft.name.trim().length === 0) return;
+    // Conta de depósito é obrigatória.
+    if (!draft.receivingAccountId) {
+      toast.error("Selecione a conta de depósito da adquirente.");
+      return;
+    }
     const receivingAccountId = draft.receivingAccountId;
     if (draft.id) {
       updateMutation.mutate({ id: draft.id, name: draft.name.trim(), receivingAccountId });
@@ -228,6 +235,12 @@ export function AcquirersTab() {
                 ) : (
                   <p className="text-xs text-muted-foreground">Sem conta de depósito vinculada</p>
                 )}
+                {acquirer.rateCount === 0 && (
+                  <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Sem taxas cadastradas — configure em &quot;Taxas&quot; para usar no PDV.
+                  </p>
+                )}
                 <div className="flex gap-2 pt-1">
                   <Button variant="outline" size="sm" onClick={() => openRatesEditor(acquirer.id)}>
                     <Settings2 className="w-3.5 h-3.5 mr-1" />
@@ -271,18 +284,15 @@ export function AcquirersTab() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Conta de depósito</label>
+                <label className="text-sm font-medium">Conta de depósito *</label>
                 <Select
-                  value={draft.receivingAccountId ?? NO_ACCOUNT}
-                  onValueChange={(v) =>
-                    setDraft({ ...draft, receivingAccountId: v === NO_ACCOUNT ? null : v })
-                  }
+                  value={draft.receivingAccountId ?? ""}
+                  onValueChange={(v) => setDraft({ ...draft, receivingAccountId: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione (opcional)" />
+                    <SelectValue placeholder="Selecione a conta" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_ACCOUNT}>Nenhuma</SelectItem>
                     {(accounts ?? [])
                       .filter((a) => a.active)
                       .map((a) => (
@@ -292,6 +302,12 @@ export function AcquirersTab() {
                       ))}
                   </SelectContent>
                 </Select>
+                {(accounts ?? []).filter((a) => a.active).length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-500">
+                    Nenhuma conta ativa. Cadastre uma conta de recebimento na aba
+                    &quot;Contas de recebimento&quot; primeiro.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -299,7 +315,10 @@ export function AcquirersTab() {
             <Button variant="outline" onClick={() => setDraft(null)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={isSaving || !draft?.name.trim()}>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !draft?.name.trim() || !draft?.receivingAccountId}
+            >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar
             </Button>
@@ -461,7 +480,10 @@ export function AcquirersTab() {
             <Button variant="outline" onClick={() => setRatesAcquirerId(null)}>
               Cancelar
             </Button>
-            <Button onClick={saveRates} disabled={upsertRatesMutation.isPending}>
+            <Button
+              onClick={saveRates}
+              disabled={upsertRatesMutation.isPending || rates.length === 0}
+            >
               {upsertRatesMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar taxas
             </Button>

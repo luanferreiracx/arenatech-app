@@ -138,7 +138,8 @@ export default function PaymentMethodsPage() {
     if (!m) return;
     setMethodBase({
       name: m.name,
-      acceptsInstallments: m.acceptsInstallments,
+      // Débito nunca parcela — trava em false já ao abrir.
+      acceptsInstallments: m.type === "DEBIT_CARD" ? false : m.acceptsInstallments,
     });
     setEditingMethodId(id);
   };
@@ -220,7 +221,7 @@ export default function PaymentMethodsPage() {
                     <Badge variant="outline">
                       {PAYMENT_TYPE_LABELS[method.type] ?? method.type}
                     </Badge>
-                    {method.acceptsInstallments && (
+                    {method.acceptsInstallments && method.type !== "DEBIT_CARD" && (
                       <Badge variant="secondary">Parcelado</Badge>
                     )}
                     {/* Cartao: a taxa vive em Cartoes e Recebimento, nao aqui. */}
@@ -367,21 +368,28 @@ export default function PaymentMethodsPage() {
                   />
                 </div>
 
-                <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
-                  <span className="space-y-0.5">
-                    <span className="block text-sm font-medium">Aceita parcelamento</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Permite dividir a venda em parcelas. O nº de parcelas e o
-                      prazo de recebimento vêm das taxas cadastradas no adquirente.
+                {/* Débito é sempre à vista — não faz sentido oferecer parcelamento. */}
+                {editingMethod?.type === "DEBIT_CARD" ? (
+                  <p className="rounded-md border bg-background px-3 py-2.5 text-xs text-muted-foreground">
+                    Cartão de débito é sempre à vista — não aceita parcelamento.
+                  </p>
+                ) : (
+                  <label className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium">Aceita parcelamento</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Permite dividir a venda em parcelas. O nº de parcelas e o
+                        prazo de recebimento vêm das taxas cadastradas no adquirente.
+                      </span>
                     </span>
-                  </span>
-                  <Switch
-                    checked={methodBase.acceptsInstallments}
-                    onCheckedChange={(checked) =>
-                      setMethodBase({ ...methodBase, acceptsInstallments: checked })
-                    }
-                  />
-                </label>
+                    <Switch
+                      checked={methodBase.acceptsInstallments}
+                      onCheckedChange={(checked) =>
+                        setMethodBase({ ...methodBase, acceptsInstallments: checked })
+                      }
+                    />
+                  </label>
+                )}
               </section>
 
               {/* A taxa do cartao (e o prazo/parcelas) vivem em Cartoes e

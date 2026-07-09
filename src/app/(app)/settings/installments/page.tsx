@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { LoadingState } from "@/components/domain/loading-state";
+import { useIsSuperAdmin } from "@/lib/auth/use-tenant-admin";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,10 @@ import { defaultSimulatorTiers } from "@/lib/simulator-defaults";
 export default function SimulatorRatesPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // Taxas do simulador são precificação controlada pela Arena Tech
+  // (updateConfig = superAdminTenantProcedure). Admin de tenant comum vê, mas
+  // não edita — sem gate, veria um form que só daria erro ao salvar.
+  const isSuperAdmin = useIsSuperAdmin();
 
   const { data, isLoading } = useQuery(trpc.simulator.getConfig.queryOptions());
 
@@ -82,13 +87,14 @@ export default function SimulatorRatesPage() {
   }
 
   function onSubmit(values: UpdateSimulatorConfigInput) {
-    // Envia apenas os tiers ate o maximo de parcelas configurado
-    mutation.mutate({
-      ...values,
-      tiers: values.tiers.filter(
-        (t) => t.installments <= values.maxInstallments,
-      ),
-    });
+    // `installments` NAO e um input registrado (so `feePercent` e) — ao submeter
+    // pode vir undefined e derrubar o filtro, apagando TODOS os tiers (bug do
+    // "nao salva"). Deriva do indice (tiers sempre 2..36 em ordem) e envia so
+    // ate o maximo de parcelas configurado.
+    const tiers = values.tiers
+      .map((t, idx) => ({ installments: idx + 2, feePercent: t.feePercent }))
+      .filter((t) => t.installments <= values.maxInstallments);
+    mutation.mutate({ ...values, tiers });
   }
 
   if (isLoading) return <LoadingState />;
@@ -105,6 +111,13 @@ export default function SimulatorRatesPage() {
         superiores a taxa real cobrada pela operadora, para mitigar risco
         operacional. Nao afetam o calculo de receita liquida do PDV.
       </div>
+
+      {!isSuperAdmin && (
+        <div className="mb-6 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          Estas taxas são definidas pela Arena Tech. Você pode visualizá-las, mas
+          a alteração é exclusiva do suporte.
+        </div>
+      )}
 
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <FormSection title="Pagamentos a vista">
@@ -197,7 +210,9 @@ export default function SimulatorRatesPage() {
           </div>
         </FormSection>
 
-        <FormActions submitLabel="Salvar" isLoading={mutation.isPending} />
+        {isSuperAdmin && (
+          <FormActions submitLabel="Salvar" isLoading={mutation.isPending} />
+        )}
       </form>
     </div>
   );

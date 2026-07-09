@@ -13,24 +13,10 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const receivingSchema = z.object({
-  defaultPolicyDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]),
-  defaultPolicyNonDevice: z.enum(["STORE_ABSORBS", "CUSTOMER_PAYS"]),
   minInstallmentAmount: z.number().int().min(0),
-  requireCpfAbove: z.number().int().min(0),
   maxDiscountPercentNonAdmin: z.number().int().min(0).max(100).nullable(),
-  autoCloseTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
-  monthlySalesGoal: z.number().int().min(0).nullable(),
-  defaultDasRate: z.number().min(0).max(100).nullable(),
-  defaultIcmsDiffRate: z.number().min(0).max(100).nullable(),
 });
 
 type ReceivingInput = z.infer<typeof receivingSchema>;
@@ -45,15 +31,8 @@ export default function ReceivingSettingsPage() {
     resolver: zodResolver(receivingSchema),
     values: data
       ? {
-          defaultPolicyDevice: data.defaultPolicyDevice as "STORE_ABSORBS" | "CUSTOMER_PAYS",
-          defaultPolicyNonDevice: data.defaultPolicyNonDevice as "STORE_ABSORBS" | "CUSTOMER_PAYS",
           minInstallmentAmount: data.minInstallmentAmount,
-          requireCpfAbove: data.requireCpfAbove,
           maxDiscountPercentNonAdmin: data.maxDiscountPercentNonAdmin,
-          autoCloseTime: data.autoCloseTime,
-          monthlySalesGoal: data.monthlySalesGoal,
-          defaultDasRate: data.defaultDasRate ? Number(data.defaultDasRate) : null,
-          defaultIcmsDiffRate: data.defaultIcmsDiffRate ? Number(data.defaultIcmsDiffRate) : null,
         }
       : undefined,
   });
@@ -61,7 +40,7 @@ export default function ReceivingSettingsPage() {
   const mutation = useMutation(
     trpc.settings.updateReceiving.mutationOptions({
       onSuccess: () => {
-        toast.success("Configurações de recebimento atualizadas!");
+        toast.success("Regras de venda atualizadas!");
         void queryClient.invalidateQueries({ queryKey: [["settings"]] });
       },
       onError: (err) => toast.error(err.message),
@@ -74,53 +53,10 @@ export default function ReceivingSettingsPage() {
     <div>
       <PageHeader
         title="Regras de Venda"
-        subtitle="Políticas de venda, exigência de CPF, metas e alíquotas"
+        subtitle="Limites aplicados automaticamente ao finalizar uma venda no PDV"
       />
 
-      {/* D6 da auditoria de config: parte dos ajustes ja vale (min. parcela +
-          CPF), o resto ainda nao — aviso honesto por campo. */}
-      <div className="mb-6 rounded-md border border-info bg-info/10 p-3 text-sm">
-        <strong>Já aplicados no PDV:</strong> &quot;Valor mínimo de parcela&quot;,
-        &quot;Exigir CPF/CNPJ acima de&quot; e &quot;Desconto máximo
-        (não-administradores)&quot; — barram/limitam a venda quando a regra é
-        violada.
-        <br />
-        <strong>Em breve:</strong> políticas de taxa, fechar caixa automático,
-        metas e alíquotas ainda não são aplicados automaticamente.
-      </div>
-
-      <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-6">
-        <FormSection title="Políticas de taxa">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Política padrão (aparelhos)</Label>
-              <Select
-                value={form.watch("defaultPolicyDevice")}
-                onValueChange={(v) => form.setValue("defaultPolicyDevice", v as "STORE_ABSORBS" | "CUSTOMER_PAYS")}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="STORE_ABSORBS">Loja absorve a taxa</SelectItem>
-                  <SelectItem value="CUSTOMER_PAYS">Cliente paga acréscimo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Política padrão (outros)</Label>
-              <Select
-                value={form.watch("defaultPolicyNonDevice")}
-                onValueChange={(v) => form.setValue("defaultPolicyNonDevice", v as "STORE_ABSORBS" | "CUSTOMER_PAYS")}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="STORE_ABSORBS">Loja absorve a taxa</SelectItem>
-                  <SelectItem value="CUSTOMER_PAYS">Cliente paga acréscimo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </FormSection>
-
+      <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="mt-6 space-y-6">
         <FormSection title="Regras de venda">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -129,13 +65,10 @@ export default function ReceivingSettingsPage() {
                 value={form.watch("minInstallmentAmount")}
                 onChange={(v: number) => form.setValue("minInstallmentAmount", v)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label>Exigir CPF acima de</Label>
-              <MoneyInput
-                value={form.watch("requireCpfAbove")}
-                onChange={(v: number) => form.setValue("requireCpfAbove", v)}
-              />
+              <p className="text-xs text-muted-foreground">
+                Cada parcela do cartão precisa ser maior ou igual a este valor.
+                Zero desliga a regra.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Desconto máximo (não-administradores)</Label>
@@ -161,58 +94,7 @@ export default function ReceivingSettingsPage() {
           </div>
         </FormSection>
 
-        <FormSection title="Caixa e metas">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Horário fechamento automático do caixa</Label>
-              <Input
-                type="time"
-                value={form.watch("autoCloseTime") ?? ""}
-                onChange={(e) => form.setValue("autoCloseTime", e.target.value || null)}
-              />
-              <p className="text-xs text-muted-foreground">Deixe vazio para desativar</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Meta mensal de vendas</Label>
-              <MoneyInput
-                value={form.watch("monthlySalesGoal") ?? 0}
-                onChange={(v: number) => form.setValue("monthlySalesGoal", v || null)}
-              />
-            </div>
-          </div>
-        </FormSection>
-
-        <FormSection title="Alíquotas tributárias">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Alíquota DAS padrão (%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={form.watch("defaultDasRate") ?? ""}
-                onChange={(e) => form.setValue("defaultDasRate", e.target.value ? parseFloat(e.target.value) : null)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Alíquota ICMS diferencial (%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={form.watch("defaultIcmsDiffRate") ?? ""}
-                onChange={(e) => form.setValue("defaultIcmsDiffRate", e.target.value ? parseFloat(e.target.value) : null)}
-              />
-            </div>
-          </div>
-        </FormSection>
-
-        <FormActions
-          submitLabel="Salvar"
-          isLoading={mutation.isPending}
-        />
+        <FormActions submitLabel="Salvar" isLoading={mutation.isPending} />
       </form>
     </div>
   );

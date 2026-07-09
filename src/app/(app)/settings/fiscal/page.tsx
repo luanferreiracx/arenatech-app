@@ -19,6 +19,7 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { CepInput, type AddressResult } from "@/components/inputs/cep-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/domain/page-header";
 import { FormActions } from "@/components/domain/forms/form-actions";
@@ -52,6 +53,13 @@ export default function FiscalSettingsPage() {
     resolver: zodResolver(updateFiscalSettingsSchema),
     values: fiscal ? (fiscal as UpdateFiscalSettingsInput) : undefined,
   });
+
+  const handleAddressFound = (addr: AddressResult) => {
+    form.setValue("logradouro", addr.logradouro);
+    form.setValue("bairro", addr.bairro);
+    form.setValue("cidade", addr.cidade);
+    form.setValue("uf", addr.estado);
+  };
 
   if (isLoading) return <LoadingState />;
 
@@ -146,7 +154,13 @@ export default function FiscalSettingsPage() {
                 <FormField control={form.control} name="cep" render={({ field }) => (
                   <FormItem>
                     <FormLabel>CEP</FormLabel>
-                    <FormControl><Input {...field} value={field.value ?? ""} placeholder="00000-000" maxLength={9} /></FormControl>
+                    <FormControl>
+                      <CepInput
+                        value={field.value ?? ""}
+                        onValueChange={field.onChange}
+                        onAddressFound={handleAddressFound}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

@@ -96,18 +96,11 @@ model TenantAssistanceSettings {
 
 model TenantReceivingSettings {
   tenantId               String   @id @map("tenant_id") @db.Uuid
-  defaultPolicyDevice    String   @default("CUSTOMER_PAYS") @map("default_policy_device")
-  defaultPolicyNonDevice String   @default("STORE_ABSORBS") @map("default_policy_non_device")
   minInstallmentAmount   Int      @default(5000) @map("min_installment_amount")
-  requireCpfAbove        Int      @default(50000) @map("require_cpf_above")
   // Teto de desconto (%) para usuários NÃO-admin no PDV. Admin do tenant é
   // irrestrito. null = sem teto. Vale para o desconto do carrinho e para o
   // override de preço de item (medido contra o preço de tabela).
   maxDiscountPercentNonAdmin Int? @default(10) @map("max_discount_percent_non_admin")
-  autoCloseTime          String?  @map("auto_close_time")
-  monthlySalesGoal       Int?     @map("monthly_sales_goal")
-  defaultDasRate         Decimal? @map("default_das_rate") @db.Decimal(5, 2)
-  defaultIcmsDiffRate    Decimal? @map("default_icms_diff_rate") @db.Decimal(5, 2)
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
