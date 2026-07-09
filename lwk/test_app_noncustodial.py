@@ -12,6 +12,7 @@ Rodar: `python -m pytest lwk/test_app_noncustodial.py`
 
 import os
 import sys
+import time
 import types
 import unittest
 from unittest import mock
@@ -63,6 +64,7 @@ _lwk_stub.Wollet = mock.MagicMock()
 _lwk_stub.WolletDescriptor = mock.MagicMock()
 _lwk_stub.Address = mock.MagicMock()
 _lwk_stub.TxBuilder = mock.MagicMock()
+_lwk_stub.EsploraClient = mock.MagicMock()
 _lwk_stub.Pset = mock.MagicMock()
 sys.modules["lwk"] = _lwk_stub
 
@@ -420,6 +422,54 @@ class TestTransactionsSyncFalse(unittest.TestCase):
             r = self.client.get(f"/wallet/{self.tenant}/transactions", headers=HEADERS)
         self.assertEqual(r.status_code, 200)
         sync_mock.assert_called_once()  # compat: sem o param, sincroniza como antes
+
+
+class TestTipCache(unittest.TestCase):
+    """Fase 3b: get_tip_height cacheia o tip (TTL) — evita pagar a Esplora (que
+    PENDURA ~8s na 1a tentativa) a cada chamada. Fallback: serve o ultimo tip
+    valido quando todas as Esploras falham (defasado > None)."""
+
+    def setUp(self):
+        # Zera o cache global entre testes.
+        app._TIP_CACHE["value"] = None
+        app._TIP_CACHE["ts"] = 0.0
+
+    def _esplora_returning(self, height):
+        client = mock.MagicMock()
+        client.tip.return_value.height.return_value = height
+        return mock.MagicMock(return_value=client)
+
+    def test_busca_e_cacheia(self):
+        with mock.patch.object(app.lwk, "EsploraClient", self._esplora_returning(100)):
+            self.assertEqual(app.get_tip_height(), 100)
+        self.assertEqual(app._TIP_CACHE["value"], 100)
+
+    def test_max_age_reusa_cache_sem_tocar_rede(self):
+        app._TIP_CACHE["value"] = 200
+        app._TIP_CACHE["ts"] = time.time()
+        # EsploraClient explode se for chamado — prova que NAO tocou a rede.
+        boom = mock.MagicMock(side_effect=AssertionError("nao devia consultar a Esplora"))
+        with mock.patch.object(app.lwk, "EsploraClient", boom):
+            self.assertEqual(app.get_tip_height(max_age=90), 200)
+
+    def test_max_age_expirado_consulta_de_novo(self):
+        app._TIP_CACHE["value"] = 200
+        app._TIP_CACHE["ts"] = time.time() - 1000  # bem velho
+        with mock.patch.object(app.lwk, "EsploraClient", self._esplora_returning(300)):
+            self.assertEqual(app.get_tip_height(max_age=90), 300)
+
+    def test_fallback_serve_cache_velho_quando_esplora_falha(self):
+        app._TIP_CACHE["value"] = 150
+        app._TIP_CACHE["ts"] = time.time() - 5000
+        boom = mock.MagicMock(side_effect=Exception("esplora down"))
+        with mock.patch.object(app.lwk, "EsploraClient", boom):
+            # Sem max_age: tenta a rede (falha) e cai no cache velho.
+            self.assertEqual(app.get_tip_height(per_attempt_timeout=1), 150)
+
+    def test_sem_cache_e_esplora_falha_retorna_none(self):
+        boom = mock.MagicMock(side_effect=Exception("esplora down"))
+        with mock.patch.object(app.lwk, "EsploraClient", boom):
+            self.assertIsNone(app.get_tip_height(per_attempt_timeout=1))
 
 
 class TestMonitorNeverRewritesNonCustodial(unittest.TestCase):
