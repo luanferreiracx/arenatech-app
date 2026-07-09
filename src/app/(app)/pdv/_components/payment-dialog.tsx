@@ -222,6 +222,25 @@ export function PaymentDialog({
   const activeAcquirers = (acquirersQuery.data ?? []).filter((a) => a.active);
   const activeBrands = (brandsQuery.data ?? []).filter((b) => b.active);
 
+  // Bandeiras que o adquirente selecionado RECEBE de fato (têm taxa cadastrada
+  // p/ o tipo crédito/débito). Sem adquirente escolhido, cai pra todas as ativas.
+  const availableBrandsQuery = useQuery(
+    trpc.receiving.rates.availableBrands.queryOptions(
+      {
+        acquirerId: selectedAcquirerId ?? "",
+        kind: selectedCardKind ?? "CREDIT",
+      },
+      {
+        enabled: open && isCardPayment && !!selectedAcquirerId,
+      },
+    ),
+  );
+  const allowedBrandIds = availableBrandsQuery.data;
+  const visibleBrands =
+    selectedAcquirerId && allowedBrandIds
+      ? activeBrands.filter((b) => allowedBrandIds.includes(b.id))
+      : activeBrands;
+
   // Parcelas disponiveis = as que tem taxa cadastrada no adquirente×bandeira×tipo
   // selecionado. O maximo real vem daqui, nao de um numero fixo na forma. Sem
   // adquirente/bandeira escolhidos (ou combinacao sem taxa), cai pro fallback
@@ -747,7 +766,10 @@ export function PaymentDialog({
                       value={selectedAcquirerId ?? ""}
                       onValueChange={(v) => {
                         setSelectedAcquirerId(v || null);
-                        setFormInstallments("1"); // parcelas dependem do adquirente
+                        // Bandeira/parcelas dependem do adquirente — reseta pra
+                        // não manter uma bandeira que a nova maquininha não recebe.
+                        setSelectedCardBrandId(null);
+                        setFormInstallments("1");
                       }}
                     >
                       <SelectTrigger>
@@ -776,11 +798,18 @@ export function PaymentDialog({
                       <SelectValue placeholder="Bandeira" />
                     </SelectTrigger>
                     <SelectContent>
-                      {activeBrands.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name}
-                        </SelectItem>
-                      ))}
+                      {visibleBrands.length > 0 ? (
+                        visibleBrands.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          Esta maquininha não tem bandeiras cadastradas para{" "}
+                          {selectedCardKind === "DEBIT" ? "débito" : "crédito"}.
+                        </div>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
