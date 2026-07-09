@@ -388,6 +388,40 @@ class TestReadEndpointsNeverAutoCreate(unittest.TestCase):
         self.assertTrue(self._no_wallet_on_disk())
 
 
+class TestTransactionsSyncFalse(unittest.TestCase):
+    """Fase 3: /transactions?sync=false pula o full_scan pesado (le o cache que o
+    monitor mantem) — otimiza o cross-check do webhook (SLA 15s da Eulen). Sem o
+    param, sincroniza como antes (compat)."""
+
+    def setUp(self):
+        app.app.config["TESTING"] = True
+        self.client = app.app.test_client()
+        self.tenant = str(_uuid.uuid4())
+
+    def _stub_wollet(self):
+        w = mock.MagicMock()
+        w.transactions.return_value = []
+        return w
+
+    def test_sync_false_NAO_chama_sync_wallet(self):
+        w = self._stub_wollet()
+        with mock.patch.object(app, "load_watch_only", return_value=(w, None)), \
+             mock.patch.object(app, "sync_wallet") as sync_mock, \
+             mock.patch.object(app, "get_tip_height", return_value=0):
+            r = self.client.get(f"/wallet/{self.tenant}/transactions?sync=false", headers=HEADERS)
+        self.assertEqual(r.status_code, 200)
+        sync_mock.assert_not_called()  # o ganho da Fase 3: sem full_scan
+
+    def test_sync_default_AINDA_chama_sync_wallet(self):
+        w = self._stub_wollet()
+        with mock.patch.object(app, "load_watch_only", return_value=(w, None)), \
+             mock.patch.object(app, "sync_wallet", return_value=True) as sync_mock, \
+             mock.patch.object(app, "get_tip_height", return_value=0):
+            r = self.client.get(f"/wallet/{self.tenant}/transactions", headers=HEADERS)
+        self.assertEqual(r.status_code, 200)
+        sync_mock.assert_called_once()  # compat: sem o param, sincroniza como antes
+
+
 class TestMonitorNeverRewritesNonCustodial(unittest.TestCase):
     """Regressao critica: o monitor NAO pode recriar/sobrescrever uma carteira
     non-custodial. load_or_create_wallet via a ausencia de mnemonic.txt e gerava

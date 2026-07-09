@@ -427,16 +427,21 @@ export interface LwkListTxsResult {
 export async function listTransactions(
   tenantId: string,
   limit = 20,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; sync?: boolean },
 ): Promise<LwkListTxsResult> {
   const { config, error: cfgErr } = safeGetConfig();
   if (cfgErr) return { success: false, error: cfgErr };
   if (!config) return { success: true, transactions: [] };
   try {
+    // sync=false: o LWK le o cache que o monitor de fundo mantem, sem o full_scan
+    // pesado (~20s). Default sincroniza (compat). O cross-check do webhook passa
+    // false — sensivel ao SLA da Eulen; se a tx nao esta no cache ainda, o cron
+    // reconcilia (rede de seguranca). Ver Fase 3 do diag do timeout Eulen/LWK.
+    const syncQs = opts?.sync === false ? "&sync=false" : "";
     const { ok, status, body } = await lwkFetch(
       config,
       "GET",
-      `/wallet/${tenantId}/transactions?limit=${Math.max(1, Math.min(limit, 100))}`,
+      `/wallet/${tenantId}/transactions?limit=${Math.max(1, Math.min(limit, 100))}${syncQs}`,
       { timeoutMs: opts?.timeoutMs },
     );
     if (!ok) {

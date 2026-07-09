@@ -269,6 +269,10 @@ export async function handleEulenDepositWebhook(
       ),
       // Teto curto: nao segurar o webhook alem do SLA da Eulen se o LWK travar.
       lwkTimeoutMs: WEBHOOK_LWK_CROSSCHECK_TIMEOUT_MS,
+      // Le o cache do monitor (sem full_scan pesado) — o cross-check do webhook
+      // nao pode segurar o SLA da Eulen no sync. Se a tx nao esta no cache, cai no
+      // cron (rede de seguranca). Fase 3 do diag de timeout Eulen/LWK.
+      lwkSync: false,
     });
     if (!crossCheck.ok) {
       // Ainda nao confirmado (broadcast recente) ou divergencia: NAO credita.

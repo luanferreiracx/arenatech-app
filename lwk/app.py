@@ -1349,14 +1349,28 @@ def transactions(tenant_id):
             return fail("limit invalido")
         limit = max(1, min(limit, 100))
 
-        with wallet_lock(tenant_id):
+        # sync=false (default true p/ compat): pula o full_scan pesado (~20s) e le
+        # o cache local — o monitor de fundo (MONITOR_INTERVAL) ja mantem a carteira
+        # sincronizada. Usado pelo CROSS-CHECK do webhook, sensivel ao SLA de 15s da
+        # Eulen; se uma tx recem-chegada ainda nao foi sincronizada, o cross-check
+        # falha e o cron reconcilia (rede de seguranca). Mesmo padrao do /balance.
+        # `wollet.transactions()` so le o cache interno (nao toca a rede), entao com
+        # sync=false nao bloqueamos esperando o lock (timeout 1s).
+        do_sync = request.args.get("sync", "true").lower() != "false"
+        lock    = wallet_lock(tenant_id)
+        acquired = lock.acquire(timeout=15 if do_sync else 1)
+        try:
             # Watch-only: nunca auto-cria. 404 se a carteira nao existe.
             try:
                 wollet, _ = load_watch_only(tenant_id)
             except FileNotFoundError:
                 return fail("carteira nao provisionada", 404)
-            sync_wallet(wollet, silent=True)
+            if do_sync and acquired:
+                sync_wallet(wollet, silent=True)
             txs = wollet.transactions()
+        finally:
+            if acquired:
+                lock.release()
         tip_height = get_tip_height()
         result     = []
 
