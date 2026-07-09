@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
@@ -241,9 +242,12 @@ export function PaymentDialog({
       ? activeBrands.filter((b) => allowedBrandIds.includes(b.id))
       : activeBrands;
 
-  // Cartão exige adquirente + bandeira quando há adquirentes cadastradas.
+  // Cartão exige SEMPRE adquirente + bandeira (espelha o enforcement do
+  // servidor no finalize — card-payment-guard). Sem adquirente cadastrada, o
+  // pagamento no cartão fica bloqueado até configurar uma maquininha.
   const cardSelectionIncomplete =
-    isCardPayment && activeAcquirers.length > 0 && (!selectedAcquirerId || !selectedCardBrandId);
+    isCardPayment && (!selectedAcquirerId || !selectedCardBrandId);
+  const noAcquirersForCard = isCardPayment && activeAcquirers.length === 0;
 
   // Parcelas disponiveis = as que tem taxa cadastrada no adquirente×bandeira×tipo
   // selecionado. O maximo real vem daqui, nao de um numero fixo na forma. Sem
@@ -334,10 +338,15 @@ export function PaymentDialog({
 
     const valorPagoCents = Math.round(amountReais * 100);
 
-    // Cartão: quando há adquirentes cadastradas, exige adquirente + bandeira
-    // (senão a venda ia sem recebível/taxa). Tenant sem adquirente segue no
-    // fallback pra não travar a venda.
-    if (isCardPayment && activeAcquirers.length > 0) {
+    // Cartão exige SEMPRE adquirente + bandeira (o servidor rejeita no finalize
+    // sem isso). Sem adquirente cadastrada, orienta a configurar antes.
+    if (isCardPayment) {
+      if (activeAcquirers.length === 0) {
+        toast.error(
+          "Cadastre uma adquirente (maquininha) em Cartões e Recebimento antes de vender no cartão.",
+        );
+        return;
+      }
       if (!selectedAcquirerId) {
         toast.error("Selecione a adquirente (maquininha) do cartão.");
         return;
@@ -888,15 +897,23 @@ export function PaymentDialog({
               </label>
             )}
 
-            {cardSelectionIncomplete && (
+            {noAcquirersForCard ? (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                Nenhuma maquininha cadastrada. Configure uma adquirente em{" "}
+                <Link href="/settings/card-acquirers" className="underline">
+                  Cartões e Recebimento
+                </Link>{" "}
+                para vender no cartão.
+              </p>
+            ) : cardSelectionIncomplete ? (
               <p className="text-xs text-amber-600 dark:text-amber-500">
                 Selecione a adquirente e a bandeira para adicionar o pagamento no cartão.
               </p>
-            )}
+            ) : null}
             <Button
               className="w-full gap-2"
               onClick={handleAddPayment}
-              disabled={cardSelectionIncomplete}
+              disabled={cardSelectionIncomplete || noAcquirersForCard}
             >
               <Plus className="h-4 w-4" />
               Adicionar Pagamento
