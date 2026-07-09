@@ -245,9 +245,33 @@ def _write_secret(path, content):
         pass
 
 
-def get_tip_height(per_attempt_timeout=8):
-    """Tip da blockchain. Cada Esplora tem timeout via thread (a lib lwk
-    nao expoe timeout nativo). Retorna None se todas falharem ou timeoutarem."""
+# Cache do tip da blockchain (altura do bloco). O tip muda ~1x/min (Liquid = 1
+# bloco/min), entao um cache curto e seguro e evita pagar a latencia da Esplora a
+# cada chamada — em especial quando a 1a Esplora PENDURA (a lib lwk `.tip()` nao
+# falha rapido, espera o join(timeout)). Compartilhado entre threads (monitor +
+# requests) sob lock. Guarda tambem o ultimo valor VALIDO para servir de fallback
+# quando todas as Esploras falham (tip levemente defasado > None -> confirmations=0).
+_TIP_CACHE = {"value": None, "ts": 0.0}
+_TIP_CACHE_LOCK = threading.Lock()
+
+
+def get_tip_height(per_attempt_timeout=8, max_age=None):
+    """Tip da blockchain. Cada Esplora tem timeout via thread (a lib lwk nao expoe
+    timeout nativo).
+
+    max_age: se dado (segundos) e o cache for mais novo que isso, retorna o cache
+    SEM tocar a rede — usado no caminho sensivel a latencia (/transactions?sync=
+    false), onde o monitor de fundo ja mantem o tip fresco. Sem max_age, sempre
+    consulta a rede (comportamento antigo).
+
+    Fallback: se todas as Esploras falharem, retorna o ultimo tip VALIDO do cache
+    (mesmo velho) em vez de None."""
+    now = time.time()
+    if max_age is not None:
+        with _TIP_CACHE_LOCK:
+            if _TIP_CACHE["value"] is not None and (now - _TIP_CACHE["ts"]) <= max_age:
+                return _TIP_CACHE["value"]
+
     for url in ESPLORA_URLS:
         result = {"tip": None}
         def _try():
@@ -259,9 +283,18 @@ def get_tip_height(per_attempt_timeout=8):
         t.start()
         t.join(timeout=per_attempt_timeout)
         if result["tip"] is not None:
+            with _TIP_CACHE_LOCK:
+                _TIP_CACHE["value"] = result["tip"]
+                _TIP_CACHE["ts"] = time.time()
             return result["tip"]
         if t.is_alive():
             logger.warning(f"get_tip_height timeout [{url}]")
+
+    # Todas falharam: serve o ultimo tip valido (defasado) se houver.
+    with _TIP_CACHE_LOCK:
+        if _TIP_CACHE["value"] is not None:
+            logger.warning("get_tip_height: todas Esploras falharam — usando tip cacheado (defasado)")
+            return _TIP_CACHE["value"]
     return None
 
 
@@ -1371,7 +1404,10 @@ def transactions(tenant_id):
         finally:
             if acquired:
                 lock.release()
-        tip_height = get_tip_height()
+        # No caminho sensivel a latencia (sync=false, cross-check do webhook), reusa
+        # o tip cacheado (o monitor o mantem fresco a ~30s) em vez de pagar a Esplora
+        # — que pode PENDURAR ~8s na 1a tentativa. max_age = 3x o intervalo do monitor.
+        tip_height = get_tip_height(max_age=90) if not do_sync else get_tip_height()
         result     = []
 
         for tx in txs[:limit]:
