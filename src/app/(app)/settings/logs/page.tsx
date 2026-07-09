@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/inputs/date-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -15,12 +14,56 @@ import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { format } from "date-fns";
 
-const ACTION_VARIANTS: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
-  CREATE: "success",
-  UPDATE: "info",
-  DELETE: "destructive",
-  LOGIN: "warning",
+type BadgeVariant = "default" | "success" | "warning" | "destructive" | "info";
+
+/**
+ * As `action` do audit log são verbos livres em lowercase (updated, removed,
+ * added, cancel, approve, paid, force_close, card_receivable_unsettle…). O mapa
+ * antigo (CREATE/UPDATE/DELETE/LOGIN) nunca casava — todo badge caía em cinza.
+ * Aqui classificamos por palavra-chave, com ordem importando (unsettle antes de
+ * settle; delete antes de duplicate).
+ */
+function actionVariant(action: string): BadgeVariant {
+  const a = action.toLowerCase();
+  if (/(delet|remov|cancel|unsettle)/.test(a)) return "destructive";
+  if (/(reset|force_close|manual)/.test(a)) return "warning";
+  if (/(add|creat|approv|paid|settle|link|duplicate|restore)/.test(a)) return "success";
+  if (/(updat|chang|adjust|edit)/.test(a)) return "info";
+  return "default";
+}
+
+/** Rótulos legíveis (pt-BR) para as ações mais comuns; fallback = a própria ação. */
+const ACTION_LABELS: Record<string, string> = {
+  created: "Criado",
+  updated: "Atualizado",
+  deleted: "Excluído",
+  removed: "Removido",
+  added: "Adicionado",
+  restored: "Restaurado",
+  approve: "Aprovado",
+  approved: "Aprovado",
+  cancel: "Cancelado",
+  canceled: "Cancelado",
+  paid: "Pago",
+  reset_password: "Senha redefinida",
+  reset_two_factor: "2FA redefinido",
+  force_close: "Fechamento forçado",
+  seller_changed: "Vendedor alterado",
+  date_changed: "Data alterada",
+  customer_linked: "Cliente vinculado",
+  duplicate_model: "Modelo duplicado",
+  delete_model: "Modelo excluído",
+  card_receivable_settle: "Recebível liquidado",
+  card_receivable_unsettle: "Liquidação revertida",
+  cash_manual_adjustment: "Ajuste manual de caixa",
+  sale_depix_manual: "DePix manual",
+  bulk_adjust_percent: "Ajuste em massa (%)",
+  bulk_adjust_fixed: "Ajuste em massa (R$)",
 };
+
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action.toLowerCase()] ?? action;
+}
 
 export default function AuditLogsPage() {
   const trpc = useTRPC();
@@ -57,7 +100,7 @@ export default function AuditLogsPage() {
                 <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">Todas</SelectItem>
-                  {data?.actions?.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                  {data?.actions?.map((a) => <SelectItem key={a} value={a}>{actionLabel(a)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -115,9 +158,9 @@ export default function AuditLogsPage() {
                           {format(new Date(log.createdAt), "dd/MM/yyyy HH:mm:ss")}
                         </td>
                         <td className="p-3">
-                          <StatusBadge
-                            variant={ACTION_VARIANTS[log.action.toUpperCase()] ?? "default"}
-                          >{log.action}</StatusBadge>
+                          <StatusBadge variant={actionVariant(log.action)}>
+                            {actionLabel(log.action)}
+                          </StatusBadge>
                         </td>
                         <td className="p-3">{log.entity || "-"}</td>
                         <td className="p-3 text-muted-foreground font-mono text-xs">{log.entityId || "-"}</td>
