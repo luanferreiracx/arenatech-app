@@ -1370,15 +1370,28 @@ export const stockRouter = createTRPCRouter({
             // isso aceitamos AMBOS os status: cancelar antes de assinar deixava o
             // item BLOCKED orfao, com o IMEI preso e impedindo recadastro.
             // SOLD/RESERVED ficam de fora: ja tem fluxo proprio (venda/reserva).
-            const matched = await tx.stockItem.findFirst({
-              where: {
-                productId: purchase.productId,
-                imei: purchase.imei,
-                status: { in: [...PURCHASE_REVERSIBLE_STATUSES] },
-                deletedAt: null,
-              },
-              select: { id: true },
-            });
+            // I4 (auditoria estoque 2026-07-10): casa por IMEI quando presente;
+            // senão por SÉRIE. Antes casava só por `imei: purchase.imei` — numa
+            // compra serial-only (imei nulo) o filtro virava `imei IS NULL` e
+            // pegava QUALQUER unidade sem imei do produto (revertia a errada).
+            // Sem NENHUM identificador (compra legada) não casa nada — não arrisca
+            // soft-deletar a unidade de outra compra.
+            const cancelIdentifier: Prisma.StockItemWhereInput | null = purchase.imei
+              ? { imei: purchase.imei }
+              : purchase.serial
+                ? { serialNumber: purchase.serial }
+                : null;
+            const matched = cancelIdentifier
+              ? await tx.stockItem.findFirst({
+                  where: {
+                    productId: purchase.productId,
+                    ...cancelIdentifier,
+                    status: { in: [...PURCHASE_REVERSIBLE_STATUSES] },
+                    deletedAt: null,
+                  },
+                  select: { id: true },
+                })
+              : null;
             if (matched) {
               await tx.stockItem.update({
                 where: { id: matched.id },
