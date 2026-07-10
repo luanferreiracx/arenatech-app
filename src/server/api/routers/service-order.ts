@@ -107,6 +107,19 @@ async function settleOsPaymentRecords(
 ): Promise<void> {
   if (args.paidCents <= 0) return;
 
+  // F2 (auditoria OS 2026-07-09): pagamento em CARTÃO de OS deve passar pelo PDV
+  // (gera CardReceivable com taxa e prazo D+N). Este caminho direto/legado não
+  // integra cartão ao recebível de cartão — geraria FT sem taxa/D+N e sem
+  // CardReceivable. Rejeita para forçar o fluxo correto. A UI já roteia cartão
+  // pelo PDV; isto fecha a brecha via API/force. dinheiro/pix/depix/crediário seguem.
+  if (args.paymentMethod === "cartao_credito" || args.paymentMethod === "cartao_debito") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Pagamento em cartão de OS deve ser feito pelo PDV (para gerar o recebível com taxa e prazo). Use 'Ir para o PDV'.",
+    });
+  }
+
   const openSession = await tx.cashSession.findFirst({
     where: { userId: args.userId, closedAt: null },
   });
@@ -1408,6 +1421,16 @@ export const serviceOrderRouter = createTRPCRouter({
                 },
               });
             }
+
+            // F1 (auditoria OS 2026-07-09): cancela os recebíveis de cartão
+            // PENDING da venda vinculada. Pós-Fase 2 (R4) o dinheiro de cartão
+            // vive SÓ no CardReceivable — sem isto o estorno da OS não reverteria
+            // o cartão (a tesouraria seguiria esperando a liquidação). SETTLED
+            // não muda (já caiu na conta). Espelha sale.refund.
+            await tx.cardReceivable.updateMany({
+              where: { saleId: linkedSale.id, status: "PENDING" },
+              data: { status: "CANCELLED" },
+            });
           }
         }
 
