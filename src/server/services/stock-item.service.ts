@@ -300,7 +300,15 @@ export async function adjustInventory(
       })
     }
 
-    const beforeVar = variation.currentStock
+    // S1 (auditoria estoque 2026-07-10): trava a linha da variação FOR UPDATE e
+    // relê o saldo FRESCO. O ajuste grava um valor ABSOLUTO (newQuantity); sem o
+    // lock, uma venda concorrente que decrementa entre a leitura e o UPDATE era
+    // SOBRESCRITA (lost update) e o ledger registrava um before/after errado. Com
+    // o lock, a venda serializa e o before reflete o saldo real no instante do ajuste.
+    const lockedVar = await tx.$queryRaw<Array<{ current_stock: number }>>`
+      SELECT current_stock FROM product_variations WHERE id = ${params.variationId}::uuid FOR UPDATE
+    `
+    const beforeVar = lockedVar[0]?.current_stock ?? variation.currentStock
     const diffVar = params.newQuantity - beforeVar
     if (diffVar === 0) return // no change
 
@@ -326,7 +334,13 @@ export async function adjustInventory(
     return
   }
 
-  const before = product.currentStock
+  // S1: trava a linha do produto FOR UPDATE e relê o saldo FRESCO antes de
+  // gravar o valor absoluto — serializa contra vendas concorrentes (que
+  // decrementam via updateMany) e evita lost update + drift do ledger.
+  const lockedProd = await tx.$queryRaw<Array<{ current_stock: number }>>`
+    SELECT current_stock FROM products WHERE id = ${params.productId}::uuid FOR UPDATE
+  `
+  const before = lockedProd[0]?.current_stock ?? product.currentStock
   const diff = params.newQuantity - before
 
   if (diff === 0) return // no change
