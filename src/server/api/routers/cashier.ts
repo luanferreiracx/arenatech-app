@@ -419,6 +419,12 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
+        // A1: o detalhe do caixa (todos os movimentos, valores, divergência) é do
+        // dono da sessão ou de gerência. Operador não abre o caixa de um colega.
+        if (session.userId !== ctx.session.user.id && !isTenantAdmin(ctx.session, ctx.tenantId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para ver este caixa" });
+        }
+
         return {
           register: serializeSession(session),
           movements: session.movements.map(serializeMovement),
@@ -442,6 +448,12 @@ export const cashierRouter = createTRPCRouter({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
+      // A1 (auditoria fin 2026-07-10): conferência é função de gerência — a lista
+      // de caixas pendentes expõe fechamento/divergência de TODOS os operadores.
+      // A mutation `review` já é admin-only; a lista que a alimenta também deve ser.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode ver caixas pendentes de conferencia" });
+      }
       const page = input?.page ?? 0;
       const pageSize = input?.pageSize ?? 20;
       return ctx.withTenant(async (tx) => {
@@ -571,6 +583,11 @@ export const cashierRouter = createTRPCRouter({
    * List all currently open cash sessions across all users. (Manager+)
    */
   openCashiers: tenantProcedure.query(async ({ ctx }) => {
+    // A1: visão de gerência (docstring já dizia "Manager+", faltava o gate).
+    // Lista caixas abertos de todos os operadores — segregação de funções.
+    if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode ver os caixas abertos" });
+    }
     return ctx.withTenant(async (tx) => {
       // Safety cap: tipicamente 1 por operador (max ~100). Limit defensivo.
       const openSessions = await tx.cashSession.findMany({
@@ -738,9 +755,14 @@ export const cashierRouter = createTRPCRouter({
   /** Register manual cash adjustment (faithful to Laravel registrarAjuste) */
   manualAdjustment: tenantProcedure
     .input(z.object({
-      amount: z.number().int().min(1), // centavos
+      amount: z.number().int().min(1).max(100_000_000), // centavos
       nature: z.enum(["INCOME", "OUTCOME"]),
       reason: z.string().min(3, "Motivo obrigatorio").max(300),
+      // K4 (auditoria fin 2026-07-10): caixa-alvo do ajuste. O gerente corrige a
+      // gaveta do OPERADOR conferido — sem isto o ajuste caía sempre na sessão do
+      // próprio gerente (caixa errado, ou "nenhum caixa aberto" se ele não tivesse
+      // um). Omitido = ajusta o próprio caixa (retrocompatível).
+      sessionId: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
@@ -748,12 +770,23 @@ export const cashierRouter = createTRPCRouter({
       }
 
       return ctx.withTenant(async (tx) => {
-        const session = await tx.cashSession.findFirst({
-          where: { userId: ctx.session.user.id, closedAt: null },
-        });
+        // Resolve a sessão-alvo: por sessionId (caixa de qualquer operador do
+        // tenant, deve estar aberta) ou, na ausência, o próprio caixa do gerente.
+        const session = input.sessionId
+          ? await tx.cashSession.findFirst({
+              where: { id: input.sessionId, tenantId: ctx.tenantId, closedAt: null },
+            })
+          : await tx.cashSession.findFirst({
+              where: { userId: ctx.session.user.id, closedAt: null },
+            });
 
         if (!session) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: input.sessionId
+              ? "Caixa nao encontrado ou ja fechado"
+              : "Nenhum caixa aberto",
+          });
         }
 
         // K1: não grava ajuste numa sessão fechada em paralelo.
@@ -805,6 +838,13 @@ export const cashierRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
+      // A1: operador só vê as próprias estatísticas. Pedir userId de outro
+      // operador — ou o agregado geral (sem userId) — é visão de gerência.
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+      const askingForOther = input.userId ? input.userId !== ctx.session.user.id : true;
+      if (askingForOther && !isAdmin) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode ver estatisticas de outros operadores" });
+      }
       return ctx.withTenant(async (tx) => {
         const fromDate = new Date(input.from);
         const toDate = new Date(input.to + "T23:59:59");

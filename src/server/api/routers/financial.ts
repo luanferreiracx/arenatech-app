@@ -338,6 +338,12 @@ export const financialRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Transacao nao encontrada" });
         }
 
+        // A3 (auditoria fin 2026-07-10): F8 — operador não edita conta a PAGAR.
+        // O gate estava em list/getById/create; faltava no update. Espelha getById.
+        if (getUserRole(ctx) === "operator" && existing.type === "PAYABLE") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
+        }
+
         if (existing.status === "PAID" || existing.status === "CANCELLED") {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -436,6 +442,14 @@ export const financialRouter = createTRPCRouter({
 
         if (!installment) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Parcela nao encontrada" });
+        }
+
+        // A2 (auditoria fin 2026-07-10): F8 — operador não pode baixar conta a
+        // PAGAR. O gate estava em list/getById/create, mas faltava aqui: um
+        // operador que obtivesse o id de uma parcela PAYABLE (via overdue)
+        // conseguia efetivá-la e mexer no caixa. Espelha getById.
+        if (getUserRole(ctx) === "operator" && installment.transaction.type === "PAYABLE") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Acesso negado a contas a pagar" });
         }
 
         if (!["PENDING", "OVERDUE"].includes(installment.status)) {
