@@ -29,3 +29,21 @@ export function saleGrossProfitCents(
 ): number {
   return saleGoodsRevenueCents(subtotalCents, discountCents) - costCents;
 }
+
+/**
+ * Valor que o cliente PAGA nas formas de pagamento (centavos), a partir dos
+ * componentes exibidos. Espelha `Sale.totalAmount` gravado por `recalculateSale`:
+ *   a pagar = max(0, subtotal − desconto − upgrade)
+ *
+ * Existe para travar a SEMÂNTICA de exibição (bug 2026-07-10): o "Total" da tela
+ * é a soma das mercadorias (`subtotal`); o trade-in e o desconto abatem; o "A
+ * pagar" é este líquido. Antes os rótulos estavam invertidos (mostravam o líquido
+ * como "Total" e o subtotal como se fosse o valor total).
+ */
+export function saleAmountToPayCents(
+  subtotalCents: number,
+  discountCents: number,
+  upgradeAbatedCents: number,
+): number {
+  return Math.max(0, subtotalCents - discountCents - upgradeAbatedCents);
+}
