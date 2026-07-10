@@ -8,6 +8,42 @@ function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   return Math.round(Number(v) * 100);
 }
 
+/**
+ * D2 (auditoria fin 2026-07-10): faturamento de vendas num período, com a MESMA
+ * definição do DRE (financial.dre) — fonte única de "receita de mercadoria".
+ * Antes a home somava `totalAmount` (líquido do trade-in, corte por createdAt,
+ * só COMPLETED) e divergia do DRE, mostrando dois faturamentos diferentes.
+ * Regra idêntica ao DRE: receita = GREATEST(subtotal − desconto, 0) − taxa
+ * operadora, escalada pela fração de itens MANTIDOS (estorno parcial), por
+ * sale_date, incluindo COMPLETED e PARTIALLY_REFUNDED. Ver lib/sales/sale-revenue.
+ */
+async function computePeriodSalesRevenue(
+  tx: Prisma.TransactionClient,
+  from: Date,
+  to: Date,
+): Promise<{ revenueCents: number; count: number }> {
+  const rows = await tx.$queryRaw<Array<{ total: number | null; cnt: number | null }>>`
+    SELECT COALESCE(SUM(
+             (GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount)
+             * CASE
+                 WHEN s.is_os_payment THEN 1
+                 WHEN s.subtotal > 0 THEN LEAST(COALESCE(li.live_total, 0) / s.subtotal, 1)
+                 ELSE 1
+               END
+           ), 0)::float AS total,
+           COUNT(*)::int AS cnt
+    FROM sales s
+    LEFT JOIN (
+      SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+    ) li ON li.sale_id = s.id
+    WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
+      AND s.deleted_at IS NULL
+      AND s.sale_date BETWEEN ${from} AND ${to}
+  `;
+  const row = rows[0];
+  return { revenueCents: Math.round((row?.total ?? 0) * 100), count: row?.cnt ?? 0 };
+}
+
 export const dashboardRouter = createTRPCRouter({
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
@@ -25,9 +61,9 @@ export const dashboardRouter = createTRPCRouter({
         osOpen,
         osMonth,
         osPrevMonth,
-        salesTodayAgg,
-        salesMonthAgg,
-        salesPrevMonthAgg,
+        salesTodayRev,
+        salesMonthRev,
+        salesPrevMonthRev,
         financialOverdue,
         productsLowStock,
       ] = await Promise.all([
@@ -50,27 +86,11 @@ export const dashboardRouter = createTRPCRouter({
         tx.serviceOrder.count({
           where: { createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth }, deletedAt: null },
         }),
-        // RPT1: soma + contagem via aggregate — sem carregar N linhas em memória
-        // (antes: findMany({select:totalAmount}) + reduce/length, ilimitado).
-        tx.sale.aggregate({
-          _sum: { totalAmount: true },
-          _count: true,
-          where: { status: "COMPLETED", createdAt: { gte: startOfDay }, deletedAt: null },
-        }),
-        tx.sale.aggregate({
-          _sum: { totalAmount: true },
-          _count: true,
-          where: { status: "COMPLETED", createdAt: { gte: startOfMonth }, deletedAt: null },
-        }),
-        tx.sale.aggregate({
-          _sum: { totalAmount: true },
-          _count: true,
-          where: {
-            status: "COMPLETED",
-            createdAt: { gte: startOfPrevMonth, lte: endOfPrevMonth },
-            deletedAt: null,
-          },
-        }),
+        // D2: faturamento com a MESMA definição do DRE (receita de mercadoria por
+        // sale_date, COMPLETED+PARTIALLY_REFUNDED), não SUM(totalAmount)/createdAt.
+        computePeriodSalesRevenue(tx, startOfDay, now),
+        computePeriodSalesRevenue(tx, startOfMonth, now),
+        computePeriodSalesRevenue(tx, startOfPrevMonth, endOfPrevMonth),
         tx.financialTransaction.count({
           where: {
             type: "RECEIVABLE",
@@ -100,12 +120,12 @@ export const dashboardRouter = createTRPCRouter({
         (p) => (lowStockCandidateStock.get(p.id) ?? 0) <= p.minStock,
       ).length;
 
-      const salesTodayCount = salesTodayAgg._count;
-      const salesMonthCount = salesMonthAgg._count;
-      const salesPrevMonthCount = salesPrevMonthAgg._count;
-      const salesTodayTotal = decimalToCents(salesTodayAgg._sum.totalAmount);
-      const salesMonthTotal = decimalToCents(salesMonthAgg._sum.totalAmount);
-      const salesPrevMonthTotal = decimalToCents(salesPrevMonthAgg._sum.totalAmount);
+      const salesTodayCount = salesTodayRev.count;
+      const salesMonthCount = salesMonthRev.count;
+      const salesPrevMonthCount = salesPrevMonthRev.count;
+      const salesTodayTotal = salesTodayRev.revenueCents;
+      const salesMonthTotal = salesMonthRev.revenueCents;
+      const salesPrevMonthTotal = salesPrevMonthRev.revenueCents;
       const ticketMedio = salesMonthCount > 0 ? Math.round(salesMonthTotal / salesMonthCount) : 0;
 
       // Calcula delta % (current vs previous). 0 prev = 100% se current > 0, senao 0.

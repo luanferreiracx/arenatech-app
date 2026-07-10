@@ -17,6 +17,16 @@ function getUserRole(ctx: {
   return isTenantAdmin(ctx.session, ctx.tenantId) ? "admin" : "operator";
 }
 
+/**
+ * D1 (auditoria fin 2026-07-10): a FT/parcela representa um pagamento em CARTÃO?
+ * Pós-#478 cartão não gera FT — só FT LEGADA de cartão tem estes métodos. Usado
+ * na dedup do fluxo de caixa (só a parcela de cartão legado é o double do
+ * CardReceivable; crediário/dinheiro/pix não são).
+ */
+function isCardPaymentMethod(method: string | null | undefined): boolean {
+  return method === "cartao_credito" || method === "cartao_debito";
+}
+
 import {
   createTransactionSchema,
   updateTransactionSchema,
@@ -699,14 +709,19 @@ export const financialRouter = createTRPCRouter({
             _sum: { totalAmount: true, paidAmount: true },
             _count: true,
           }),
-          tx.financialTransaction.aggregate({
+          // D5 (auditoria fin 2026-07-10): "recebido/pago no mês" no regime de
+          // CAIXA — soma installment.paidAmount por installment.paidAt, NÃO
+          // FT.totalAmount por FT.paidAt. No antigo, quitar um crediário de N
+          // meses jogava o valor CHEIO no mês da última parcela (superestimava o
+          // mês corrente, subestimava os anteriores). Por parcela, cada valor
+          // cai no mês em que efetivamente entrou.
+          tx.installment.aggregate({
             where: {
-              type: input.type,
-              status: "PAID",
-              deletedAt: null,
+              transaction: { type: input.type, deletedAt: null },
+              status: { in: ["PAID", "PARTIALLY_PAID"] },
               paidAt: { gte: startOfMonth, lte: endOfMonth },
             },
-            _sum: { totalAmount: true },
+            _sum: { paidAmount: true },
             _count: true,
           }),
         ]);
@@ -720,7 +735,7 @@ export const financialRouter = createTRPCRouter({
         const overduePaid = decimalToCents(overdueResult._sum.paidAmount);
         const overdueRemaining = overdueTotal - overduePaid;
 
-        const paidMonthTotal = decimalToCents(paidMonthResult._sum.totalAmount);
+        const paidMonthTotal = decimalToCents(paidMonthResult._sum.paidAmount);
 
         return {
           pendingAmount: pendingRemaining,
@@ -751,8 +766,10 @@ export const financialRouter = createTRPCRouter({
           },
           include: {
             // saleId: discriminador de cartão (fonte única = CardReceivable).
+            // paymentMethod: distingue FT de cartão legado (cartao_*) da FT de
+            // crediário — só a de cartão é dedup do CardReceivable (D1).
             transaction: {
-              select: { type: true, description: true, saleId: true },
+              select: { type: true, description: true, saleId: true, paymentMethod: true },
             },
           },
           orderBy: { dueDate: "asc" },
@@ -772,7 +789,10 @@ export const financialRouter = createTRPCRouter({
         const cfCardSales =
           cfSaleIds.length > 0
             ? await tx.cardReceivable.findMany({
-                where: { saleId: { in: cfSaleIds } },
+                // D1: só CardReceivable VIVO (PENDING/SETTLED) deduplica. Um
+                // recebível CANCELLED (venda estornada) não representa dinheiro
+                // e não pode fazer a parcela sumir da projeção.
+                where: { saleId: { in: cfSaleIds }, status: { in: ["PENDING", "SETTLED"] } },
                 select: { saleId: true },
                 distinct: ["saleId"],
               })
@@ -836,8 +856,14 @@ export const financialRouter = createTRPCRouter({
         };
 
         for (const inst of installments) {
-          // Cartão: o dinheiro entra pelo CardReceivable (fonte única) — pula.
-          if (inst.transaction.saleId && cfCardSaleIds.has(inst.transaction.saleId)) {
+          // Cartão legado: o dinheiro entra pelo CardReceivable (fonte única).
+          // Pula só a parcela de MÉTODO cartão de venda que TEM CardReceivable —
+          // preserva o crediário de venda mista (crediário+cartão). (D1)
+          if (
+            inst.transaction.saleId &&
+            isCardPaymentMethod(inst.transaction.paymentMethod) &&
+            cfCardSaleIds.has(inst.transaction.saleId)
+          ) {
             continue;
           }
           const isPaid = inst.status === "PAID" || inst.status === "PARTIALLY_PAID";
@@ -1141,8 +1167,9 @@ export const financialRouter = createTRPCRouter({
             transaction: { deletedAt: null },
           },
           include: {
-            // saleId: discriminador de cartão (venda que tem CardReceivable).
-            transaction: { select: { type: true, saleId: true } },
+            // saleId: discriminador de cartão. paymentMethod: distingue FT de
+            // cartão legado da FT de crediário (D1).
+            transaction: { select: { type: true, saleId: true, paymentMethod: true } },
           },
           orderBy: { dueDate: "asc" },
         });
@@ -1170,7 +1197,9 @@ export const financialRouter = createTRPCRouter({
         const cardSales =
           saleIds.length > 0
             ? await tx.cardReceivable.findMany({
-                where: { saleId: { in: saleIds } },
+                // D1: só CardReceivable VIVO deduplica (cancelado = venda
+                // estornada, não representa dinheiro).
+                where: { saleId: { in: saleIds }, status: { in: ["PENDING", "SETTLED"] } },
                 select: { saleId: true },
                 distinct: ["saleId"],
               })
@@ -1188,6 +1217,7 @@ export const financialRouter = createTRPCRouter({
             remainingCents: decimalToCents(i.amount) - decimalToCents(i.paidAmount),
             type: i.transaction.type as "RECEIVABLE" | "PAYABLE",
             saleId: i.transaction.saleId,
+            isCardMethod: isCardPaymentMethod(i.transaction.paymentMethod),
           })),
           cardReceivables.map((cr) => ({
             expectedSettlementDate: cr.expectedSettlementDate,

@@ -19,6 +19,14 @@ export interface ProjectionInstallment {
   type: "RECEIVABLE" | "PAYABLE";
   /** Venda de origem (quando a transação é de venda). */
   saleId: string | null;
+  /**
+   * D1 (auditoria fin 2026-07-10): a parcela é de um pagamento em CARTÃO?
+   * Pós-#478 cartão não gera FT/parcela; só FT de cartão LEGADO tem método
+   * cartao_*. A dedup só deve pular a parcela de cartão legado (que é o double
+   * do CardReceivable) — NÃO a parcela de crediário de uma venda MISTA
+   * (crediário + cartão), que é dinheiro legítimo sem representação em cartão.
+   */
+  isCardMethod: boolean;
 }
 
 export interface ProjectionCardReceivable {
@@ -63,9 +71,11 @@ export function buildProjectedCashFlow(
   const bucket = (key: string) => (daily[key] ??= { receivable: 0, payable: 0 });
 
   for (const inst of installments) {
-    // Cartão: o dinheiro entra pelo CardReceivable (fonte única). Pular a
-    // parcela evita a dupla contagem.
-    if (inst.saleId && cardSaleIds.has(inst.saleId)) continue;
+    // Cartão legado: o dinheiro entra pelo CardReceivable (fonte única). Pula só
+    // a parcela de MÉTODO cartão de uma venda que TEM CardReceivable — evita a
+    // dupla contagem sem derrubar a parcela de crediário de uma venda mista
+    // (crediário + cartão), que não tem representação em CardReceivable (D1).
+    if (inst.saleId && inst.isCardMethod && cardSaleIds.has(inst.saleId)) continue;
     const b = bucket(dayKey(inst.dueDate));
     if (inst.type === "RECEIVABLE") b.receivable += inst.remainingCents;
     else b.payable += inst.remainingCents;
