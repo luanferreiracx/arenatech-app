@@ -2682,12 +2682,24 @@ export const stockRouter = createTRPCRouter({
           },
         });
 
-        const entries = movements
-          .filter((m) => m.type === "ENTRY")
-          .reduce((s, m) => s + m.quantity, 0);
-        const exits = movements
-          .filter((m) => m.type === "EXIT")
-          .reduce((s, m) => s + m.quantity, 0);
+        // R6 (auditoria estoque 2026-07-10): os totais agregam no BANCO sobre
+        // TODO o período — antes somavam só as 500 linhas retornadas, subestimando
+        // o total em qualquer período com >500 movimentos (sem aviso). Respeita o
+        // filtro input.type (se filtrou EXIT, o total de ENTRY é 0).
+        const baseWhere: Prisma.StockMovementWhereInput = { ...where };
+        delete baseWhere.type;
+        const wantEntry = !input.type || input.type === "ENTRY";
+        const wantExit = !input.type || input.type === "EXIT";
+        const [entriesAgg, exitsAgg] = await Promise.all([
+          wantEntry
+            ? tx.stockMovement.aggregate({ where: { ...baseWhere, type: "ENTRY" }, _sum: { quantity: true } })
+            : Promise.resolve({ _sum: { quantity: 0 } }),
+          wantExit
+            ? tx.stockMovement.aggregate({ where: { ...baseWhere, type: "EXIT" }, _sum: { quantity: true } })
+            : Promise.resolve({ _sum: { quantity: 0 } }),
+        ]);
+        const entries = entriesAgg._sum.quantity ?? 0;
+        const exits = exitsAgg._sum.quantity ?? 0;
 
         return { movements, totals: { entries, exits } };
       });
@@ -2954,7 +2966,12 @@ export const stockRouter = createTRPCRouter({
         const saleItems = await tx.saleItem.findMany({
           where: {
             sale: {
-              status: "COMPLETED",
+              // R1 (auditoria estoque 2026-07-10): inclui PARTIALLY_REFUNDED. O
+              // estorno parcial ZERA o `total` dos itens devolvidos (mantém os
+              // retidos) — então somar item.total pega exatamente a receita
+              // retida. Antes o filtro só-COMPLETED sumia com a venda inteira,
+              // escondendo a receita dos itens que o cliente ficou.
+              status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] },
               saleDate: { gte: dateFrom, lte: dateTo },
             },
           },
@@ -3202,13 +3219,17 @@ export const stockRouter = createTRPCRouter({
           : new Date();
 
         const [sales, entries, exits, purchases] = await Promise.all([
+          // R3 (auditoria estoque 2026-07-10): receita = subtotal − desconto
+          // (mercadoria), NÃO totalAmount (líquido do trade-in). Alinha o card de
+          // resumo ao reportVendasPeriodo/DRE — antes o "valor total" do resumo
+          // ficava menor/negativo em vendas com aparelho de entrada.
           tx.sale.aggregate({
             where: {
               status: "COMPLETED",
               saleDate: { gte: dateFrom, lte: dateTo },
             },
             _count: true,
-            _sum: { totalAmount: true },
+            _sum: { subtotal: true, discountAmount: true },
           }),
           tx.stockMovement.aggregate({
             where: {
@@ -3232,7 +3253,9 @@ export const stockRouter = createTRPCRouter({
         return {
           vendas: {
             quantidade: sales._count,
-            valorTotal: Math.round(Number(sales._sum.totalAmount ?? 0) * 100),
+            valorTotal:
+              Math.round(Number(sales._sum.subtotal ?? 0) * 100) -
+              Math.round(Number(sales._sum.discountAmount ?? 0) * 100),
           },
           estoque: {
             entradas: entries._sum.quantity ?? 0,
