@@ -1011,15 +1011,14 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // R1/R2 (auditoria PDV 2026-07-09): enforcement server-side da config de
-        // cartão. O finalize é a autoridade — não confia só no frontend (#474).
-        // Cartão exige forma configurada + adquirente + bandeira + tipo; débito
-        // não parcela. Sem isto, uma chamada direta à API (ou regressão de UI)
-        // gravaria venda no cartão com taxa 0 e sem CardReceivable.
+        // Classificação de cartão — resolvida UMA vez e usada pelo guard R1/R2 E
+        // pela criação de FinancialTransaction (cartão = fonte única CardReceivable,
+        // não gera FT). Resolve o tipo do PaymentMethod dos pagamentos com id.
+        const { cardPaymentConfigError, isCardPayment } = await import(
+          "@/server/services/card-payment-guard"
+        );
+        const methodTypeById = new Map<string, string>();
         if (payments.length > 0) {
-          const { cardPaymentConfigError } = await import(
-            "@/server/services/card-payment-guard"
-          );
           const methodIds = [
             ...new Set(
               payments
@@ -1027,7 +1026,6 @@ export const saleRouter = createTRPCRouter({
                 .filter((id): id is string => !!id),
             ),
           ];
-          const methodTypeById = new Map<string, string>();
           if (methodIds.length > 0) {
             const methods = await tx.paymentMethod.findMany({
               where: { id: { in: methodIds }, tenantId: ctx.tenantId },
@@ -1035,15 +1033,26 @@ export const saleRouter = createTRPCRouter({
             });
             for (const m of methods) methodTypeById.set(m.id, m.type);
           }
-          for (const payment of payments) {
-            const err = cardPaymentConfigError(
-              payment,
-              payment.paymentMethodId
-                ? methodTypeById.get(payment.paymentMethodId) ?? null
-                : null,
-            );
-            if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
-          }
+        }
+        const paymentIsCard = (p: (typeof payments)[number]): boolean =>
+          isCardPayment(
+            p,
+            p.paymentMethodId ? methodTypeById.get(p.paymentMethodId) ?? null : null,
+          );
+
+        // R1/R2 (auditoria PDV 2026-07-09): enforcement server-side da config de
+        // cartão. O finalize é a autoridade — não confia só no frontend (#474).
+        // Cartão exige forma configurada + adquirente + bandeira + tipo; débito
+        // não parcela. Sem isto, uma chamada direta à API (ou regressão de UI)
+        // gravaria venda no cartão com taxa 0 e sem CardReceivable.
+        for (const payment of payments) {
+          const err = cardPaymentConfigError(
+            payment,
+            payment.paymentMethodId
+              ? methodTypeById.get(payment.paymentMethodId) ?? null
+              : null,
+          );
+          if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
         }
 
         // Calcula breakdown de taxas (paridade Laravel CalculadoraPagamento).
@@ -1397,9 +1406,13 @@ export const saleRouter = createTRPCRouter({
 
         // Create FinancialTransaction (RECEIVABLE) — pulado em downgrade
         // pois nao ha valor a receber, so devolucao em CashMovement.
-        const hasInstallments = payments.some(
-          (p) => (p.installments ?? 1) > 1,
-        );
+        //
+        // FONTE ÚNICA (R4 fase 2): o dinheiro de CARTÃO em trânsito vive no
+        // CardReceivable (D+N real, taxa, conta) — NÃO gera FinancialTransaction,
+        // pra não representar o mesmo dinheiro em dois lugares. Aqui a criação de
+        // FT considera só os pagamentos NÃO-cartão (dinheiro/PIX/crediário/OS).
+        const nonCardPayments = payments.filter((p) => !paymentIsCard(p));
+        const nonCardTotalCents = nonCardPayments.reduce((s, p) => s + p.amount, 0);
 
         if (refundDueCents > 0) {
           // Downgrade: cria PAYABLE para rastrear a devolucao devida ao cliente.
@@ -1437,24 +1450,34 @@ export const saleRouter = createTRPCRouter({
               createdByUserId: ctx.session.user.id,
             },
           });
-        } else if (hasInstallments) {
-          // Create separate transaction for each installment payment
-          for (const payment of payments) {
-            const installmentCount = payment.installments ?? 1;
-            if (installmentCount > 1) {
-              const perInstallment = Math.floor(payment.amount / installmentCount);
-              const remainder = payment.amount - perInstallment * installmentCount;
-
+        } else {
+          // Decisão pura (testada) de QUAIS FT criar — só não-cartão (cartão vive
+          // no CardReceivable). Venda 100% cartão → specs=[] → nenhuma FT.
+          const { planSaleReceivables } = await import(
+            "@/server/services/sale-receivables-plan"
+          );
+          const specs = planSaleReceivables(
+            nonCardPayments.map((p) => ({
+              amount: p.amount,
+              installments: p.installments,
+              method: p.method,
+            })),
+            { totalCents: nonCardTotalCents, paymentMethod },
+          );
+          for (const spec of specs) {
+            if (spec.installments > 1) {
+              const perInstallment = Math.floor(spec.amountCents / spec.installments);
+              const remainder = spec.amountCents - perInstallment * spec.installments;
               const ft = await tx.financialTransaction.create({
                 data: {
                   tenantId: ctx.tenantId,
                   type: "RECEIVABLE",
                   status: "PENDING",
-                  description: `Venda ${saleNumber} - ${payment.method}`,
+                  description: `Venda ${saleNumber} - ${spec.paymentMethod}`,
                   category: "venda",
-                  totalAmount: centsToPrisma(payment.amount),
+                  totalAmount: centsToPrisma(spec.amountCents),
                   dueDate: new Date(),
-                  paymentMethod: payment.method,
+                  paymentMethod: spec.paymentMethod,
                   // saleId e o link da discriminated union (consultado por
                   // cancelReceivablesFromSale, refund, dashboard). referenceId
                   // permanece para compat com queries antigas.
@@ -1464,11 +1487,10 @@ export const saleRouter = createTRPCRouter({
                   customerId: input.customerId ?? null,
                 },
               });
-
-              const installments = Array.from({ length: installmentCount }, (_, i) => {
+              const installments = Array.from({ length: spec.installments }, (_, i) => {
                 const dueDate = new Date();
                 dueDate.setMonth(dueDate.getMonth() + i + 1);
-                const amount = i === installmentCount - 1 ? perInstallment + remainder : perInstallment;
+                const amount = i === spec.installments - 1 ? perInstallment + remainder : perInstallment;
                 return {
                   tenantId: ctx.tenantId,
                   transactionId: ft.id,
@@ -1485,13 +1507,13 @@ export const saleRouter = createTRPCRouter({
                   tenantId: ctx.tenantId,
                   type: "RECEIVABLE",
                   status: "PAID",
-                  description: `Venda ${saleNumber} - ${payment.method}`,
+                  description: `Venda ${saleNumber} - ${spec.paymentMethod}`,
                   category: "venda",
-                  totalAmount: centsToPrisma(payment.amount),
-                  paidAmount: centsToPrisma(payment.amount),
+                  totalAmount: centsToPrisma(spec.amountCents),
+                  paidAmount: centsToPrisma(spec.amountCents),
                   dueDate: new Date(),
                   paidAt: new Date(),
-                  paymentMethod: payment.method,
+                  paymentMethod: spec.paymentMethod,
                   saleId: sale.id,
                   referenceId: sale.id,
                   referenceType: "SALE",
@@ -1500,26 +1522,6 @@ export const saleRouter = createTRPCRouter({
               });
             }
           }
-        } else {
-          // Single payment - mark as paid
-          await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "RECEIVABLE",
-              status: "PAID",
-              description: `Venda ${saleNumber}`,
-              category: "venda",
-              totalAmount: centsToPrisma(totalCents),
-              paidAmount: centsToPrisma(totalCents),
-              dueDate: new Date(),
-              paidAt: new Date(),
-              paymentMethod,
-              saleId: sale.id,
-              referenceId: sale.id,
-              referenceType: "SALE",
-              customerId: input.customerId ?? null,
-            },
-          });
         }
 
         // Dados de confirmacao InfinitePay chegam pelo webhook (gravados no leg
