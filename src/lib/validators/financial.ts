@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// A4 (auditoria fin 2026-07-10): teto sanitário para valores em centavos. R$ 1M
+// está acima de qualquer lançamento real e abaixo do limite de precisão de
+// Number — fecha overflow/envenenamento de agregados (DRE/fluxo) por input
+// adulterado. Mesmo padrão do A2 do PDV.
+const MAX_CENTS = 100_000_000; // R$ 1.000.000,00
+
 // ── Enums ──
 
 export const transactionTypeEnum = z.enum(["PAYABLE", "RECEIVABLE"]);
@@ -46,7 +52,7 @@ export const createTransactionSchema = z.object({
   customerName: z.string().max(200).optional().nullable(),
   customerId: z.string().uuid().optional().nullable(),
   /** Total amount in centavos */
-  totalAmount: z.number().int().min(1, "Valor deve ser maior que zero"),
+  totalAmount: z.number().int().min(1, "Valor deve ser maior que zero").max(MAX_CENTS, "Valor acima do limite permitido"),
   /** Payment method */
   paymentMethod: z.string().max(50).optional().nullable(),
   /** Number of installments (1-60) */
@@ -94,7 +100,7 @@ export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>;
 export const payInstallmentSchema = z.object({
   installmentId: z.string().uuid(),
   /** Amount paid in centavos */
-  amountPaid: z.number().int().min(1, "Valor pago deve ser maior que zero"),
+  amountPaid: z.number().int().min(1, "Valor pago deve ser maior que zero").max(MAX_CENTS, "Valor acima do limite permitido"),
   paymentMethod: z.string().max(50).optional().nullable(),
   notes: z.string().max(500).optional().nullable(),
 });
@@ -107,7 +113,7 @@ export const reverseInstallmentSchema = z.object({
   installmentId: z.string().uuid(),
   reason: z.string().min(3, "Motivo deve ter no minimo 3 caracteres").max(500),
   // Estorno parcial: valor em centavos a ser estornado. Se omitido, estorna o total pago.
-  amount: z.number().int().min(1).optional(),
+  amount: z.number().int().min(1).max(MAX_CENTS).optional(),
 });
 
 export type ReverseInstallmentInput = z.infer<typeof reverseInstallmentSchema>;
