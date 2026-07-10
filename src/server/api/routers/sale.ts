@@ -844,6 +844,14 @@ export const saleRouter = createTRPCRouter({
       // no hot-path do PDV). O frontend auto-finaliza no SSE; o servidor revalida
       // contra tampering/corrida com status ainda pendente. `input.saleId` === a
       // sale carregada dentro da tx, entao o bind sourceId->venda e o mesmo.
+      // M1/E3 (auditoria PDV 2026-07-10): divergências de valor entre o leg
+      // pago (liquidado na wallet/confirmado pelo webhook) e o valor que a venda
+      // cobra. Fail-open (decisão do dono): não bloqueia o balcão — grava audit
+      // + log estruturado para conciliação. Uma tolerância absorve a taxa fixa
+      // conhecida (Eulen R$0,99) e pequenos acréscimos de adquirente.
+      const valueDivergences: Array<{ method: string; expectedCents: number; settledCents: number }> = [];
+      const RECON_TOLERANCE_CENTS = 100; // R$1,00 — cobre a taxa fixa Eulen (R$0,99)
+
       for (const payment of input.payments ?? []) {
         if (payment.method !== "depix" || isManualDepixPayment(payment)) continue;
         if (!payment.walletTransactionId) {
@@ -866,6 +874,22 @@ export const saleRouter = createTRPCRouter({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "DePix ainda nao confirmado. Aguarde a confirmacao do pagamento.",
+          });
+        }
+        // Confere o valor liquidado (bruto) contra o valor do leg. grossAmountCents
+        // é o que efetivamente entrou; payment.amount é o que a venda contabiliza.
+        if (Math.abs(walletTx.grossAmountCents - payment.amount) > RECON_TOLERANCE_CENTS) {
+          valueDivergences.push({
+            method: "depix",
+            expectedCents: payment.amount,
+            settledCents: walletTx.grossAmountCents,
+          });
+          logger.warn("Divergência de valor DePix no finalize (fail-open)", {
+            saleId: input.saleId,
+            walletTransactionId: payment.walletTransactionId,
+            expectedCents: payment.amount,
+            settledCents: walletTx.grossAmountCents,
+            deltaCents: walletTx.grossAmountCents - payment.amount,
           });
         }
       }
@@ -1000,15 +1024,53 @@ export const saleRouter = createTRPCRouter({
           const storedPd = Array.isArray(sale.paymentDetails)
             ? (sale.paymentDetails as Array<Record<string, unknown>>)
             : [];
-          const paidInfinitepay = storedPd.some(
+          const paidLeg = storedPd.find(
             (p) => p?.method === "infinitepay" && p?.infinitepayStatus === "paid",
           );
-          if (!paidInfinitepay) {
+          if (!paidLeg) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "Pagamento InfinitePay ainda nao confirmado. Aguarde a confirmacao.",
             });
           }
+          // M1/E3: confere o valor pago (do webhook, revalidado via payment_check)
+          // contra o leg da venda. Fail-open — registra divergência, não bloqueia.
+          const infinitepayLeg = payments.find((p) => p.method === "infinitepay");
+          const paidAmountCents =
+            typeof paidLeg.infinitepayPaidAmount === "number" ? paidLeg.infinitepayPaidAmount : null;
+          if (
+            infinitepayLeg &&
+            paidAmountCents !== null &&
+            Math.abs(paidAmountCents - infinitepayLeg.amount) > RECON_TOLERANCE_CENTS
+          ) {
+            valueDivergences.push({
+              method: "infinitepay",
+              expectedCents: infinitepayLeg.amount,
+              settledCents: paidAmountCents,
+            });
+            logger.warn("Divergência de valor InfinitePay no finalize (fail-open)", {
+              saleId: input.saleId,
+              expectedCents: infinitepayLeg.amount,
+              settledCents: paidAmountCents,
+              deltaCents: paidAmountCents - infinitepayLeg.amount,
+            });
+          }
+        }
+
+        // M1/E3: persiste as divergências de valor (DePix pré-tx + InfinitePay
+        // acima) como audit durável junto da venda — fail-open, para conciliação.
+        for (const d of valueDivergences) {
+          await tx.saleAudit.create({
+            data: {
+              tenantId: ctx.tenantId,
+              saleId: input.saleId,
+              userId: ctx.session.user.id,
+              action: "payment_value_mismatch",
+              field: d.method,
+              previousValue: String(d.expectedCents),
+              newValue: String(d.settledCents),
+            },
+          });
         }
 
         // Classificação de cartão — resolvida UMA vez e usada pelo guard R1/R2 E
@@ -2068,21 +2130,57 @@ export const saleRouter = createTRPCRouter({
         // CashMovement de estorno (saida do caixa). Valor = total estornado
         // (refundedCents), nao o total da venda — paridade Laravel estornarParcial.
         // refundSession ja foi validado acima (refundedCents > 0 => caixa aberto).
+        //
+        // M2 (auditoria PDV 2026-07-10): a saída precisa ser MÉTODO-AWARE. Antes
+        // gravava sempre paymentMethod=null, que `computeCashDrawerCents` IGNORA
+        // (trata null como "abertura"). Efeito: estorno de venda paga em DINHEIRO
+        // saía da gaveta física mas não reduzia o esperado → quebra de caixa
+        // negativa recorrente. Agora a parcela lastreada em dinheiro sai como
+        // paymentMethod="dinheiro" (conta na gaveta); o restante (cartão/pix, que
+        // a adquirente estorna, não o caixa) sai como null (fora da gaveta).
         if (refundSession) {
-          await writeCashMovement(tx, {
-            tenantId: ctx.tenantId,
-            cashSessionId: refundSession.id,
-            type: "WITHDRAWAL",
-            nature: "OUTCOME",
-            amountCents: refundedCents,
-            paymentMethod: null,
-            description: isPartial
-              ? `Estorno parcial venda ${sale.number}`
-              : `Estorno venda ${sale.number}`,
-            referenceId: sale.id,
-            referenceType: "SALE_REFUND",
-            createdByUserId: ctx.session.user.id,
-          });
+          const originalLegs = Array.isArray(sale.paymentDetails)
+            ? (sale.paymentDetails as Array<Record<string, unknown>>)
+            : [];
+          const cashPaidOriginallyCents = originalLegs
+            .filter((p) => p?.method === "dinheiro")
+            .reduce((sum, p) => sum + (typeof p.amount === "number" ? p.amount : 0), 0);
+          // A parcela do estorno lastreada em dinheiro não pode exceder nem o
+          // dinheiro originalmente recebido nem o total estornado.
+          const cashRefundCents = Math.max(0, Math.min(refundedCents, cashPaidOriginallyCents));
+          const nonCashRefundCents = refundedCents - cashRefundCents;
+          const label = isPartial
+            ? `Estorno parcial venda ${sale.number}`
+            : `Estorno venda ${sale.number}`;
+
+          if (cashRefundCents > 0) {
+            await writeCashMovement(tx, {
+              tenantId: ctx.tenantId,
+              cashSessionId: refundSession.id,
+              type: "WITHDRAWAL",
+              nature: "OUTCOME",
+              amountCents: cashRefundCents,
+              paymentMethod: "dinheiro",
+              description: label,
+              referenceId: sale.id,
+              referenceType: "SALE_REFUND",
+              createdByUserId: ctx.session.user.id,
+            });
+          }
+          if (nonCashRefundCents > 0) {
+            await writeCashMovement(tx, {
+              tenantId: ctx.tenantId,
+              cashSessionId: refundSession.id,
+              type: "WITHDRAWAL",
+              nature: "OUTCOME",
+              amountCents: nonCashRefundCents,
+              paymentMethod: null,
+              description: label,
+              referenceId: sale.id,
+              referenceType: "SALE_REFUND",
+              createdByUserId: ctx.session.user.id,
+            });
+          }
         }
 
         // Cancela recebiveis. Em estorno total: cancela tudo. Em parcial:

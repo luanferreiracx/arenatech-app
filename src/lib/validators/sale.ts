@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// A2 (auditoria PDV 2026-07-10): teto sanitário para campos de valor em centavos.
+// R$ 1.000.000,00 está muito acima de qualquer venda real de PDV e muito abaixo
+// do limite de precisão de Number (~9e15), fechando troco fantasma / distorção de
+// caixa / overflow por input adulterado. Não é regra de negócio, é sanidade.
+const MAX_CENTS = 100_000_000; // R$ 1.000.000,00
+const centsField = (label: string, min = 0) =>
+  z.number().int().min(min, label).max(MAX_CENTS, "Valor acima do limite permitido");
+
 // ── Enums ──
 
 export const saleStatusEnum = z.enum([
@@ -49,14 +57,14 @@ export const paymentDetailSchema = z.object({
    * de R$ 1.000 pagando 30% pix + 70% cartao, o pix tem amount=30000 e o
    * cartao amount=70000.
    */
-  amount: z.number().int().min(1, "Valor deve ser maior que zero"),
+  amount: centsField("Valor deve ser maior que zero", 1),
   installments: z.number().int().min(1).max(36).optional(),
   /**
    * Valor total que o cliente paga DE FATO nesta forma (centavos). Maior
    * que `amount` quando ha acrescimo (politica CLIENTE_PAGA). Operador
    * digita o valor que aparece na maquininha. Default = amount.
    */
-  totalPaidByCustomer: z.number().int().min(0).optional(),
+  totalPaidByCustomer: centsField("Valor invalido").optional(),
   /** Operador assumiu recebimento manual do DePix; nao ha QR/wallet a validar. */
   depixManual: z.boolean().optional(),
   /** ID canonico da transacao wallet quando method = "depix". */
@@ -83,7 +91,7 @@ export const addSaleItemSchema = z.object({
   // — operador escolhe qual variacao (cor, tamanho, etc) esta vendendo.
   variationId: z.string().uuid().optional().nullable(),
   quantity: z.number().int().min(1, "Quantidade minima 1"),
-  unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
+  unitPrice: centsField("Preco deve ser positivo"), // centavos
 });
 
 export type AddSaleItemInput = z.infer<typeof addSaleItemSchema>;
@@ -189,7 +197,7 @@ export type ListSalesInput = z.infer<typeof listSalesSchema>;
 export const updateItemPriceSchema = z.object({
   saleId: z.string().uuid(),
   itemId: z.string().uuid(),
-  unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
+  unitPrice: centsField("Preco deve ser positivo"), // centavos
 });
 
 export type UpdateItemPriceInput = z.infer<typeof updateItemPriceSchema>;
@@ -250,8 +258,8 @@ export const addSaleUpgradeSchema = z.object({
   /** Condicoes alinhadas com StockItemCondition. */
   condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY"]).default("USED"),
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
-  appraisedValue: z.number().int().min(0),  // centavos
-  abatedValue: z.number().int().min(0),     // centavos (quanto abate da venda)
+  appraisedValue: centsField("Valor invalido"),  // centavos
+  abatedValue: centsField("Valor invalido"),     // centavos (quanto abate da venda)
   notes: z.string().max(500).optional().nullable(),
 }).refine((d) => d.abatedValue <= d.appraisedValue, {
   message: "O valor abatido nao pode ser maior que o valor avaliado.",
