@@ -186,7 +186,7 @@ export const listSalesSchema = z.object({
   dateTo: z.string().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
-  sortBy: z.enum(["saleDate", "totalAmount", "number", "createdAt"]).optional(),
+  sortBy: z.enum(["saleDate", "totalAmount", "subtotal", "number", "createdAt"]).optional(),
   sortOrder: z.enum(["asc", "desc"]).optional(),
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { saleGoodsRevenueCents, saleGrossProfitCents } from "@/lib/sales/sale-revenue";
+import { saleGoodsRevenueCents, saleGrossProfitCents, saleAmountToPayCents } from "@/lib/sales/sale-revenue";
 
 describe("saleGoodsRevenueCents", () => {
   it("receita = subtotal - desconto", () => {
@@ -34,5 +34,29 @@ describe("saleGrossProfitCents — bug do trade-in", () => {
 
   it("considera o desconto na receita", () => {
     expect(saleGrossProfitCents(500_000, 50_000, 400_000)).toBe(50_000);
+  });
+});
+
+describe("saleAmountToPayCents — semântica de exibição (Total vs A pagar)", () => {
+  it("caso VND202602302: Total(mercadoria) − trade-in = A pagar", () => {
+    // Dado real de prod: iPhone R$7.936,83; 2 trade-ins (R$1.300 + R$3.600 =
+    // R$4.900); sem desconto. O "Total" exibido é 7936,83 (mercadoria) e o
+    // "A pagar" é 3036,83 — NÃO o contrário.
+    const subtotal = 793_683;
+    const discount = 0;
+    const upgradeAbated = 490_000;
+    expect(saleAmountToPayCents(subtotal, discount, upgradeAbated)).toBe(303_683);
+  });
+
+  it("sem trade-in nem desconto: a pagar == subtotal", () => {
+    expect(saleAmountToPayCents(500_000, 0, 0)).toBe(500_000);
+  });
+
+  it("desconto + trade-in abatem juntos", () => {
+    expect(saleAmountToPayCents(500_000, 50_000, 100_000)).toBe(350_000);
+  });
+
+  it("downgrade (trade-in > mercadoria): a pagar = 0, nunca negativo", () => {
+    expect(saleAmountToPayCents(100_000, 0, 300_000)).toBe(0);
   });
 });

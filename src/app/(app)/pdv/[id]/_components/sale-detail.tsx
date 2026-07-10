@@ -291,6 +291,11 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
 
   const statusStr = sale.status as string;
   const isCompleted = statusStr === "COMPLETED";
+  // Abatimento total dos aparelhos recebidos em troca (upgrades), em centavos.
+  const upgradeAbatedCents = ((sale.upgrades ?? []) as Array<{ abatedValue?: number }>).reduce(
+    (sum, u) => sum + (u.abatedValue ?? 0),
+    0,
+  );
   const items = (sale.items ?? []) as Array<{
     id: string;
     description: string;
@@ -625,16 +630,27 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
         </CardContent>
       </Card>
 
-      {/* Totals */}
+      {/* Totais — "Total" é a soma das mercadorias (valor da venda); trade-in e
+          desconto abatem dele; "A pagar" é o líquido que o cliente quita nas
+          formas de pagamento. (Antes os rótulos estavam invertidos: mostravam o
+          líquido como "Total" e a mercadoria como "Subtotal".) */}
       <Card className="mt-4">
         <CardContent className="p-4 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Subtotal</span>
+          <div className="flex justify-between text-base font-semibold">
+            <span>Total</span>
             <span>{formatCurrency(sale.subtotal as number)}</span>
           </div>
+          {upgradeAbatedCents > 0 && (
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>
+                {`${(sale.upgrades as unknown[]).length > 1 ? "Aparelhos" : "Aparelho"} na troca`}
+              </span>
+              <span>-{formatCurrency(upgradeAbatedCents)}</span>
+            </div>
+          )}
           {(sale.discountAmount as number) > 0 && (
             <>
-              <div className="flex justify-between text-sm text-destructive">
+              <div className="flex justify-between text-sm text-muted-foreground">
                 <span>
                   Desconto
                   {sale.discountType === "percentage" && ` (${sale.discountValue}%)`}
@@ -642,14 +658,14 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 <span>-{formatCurrency(sale.discountAmount as number)}</span>
               </div>
               {sale.discountReason && (
-                <div className="text-xs text-muted-foreground pl-2">
+                <div className="text-xs text-muted-foreground pl-2 break-words">
                   Motivo: {sale.discountReason as string}
                 </div>
               )}
             </>
           )}
           <div className="flex justify-between text-lg font-bold border-t pt-2">
-            <span>Total</span>
+            <span>A pagar</span>
             <span className="text-primary">{formatCurrency(sale.totalAmount as number)}</span>
           </div>
           {(sale.surchargeAmount as number) > 0 && (

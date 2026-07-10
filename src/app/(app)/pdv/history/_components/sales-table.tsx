@@ -71,7 +71,7 @@ const PAYMENT_TAGS: Record<string, { label: string; className: string }> = {
   },
 };
 
-type SortField = "saleDate" | "totalAmount" | "number" | "createdAt";
+type SortField = "saleDate" | "totalAmount" | "subtotal" | "number" | "createdAt";
 type SortOrder = "asc" | "desc";
 
 export function SalesTable() {
@@ -329,11 +329,11 @@ export function SalesTable() {
                 <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <button
                     type="button"
-                    className={`inline-flex items-center gap-1 hover:text-primary transition-colors ml-auto ${sortBy === "totalAmount" ? "text-primary" : ""}`}
-                    onClick={() => toggleSort("totalAmount")}
+                    className={`inline-flex items-center gap-1 hover:text-primary transition-colors ml-auto ${sortBy === "subtotal" ? "text-primary" : ""}`}
+                    onClick={() => toggleSort("subtotal")}
                   >
                     Valor
-                    {renderSortIcon("totalAmount")}
+                    {renderSortIcon("subtotal")}
                   </button>
                 </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -413,7 +413,7 @@ export function SalesTable() {
                         {sale.itemCount as number}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums whitespace-nowrap">
-                        {formatCurrency(sale.totalAmount as number)}
+                        {formatCurrency(sale.subtotal as number)}
                       </td>
                       <td className="px-4 py-3">
                         <span

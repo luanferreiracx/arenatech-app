@@ -299,6 +299,7 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
   const customerPaidTotal = total + surcharge;
   const refundDue = Number(sale.refundDueAmount ?? 0);
   const upgrades = sale.upgrades ?? [];
+  const upgradeAbated = upgrades.reduce((sum, u) => sum + Number(u.abatedValue ?? 0), 0);
 
   return (
     <Document>
@@ -474,13 +475,22 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
           </View>
         )}
 
-        {/* Totais */}
+        {/* Totais — "Total" é o valor das mercadorias (soma de tudo); trade-in e
+            desconto abatem; "A pagar" é o líquido quitado nas formas de pagamento. */}
         <View style={styles.totaisWrapper}>
           <View style={styles.totaisTable}>
-            <View style={styles.totaisRow}>
-              <Text style={styles.totaisLabel}>Subtotal</Text>
-              <Text style={styles.totaisValue}>{fmtBRL(subtotal)}</Text>
+            <View style={styles.totaisTotalRow}>
+              <Text style={styles.totaisTotalLabel}>TOTAL</Text>
+              <Text style={styles.totaisTotalValue}>{fmtBRL(subtotal)}</Text>
             </View>
+            {upgradeAbated > 0 && (
+              <View style={styles.totaisRow}>
+                <Text style={styles.totaisLabelDiscount}>
+                  {upgrades.length > 1 ? "Aparelhos na troca" : "Aparelho na troca"}
+                </Text>
+                <Text style={styles.totaisValueDiscount}>-{fmtBRL(upgradeAbated)}</Text>
+              </View>
+            )}
             {discount > 0 && (
               <View style={styles.totaisRow}>
                 <Text style={styles.totaisLabelDiscount}>
@@ -492,9 +502,9 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
                 <Text style={styles.totaisValueDiscount}>-{fmtBRL(discount)}</Text>
               </View>
             )}
-            <View style={styles.totaisTotalRow}>
-              <Text style={styles.totaisTotalLabel}>TOTAL</Text>
-              <Text style={styles.totaisTotalValue}>{fmtBRL(total)}</Text>
+            <View style={styles.totaisRow}>
+              <Text style={styles.totaisLabel}>A pagar</Text>
+              <Text style={styles.totaisValue}>{fmtBRL(total)}</Text>
             </View>
             {surcharge > 0 && (
               <>
