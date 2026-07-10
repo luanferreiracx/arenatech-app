@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
-import { writeCashMovement } from "@/server/services/cash-session.service";
+import { writeCashMovement, refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
@@ -465,13 +465,18 @@ export const financialRouter = createTRPCRouter({
         // banco fica como 100 vs 99.999... — divergencia em relatorios.
         const finalPaidCents = isPaid ? installmentAmountCents : newPaidCents;
 
-        // Atomic update com lock otimista: trava apenas status PENDING/OVERDUE.
-        // Se outra request ja marcou como PAID, count vira 0 e abortamos —
-        // evita CashMovement/RecalcStatus duplicado em duplo clique.
+        // Atomic update com lock otimista (P1, auditoria fin 2026-07-10): a
+        // guarda inclui `paidAmount: installment.paidAmount` (o valor lido), NÃO
+        // só o status. Num pagamento PARCIAL a parcela continua PENDING, então
+        // guardar só o status deixava dois pagamentos parciais concorrentes
+        // passarem os dois — cada um gravava seu paidAmount stale (lost update):
+        // dois CashMovement de entrada, mas a parcela creditava um só → dinheiro
+        // entrava na gaveta e sumia do razão. Espelha o CAS do reverseInstallment.
         const updateResult = await tx.installment.updateMany({
           where: {
             id: input.installmentId,
             status: { in: ["PENDING", "OVERDUE"] },
+            paidAmount: installment.paidAmount,
           },
           data: {
             paidAmount: centsToPrismaDecimal(finalPaidCents),
@@ -584,6 +589,21 @@ export const financialRouter = createTRPCRouter({
         const isFullReversal = newPaidCents === 0;
         const originalPaymentMethod = installment.paymentMethod;
 
+        // P3 (auditoria fin 2026-07-10): o estorno gera uma saída/entrada de
+        // caixa; exige caixa aberto quando há valor a estornar — paridade com o
+        // estorno de venda/OS (refundNeedsOpenCashSession). Sem isto, estornar
+        // sem caixa aberto pulava silenciosamente o CashMovement e a gaveta
+        // sub-reportava a saída. Guard early: antes de mexer na parcela.
+        const reverseOpenSession = await tx.cashSession.findFirst({
+          where: { userId: ctx.session.user.id, closedAt: null },
+        });
+        if (refundNeedsOpenCashSession(reversedAmount) && !reverseOpenSession) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Caixa nao esta aberto. Abra um caixa antes de estornar (a saida precisa ser registrada na gaveta).",
+          });
+        }
+
         // CAS otimista: trava em (status pagável + paidAmount igual ao lido). Se
         // outro estorno concorrente já mexeu na parcela, count=0 → CONFLICT e a
         // tx faz rollback (sem CashMovement de estorno duplicado). Espelha o
@@ -611,11 +631,9 @@ export const financialRouter = createTRPCRouter({
 
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
-        // Reverse cash movement if session is open
+        // Reverse cash movement (reverseOpenSession validado no guard early acima).
         const userId = ctx.session.user.id;
-        const openSession = await tx.cashSession.findFirst({
-          where: { userId, closedAt: null },
-        });
+        const openSession = reverseOpenSession;
 
         if (openSession && reversedAmount > 0) {
           const isReceivable = installment.transaction.type === "RECEIVABLE";
