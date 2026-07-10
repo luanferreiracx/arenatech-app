@@ -1,6 +1,15 @@
 import { z } from "zod"
 import { imeiSchema } from "./imei"
 
+// I1 (auditoria estoque 2026-07-10): identificador obrigatório para item
+// serializado — IMEI (dígitos) ou número de série (não-vazio).
+const IDENTIFIER_REQUIRED_MSG = "Informe IMEI ou numero de serie do item serializado"
+function requireItemIdentifier(imei?: string | null, serial?: string | null): boolean {
+  const cleanImei = imei?.replace(/\D/g, "") ?? ""
+  const cleanSerial = serial?.trim() ?? ""
+  return cleanImei.length > 0 || cleanSerial.length > 0
+}
+
 // ── StockItem schemas ──
 
 export const stockItemConditionEnum = z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY"])
@@ -23,6 +32,15 @@ export const createStockItemSchema = z.object({
   invoiceNumber: z.string().max(50).optional().nullable(),
   entryDate: z.string().optional(), // ISO date string
   notes: z.string().max(2000).optional().nullable(),
+}).superRefine((data, ctx) => {
+  // I1 (auditoria estoque 2026-07-10, regra do dono): aparelho serializado SEMPRE
+  // tem IMEI ou número de série. Sem identificador o item não pode ser rastreado,
+  // liberado por termo, nem revertido no cancelamento (a heurística de vínculo é
+  // por imei/serial). A compra (createDevicePurchaseSchema) já exige; a entrada
+  // serializada tinha ambos opcionais, criando itens sem identificador.
+  if (!requireItemIdentifier(data.imei, data.serialNumber)) {
+    ctx.addIssue({ code: "custom", path: ["imei"], message: IDENTIFIER_REQUIRED_MSG });
+  }
 })
 
 export type CreateStockItemInput = z.infer<typeof createStockItemSchema>
@@ -43,6 +61,13 @@ export const createStockItemBatchSchema = z.object({
     warrantyMonths: z.number().int().min(0).optional().nullable(),
     notes: z.string().max(2000).optional().nullable(),
   })).min(1, "Pelo menos 1 item obrigatorio"),
+}).superRefine((data, ctx) => {
+  // I1: cada item do lote serializado precisa de IMEI ou serial (idem acima).
+  data.items.forEach((item, i) => {
+    if (!requireItemIdentifier(item.imei, item.serialNumber)) {
+      ctx.addIssue({ code: "custom", path: ["items", i, "imei"], message: IDENTIFIER_REQUIRED_MSG });
+    }
+  });
 })
 
 export type CreateStockItemBatchInput = z.infer<typeof createStockItemBatchSchema>

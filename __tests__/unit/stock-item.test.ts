@@ -313,3 +313,39 @@ describe("Cancelamento de compra (isPurchaseReversibleStatus)", () => {
     expect(isPurchaseReversibleStatus("RESERVED")).toBe(false)
   })
 })
+
+describe("I1: item serializado exige IMEI ou serie (regra do dono)", () => {
+  const baseItem = { productId: "11111111-1111-4111-8111-111111111111", condition: "NEW" as const, costPrice: 10000 }
+  const baseBatch = { productId: "11111111-1111-4111-8111-111111111111", condition: "NEW" as const, costPrice: 10000 }
+
+  it("rejeita item unico SEM imei e SEM serial", () => {
+    const r = createStockItemSchema.safeParse({ ...baseItem })
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues.some((i) => /IMEI ou numero de serie/.test(i.message))).toBe(true)
+  })
+
+  it("aceita item unico com IMEI valido", () => {
+    expect(createStockItemSchema.safeParse({ ...baseItem, imei: "490154203237518" }).success).toBe(true)
+  })
+
+  it("aceita item unico com numero de serie", () => {
+    expect(createStockItemSchema.safeParse({ ...baseItem, serialNumber: "SN12345" }).success).toBe(true)
+  })
+
+  it("rejeita LOTE com um item sem identificador", () => {
+    const r = createStockItemBatchSchema.safeParse({
+      ...baseBatch,
+      items: [{ imei: "490154203237518" }, { batteryHealth: 90 }],
+    })
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues.some((i) => i.path.includes(1))).toBe(true)
+  })
+
+  it("aceita LOTE com todos os itens identificados (imei ou serie)", () => {
+    const r = createStockItemBatchSchema.safeParse({
+      ...baseBatch,
+      items: [{ imei: "490154203237518" }, { serialNumber: "SN999" }],
+    })
+    expect(r.success).toBe(true)
+  })
+})
