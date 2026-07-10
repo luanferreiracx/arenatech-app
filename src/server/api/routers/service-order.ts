@@ -196,6 +196,29 @@ async function settleOsPaymentRecords(
   await createOsServiceProviderPayable(tx, args.tenantId, args.order, args.paidCents, args.userId);
 }
 
+/**
+ * F7 (auditoria OS 2026-07-10): ao reenviar um termo/assinatura, o documento
+ * Autentique anterior (ainda pendente) precisa ser cancelado — senão fica órfão
+ * consumindo créditos e o cliente pode assinar o link velho. Best-effort, fora
+ * de qualquer transação; a falha não bloqueia o reenvio (paridade com o
+ * cancelamento em `stock.ts` / Laravel CompraAparelhoController). Idempotente:
+ * `cancelDocument` já trata doc inexistente.
+ */
+async function cancelPreviousAutentiqueDoc(
+  previousDocumentId: string | null | undefined,
+  logContext: Record<string, unknown>,
+): Promise<void> {
+  if (!previousDocumentId) return;
+  const { cancelDocument } = await import("@/lib/services/autentique-service");
+  await cancelDocument(previousDocumentId).catch((err) => {
+    logger.warn("Falha ao cancelar documento Autentique anterior (reenvio)", {
+      ...logContext,
+      previousDocumentId,
+      err: String(err),
+    });
+  });
+}
+
 function generatePublicLink(): string {
   return generatePublicToken(12);
 }
@@ -2655,7 +2678,7 @@ export const serviceOrderRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // ETAPA 1 — fetch dentro de transacao RLS (rapida).
-      const { order, customer, whatsapp, wasResend } = await ctx.withTenant(async (tx) => {
+      const { order, customer, whatsapp, wasResend, previousDocumentId } = await ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({
           where: { id: input.orderId },
         });
@@ -2676,7 +2699,13 @@ export const serviceOrderRouter = createTRPCRouter({
         if (!whatsapp) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Cliente sem telefone cadastrado. Informe um numero." });
         }
-        return { order, customer, whatsapp, wasResend: !!order.signatureDocumentId };
+        return {
+          order,
+          customer,
+          whatsapp,
+          wasResend: !!order.signatureDocumentId,
+          previousDocumentId: order.signatureDocumentId,
+        };
       });
 
       // ETAPA 2 — IO externo FORA da transacao (PDF + Autentique + Meta).
@@ -2699,6 +2728,11 @@ export const serviceOrderRouter = createTRPCRouter({
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
       }
+
+      // F7: cancela o documento anterior (reenvio) — só depois do novo doc ter
+      // sido criado com sucesso, para não deixar a OS sem nenhum documento válido
+      // se o Autentique falhar no meio.
+      await cancelPreviousAutentiqueDoc(previousDocumentId, { orderId: input.orderId, kind: "termo_servico" });
 
       // ETAPA 3 — persiste resultado (transacao curta).
       await ctx.withTenant(async (tx) => {
@@ -3241,6 +3275,12 @@ export const serviceOrderRouter = createTRPCRouter({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
       }
 
+      // F7: cancela o termo de entrega anterior (reenvio) — evita doc órfão.
+      await cancelPreviousAutentiqueDoc(prep.order.deliveryTermAutentiqueId, {
+        orderId: input.orderId,
+        kind: "termo_entrega",
+      });
+
       // WhatsApp Cloud — legenda com o link Autentique (free-text, best-effort).
       if (result.signatureLink) {
         const caption = `Termo de Entrega - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
@@ -3424,6 +3464,12 @@ export const serviceOrderRouter = createTRPCRouter({
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error ?? "Erro ao enviar para Autentique" });
       }
+
+      // F7: cancela o termo de devolução anterior (reenvio) — evita doc órfão.
+      await cancelPreviousAutentiqueDoc(prep.order.returnTermAutentiqueId, {
+        orderId: input.orderId,
+        kind: "termo_devolucao",
+      });
 
       if (result.signatureLink) {
         const caption = `Termo de Devolucao - OS #${prep.order.number}\n\nOla, ${prep.customer.name}! Para assinar digitalmente:\n${result.signatureLink}`;
@@ -3655,6 +3701,15 @@ export const serviceOrderRouter = createTRPCRouter({
           message: autentique.error ?? "Erro ao enviar orcamento para Autentique",
         });
       }
+
+      // F7: cancela o documento do orçamento anterior (reenvio de revisão) —
+      // evita doc órfão consumindo créditos e impede o cliente de assinar uma
+      // versão antiga do orçamento.
+      await cancelPreviousAutentiqueDoc(prep.quote.signatureDocumentId, {
+        orderId: input.orderId,
+        quoteId: prep.quote.id,
+        kind: "orcamento",
+      });
 
       // Persiste o vinculo Autentique no quote (o webhook usa signatureDocumentId
       // para aprovar o orcamento quando o cliente assinar).
