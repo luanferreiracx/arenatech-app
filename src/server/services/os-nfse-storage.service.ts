@@ -22,7 +22,11 @@ export async function deleteNfseAttachment(orderId: string, key: string): Promis
         secretAccessKey: process.env.S3_SECRET_KEY || "minioadmin",
       },
     });
-    await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    // F9 (auditoria OS): timeout — MinIO pendurado não segura a request (SDK v3
+    // não tem timeout de socket por default).
+    await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }), {
+      abortSignal: AbortSignal.timeout(10_000),
+    });
   } catch (err) {
     logger.warn("Falha ao apagar NFS-e do MinIO", {
       orderId, key, error: err instanceof Error ? err.message : String(err),

@@ -1825,6 +1825,17 @@ export const serviceOrderRouter = createTRPCRouter({
     .input(updateCostsSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
+        if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
+        // F1 (auditoria OS): não altera custos de OS finalizada — mudaria a base
+        // de lucro/DRE/comissão de uma OS já fechada, sem re-cobrança nem trilha.
+        // Espelha o gate dos item-procedures (add/update/remove).
+        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Não é possível alterar custos de uma OS finalizada.",
+          });
+        }
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -2271,8 +2282,11 @@ export const serviceOrderRouter = createTRPCRouter({
           newPartsAmount: decimalToCents(quote.newPartsAmount),
           newDiscount: decimalToCents(quote.newDiscount),
           newTotal: decimalToCents(quote.newTotal),
-          previousItemsSnapshot: quote.previousItemsSnapshot,
-          newItemsSnapshot: quote.newItemsSnapshot,
+          // F4 (auditoria OS): endpoint PÚBLICO — NÃO expor custo (costPrice) nem
+          // IDs internos (serviceId/productId/variationId). Whitelist só o que o
+          // cliente precisa ver do orçamento (espelha byPublicLink).
+          previousItemsSnapshot: publicQuoteSnapshot(quote.previousItemsSnapshot),
+          newItemsSnapshot: publicQuoteSnapshot(quote.newItemsSnapshot),
           orderNumber: quote.order.number,
           customerName: customer?.name ?? "—",
           tenantName: tenant?.name ?? "Arena Tech",
@@ -2388,6 +2402,9 @@ export const serviceOrderRouter = createTRPCRouter({
             Body: buffer,
             ContentType: input.contentType,
           }),
+          // F9 (auditoria OS): MinIO lento/pendurado não pode segurar a request
+          // indefinidamente (SDK v3 não tem timeout de socket por default).
+          { abortSignal: AbortSignal.timeout(15_000) },
         );
       } catch (err) {
         if (process.env.NODE_ENV === "production") {
@@ -2802,8 +2819,23 @@ export const serviceOrderRouter = createTRPCRouter({
   technicianReport: tenantProcedure
     .input(technicianReportSchema)
     .query(async ({ ctx, input }) => {
+      // F8 (auditoria OS): relatório de produção/lucro por técnico é gerencial —
+      // restrito a admin/gerente. Técnico não-privilegiado só vê os PRÓPRIOS
+      // números; operador comum não acessa.
+      const isPrivileged = isTenantAdmin(ctx.session, ctx.tenantId);
+      const activeTenant = ctx.session.availableTenants.find((t) => t.id === ctx.tenantId);
+      let effectiveInput = input;
+      if (!isPrivileged) {
+        if (!activeTenant?.isTechnician) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Relatório restrito a administradores e gerentes.",
+          });
+        }
+        effectiveInput = { ...input, technicianId: ctx.session.user.id, serviceProviderId: undefined };
+      }
       return ctx.withTenant(async (tx) => {
-        const { items, totals } = await buildTechnicianReport(tx, ctx.tenantId, input);
+        const { items, totals } = await buildTechnicianReport(tx, ctx.tenantId, effectiveInput);
         const ticketMedio = totals.completed > 0
           ? Math.round(totals.totalValue / totals.completed)
           : 0;
@@ -3844,6 +3876,27 @@ function snapshotItems(items: any[]): ItemSnapshot[] {
     costPrice: decimalToCents(i.costPrice),
     total: decimalToCents(i.total),
   }));
+}
+
+/**
+ * F4 (auditoria OS): projeção PÚBLICA de um snapshot de itens do orçamento — só
+ * o que o cliente pode ver (descrição/quantidade/preço). NUNCA o custo
+ * (costPrice) nem os IDs internos (serviceId/productId/variationId/type). Valores
+ * já vêm em centavos no snapshot.
+ */
+function publicQuoteSnapshot(
+  snapshot: unknown,
+): Array<{ description: string; quantity: number; unitPrice: number; total: number }> {
+  if (!Array.isArray(snapshot)) return [];
+  return snapshot.map((raw) => {
+    const it = (raw ?? {}) as Record<string, unknown>;
+    return {
+      description: typeof it.description === "string" ? it.description : "",
+      quantity: typeof it.quantity === "number" ? it.quantity : 0,
+      unitPrice: typeof it.unitPrice === "number" ? it.unitPrice : 0,
+      total: typeof it.total === "number" ? it.total : 0,
+    };
+  });
 }
 
 /**
