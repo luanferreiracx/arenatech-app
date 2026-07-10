@@ -3446,13 +3446,21 @@ export const stockRouter = createTRPCRouter({
           existingProducts.map((p) => p.barcode).filter((b): b is string => !!b),
         );
 
+        // S3/A6 (auditoria estoque 2026-07-10): NÃO há try/catch por linha em volta
+        // dos INSERTs. No Postgres, o 1º erro de statement ABORTA a transação
+        // inteira; capturar em JS e continuar não recupera — os statements
+        // seguintes falham e o COMMIT vira ROLLBACK. O código antigo retornava
+        // "N produtos criados / success:false" com o banco VAZIO (sucesso falso).
+        // Agora o import é ATÔMICO: as validações/dedup abaixo dão `continue` SEM
+        // tocar no banco (seguro no mesmo tx); qualquer erro de INSERT PROPAGA →
+        // rollback total + erro honesto pro operador (reimporta), em vez de mentir.
         for (let i = 0; i < input.lines.length; i++) {
           const line = input.lines[i]!;
           if (lineErrors.has(i)) {
             errors.push(`Linha ${i + 1} (${line.name}): ${lineErrors.get(i)}`);
             continue;
           }
-          try {
+          {
             // Dedup contra DB (via Sets pre-carregados — sem query por linha).
             if (line.sku && existingSku.has(line.sku)) {
               errors.push(`Linha ${i + 1} (${line.name}): SKU "${line.sku}" ja existe`);
@@ -3526,9 +3534,6 @@ export const stockRouter = createTRPCRouter({
               });
               stockEntries += initialQty;
             }
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            errors.push(`Linha ${i + 1} (${line.name}): ${msg}`);
           }
         }
 
