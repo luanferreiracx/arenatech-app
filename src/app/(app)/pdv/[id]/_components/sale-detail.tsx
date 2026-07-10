@@ -305,6 +305,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   }>;
   const paymentDetails = sale.paymentDetails as Array<{
     method: string;
+    methodLabel?: string;
     amount: number;
     installments: number;
   }> | null;
@@ -570,12 +571,12 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <CardContent className="space-y-2 text-sm">
             {paymentDetails && paymentDetails.length > 0 ? (
               paymentDetails.map((p, i) => (
-                <div key={i} className="flex justify-between">
-                  <span>
-                    {PAYMENT_METHOD_LABELS[p.method] ?? p.method}
+                <div key={i} className="flex justify-between gap-2 min-w-0">
+                  <span className="min-w-0 break-words">
+                    {p.methodLabel ?? PAYMENT_METHOD_LABELS[p.method] ?? p.method}
                     {p.installments > 1 && ` (${p.installments}x)`}
                   </span>
-                  <span className="font-medium">{formatCurrency(p.amount)}</span>
+                  <span className="font-medium whitespace-nowrap">{formatCurrency(p.amount)}</span>
                 </div>
               ))
             ) : (

@@ -20,6 +20,7 @@ import {
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
 import { isDiscountAllowed, discountPercentOf } from "@/lib/sales/discount-cap";
 import {
+  PAYMENT_METHOD_LABELS,
   addSaleItemSchema,
   updateSaleItemSchema,
   updateItemPriceSchema,
@@ -110,6 +111,56 @@ function isCashMethod(method: string): boolean {
 
 function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
   return payment.depixManual === true;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve o rótulo legível de uma forma de pagamento gravada em
+ * `sale.paymentDetails[].method`. O `method` pode ser um code nativo
+ * (`dinheiro`, `pix`, `cartao_credito`...) OU o UUID de um PaymentMethod
+ * cadastrado pelo tenant. Sem isto, a UI mostrava o UUID cru
+ * ("a6b9e67e-...") no lugar do nome. Ordem: mapa nativo → nome do
+ * PaymentMethod (por id) → o próprio valor.
+ *
+ * `nameById` é um mapa id→name pré-carregado (uma query por venda, sem N+1).
+ */
+function resolvePaymentMethodLabel(method: string, nameById: Map<string, string>): string {
+  return PAYMENT_METHOD_LABELS[method] ?? nameById.get(method) ?? method;
+}
+
+/**
+ * Enriquece `paymentDetails` com `methodLabel` resolvido, buscando os
+ * PaymentMethod cujos ids aparecem como `method` (UUID). Uma única query
+ * por venda. Não altera o dado gravado — só o retorno para exibição.
+ */
+async function enrichPaymentDetailsLabels(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  paymentDetails: unknown,
+): Promise<unknown> {
+  if (!Array.isArray(paymentDetails)) return paymentDetails;
+  const uuidMethods = [
+    ...new Set(
+      paymentDetails
+        .map((p) => (p && typeof p === "object" ? (p as { method?: unknown }).method : null))
+        .filter((m): m is string => typeof m === "string" && UUID_RE.test(m)),
+    ),
+  ];
+  const nameById = new Map<string, string>();
+  if (uuidMethods.length > 0) {
+    const methods = await tx.paymentMethod.findMany({
+      where: { id: { in: uuidMethods }, tenantId },
+      select: { id: true, name: true },
+    });
+    for (const m of methods) nameById.set(m.id, m.name);
+  }
+  return paymentDetails.map((p) => {
+    if (!p || typeof p !== "object") return p;
+    const method = (p as { method?: unknown }).method;
+    if (typeof method !== "string") return p;
+    return { ...(p as Record<string, unknown>), methodLabel: resolvePaymentMethodLabel(method, nameById) };
+  });
 }
 
 /**
@@ -1138,6 +1189,7 @@ export const saleRouter = createTRPCRouter({
           "@/server/services/card-payment-guard"
         );
         const methodTypeById = new Map<string, string>();
+        const methodNameById = new Map<string, string>();
         if (payments.length > 0) {
           const methodIds = [
             ...new Set(
@@ -1149,9 +1201,12 @@ export const saleRouter = createTRPCRouter({
           if (methodIds.length > 0) {
             const methods = await tx.paymentMethod.findMany({
               where: { id: { in: methodIds }, tenantId: ctx.tenantId },
-              select: { id: true, type: true },
+              select: { id: true, type: true, name: true },
             });
-            for (const m of methods) methodTypeById.set(m.id, m.type);
+            for (const m of methods) {
+              methodTypeById.set(m.id, m.type);
+              methodNameById.set(m.id, m.name);
+            }
           }
         }
         const paymentIsCard = (p: (typeof payments)[number]): boolean =>
@@ -1656,6 +1711,13 @@ export const saleRouter = createTRPCRouter({
         // wallet-first e compatibilidade com webhook PixPay legado.
         const paymentDetails = payments.map((p) => ({
           method: p.method,
+          // Rótulo legível persistido junto: se `method` for o UUID de um
+          // PaymentMethod cadastrado, guarda o nome para a UI/recibo não
+          // exibirem o UUID cru. Ordem: mapa nativo → nome do PaymentMethod.
+          methodLabel:
+            PAYMENT_METHOD_LABELS[p.method] ??
+            (p.paymentMethodId ? methodNameById.get(p.paymentMethodId) : undefined) ??
+            p.method,
           amount: p.amount,
           installments: p.installments ?? 1,
           ...(p.walletTransactionId
@@ -2651,8 +2713,13 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
+        // Resolve o nome legível das formas de pagamento (o `method` pode ser o
+        // UUID de um PaymentMethod cadastrado — sem isto a UI mostrava o UUID cru).
+        const paymentDetails = await enrichPaymentDetailsLabels(tx, ctx.tenantId, sale.paymentDetails);
+
         return {
           ...stripCostForNonAdmin(serializeSale(sale), isTenantAdmin(ctx.session, ctx.tenantId)),
+          paymentDetails,
           sellerName,
           customerName,
           customerPhone,
