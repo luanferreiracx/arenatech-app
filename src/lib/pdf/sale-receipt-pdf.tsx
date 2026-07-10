@@ -289,8 +289,10 @@ const CONDITION_LABELS: Record<string, string> = {
 
 export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: SaleReceiptPdfData) {
   const paymentList = Array.isArray(sale.paymentDetails)
-    ? (sale.paymentDetails as Array<{ method: string; amount: number; installments?: number }>)
+    ? (sale.paymentDetails as Array<{ method: string; methodLabel?: string; amount: number; installments?: number }>)
     : [];
+  const methodText = (p: { method: string; methodLabel?: string }) =>
+    (p.methodLabel ?? p.method).toUpperCase();
 
   const subtotal = sale.subtotal != null ? Number(sale.subtotal) : Number(sale.totalAmount);
   const discount = Number(sale.discountAmount ?? 0);
@@ -372,7 +374,7 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
                     {paymentList
                       .map(
                         (p) =>
-                          p.method.toUpperCase() +
+                          methodText(p) +
                           (p.installments && p.installments > 1 ? ` (${p.installments}x)` : ""),
                       )
                       .join(" + ")}
@@ -531,7 +533,7 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
               {paymentList.map((p, i) => (
                 <View key={i} style={styles.totaisRow}>
                   <Text style={styles.paymentLabel}>
-                    {p.method.toUpperCase()}
+                    {methodText(p)}
                     {p.installments && p.installments > 1
                       ? ` (${p.installments}x de ${fmtBRL((p.amount ?? 0) / 100 / p.installments)})`
                       : ""}

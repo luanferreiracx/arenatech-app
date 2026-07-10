@@ -3,6 +3,10 @@ import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withAdmin, withTenant } from "@/server/db";
 import { formatCpf } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
+import { PAYMENT_METHOD_LABELS } from "@/lib/validators/sale";
+
+const PAYMENT_METHOD_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Gera o PDF binario do recibo de venda. Usado tanto pela rota HTTP publica
@@ -85,6 +89,38 @@ export async function buildSaleReceiptPdf(
     : [];
   const stockItemMap = new Map(stockItems.map((si) => [si.id, si]));
 
+  // Resolve o nome legível das formas de pagamento gravadas em paymentDetails:
+  // o `method` pode ser o UUID de um PaymentMethod cadastrado — sem isto o
+  // recibo imprimia o UUID cru. Ordem: mapa nativo → nome do PaymentMethod.
+  const rawPayments = Array.isArray(sale.paymentDetails)
+    ? (sale.paymentDetails as Array<Record<string, unknown>>)
+    : [];
+  const uuidMethodIds = [
+    ...new Set(
+      rawPayments
+        .map((p) => (typeof p.method === "string" ? p.method : null))
+        .filter((m): m is string => !!m && PAYMENT_METHOD_UUID_RE.test(m)),
+    ),
+  ];
+  const methodNameById = new Map<string, string>();
+  if (uuidMethodIds.length > 0) {
+    const methods = await withTenant(tenantId, async (tx) =>
+      tx.paymentMethod.findMany({
+        where: { id: { in: uuidMethodIds }, tenantId },
+        select: { id: true, name: true },
+      }),
+    );
+    for (const m of methods) methodNameById.set(m.id, m.name);
+  }
+  const paymentDetailsResolved = rawPayments.map((p) => {
+    const method = typeof p.method === "string" ? p.method : "";
+    return {
+      ...p,
+      methodLabel:
+        PAYMENT_METHOD_LABELS[method] ?? methodNameById.get(method) ?? method,
+    };
+  });
+
   const data: SaleReceiptPdfData = {
     sale: {
       number: sale.number,
@@ -100,7 +136,7 @@ export async function buildSaleReceiptPdf(
       // "Total pago pelo cliente" no recibo quando > 0.
       surchargeAmount: sale.surchargeAmount,
       changeAmount: sale.changeAmount,
-      paymentDetails: sale.paymentDetails,
+      paymentDetails: paymentDetailsResolved,
       observations: sale.observations,
       refundDueAmount: sale.refundDueAmount,
       refundDueMethod: sale.refundDueMethod,
