@@ -785,3 +785,49 @@ export async function signPset(
     return { success: false, error: "LWK indisponivel" };
   }
 }
+
+export interface EsploraHealth {
+  /** ISO 8601 do último sync bem-sucedido, ou null se nunca sincronizou. */
+  lastSyncOkAt: string | null;
+  /** Qual Esplora respondeu por último. */
+  lastWorkingUrl: string | null;
+  /** Syncs seguidos com TODAS as Esploras falhando. */
+  consecutiveFailures: number;
+}
+
+export interface EsploraHealthResult {
+  /** false = não deu pra falar com o LWK (não confundir com Esplora degradada). */
+  reachable: boolean;
+  /** true se o /readiness respondeu 503 (Esplora inalcançável AGORA). */
+  degraded?: boolean;
+  health?: EsploraHealth;
+  error?: string;
+}
+
+/**
+ * Saúde das Esploras via /readiness do LWK (sem auth). Retorna o snapshot barato
+ * que o sync já coleta (last_sync_ok_at, consecutive_failures) — um monitor usa
+ * isso pra alertar quando as Esploras públicas morrem, ANTES do próximo incidente
+ * de webhook. Ver [[eulen-webhook-lwk-timeout]]. `reachable=false` = o LWK em si
+ * não respondeu (problema diferente de Esplora degradada).
+ */
+export async function getEsploraHealth(): Promise<EsploraHealthResult> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr) return { reachable: false, error: cfgErr };
+  if (!config) return { reachable: true, health: { lastSyncOkAt: null, lastWorkingUrl: null, consecutiveFailures: 0 } };
+  try {
+    // /readiness re-testa o tip (até 5s por Esplora) e inclui o histórico do sync.
+    // Teto de 12s cobre o pior caso sem pendurar o cron.
+    const { status, body } = await lwkFetch(config, "GET", "/readiness", { timeoutMs: 12_000 });
+    const raw = (body.esplora_health ?? {}) as Record<string, unknown>;
+    const health: EsploraHealth = {
+      lastSyncOkAt: typeof raw.last_sync_ok_at === "string" ? raw.last_sync_ok_at : null,
+      lastWorkingUrl: typeof raw.last_working_url === "string" ? raw.last_working_url : null,
+      consecutiveFailures: Number(raw.consecutive_failures ?? 0),
+    };
+    // 503 = degradado (Esplora inalcançável agora), mas o LWK respondeu (reachable).
+    return { reachable: true, degraded: status === 503, health };
+  } catch (error) {
+    return { reachable: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}

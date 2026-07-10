@@ -4,6 +4,31 @@ import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 import { withCronLock } from "@/server/cron-lock";
 import { reconcileStaleDepixTransactions } from "@/server/services/depix-transaction.service";
 import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
+import { getEsploraHealth } from "@/lib/services/lwk-service";
+import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
+
+/**
+ * Monitora a saúde das Esploras do LWK e alerta (logger.error → Sentry) quando
+ * elas estão mudas há tempo demais — ANTES do próximo timeout de webhook Eulen.
+ * As Esploras públicas já morreram 2x. Roda de carona no cron de reconcile.
+ */
+async function checkEsploraHealth(): Promise<void> {
+  try {
+    const health = await getEsploraHealth();
+    const alert = evaluateEsploraHealth(health, Date.now());
+    if (alert) {
+      logger.error("[esplora-health] Esploras do LWK degradadas — cross-check do webhook vai falhar", {
+        reason: alert.reason,
+        ...alert.detail,
+      });
+    }
+  } catch (err) {
+    // Nunca derruba o cron por causa do check de saúde (best-effort).
+    logger.warn("[esplora-health] check falhou", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +64,8 @@ export async function POST(request: NextRequest) {
       results.push(await reconcileStaleDepixTransactions());
       // Aproveita o mesmo job pra expirar links de pagamento vencidos (12h).
       expiredLinks = (await expireStalePaymentLinks()).expired;
+      // ...e pra vigiar a saúde das Esploras do LWK (alerta antecipado).
+      await checkEsploraHealth();
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });

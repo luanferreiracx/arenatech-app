@@ -105,6 +105,37 @@ ESPLORA_URLS = [u for u in [ESPLORA_URL.rstrip("/") if ESPLORA_URL else None,
 # dedup preservando ordem
 ESPLORA_URLS = list(dict.fromkeys(ESPLORA_URLS))
 
+# ── Saúde da Esplora (observabilidade) ─────────────────────────────────────────
+# As Esploras publicas ja quebraram 2x (liquid.network=502, esplora.blockstream=
+# DNS morto). O /health e liveness puro e nao detecta isso — so descobriamos pelo
+# alerta da Eulen (tarde). Este estado registra o RESULTADO do sync que ja roda
+# (nao re-testa a Esplora, evita o hang) pra um monitor externo consultar e
+# alertar ANTES do proximo incidente. Ver [[eulen-webhook-lwk-timeout]].
+_ESPLORA_HEALTH = {
+    "last_sync_ok_at": None,   # ISO 8601 do ultimo sync bem-sucedido
+    "last_working_url": None,  # qual Esplora respondeu por ultimo
+    "consecutive_failures": 0, # syncs seguidos com TODAS as Esploras falhando
+}
+_ESPLORA_HEALTH_LOCK = threading.Lock()
+
+
+def _record_esplora_ok(url):
+    with _ESPLORA_HEALTH_LOCK:
+        _ESPLORA_HEALTH["last_sync_ok_at"] = datetime.now(timezone.utc).isoformat()
+        _ESPLORA_HEALTH["last_working_url"] = url
+        _ESPLORA_HEALTH["consecutive_failures"] = 0
+
+
+def _record_esplora_all_failed():
+    with _ESPLORA_HEALTH_LOCK:
+        _ESPLORA_HEALTH["consecutive_failures"] += 1
+
+
+def esplora_health_snapshot():
+    with _ESPLORA_HEALTH_LOCK:
+        return dict(_ESPLORA_HEALTH)
+
+
 # Locks POR-WALLET: serializa acesso a cada carteira (build/sign/broadcast)
 # sem serializar tenants distintos entre si. Sem isso, /transfer concorrentes
 # do MESMO tenant poderiam gastar o mesmo UTXO (double-spend).
@@ -324,12 +355,14 @@ def sync_wallet(wollet, silent=False):
         if result["ok"]:
             if not silent:
                 logger.info(f"Carteira sincronizada via {url}")
+            _record_esplora_ok(url)
             return True
         if t.is_alive():
             logger.warning(f"Sync timeout [{url}] (>20s)")
         elif result["error"]:
             logger.warning(f"Sync falhou [{url}]: {result['error']}")
     logger.error("Todos os servidores Esplora falharam.")
+    _record_esplora_all_failed()
     return False
 
 
@@ -709,15 +742,30 @@ def health():
 def readiness():
     """Readiness probe (sem auth) que CONSULTA Esplora. 503 se nao
     consegue ler tip — sinaliza pro orquestrador que requests externos
-    podem falhar agora. Usado pra healthcheck mais agressivo."""
+    podem falhar agora. Usado pra healthcheck mais agressivo.
+
+    Inclui `esplora_health`: o HISTORICO barato do sync (last_sync_ok_at,
+    consecutive_failures) que o sync ja coleta — sem re-testar. Um monitor
+    externo (cron do app) usa isso pra alertar quando as Esploras morrem por
+    tempo demais, ANTES do proximo incidente. Ver [[eulen-webhook-lwk-timeout]]."""
+    health = esplora_health_snapshot()
     try:
         tip = get_tip_height(per_attempt_timeout=5)
         if tip is None:
-            return jsonify({"status": "degraded", "reason": "esplora_unreachable"}), 503
-        return jsonify({"status": "ok", "tip_height": tip, "network": NETWORK_NAME})
+            return jsonify({
+                "status": "degraded",
+                "reason": "esplora_unreachable",
+                "esplora_health": health,
+            }), 503
+        return jsonify({
+            "status": "ok",
+            "tip_height": tip,
+            "network": NETWORK_NAME,
+            "esplora_health": health,
+        })
     except Exception as e:
         logger.error(f"Readiness check falhou: {e}")
-        return jsonify({"status": "down"}), 503
+        return jsonify({"status": "down", "esplora_health": health}), 503
 
 
 @app.route("/wallet/<tenant_id>/create", methods=["POST"])
