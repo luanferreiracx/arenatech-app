@@ -51,6 +51,12 @@ afterAll(async () => {
     await prisma.serviceOrderHistory.deleteMany({ where: { orderId: oid } });
     await prisma.serviceOrder.deleteMany({ where: { id: oid } });
   }
+  // cashMovements da sessão do admin (o registerPayment/refund de OS geram
+  // movimentos referenciando a sessão) — remove antes de apagar a cashSession.
+  const openSessions = await prisma.cashSession.findMany({ where: { userId: adminId, closedAt: null }, select: { id: true } });
+  for (const s of openSessions) {
+    await prisma.cashMovement.deleteMany({ where: { cashSessionId: s.id } });
+  }
   await prisma.cardBrand.deleteMany({ where: { id: brandId } });
   await prisma.acquirer.deleteMany({ where: { id: acquirerId } });
   await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });

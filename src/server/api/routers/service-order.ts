@@ -1106,6 +1106,21 @@ export const serviceOrderRouter = createTRPCRouter({
           forced = true;
         }
 
+        // F6 (auditoria OS 2026-07-10): CAS no status ANTES de liberar estoque.
+        // `releaseAllOsItems` usa `increment` (não idempotente) — dois cancels
+        // concorrentes liberavam o estoque em DOBRO. Reivindicamos a transição
+        // OPEN→CANCELLED atomicamente; quem perde o CAS aborta sem liberar nada.
+        const cancelCas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, status: order.status },
+          data: { status: "CANCELLED", cancellationReason: input.reason },
+        });
+        if (cancelCas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A OS mudou de status durante o cancelamento. Recarregue e tente novamente.",
+          });
+        }
+
         // Release all reserved product stock
         const releasedCount = await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
 
@@ -1135,13 +1150,7 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
-        await tx.serviceOrder.update({
-          where: { id: input.id },
-          data: {
-            status: "CANCELLED",
-            cancellationReason: input.reason,
-          },
-        });
+        // (status/cancellationReason já gravados pelo CAS acima)
 
         const noteParts: string[] = [];
         if (forced) noteParts.push("[FORCADO SEM TERMO DE DEVOLUCAO]");
@@ -1250,13 +1259,26 @@ export const serviceOrderRouter = createTRPCRouter({
             ? (restoreCandidate as ServiceOrderStatus)
             : "IN_DIAGNOSIS";
 
-        await tx.serviceOrder.update({
-          where: { id: input.id },
+        // F6: CAS na transição CANCELLED→restoredStatus. Sem isto, dois
+        // descancelamentos concorrentes re-reservariam o estoque em dobro
+        // (reserveStockForOsItem não é idempotente). Reivindicamos o status
+        // ANTES de re-reservar não dá — a re-reserva pode falhar por falta de
+        // estoque e precisamos abortar tudo. Como toda a operação está numa
+        // transação, basta o CAS aqui: um perdedor grava count=0 e aborta o tx
+        // inteiro (a re-reserva dele é revertida no rollback).
+        const uncancelCas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, status: "CANCELLED" },
           data: {
             status: restoredStatus,
             cancellationReason: null,
           },
         });
+        if (uncancelCas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A OS já foi descancelada por outra operação. Recarregue e tente novamente.",
+          });
+        }
 
         await tx.serviceOrderHistory.create({
           data: {
@@ -1320,8 +1342,12 @@ export const serviceOrderRouter = createTRPCRouter({
           }
         }
 
-        await tx.serviceOrder.update({
-          where: { id: input.id },
+        // F6: CAS no status ANTES de qualquer reversão (caixa, recebíveis,
+        // comissões). Dois estornos concorrentes reverteriam o dinheiro em
+        // dobro. Quem perde a reivindicação REFUNDED aborta antes de mexer no
+        // financeiro.
+        const refundCas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, status: order.status },
           data: {
             status: "REFUNDED",
             refundReason: input.reason,
@@ -1329,6 +1355,12 @@ export const serviceOrderRouter = createTRPCRouter({
             refundedById: ctx.session.user.id,
           },
         });
+        if (refundCas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A OS mudou de status durante o estorno. Recarregue e tente novamente.",
+          });
+        }
 
         // P5: cancela a conta a pagar da comissao do prestador ainda nao quitada —
         // nao se paga comissao por uma OS estornada. PAYABLE ja paga nao e mexida
@@ -1434,6 +1466,67 @@ export const serviceOrderRouter = createTRPCRouter({
           }
         }
 
+        // F3 (auditoria OS 2026-07-10): OS paga DIRETO (registerPayment /
+        // updateStatus→PAID via `settleOsPaymentRecords`, sem Sale no PDV).
+        // Antes o estorno só revertia dinheiro quando havia venda vinculada —
+        // uma OS paga em dinheiro/pix ficava com o recebível PAID e a entrada de
+        // caixa intacta após o estorno (gaveta inflada + contas a receber
+        // mentindo). Só reverte se NÃO houve venda vinculada (o bloco acima já
+        // cuidou desse caso). Espelha o que `settleOsPaymentRecords` gravou.
+        if (!saleRefunded) {
+          const osReceivables = await tx.financialTransaction.findMany({
+            where: {
+              referenceType: "service_order",
+              referenceId: input.id,
+              type: "RECEIVABLE",
+              status: { not: "CANCELLED" },
+              deletedAt: null,
+            },
+            select: { id: true, paymentMethod: true },
+          });
+          if (osReceivables.length > 0) {
+            const osReceivableIds = osReceivables.map((t) => t.id);
+            // Cancela TODAS as parcelas não-canceladas (inclusive PAID): a OS
+            // foi integralmente estornada, o recebível deixa de existir.
+            await tx.installment.updateMany({
+              where: { transactionId: { in: osReceivableIds }, status: { not: "CANCELLED" } },
+              data: { status: "CANCELLED" },
+            });
+            await tx.financialTransaction.updateMany({
+              where: { id: { in: osReceivableIds } },
+              data: {
+                status: "CANCELLED",
+                cancelledAt: new Date(),
+                cancelledByUserId: ctx.session.user.id,
+                cancelReason: `Estorno OS ${order.number}: ${input.reason}`,
+              },
+            });
+
+            // Reverte a entrada de caixa (o `settleOsPaymentRecords` gravou um
+            // SALE/INCOME com o método original). WITHDRAWAL/OUTCOME com o MESMO
+            // paymentMethod para que a gaveta de dinheiro seja corrigida (só
+            // 'dinheiro' conta pra gaveta; pix/depix não afetam o caixa físico).
+            if (refundOpenSession) {
+              const paidCents = decimalToCents(order.paidAmount);
+              const refundMethod = order.paymentMethod ?? osReceivables[0]?.paymentMethod ?? null;
+              if (paidCents > 0) {
+                await writeCashMovement(tx, {
+                  tenantId: ctx.tenantId,
+                  cashSessionId: refundOpenSession.id,
+                  type: "WITHDRAWAL",
+                  nature: "OUTCOME",
+                  amountCents: paidCents,
+                  paymentMethod: refundMethod,
+                  description: `Estorno OS ${order.number}`,
+                  referenceType: "service_order",
+                  referenceId: order.id,
+                  createdByUserId: ctx.session.user.id,
+                });
+              }
+            }
+          }
+        }
+
         // Estorno automatico das comissoes da OS: o executor/vendedor (OWN) E os
         // prestadores com participacao em AT (servico_at_loja, ganham sobre OS de
         // outros). Orquestrado no service. So gera reversal se a apuracao do mes ja
@@ -1494,15 +1587,24 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // F6: CAS no soft-delete ANTES de liberar estoque. Dois deletes
+        // concorrentes liberavam o estoque em dobro (releaseAllOsItems usa
+        // increment não idempotente). Reivindicamos deletedAt=null→now; o
+        // perdedor grava count=0 e aborta sem liberar nada.
+        const deleteCas = await tx.serviceOrder.updateMany({
+          where: { id: input.id, deletedAt: null },
+          data: { deletedAt: new Date() },
+        });
+        if (deleteCas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A OS já foi excluída por outra operação.",
+          });
+        }
+
         // P2: libera o estoque reservado pelos itens-produto (consistente com
         // `cancel`) — uma OS excluida nao deve manter peças fora do estoque.
         await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
-
-        // Soft delete
-        await tx.serviceOrder.update({
-          where: { id: input.id },
-          data: { deletedAt: new Date() },
-        });
 
         return { success: true };
       });
