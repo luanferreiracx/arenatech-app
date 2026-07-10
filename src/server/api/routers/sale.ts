@@ -112,6 +112,30 @@ function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
   return payment.depixManual === true;
 }
 
+/**
+ * E1 (auditoria PDV 2026-07-10): ao reenviar o termo de assinatura de uma venda,
+ * o documento Autentique anterior (ainda pendente) precisa ser cancelado — senão
+ * fica órfão consumindo créditos e o cliente pode assinar o link velho (o
+ * checkSignatureStatus só consulta o documentId atual, então uma assinatura no
+ * doc órfão nunca seria detectada). Best-effort, fora de transação; a falha não
+ * bloqueia o reenvio. Espelha o mesmo padrão já aplicado em service-order.ts (F7)
+ * e stock.ts. Idempotente: cancelDocument trata doc inexistente.
+ */
+async function cancelPreviousAutentiqueDoc(
+  previousDocumentId: string | null | undefined,
+  logContext: Record<string, unknown>,
+): Promise<void> {
+  if (!previousDocumentId) return;
+  const { cancelDocument } = await import("@/lib/services/autentique-service");
+  await cancelDocument(previousDocumentId).catch((err) => {
+    logger.warn("Falha ao cancelar documento Autentique anterior (reenvio venda)", {
+      ...logContext,
+      previousDocumentId,
+      err: String(err),
+    });
+  });
+}
+
 function generatePublicLink(): string {
   return generatePublicToken(12);
 }
@@ -3143,7 +3167,7 @@ export const saleRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // ETAPA 1 — fetch em tx curta
-      const { sale, customerName, whatsapp, wasResend } = await ctx.withTenant(async (tx) => {
+      const { sale, customerName, whatsapp, wasResend, previousDocumentId } = await ctx.withTenant(async (tx) => {
         const sale = await tx.sale.findUnique({ where: { id: input.saleId } });
         if (!sale || sale.status !== "COMPLETED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas vendas finalizadas podem ser assinadas" });
@@ -3173,6 +3197,7 @@ export const saleRouter = createTRPCRouter({
           customerName,
           whatsapp,
           wasResend: !!sale.signatureDocumentId,
+          previousDocumentId: sale.signatureDocumentId,
         };
       });
 
@@ -3195,6 +3220,14 @@ export const saleRouter = createTRPCRouter({
           message: doc.error ?? "Erro ao enviar para Autentique",
         });
       }
+
+      // E1: cancela o documento anterior (reenvio) — só depois do novo doc ter
+      // sido criado com sucesso, para não deixar a venda sem documento válido se
+      // o Autentique falhar no meio.
+      await cancelPreviousAutentiqueDoc(previousDocumentId, {
+        saleId: input.saleId,
+        kind: "termo_entrega_venda",
+      });
 
       // ETAPA 3 — persiste
       await ctx.withTenant(async (tx) => {
