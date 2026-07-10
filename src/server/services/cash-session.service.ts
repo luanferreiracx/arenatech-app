@@ -19,6 +19,36 @@ export function refundNeedsOpenCashSession(refundAmountCents: number): boolean {
 }
 
 /**
+ * K1/K2/K3 (auditoria fin 2026-07-10): a rota de caixa nunca teve lock nem CAS —
+ * `findFirst(closedAt:null)` → decide → escreve movimento/fecha, tudo em READ
+ * COMMITTED. Isso permitia (K1) gravar movimento em sessão recém-fechada, (K2)
+ * double-close/lost-update no fechamento e (K3) duas sangrias furarem a
+ * validação de saldo (gaveta negativa).
+ *
+ * Este helper reivindica a linha da sessão com `SELECT ... FOR UPDATE` e
+ * confirma que ela ainda está aberta. Como o fechamento e todos os escritores
+ * de movimento pegam o MESMO lock, eles se serializam: quem fecha bloqueia os
+ * escritores até o commit; um escritor que chega depois do fechamento vê
+ * `closed_at` setado e recebe CONFLICT — nunca grava numa gaveta fechada. Após o
+ * lock, os movimentos devem ser RE-LIDOS (um concorrente pode ter commitado
+ * entre o findFirst e o lock). RLS já escopa por tenant (SET LOCAL).
+ */
+export async function lockOpenCashSessionOrThrow(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM cash_sessions WHERE id = ${sessionId}::uuid AND closed_at IS NULL FOR UPDATE
+  `
+  if (rows.length !== 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "O caixa foi fechado por outra operacao. Atualize a tela.",
+    })
+  }
+}
+
+/**
  * Contribuição líquida de um movimento DEPOSIT ao caixa esperado, em centavos.
  *
  * `manualAdjustment` grava `type=DEPOSIT` com `nature` variável: OUTCOME =

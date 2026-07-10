@@ -7,6 +7,7 @@ import {
   computeCashDrawerCents,
   signedDepositCents,
   writeCashMovement,
+  lockOpenCashSessionOrThrow,
 } from "@/server/services/cash-session.service";
 import {
   openCashRegisterSchema,
@@ -247,7 +248,6 @@ export const cashierRouter = createTRPCRouter({
 
         const session = await tx.cashSession.findFirst({
           where: { userId, closedAt: null },
-          include: { movements: true },
         });
 
         if (!session) {
@@ -257,7 +257,17 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        const summary = buildSummary(session);
+        // K3/K1: serializa contra outras sangrias e contra o fechamento. Sem o
+        // lock, duas sangrias concorrentes liam o MESMO saldo e ambas passavam a
+        // validação → gaveta negativa; e a saída podia ser gravada numa sessão
+        // recém-fechada. Após o lock, RE-LÊ os movimentos (uma sangria
+        // concorrente pode ter commitado) e revalida o saldo.
+        await lockOpenCashSessionOrThrow(tx, session.id);
+        const movements = await tx.cashMovement.findMany({
+          where: { cashSessionId: session.id },
+          select: { type: true, amount: true, nature: true, paymentMethod: true, createdAt: true },
+        });
+        const summary = buildSummary({ ...session, movements });
         if (input.amount > summary.expectedCashBalance) {
           const available = (summary.expectedCashBalance / 100).toLocaleString(
             "pt-BR",
@@ -293,7 +303,6 @@ export const cashierRouter = createTRPCRouter({
 
         const session = await tx.cashSession.findFirst({
           where: { userId, closedAt: null },
-          include: { movements: true },
         });
 
         if (!session) {
@@ -302,6 +311,10 @@ export const cashierRouter = createTRPCRouter({
             message: "Nenhum caixa aberto encontrado",
           });
         }
+
+        // K1: confirma sob lock que a sessão não foi fechada entre o findFirst e
+        // a escrita — não grava suprimento numa gaveta já fechada.
+        await lockOpenCashSessionOrThrow(tx, session.id);
 
         await writeCashMovement(tx, {
           tenantId: ctx.tenantId,
@@ -622,6 +635,9 @@ export const cashierRouter = createTRPCRouter({
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Caixa nao esta aberto" });
         }
 
+        // K1: não grava despesa numa sessão fechada em paralelo.
+        await lockOpenCashSessionOrThrow(tx, session.id);
+
         await writeCashMovement(tx, {
           tenantId: ctx.tenantId,
           cashSessionId: session.id,
@@ -670,8 +686,12 @@ export const cashierRouter = createTRPCRouter({
         );
         const calculatedBalance = calculatedCents / 100;
 
-        await tx.cashSession.update({
-          where: { id: session.id },
+        // K2: CAS no fechamento forçado — guarda `closedAt: null`. Sem isto, dois
+        // forceClose concorrentes (ou um forceClose × close manual) faziam
+        // last-writer-wins, sobrescrevendo o fechamento do outro. count 0 = a
+        // sessão já foi fechada por outra operação.
+        const claim = await tx.cashSession.updateMany({
+          where: { id: session.id, closedAt: null },
           data: {
             calculatedBalance: new Prisma.Decimal(calculatedBalance),
             declaredBalance: new Prisma.Decimal(calculatedBalance),
@@ -683,6 +703,12 @@ export const cashierRouter = createTRPCRouter({
             verified: false,
           },
         });
+        if (claim.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Esta sessao ja foi fechada por outra operacao.",
+          });
+        }
 
         // Audit explicito: fechamento forcado MASCARA divergencia (difference
         // setado pra 0 mesmo se calculatedBalance != saldo fisico real).
@@ -729,6 +755,9 @@ export const cashierRouter = createTRPCRouter({
         if (!session) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum caixa aberto" });
         }
+
+        // K1: não grava ajuste numa sessão fechada em paralelo.
+        await lockOpenCashSessionOrThrow(tx, session.id);
 
         // DEPOSIT com nature variável: OUTCOME = retirada da gaveta pelo gerente.
         // O writer aceita ambos para DEPOSIT (ver REQUIRED_NATURE).
