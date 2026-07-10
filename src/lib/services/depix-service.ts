@@ -226,12 +226,21 @@ export async function createPixPayment(
   if (taxDigits) {
     payload.endUserTaxNumber = taxDigits;
   }
-  // NAO enviamos `whitelist` (o "qrcodewhitelist" da Eulen): essa permissao nao
-  // esta habilitada no parceiro e a Eulen REJEITA o deposito ("Permission
-  // qrcodewhitelist not enabled for partner"). O caminho correto para liberar
-  // depositos > R$500 e o CPF/CNPJ do pagador (`endUserTaxNumber`), ja obrigatorio
-  // a partir de R$500 nos validators de entrada (createDepositSchema / partner /
-  // pay-public). Ver reversao do #320.
+  // `whitelist` (o "qrcodewhitelist" da Eulen): sinaliza que o parceiro (Arena)
+  // conhece/confia no pagador, liberando depositos > R$500. Sem ele (nem um EUID
+  // registrado), a Eulen limita o QR a R$500: "QR codes without an identified end
+  // user (EUID) can't exceed R$ 500.00.".
+  //
+  // A permissao `qrcodewhitelist` precisa estar HABILITADA no nosso parceiro do
+  // lado da Eulen — se nao estiver, a Eulen responde "Permission qrcodewhitelist
+  // not enabled for partner" (motivo da reversao no #347). Por isso o envio e
+  // env-gated: so ligamos `DEPIX_QRCODE_WHITELIST_ENABLED=true` DEPOIS que a Eulen
+  // confirmar a permissao. Assim conseguimos ligar/desligar sem redeploy de codigo
+  // e nao recriamos o erro antigo por engano.
+  const whitelistEnabled = process.env.DEPIX_QRCODE_WHITELIST_ENABLED === "true";
+  if (whitelistEnabled) {
+    payload.whitelist = true;
+  }
   // Override por parametro tem prioridade (modulo LWK multi-tenant manda o
   // masterAddress da carteira do tenant). Fallback pra env DEPIX_ADDRESS
   // (fluxo legacy do PDV/OS/QuickSale).
@@ -262,6 +271,7 @@ export async function createPixPayment(
     hasSplit: !!payload.depixSplitAddress,
     splitFee: payload.splitFee ?? null,
     hasPayerTaxId: !!payload.endUserTaxNumber,
+    whitelist: payload.whitelist === true,
     nonce,
   });
 
