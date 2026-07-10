@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// A2 (auditoria estoque 2026-07-10): teto sanitário. Preços em centavos: R$1M.
+// Quantidades: 10 milhões de unidades. Fecha overflow/envenenamento de
+// agregados (valor de estoque, DRE) por input adulterado. Mesmo padrão do PDV.
+const MAX_PRICE_CENTS = 100_000_000; // R$ 1.000.000,00
+const MAX_QTY = 10_000_000;
+
 // ── Product schemas ──
 
 // Schemas auxiliares — fotos/variacoes/atributos sao criados junto com o
@@ -24,10 +30,10 @@ export type ProductPhotoInput = z.infer<typeof productPhotoInputSchema>;
 export const productVariationInputSchema = z.object({
   sku: z.string().max(50).optional().nullable(),
   barcode: z.string().max(50).optional().nullable(),
-  costPrice: z.number().int().min(0).optional().nullable(), // centavos
-  salePrice: z.number().int().min(0).optional().nullable(), // centavos
-  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
-  minStock: z.number().int().min(0).optional(),
+  costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  salePrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
   imageUrl: z.string().url().optional().nullable(),
   imageProvider: imageProviderSchema,
   imageProviderPublicId: z.string().max(500).optional().nullable(),
@@ -50,11 +56,11 @@ export const createProductSchema = z.object({
   isDevice: z.boolean().optional(),
   hasVariations: z.boolean().optional(),
   icmsDifferentialRate: z.number().min(0).max(100).optional().nullable(),
-  costPrice: z.number().int().min(0, "Preco de custo deve ser positivo"), // centavos
-  salePrice: z.number().int().min(0, "Preco de venda deve ser positivo"), // centavos
-  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
+  costPrice: z.number().int().min(0, "Preco de custo deve ser positivo").max(MAX_PRICE_CENTS, "Valor acima do limite"), // centavos
+  salePrice: z.number().int().min(0, "Preco de venda deve ser positivo").max(MAX_PRICE_CENTS, "Valor acima do limite"), // centavos
+  promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
   defaultMargin: z.number().min(0).max(100).optional().nullable(),
-  minStock: z.number().int().min(0).optional(),
+  minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
   unit: z.string().max(10).optional(),
   active: z.boolean().optional(),
   categoryId: z.string().uuid().optional().nullable(),
@@ -155,8 +161,8 @@ export const createDevicePurchaseSchema = z.object({
   batteryHealth: z.number().int().min(0).max(100).optional().nullable(),
   // Preco minimo R$ 1,00 (100 centavos) — bloqueia entrada acidental
   // com valor zerado por click prematuro em "Registrar Compra".
-  purchasePrice: z.number().int().min(100, "Informe o preco de compra (minimo R$ 1,00)"), // centavos
-  salePrice: z.number().int().min(0).optional().nullable(), // centavos
+  purchasePrice: z.number().int().min(100, "Informe o preco de compra (minimo R$ 1,00)").max(MAX_PRICE_CENTS, "Valor acima do limite"), // centavos
+  salePrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
   notes: z.string().max(500).optional().nullable(),
   // Pagamento da compra. Dois modos:
   //  - "now": paga imediatamente com 1 forma (CASH/PIX/DEPIX/CARD/etc).
@@ -315,7 +321,7 @@ export const stockEntrySchema = z.object({
   productId: z.string().uuid(),
   /** Obrigatorio quando product.has_variations = true. */
   variationId: z.string().uuid().optional().nullable(),
-  quantity: z.number().int().min(1, "Quantidade minima e 1"),
+  quantity: z.number().int().min(1, "Quantidade minima e 1").max(MAX_QTY, "Quantidade acima do limite"),
   unitCost: z.number().int().min(0).optional(),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
   supplierId: z.string().uuid().optional().nullable(),
@@ -335,7 +341,7 @@ export const stockEntryBatchSchema = z.object({
       z.object({
         productId: z.string().uuid(),
         variationId: z.string().uuid().optional().nullable(),
-        quantity: z.number().int().min(1, "Quantidade minima 1"),
+        quantity: z.number().int().min(1, "Quantidade minima 1").max(MAX_QTY, "Quantidade acima do limite"),
         unitCost: z.number().int().min(0).optional(),
       }),
     )
@@ -460,11 +466,11 @@ export const csvImportLineSchema = z
     category: z.string().optional(),
     // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
     // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
-    costPrice: z.number().int().min(0).optional(),
-    salePrice: z.number().int().min(0, "Preco de venda nao pode ser negativo"),
-    promotionalPrice: z.number().int().min(0).optional(),
-    minStock: z.number().int().min(0).optional(),
-    quantity: z.number().int().min(0).optional(),
+    costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional(),
+    salePrice: z.number().int().min(0, "Preco de venda nao pode ser negativo").max(MAX_PRICE_CENTS, "Valor acima do limite"),
+    promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional(),
+    minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
+    quantity: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
     isSerialized: z.boolean().optional(),
     description: z.string().optional(),
   })
@@ -571,10 +577,10 @@ export const createVariationSchema = z.object({
   productId: z.string().uuid(),
   sku: z.string().max(50).optional().nullable(),
   barcode: z.string().max(50).optional().nullable(),
-  costPrice: z.number().int().min(0).optional().nullable(), // centavos
-  salePrice: z.number().int().min(0).optional().nullable(), // centavos
-  promotionalPrice: z.number().int().min(0).optional().nullable(), // centavos
-  minStock: z.number().int().min(0).optional(),
+  costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  salePrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(), // centavos
+  minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
   active: z.boolean().optional(),
   attributeValueIds: z.array(z.string().uuid()).min(1, "Selecione ao menos 1 valor de atributo"),
 });
@@ -585,10 +591,10 @@ export const updateVariationSchema = z.object({
   id: z.string().uuid(),
   sku: z.string().max(50).optional().nullable(),
   barcode: z.string().max(50).optional().nullable(),
-  costPrice: z.number().int().min(0).optional().nullable(),
-  salePrice: z.number().int().min(0).optional().nullable(),
-  promotionalPrice: z.number().int().min(0).optional().nullable(),
-  minStock: z.number().int().min(0).optional(),
+  costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(),
+  salePrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(),
+  promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional().nullable(),
+  minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
   active: z.boolean().optional(),
   attributeValueIds: z.array(z.string().uuid()).min(1).optional(),
 });
