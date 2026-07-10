@@ -163,6 +163,25 @@ function serializeItem<
   };
 }
 
+/**
+ * A3 (auditoria PDV 2026-07-10): custo de aquisição (costPrice) e portanto a
+ * margem são dado comercial sensível. `serializeItem` sempre inclui costPrice —
+ * `getById`/`list` (tenantProcedure, sem gate de role) o expunham a QUALQUER
+ * operador de balcão via payload da API. Este helper remove costPrice dos itens
+ * serializados quando quem pergunta não é admin/gerente. Mesma classe do F4 da OS
+ * (lá era rota pública; aqui é intra-tenant).
+ */
+function stripCostForNonAdmin<S extends { items?: Array<{ costPrice?: number }> | null }>(
+  serialized: S,
+  isAdmin: boolean,
+): S {
+  if (isAdmin || !Array.isArray(serialized.items)) return serialized;
+  return {
+    ...serialized,
+    items: serialized.items.map(({ costPrice: _costPrice, ...rest }) => rest),
+  };
+}
+
 function serializeUpgrade<
   T extends { appraisedValue: Prisma.Decimal; abatedValue: Prisma.Decimal },
 >(u: T) {
@@ -759,6 +778,21 @@ export const saleRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // A5 (auditoria PDV 2026-07-10): setCustomer é operação de CARRINHO —
+        // só faz sentido em rascunho. Sem esta guarda, um operador trocava o
+        // cliente de uma venda já COMPLETED/REFUNDED por aqui, SEM trilha de
+        // auditoria (o `linkCustomer` dedicado exige COMPLETED e grava saleAudit).
+        // Restringir a DRAFT força o pós-venda a passar pelo linkCustomer.
+        const sale = await tx.sale.findUnique({
+          where: { id: input.saleId },
+          select: { status: true },
+        });
+        if (!sale || sale.status !== "DRAFT") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Venda nao encontrada ou nao esta em rascunho",
+          });
+        }
         await tx.sale.update({
           where: { id: input.saleId },
           data: {
@@ -2426,9 +2460,10 @@ export const saleRouter = createTRPCRouter({
           customers = Object.fromEntries(custs.map((c) => [c.id, c.name]));
         }
 
+        const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
         return {
           data: data.map((sale) => ({
-            ...serializeSale(sale),
+            ...stripCostForNonAdmin(serializeSale(sale), isAdmin),
             sellerName: sellers[sale.sellerId] ?? "Desconhecido",
             customerName: sale.customerId ? (customers[sale.customerId] ?? null) : null,
             itemCount: sale.items.length,
@@ -2519,7 +2554,7 @@ export const saleRouter = createTRPCRouter({
         }
 
         return {
-          ...serializeSale(sale),
+          ...stripCostForNonAdmin(serializeSale(sale), isTenantAdmin(ctx.session, ctx.tenantId)),
           sellerName,
           customerName,
           customerPhone,
