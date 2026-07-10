@@ -1322,13 +1322,21 @@ export const stockRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Compra ja cancelada" });
         }
 
-        await tx.devicePurchase.update({
-          where: { id: input.id },
+        // I7 (auditoria estoque 2026-07-10): CAS no cancelamento — guarda
+        // `cancelledAt: null`. Sem isto, dois cancelamentos concorrentes passavam
+        // ambos o read-then-write e revertiam o estoque em DOBRO (o decremento
+        // não-serializado `updateMany currentStock >= 1` roda 2×). count 0 = já
+        // cancelada por outra operação.
+        const cancelClaim = await tx.devicePurchase.updateMany({
+          where: { id: input.id, cancelledAt: null },
           data: {
             cancelledAt: new Date(),
             cancellationReason: input.reason,
           },
         });
+        if (cancelClaim.count !== 1) {
+          throw new TRPCError({ code: "CONFLICT", message: "Compra ja cancelada por outra operacao." });
+        }
 
         // Reverte estoque APENAS se a compra gerou entrada real. Antes
         // criava EXIT cego, mesmo quando createPurchase nao havia

@@ -26,6 +26,15 @@ function makeTx(
       update: vi.fn().mockResolvedValue(variation ?? {}),
     },
     stockMovement: { create: vi.fn().mockResolvedValue({}) },
+    // S1: lock FOR UPDATE relê o saldo fresco. No unit (sem concorrência) o
+    // fresco == o do objeto; a query de variação bate na tabela product_variations.
+    $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+      const sql = strings.join("");
+      if (sql.includes("product_variations")) {
+        return Promise.resolve([{ current_stock: variation?.currentStock ?? 0 }]);
+      }
+      return Promise.resolve([{ current_stock: product.currentStock }]);
+    }),
   };
 }
 
