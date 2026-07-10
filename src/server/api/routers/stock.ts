@@ -2,6 +2,19 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { can } from "@/lib/auth/capabilities";
+import { isTenantAdmin } from "@/lib/auth/roles";
+
+/**
+ * A3 (auditoria estoque 2026-07-10, decisão do dono): custo de aquisição e
+ * margem são dado gerencial — não vazam para o operador de balcão. Remove
+ * `costPrice` do produto serializado quando quem pergunta não é admin/gerente.
+ * Mesma classe do A3 já aplicado no PDV/OS.
+ */
+function stripProductCostForNonAdmin<T extends { costPrice?: unknown }>(product: T, isAdmin: boolean): T {
+  if (isAdmin) return product;
+  const { costPrice: _costPrice, ...rest } = product;
+  return rest as T;
+}
 import {
   createProductSchema,
   updateProductSchema,
@@ -196,8 +209,11 @@ export const stockRouter = createTRPCRouter({
           ? withStock.filter((p) => p.minStock > 0 && p.currentStock <= p.minStock)
           : withStock;
 
+        const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+        const safe = filtered.map((p) => stripProductCostForNonAdmin(p, isAdmin));
+
         return {
-          data: filtered,
+          data: safe,
           total: input.lowStock ? filtered.length : total,
           pageCount: Math.ceil((input.lowStock ? filtered.length : total) / pageSize),
         };
@@ -239,7 +255,8 @@ export const stockRouter = createTRPCRouter({
         const stockByProduct = await resolveCurrentStockByProduct(tx, [product]);
         const currentStock = stockByProduct.get(product.id) ?? 0;
 
-        return { ...product, currentStock };
+        const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+        return stripProductCostForNonAdmin({ ...product, currentStock }, isAdmin);
       });
     }),
 
@@ -3349,7 +3366,13 @@ export const stockRouter = createTRPCRouter({
   importCsv: tenantProcedure
     .input(csvImportSchema)
     .mutation(async ({ ctx, input }) => {
-      // ADR 0053: operador (membro do tenant) importa produtos via CSV — dia a dia.
+      // A1 (auditoria estoque 2026-07-10, decisão do dono): import de catálogo é
+      // curadoria = admin, alinhado com `create`/`createCategory` (manageCatalog).
+      // Antes era operador (importCatalogCsv), o que contornava o gate admin do
+      // cadastro unitário — operador criava produtos+categorias em lote via CSV.
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem importar catalogo." });
+      }
       return ctx.withTenant(async (tx) => {
         let productsCreated = 0;
         let stockEntries = 0;
@@ -3581,6 +3604,19 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
+        // A4 (auditoria estoque 2026-07-10): não excluir atributo em uso por
+        // variação viva — deixaria a variação com referência órfã e o label
+        // quebrado (assimétrico com deleteVariation/deleteCategory, que já
+        // checam vínculo). Conta ProductVariationAttribute → valor → atributo.
+        const inUse = await tx.productVariationAttribute.count({
+          where: { attributeValue: { attributeId: input.id }, variation: { deletedAt: null } },
+        });
+        if (inUse > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Atributo em uso por variacoes ativas. Remova as variacoes antes de excluir.",
+          });
+        }
         return tx.productAttribute.update({
           where: { id: input.id },
           data: { deletedAt: new Date() },
@@ -3632,6 +3668,16 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
+        // A4: não desativar valor de atributo em uso por variação viva.
+        const inUse = await tx.productVariationAttribute.count({
+          where: { attributeValueId: input.id, variation: { deletedAt: null } },
+        });
+        if (inUse > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Valor de atributo em uso por variacoes ativas.",
+          });
+        }
         return tx.productAttributeValue.update({
           where: { id: input.id },
           data: { active: false },
