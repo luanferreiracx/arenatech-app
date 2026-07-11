@@ -51,3 +51,6 @@ test-results/
 
 # Swagger UI assets copiados no build (scripts/copy-swagger-assets.ts)
 /public/swagger-ui/
+
+# nunca versionar o symlink de node_modules dos worktrees
+/node_modules

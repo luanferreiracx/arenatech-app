@@ -649,10 +649,10 @@ export const cashierRouter = createTRPCRouter({
       });
     }),
 
-  /** Register expense (despesa avulsa) */
+  /** Register expense (despesa avulsa que sai da gaveta) */
   expense: tenantProcedure
     .input(z.object({
-      amount: z.number().int().min(1),
+      amount: z.number().int().min(1).max(100_000_000),
       paymentMethod: z.string().min(1),
       description: z.string().min(3).max(500),
     }))
@@ -667,6 +667,25 @@ export const cashierRouter = createTRPCRouter({
 
         // K1: não grava despesa numa sessão fechada em paralelo.
         await lockOpenCashSessionOrThrow(tx, session.id);
+
+        // CX-B1 (auditoria financeira 2026-07-11): despesa em DINHEIRO não podia
+        // exceder o saldo da gaveta — sem esta guarda, uma despesa arbitrária
+        // dirigia `expectedCashBalance` a NEGATIVO silencioso (o mesmo buraco que
+        // o withdrawal já fecha). Valida só quando o método drena a gaveta.
+        if (input.paymentMethod === "dinheiro") {
+          const movements = await tx.cashMovement.findMany({
+            where: { cashSessionId: session.id },
+            select: { type: true, amount: true, nature: true, paymentMethod: true, createdAt: true },
+          });
+          const summary = buildSummary({ ...session, movements });
+          if (input.amount > summary.expectedCashBalance) {
+            const available = (summary.expectedCashBalance / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Despesa em dinheiro (R$ ${(input.amount / 100).toFixed(2)}) excede o saldo da gaveta (${available}).`,
+            });
+          }
+        }
 
         await writeCashMovement(tx, {
           tenantId: ctx.tenantId,
@@ -720,16 +739,23 @@ export const cashierRouter = createTRPCRouter({
         // forceClose concorrentes (ou um forceClose × close manual) faziam
         // last-writer-wins, sobrescrevendo o fechamento do outro. count 0 = a
         // sessão já foi fechada por outra operação.
+        // CX-forceClose-B3 (auditoria financeira 2026-07-11): NÃO fabricar o
+        // saldo contado. Antes gravava declaredBalance = calculatedBalance e
+        // difference = 0 → a sessão forçada NUNCA aparecia como divergente
+        // (periodStats/pendingReviews viam 0) e o gerente que conferisse via um
+        // "contado" que ninguém contou. Agora declaredBalance/difference ficam
+        // NULL: ninguém contou a gaveta física, então não há saldo declarado nem
+        // divergência até a conferência real (que preenche o contado de verdade).
         const claim = await tx.cashSession.updateMany({
           where: { id: session.id, closedAt: null },
           data: {
             calculatedBalance: new Prisma.Decimal(calculatedBalance),
-            declaredBalance: new Prisma.Decimal(calculatedBalance),
-            difference: new Prisma.Decimal(0),
+            declaredBalance: null,
+            difference: null,
             closeType: "MANUAL",
             closedByUserId: ctx.session.user.id,
             closedAt: new Date(),
-            closingNote: `Fechamento forcado: ${input.reason}`,
+            closingNote: `Fechamento forcado (sem conferencia fisica): ${input.reason}`,
             verified: false,
           },
         });
@@ -740,9 +766,8 @@ export const cashierRouter = createTRPCRouter({
           });
         }
 
-        // Audit explicito: fechamento forcado MASCARA divergencia (difference
-        // setado pra 0 mesmo se calculatedBalance != saldo fisico real).
-        // Registra pra rastreabilidade — gestor responsavel pela acao.
+        // Audit: fechamento forcado sem conferencia fisica — declaredBalance/
+        // difference nulos ate a conferencia. Gestor responsavel pela acao.
         const { logAudit } = await import("@/server/services/audit-log.service");
         await logAudit(tx as never, {
           tenantId: ctx.tenantId,
