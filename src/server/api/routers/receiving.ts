@@ -420,7 +420,24 @@ export const receivingRouter = createTRPCRouter({
             where.settledDifference = { not: 0 };
           }
 
-          const [items, total, totals, byAcquirerRaw, acquirers, brands] = await Promise.all([
+          // R4: agregado de vencidos considera TODO o filtro (não só a página).
+          // "Vencido" só existe em PENDING; nas outras abas (SETTLED/CANCELLED)
+          // o conceito não se aplica → agregado zerado.
+          const overdueWhere: Prisma.CardReceivableWhereInput | null =
+            input.status === "PENDING"
+              ? {
+                  ...where,
+                  expectedSettlementDate: {
+                    ...(typeof where.expectedSettlementDate === "object" && where.expectedSettlementDate
+                      ? (where.expectedSettlementDate as Prisma.DateTimeFilter)
+                      : {}),
+                    lt: new Date(),
+                  },
+                }
+              : null;
+
+          const [items, total, totals, byAcquirerRaw, acquirers, brands, overdueAgg] =
+            await Promise.all([
             tx.cardReceivable.findMany({
               where,
               orderBy: { expectedSettlementDate: "asc" },
@@ -452,10 +469,25 @@ export const receivingRouter = createTRPCRouter({
               where: { tenantId: ctx.tenantId },
               select: { id: true, name: true },
             }),
+            overdueWhere
+              ? tx.cardReceivable.aggregate({
+                  where: overdueWhere,
+                  _sum: { netAmount: true },
+                  _count: { _all: true },
+                })
+              : Promise.resolve(null),
           ]);
 
           const acquirerName = new Map(acquirers.map((a) => [a.id, a.name]));
           const brandName = new Map(brands.map((b) => [b.id, b.name]));
+
+          // R4 (auditoria comissão 2026-07-11): recebível PENDING cuja data
+          // esperada de liquidação já passou é dinheiro que a adquirente devia
+          // ter pago e não pagou — hoje indistinguível de um PENDING fresco.
+          // Flag computada (sem enum novo/coluna): quem opera vê o que cobrar.
+          const now = new Date();
+          const isOverdue = (status: string, expected: Date) =>
+            status === "PENDING" && expected < now;
 
           return {
             data: items.map((r) => ({
@@ -474,6 +506,7 @@ export const receivingRouter = createTRPCRouter({
               netCents: reaisToCents(r.netAmount),
               expectedSettlementDate: r.expectedSettlementDate,
               status: r.status,
+              isOverdue: isOverdue(r.status, r.expectedSettlementDate),
               settledAt: r.settledAt,
               settledNetCents: r.settledNetAmount != null ? reaisToCents(r.settledNetAmount) : null,
               settledDifferenceCents:
@@ -487,6 +520,8 @@ export const receivingRouter = createTRPCRouter({
               netCents: reaisToCents(totals._sum.netAmount),
               settledNetCents: reaisToCents(totals._sum.settledNetAmount),
               settledDifferenceCents: reaisToCents(totals._sum.settledDifference),
+              overdueCount: overdueAgg?._count._all ?? 0,
+              overdueNetCents: overdueAgg ? reaisToCents(overdueAgg._sum.netAmount) : 0,
             },
             byAcquirer: byAcquirerRaw.map((g) => ({
               acquirerId: g.acquirerId,

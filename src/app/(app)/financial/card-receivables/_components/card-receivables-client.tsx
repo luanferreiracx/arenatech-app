@@ -71,6 +71,7 @@ type Row = {
   feeCents: number;
   netCents: number;
   expectedSettlementDate: Date | string;
+  isOverdue: boolean;
   settledAt: Date | string | null;
   settledNetCents: number | null;
   settledDifferenceCents: number | null;
@@ -268,11 +269,19 @@ export function CardReceivablesClient() {
             {view === "PENDING" ? (
               <>
                 <SummaryCard label="Bruto" value={formatCents(data.summary.grossCents)} />
-                <SummaryCard
-                  label="Taxa"
-                  value={`−${formatCents(data.summary.feeCents)}`}
-                  tone="destructive"
-                />
+                {data.summary.overdueCount > 0 ? (
+                  <SummaryCard
+                    label={`Vencido (${data.summary.overdueCount})`}
+                    value={formatCents(data.summary.overdueNetCents)}
+                    tone="destructive"
+                  />
+                ) : (
+                  <SummaryCard
+                    label="Taxa"
+                    value={`−${formatCents(data.summary.feeCents)}`}
+                    tone="destructive"
+                  />
+                )}
               </>
             ) : (
               <>
@@ -341,7 +350,14 @@ export function CardReceivablesClient() {
                           />
                         </TableCell>
                       )}
-                      <TableCell>{formatDate(r.expectedSettlementDate)}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatDate(r.expectedSettlementDate)}
+                        {r.isOverdue && (
+                          <span className="ml-2 rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                            Vencido
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{r.acquirerName}</TableCell>
                       <TableCell className="whitespace-nowrap">
                         {r.cardBrandName}{" "}
