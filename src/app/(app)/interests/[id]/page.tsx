@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Plus, Trash2, Phone, MessageSquare, Store } from "lucide-react";
+import { Plus, Trash2, Phone, MessageSquare, Store, CheckCircle2 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -39,6 +39,7 @@ import {
   INTEREST_TYPE_LABELS,
   INTERACTION_TYPE_LABELS,
   type InterestStatusValue,
+  isTerminalInterestStatus,
 } from "@/lib/validators/customer";
 
 const INTERACTION_ICONS: Record<string, React.ReactNode> = {
@@ -94,6 +95,18 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
     }),
   );
 
+  const markConvertedMutation = useMutation(
+    trpc.interest.markConverted.mutationOptions({
+      onSuccess: () => {
+        toast.success("Interesse marcado como convertido");
+        void queryClient.invalidateQueries({ queryKey: trpc.interest.byId.queryKey({ id }) });
+        void queryClient.invalidateQueries({ queryKey: trpc.interest.list.queryKey() });
+        void queryClient.invalidateQueries({ queryKey: trpc.interest.conversionStats.queryKey() });
+      },
+      onError: (error: { message: string }) => toast.error(error.message),
+    }),
+  );
+
   const interactionForm = useForm<AddInteractionInput>({
     resolver: zodResolver(addInteractionSchema),
     defaultValues: {
@@ -115,6 +128,8 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
   if (!interest) {
     return <div className="p-6">Interesse não encontrado.</div>;
   }
+
+  const isTerminal = isTerminalInterestStatus(interest.status);
 
   return (
     <div className="space-y-6 p-6">
@@ -169,20 +184,41 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
           <CardHeader>
             <CardTitle className="text-lg">Alterar status</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2">
               {(["WAITING", "CONTACTED", "COMPLETED", "CANCELLED"] as InterestStatusValue[]).map((status) => (
                 <Button
                   key={status}
                   variant={interest.status === status ? "default" : "outline"}
                   size="sm"
-                  disabled={interest.status === status || updateStatusMutation.isPending}
+                  // B4: estados terminais não voltam — não deixa clicar em outro status.
+                  disabled={
+                    interest.status === status ||
+                    isTerminal ||
+                    updateStatusMutation.isPending
+                  }
                   onClick={() => updateStatusMutation.mutate({ id, status })}
                 >
                   {INTEREST_STATUS_LABELS[status]}
                 </Button>
               ))}
             </div>
+            {isTerminal ? (
+              <p className="text-xs text-muted-foreground">
+                Interesse {(INTEREST_STATUS_LABELS[interest.status] ?? interest.status).toLowerCase()} — para
+                retomar, cadastre um novo interesse.
+              </p>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={markConvertedMutation.isPending}
+                onClick={() => markConvertedMutation.mutate({ id })}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Marcar como convertido
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -48,6 +48,7 @@ import { isValidLuhn } from "@/lib/validators/imei";
 import { isRepurchasableStatus } from "@/lib/validators/stock-item";
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
+import { linkInterestConversionByPhone } from "@/server/services/interest-conversion.service";
 import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
 import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
@@ -1990,6 +1991,22 @@ export const saleRouter = createTRPCRouter({
           total: totalCents,
           userId: ctx.session.user.id,
           upgrades: upgrades.length,
+        });
+
+        // B2 (auditoria interesses 2026-07-11): se esta venda atende a um
+        // interesse aberto (mesmo telefone), marca-o convertido. Best-effort —
+        // resolve o telefone do cliente cadastrado ou do avulso.
+        const convPhone = updated.customerId
+          ? (await tx.customer.findUnique({
+              where: { id: updated.customerId },
+              select: { phone: true },
+            }))?.phone
+          : updated.customerPhone;
+        await linkInterestConversionByPhone(tx, {
+          tenantId: ctx.tenantId,
+          phone: convPhone,
+          saleId: updated.id,
+          customerId: updated.customerId,
         });
 
         return { updated };
