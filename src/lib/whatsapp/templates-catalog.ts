@@ -251,6 +251,9 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   // generico; o caption/contexto e enviado pelo chamador.
   tecnico_nova_os: "tecnico_nova_os",
   entregador_solicitacao: "entregador_solicitacao",
+  // Contato de lead (interesse) em lote. O lead quase nunca falou com a loja →
+  // sempre fora da janela 24h → cai no template `padrao` ([nome, assunto]).
+  lead_contato: "padrao",
 };
 
 /**
@@ -272,4 +275,5 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   servico_orcamento_pdf: "o orçamento do serviço",
   tecnico_nova_os: "uma nova ordem de serviço atribuída a você",
   entregador_solicitacao: "uma solicitação de coleta/entrega",
+  lead_contato: "seu interesse",
 };

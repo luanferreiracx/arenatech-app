@@ -108,6 +108,18 @@ export default function InterestsPage() {
       return next;
     });
 
+  // Seleção em massa: marca/desmarca todos os interesses da página atual.
+  const pageIds = interests.map((i) => i.id);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someSelected = pageIds.some((id) => selectedIds.has(id));
+  const toggleAll = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+
   return (
     <div className="space-y-6 p-6">
       <PageHeader
@@ -193,7 +205,13 @@ export default function InterestsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10" />
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleAll}
+                    aria-label="Selecionar todos"
+                  />
+                </TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Telefone</TableHead>
                 <TableHead>Tipo</TableHead>
@@ -270,11 +288,17 @@ export default function InterestsPage() {
               {selectedIds.size} destinatário(s). Interesses notificados nas últimas 24h são
               pulados automaticamente.
             </p>
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+              Fora da janela de 24h do WhatsApp (caso da maioria dos leads), a Meta só entrega
+              via <strong>modelo aprovado</strong>. Nesses casos enviamos o modelo padrão
+              (&ldquo;Olá, [nome]! Aqui é da Arena Tech…&rdquo;) com o modelo de interesse do lead
+              como assunto. O texto abaixo só é usado para quem estiver dentro da janela.
+            </div>
             <Textarea
               value={batchMessage}
               onChange={(e) => setBatchMessage(e.target.value)}
               rows={4}
-              placeholder="Mensagem (mínimo 10 caracteres)..."
+              placeholder="Mensagem para quem está na janela de 24h (mínimo 10 caracteres)..."
             />
             <Button
               className="w-full"
