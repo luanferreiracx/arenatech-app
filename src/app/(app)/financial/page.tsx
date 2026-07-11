@@ -28,10 +28,16 @@ export default function FinancialPage() {
                 Fluxo de Caixa
               </Link>
             </Button>
-            <Button asChild>
-              <Link href="/financial/new">
+            <Button variant="outline" asChild>
+              <Link href="/financial/contas-pagar/criar">
                 <Plus className="mr-2 h-4 w-4" />
-                Nova Transacao
+                Conta a pagar
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/financial/contas-receber/criar">
+                <Plus className="mr-2 h-4 w-4" />
+                Conta a receber
               </Link>
             </Button>
           </div>
