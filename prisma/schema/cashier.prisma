@@ -45,6 +45,10 @@ model CashSession {
   @@index([tenantId, userId, openedAt])
   @@index([tenantId, closedAt])
   @@index([tenantId, verified, closeType])
+  // B5 (auditoria financeira 2026-07-11): `pendingReviews` filtra verified=false
+  // + closedAt not null e ORDENA por closedAt; sem closedAt no índice o Postgres
+  // ordenava em memória todos os pendentes do tenant a cada página.
+  @@index([tenantId, verified, closedAt])
   @@map("cash_sessions")
 }
 

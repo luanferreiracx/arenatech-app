@@ -1128,7 +1128,15 @@ export const financialRouter = createTRPCRouter({
                  ), 0)::float AS total
           FROM sales s
           LEFT JOIN (
-            SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+            -- G1 (auditoria financeira 2026-07-11): recorta o subquery pelo mesmo
+            -- ano; antes agregava sale_items do tenant INTEIRO (todos os anos) a
+            -- cada request do DRE. Correlaciona por sale_date via join com sales.
+            SELECT si2.sale_id, SUM(si2.total) AS live_total
+            FROM sale_items si2
+            JOIN sales s2 ON s2.id = si2.sale_id
+            WHERE s2.deleted_at IS NULL
+              AND s2.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+            GROUP BY si2.sale_id
           ) li ON li.sale_id = s.id
           WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
@@ -1161,7 +1169,13 @@ export const financialRouter = createTRPCRouter({
           FROM sale_items si
           JOIN sales s ON s.id = si.sale_id
           LEFT JOIN (
-            SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+            -- G1: mesmo recorte por ano do subquery de receita.
+            SELECT si2.sale_id, SUM(si2.total) AS live_total
+            FROM sale_items si2
+            JOIN sales s2 ON s2.id = si2.sale_id
+            WHERE s2.deleted_at IS NULL
+              AND s2.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+            GROUP BY si2.sale_id
           ) li ON li.sale_id = s.id
           WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
@@ -1524,86 +1538,7 @@ export const financialRouter = createTRPCRouter({
       });
     }),
 
-  // ═══════════════════════════════════════
-  // DASHBOARD COMPARISON (comparativo período)
-  // ═══════════════════════════════════════
-
-  /** Get dashboard stats with comparison to previous period */
-  getDashboardComparison: tenantProcedure
-    .input(z.object({
-      dateFrom: z.string().optional(),
-      dateTo: z.string().optional(),
-    }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const now = new Date();
-        const to = input.dateTo ? new Date(input.dateTo) : now;
-        const from = input.dateFrom ? new Date(input.dateFrom) : new Date(to.getFullYear(), to.getMonth(), 1);
-
-        // Calculate previous period (same duration, shifted back)
-        const durationMs = to.getTime() - from.getTime();
-        const prevTo = new Date(from.getTime() - 1);
-        const prevFrom = new Date(prevTo.getTime() - durationMs);
-
-        async function periodStats(dateFrom: Date, dateTo: Date) {
-          // Filtra por paidAt da installment (regime de caixa) — antes era
-          // createdAt da transaction, que desalinha quando venda antiga e
-          // paga hoje (parcelada). DRE/comparativos usam mesma logica.
-          const [revenueAgg, expensesAgg] = await Promise.all([
-            tx.installment.aggregate({
-              where: {
-                status: { in: ["PAID", "PARTIALLY_PAID"] },
-                paidAt: { gte: dateFrom, lte: dateTo },
-                transaction: { type: "RECEIVABLE", deletedAt: null },
-              },
-              _sum: { paidAmount: true },
-            }),
-            tx.installment.aggregate({
-              where: {
-                status: { in: ["PAID", "PARTIALLY_PAID"] },
-                paidAt: { gte: dateFrom, lte: dateTo },
-                transaction: { type: "PAYABLE", deletedAt: null },
-              },
-              _sum: { paidAmount: true },
-            }),
-          ]);
-
-          // Conta transactions distintas que tiveram pagamento no periodo.
-          const txCountRows = await tx.$queryRaw<Array<{ count: bigint }>>`
-            SELECT COUNT(DISTINCT i.transaction_id) AS count
-            FROM installments i
-            WHERE i.status IN ('PAID', 'PARTIALLY_PAID')
-              AND i.paid_at BETWEEN ${dateFrom} AND ${dateTo}
-          `;
-
-          const revenue = Math.round(Number(revenueAgg._sum.paidAmount ?? 0) * 100);
-          const expenses = Math.round(Number(expensesAgg._sum.paidAmount ?? 0) * 100);
-
-          return {
-            revenue,
-            expenses,
-            profit: revenue - expenses,
-            transactionCount: Number(txCountRows[0]?.count ?? 0),
-          };
-        }
-
-        const [current, previous] = await Promise.all([
-          periodStats(from, to),
-          periodStats(prevFrom, prevTo),
-        ]);
-
-        const pctChange = (curr: number, prev: number) =>
-          prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100);
-
-        return {
-          current,
-          previous,
-          comparison: {
-            revenueChange: pctChange(current.revenue, previous.revenue),
-            expensesChange: pctChange(current.expenses, previous.expenses),
-            profitChange: pctChange(current.profit, previous.profit),
-          },
-        };
-      });
-    }),
+  // getDashboardComparison removida (auditoria financeira 2026-07-11): era
+  // procedure morta (0 callers) — a página /financial/dashboard que a consumiria
+  // foi deletada por ser stub órfão (#509). Via Negativa.
 });

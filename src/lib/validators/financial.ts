@@ -120,11 +120,22 @@ export type ReverseInstallmentInput = z.infer<typeof reverseInstallmentSchema>;
 
 // ── Cash Flow ──
 
-export const cashFlowSchema = z.object({
-  dateFrom: z.string().min(1, "Data inicial e obrigatoria"),
-  dateTo: z.string().min(1, "Data final e obrigatoria"),
-  groupBy: z.enum(["day", "week", "month"]).optional(),
-});
+export const cashFlowSchema = z
+  .object({
+    dateFrom: z.string().min(1, "Data inicial e obrigatoria"),
+    dateTo: z.string().min(1, "Data final e obrigatoria"),
+    groupBy: z.enum(["day", "week", "month"]).optional(),
+  })
+  // G3 (auditoria financeira 2026-07-11): sem cap de janela, um range enorme
+  // (ex.: 2000..2100) materializava a base inteira de parcelas em memória. Limita
+  // a 366 dias — cobre o maior caso real (ano) e barra o abuso/erro.
+  .superRefine((v, ctx) => {
+    const from = new Date(v.dateFrom).getTime();
+    const to = new Date(v.dateTo).getTime();
+    if (Number.isFinite(from) && Number.isFinite(to) && to - from > 366 * 24 * 60 * 60 * 1000) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Intervalo maximo do fluxo de caixa e de 366 dias." });
+    }
+  });
 
 export type CashFlowInput = z.infer<typeof cashFlowSchema>;
 
