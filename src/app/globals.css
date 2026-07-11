@@ -163,6 +163,27 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ============================================================
+   ARENA TECH — Landing institucional (varejo)
+   Marca de loja física: preto quente + ouro. Escopo próprio,
+   não vaza para o app (que usa teal/verde pdvdepix).
+   Neutros tintados para o ouro (OKLCH), sem #000/#fff puros.
+   ============================================================ */
+@theme {
+  --color-at-ink: oklch(0.15 0.012 75);        /* quase-preto quente (fundo) */
+  --color-at-ink-deep: oklch(0.11 0.014 70);   /* poço mais escuro */
+  --color-at-ink-raised: oklch(0.19 0.012 78); /* superfície elevada */
+  --color-at-line: oklch(0.32 0.02 80);        /* traço/borda */
+  --color-at-gold: oklch(0.78 0.128 88);       /* ouro Arena Tech (#c9a227 tunado) */
+  --color-at-gold-bright: oklch(0.88 0.11 92); /* ouro claro (realce) */
+  --color-at-cream: oklch(0.96 0.012 85);      /* off-white quente (texto forte) */
+  --color-at-mute: oklch(0.72 0.012 82);       /* texto secundário */
+  --color-at-faint: oklch(0.55 0.01 80);       /* texto terciário/legal */
+
+  --font-at-display: var(--font-at-display);
+  --font-at-body: var(--font-at-body);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

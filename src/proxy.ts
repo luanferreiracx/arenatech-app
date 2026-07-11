@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import {
   isLandingHost,
   isPublicCatalogHost,
+  isArenaTechLandingHost,
   isAppSubdomainHost,
   isKnownHost,
   CANONICAL_APP_HOST,
@@ -28,6 +29,9 @@ function isPublicRoute(pathname: string): boolean {
     PUBLIC_ROUTES.has(pathname) ||
     // Landing publica (marketing) — servida na raiz por host em pdvdepix.app.
     pathname === "/landing" ||
+    // Landing institucional Arena Tech (varejo) — servida na raiz por host em
+    // arenatechpi.com.br. Publica, sem auth.
+    pathname === "/arenatech" ||
     // Documentos legais (Termos, Privacidade, Reembolso, Avisos) — públicos por
     // exigência dos parceiros de pagamento (KYC) e do consumidor. Sem auth.
     pathname === "/legal" ||
@@ -126,6 +130,8 @@ export const proxy = auth((req) => {
   //    (logado ou nao) via rewrite, mantendo a URL. O painel fica em /painel.
   //  - host do catálogo (catalogo.arenatechpi): SEMPRE mostra o catálogo novo
   //    via rewrite, mantendo a URL e aposentando o catálogo Laravel antigo.
+  //  - host da marca Arena Tech (arenatechpi.com.br): SEMPRE mostra a landing
+  //    institucional de varejo (loja Apple/acessórios) via rewrite.
   if (pathname === "/") {
     const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
     if (isPublicCatalogHost(host)) {
@@ -133,6 +139,9 @@ export const proxy = auth((req) => {
     }
     if (isLandingHost(host)) {
       return NextResponse.rewrite(selfUrl("/landing"));
+    }
+    if (isArenaTechLandingHost(host)) {
+      return NextResponse.rewrite(selfUrl("/arenatech"));
     }
     return NextResponse.redirect(selfUrl("/painel"));
   }

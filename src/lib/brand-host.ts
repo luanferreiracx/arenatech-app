@@ -16,6 +16,16 @@ const PDVDEPIX_HOSTS = new Set([
   "www.pdvcripto.app",
 ]);
 
+/**
+ * Hosts que devem exibir a landing institucional da Arena Tech (loja física
+ * de varejo — produtos Apple e acessórios) na raiz "/". Marca de varejo,
+ * separada da landing pdvdepix (produto SaaS).
+ */
+const ARENATECH_LANDING_HOSTS = new Set([
+  "arenatechpi.com.br",
+  "www.arenatechpi.com.br",
+]);
+
 /** Hosts que devem servir o catálogo público na raiz "/". */
 const PUBLIC_CATALOG_HOSTS = new Set(["catalogo.arenatechpi.com.br"]);
 
@@ -35,6 +45,13 @@ export function normalizeHost(host: string | null | undefined): string {
 /** O host atual deve mostrar a landing publica de marketing? */
 export function isLandingHost(host: string | null | undefined): boolean {
   return PDVDEPIX_HOSTS.has(normalizeHost(host));
+}
+
+/** O host atual deve exibir a landing institucional da Arena Tech na raiz? */
+export function isArenaTechLandingHost(
+  host: string | null | undefined,
+): boolean {
+  return ARENATECH_LANDING_HOSTS.has(normalizeHost(host));
 }
 
 /** O host atual deve servir o catálogo público na raiz? */
