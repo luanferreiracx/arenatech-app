@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, Ban, Undo2 } from "lucide-react";
+import { ArrowLeft, Ban, Undo2, Pencil } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -86,6 +87,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
   const [showPayDialog, setShowPayDialog] = useState(false);
   const [showReverseDialog, setShowReverseDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editFields, setEditFields] = useState({ description: "", category: "", supplier: "", customerName: "", notes: "" });
   const [selectedInstallment, setSelectedInstallment] = useState<{
     id: string;
     number: number;
@@ -150,11 +153,36 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
     }),
   );
 
+  const updateMutation = useMutation(
+    trpc.financial.update.mutationOptions({
+      onSuccess: () => {
+        toast.success("Transacao atualizada!");
+        setShowEditDialog(false);
+        queryClient.invalidateQueries({ queryKey: trpc.financial.getById.queryKey({ id: transactionId }) });
+        queryClient.invalidateQueries({ queryKey: trpc.financial.list.queryKey() });
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
   function resetPayDialog() {
     setPayAmount(0);
     setPayMethod("");
     setPayNotes("");
     setSelectedInstallment(null);
+  }
+
+  function openEditDialog() {
+    const d = query.data;
+    if (!d) return;
+    setEditFields({
+      description: d.description ?? "",
+      category: d.category ?? "",
+      supplier: d.supplier ?? "",
+      customerName: d.customerName ?? "",
+      notes: d.notes ?? "",
+    });
+    setShowEditDialog(true);
   }
 
   function openPayDialog(inst: { id: string; number: number; amount: number; paidAmount: number }) {
@@ -215,6 +243,12 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
         }
         actions={
           <div className="flex gap-2">
+            {!["PAID", "CANCELLED"].includes(t.status) && (
+              <Button variant="outline" onClick={openEditDialog}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </Button>
+            )}
             {canCancel && (
               <Button
                 variant="outline"
@@ -553,6 +587,62 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
           cancelMutation.mutate({ id: transactionId });
         }}
       />
+
+      {/* Editar transação (metadados) */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar transação</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Descrição</Label>
+              <Input value={editFields.description} onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Categoria</Label>
+              <Input value={editFields.category} onChange={(e) => setEditFields((f) => ({ ...f, category: e.target.value }))} />
+            </div>
+            {/* Cliente/fornecedor só editáveis em cadastro manual (Sale/OS herdam do original). */}
+            {t.referenceType !== "sale" && t.referenceType !== "service_order" && (
+              isReceivable ? (
+                <div className="space-y-1">
+                  <Label>Cliente</Label>
+                  <Input value={editFields.customerName} onChange={(e) => setEditFields((f) => ({ ...f, customerName: e.target.value }))} />
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Label>Fornecedor</Label>
+                  <Input value={editFields.supplier} onChange={(e) => setEditFields((f) => ({ ...f, supplier: e.target.value }))} />
+                </div>
+              )
+            )}
+            <div className="space-y-1">
+              <Label>Observações</Label>
+              <Textarea rows={3} value={editFields.notes} onChange={(e) => setEditFields((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancelar</Button>
+            <Button
+              disabled={editFields.description.trim().length < 1 || updateMutation.isPending}
+              onClick={() => {
+                const isLinked = t.referenceType === "sale" || t.referenceType === "service_order";
+                updateMutation.mutate({
+                  id: transactionId,
+                  description: editFields.description.trim(),
+                  category: editFields.category.trim() || null,
+                  notes: editFields.notes.trim() || null,
+                  ...(isLinked ? {} : {
+                    supplier: editFields.supplier.trim() || null,
+                    customerName: editFields.customerName.trim() || null,
+                  }),
+                });
+              }}
+            >
+              {updateMutation.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
