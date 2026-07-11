@@ -194,18 +194,31 @@ export const cashierRouter = createTRPCRouter({
         }
 
         // Conferencia por forma de pagamento (paridade Laravel): operador
-        // marca cada forma nao-dinheiro como "confere" ou informa o valor
-        // real. Persistimos em closingNote como bloco audit para nao
-        // precisar de schema novo.
+        // marca cada forma nao-dinheiro como "confere" ou informa o valor real.
+        // Persistimos em closingNote como bloco audit.
+        //
+        // CX-B2 (auditoria financeira 2026-07-11): o `expectedAmount` era lido do
+        // INPUT do cliente — o operador podia mandar expected==reported para
+        // qualquer forma e a divergencia de cartao/PIX NUNCA aparecia (auditoria
+        // falsificavel pelo proprio operador). Agora o esperado por forma e
+        // RECALCULADO no servidor a partir dos movimentos re-lidos; o valor do
+        // cliente e ignorado. So o `reportedAmount` (o que o operador contou) e a
+        // flag `verified` vem do cliente.
+        const methodExpected = buildPaymentMethodSummary(movements);
         let noteParts: string[] = [];
         if (input.closingNote?.trim()) noteParts.push(input.closingNote.trim());
         if (input.methodVerifications && input.methodVerifications.length > 0) {
-          const divergent = input.methodVerifications.filter(
-            (m) => !m.verified && typeof m.reportedAmount === "number" &&
-              typeof m.expectedAmount === "number" &&
-              m.reportedAmount !== m.expectedAmount,
+          const withExpected = input.methodVerifications.map((m) => ({
+            ...m,
+            expectedCents: methodExpected[m.method]?.total ?? 0,
+          }));
+          const divergent = withExpected.filter(
+            (m) =>
+              !m.verified &&
+              typeof m.reportedAmount === "number" &&
+              m.reportedAmount !== m.expectedCents,
           );
-          const checked = input.methodVerifications.filter((m) => m.verified);
+          const checked = withExpected.filter((m) => m.verified);
           const audit = [
             checked.length > 0
               ? `Conferidas: ${checked.map((m) => m.method).join(", ")}`
@@ -214,7 +227,7 @@ export const cashierRouter = createTRPCRouter({
               ? `Divergencias: ${divergent
                   .map(
                     (m) =>
-                      `${m.method} esperado=${((m.expectedAmount ?? 0) / 100).toFixed(2)} contado=${((m.reportedAmount ?? 0) / 100).toFixed(2)}`,
+                      `${m.method} esperado=${(m.expectedCents / 100).toFixed(2)} contado=${((m.reportedAmount ?? 0) / 100).toFixed(2)}`,
                   )
                   .join("; ")}`
               : null,

@@ -714,14 +714,21 @@ export const financialRouter = createTRPCRouter({
             _sum: { totalAmount: true, paidAmount: true },
             _count: true,
           }),
-          tx.financialTransaction.aggregate({
+          // FIN-B3 (auditoria financeira 2026-07-11): vencidos DERIVADOS de
+          // installments, não do status agregado da FT. O cron mark-overdue só
+          // promove FT PENDING→OVERDUE; uma conta PARTIALLY_PAID com parcela
+          // vencida NUNCA vira OVERDUE (recalculateTransactionStatus a mantém
+          // PARTIALLY_PAID), então somava só em pending e a inadimplência exibida
+          // ficava subestimada. Aqui conta toda parcela em aberto e vencida,
+          // igual às procedures `overdue`/`projectedCashFlow`.
+          tx.installment.groupBy({
+            by: ["transactionId"],
             where: {
-              type: input.type,
-              status: "OVERDUE",
-              deletedAt: null,
+              transaction: { type: input.type, deletedAt: null },
+              status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
+              dueDate: { lt: now },
             },
-            _sum: { totalAmount: true, paidAmount: true },
-            _count: true,
+            _sum: { amount: true, paidAmount: true },
           }),
           // D5 (auditoria fin 2026-07-10): "recebido/pago no mês" no regime de
           // CAIXA — soma installment.paidAmount por installment.paidAt, NÃO
@@ -745,9 +752,13 @@ export const financialRouter = createTRPCRouter({
         const pendingPaid = decimalToCents(pendingResult._sum.paidAmount);
         const pendingRemaining = pendingTotal - pendingPaid;
 
-        const overdueTotal = decimalToCents(overdueResult._sum.totalAmount);
-        const overduePaid = decimalToCents(overdueResult._sum.paidAmount);
-        const overdueRemaining = overdueTotal - overduePaid;
+        // overdue por installment, agrupado por transação: saldo em aberto
+        // (amount - paidAmount) somado; count = nº de contas com parcela vencida.
+        const overdueRemaining = overdueResult.reduce(
+          (sum, g) => sum + decimalToCents(g._sum.amount) - decimalToCents(g._sum.paidAmount),
+          0,
+        );
+        const overdueCount = overdueResult.length;
 
         const paidMonthTotal = decimalToCents(paidMonthResult._sum.paidAmount);
 
@@ -755,7 +766,7 @@ export const financialRouter = createTRPCRouter({
           pendingAmount: pendingRemaining,
           pendingCount: pendingResult._count,
           overdueAmount: overdueRemaining,
-          overdueCount: overdueResult._count,
+          overdueCount,
           paidMonthAmount: paidMonthTotal,
           paidMonthCount: paidMonthResult._count,
         };
