@@ -234,6 +234,25 @@ export type ListCustomersInput = z.infer<typeof listCustomersSchema>;
 export const interestStatusEnum = z.enum(["WAITING", "CONTACTED", "COMPLETED", "CANCELLED"]);
 export type InterestStatusValue = z.infer<typeof interestStatusEnum>;
 
+/**
+ * Estados terminais do funil de interesse. Uma vez COMPLETED ou CANCELLED, o
+ * interesse não volta atrás — para retomar, o atendente cadastra um novo
+ * interesse. Guarda a integridade do funil e das métricas de conversão.
+ */
+export const TERMINAL_INTEREST_STATUSES: readonly InterestStatusValue[] = [
+  "COMPLETED",
+  "CANCELLED",
+];
+
+export function isTerminalInterestStatus(status: InterestStatusValue): boolean {
+  return TERMINAL_INTEREST_STATUSES.includes(status);
+}
+
+/** Só dígitos — chave estável para armazenar/buscar telefone sem máscara. */
+export function normalizePhoneDigits(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
 export const interestTypeEnum = z.enum(["PURCHASE", "SALE", "TRADE", "REPAIR"]);
 export type InterestTypeValue = z.infer<typeof interestTypeEnum>;
 
