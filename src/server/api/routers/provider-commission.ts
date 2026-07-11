@@ -304,61 +304,10 @@ export const providerCommissionRouter = createTRPCRouter({
     .input(apurarProviderSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const provider = await tx.provider.findUnique({
-          where: { id: input.providerId },
-          include: {
-            contracts: {
-              orderBy: { startDate: "desc" },
-              include: { rules: true },
-            },
-          },
-        });
-
-        if (!provider) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
-        }
-
-        // Find active contract for the period
-        const { start: periodStart, end: periodEnd } = monthRange(input.year, input.month);
-        const contract = provider.contracts.find((c) => {
-          const start = new Date(c.startDate);
-          const end = c.endDate ? new Date(c.endDate) : null;
-          return start <= periodEnd && (!end || end >= periodStart);
-        });
-
-        if (!contract || contract.rules.length === 0) {
-          // No contract = empty apuracao
-          const apuracao = await tx.providerApuracao.upsert({
-            where: {
-              tenantId_providerId_year_month: {
-                tenantId: ctx.tenantId,
-                providerId: input.providerId,
-                year: input.year,
-                month: input.month,
-              },
-            },
-            create: {
-              tenantId: ctx.tenantId,
-              providerId: input.providerId,
-              year: input.year,
-              month: input.month,
-              memoryJson: { linhas: [], subtotais: {}, total_comissao: 0, aviso: "Sem contrato vigente" },
-            },
-            update: {},
-          });
-
-          return { id: apuracao.id, grossCommission: 0, netAmount: 0 };
-        }
-
-        // Check if already closed
+        // Apuração já fechada não recalcula (o valor está selado no PAYABLE).
         const existing = await tx.providerApuracao.findFirst({
-          where: {
-            providerId: input.providerId,
-            year: input.year,
-            month: input.month,
-          },
+          where: { providerId: input.providerId, year: input.year, month: input.month },
         });
-
         if (existing && existing.status !== "OPEN") {
           return {
             id: existing.id,
@@ -366,159 +315,8 @@ export const providerCommissionRouter = createTRPCRouter({
             netAmount: decimalToNumber(existing.netAmount),
           };
         }
-
-        // Coleta eventos: vendas/OS proprias e — se houver regra de participacao —
-        // vendas da loja (de outros) e OS da loja (de outros tecnicos). Cada fonte
-        // extra so e varrida quando ha regra correspondente (evita scan desnecessario):
-        //  - vendas da loja: qualquer regra source=STORE de produto;
-        //  - OS da loja: regra da categoria servico_at_loja.
-        const hasStoreSaleRule = contract.rules.some(
-          (r) => r.source === "STORE" && r.category !== "servico_at_loja",
-        );
-        const hasStoreServiceRule = contract.rules.some((r) => r.category === "servico_at_loja");
-        const events = await collectProviderEvents(
-          tx,
-          provider,
-          periodStart,
-          periodEnd,
-          hasStoreSaleRule,
-          hasStoreServiceRule,
-        );
-
-        // Agrupa por (categoria, escopo, ORIGEM) — proprias e loja acumulam separado.
-        const buckets: Record<string, { category: string; scope: string; source: string; events: typeof events }> = {};
-        for (const ev of events) {
-          const key = `${ev.category}|${ev.scope}|${ev.source}`;
-          if (!buckets[key]) {
-            buckets[key] = { category: ev.category, scope: ev.scope, source: ev.source, events: [] };
-          }
-          buckets[key]!.events.push(ev);
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lines: Array<Record<string, any>> = [];
-        const contractRules = contract.rules.map((r) => ({
-          ...r,
-          rangeMin: decimalToNumber(r.rangeMin),
-          rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax) : null,
-          rate: decimalToNumber(r.rate),
-        }));
-
-        for (const bucket of Object.values(buckets)) {
-          const matchingRules = contractRules.filter(
-            (r) => r.category === bucket.category && r.scope === bucket.scope && r.source === bucket.source,
-          );
-          if (matchingRules.length === 0) continue;
-
-          // Calculo do balde (percent-progressivo ou fixo/unidade) num helper puro.
-          const results = computeBucketCommission(matchingRules, bucket.events);
-          bucket.events.forEach((ev, i) => {
-            const r = results[i]!;
-            lines.push({
-              ...ev,
-              base: r.base,
-              comissao: r.comissao,
-              aliquota_efetiva: r.aliquotaEfetiva,
-              tipo_valor: r.tipoValor,
-              origem: bucket.source,
-            });
-          });
-        }
-
-        const grossCommission = Math.round(lines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100;
-
-        // Sum reversals
-        const reversals = await tx.providerReversal.findMany({
-          where: {
-            providerId: input.providerId,
-            factDate: { gte: periodStart, lte: periodEnd },
-          },
-        });
-        const totalReversals = Math.round(
-          reversals.reduce((s, r) => s + decimalToNumber(r.amount), 0) * 100,
-        ) / 100;
-
-        // Calculate allowance
-        const totalAllowance = await calculateAllowance(
-          tx,
-          input.providerId,
-          contract,
-          periodStart,
-          periodEnd,
-        );
-
-        const netAmount = Math.round(Math.max(0, grossCommission - totalReversals + totalAllowance) * 100) / 100;
-
-        const memory = {
-          prestador_id: provider.id,
-          periodo: {
-            inicio: periodStart.toISOString().split("T")[0],
-            fim: periodEnd.toISOString().split("T")[0],
-            label: `${String(input.month).padStart(2, "0")}/${input.year}`,
-          },
-          linhas: lines,
-          subtotais_por_categoria: Object.fromEntries(
-            Object.entries(buckets).map(([key, bucket]) => {
-              const bucketLines = lines.filter(
-                (l) => `${l.categoria}|${l.escopo}|${l.origem}` === key,
-              );
-              return [
-                key,
-                {
-                  categoria: bucket.category,
-                  escopo: bucket.scope,
-                  origem: bucket.source,
-                  base: Math.round(bucketLines.reduce((s, l) => s + (l.base as number), 0) * 100) / 100,
-                  comissao: Math.round(
-                    bucketLines.reduce((s, l) => s + (l.comissao as number), 0) * 100,
-                  ) / 100,
-                  qtd: bucketLines.length,
-                },
-              ];
-            }),
-          ),
-          total_comissao: grossCommission,
-        };
-
-        const apuracao = await tx.providerApuracao.upsert({
-          where: {
-            tenantId_providerId_year_month: {
-              tenantId: ctx.tenantId,
-              providerId: input.providerId,
-              year: input.year,
-              month: input.month,
-            },
-          },
-          create: {
-            tenantId: ctx.tenantId,
-            providerId: input.providerId,
-            year: input.year,
-            month: input.month,
-            grossCommission: new Prisma.Decimal(grossCommission),
-            totalReversals: new Prisma.Decimal(totalReversals),
-            totalAllowance: new Prisma.Decimal(totalAllowance),
-            netAmount: new Prisma.Decimal(netAmount),
-            memoryJson: memory as Prisma.InputJsonValue,
-          },
-          update: {
-            grossCommission: new Prisma.Decimal(grossCommission),
-            totalReversals: new Prisma.Decimal(totalReversals),
-            totalAllowance: new Prisma.Decimal(totalAllowance),
-            netAmount: new Prisma.Decimal(netAmount),
-            memoryJson: memory as Prisma.InputJsonValue,
-          },
-        });
-
-        logger.info("Provider apuracao calculated", {
-          providerId: input.providerId,
-          month: input.month,
-          year: input.year,
-          grossCommission,
-          netAmount,
-          lineCount: lines.length,
-        });
-
-        return { id: apuracao.id, grossCommission, netAmount };
+        // Computação/persistência extraída (compartilhada com closeApuracao — C2).
+        return recomputeProviderApuracao(tx, ctx.tenantId, input.providerId, input.year, input.month);
       });
     }),
 
@@ -577,20 +375,26 @@ export const providerCommissionRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao ja fechada" });
         }
 
+        // C2 (auditoria comissão 2026-07-11): RECOMPUTA a apuração antes de gerar
+        // o PAYABLE. O `apuracao.netAmount` lido acima é o valor do ÚLTIMO
+        // `calculate` — se vendas/OS mudaram desde então (nova venda, estorno), o
+        // PAYABLE saía com valor stale (paga a mais/menos, inclui venda estornada).
+        // Recomputa aqui (mesma tx, ainda OPEN) e usa o valor fresco.
+        await recomputeProviderApuracao(tx, ctx.tenantId, input.providerId, input.year, input.month);
+        const fresh = await tx.providerApuracao.findUniqueOrThrow({ where: { id: apuracao.id } });
+        const netAmount = decimalToNumber(fresh.netAmount);
+
         // Lock anti-race: UPDATE atomico OPEN→CLOSED direto. Postgres pega lock de
         // linha; uma 2a transacao concorrente bloqueia aqui e depois ve count=0
-        // (status ja nao e OPEN) — aborta sem PAYABLE duplicada. Como tudo roda na
-        // mesma transacao, se qualquer passo abaixo lancar, este UPDATE tambem e
-        // revertido: nao ha estado intermediario para "destravar".
-        const netAmount = decimalToNumber(apuracao.netAmount);
+        // (status ja nao e OPEN) — aborta sem PAYABLE duplicada.
 
-        // Create financial transaction (AP) if net > 0
+        // Create financial transaction (AP) if net > 0 (valor FRESCO).
         const financialTransactionId =
           netAmount > 0
             ? await createProviderApuracaoPayable(tx, ctx.tenantId, {
                 apuracaoId: apuracao.id,
                 providerName,
-                netAmount: apuracao.netAmount,
+                netAmount: fresh.netAmount,
                 year: input.year,
                 month: input.month,
                 createdByUserId: ctx.session.user.id,
@@ -1002,6 +806,137 @@ interface ProviderEvent {
   baseProfit: number;
   baseGrossNet: number;
   qty: number;
+}
+
+/**
+ * C2 (auditoria comissão 2026-07-11): computa (ou recomputa) a apuração do mês —
+ * coleta eventos, aplica os baldes, soma estornos/ajuda de custo e PERSISTE
+ * grossCommission/netAmount/memoryJson. Extraído de `calculate` para ser
+ * reutilizado por `closeApuracao`: antes o fechamento selava o `netAmount`
+ * gravado pelo ÚLTIMO calculate — se vendas/OS mudaram (nova venda, estorno)
+ * desde então, o PAYABLE saía com valor stale (paga a mais/menos, inclui venda
+ * estornada). Agora o close recomputa sob o lock antes de gerar o PAYABLE.
+ */
+async function recomputeProviderApuracao(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
+  tenantId: string,
+  providerId: string,
+  year: number,
+  month: number,
+): Promise<{ id: string; grossCommission: number; netAmount: number }> {
+  const provider = await tx.provider.findUnique({
+    where: { id: providerId },
+    include: { contracts: { orderBy: { startDate: "desc" }, include: { rules: true } } },
+  });
+  if (!provider) throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
+
+  const { start: periodStart, end: periodEnd } = monthRange(year, month);
+  const contract = provider.contracts.find((c: { startDate: Date; endDate: Date | null }) => {
+    const start = new Date(c.startDate);
+    const end = c.endDate ? new Date(c.endDate) : null;
+    return start <= periodEnd && (!end || end >= periodStart);
+  });
+
+  if (!contract || contract.rules.length === 0) {
+    const apuracao = await tx.providerApuracao.upsert({
+      where: { tenantId_providerId_year_month: { tenantId, providerId, year, month } },
+      create: {
+        tenantId, providerId, year, month,
+        memoryJson: { linhas: [], subtotais: {}, total_comissao: 0, aviso: "Sem contrato vigente" },
+      },
+      update: {},
+    });
+    return { id: apuracao.id, grossCommission: 0, netAmount: 0 };
+  }
+
+  const hasStoreSaleRule = contract.rules.some(
+    (r: { source: string; category: string }) => r.source === "STORE" && r.category !== "servico_at_loja",
+  );
+  const hasStoreServiceRule = contract.rules.some((r: { category: string }) => r.category === "servico_at_loja");
+  const events = await collectProviderEvents(tx, provider, periodStart, periodEnd, hasStoreSaleRule, hasStoreServiceRule);
+
+  const buckets: Record<string, { category: string; scope: string; source: string; events: typeof events }> = {};
+  for (const ev of events) {
+    const key = `${ev.category}|${ev.scope}|${ev.source}`;
+    if (!buckets[key]) buckets[key] = { category: ev.category, scope: ev.scope, source: ev.source, events: [] };
+    buckets[key]!.events.push(ev);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lines: Array<Record<string, any>> = [];
+  const contractRules = contract.rules.map((r: { rangeMin: unknown; rangeMax: unknown; rate: unknown }) => ({
+    ...r,
+    rangeMin: decimalToNumber(r.rangeMin as Prisma.Decimal),
+    rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax as Prisma.Decimal) : null,
+    rate: decimalToNumber(r.rate as Prisma.Decimal),
+  }));
+
+  for (const bucket of Object.values(buckets)) {
+    const matchingRules = contractRules.filter(
+      (r: { category: string; scope: string; source: string }) =>
+        r.category === bucket.category && r.scope === bucket.scope && r.source === bucket.source,
+    );
+    if (matchingRules.length === 0) continue;
+    const results = computeBucketCommission(matchingRules, bucket.events);
+    bucket.events.forEach((ev, i) => {
+      const r = results[i]!;
+      lines.push({ ...ev, base: r.base, comissao: r.comissao, aliquota_efetiva: r.aliquotaEfetiva, tipo_valor: r.tipoValor, origem: bucket.source });
+    });
+  }
+
+  const grossCommission = Math.round(lines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100;
+
+  const reversals = await tx.providerReversal.findMany({
+    where: { providerId, factDate: { gte: periodStart, lte: periodEnd } },
+  });
+  const totalReversals = Math.round(reversals.reduce((s: number, r: { amount: unknown }) => s + decimalToNumber(r.amount as Prisma.Decimal), 0) * 100) / 100;
+
+  const totalAllowance = await calculateAllowance(tx, providerId, contract, periodStart, periodEnd);
+  const netAmount = Math.round(Math.max(0, grossCommission - totalReversals + totalAllowance) * 100) / 100;
+
+  const memory = {
+    prestador_id: provider.id,
+    periodo: {
+      inicio: periodStart.toISOString().split("T")[0],
+      fim: periodEnd.toISOString().split("T")[0],
+      label: `${String(month).padStart(2, "0")}/${year}`,
+    },
+    linhas: lines,
+    subtotais_por_categoria: Object.fromEntries(
+      Object.entries(buckets).map(([key, bucket]) => {
+        const bucketLines = lines.filter((l) => `${l.categoria}|${l.escopo}|${l.origem}` === key);
+        return [key, {
+          categoria: bucket.category, escopo: bucket.scope, origem: bucket.source,
+          base: Math.round(bucketLines.reduce((s, l) => s + (l.base as number), 0) * 100) / 100,
+          comissao: Math.round(bucketLines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100,
+          qtd: bucketLines.length,
+        }];
+      }),
+    ),
+    total_comissao: grossCommission,
+  };
+
+  const apuracao = await tx.providerApuracao.upsert({
+    where: { tenantId_providerId_year_month: { tenantId, providerId, year, month } },
+    create: {
+      tenantId, providerId, year, month,
+      grossCommission: new Prisma.Decimal(grossCommission),
+      totalReversals: new Prisma.Decimal(totalReversals),
+      totalAllowance: new Prisma.Decimal(totalAllowance),
+      netAmount: new Prisma.Decimal(netAmount),
+      memoryJson: memory as Prisma.InputJsonValue,
+    },
+    update: {
+      grossCommission: new Prisma.Decimal(grossCommission),
+      totalReversals: new Prisma.Decimal(totalReversals),
+      totalAllowance: new Prisma.Decimal(totalAllowance),
+      netAmount: new Prisma.Decimal(netAmount),
+      memoryJson: memory as Prisma.InputJsonValue,
+    },
+  });
+
+  return { id: apuracao.id, grossCommission, netAmount };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
