@@ -621,18 +621,69 @@ export const receivingRouter = createTRPCRouter({
       .input(unsettleCardReceivablesSchema)
       .mutation(async ({ ctx, input }) => {
         return ctx.withTenant(async (tx) => {
-          const result = await tx.cardReceivable.updateMany({
+          // REC-B1 (auditoria financeira 2026-07-11): o estorno de venda/OS
+          // cancela só os recebíveis PENDING (os SETTLED ficam, "já caíram na
+          // conta"). Sem a guarda abaixo, desfazer a conciliação de um recebível
+          // cuja venda foi CANCELADA o devolvia a PENDING → virava dinheiro
+          // fantasma "a receber" numa venda que não existe mais. Aqui, ao
+          // desconciliar, se a origem (venda/OS) está cancelada/estornada, o
+          // recebível vai para CANCELLED em vez de PENDING.
+          const rows = await tx.cardReceivable.findMany({
             where: { id: { in: input.ids }, tenantId: ctx.tenantId, status: "SETTLED" },
-            data: {
-              status: "PENDING",
-              settledAt: null,
-              settledNetAmount: null,
-              settledDifference: null,
-              settledAccountId: null,
-              settledByUserId: null,
-              settlementNote: null,
-            },
+            select: { id: true, saleId: true, serviceOrderId: true },
           });
+
+          const saleIds = [...new Set(rows.map((r) => r.saleId).filter(Boolean) as string[])];
+          const osIds = [...new Set(rows.map((r) => r.serviceOrderId).filter(Boolean) as string[])];
+          const [cancelledSales, cancelledOs] = await Promise.all([
+            saleIds.length
+              ? tx.sale.findMany({
+                  where: { id: { in: saleIds }, status: { in: ["CANCELLED", "REFUNDED"] } },
+                  select: { id: true },
+                })
+              : Promise.resolve([]),
+            osIds.length
+              ? tx.serviceOrder.findMany({
+                  where: { id: { in: osIds }, status: { in: ["CANCELLED", "REFUNDED"] } },
+                  select: { id: true },
+                })
+              : Promise.resolve([]),
+          ]);
+          const cancelledSaleSet = new Set(cancelledSales.map((s) => s.id));
+          const cancelledOsSet = new Set(cancelledOs.map((o) => o.id));
+
+          const toCancel: string[] = [];
+          const toPending: string[] = [];
+          for (const r of rows) {
+            const originCancelled =
+              (r.saleId && cancelledSaleSet.has(r.saleId)) ||
+              (r.serviceOrderId && cancelledOsSet.has(r.serviceOrderId));
+            (originCancelled ? toCancel : toPending).push(r.id);
+          }
+
+          const clearedFields = {
+            settledAt: null,
+            settledNetAmount: null,
+            settledDifference: null,
+            settledAccountId: null,
+            settledByUserId: null,
+            settlementNote: null,
+          };
+
+          const [pendingRes, cancelRes] = await Promise.all([
+            toPending.length
+              ? tx.cardReceivable.updateMany({
+                  where: { id: { in: toPending }, tenantId: ctx.tenantId, status: "SETTLED" },
+                  data: { status: "PENDING", ...clearedFields },
+                })
+              : Promise.resolve({ count: 0 }),
+            toCancel.length
+              ? tx.cardReceivable.updateMany({
+                  where: { id: { in: toCancel }, tenantId: ctx.tenantId, status: "SETTLED" },
+                  data: { status: "CANCELLED", ...clearedFields },
+                })
+              : Promise.resolve({ count: 0 }),
+          ]);
 
           const { logAudit } = await import("@/server/services/audit-log.service");
           await logAudit(tx as never, {
@@ -640,10 +691,19 @@ export const receivingRouter = createTRPCRouter({
             userId: ctx.session.user.id,
             action: "card_receivable_unsettle",
             entity: "card_receivable",
-            payload: { count: result.count, ids: input.ids },
+            payload: {
+              count: pendingRes.count + cancelRes.count,
+              toPending: pendingRes.count,
+              toCancelled: cancelRes.count,
+              ids: input.ids,
+            },
           });
 
-          return { unsettledCount: result.count };
+          return {
+            unsettledCount: pendingRes.count + cancelRes.count,
+            toPending: pendingRes.count,
+            toCancelled: cancelRes.count,
+          };
         });
       }),
   }),
