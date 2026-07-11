@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createDepositSchema } from "@/lib/validators/depix-transaction";
+import {
+  createDepositSchema,
+  createWithdrawSchema,
+} from "@/lib/validators/depix-transaction";
 
 const validCpf = "52998224725";
 const validCnpj = "11222333000181";
@@ -75,5 +78,45 @@ describe("createDepositSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("createWithdrawSchema — nome do destinatario obrigatorio", () => {
+  const base = {
+    pixKeyType: "CPF" as const,
+    pixKey: validCpf,
+    recipientTaxId: validCpf,
+    netAmountCents: 10_000,
+    twoFactorCode: "123456",
+  };
+
+  it("aceita saque com nome preenchido", () => {
+    const result = createWithdrawSchema.safeParse({ ...base, recipientName: "Joao Silva" });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita saque sem nome (undefined)", () => {
+    const result = createWithdrawSchema.safeParse(base);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita nome vazio ou so espacos", () => {
+    expect(createWithdrawSchema.safeParse({ ...base, recipientName: "" }).success).toBe(false);
+    expect(createWithdrawSchema.safeParse({ ...base, recipientName: "   " }).success).toBe(false);
+  });
+
+  it("rejeita nome com menos de 2 caracteres", () => {
+    expect(createWithdrawSchema.safeParse({ ...base, recipientName: "A" }).success).toBe(false);
+  });
+
+  it("faz trim do nome (espacos das bordas nao contam)", () => {
+    const result = createWithdrawSchema.safeParse({ ...base, recipientName: "  Ana  " });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recipientName).toBe("Ana");
+    }
   });
 });

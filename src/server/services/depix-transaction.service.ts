@@ -1951,11 +1951,15 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
       if (ws.success && ws.status) {
         const raw = ws.status.toLowerCase();
         const receiptUrl = extractDepixWithdrawReceiptUrl(ws.raw);
-        // Nome oficial do destinatario (titular da chave PIX), validado pela Eulen.
+        // Nome oficial do destinatario (titular da chave PIX), validado pela
+        // Eulen. Quando a Eulen o retorna, ele PREVALECE sobre o nome digitado
+        // pelo operador (fonte autoritativa). So sobrescreve se for diferente.
         const receiverNameRaw =
           ws.raw && typeof ws.raw.receiverName === "string" ? ws.raw.receiverName.trim() : "";
         const recipientNamePatch =
-          receiverNameRaw && !txRow.recipientName ? { recipientName: receiverNameRaw } : {};
+          receiverNameRaw && receiverNameRaw !== txRow.recipientName
+            ? { recipientName: receiverNameRaw }
+            : {};
         let newStatus: typeof txRow.status | null = null;
         // PixPay (off-ramp) usa depix_sent/paid/under_review/expired/refunded/unsent.
         if (["sent", "send", "paid", "completed", "depix_sent", "success"].includes(raw))
