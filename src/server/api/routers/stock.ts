@@ -1019,6 +1019,44 @@ export const stockRouter = createTRPCRouter({
           }
         }
 
+        // I3 (auditoria estoque 2026-07-10): recompra de aparelho SERIAL-ONLY
+        // (sem IMEI). Espelha o bloco de IMEI acima — necessário agora que existe
+        // o unique parcial de serial: sem arquivar o item antigo, recomprar um
+        // aparelho que a loja vendeu (mesmo serial) quebraria na constraint.
+        if (!cleanImei && cleanSerial) {
+          const existing = await tx.stockItem.findFirst({
+            where: { serialNumber: cleanSerial, deletedAt: null },
+            select: { id: true, status: true, product: { select: { name: true } } },
+          });
+          if (existing) {
+            if (isRepurchasableStatus(existing.status)) {
+              // Já vendido/descartado → arquiva o antigo e cancela a compra
+              // anterior ativa do mesmo serial, liberando o serial para o novo item.
+              await tx.stockItem.update({
+                where: { id: existing.id },
+                data: { deletedAt: new Date() },
+              });
+              await tx.devicePurchase.updateMany({
+                where: { serial: cleanSerial, cancelledAt: null },
+                data: {
+                  cancelledAt: new Date(),
+                  cancellationReason: "Aparelho recomprado — nova compra registrada",
+                },
+              });
+              logger.info("Recompra de aparelho serial ja vendido/descartado — item antigo arquivado", {
+                stockItemId: existing.id,
+                serial: cleanSerial,
+                previousStatus: existing.status,
+              });
+            } else {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `Numero de serie ${cleanSerial} ja esta cadastrado em ${existing.product.name} (status: ${existing.status}). Se foi uma tentativa anterior que falhou, cancele a compra correspondente antes.`,
+              });
+            }
+          }
+        }
+
         // Se o Product tem variacoes, exige variationId. Paridade Laravel:
         // compra_aparelhos.variacao_id obrigatorio quando usa_variacoes=true.
         let variation: { id: string; productId: string } | null = null;
@@ -1465,6 +1503,61 @@ export const stockRouter = createTRPCRouter({
             where: { transactionId: { in: ids }, status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] } },
             data: { status: "CANCELLED" },
           });
+        }
+
+        // I5 (auditoria estoque 2026-07-10): compra paga À VISTA (paymentMode
+        // "now") gera FT PAYABLE status=PAID + (dinheiro/pix) um WITHDRAWAL no
+        // caixa. O cancel só revertia PENDING/OVERDUE — o gasto pago ficava
+        // órfão (DRE/caixa registravam a saída para um aparelho que saiu do
+        // estoque). Agora cancela o PAID e devolve o dinheiro ao caixa.
+        const paidPayables = await tx.financialTransaction.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            type: "PAYABLE",
+            referenceType: "device_purchase",
+            referenceId: purchase.id,
+            status: "PAID",
+          },
+          select: { id: true, totalAmount: true, paymentMethod: true },
+        });
+        if (paidPayables.length > 0) {
+          const paidIds = paidPayables.map((p) => p.id);
+          await tx.financialTransaction.updateMany({
+            where: { id: { in: paidIds } },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+              cancelledByUserId: ctx.session.user.id,
+              cancelReason: `Compra cancelada — ${input.reason}`,
+            },
+          });
+          // Reverte a saída de caixa: devolve o valor à gaveta (DEPOSIT/INCOME)
+          // quando há caixa aberto. Espelha o WITHDRAWAL do createPurchase; o
+          // método original preserva a conferência da gaveta (só 'dinheiro' conta).
+          const cancelOpenSession = await tx.cashSession.findFirst({
+            where: { closedAt: null },
+            select: { id: true },
+          });
+          if (cancelOpenSession) {
+            const originalWithdrawals = await tx.cashMovement.findMany({
+              where: { referenceType: "device_purchase", referenceId: purchase.id, type: "WITHDRAWAL", nature: "OUTCOME" },
+              select: { amount: true, paymentMethod: true },
+            });
+            for (const w of originalWithdrawals) {
+              await writeCashMovement(tx, {
+                tenantId: ctx.tenantId,
+                cashSessionId: cancelOpenSession.id,
+                type: "DEPOSIT",
+                nature: "INCOME",
+                amountCents: Math.round(Number(w.amount) * 100),
+                paymentMethod: w.paymentMethod,
+                description: `Estorno compra cancelada — ${input.reason}`,
+                referenceId: purchase.id,
+                referenceType: "device_purchase_cancel",
+                createdByUserId: ctx.session.user.id,
+              });
+            }
+          }
         }
 
         return { success: true };
