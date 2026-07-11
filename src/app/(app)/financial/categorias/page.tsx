@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil } from "lucide-react";
 
 export default function FinancialCategoriesPage() {
   const trpc = useTRPC();
@@ -40,6 +40,8 @@ export default function FinancialCategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<"RECEITA" | "DESPESA">("RECEITA");
+  // Edição (renomear) — updateCategory.
+  const [editTarget, setEditTarget] = useState<{ id: string; name: string; type: "RECEITA" | "DESPESA" } | null>(null);
 
   const { data: categories } = useQuery(
     trpc.financial.listCategories.queryOptions({
@@ -74,6 +76,17 @@ export default function FinancialCategoriesPage() {
       onSuccess: () => {
         toast.success("Categoria excluída");
         queryClient.invalidateQueries({ queryKey: [["financial", "listCategories"]] });
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  );
+
+  const updateMut = useMutation(
+    trpc.financial.updateCategory.mutationOptions({
+      onSuccess: () => {
+        toast.success("Categoria atualizada");
+        queryClient.invalidateQueries({ queryKey: [["financial", "listCategories"]] });
+        setEditTarget(null);
       },
       onError: (e) => toast.error(e.message),
     })
@@ -164,16 +177,26 @@ export default function FinancialCategoriesPage() {
                   />
                 </TableCell>
                 <TableCell>
-                  {cat.kind === "CUSTOM" && (
+                  <div className="flex gap-1">
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={`Excluir categoria ${cat.name}`}
-                      onClick={() => deleteMut.mutate({ id: cat.id })}
+                      aria-label={`Renomear categoria ${cat.name}`}
+                      onClick={() => setEditTarget({ id: cat.id, name: cat.name, type: cat.type as "RECEITA" | "DESPESA" })}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Pencil className="h-4 w-4" />
                     </Button>
-                  )}
+                    {cat.kind === "CUSTOM" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Excluir categoria ${cat.name}`}
+                        onClick={() => deleteMut.mutate({ id: cat.id })}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -187,6 +210,36 @@ export default function FinancialCategoriesPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Editar (renomear) categoria */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Renomear categoria</DialogTitle></DialogHeader>
+          {editTarget && (
+            <div className="space-y-4">
+              <Input
+                placeholder="Nome da categoria"
+                value={editTarget.name}
+                onChange={(e) => setEditTarget({ ...editTarget, name: e.target.value })}
+              />
+              <Select value={editTarget.type} onValueChange={(v) => setEditTarget({ ...editTarget, type: v as "RECEITA" | "DESPESA" })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="RECEITA">Receita</SelectItem>
+                  <SelectItem value="DESPESA">Despesa</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                className="w-full"
+                onClick={() => updateMut.mutate({ id: editTarget.id, name: editTarget.name.trim(), type: editTarget.type })}
+                disabled={editTarget.name.trim().length < 2 || updateMut.isPending}
+              >
+                {updateMut.isPending ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
