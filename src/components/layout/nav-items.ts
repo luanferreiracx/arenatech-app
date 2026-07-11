@@ -126,6 +126,7 @@ export const appNavGroups: NavGroup[] = [
       { label: "Contas a Pagar", href: "/financial?type=PAYABLE", icon: Receipt, module: "financial" },
       { label: "Fluxo Projetado", href: "/financial/projected-cash-flow", icon: TrendingUp, module: "financial" },
       { label: "DRE", href: "/financial/dre", icon: BarChart3, module: "financial" },
+      { label: "Categorias", href: "/financial/categorias", icon: Tags, module: "financial" },
       { label: "DePix Wallet", href: "/depix-wallet", icon: Wallet, module: "wallet" },
       // Vendas Avulsas (/quick-sales, módulo depix-ops) NÃO tem item de menu: a
       // cobrança avulsa foi superada pelo Link de Pagamento (PaymentLink + /pay,
