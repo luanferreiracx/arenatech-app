@@ -37,7 +37,9 @@ export const providerCommissionRouter = createTRPCRouter({
   // PROVIDERS CRUD
   // ═══════════════════════════════════════
 
-  listProviders: tenantProcedure
+  // J1/A6: lista de prestadores/apurações é gerência (entrega os ids usados
+  // no getDetail e expõe comissão agregada). Prestador não lista colegas.
+  listProviders: tenantAdminProcedure
     .input(listProvidersSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -254,10 +256,17 @@ export const providerCommissionRouter = createTRPCRouter({
           };
 
           if (rule.id) {
-            await tx.providerCommissionRule.update({
-              where: { id: rule.id },
+            // A4 (auditoria comissão 2026-07-11): guarda o `contractId` no where.
+            // Antes o update era por `id` puro — um admin podia passar o id de uma
+            // regra de OUTRO contrato (mesmo tenant) e repontá-la para este
+            // contrato (RLS não pega, é intra-tenant). updateMany + count fecha o IDOR.
+            const upd = await tx.providerCommissionRule.updateMany({
+              where: { id: rule.id, contractId: input.contractId },
               data: payload,
             });
+            if (upd.count !== 1) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "Regra nao pertence a este contrato." });
+            }
           } else if (rule.rate > 0) {
             // Regra nova so e criada se tiver aliquota; rate 0 e ignorado.
             await tx.providerCommissionRule.create({ data: payload });
@@ -273,7 +282,11 @@ export const providerCommissionRouter = createTRPCRouter({
   // ═══════════════════════════════════════
 
   /** Get provider detail with apuracao for a month */
-  getDetail: tenantProcedure
+  // J1/A6 (auditoria comissão 2026-07-11, decisão do dono): ver a ficha de
+  // comissão de um prestador (com custo/margem por item) é gerência. Antes era
+  // tenantProcedure → qualquer membro via salário+custo de qualquer colega. O
+  // prestador vê o próprio via getMyDetail (self-service, resolve por sessão).
+  getDetail: tenantAdminProcedure
     .input(getProviderDetailSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

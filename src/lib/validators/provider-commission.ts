@@ -247,11 +247,11 @@ export const providerRuleSchema = z.object({
   valueType: commissionValueTypeEnum.default("PERCENT"),
   base: commissionBaseEnum.default("PROFIT"),
   source: commissionSourceEnum.default("OWN"),
-  rangeMin: z.number().min(0),
-  rangeMax: z.number().positive().optional().nullable(),
+  rangeMin: z.number().min(0).max(100_000_000), // A3: teto sanitário
+  rangeMax: z.number().positive().max(100_000_000).optional().nullable(),
   // PERCENT: aliquota % (0..100). FIXED_PER_UNIT: valor por unidade em R$ (>= 0).
   // O teto de 100 nao se aplica ao fixo — validado no superRefine por valueType.
-  rate: z.number().min(0),
+  rate: z.number().min(0).max(100_000_000), // A3: teto (FIXED_PER_UNIT = R$/un); PERCENT <=100 no superRefine
   _delete: z.boolean().optional(),
 });
 export type ProviderRuleInput = z.infer<typeof providerRuleSchema>;
