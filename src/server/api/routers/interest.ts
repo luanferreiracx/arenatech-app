@@ -8,6 +8,8 @@ import {
   listInterestsSchema,
   addInteractionSchema,
   sendBatchSchema,
+  isTerminalInterestStatus,
+  normalizePhoneDigits,
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
 import { sendTextMessage } from "@/lib/services/whatsapp-service";
@@ -34,12 +36,23 @@ export const interestRouter = createTRPCRouter({
         // SPEC 4.5: search by name, phone, model
         if (input.search && input.search.trim()) {
           const term = input.search.trim();
+          // B6: telefone é armazenado só-dígitos; se o termo tiver dígitos,
+          // busca por eles (a máscara digitada pelo operador não atrapalha).
+          const digits = normalizePhoneDigits(term);
           where.OR = [
             { customerName: { contains: term, mode: "insensitive" } },
-            { phone: { contains: term } },
             { desiredModel: { contains: term, mode: "insensitive" } },
+            ...(digits ? [{ phone: { contains: digits } }] : []),
           ];
         }
+
+        // B7 (auditoria interesses 2026-07-11): os cards de stats contavam o
+        // tenant INTEIRO, ignorando o filtro ativo (status/tipo/busca) → número
+        // "Total: 300" com a tabela mostrando 3 linhas confundia o operador.
+        // Agora as stats refletem o mesmo `where` da listagem. `status` sai do
+        // where de cada contagem por status (senão o filtro de status zeraria
+        // as outras faixas).
+        const { status: _statusFilter, ...whereNoStatus } = where;
 
         const [data, total, stats] = await Promise.all([
           tx.interest.findMany({
@@ -55,13 +68,13 @@ export const interestRouter = createTRPCRouter({
             take: pageSize,
           }),
           tx.interest.count({ where }),
-          // SPEC 4.5: stats cards
+          // SPEC 4.5: stats cards — respeitam tipo/busca; cada faixa fixa o status.
           Promise.all([
-            tx.interest.count(),
-            tx.interest.count({ where: { status: "WAITING" } }),
-            tx.interest.count({ where: { status: "CONTACTED" } }),
-            tx.interest.count({ where: { status: "COMPLETED" } }),
-            tx.interest.count({ where: { status: "CANCELLED" } }),
+            tx.interest.count({ where: whereNoStatus }),
+            tx.interest.count({ where: { ...whereNoStatus, status: "WAITING" } }),
+            tx.interest.count({ where: { ...whereNoStatus, status: "CONTACTED" } }),
+            tx.interest.count({ where: { ...whereNoStatus, status: "COMPLETED" } }),
+            tx.interest.count({ where: { ...whereNoStatus, status: "CANCELLED" } }),
           ]).then(([total, waiting, contacted, completed, cancelled]) => ({
             total,
             waiting,
@@ -111,7 +124,8 @@ export const interestRouter = createTRPCRouter({
           data: {
             tenantId: ctx.tenantId,
             customerName: input.customerName,
-            phone: input.phone,
+            // B6: telefone armazenado só-dígitos (chave estável de busca).
+            phone: normalizePhoneDigits(input.phone),
             cpf: input.cpf || null,
             email: input.email || null,
             type: input.type,
@@ -137,6 +151,20 @@ export const interestRouter = createTRPCRouter({
 
         if (!interest) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Interesse não encontrado" });
+        }
+
+        // B4 (auditoria interesses 2026-07-11): estados terminais não voltam.
+        // COMPLETED/CANCELLED reabertos corrompiam o funil e as métricas.
+        // Decisão do dono: para retomar, cadastra-se um interesse novo.
+        if (
+          isTerminalInterestStatus(interest.status) &&
+          interest.status !== input.status
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Interesse finalizado ou cancelado não muda de status. Cadastre um novo interesse para retomar.",
+          });
         }
 
         await tx.interest.update({
@@ -249,8 +277,9 @@ export const interestRouter = createTRPCRouter({
     .input(sendBatchSchema)
     .mutation(async ({ ctx, input }) => {
       // gap In1: ANTES, o loop de N envios HTTP rodava DENTRO de uma unica tx.
-      // Com N=50 interesses x ~2s por envio, a tx ficava aberta 100s e
-      // segurava a conexao Postgres todo esse tempo — exauria o pool.
+      // Com N destinatarios x ~2s por envio, a tx ficava aberta segundos a fio
+      // e segurava a conexao Postgres todo esse tempo — exauria o pool. (O lote
+      // e limitado a 5 destinatarios pelo sendBatchSchema.)
       //
       // Agora cada interesse roda em microtransacoes separadas e o HTTP
       // fica fora delas: tx1 cria Message PENDING + retorna ID, HTTP, tx2
