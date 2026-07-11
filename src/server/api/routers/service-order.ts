@@ -13,6 +13,7 @@ import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-w
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { osPaymentShortfallCents } from "@/lib/service-order/payment-reconciliation";
 import { logger } from "@/lib/logger";
+import { linkInterestConversionByPhone } from "@/server/services/interest-conversion.service";
 import {
   createServiceOrderSchema,
   updateServiceOrderSchema,
@@ -707,7 +708,16 @@ export const serviceOrderRouter = createTRPCRouter({
         }
         const customer = await tx.customer.findUnique({
           where: { id: input.customerId },
-          select: { name: true },
+          select: { name: true, phone: true },
+        });
+
+        // B2 (auditoria interesses 2026-07-11): se esta OS atende a um interesse
+        // aberto (mesmo telefone do cliente), marca-o convertido. Best-effort.
+        await linkInterestConversionByPhone(tx, {
+          tenantId: ctx.tenantId,
+          phone: customer?.phone,
+          osId: order.id,
+          customerId: input.customerId,
         });
 
         return {

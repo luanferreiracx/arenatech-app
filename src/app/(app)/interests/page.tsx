@@ -56,6 +56,9 @@ export default function InterestsPage() {
     }),
   );
 
+  // B2: taxa de conversão do funil (independe dos filtros da listagem).
+  const { data: conversion } = useQuery(trpc.interest.conversionStats.queryOptions({}));
+
   const deleteMutation = useMutation(
     trpc.interest.delete.mutationOptions({
       onSuccess: () => {
@@ -86,12 +89,22 @@ export default function InterestsPage() {
 
       {/* Stats cards */}
       {stats && (
-        <div className="grid gap-4 md:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-6">
           <Card><CardContent className="pt-4"><div className="text-2xl font-bold">{stats.total}</div><p className="text-xs text-muted-foreground">Total</p></CardContent></Card>
           <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-yellow-600">{stats.waiting}</div><p className="text-xs text-muted-foreground">Em espera</p></CardContent></Card>
           <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-blue-600">{stats.contacted}</div><p className="text-xs text-muted-foreground">Contatados</p></CardContent></Card>
           <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-green-600">{stats.completed}</div><p className="text-xs text-muted-foreground">Finalizados</p></CardContent></Card>
           <Card><CardContent className="pt-4"><div className="text-2xl font-bold text-red-600">{stats.cancelled}</div><p className="text-xs text-muted-foreground">Cancelados</p></CardContent></Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-2xl font-bold text-emerald-600">
+                {conversion ? `${conversion.conversionRate}%` : "—"}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Conversão{conversion ? ` (${conversion.converted}/${conversion.total})` : ""}
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
 

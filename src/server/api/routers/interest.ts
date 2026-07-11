@@ -371,8 +371,10 @@ export const interestRouter = createTRPCRouter({
     }),
 
   /**
-   * Marca interesse como convertido em venda ou OS.
-   * Usado quando um cliente que tinha interesse efetivamente comprou/contratou.
+   * Marca interesse como convertido (venda/OS opcional).
+   * Botão manual na ficha, quando o operador sabe que o lead comprou/contratou.
+   * A conversão automática por telefone acontece no finalize da venda e no
+   * create da OS (interest-conversion.service).
    */
   markConverted: tenantProcedure
     .input(z.object({
@@ -381,17 +383,26 @@ export const interestRouter = createTRPCRouter({
       osId: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!input.saleId && !input.osId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Forneca saleId ou osId" });
-      }
       return ctx.withTenant(async (tx) => {
+        const interest = await tx.interest.findUnique({ where: { id: input.id } });
+        if (!interest) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Interesse não encontrado" });
+        }
+        // Respeita B4: um interesse CANCELLED não vira COMPLETED. Já COMPLETED é
+        // idempotente (só reforça a ref de conversão).
+        if (interest.status === "CANCELLED") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Interesse cancelado não pode ser convertido. Cadastre um novo interesse.",
+          });
+        }
         return tx.interest.update({
           where: { id: input.id },
           data: {
             status: "COMPLETED",
-            convertedAt: new Date(),
-            convertedToSaleId: input.saleId ?? null,
-            convertedToOsId: input.osId ?? null,
+            convertedAt: interest.convertedAt ?? new Date(),
+            convertedToSaleId: input.saleId ?? interest.convertedToSaleId,
+            convertedToOsId: input.osId ?? interest.convertedToOsId,
           },
         });
       });
