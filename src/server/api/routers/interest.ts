@@ -14,6 +14,12 @@ import {
 import { logger } from "@/lib/logger";
 import { sendTextMessage } from "@/lib/services/whatsapp-service";
 
+/**
+ * Cooldown anti-spam de notificação em lote (B5/RN-12): não reenvia ao mesmo
+ * interesse antes de 24h. Protege o número de WhatsApp contra bloqueio por spam.
+ */
+const INTEREST_NOTIFY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 export const interestRouter = createTRPCRouter({
   // SPEC 4.5: List interests with filters and stats
   list: tenantProcedure
@@ -276,6 +282,16 @@ export const interestRouter = createTRPCRouter({
   sendBatch: tenantProcedure
     .input(sendBatchSchema)
     .mutation(async ({ ctx, input }) => {
+      // B1 (auditoria interesses 2026-07-11): disparo de WhatsApp em massa é
+      // ação privilegiada (custo + risco de spam/bloqueio do número) — restringe
+      // a admin/gerente, como o delete.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores do tenant podem enviar mensagens em lote",
+        });
+      }
+
       // gap In1: ANTES, o loop de N envios HTTP rodava DENTRO de uma unica tx.
       // Com N destinatarios x ~2s por envio, a tx ficava aberta segundos a fio
       // e segurava a conexao Postgres todo esse tempo — exauria o pool. (O lote
@@ -293,11 +309,26 @@ export const interestRouter = createTRPCRouter({
 
       let sent = 0;
       let errors = 0;
+      let skipped = 0;
+
+      // B5 (auditoria interesses 2026-07-11): anti-spam (RN-12). `lastNotifiedAt`
+      // era gravado mas NUNCA lido — nada impedia reenviar em lote para o mesmo
+      // interesse repetidamente. Agora respeita um cooldown: interesse notificado
+      // há menos de INTEREST_NOTIFY_COOLDOWN_MS é pulado (não conta como erro).
+      const cooldownFloor = new Date(Date.now() - INTEREST_NOTIFY_COOLDOWN_MS);
 
       for (const interest of interests) {
         if (!interest.phone) {
           errors++;
           logger.warn("Interest sem telefone", { interestId: interest.id });
+          continue;
+        }
+        if (interest.lastNotifiedAt && interest.lastNotifiedAt > cooldownFloor) {
+          skipped++;
+          logger.info("Interest em cooldown de notificacao — pulado", {
+            interestId: interest.id,
+            lastNotifiedAt: interest.lastNotifiedAt,
+          });
           continue;
         }
         try {
@@ -367,7 +398,7 @@ export const interestRouter = createTRPCRouter({
         }
       }
 
-      return { sent, errors };
+      return { sent, errors, skipped };
     }),
 
   /**

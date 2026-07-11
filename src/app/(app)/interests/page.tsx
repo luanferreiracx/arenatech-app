@@ -14,6 +14,14 @@ import { EmptyState } from "@/components/domain/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -43,6 +51,9 @@ export default function InterestsPage() {
   const [typeFilter, setTypeFilter] = useState<InterestTypeValue | "ALL">("ALL");
   const [page, setPage] = useState(0);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchMessage, setBatchMessage] = useState("");
   const queryClient = useQueryClient();
   const trpc = useTRPC();
 
@@ -70,8 +81,32 @@ export default function InterestsPage() {
     }),
   );
 
+  const sendBatchMutation = useMutation(
+    trpc.interest.sendBatch.mutationOptions({
+      onSuccess: (res) => {
+        const parts = [`${res.sent} enviada(s)`];
+        if (res.skipped) parts.push(`${res.skipped} em cooldown`);
+        if (res.errors) parts.push(`${res.errors} falha(s)`);
+        toast.success(parts.join(" · "));
+        void queryClient.invalidateQueries({ queryKey: trpc.interest.list.queryKey() });
+        setBatchOpen(false);
+        setBatchMessage("");
+        setSelectedIds(new Set());
+      },
+      onError: (error: { message: string }) => toast.error(error.message),
+    }),
+  );
+
   const interests = data?.data ?? [];
   const stats = data?.stats;
+
+  const toggleOne = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <div className="space-y-6 p-6">
@@ -136,6 +171,17 @@ export default function InterestsPage() {
         </Select>
       </div>
 
+      {/* Ação em lote */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-4 py-2">
+          <span className="text-sm">{selectedIds.size} selecionado(s)</span>
+          <Button size="sm" onClick={() => setBatchOpen(true)}>
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Enviar WhatsApp
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       {interests.length === 0 && !isLoading ? (
         <EmptyState
@@ -147,6 +193,7 @@ export default function InterestsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10" />
                 <TableHead>Nome</TableHead>
                 <TableHead>Telefone</TableHead>
                 <TableHead>Tipo</TableHead>
@@ -158,7 +205,14 @@ export default function InterestsPage() {
             </TableHeader>
             <TableBody>
               {interests.map((interest) => (
-                <TableRow key={interest.id}>
+                <TableRow key={interest.id} data-state={selectedIds.has(interest.id) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.has(interest.id)}
+                      onCheckedChange={() => toggleOne(interest.id)}
+                      aria-label={`Selecionar ${interest.customerName}`}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium">{interest.customerName}</TableCell>
                   <TableCell>{interest.phone ?? "—"}</TableCell>
                   <TableCell>
@@ -204,6 +258,36 @@ export default function InterestsPage() {
         onConfirm={() => { if (deleteId) deleteMutation.mutate({ id: deleteId }); }}
         variant="destructive"
       />
+
+      {/* Batch WhatsApp dialog */}
+      <Dialog open={batchOpen} onOpenChange={setBatchOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar WhatsApp em lote</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {selectedIds.size} destinatário(s). Interesses notificados nas últimas 24h são
+              pulados automaticamente.
+            </p>
+            <Textarea
+              value={batchMessage}
+              onChange={(e) => setBatchMessage(e.target.value)}
+              rows={4}
+              placeholder="Mensagem (mínimo 10 caracteres)..."
+            />
+            <Button
+              className="w-full"
+              disabled={batchMessage.trim().length < 10 || sendBatchMutation.isPending}
+              onClick={() =>
+                sendBatchMutation.mutate({ ids: [...selectedIds], message: batchMessage.trim() })
+              }
+            >
+              {sendBatchMutation.isPending ? "Enviando..." : "Enviar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Pagination */}
       {data && data.pageCount > 1 && (
