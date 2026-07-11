@@ -84,3 +84,16 @@ describe("buildApuracaoCsv", () => {
     expect(csv).toContain('"OS #9; troca de tela"');
   });
 });
+
+describe("J2: csvField neutraliza CSV injection", () => {
+  it("prefixa aspa simples em campo que começa com = + - @", () => {
+    expect(csvField("=HYPERLINK(\"http://x\")")).toBe("\"'=HYPERLINK(\"\"http://x\"\")\"");
+    expect(csvField("+1")).toBe("'+1");
+    expect(csvField("-cmd")).toBe("'-cmd");
+    expect(csvField("@x")).toBe("'@x");
+  });
+  it("não altera texto normal nem número", () => {
+    expect(csvField("iPhone 15")).toBe("iPhone 15");
+    expect(csvField(1234)).toBe("1234");
+  });
+});

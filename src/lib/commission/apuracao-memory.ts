@@ -48,7 +48,12 @@ export function extractApuracaoLines(memoryJson: unknown): ApuracaoLine[] {
 
 /** Escapa um campo CSV (aspas duplas; envolve se contiver separador/quebra). */
 export function csvField(value: string | number): string {
-  const s = String(value);
+  let s = String(value);
+  // J2 (auditoria comissão 2026-07-11): CSV injection. Um campo texto (ex.: nome
+  // do produto na coluna `referencia`) iniciando com = + - @ (ou tab/CR) é
+  // interpretado como FÓRMULA pelo Excel/LibreOffice (ex.: =HYPERLINK(...),
+  // =cmd|...). Prefixa com aspa simples para neutralizar sem alterar o valor lido.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (/[",\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

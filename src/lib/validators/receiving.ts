@@ -73,7 +73,7 @@ export const acquirerRateRowSchema = z.object({
   kind: cardKindEnum,
   installments: z.number().int().min(1).max(36),
   feePercent: z.number().min(0).max(100),
-  feeFixed: z.number().int().min(0), // centavos
+  feeFixed: z.number().int().min(0).max(100_000_000), // centavos (teto R$1M — A2)
   settlementDays: z.number().int().min(0).max(180),
 });
 
@@ -90,7 +90,7 @@ export const previewCardSettlementSchema = z.object({
   cardBrandId: z.string().uuid(),
   kind: cardKindEnum,
   installments: z.number().int().min(1).max(36),
-  grossCents: z.number().int().min(0),
+  grossCents: z.number().int().min(0).max(100_000_000),
 });
 
 /** Parcelas com taxa ativa cadastrada p/ um adquirente×bandeira×tipo (dropdown PDV). */
@@ -136,7 +136,7 @@ export const settleCardReceivablesSchema = z.object({
       z.object({
         id: z.string().uuid(),
         /** Líquido REAL recebido (centavos). */
-        settledNetCents: z.number().int().min(0),
+        settledNetCents: z.number().int().min(0).max(100_000_000),
       }),
     )
     .min(1)
