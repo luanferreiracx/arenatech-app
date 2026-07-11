@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isKnownHost, isLandingHost, isPublicCatalogHost, normalizeHost } from "@/lib/brand-host";
+import {
+  isArenaTechLandingHost,
+  isKnownHost,
+  isLandingHost,
+  isPublicCatalogHost,
+  normalizeHost,
+} from "@/lib/brand-host";
 
 describe("brand host resolution", () => {
   it("normalizes host headers from direct requests and proxies", () => {
@@ -21,6 +27,16 @@ describe("brand host resolution", () => {
     expect(isPublicCatalogHost("catalogo.arenatechpi.com.br:3000")).toBe(true);
     expect(isPublicCatalogHost("app.arenatechpi.com.br")).toBe(false);
     expect(isPublicCatalogHost("pdvdepix.app")).toBe(false);
+  });
+
+  it("recognizes the Arena Tech retail landing domain", () => {
+    expect(isArenaTechLandingHost("arenatechpi.com.br")).toBe(true);
+    expect(isArenaTechLandingHost("www.arenatechpi.com.br")).toBe(true);
+    expect(isArenaTechLandingHost("ARENATECHPI.com.br:443")).toBe(true);
+    // o catálogo e o subdomínio de app têm rotas próprias — não caem na landing
+    expect(isArenaTechLandingHost("catalogo.arenatechpi.com.br")).toBe(false);
+    expect(isArenaTechLandingHost("app.arenatechpi.com.br")).toBe(false);
+    expect(isArenaTechLandingHost("pdvdepix.app")).toBe(false);
   });
 
   describe("isKnownHost (allowlist anti-open-redirect — P2-3)", () => {
