@@ -80,9 +80,39 @@ model Installment {
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
   transaction FinancialTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  payments    InstallmentPayment[]
 
   @@index([tenantId, transactionId])
   @@index([tenantId, dueDate, status])
   @@index([tenantId, paidAt])
   @@map("installments")
+}
+
+/// Razão (ledger) de pagamentos de parcela — FIN-B2 (auditoria financeira
+/// 2026-07-11). Uma parcela paga em N vezes/datas perdia informação:
+/// `installment.paidAt` guardava só a ÚLTIMA data e o valor cheio caía no mês
+/// dela (regime de caixa errado nos meses anteriores). Aqui cada EVENTO de
+/// pagamento é uma linha imutável (valor + data + método), fonte correta de
+/// "quanto entrou em cada mês". Estornos são linhas de valor NEGATIVO.
+model InstallmentPayment {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  installmentId   String   @map("installment_id") @db.Uuid
+  transactionId   String   @map("transaction_id") @db.Uuid
+  /// Centavos. Positivo = pagamento; negativo = estorno.
+  amountCents     Int      @map("amount_cents")
+  paymentMethod   String?  @map("payment_method")
+  /// Data-caixa do evento (quando o dinheiro entrou/saiu).
+  paidAt          DateTime @map("paid_at")
+  /// "payment" | "reversal" — origem do lançamento.
+  kind            String   @default("payment")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  installment Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, paidAt])
+  @@index([tenantId, transactionId])
+  @@index([installmentId])
+  @@map("installment_payments")
 }

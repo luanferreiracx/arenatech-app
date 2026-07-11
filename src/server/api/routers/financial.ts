@@ -517,6 +517,24 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        // FIN-B2 (auditoria financeira 2026-07-11): grava o EVENTO de pagamento
+        // no ledger. `installment.paidAt` guarda só a última data (regime de
+        // caixa errado em pagamento multi-mês); o ledger tem uma linha por
+        // pagamento com sua própria data → fonte correta de "entrou no mês".
+        const paymentPaidAt = new Date();
+        await tx.installmentPayment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            installmentId: installment.id,
+            transactionId: installment.transactionId,
+            amountCents: input.amountPaid,
+            paymentMethod: input.paymentMethod ?? null,
+            paidAt: paymentPaidAt,
+            kind: "payment",
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
         // Recalculate transaction status (faithful to Laravel recalcularStatus)
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
@@ -653,6 +671,21 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        // FIN-B2: registra o estorno no ledger como valor NEGATIVO na data do
+        // evento — assim o "recebido/pago no mês" reflete a saída no mês certo.
+        await tx.installmentPayment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            installmentId: installment.id,
+            transactionId: installment.transactionId,
+            amountCents: -reversedAmount,
+            paymentMethod: originalPaymentMethod ?? null,
+            paidAt: new Date(),
+            kind: "reversal",
+            createdByUserId: ctx.session.user.id,
+          },
+        });
+
         await recalculateTransactionStatus(tx as never, installment.transactionId);
 
         // Reverse cash movement (reverseOpenSession validado no guard early acima).
@@ -730,19 +763,19 @@ export const financialRouter = createTRPCRouter({
             },
             _sum: { amount: true, paidAmount: true },
           }),
-          // D5 (auditoria fin 2026-07-10): "recebido/pago no mês" no regime de
-          // CAIXA — soma installment.paidAmount por installment.paidAt, NÃO
-          // FT.totalAmount por FT.paidAt. No antigo, quitar um crediário de N
-          // meses jogava o valor CHEIO no mês da última parcela (superestimava o
-          // mês corrente, subestimava os anteriores). Por parcela, cada valor
-          // cai no mês em que efetivamente entrou.
-          tx.installment.aggregate({
+          // FIN-B2 (auditoria financeira 2026-07-11): "recebido/pago no mês" no
+          // regime de CAIXA vem do LEDGER de pagamentos (installment_payments),
+          // não de installment.paidAmount por installment.paidAt. Uma parcela
+          // paga R$50 em jan + R$50 em fev tinha só paidAt=fev → os R$50 de jan
+          // caíam em fev (D5 só era correto p/ pagamento de uma vez). O ledger
+          // tem uma linha por evento com data própria; estornos são negativos,
+          // então o SUM já é o líquido que entrou/saiu no mês.
+          tx.installmentPayment.aggregate({
             where: {
-              transaction: { type: input.type, deletedAt: null },
-              status: { in: ["PAID", "PARTIALLY_PAID"] },
+              installment: { transaction: { type: input.type, deletedAt: null } },
               paidAt: { gte: startOfMonth, lte: endOfMonth },
             },
-            _sum: { paidAmount: true },
+            _sum: { amountCents: true },
             _count: true,
           }),
         ]);
@@ -760,7 +793,8 @@ export const financialRouter = createTRPCRouter({
         );
         const overdueCount = overdueResult.length;
 
-        const paidMonthTotal = decimalToCents(paidMonthResult._sum.paidAmount);
+        // Ledger já em centavos e líquido (pagamentos − estornos do mês).
+        const paidMonthTotal = paidMonthResult._sum.amountCents ?? 0;
 
         return {
           pendingAmount: pendingRemaining,
