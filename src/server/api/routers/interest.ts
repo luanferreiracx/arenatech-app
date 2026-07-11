@@ -12,7 +12,7 @@ import {
   normalizePhoneDigits,
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
-import { sendTextMessage } from "@/lib/services/whatsapp-service";
+import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
 
 /**
  * Cooldown anti-spam de notificação em lote (B5/RN-12): não reenvia ao mesmo
@@ -351,8 +351,19 @@ export const interestRouter = createTRPCRouter({
             return m.id;
           });
 
-          // HTTP fora da tx.
-          const result = await sendTextMessage(interest.phone, input.message);
+          // HTTP fora da tx. sendTextWithFallback respeita a janela de 24h do
+          // WhatsApp Cloud: DENTRO da janela envia o texto livre digitado; FORA
+          // (caso do lead, que quase nunca falou com a loja) cai no template
+          // aprovado `padrao` via contexto `lead_contato` — [nome, assunto], onde
+          // o assunto é o modelo desejado do lead (ou "seu interesse").
+          const assunto = interest.desiredModel?.trim() || "seu interesse";
+          const result = await sendTextWithFallback({
+            phone: interest.phone,
+            freeText: input.message,
+            contexto: "lead_contato",
+            params: [interest.customerName, assunto],
+            log: { tenantId: ctx.tenantId, originType: "interest", originId: interest.id },
+          });
 
           // tx2-per-interest: aplica resultado + (se sucesso) interaction + status.
           await ctx.withTenant(async (tx) => {
@@ -367,13 +378,14 @@ export const interestRouter = createTRPCRouter({
             });
 
             if (result.success) {
+              const viaLabel = result.via === "template" ? `template ${result.templateUsed ?? "padrao"}` : "texto";
               await tx.interestInteraction.create({
                 data: {
                   tenantId: ctx.tenantId,
                   interestId: interest.id,
                   userId: ctx.session.user.id,
                   type: "WHATSAPP",
-                  description: `Mensagem enviada em lote: ${input.message.substring(0, 100)}`,
+                  description: `Mensagem enviada em lote (${viaLabel}): ${input.message.substring(0, 100)}`,
                 },
               });
 
