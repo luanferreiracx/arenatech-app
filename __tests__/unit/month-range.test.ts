@@ -1,36 +1,42 @@
 import { describe, it, expect } from "vitest";
 import { monthRange } from "@/lib/commission/month-range";
 
-describe("monthRange", () => {
-  it("starts at midnight of the 1st", () => {
-    const { start } = monthRange(2026, 6);
-    expect(start.getFullYear()).toBe(2026);
-    expect(start.getMonth()).toBe(5); // junho (0-indexed)
-    expect(start.getDate()).toBe(1);
-    expect(start.getHours()).toBe(0);
-    expect(start.getMinutes()).toBe(0);
+/**
+ * J3 (auditoria comissão 2026-07-11): a fronteira do mês de apuração é ancorada
+ * em BRT (-03:00), NÃO no fuso do processo. Como o container de prod roda UTC,
+ * o cálculo antigo (`new Date(year, month-1, 1)`) deslocava o corte em 3h e
+ * vazava vendas de fim-de-mês BRT para o mês seguinte. Os instantes UTC abaixo
+ * são absolutos (independem do TZ de quem roda o teste) — é isso que prova o fix.
+ */
+describe("monthRange — fronteira ancorada em BRT (J3)", () => {
+  it("julho/2026 começa em 01/jul 00:00 BRT = 03:00 UTC", () => {
+    expect(monthRange(2026, 7).start.toISOString()).toBe("2026-07-01T03:00:00.000Z");
   });
 
-  it("ends inclusively at 23:59:59.999 of the last day (BUG-3)", () => {
-    const { end } = monthRange(2026, 6); // junho tem 30 dias
-    expect(end.getMonth()).toBe(5);
-    expect(end.getDate()).toBe(30);
-    expect(end.getHours()).toBe(23);
-    expect(end.getMinutes()).toBe(59);
-    expect(end.getSeconds()).toBe(59);
-    expect(end.getMilliseconds()).toBe(999);
+  it("julho/2026 termina em 31/jul 23:59:59.999 BRT = 01/ago 02:59:59.999 UTC", () => {
+    expect(monthRange(2026, 7).end.toISOString()).toBe("2026-08-01T02:59:59.999Z");
   });
 
-  it("a fact at 14:30 on the last day falls within the range", () => {
-    const { start, end } = monthRange(2026, 6);
-    const lastDayAfternoon = new Date(2026, 5, 30, 14, 30, 0, 0);
-    expect(lastDayAfternoon >= start && lastDayAfternoon <= end).toBe(true);
+  it("fevereiro respeita o último dia (28 em ano comum)", () => {
+    expect(monthRange(2026, 2).end.toISOString()).toBe("2026-03-01T02:59:59.999Z");
   });
 
-  it("handles February and December boundaries", () => {
-    expect(monthRange(2026, 2).end.getDate()).toBe(28); // 2026 nao e bissexto
-    const dec = monthRange(2026, 12);
-    expect(dec.end.getMonth()).toBe(11);
-    expect(dec.end.getDate()).toBe(31);
+  it("fevereiro em ano bissexto vai até dia 29", () => {
+    expect(monthRange(2028, 2).end.toISOString()).toBe("2028-03-01T02:59:59.999Z");
+  });
+
+  it("dezembro fecha no fim do ano (vira p/ jan do ano seguinte em UTC)", () => {
+    expect(monthRange(2026, 12).end.toISOString()).toBe("2027-01-01T02:59:59.999Z");
+  });
+
+  it("venda de 31/jul 22:00 BRT cai DENTRO de julho (não vaza p/ agosto)", () => {
+    const { start, end } = monthRange(2026, 7);
+    const venda = new Date("2026-07-31T22:00:00.000-03:00"); // = 2026-08-01T01:00Z
+    expect(venda >= start && venda <= end).toBe(true);
+  });
+
+  it("venda de 30/jun 23:00 BRT NÃO entra em julho", () => {
+    const venda = new Date("2026-06-30T23:00:00.000-03:00"); // = 2026-07-01T02:00Z
+    expect(venda < monthRange(2026, 7).start).toBe(true);
   });
 });
