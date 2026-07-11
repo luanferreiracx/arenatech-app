@@ -502,14 +502,22 @@ export const receivingRouter = createTRPCRouter({
      * Concilia (settle) um ou mais recebíveis PENDING contra o extrato da
      * adquirente. Para cada item, grava o líquido REAL recebido e a diferença
      * vs. o esperado (settledNet − netAmount). Idempotente: só toca PENDING.
-     * Operador concilia (tenantProcedure); audit registra a ação.
+     * A1 (auditoria comissão 2026-07-11, decisão do dono): conciliar grava o
+     * líquido REAL recebido + a divergência (dado financeiro); simetria com o
+     * unsettle, que já é admin. Antes era tenantProcedure (operador).
      */
-    settle: tenantProcedure
+    settle: tenantAdminProcedure
       .input(settleCardReceivablesSchema)
       .mutation(async ({ ctx, input }) => {
         return ctx.withTenant(async (tx) => {
           const settledAt = input.settledDate ? new Date(input.settledDate) : new Date();
           const ids = input.items.map((i) => i.id);
+
+          // A5: se o operador informou uma conta de liquidação, valida ownership
+          // (as demais escritas de accountId no arquivo já usam assertOwned).
+          if (input.accountId) {
+            await assertOwned(tx, "receivingAccount", input.accountId, ctx.tenantId);
+          }
 
           // Carrega só os PENDING do tenant entre os ids pedidos (defesa em
           // profundidade além do RLS; ignora os que já não estão PENDING).
@@ -532,8 +540,14 @@ export const receivingRouter = createTRPCRouter({
               expectedNetCents,
               item.settledNetCents,
             );
-            await tx.cardReceivable.update({
-              where: { id: item.id },
+            // R1/R2 (auditoria comissão 2026-07-11): CAS no status. Sem a guarda
+            // `status: "PENDING"` no update, dois settles concorrentes (ou settle
+            // × estorno) passavam ambos o findMany e o segundo update por id
+            // SOBRESCREVIA a conciliação do primeiro (last-writer-wins) e o audit
+            // contava 2 liquidações para 1 recebível. Agora só conta se count===1;
+            // se o estorno já cancelou (ou outro já liquidou), pula.
+            const settled = await tx.cardReceivable.updateMany({
+              where: { id: item.id, tenantId: ctx.tenantId, status: "PENDING" },
               data: {
                 status: "SETTLED",
                 settledAt,
@@ -544,6 +558,7 @@ export const receivingRouter = createTRPCRouter({
                 settlementNote: input.note ?? null,
               },
             });
+            if (settled.count !== 1) continue; // já liquidado/cancelado em paralelo
             settledCount++;
             totalNetCents += item.settledNetCents;
             totalDifferenceCents += differenceCents;
