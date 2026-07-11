@@ -84,7 +84,15 @@ export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 export const createWithdrawSchema = z.object({
   pixKeyType: z.enum(VALID_PIX_KEY_TYPES),
   pixKey: z.string().min(1).max(255),
-  recipientName: z.string().max(200).optional().nullable(),
+  // Nome do destinatario e OBRIGATORIO: a Eulen nem sempre retorna o
+  // `receiverName` (confirmado em prod — ~1/3 dos saques vinham sem nome),
+  // entao exigimos que o operador informe. Se a Eulen DEVOLVER o nome oficial
+  // depois, ele prevalece (checkTransactionStatus / webhook sobrescrevem).
+  recipientName: z
+    .string()
+    .trim()
+    .min(2, "Informe o nome do destinatario")
+    .max(200),
   // Validacao mod-11 (DV de CPF/CNPJ) — rejeita 11111... e digitos errados.
   // Mais rigorosa que so checar comprimento.
   recipientTaxId: z

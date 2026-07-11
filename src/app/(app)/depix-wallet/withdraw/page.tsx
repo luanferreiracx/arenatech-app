@@ -120,7 +120,10 @@ export default function DepixWithdrawPage() {
   // ─── Validacoes do passo 1 ───
   const pixKeyValid = isPixKeyValid(pixKeyType, pixKey);
   const taxIdValid = isValidTaxId(recipientTaxId);
-  const canAdvanceStep1 = pixKeyValid && taxIdValid;
+  // Nome e obrigatorio: a Eulen nem sempre retorna o nome oficial, entao o
+  // operador precisa informa-lo. Se a Eulen devolver, ele prevalece depois.
+  const recipientNameValid = recipientName.trim().length >= 2;
+  const canAdvanceStep1 = pixKeyValid && taxIdValid && recipientNameValid;
 
   // ─── Validacoes do passo 2 ───
   const balance = overviewQuery.data?.balance.depix ?? 0;
@@ -167,7 +170,7 @@ export default function DepixWithdrawPage() {
     createMutation.mutate({
       pixKeyType,
       pixKey,
-      recipientName: recipientName.trim() || null,
+      recipientName: recipientName.trim(),
       recipientTaxId,
       netAmountCents: netAmount,
       idempotencyKey,
@@ -323,10 +326,29 @@ export default function DepixWithdrawPage() {
                 )}
               </div>
 
+              <div>
+                <Label htmlFor="recipientName">Nome do destinatario *</Label>
+                <Input
+                  id="recipientName"
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  placeholder="Nome do titular da chave"
+                  className={cn(
+                    recipientName.length > 0 && !recipientNameValid && "border-destructive",
+                  )}
+                  autoComplete="off"
+                  maxLength={200}
+                />
+                {recipientName.length > 0 && !recipientNameValid && (
+                  <p className="text-xs text-destructive mt-1.5">
+                    Informe ao menos 2 caracteres.
+                  </p>
+                )}
+              </div>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              O nome do destinatário é preenchido automaticamente pela rede (titular da
-              chave PIX) e aparece no comprovante após o processamento.
+              Informe o nome do titular da chave. Se a rede validar um nome oficial
+              durante o processamento, ele prevalece e aparece no comprovante.
             </p>
           </Card>
 

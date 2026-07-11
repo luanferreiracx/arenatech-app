@@ -113,7 +113,7 @@ export const depixTransactionRouter = createTRPCRouter({
           userName: ctx.session.user.name ?? null,
           pixKeyType: input.pixKeyType,
           pixKey: input.pixKey,
-          recipientName: input.recipientName ?? null,
+          recipientName: input.recipientName,
           recipientTaxId: input.recipientTaxId,
           netAmountCents: input.netAmountCents,
           idempotencyKey: input.idempotencyKey,

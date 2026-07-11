@@ -23,7 +23,9 @@ export interface EulenWithdrawPayload {
 
 /**
  * Nome oficial do destinatario vindo da Eulen (`receiverName`), pronto pra
- * mesclar no `data:`. Retorna `{}` se ausente — nunca sobrescreve com null.
+ * mesclar no `data:`. Quando presente, PREVALECE sobre o nome digitado pelo
+ * operador (fonte autoritativa). Retorna `{}` se ausente — nunca apaga o nome
+ * ja gravado com null/vazio.
  */
 function receiverNamePatch(payload: EulenWithdrawPayload): { recipientName?: string } {
   const name = typeof payload.receiverName === "string" ? payload.receiverName.trim() : "";

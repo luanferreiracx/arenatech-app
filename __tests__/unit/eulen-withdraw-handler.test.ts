@@ -69,11 +69,22 @@ describe("handleEulenWithdrawWebhook", () => {
     expect(data.data.recipientName).toBe("Ana Lima"); // trim
   });
 
-  it("sem receiverName -> NAO escreve recipientName (nao sobrescreve)", async () => {
+  it("sem receiverName -> NAO escreve recipientName (nao apaga o nome digitado)", async () => {
     findFirst.mockResolvedValue({ id: "tx-n", status: "PROCESSING", tenantId: TENANT });
     await handleEulenWithdrawWebhook({ webhookType: "withdraw", id: "w_n", status: "sent" }, null);
     const data = update.mock.calls[0]![0] as { data: Record<string, unknown> };
     expect("recipientName" in data.data).toBe(false);
+  });
+
+  it("receiverName da Eulen PREVALECE sobre o nome digitado pelo operador", async () => {
+    // tx ja tem um nome (o operador digitou); a Eulen valida outro oficial.
+    findFirst.mockResolvedValue({ id: "tx-p", status: "PROCESSING", tenantId: TENANT });
+    await handleEulenWithdrawWebhook(
+      { webhookType: "withdraw", id: "w_p", status: "sent", receiverName: "JOAO DA SILVA OFICIAL" },
+      null,
+    );
+    const data = update.mock.calls[0]![0] as { data: { recipientName?: string } };
+    expect(data.data.recipientName).toBe("JOAO DA SILVA OFICIAL");
   });
 
   it("status sending -> PROCESSING (nao terminal)", async () => {
