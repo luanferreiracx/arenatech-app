@@ -8,6 +8,7 @@ import {
   ArrowUpFromLine,
   ArrowDownToLine,
   Clock,
+  Receipt,
 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -33,6 +34,13 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyInput } from "@/components/inputs/money-input";
 import {
@@ -72,6 +80,7 @@ export function CashierDashboard() {
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showWithdrawalDialog, setShowWithdrawalDialog] = useState(false);
   const [showDepositDialog, setShowDepositDialog] = useState(false);
+  const [showExpenseDialog, setShowExpenseDialog] = useState(false);
 
   // Form state
   const [openingBalance, setOpeningBalance] = useState(0);
@@ -80,6 +89,9 @@ export function CashierDashboard() {
   const [withdrawalDescription, setWithdrawalDescription] = useState("");
   const [depositAmount, setDepositAmount] = useState(0);
   const [depositDescription, setDepositDescription] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState(0);
+  const [expenseMethod, setExpenseMethod] = useState("dinheiro");
+  const [expenseDescription, setExpenseDescription] = useState("");
 
   const currentQuery = useQuery(trpc.cashier.current.queryOptions());
 
@@ -120,6 +132,22 @@ export function CashierDashboard() {
         setShowDepositDialog(false);
         setDepositAmount(0);
         setDepositDescription("");
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+      },
+      onError: (error) => {
+        toast.error(error.message);
+      },
+    }),
+  );
+
+  const expenseMutation = useMutation(
+    trpc.cashier.expense.mutationOptions({
+      onSuccess: () => {
+        toast.success("Despesa registrada com sucesso!");
+        setShowExpenseDialog(false);
+        setExpenseAmount(0);
+        setExpenseMethod("dinheiro");
+        setExpenseDescription("");
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
       },
       onError: (error) => {
@@ -305,6 +333,14 @@ export function CashierDashboard() {
           Sangria
         </Button>
         <Button
+          variant="outline"
+          className="text-red-600 border-red-600 hover:bg-red-50"
+          onClick={() => setShowExpenseDialog(true)}
+        >
+          <Receipt className="mr-2 h-4 w-4" />
+          Despesa
+        </Button>
+        <Button
           variant="destructive"
           onClick={() => router.push("/cashier/close")}
         >
@@ -417,6 +453,63 @@ export function CashierDashboard() {
           });
         }}
       />
+
+      {/* Despesa avulsa (sai da gaveta se em dinheiro) */}
+      <Dialog open={showExpenseDialog} onOpenChange={setShowExpenseDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar Despesa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Despesa avulsa paga pelo caixa (ex.: material de limpeza, lanche).
+              Em dinheiro, sai da gaveta e não pode exceder o saldo disponível.
+            </p>
+            <p className="text-sm font-medium">
+              Saldo disponível em dinheiro:{" "}
+              <span className="font-mono">{formatCents(summary.expectedCashBalance)}</span>
+            </p>
+            <div>
+              <Label>Valor *</Label>
+              <MoneyInput value={expenseAmount} onChange={setExpenseAmount} autoFocus />
+            </div>
+            <div>
+              <Label>Forma de pagamento *</Label>
+              <Select value={expenseMethod} onValueChange={setExpenseMethod}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dinheiro">Dinheiro (sai da gaveta)</SelectItem>
+                  <SelectItem value="cartao_credito">Cartão de crédito</SelectItem>
+                  <SelectItem value="cartao_debito">Cartão de débito</SelectItem>
+                  <SelectItem value="pix">PIX</SelectItem>
+                  <SelectItem value="outros">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Descrição *</Label>
+              <Input
+                value={expenseDescription}
+                onChange={(e) => setExpenseDescription(e.target.value)}
+                placeholder="Ex: Material de limpeza"
+                maxLength={500}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExpenseDialog(false)} disabled={expenseMutation.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => expenseMutation.mutate({ amount: expenseAmount, paymentMethod: expenseMethod, description: expenseDescription.trim() })}
+              disabled={expenseMutation.isPending || expenseAmount <= 0 || expenseDescription.trim().length < 3}
+            >
+              {expenseMutation.isPending ? "Registrando..." : "Registrar Despesa"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
