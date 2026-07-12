@@ -28,11 +28,12 @@ interface AppSidebarProps {
   multiTenant: boolean;
   tenantName?: string;
   tenantSlug?: string;
+  tenantLogoUrl?: string | null;
   allowedModules?: string[];
   isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, allowedModules, isSuperAdmin }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -58,8 +59,8 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, allo
             isCollapsed ? "justify-center" : "justify-between"
           )}
         >
-          {!isCollapsed && <Logo size="sm" variant="full" />}
-          {isCollapsed && <Logo size="sm" variant="icon" />}
+          {!isCollapsed && <Logo size="sm" variant="full" tenantLogoUrl={tenantLogoUrl} />}
+          {isCollapsed && <Logo size="sm" variant="icon" tenantLogoUrl={tenantLogoUrl} />}
           <button
             onClick={toggle}
             className={cn(
