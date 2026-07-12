@@ -27,22 +27,25 @@ const sizeMap: Record<LogoSize, { height: number; textSize: string; iconSize: nu
 export function Logo({ size = "md", variant = "full", className, tenantLogoUrl }: LogoProps) {
   const { height, textSize, iconSize } = sizeMap[size];
 
-  // Logo do tenant: exibe a imagem enviada, contida na altura do slot. `full`
-  // ocupa mais largura (cabeçalho aberto); `icon` fica quadrada (colapsado).
+  // Logo do tenant: exibe a imagem enviada, contida no slot. O cabeçalho da
+  // sidebar tem h-14 (56px), então o logo ocupa boa parte dessa altura (não os
+  // 24px do texto placeholder, que deixavam a imagem minúscula). `full` = mais
+  // largura (aberto); `icon` = quadrado menor (colapsado). Framing por token
+  // (classes Tailwind), sem style inline.
   if (tenantLogoUrl) {
-    const boxHeight = variant === "icon" ? iconSize : height;
-    const maxWidth = variant === "icon" ? iconSize : Math.round(height * 4.5);
+    // sm/md/lg → altura do box do logo-imagem (maior que o texto placeholder).
+    const box =
+      variant === "icon"
+        ? { sm: "h-8 w-8", md: "h-9 w-9", lg: "h-12 w-12" }[size]
+        : { sm: "h-9 w-36", md: "h-10 w-44", lg: "h-14 w-56" }[size];
     return (
-      <div
-        className={cn("relative shrink-0", className)}
-        style={{ height: boxHeight, width: maxWidth }}
-      >
+      <div className={cn("relative shrink-0", box, className)}>
         <Image
           src={tenantLogoUrl}
           alt="Logo"
           fill
-          sizes={`${maxWidth}px`}
-          className="object-contain object-left"
+          sizes="224px"
+          className={cn("object-contain", variant === "icon" ? "object-center" : "object-left")}
           unoptimized
         />
       </div>
