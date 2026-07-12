@@ -733,6 +733,15 @@ export const settingsRouter = createTRPCRouter({
         });
       }
 
+      // Assinatura (billing): fonte da verdade do valor/vencimento. A UI de
+      // pagamento (ADR 0058) usa subscriptionId + amountCents + currentPeriodEnd.
+      const subscription = await withAdmin((adminTx) =>
+        adminTx.subscription.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { id: true, status: true, amountCents: true, currentPeriodEnd: true, billingCycle: true },
+        }),
+      );
+
       return {
         tenantName: tenant.name,
         status: tenant.status,
@@ -740,9 +749,67 @@ export const settingsRouter = createTRPCRouter({
         planPrice: plan ? Math.round(Number(plan.monthlyPrice) * 100) : 0,
         maxUsers: plan?.maxUsers ?? 5,
         maxImeiQueries: plan?.maxImeiQueries ?? 0,
+        subscription: subscription
+          ? {
+              id: subscription.id,
+              status: subscription.status,
+              amountCents: subscription.amountCents,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              billingCycle: subscription.billingCycle,
+            }
+          : null,
       };
     });
   }),
+
+  /**
+   * Gera (ou reaproveita) o QR DePix para o tenant pagar a própria assinatura
+   * (ADR 0058). O pagamento cai na conta central da Arena; o webhook renova a
+   * assinatura sozinho ao confirmar. Só o admin do tenant paga.
+   */
+  paySubscription: tenantAdminProcedure
+    .input(z.object({ payerTaxId: z.string().min(11).max(18) }))
+    .mutation(async ({ ctx, input }) => {
+      const subscription = await withAdmin((tx) =>
+        tx.subscription.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { id: true },
+        }),
+      );
+      if (!subscription) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Tenant sem assinatura para pagar." });
+      }
+      const { createSubscriptionCharge } = await import(
+        "@/server/services/subscription-billing.service"
+      );
+      return createSubscriptionCharge({
+        subscriptionId: subscription.id,
+        userId: ctx.session.user.id,
+        userName: ctx.session.user.name ?? null,
+        payerTaxId: input.payerTaxId.replace(/\D/g, ""),
+      });
+    }),
+
+  /** Status ao vivo do QR de cobrança (polling): PENDING/PROCESSING/COMPLETED/... */
+  subscriptionChargeStatus: tenantAdminProcedure
+    .input(z.object({ transactionId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const row = await withAdmin((tx) =>
+        tx.tenantDepixTransaction.findUnique({
+          where: { id: input.transactionId },
+          select: { status: true, sourceType: true, expiresAt: true },
+        }),
+      );
+      if (!row || row.sourceType !== "SUBSCRIPTION") {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+      // "pago" = qualquer estado a partir de PROCESSING (PIX confirmado). A
+      // renovação em si é aplicada pelo webhook; a UI reflete o status do depósito.
+      const paid = ["PROCESSING", "PROCESSING_FEE", "COMPLETED", "COMPLETED_FEE_PENDING"].includes(
+        row.status,
+      );
+      return { status: row.status, paid, expiresAt: row.expiresAt };
+    }),
 
   // ═══════════════════════════════════════
   // TEAM (list all users + roles)
