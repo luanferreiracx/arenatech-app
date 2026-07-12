@@ -31,18 +31,18 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
       {/* Mobile: abre bottom sheet com ordenação e categorias */}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger
-          className="font-body inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-white/25 lg:hidden"
+          className="font-body inline-flex items-center gap-2 rounded-full border border-white/12 bg-[var(--cat-bg)] px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-[var(--cat-line-strong)] lg:hidden"
         >
           <SlidersHorizontal className="size-4" />
           Filtrar e ordenar
         </SheetTrigger>
-        <SheetContent side="bottom" className="catalog-scope dark rounded-t-3xl border-white/10 bg-[var(--ink-raised)] text-zinc-100">
+        <SheetContent side="bottom" className="catalog-scope dark rounded-t-3xl border-[var(--cat-line)] bg-[var(--cat-surface-sunken)] text-[var(--cat-ink)]">
           <SheetHeader>
-            <SheetTitle className="font-display text-lg text-white">Filtrar e ordenar</SheetTitle>
+            <SheetTitle className="font-display text-lg text-[var(--cat-ink)]">Filtrar e ordenar</SheetTitle>
           </SheetHeader>
 
           <div className="max-h-[70vh] overflow-y-auto px-4 pb-8">
-            <p className="mb-2 mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Ordenar por</p>
+            <p className="mb-2 mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--cat-ink-faint)]">Ordenar por</p>
             <div className="grid grid-cols-2 gap-2">
               {SORT_OPTIONS.map((option) => (
                 <SheetClose key={option.value} asChild>
@@ -50,8 +50,8 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
                     href={buildCatalogHref({ search, categoryId: activeCategoryId, sort: option.value })}
                     className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-sm transition ${
                       sort === option.value
-                        ? "border-[var(--gold)]/60 bg-[var(--gold)]/12 text-[var(--gold-soft)]"
-                        : "border-white/10 text-zinc-300"
+                        ? "border-[var(--cat-accent)]/60 bg-[var(--cat-accent)]/12 text-[var(--cat-accent-hover)]"
+                        : "border-[var(--cat-line)] text-zinc-300"
                     }`}
                   >
                     {option.label}
@@ -61,7 +61,7 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
               ))}
             </div>
 
-            <p className="mb-2 mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Categorias</p>
+            <p className="mb-2 mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--cat-ink-faint)]">Categorias</p>
             <div className="grid grid-cols-2 gap-2">
               <SheetClose asChild>
                 <CategoryRow href={buildCatalogHref({ search, sort })} active={!activeCategoryId} label="Todos" />
@@ -82,7 +82,7 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
               <SheetClose asChild>
                 <Link
                   href="/catalog"
-                  className="mt-6 flex w-full items-center justify-center rounded-2xl border border-white/10 py-3 text-sm font-medium text-zinc-400 transition hover:text-white"
+                  className="mt-6 flex w-full items-center justify-center rounded-2xl border border-[var(--cat-line)] py-3 text-sm font-medium text-[var(--cat-ink-soft)] transition hover:text-[var(--cat-ink)]"
                 >
                   Limpar filtros
                 </Link>
@@ -94,15 +94,15 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
 
       {/* Desktop: ordenação inline */}
       <div className="hidden items-center gap-2 lg:flex">
-        <span className="mr-1 text-sm text-zinc-500">Ordenar:</span>
+        <span className="mr-1 text-sm text-[var(--cat-ink-faint)]">Ordenar:</span>
         {SORT_OPTIONS.map((option) => (
           <Link
             key={option.value}
             href={buildCatalogHref({ search, categoryId: activeCategoryId, sort: option.value })}
             className={`rounded-full border px-3.5 py-1.5 text-sm transition ${
               sort === option.value
-                ? "border-[var(--gold)]/60 bg-[var(--gold)]/12 text-[var(--gold-soft)]"
-                : "border-white/10 text-zinc-400 hover:border-white/25 hover:text-white"
+                ? "border-[var(--cat-accent)]/60 bg-[var(--cat-accent)]/12 text-[var(--cat-accent-hover)]"
+                : "border-[var(--cat-line)] text-[var(--cat-ink-soft)] hover:border-[var(--cat-line-strong)] hover:text-[var(--cat-ink)]"
             }`}
           >
             {option.label}
@@ -112,7 +112,7 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
 
       {/* Resumo da ordenação no mobile + limpar */}
       <div className="flex items-center gap-3 lg:hidden">
-        <span className="font-body inline-flex items-center gap-1.5 text-xs text-zinc-500">
+        <span className="font-body inline-flex items-center gap-1.5 text-xs text-[var(--cat-ink-faint)]">
           <ArrowUpDown className="size-3.5" />
           {activeSort.label}
         </span>
@@ -121,7 +121,7 @@ export function CatalogToolbar({ search, categories, activeCategoryId, sort }: C
       {hasFilters && (
         <Link
           href="/catalog"
-          className="hidden text-sm text-zinc-500 transition hover:text-white lg:inline"
+          className="hidden text-sm text-[var(--cat-ink-faint)] transition hover:text-[var(--cat-ink)] lg:inline"
         >
           Limpar
         </Link>
@@ -135,11 +135,11 @@ function CategoryRow({ href, active, label, count }: { href: string; active: boo
     <Link
       href={href}
       className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-sm transition ${
-        active ? "border-[var(--gold)]/60 bg-[var(--gold)]/12 text-[var(--gold-soft)]" : "border-white/10 text-zinc-300"
+        active ? "border-[var(--cat-accent)]/60 bg-[var(--cat-accent)]/12 text-[var(--cat-accent-hover)]" : "border-[var(--cat-line)] text-zinc-300"
       }`}
     >
       <span className="truncate">{label}</span>
-      {count !== undefined && <span className="font-numeric ml-2 text-xs text-zinc-500">{count}</span>}
+      {count !== undefined && <span className="font-numeric ml-2 text-xs text-[var(--cat-ink-faint)]">{count}</span>}
     </Link>
   );
 }

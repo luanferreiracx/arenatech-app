@@ -31,8 +31,10 @@ export const metadata: Metadata = {
 };
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
+  // Tema claro do catálogo — sem a classe `dark` da intranet. Escopado em
+  // .catalog-scope para não vazar para o app.
   return (
-    <div className={`catalog-scope dark ${display.variable} ${body.variable} ${mono.variable}`}>
+    <div className={`catalog-scope ${display.variable} ${body.variable} ${mono.variable}`}>
       {children}
     </div>
   );

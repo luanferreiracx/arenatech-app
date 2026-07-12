@@ -35,7 +35,7 @@ export function ProductGallery({ images, productName, fallbackUrl }: ProductGall
         <div
           ref={scrollerRef}
           onScroll={handleScroll}
-          className="snap-x-gallery flex overflow-x-auto rounded-[1.75rem] border border-white/10 bg-[var(--ink)]"
+          className="snap-x-gallery flex overflow-x-auto rounded-[1.75rem] border border-[var(--cat-line)] bg-[var(--cat-surface-sunken)]"
         >
           {slides.map((image) => (
             <div key={image.id} className="aspect-square w-full shrink-0 basis-full">
@@ -43,7 +43,7 @@ export function ProductGallery({ images, productName, fallbackUrl }: ProductGall
               <img
                 src={image.mediumUrl ?? image.url}
                 alt={productName}
-                className="size-full object-cover"
+                className="size-full object-contain p-6"
               />
             </div>
           ))}
@@ -55,7 +55,7 @@ export function ProductGallery({ images, productName, fallbackUrl }: ProductGall
               <span
                 key={image.id}
                 className={`h-1.5 rounded-full transition-all ${
-                  index === active ? "w-5 bg-[var(--gold)]" : "w-1.5 bg-white/40"
+                  index === active ? "w-5 bg-[var(--cat-accent)]" : "w-1.5 bg-[var(--cat-line-strong)]"
                 }`}
               />
             ))}
@@ -73,14 +73,14 @@ export function ProductGallery({ images, productName, fallbackUrl }: ProductGall
               aria-label={`Ver imagem ${index + 1}`}
               aria-current={index === active}
               className={`size-16 shrink-0 overflow-hidden rounded-xl border transition ${
-                index === active ? "border-[var(--gold)]" : "border-white/10 opacity-60 hover:opacity-100"
+                index === active ? "border-[var(--cat-accent)]" : "border-[var(--cat-line)] opacity-60 hover:opacity-100"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={image.thumbUrl ?? image.mediumUrl ?? image.url}
                 alt=""
-                className="size-full object-cover"
+                className="size-full object-contain p-1.5"
               />
             </button>
           ))}
