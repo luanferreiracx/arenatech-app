@@ -158,24 +158,57 @@ async function resolveModulesByTenant(
       const activeTenants = dbTenants.filter(
         (t) => !("status" in t) || t.status === ACTIVE_TENANT_STATUS,
       );
-      const planIds = Array.from(
-        new Set(activeTenants.map((t) => t.plan).filter((p): p is string => Boolean(p))),
+
+      // Fonte canônica do plano: a Subscription não-cancelada (ACTIVE ou PAST_DUE
+      // — em carência ainda concede acesso). O corte de fato (SUSPENDED/CANCELLED)
+      // já ocorre no login via Tenant.status. `Tenant.plan` (sombra) é só fallback
+      // para o legado ainda sem Subscription durante a transição.
+      const subscriptions = activeTenants.length
+        ? await tx.subscription.findMany({
+            where: {
+              tenantId: { in: activeTenants.map((t) => t.id) },
+              status: { in: ["ACTIVE", "PAST_DUE"] },
+            },
+            select: { tenantId: true, plan: { select: { features: true } } },
+          })
+        : [];
+      const subFeaturesByTenantId = new Map(
+        subscriptions.map((s) => [s.tenantId, s.plan.features]),
       );
-      const plans = planIds.length
+
+      // Fallback: só busca Plan por `Tenant.plan` para tenants sem Subscription.
+      const fallbackPlanIds = Array.from(
+        new Set(
+          activeTenants
+            .filter((t) => !subFeaturesByTenantId.has(t.id) && t.plan)
+            .map((t) => t.plan)
+            .filter((p): p is string => Boolean(p)),
+        ),
+      );
+      const fallbackPlans = fallbackPlanIds.length
         ? await tx.plan.findMany({
-            where: { id: { in: planIds } },
+            where: { id: { in: fallbackPlanIds } },
             select: { id: true, features: true },
           })
         : [];
-      const featuresByPlanId = new Map(plans.map((p) => [p.id, p.features]));
-      return { dbTenants: activeTenants, featuresByPlanId };
+      const fallbackFeaturesByPlanId = new Map(fallbackPlans.map((p) => [p.id, p.features]));
+      return { dbTenants: activeTenants, subFeaturesByTenantId, fallbackFeaturesByPlanId };
     });
 
     for (const t of data.dbTenants) {
+      // Plano canônico via Subscription; fallback ao Tenant.plan (sombra) só para
+      // legado ainda sem Subscription. `hasPlan` reflete a fonte efetiva.
+      const hasSubscription = data.subFeaturesByTenantId.has(t.id);
+      const planFeatures = hasSubscription
+        ? data.subFeaturesByTenantId.get(t.id) ?? null
+        : t.plan
+          ? data.fallbackFeaturesByPlanId.get(t.plan) ?? null
+          : null;
+
       const modules = allowedModulesForTenant({
         tenantSlug: t.slug,
-        hasPlan: Boolean(t.plan),
-        planFeatures: t.plan ? data.featuresByPlanId.get(t.plan) : null,
+        hasPlan: hasSubscription || Boolean(t.plan),
+        planFeatures,
         // Tipo inferido pela presença de documento (ADR 0050): sem CNPJ = NO-KYC.
         isNoKyc: !t.cnpj,
         // Override por-tenant da API externa (ADR 0057).

@@ -5,6 +5,7 @@ import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { withAdmin } from "@/server/db";
 import { queryImeiSchema, listImeiQueriesSchema, validateNfeSchema } from "@/lib/validators/imei";
 import { queryDevice } from "@/lib/services/imei-service";
+import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 import { validateNfe } from "@/lib/services/nfe-danfe-service";
 import { logger } from "@/lib/logger";
 
@@ -25,19 +26,9 @@ export const imeiRouter = createTRPCRouter({
       const periodYear = now.getFullYear();
 
       // Limite do plano (tabela global → withAdmin). Fallback: default do modelo (50).
-      const tenant = await withAdmin((adminTx) =>
-        adminTx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { plan: true } }),
-      );
-      let planMax = 0;
-      if (tenant?.plan) {
-        const plan = await withAdmin((adminTx) =>
-          adminTx.plan.findFirst({
-            where: { OR: [{ id: tenant.plan! }, { slug: tenant.plan! }] },
-            select: { maxImeiQueries: true },
-          }),
-        );
-        planMax = plan?.maxImeiQueries ?? 0;
-      }
+      // Limite do plano efetivo (via Subscription, fallback Tenant.plan).
+      const plan = await withAdmin((adminTx) => resolveTenantPlan(adminTx, ctx.tenantId));
+      const planMax = plan?.maxImeiQueries ?? 0;
       const seedLimit = planMax > 0 ? planMax : 50;
 
       // Consome a cota do mês de forma ATÔMICA antes da chamada externa: garante a
