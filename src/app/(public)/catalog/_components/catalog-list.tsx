@@ -31,7 +31,8 @@ export function CatalogList({ catalog }: CatalogListProps) {
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      {/* Grid denso estilo marketplace: 2 (mobile) → 5 (xl). */}
+      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {catalog.products.map((product, index) => (
           <CatalogProductCard key={product.id} product={product} index={index} />
         ))}

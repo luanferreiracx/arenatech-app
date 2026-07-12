@@ -121,7 +121,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               href={whatsappHref}
               target="_blank"
               rel="noreferrer"
-              className="mt-5 hidden w-full items-center justify-center gap-2 rounded-full bg-[#25D366] py-3.5 text-base font-semibold text-[var(--cat-bg)] transition hover:bg-[#20bd5a] lg:flex"
+              className="mt-5 hidden w-full items-center justify-center gap-2 rounded-full bg-[var(--cat-wa)] py-3.5 text-base font-semibold text-[var(--cat-wa-ink)] transition hover:bg-[var(--cat-wa-hover)] lg:flex"
             >
               <MessageCircle className="size-5" />
               Falar no WhatsApp
@@ -168,7 +168,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             href={whatsappHref}
             target="_blank"
             rel="noreferrer"
-            className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[#25D366] py-3 text-base font-semibold text-[var(--cat-bg)] transition active:scale-[0.98]"
+            className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--cat-wa)] py-3 text-base font-semibold text-[var(--cat-wa-ink)] transition active:scale-[0.98]"
           >
             <MessageCircle className="size-5" />
             Falar no WhatsApp
