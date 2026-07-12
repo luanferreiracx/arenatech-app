@@ -77,6 +77,21 @@ export const appNavGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Ferramentas",
+    items: [
+      { label: "Simulador", href: "/simulator", icon: Calculator, module: "tools" },
+      { label: "Avaliar Aparelho", href: "/valuations", icon: Star, module: "tools" },
+      { label: "Consultas", href: "/imei", icon: Shield, module: "tools" },
+      { label: "Checklist", href: "/checklist", icon: CheckSquare, module: "tools" },
+      {
+        label: "Buscar iPhones",
+        href: "/iphone-hunter",
+        icon: Smartphone,
+        requiresTenantSlug: "arena-tech",
+      },
+    ],
+  },
+  {
     title: "Assistência",
     items: [
       { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList, module: "service-orders" },
@@ -132,21 +147,6 @@ export const appNavGroups: NavGroup[] = [
       // cobrança avulsa foi superada pelo Link de Pagamento (PaymentLink + /pay,
       // no módulo wallet). O router/rota seguem ativos (webhooks, histórico), mas
       // fora da navegação direta — decisão do dono.
-    ],
-  },
-  {
-    title: "Ferramentas",
-    items: [
-      { label: "Simulador", href: "/simulator", icon: Calculator, module: "tools" },
-      { label: "Avaliar Aparelho", href: "/valuations", icon: Star, module: "tools" },
-      { label: "Consultas", href: "/imei", icon: Shield, module: "tools" },
-      { label: "Checklist", href: "/checklist", icon: CheckSquare, module: "tools" },
-      {
-        label: "Buscar iPhones",
-        href: "/iphone-hunter",
-        icon: Smartphone,
-        requiresTenantSlug: "arena-tech",
-      },
     ],
   },
   {
