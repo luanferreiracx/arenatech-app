@@ -13,6 +13,11 @@ model Subscription {
   tenantId String @unique @map("tenant_id") @db.Uuid
   planId   String @map("plan_id") @db.Uuid
 
+  /// FK real para o plano (fonte da verdade do plano do tenant). `Restrict`:
+  /// o banco recusa apagar um plano em uso — defesa em profundidade além da
+  /// checagem em `deletePlan`. O gating resolve os módulos a partir daqui.
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
   status       SubscriptionStatus @default(ACTIVE)
   billingCycle BillingCycle       @default(MONTHLY) @map("billing_cycle")
 

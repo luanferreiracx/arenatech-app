@@ -431,21 +431,19 @@ export const adminRouter = createTRPCRouter({
       return ctx.withAdmin(async (tx) => {
         const currentTenant = await tx.tenant.findUnique({
           where: { id: input.id },
-          select: { plan: true },
+          select: { id: true },
         });
         if (!currentTenant) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // Ativação: o superadmin pode atribuir QUALQUER plano ativo, que define
-        // os módulos liberados do tenant (inclusive NO-KYC).
-        const planId = input.plan === currentTenant.plan
-          ? currentTenant.plan
-          : (await resolveActivePlanId(tx, input.plan))?.id ?? null;
+        // O PLANO NÃO é editável aqui: a fonte da verdade é a Subscription, alterada
+        // só por activateSubscription (que sincroniza Tenant.plan). updateTenant cuida
+        // apenas de identidade/config (nome, status, acesso à API). `input.plan` é
+        // aceito por compat mas ignorado.
         await tx.tenant.update({
           where: { id: input.id },
           data: {
             name: input.name,
             status: input.status,
-            plan: planId,
             ...(input.apiAccessEnabled !== undefined
               ? { apiAccessEnabled: input.apiAccessEnabled }
               : {}),
@@ -537,7 +535,9 @@ export const adminRouter = createTRPCRouter({
           },
         });
 
-        // O gating lê Tenant.plan/status: apontar pro plano e reativar o acesso.
+        // Fonte canônica do plano = a Subscription (acima). `Tenant.plan` é sombra
+        // mantida sincronizada durante a transição (fallback do gating). Reativa o
+        // acesso (status ACTIVE).
         await tx.tenant.update({
           where: { id: input.tenantId },
           data: { plan: input.planId, status: "ACTIVE" },
