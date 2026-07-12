@@ -17,6 +17,7 @@ import {
   isArenaTechLandingHost,
   isAppSubdomainHost,
   isKnownHost,
+  getCatalogSubdomainSlug,
   CANONICAL_APP_HOST,
 } from "@/lib/brand-host";
 import { isRouteAllowedForTenant } from "@/lib/modules";
@@ -122,6 +123,22 @@ export const proxy = auth((req) => {
     const trackingMatch = pathname.match(/^\/rastreamento\/(.+)$/);
     if (trackingMatch) {
       return NextResponse.redirect(selfUrl(`/os/${trackingMatch[1]}`), { status: 301 });
+    }
+  }
+
+  // 0a. Catálogo multi-tenant por SUBDOMÍNIO: `<slug>.pdvdepix.app` serve o
+  //     catálogo do tenant de mesmo slug. O slug vai num header interno
+  //     (`x-catalog-tenant-slug`) para o Server Component do catálogo resolver o
+  //     tenant certo — sem depender de env var (que era single-tenant). Vale
+  //     tanto para a raiz "/" quanto para deep links "/catalog/...".
+  {
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const catalogSlug = getCatalogSubdomainSlug(host);
+    if (catalogSlug && (pathname === "/" || pathname.startsWith("/catalog"))) {
+      const headers = new Headers(req.headers);
+      headers.set("x-catalog-tenant-slug", catalogSlug);
+      const target = pathname === "/" ? selfUrl("/catalog") : selfUrl(pathname + req.nextUrl.search);
+      return NextResponse.rewrite(target, { request: { headers } });
     }
   }
 

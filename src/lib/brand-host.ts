@@ -65,6 +65,39 @@ export function isAppSubdomainHost(host: string | null | undefined): boolean {
 }
 
 /**
+ * Domínios-base sob os quais um subdomínio representa o SLUG de um tenant e serve
+ * o catálogo público. Ex.: `arena-tech.pdvdepix.app` → slug `arena-tech`.
+ */
+const CATALOG_BASE_DOMAINS = ["pdvdepix.app", "depixpdv.app", "pdvcripto.app"];
+
+/**
+ * Subdomínios reservados que NÃO são slug de tenant (raiz/marketing/intranet).
+ */
+const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "admin", "mail", "smtp"]);
+
+/**
+ * Extrai o slug do tenant a partir de um subdomínio de catálogo, ou null.
+ * `arena-tech.pdvdepix.app` → "arena-tech". `www.pdvdepix.app` / `pdvdepix.app`
+ * → null (não é catálogo por-tenant). Valida o formato do slug (a-z0-9-) para
+ * não repassar lixo/host forjado ao banco.
+ */
+export function getCatalogSubdomainSlug(host: string | null | undefined): string | null {
+  const h = normalizeHost(host);
+  if (!h) return null;
+  for (const base of CATALOG_BASE_DOMAINS) {
+    const suffix = `.${base}`;
+    if (h.endsWith(suffix) && h.length > suffix.length) {
+      const sub = h.slice(0, -suffix.length);
+      // só um nível de subdomínio (sem pontos internos) e não reservado.
+      if (sub.includes(".") || RESERVED_SUBDOMAINS.has(sub)) return null;
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(sub)) return null;
+      return sub;
+    }
+  }
+  return null;
+}
+
+/**
  * Host canônico de fallback para montar redirects quando o Host da requisição
  * não é reconhecível (ex.: localhost em dev, ou `x-forwarded-host` forjado).
  */
