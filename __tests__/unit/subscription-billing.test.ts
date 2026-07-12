@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextPeriodEnd, snapshotAmountCents } from "@/lib/billing/subscription";
+import { nextPeriodEnd, snapshotAmountCents, graceCutoff, DEFAULT_GRACE_DAYS } from "@/lib/billing/subscription";
 
 describe("nextPeriodEnd", () => {
   const now = new Date("2026-07-05T12:00:00.000Z");
@@ -38,5 +38,29 @@ describe("snapshotAmountCents", () => {
 
   it("no anual sem yearlyPrice, cai para 12× o mensal", () => {
     expect(snapshotAmountCents({ cycle: "YEARLY", monthlyCents: 9900, yearlyCents: null })).toBe(118800);
+  });
+});
+
+describe("graceCutoff", () => {
+  const now = new Date("2026-07-10T12:00:00.000Z");
+
+  it("recua a carência em dias a partir de now", () => {
+    expect(graceCutoff(now, 5).toISOString()).toBe("2026-07-05T12:00:00.000Z");
+  });
+
+  it("carência 0 = corta no próprio vencimento (limite = now)", () => {
+    expect(graceCutoff(now, 0).toISOString()).toBe(now.toISOString());
+  });
+
+  it("uma assinatura vencida DENTRO da carência fica acima do limite (não suspende)", () => {
+    // Venceu em 07/jul, carência 5d → limite 05/jul. 07 > 05 → ainda na carência.
+    const vencimento = new Date("2026-07-07T12:00:00.000Z");
+    expect(vencimento > graceCutoff(now, DEFAULT_GRACE_DAYS)).toBe(true);
+  });
+
+  it("uma assinatura vencida ALÉM da carência fica abaixo do limite (suspende)", () => {
+    // Venceu em 01/jul, carência 5d → limite 05/jul. 01 < 05 → suspende.
+    const vencimento = new Date("2026-07-01T12:00:00.000Z");
+    expect(vencimento < graceCutoff(now, DEFAULT_GRACE_DAYS)).toBe(true);
   });
 });

@@ -21,6 +21,7 @@ on:
           - mark-overdue
           - close-abandoned-cash-sessions
           - expire-rewards
+          - expire-subscriptions
           - resolve-stale-conversations
           - process-pending-talison
           - release-stale-reservations
@@ -69,6 +70,18 @@ jobs:
       - name: Invoca cron expire-rewards
         run: |
           curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/expire-rewards" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 60 \
+            | tee /tmp/response.json
+
+  expire-subscriptions:
+    if: ${{ inputs.job == '' || inputs.job == 'expire-subscriptions' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoca cron expire-subscriptions
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/api/cron/expire-subscriptions" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             --max-time 60 \

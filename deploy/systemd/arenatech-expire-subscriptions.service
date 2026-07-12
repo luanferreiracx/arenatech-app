@@ -1,0 +1,9 @@
+[Unit]
+Description=Vencimento de assinaturas (PAST_DUE + suspensao pos-carencia)
+After=network.target
+
+[Service]
+Type=oneshot
+# Carrega CRON_SECRET (e SUBSCRIPTION_GRACE_DAYS, se definido) do env de producao.
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+ExecStart=/bin/bash -c 'curl -fsS -m 60 -X POST http://127.0.0.1:3001/api/cron/expire-subscriptions -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'

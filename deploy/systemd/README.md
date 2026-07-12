@@ -18,6 +18,7 @@ deploy**. Cada timer bate no endpoint do app (`127.0.0.1:3001`, `Bearer $CRON_SE
 | `arenatech-mark-overdue` | diário 03:00 BRT | marca OS vencidas |
 | `arenatech-close-abandoned-cash-sessions` | diário 03:00 BRT | fecha caixas abandonados |
 | `arenatech-expire-rewards` | diário 03:00 BRT | expira recompensas |
+| `arenatech-expire-subscriptions` | diário 04:00 BRT | vencimento de assinatura: ACTIVE→PAST_DUE, e SUSPENDED após a carência (`SUBSCRIPTION_GRACE_DAYS`, padrão 5) |
 
 > Os jobs **continuam no `.github/workflows/cron.yml`**, mas só como **break-glass
 > manual** (`workflow_dispatch`, em github-hosted) — nenhum roda mais no schedule.
