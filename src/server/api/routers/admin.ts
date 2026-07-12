@@ -1401,10 +1401,41 @@ export const adminRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withAdmin(async (tx) => {
+        const tenant = await tx.tenant.findUnique({
+          where: { id: input.id },
+          select: { id: true, status: true },
+        });
+        if (!tenant) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Soft-delete: CANCELLED corta o login (auth.ts filtra tenants ACTIVE; o
+        // usuário perde este tenant em até o TTL do cache de membership, ~30s).
         await tx.tenant.update({
           where: { id: input.id },
           data: { status: "CANCELLED" },
         });
+
+        // Cancela também a assinatura (billing acompanha o acesso; não fica
+        // "ativa" cobrando um tenant cancelado). Só se ainda não estava cancelada.
+        const subscription = await tx.subscription.findUnique({
+          where: { tenantId: input.id },
+          select: { id: true, status: true },
+        });
+        if (subscription && subscription.status !== "CANCELLED") {
+          await tx.subscription.update({
+            where: { tenantId: input.id },
+            data: { status: "CANCELLED", cancelReason: "Tenant cancelado" },
+          });
+        }
+
+        await logAudit(tx as never, {
+          tenantId: input.id,
+          userId: ctx.session.user.id,
+          action: "tenant.cancel",
+          entity: "tenant",
+          entityId: input.id,
+          payload: { hadSubscription: Boolean(subscription) },
+        });
+
         logger.info("Tenant deleted (soft)", { tenantId: input.id, byAdmin: ctx.session.user.id });
         return { success: true };
       });
