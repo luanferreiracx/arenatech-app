@@ -69,4 +69,36 @@ describe("expandSearchWords", () => {
   it("busca vazia => sem grupos", () => {
     expect(expandSearchWords("")).toEqual([]);
   });
+
+  // Regressao: sinonimo MULTI-PALAVRA. "carregador portatil" / "bateria externa"
+  // sao chaves do dicionario mas eram quebradas em tokens e nunca casavam power
+  // bank. A busca da loja (public-catalog) usa expandSearchWords para montar o WHERE.
+  describe("frases multi-palavra (regressao powerbank)", () => {
+    // Os termos exatos que o dono testou na loja.
+    const termos = ["powerbank", "bateria portatil", "carregador portatil"];
+    for (const termo of termos) {
+      it(`"${termo}" acha power bank`, () => {
+        const groups = expandSearchWords(termo);
+        const todos = groups.flat();
+        expect(todos).toContain("power bank");
+        expect(todos).toContain("powerbank");
+      });
+    }
+
+    it("frase inteira vira UM grupo (OR entre sinonimos)", () => {
+      const groups = expandSearchWords("carregador portatil");
+      // Sem o fix eram 2 grupos (AND) que exigiam "portatil" no produto.
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toContain("bateria externa");
+    });
+
+    it("mantem a forma acentuada digitada pelo cliente", () => {
+      expect(expandSearchWords("bateria portátil")[0]).toContain("bateria portátil");
+    });
+
+    it("frase desconhecida cai no fallback palavra-por-palavra", () => {
+      const groups = expandSearchWords("fone bluetooth");
+      expect(groups).toHaveLength(2); // comportamento historico preservado
+    });
+  });
 });

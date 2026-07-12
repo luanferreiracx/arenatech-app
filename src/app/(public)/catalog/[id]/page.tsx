@@ -2,12 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { ArrowLeft, MapPin, MessageCircle, Package, ShieldCheck, Sparkles } from "lucide-react";
-import { Logo } from "@/components/branding/logo";
 import {
-  getPublicCatalogContact,
+  getPublicCatalog,
   getPublicCatalogProduct,
   getRelatedCatalogProducts,
 } from "@/server/services/public-catalog";
+import { CatalogShell } from "../_components/catalog-shell";
 import { CatalogProductCard, formatCurrency } from "../_components/catalog-product-card";
 import { ProductGallery } from "../_components/product-gallery";
 
@@ -28,32 +28,35 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
     notFound();
   }
 
-  const [related, contact] = await Promise.all([
+  // O catálogo (sem filtro) alimenta a sidebar/menu: categorias, contato e total.
+  // Mesma fonte da listagem — a página de produto reusa a CatalogShell para não
+  // "perder" o menu e a logo do tenant ao abrir um produto.
+  const [related, catalog] = await Promise.all([
     getRelatedCatalogProducts(product, tenantSlug),
-    getPublicCatalogContact(tenantSlug),
+    getPublicCatalog({ tenantSlug }),
   ]);
+  const contact = catalog.contact;
   const whatsappHref = buildWhatsAppHref(contact.whatsappNumber, contact.storeName, product.name, product.currentPriceCents);
   const hasPrice = product.salePriceCents > 0;
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[var(--cat-bg)] pb-24 lg:pb-12">
+    <CatalogShell
+      search=""
+      categories={catalog.categories}
+      activeCategoryId={product.categoryId ?? ""}
+      sort={catalog.sort}
+      totalAvailable={catalog.totalAvailable}
+      contact={contact}
+    >
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-6 pb-24 sm:px-6 lg:px-8 lg:pb-12">
+        <Link
+          href="/catalog"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[var(--cat-line)] px-3.5 py-1.5 text-sm text-[var(--cat-ink-soft)] transition hover:border-[var(--cat-line-strong)] hover:text-[var(--cat-ink)]"
+        >
+          <ArrowLeft className="size-4" />
+          Voltar ao catálogo
+        </Link>
 
-      <header className="sticky top-0 z-30 border-b border-[var(--cat-line)] bg-[var(--cat-surface)]/85 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <Link href="/catalog" aria-label="Início do catálogo">
-            <Logo size="md" className="opacity-95" />
-          </Link>
-          <Link
-            href="/catalog"
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cat-line)] px-3.5 py-1.5 text-sm text-[var(--cat-ink-soft)] transition hover:border-[var(--cat-line-strong)] hover:text-[var(--cat-ink)]"
-          >
-            <ArrowLeft className="size-4" />
-            Catálogo
-          </Link>
-        </div>
-      </header>
-
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <section className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
           <ProductGallery images={product.images} productName={product.name} fallbackUrl={product.mediumImageUrl} />
 
@@ -175,7 +178,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           </a>
         </div>
       </div>
-    </main>
+    </CatalogShell>
   );
 }
 

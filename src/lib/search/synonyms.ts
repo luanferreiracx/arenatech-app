@@ -39,7 +39,7 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
   ["capa", "capinha", "case", "cover", "capas", "capinhas", "bumper"],
 
   // ── Energia / armazenamento externo ──
-  ["powerbank", "power bank", "carregador portatil", "carregador portátil", "bateria externa", "powerbanks"],
+  ["powerbank", "power bank", "carregador portatil", "carregador portátil", "bateria externa", "bateria portatil", "bateria portátil", "carregador de bateria", "powerbanks"],
   ["pendrive", "pen drive", "flash drive", "pen-drive", "usb stick"],
   ["cartao", "cartão", "memoria", "memória", "sd", "microsd", "micro sd", "cartao de memoria", "cartão de memória"],
   ["hd", "ssd", "disco", "armazenamento", "hd externo", "ssd externo"],
@@ -116,10 +116,33 @@ export function searchWords(input: string): string[] {
 }
 
 /**
- * Para cada palavra da busca, devolve a lista expandida (palavra + sinonimos).
- * O consumidor monta o WHERE: por palavra, casa QUALQUER sinonimo (OR); entre
- * palavras, exige todas (AND) — mesma semantica das implementacoes atuais.
+ * Se a busca INTEIRA (normalizada) for uma chave do dicionario, devolve o grupo
+ * de sinonimos correspondente. Cobre entradas MULTI-PALAVRA — "carregador
+ * portatil", "power bank", "bateria externa" —, que a expansao por palavra nunca
+ * casa (ela quebra a frase em tokens e nenhum token isolado esta no grupo).
+ * Devolve `null` quando a frase nao e uma chave conhecida.
+ */
+function expandWholePhrase(input: string): string[] | null {
+  const key = normalizeTerm(input.replace(/\s+/g, " "));
+  const synonyms = SYNONYM_INDEX.get(key);
+  if (!synonyms) return null;
+  // Inclui a forma crua que o cliente digitou (pode diferir em acento/caixa).
+  return Array.from(new Set([input.trim(), ...synonyms]));
+}
+
+/**
+ * Expande a busca para o consumidor montar o WHERE: cada grupo casa QUALQUER
+ * sinonimo (OR); entre grupos, exige todos (AND) — mesma semantica de antes.
+ *
+ * Ordem de tentativa (a primeira que casar vence):
+ *  1. Frase inteira como chave do dicionario ("carregador portatil" → powerbank).
+ *  2. Fallback: expande palavra por palavra (comportamento historico).
+ *
+ * Isso conserta sinonimos multi-palavra: sem (1), "carregador portatil" era
+ * quebrado em ["carregador",...] + ["portatil"] e nunca achava power bank.
  */
 export function expandSearchWords(input: string): string[][] {
+  const phraseMatch = expandWholePhrase(input);
+  if (phraseMatch) return [phraseMatch];
   return searchWords(input).map(expandWord);
 }
