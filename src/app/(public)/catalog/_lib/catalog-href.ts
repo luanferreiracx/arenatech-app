@@ -21,6 +21,30 @@ export function buildCatalogHref(input: CatalogHrefInput): string {
   return query ? `/catalog?${query}` : "/catalog";
 }
 
+/**
+ * Monta o link do WhatsApp (wa.me) com uma mensagem pré-preenchida. Sem produto,
+ * é um "olá" genérico da loja; com produto, cita nome e preço.
+ */
+export function buildWhatsAppHref(
+  whatsappNumber: string,
+  storeName: string,
+  productName?: string,
+  priceCents?: number,
+): string {
+  const parts = [`Olá, ${storeName}!`];
+  if (productName) {
+    const price =
+      typeof priceCents === "number" && priceCents > 0
+        ? ` (${(priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})`
+        : "";
+    parts.push(`Tenho interesse no produto: ${productName}${price}.`);
+  } else {
+    parts.push("Vi o catálogo e queria tirar uma dúvida.");
+  }
+  const text = encodeURIComponent(parts.join(" "));
+  return `https://wa.me/${whatsappNumber}?text=${text}`;
+}
+
 export type SortOption = { value: CatalogSort; label: string };
 
 export const DEFAULT_SORT_OPTION: SortOption = { value: "nome", label: "Nome (A–Z)" };

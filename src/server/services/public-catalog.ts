@@ -67,6 +67,8 @@ export type CatalogProduct = {
 export type CatalogContact = {
   storeName: string;
   whatsappNumber: string;
+  /** Logo do tenant (MinIO) — exibida no header do catálogo. */
+  logoUrl: string | null;
 };
 
 export type PublicCatalogResult = {
@@ -245,19 +247,20 @@ async function getCatalogContact(tx: AdminTx, tenantId: string): Promise<Catalog
   const [settings, tenant] = await Promise.all([
     tx.tenantSettings.findUnique({
       where: { tenantId },
-      select: { phone: true, tradeName: true, legalName: true },
+      select: { phone: true, tradeName: true, legalName: true, logoUrl: true },
     }),
     tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
   ]);
 
   return {
-    storeName: settings?.tradeName?.trim() || settings?.legalName?.trim() || tenant?.name?.trim() || "Arena Tech",
+    storeName: settings?.tradeName?.trim() || settings?.legalName?.trim() || tenant?.name?.trim() || "Loja",
     whatsappNumber: normalizeWhatsappNumber(settings?.phone) ?? FALLBACK_WHATSAPP_NUMBER,
+    logoUrl: settings?.logoUrl ?? null,
   };
 }
 
 function fallbackContact(): CatalogContact {
-  return { storeName: "Arena Tech", whatsappNumber: FALLBACK_WHATSAPP_NUMBER };
+  return { storeName: "Loja", whatsappNumber: FALLBACK_WHATSAPP_NUMBER, logoUrl: null };
 }
 
 /**

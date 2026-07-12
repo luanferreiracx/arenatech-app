@@ -30,32 +30,27 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
       : "Tudo disponível";
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden">
-      <div className="catalog-atmosphere" aria-hidden />
-      <div className="catalog-grain" aria-hidden />
-
+    <main className="min-h-screen overflow-x-hidden bg-[var(--cat-bg)]">
       <CatalogHeader
         search={catalog.search}
         categories={catalog.categories}
         activeCategoryId={catalog.categoryId}
         sort={catalog.sort}
         totalAvailable={catalog.totalAvailable}
+        contact={catalog.contact}
       />
 
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-28 sm:px-6 lg:px-8">
-        <div className="catalog-rise mb-5 flex items-end justify-between gap-3 border-b border-white/10 pb-4 pt-2">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--gold)]/80">
-              Catálogo
-            </p>
-            <h1 className="font-display mt-1 text-2xl font-semibold leading-tight text-white sm:text-3xl">
+      <div className="mx-auto w-full max-w-6xl px-4 pb-28 sm:px-6 lg:px-8">
+        <div className="catalog-rise flex items-end justify-between gap-3 pb-3 pt-6">
+          <div className="min-w-0">
+            <h1 className="font-display truncate text-2xl font-bold leading-tight text-[var(--cat-ink)] sm:text-[1.75rem]">
               {heading}
             </h1>
+            <p className="mt-0.5 text-sm text-[var(--cat-ink-soft)]">
+              <span className="font-numeric font-semibold text-[var(--cat-ink)]">{catalog.total}</span>{" "}
+              {catalog.total === 1 ? "produto disponível" : "produtos disponíveis"}
+            </p>
           </div>
-          <p className="shrink-0 pb-1 text-right text-sm text-zinc-400">
-            <span className="font-numeric text-white">{catalog.total}</span>{" "}
-            {catalog.total === 1 ? "item" : "itens"}
-          </p>
         </div>
 
         <div className="mb-6">
@@ -82,9 +77,9 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
 
 function CatalogFallback() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: 8 }).map((_, index) => (
-        <Skeleton key={index} className="aspect-3/4 rounded-3xl bg-white/5" />
+        <Skeleton key={index} className="aspect-4/5 rounded-2xl bg-[var(--cat-surface-sunken)]" />
       ))}
     </div>
   );

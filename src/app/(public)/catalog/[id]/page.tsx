@@ -36,18 +36,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
   const hasPrice = product.salePriceCents > 0;
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden pb-24 lg:pb-12">
-      <div className="catalog-atmosphere" aria-hidden />
-      <div className="catalog-grain" aria-hidden />
+    <main className="min-h-screen overflow-x-hidden bg-[var(--cat-bg)] pb-24 lg:pb-12">
 
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[var(--ink)]/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-[var(--cat-line)] bg-[var(--cat-surface)]/85 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <Link href="/catalog" aria-label="Início do catálogo">
             <Logo size="md" className="opacity-95" />
           </Link>
           <Link
             href="/catalog"
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3.5 py-1.5 text-sm text-zinc-300 transition hover:border-white/25 hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cat-line)] px-3.5 py-1.5 text-sm text-[var(--cat-ink-soft)] transition hover:border-[var(--cat-line-strong)] hover:text-[var(--cat-ink)]"
           >
             <ArrowLeft className="size-4" />
             Catálogo
@@ -62,12 +60,12 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
           <div className="catalog-rise lg:sticky lg:top-24" style={{ animationDelay: "80ms" }}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {product.categoryName && (
-                <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                <span className="rounded-full border border-[var(--cat-line)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--cat-ink-soft)]">
                   {product.categoryName}
                 </span>
               )}
               {product.discountPercent ? (
-                <span className="font-numeric rounded-full bg-[var(--gold)] px-2.5 py-1 text-[11px] font-bold text-black">
+                <span className="font-numeric rounded-full bg-[var(--cat-accent)] px-2.5 py-1 text-[11px] font-bold text-[var(--cat-bg)]">
                   −{product.discountPercent}%
                 </span>
               ) : null}
@@ -79,36 +77,36 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
             </div>
 
             {product.brand && (
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--gold)]">{product.brand}</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--cat-accent)]">{product.brand}</p>
             )}
-            <h1 className="font-display mt-1.5 text-3xl font-semibold leading-tight text-white sm:text-4xl">
+            <h1 className="font-display mt-1.5 text-3xl font-semibold leading-tight text-[var(--cat-ink)] sm:text-4xl">
               {product.name}
             </h1>
 
-            <div className="card-sheen mt-5 rounded-3xl p-5">
+            <div className="border border-[var(--cat-line)] bg-[var(--cat-surface)] mt-5 rounded-3xl p-5">
               {hasPrice ? (
                 <>
                   {product.promotionalPriceCents ? (
-                    <p className="font-numeric text-sm text-zinc-500 line-through">
+                    <p className="font-numeric text-sm text-[var(--cat-ink-faint)] line-through">
                       {formatCurrency(product.salePriceCents)}
                     </p>
                   ) : null}
                   <div className="mt-1 flex flex-wrap items-end gap-2.5">
-                    <span className="font-numeric text-4xl font-bold tracking-tight text-white">
+                    <span className="font-numeric text-4xl font-bold tracking-tight text-[var(--cat-ink)]">
                       {formatCurrency(product.pixPriceCents)}
                     </span>
-                    <span className="mb-1.5 rounded-lg bg-[var(--gold)]/15 px-2 py-1 text-xs font-bold text-[var(--gold-soft)]">
+                    <span className="mb-1.5 rounded-lg bg-[var(--cat-accent)]/15 px-2 py-1 text-xs font-bold text-[var(--cat-accent-hover)]">
                       5% off no Pix
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-zinc-300">
+                  <p className="mt-2 text-sm text-[var(--cat-ink-soft)]">
                     ou <span className="font-numeric">{formatCurrency(product.currentPriceCents)}</span> em até{" "}
                     <span className="font-numeric">6×</span> de{" "}
-                    <span className="font-numeric text-white">{formatCurrency(product.installmentCents)}</span> sem juros
+                    <span className="font-numeric text-[var(--cat-ink)]">{formatCurrency(product.installmentCents)}</span> sem juros
                   </p>
                 </>
               ) : (
-                <p className="text-xl font-bold text-[var(--gold-soft)]">Consulte o preço</p>
+                <p className="text-xl font-bold text-[var(--cat-accent-hover)]">Consulte o preço</p>
               )}
             </div>
 
@@ -123,18 +121,18 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               href={whatsappHref}
               target="_blank"
               rel="noreferrer"
-              className="mt-5 hidden w-full items-center justify-center gap-2 rounded-full bg-[#25D366] py-3.5 text-base font-semibold text-black transition hover:bg-[#20bd5a] lg:flex"
+              className="mt-5 hidden w-full items-center justify-center gap-2 rounded-full bg-[#25D366] py-3.5 text-base font-semibold text-[var(--cat-bg)] transition hover:bg-[#20bd5a] lg:flex"
             >
               <MessageCircle className="size-5" />
               Falar no WhatsApp
             </a>
 
             {product.description && (
-              <div className="mt-6 border-t border-white/10 pt-5">
-                <h2 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-zinc-400">
+              <div className="mt-6 border-t border-[var(--cat-line)] pt-5">
+                <h2 className="font-display text-sm font-semibold uppercase tracking-[0.18em] text-[var(--cat-ink-soft)]">
                   Descrição
                 </h2>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{product.description}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[var(--cat-ink-soft)]">{product.description}</p>
               </div>
             )}
           </div>
@@ -143,8 +141,8 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
         {related.length > 0 && (
           <section className="mt-14">
             <div className="mb-5 flex items-center gap-2">
-              <Sparkles className="size-5 text-[var(--gold)]" />
-              <h2 className="font-display text-2xl font-semibold text-white">Você também pode gostar</h2>
+              <Sparkles className="size-5 text-[var(--cat-accent)]" />
+              <h2 className="font-display text-2xl font-semibold text-[var(--cat-ink)]">Você também pode gostar</h2>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               {related.slice(0, 4).map((item, index) => (
@@ -156,21 +154,21 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
       </div>
 
       {/* CTA fixo no mobile — sempre acessível */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[var(--ink)]/90 p-3 backdrop-blur-xl lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--cat-line)] bg-[var(--cat-surface)]/90 p-3 backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex max-w-6xl items-center gap-3">
           {hasPrice && (
             <div className="shrink-0">
-              <p className="font-numeric text-lg font-bold leading-none text-white">
+              <p className="font-numeric text-lg font-bold leading-none text-[var(--cat-ink)]">
                 {formatCurrency(product.pixPriceCents)}
               </p>
-              <p className="text-[10px] uppercase tracking-wide text-[var(--gold)]">no Pix</p>
+              <p className="text-[10px] uppercase tracking-wide text-[var(--cat-accent)]">no Pix</p>
             </div>
           )}
           <a
             href={whatsappHref}
             target="_blank"
             rel="noreferrer"
-            className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[#25D366] py-3 text-base font-semibold text-black transition active:scale-[0.98]"
+            className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[#25D366] py-3 text-base font-semibold text-[var(--cat-bg)] transition active:scale-[0.98]"
           >
             <MessageCircle className="size-5" />
             Falar no WhatsApp
@@ -183,10 +181,10 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
 function Benefit({ icon: Icon, title, text }: { icon: typeof Package; title: string; text: string }) {
   return (
-    <div className="card-sheen rounded-2xl p-3 text-center sm:text-left">
-      <Icon className="mx-auto mb-1.5 size-4 text-[var(--gold)] sm:mx-0" />
-      <p className="text-[13px] font-semibold text-white">{title}</p>
-      <p className="text-[11px] text-zinc-500">{text}</p>
+    <div className="border border-[var(--cat-line)] bg-[var(--cat-surface)] rounded-2xl p-3 text-center sm:text-left">
+      <Icon className="mx-auto mb-1.5 size-4 text-[var(--cat-accent)] sm:mx-0" />
+      <p className="text-[13px] font-semibold text-[var(--cat-ink)]">{title}</p>
+      <p className="text-[11px] text-[var(--cat-ink-faint)]">{text}</p>
     </div>
   );
 }

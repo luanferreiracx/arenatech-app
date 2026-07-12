@@ -71,8 +71,8 @@ function PageLink({
       aria-current={active ? "page" : undefined}
       className={`font-numeric flex size-10 items-center justify-center rounded-xl border text-sm font-semibold transition ${
         active
-          ? "border-[var(--gold)] bg-[var(--gold)] text-black"
-          : "border-white/10 text-zinc-300 hover:border-[var(--gold)]/50 hover:text-[var(--gold-soft)]"
+          ? "border-[var(--cat-accent)] bg-[var(--cat-accent)] text-[var(--cat-bg)]"
+          : "border-[var(--cat-line)] text-zinc-300 hover:border-[var(--cat-accent)]/50 hover:text-[var(--cat-accent-hover)]"
       }`}
     >
       {children}
