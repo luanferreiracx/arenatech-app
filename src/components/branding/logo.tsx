@@ -1,8 +1,10 @@
 /**
- * Logo Arena Tech — PLACEHOLDER
- * Substituir pelo logo oficial quando disponível.
+ * Logo do produto/tenant. Quando o tenant tem logo enviada (Configurações →
+ * Geral, servida via /api/storage/*), ela é exibida; senão, cai na marca
+ * placeholder Arena Tech.
  */
 
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 type LogoSize = "sm" | "md" | "lg";
@@ -12,6 +14,8 @@ interface LogoProps {
   size?: LogoSize;
   variant?: LogoVariant;
   className?: string;
+  /** Logo do tenant ativo (MinIO). Se presente, prevalece sobre o placeholder. */
+  tenantLogoUrl?: string | null;
 }
 
 const sizeMap: Record<LogoSize, { height: number; textSize: string; iconSize: number }> = {
@@ -20,8 +24,30 @@ const sizeMap: Record<LogoSize, { height: number; textSize: string; iconSize: nu
   lg: { height: 48, textSize: "text-2xl", iconSize: 48 },
 };
 
-export function Logo({ size = "md", variant = "full", className }: LogoProps) {
+export function Logo({ size = "md", variant = "full", className, tenantLogoUrl }: LogoProps) {
   const { height, textSize, iconSize } = sizeMap[size];
+
+  // Logo do tenant: exibe a imagem enviada, contida na altura do slot. `full`
+  // ocupa mais largura (cabeçalho aberto); `icon` fica quadrada (colapsado).
+  if (tenantLogoUrl) {
+    const boxHeight = variant === "icon" ? iconSize : height;
+    const maxWidth = variant === "icon" ? iconSize : Math.round(height * 4.5);
+    return (
+      <div
+        className={cn("relative shrink-0", className)}
+        style={{ height: boxHeight, width: maxWidth }}
+      >
+        <Image
+          src={tenantLogoUrl}
+          alt="Logo"
+          fill
+          sizes={`${maxWidth}px`}
+          className="object-contain object-left"
+          unoptimized
+        />
+      </div>
+    );
+  }
 
   if (variant === "icon") {
     return (

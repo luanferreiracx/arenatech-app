@@ -23,11 +23,12 @@ interface MobileSidebarProps {
   multiTenant: boolean;
   tenantName?: string;
   tenantSlug?: string;
+  tenantLogoUrl?: string | null;
   allowedModules?: string[];
   isSuperAdmin?: boolean;
 }
 
-export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, allowedModules, isSuperAdmin }: MobileSidebarProps) {
+export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isSuperAdmin }: MobileSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -46,7 +47,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, a
       <SheetContent side="left" className="w-64 p-0 bg-sidebar border-r border-sidebar-border">
         <SheetHeader className="h-14 px-4 border-b border-sidebar-border flex flex-row items-center justify-between">
           <SheetTitle className="sr-only">Menu de navegacao</SheetTitle>
-          <Logo size="sm" variant="full" />
+          <Logo size="sm" variant="full" tenantLogoUrl={tenantLogoUrl} />
         </SheetHeader>
 
         <nav className="flex-1 overflow-y-auto py-2 px-2">

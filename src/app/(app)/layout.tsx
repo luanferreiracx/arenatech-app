@@ -8,6 +8,27 @@ import { AppHeader } from "@/components/layout/app-header";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { IdleTimeout } from "@/components/layout/idle-timeout";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { withTenant } from "@/server/db";
+
+/**
+ * Logo do tenant ativo (upload em Configurações → Geral, armazenado no MinIO e
+ * servido via /api/storage/*). Server-side: sem fetch no cliente. Best-effort —
+ * se não houver logo ou a leitura falhar, a marca-placeholder é usada.
+ */
+async function getTenantLogoUrl(tenantId: string | undefined): Promise<string | null> {
+  if (!tenantId) return null;
+  try {
+    return await withTenant(tenantId, async (tx) => {
+      const settings = await tx.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { logoUrl: true },
+      });
+      return settings?.logoUrl ?? null;
+    });
+  } catch {
+    return null;
+  }
+}
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -21,6 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   );
 
   const allowedModules = activeTenant?.modules ?? [];
+  const tenantLogoUrl = await getTenantLogoUrl(activeTenant?.id);
 
   return (
     <SidebarProvider
@@ -45,6 +67,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
             tenantSlug={activeTenant?.slug}
+            tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
             isSuperAdmin={session.user.isSuperAdmin}
           />
@@ -55,6 +78,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             multiTenant={session.availableTenants.length > 1}
             tenantName={activeTenant?.name}
             tenantSlug={activeTenant?.slug}
+            tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
             isSuperAdmin={session.user.isSuperAdmin}
           />
