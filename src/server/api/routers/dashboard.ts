@@ -2,6 +2,13 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { resolveCurrentStockByProduct } from "@/server/services/stock-item.service";
+import {
+  startOfTodayBrt,
+  startOfMonthBrt,
+  startOfPrevMonthBrt,
+  endOfPrevMonthBrt,
+  brtDayKey,
+} from "@/lib/utils/date-range";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -48,11 +55,13 @@ export const dashboardRouter = createTRPCRouter({
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      // Periodo anterior: mes passado completo
-      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      // Fronteiras ancoradas em BRT (o container roda UTC): sem isso, uma venda
+      // de ~21h-24h BRT do dia anterior (que é "hoje" em UTC) aparecia como
+      // venda de hoje no painel. Mesmo bug de fuso da auditoria financeira (D6/J3).
+      const startOfMonth = startOfMonthBrt(now);
+      const startOfDay = startOfTodayBrt(now);
+      const startOfPrevMonth = startOfPrevMonthBrt(now);
+      const endOfPrevMonth = endOfPrevMonthBrt(now);
 
       const [
         customersTotal,
@@ -255,9 +264,11 @@ export const dashboardRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const now = new Date();
-        const startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - input.days + 1);
-        startDate.setHours(0, 0, 0, 0);
+        // Janela e agrupamento ancorados em BRT (container roda UTC): senão as
+        // barras diárias ficavam deslocadas (venda de 22h BRT caía no dia UTC
+        // seguinte). startDate = início (BRT) de N-1 dias atrás.
+        const startOfToday = startOfTodayBrt(now);
+        const startDate = new Date(startOfToday.getTime() - (input.days - 1) * 24 * 60 * 60 * 1000);
 
         const sales = await tx.sale.findMany({
           where: {
@@ -268,18 +279,15 @@ export const dashboardRouter = createTRPCRouter({
           select: { totalAmount: true, createdAt: true },
         });
 
-        // Group by day
+        // Agrupa por DIA BRT (chave YYYY-MM-DD no fuso Brasil).
         const dayMap = new Map<string, { count: number; totalCents: number }>();
         for (let i = 0; i < input.days; i++) {
-          const d = new Date(startDate);
-          d.setDate(d.getDate() + i);
-          const key = d.toISOString().slice(0, 10);
-          dayMap.set(key, { count: 0, totalCents: 0 });
+          const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+          dayMap.set(brtDayKey(d), { count: 0, totalCents: 0 });
         }
 
         for (const sale of sales) {
-          const key = sale.createdAt.toISOString().slice(0, 10);
-          const entry = dayMap.get(key);
+          const entry = dayMap.get(brtDayKey(sale.createdAt));
           if (entry) {
             entry.count += 1;
             entry.totalCents += decimalToCents(sale.totalAmount);
