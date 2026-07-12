@@ -1,12 +1,13 @@
 "use client";
 
-import { Menu, Bell } from "lucide-react";
+import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "./sidebar-context";
 import { AppBreadcrumb } from "./breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCommandPalette } from "@/components/command-palette";
+import { NotificationsBell } from "./notifications-bell";
 
 interface AppHeaderProps {
   tenantName?: string;
@@ -63,9 +64,7 @@ export function AppHeader({ tenantName }: AppHeaderProps) {
           </Badge>
         )}
 
-        <Button variant="ghost" size="icon" aria-label="Notificações">
-          <Bell className="w-4 h-4" />
-        </Button>
+        <NotificationsBell />
       </div>
     </header>
   );
