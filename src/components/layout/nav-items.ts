@@ -73,17 +73,17 @@ export const appNavGroups: NavGroup[] = [
     title: "Vendas",
     items: [
       { label: "PDV / Nova Venda", href: "/pdv", icon: ShoppingCart, module: "pdv" },
-      { label: "Historico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
+      { label: "Histórico de Vendas", href: "/pdv/history", icon: History, module: "pdv" },
     ],
   },
   {
-    title: "Assistencia",
+    title: "Assistência",
     items: [
-      { label: "Ordens de Servico", href: "/service-orders", icon: ClipboardList, module: "service-orders" },
-      { label: "Operacao", href: "/operation", icon: Truck, module: "service-orders" },
-      { label: "Comunicacao", href: "/communication", icon: MessageSquare, module: "service-orders" },
-      { label: "Gestao de Servicos", href: "/services", icon: Wrench, module: "service-orders" },
-      { label: "Relatorio Tecnicos", href: "/service-orders/technician-report", icon: BarChart3, module: "service-orders" },
+      { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList, module: "service-orders" },
+      { label: "Operação", href: "/operation", icon: Truck, module: "service-orders" },
+      { label: "Comunicação", href: "/communication", icon: MessageSquare, module: "service-orders" },
+      { label: "Gestão de Serviços", href: "/services", icon: Wrench, module: "service-orders" },
+      { label: "Relatório de Técnicos", href: "/service-orders/technician-report", icon: BarChart3, module: "service-orders" },
     ],
   },
   {
@@ -106,13 +106,13 @@ export const appNavGroups: NavGroup[] = [
       { label: "Produtos", href: "/stock", icon: Package, module: "stock" },
       { label: "Entrada", href: "/stock/entry", icon: ArrowDownToLine, module: "stock" },
       { label: "Baixa", href: "/stock/exit", icon: ArrowUpFromLine, module: "stock" },
-      { label: "Movimentacoes", href: "/stock/movements", icon: ArrowDownUp, module: "stock" },
+      { label: "Movimentações", href: "/stock/movements", icon: ArrowDownUp, module: "stock" },
       { label: "Compra de Aparelhos", href: "/stock/purchases", icon: ShoppingBag, module: "stock" },
       { label: "Fornecedores", href: "/stock/suppliers", icon: Building2, module: "stock" },
       { label: "Categorias", href: "/stock/categories", icon: Tags, module: "stock" },
       { label: "Catálogo Aparelhos", href: "/aparelhos-catalogo", icon: Smartphone, module: "stock" },
       { label: "Importar CSV", href: "/stock/import", icon: Download, module: "stock" },
-      { label: "Relatorios", href: "/stock/reports", icon: BarChart3, module: "stock" },
+      { label: "Relatórios", href: "/stock/reports", icon: BarChart3, module: "stock" },
     ],
   },
   {
@@ -155,27 +155,27 @@ export const appNavGroups: NavGroup[] = [
       { label: "Fiscal", href: "/fiscal", icon: FileText, module: "fiscal" },
       { label: "NF-e Entrada", href: "/fiscal/entrada", icon: Download, module: "fiscal" },
       { label: "Inutilizar", href: "/fiscal/inutilizar", icon: Ban, module: "fiscal" },
-      { label: "Relatorio NF", href: "/reports", icon: BarChart3, module: "fiscal" },
+      { label: "Relatório NF", href: "/reports", icon: BarChart3, module: "fiscal" },
     ],
   },
   {
-    title: "Comissoes",
+    title: "Comissões",
     items: [
-      { label: "Comissoes", href: "/commissions/providers", icon: Percent, module: "commissions" },
+      { label: "Comissões", href: "/commissions/providers", icon: Percent, module: "commissions" },
       // Self-service: cada prestador ve a propria apuracao. Gateado pelo modulo
       // (fora de tenants sem comissao); a pagina mostra empty state para quem
       // nao e prestador.
-      { label: "Minha Comissao", href: "/my-commission", icon: Wallet, module: "commissions" },
+      { label: "Minha Comissão", href: "/my-commission", icon: Wallet, module: "commissions" },
     ],
   },
   {
-    title: "Configuracoes",
+    title: "Configurações",
     items: [
       // Cada item aponta pro módulo FUNCIONAL da aba (mesmo mapa de
       // SETTINGS_TAB_MODULE/resolveModuleForPath): um tenant só-wallet vê
       // Config. Gerais e Segurança, mas não Formas de Pagamento/Simulador/
       // Entregadores — que dependem de pdv/tools/service-orders.
-      { label: "Config. Gerais", href: "/settings", icon: Settings, module: "settings" },
+      { label: "Configurações Gerais", href: "/settings", icon: Settings, module: "settings" },
       { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "pdv" },
       { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "tools" },
       { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck, module: "service-orders" },
@@ -221,5 +221,5 @@ export const adminNavItems: NavItem[] = [
   { label: "WhatsApp Logs", href: "/admin/whatsapp-logs", icon: MessageSquare },
   { label: "L-BTC Refills", href: "/admin/depix-lbtc", icon: Banknote },
   { label: "Carteira de Taxas", href: "/admin/depix-fees", icon: Percent },
-  { label: "Relatorios", href: "/admin/reports", icon: FileText },
+  { label: "Relatórios", href: "/admin/reports", icon: FileText },
 ];
