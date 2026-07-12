@@ -23,7 +23,7 @@ export type TenantUserRole = "admin" | "operator";
 type Tx = Prisma.TransactionClient;
 
 /** Limite de usuários quando o tenant não tem plano (NO-KYC): default do modelo Plan. */
-const DEFAULT_MAX_USERS = 5;
+export const DEFAULT_MAX_USERS = 5;
 
 /**
  * Garante que adicionar mais um usuário não estoura o `maxUsers` do plano efetivo

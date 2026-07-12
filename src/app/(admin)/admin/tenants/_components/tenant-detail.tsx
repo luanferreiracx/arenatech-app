@@ -49,10 +49,14 @@ import {
   createTenantUserSchema,
   updateTenantSchema,
   updateTenantUserSchema,
+  TENANT_STATUS_LABELS,
+  TENANT_STATUS_VARIANT,
   type CreateTenantUserInput,
   type UpdateTenantInput,
   type UpdateTenantUserInput,
+  type TenantStatus,
 } from "@/lib/validators/admin";
+import { StatusBadge } from "@/components/domain/status-badge";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -117,9 +121,12 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
   const tenant = tenantQuery.data;
 
+  // O status e o plano NÃO são editados aqui: mudança de acesso/plano passa pelo
+  // Painel de Assinatura (que sincroniza billing). O form envia o status atual
+  // inalterado (o schema exige o campo) e não manda mais `plan`.
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
-    values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], plan: tenant.plan, apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
+    values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
   });
   const createUserForm = useForm<CreateTenantUserInput>({
     resolver: zodResolver(createTenantUserSchema),
@@ -147,7 +154,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       isCashier: false,
     },
   });
-  const tenantStatus = useWatch({ control: tenantForm.control, name: "status" });
   const tenantApiAccess = useWatch({ control: tenantForm.control, name: "apiAccessEnabled" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
@@ -286,15 +292,16 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             <div><Label>Nome</Label><Input {...tenantForm.register("name")} /></div>
             <div>
               <Label>Status</Label>
-              <Select value={tenantStatus} onValueChange={(v) => tenantForm.setValue("status", v as UpdateTenantInput["status"])}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVE">Ativo</SelectItem>
-                  <SelectItem value="PENDING">Pendente</SelectItem>
-                  <SelectItem value="SUSPENDED">Suspenso</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelado</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Somente leitura: a mudança de acesso passa pelo Painel de Assinatura,
+                  que sincroniza billing + acesso (fonte única). */}
+              <div className="mt-1.5 flex items-center gap-2">
+                <StatusBadge variant={TENANT_STATUS_VARIANT[tenant.status as TenantStatus] ?? "default"}>
+                  {TENANT_STATUS_LABELS[tenant.status as TenantStatus] ?? tenant.status}
+                </StatusBadge>
+                <span className="text-xs text-muted-foreground">
+                  gerencie o acesso no painel de Assinatura abaixo
+                </span>
+              </div>
             </div>
           </div>
           <div className="flex items-start justify-between gap-4 rounded-md border p-3">
@@ -321,10 +328,23 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Usuarios do tenant</CardTitle>
-          <Button type="button" onClick={() => setShowCreateDialog(true)}>
+          <div className="min-w-0 space-y-1">
+            <CardTitle>Usuários do tenant</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              <span className={tenant.userCount >= tenant.maxUsers ? "font-medium text-warning" : ""}>
+                {tenant.userCount} de {tenant.maxUsers}
+              </span>{" "}
+              usuários do plano
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => setShowCreateDialog(true)}
+            disabled={tenant.userCount >= tenant.maxUsers}
+            title={tenant.userCount >= tenant.maxUsers ? "Limite de usuários do plano atingido" : undefined}
+          >
             <Plus className="mr-2 h-4 w-4" />
-            Novo usuario
+            Novo usuário
           </Button>
         </CardHeader>
         <CardContent className="p-0">

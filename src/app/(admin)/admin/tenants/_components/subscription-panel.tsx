@@ -28,6 +28,14 @@ function formatDate(value: string | Date | null | undefined): string {
   return new Date(value).toLocaleDateString("pt-BR");
 }
 
+/** Dias de atraso (>=1) se o vencimento já passou; caso contrário, null. */
+function daysOverdue(periodEnd: string | Date | null | undefined): number | null {
+  if (!periodEnd) return null;
+  const diffMs = Date.now() - new Date(periodEnd).getTime();
+  if (diffMs <= 0) return null;
+  return Math.floor(diffMs / 86_400_000);
+}
+
 const BILLING_CYCLES: BillingCycle[] = ["MONTHLY", "YEARLY"];
 
 export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
@@ -145,7 +153,18 @@ export function SubscriptionPanel({ tenantId }: { tenantId: string }) {
             </div>
             <div>
               <dt className="text-muted-foreground">Vencimento</dt>
-              <dd className="mt-1 font-medium">{formatDate(subscription.currentPeriodEnd)}</dd>
+              <dd className="mt-1 font-medium">
+                {formatDate(subscription.currentPeriodEnd)}
+                {(() => {
+                  const overdue = daysOverdue(subscription.currentPeriodEnd);
+                  if (overdue === null || subscription.status === "CANCELLED") return null;
+                  return (
+                    <span className="ml-1.5 text-xs font-normal text-warning">
+                      (vencida há {overdue} {overdue === 1 ? "dia" : "dias"})
+                    </span>
+                  );
+                })()}
+              </dd>
             </div>
           </dl>
         ) : (

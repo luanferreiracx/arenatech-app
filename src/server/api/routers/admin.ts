@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
-import { assertTenantUserQuota } from "@/server/services/tenant-user.service";
+import { assertTenantUserQuota, DEFAULT_MAX_USERS as DEFAULT_TENANT_MAX_USERS } from "@/server/services/tenant-user.service";
+import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 import { logAudit } from "@/server/services/audit-log.service";
 import { modulesFromPlanFeatures, withModuleDependencies, isModuleKey } from "@/lib/modules";
 
@@ -422,7 +423,15 @@ export const adminRouter = createTRPCRouter({
           },
         });
         if (!tenant) throw new TRPCError({ code: "NOT_FOUND" });
-        return tenant;
+
+        // Uso de usuários vs teto do plano efetivo (via Subscription; sem plano =
+        // default 5). A UI mostra "X de Y" e o admin entende o bloqueio de criação.
+        const plan = await resolveTenantPlan(tx, tenant.id);
+        return {
+          ...tenant,
+          userCount: tenant.users.length,
+          maxUsers: plan?.maxUsers ?? DEFAULT_TENANT_MAX_USERS,
+        };
       });
     }),
 
