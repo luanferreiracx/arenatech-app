@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { ArrowLeft, MapPin, MessageCircle, Package, ShieldCheck, Sparkles } from "lucide-react";
 import { Logo } from "@/components/branding/logo";
 import {
@@ -20,15 +21,16 @@ type ProductDetailPageProps = {
 
 export default async function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { id } = await params;
-  const product = await getPublicCatalogProduct(id);
+  const tenantSlug = (await headers()).get("x-catalog-tenant-slug") ?? undefined;
+  const product = await getPublicCatalogProduct(id, tenantSlug);
 
   if (!product || !product.inStock || product.images.length === 0) {
     notFound();
   }
 
   const [related, contact] = await Promise.all([
-    getRelatedCatalogProducts(product),
-    getPublicCatalogContact(),
+    getRelatedCatalogProducts(product, tenantSlug),
+    getPublicCatalogContact(tenantSlug),
   ]);
   const whatsappHref = buildWhatsAppHref(contact.whatsappNumber, contact.storeName, product.name, product.currentPriceCents);
   const hasPrice = product.salePriceCents > 0;

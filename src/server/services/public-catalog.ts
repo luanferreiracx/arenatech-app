@@ -22,6 +22,8 @@ export type PublicCatalogParams = {
   sort?: string;
   page?: number;
   pageSize?: number;
+  /** Slug do tenant (subdomínio `<slug>.pdvdepix.app`). Fonte primária do tenant. */
+  tenantSlug?: string;
 };
 
 export type CatalogCategory = {
@@ -89,7 +91,7 @@ export async function getPublicCatalog(params: PublicCatalogParams): Promise<Pub
   const sort = parseSort(params.sort);
 
   return withAdmin(async (tx) => {
-    const tenantId = await resolveCatalogTenantId(tx);
+    const tenantId = await resolveCatalogTenantId(tx, params.tenantSlug);
     if (!tenantId) {
       return emptyCatalog({ page, pageSize, sort, search, categoryId });
     }
@@ -121,9 +123,9 @@ export async function getPublicCatalog(params: PublicCatalogParams): Promise<Pub
   });
 }
 
-export async function getPublicCatalogProduct(id: string): Promise<CatalogProduct | null> {
+export async function getPublicCatalogProduct(id: string, tenantSlug?: string): Promise<CatalogProduct | null> {
   return withAdmin(async (tx) => {
-    const tenantId = await resolveCatalogTenantId(tx);
+    const tenantId = await resolveCatalogTenantId(tx, tenantSlug);
     if (!tenantId) return null;
 
     const product = await tx.product.findFirst({
@@ -136,17 +138,17 @@ export async function getPublicCatalogProduct(id: string): Promise<CatalogProduc
   });
 }
 
-export async function getPublicCatalogContact(): Promise<CatalogContact> {
+export async function getPublicCatalogContact(tenantSlug?: string): Promise<CatalogContact> {
   return withAdmin(async (tx) => {
-    const tenantId = await resolveCatalogTenantId(tx);
+    const tenantId = await resolveCatalogTenantId(tx, tenantSlug);
     if (!tenantId) return fallbackContact();
     return getCatalogContact(tx, tenantId);
   });
 }
 
-export async function getRelatedCatalogProducts(product: CatalogProduct): Promise<CatalogProduct[]> {
+export async function getRelatedCatalogProducts(product: CatalogProduct, tenantSlug?: string): Promise<CatalogProduct[]> {
   return withAdmin(async (tx) => {
-    const tenantId = await resolveCatalogTenantId(tx);
+    const tenantId = await resolveCatalogTenantId(tx, tenantSlug);
     if (!tenantId) return [];
 
     const where = buildCatalogWhere({ tenantId, categoryId: product.categoryId ?? undefined });
@@ -271,12 +273,21 @@ function normalizeWhatsappNumber(phone: string | null | undefined): string | nul
   return digits;
 }
 
-async function resolveCatalogTenantId(tx: AdminTx): Promise<string | null> {
-  if (process.env.DEFAULT_TENANT_ID) return process.env.DEFAULT_TENANT_ID;
-
-  const slug = process.env.DEFAULT_TENANT_SLUG ?? "arena-tech";
-  const tenant = await tx.tenant.findUnique({ where: { slug }, select: { id: true } });
-  return tenant?.id ?? null;
+async function resolveCatalogTenantId(tx: AdminTx, tenantSlug?: string): Promise<string | null> {
+  // Multi-tenant: o slug do subdomínio (`<slug>.pdvdepix.app`) é a fonte
+  // primária. Só cai no default (env) quando não veio slug — caso do host
+  // legado `catalogo.arenatechpi.com.br`, que serve o tenant fixo.
+  const slug = tenantSlug?.trim() || process.env.DEFAULT_TENANT_SLUG || "arena-tech";
+  if (!tenantSlug?.trim() && process.env.DEFAULT_TENANT_ID) {
+    return process.env.DEFAULT_TENANT_ID;
+  }
+  const tenant = await tx.tenant.findUnique({
+    // catálogo não abre para tenant suspenso.
+    where: { slug },
+    select: { id: true, status: true },
+  });
+  if (!tenant || tenant.status === "SUSPENDED") return null;
+  return tenant.id;
 }
 
 function toCatalogProduct(product: CatalogProductRow): CatalogProduct {

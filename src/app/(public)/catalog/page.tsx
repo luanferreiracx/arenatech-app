@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { headers } from "next/headers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPublicCatalog } from "@/server/services/public-catalog";
 import { CatalogHeader } from "./_components/catalog-header";
@@ -12,11 +13,14 @@ type CatalogPageProps = {
 
 export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const params = await searchParams;
+  // Slug do tenant injetado pelo proxy a partir do subdomínio (<slug>.pdvdepix.app).
+  const tenantSlug = (await headers()).get("x-catalog-tenant-slug") ?? undefined;
   const catalog = await getPublicCatalog({
     search: readParam(params.q),
     categoryId: readParam(params.categoria),
     sort: readParam(params.ordem),
     page: readIntParam(params.page),
+    tenantSlug,
   });
 
   const heading = catalog.search
