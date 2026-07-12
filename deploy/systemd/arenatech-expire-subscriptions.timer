@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispara expire-subscriptions diariamente as 04:00 BRT
+
+[Timer]
+OnCalendar=04:00
+AccuracySec=1m
+# Persistent: se o VPS ficou fora no horario, roda assim que voltar.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

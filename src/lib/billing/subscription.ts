@@ -43,3 +43,17 @@ export function snapshotAmountCents(args: {
   }
   return args.monthlyCents;
 }
+
+/** Dias de carência padrão após o vencimento antes de suspender (cortar acesso). */
+export const DEFAULT_GRACE_DAYS = 5;
+
+/**
+ * Data-limite da carência: assinaturas cujo vencimento (`currentPeriodEnd`) é
+ * anterior a este instante já esgotaram os `graceDays` e devem ser suspensas.
+ * Ex.: now=10/jul, graceDays=5 → limite=05/jul; venceu antes de 05/jul → suspende.
+ */
+export function graceCutoff(now: Date, graceDays: number): Date {
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - graceDays);
+  return cutoff;
+}
