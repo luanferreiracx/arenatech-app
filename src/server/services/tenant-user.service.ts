@@ -16,10 +16,31 @@ import { TRPCError } from "@trpc/server";
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
+import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 
 export type TenantUserRole = "admin" | "operator";
 
 type Tx = Prisma.TransactionClient;
+
+/** Limite de usuários quando o tenant não tem plano (NO-KYC): default do modelo Plan. */
+const DEFAULT_MAX_USERS = 5;
+
+/**
+ * Garante que adicionar mais um usuário não estoura o `maxUsers` do plano efetivo
+ * do tenant (via Subscription; fallback ao default sem plano). Chamada em AMBOS os
+ * caminhos de criação (superadmin e admin do tenant) — o limite vale pra todos.
+ */
+export async function assertTenantUserQuota(tx: Tx, tenantId: string): Promise<void> {
+  const plan = await resolveTenantPlan(tx, tenantId);
+  const maxUsers = plan?.maxUsers ?? DEFAULT_MAX_USERS;
+  const currentUsers = await tx.userTenant.count({ where: { tenantId } });
+  if (currentUsers >= maxUsers) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Limite de ${maxUsers} usuário(s) do plano atingido. Amplie o plano para adicionar mais.`,
+    });
+  }
+}
 
 function generateTempPassword(): string {
   // 12 chars base64url-ish, sem ambiguidade visual relevante para uso temporário.
@@ -129,6 +150,9 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
       throw new TRPCError({ code: "CONFLICT", message: "Usuario ja pertence a este tenant" });
     }
   }
+
+  // Limite de usuários do plano — bloqueia antes de criar o vínculo NOVO.
+  await assertTenantUserQuota(tx, tenant.id);
 
   const user = existingUser
     ? await tx.user.update({

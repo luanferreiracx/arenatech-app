@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
+import { assertTenantUserQuota } from "@/server/services/tenant-user.service";
 import { logAudit } from "@/server/services/audit-log.service";
 import { modulesFromPlanFeatures, withModuleDependencies, isModuleKey } from "@/lib/modules";
 
@@ -833,6 +834,10 @@ export const adminRouter = createTRPCRouter({
             });
           }
         }
+
+        // Limite de usuários do plano: bloqueia ANTES de criar/atualizar o
+        // usuário (é sempre um vínculo NOVO — o caso "já pertence" já saiu acima).
+        await assertTenantUserQuota(tx, tenant.id);
 
         const user = existingUser
           ? await tx.user.update({
