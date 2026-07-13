@@ -46,7 +46,13 @@ export const createTransactionSchema = z.object({
   type: transactionTypeEnum,
   description: z.string().min(1, "Descricao e obrigatoria").max(200),
   category: z.string().max(100).optional().nullable(),
-  /** For PAYABLE */
+  /**
+   * Fornecedor (PAYABLE). `supplierId` = fornecedor selecionado (entidade Supplier);
+   * `newSupplierName` = criar inline; `supplier` (texto) é legado/sombra. O servidor
+   * resolve o supplierId por supplierId → newSupplierName → supplier.
+   */
+  supplierId: z.string().uuid().optional().nullable(),
+  newSupplierName: z.string().min(1).max(200).optional().nullable(),
   supplier: z.string().max(200).optional().nullable(),
   /** For RECEIVABLE */
   customerName: z.string().max(200).optional().nullable(),
@@ -72,6 +78,8 @@ export const updateTransactionSchema = z.object({
   id: z.string().uuid(),
   description: z.string().min(1, "Descricao e obrigatoria").max(200),
   category: z.string().max(100).optional().nullable(),
+  supplierId: z.string().uuid().optional().nullable(),
+  newSupplierName: z.string().min(1).max(200).optional().nullable(),
   supplier: z.string().max(200).optional().nullable(),
   customerName: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),

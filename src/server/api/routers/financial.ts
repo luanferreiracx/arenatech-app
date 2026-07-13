@@ -7,6 +7,7 @@ import { logAudit } from "@/server/services/audit-log.service";
 import { writeCashMovement, refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { startOfMonthBrt, endOfMonthBrt } from "@/lib/utils/date-range";
+import { resolveSupplierId } from "@/server/services/financial-supplier.service";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
 // RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
@@ -287,6 +288,13 @@ export const financialRouter = createTRPCRouter({
         // dueDate da transação = vencimento da última parcela.
         const lastDueDate = installments[installments.length - 1]!.dueDate;
 
+        // Fornecedor: entidade (selecionada/criada/legado) deduplicada. `supplier`
+        // (texto) fica como sombra sincronizada. Só em PAYABLE.
+        const resolvedSupplier =
+          input.type === "PAYABLE"
+            ? await resolveSupplierId(tx, ctx.tenantId, input)
+            : { supplierId: null, supplierName: null };
+
         const transaction = await tx.financialTransaction.create({
           data: {
             tenantId: ctx.tenantId,
@@ -294,7 +302,8 @@ export const financialRouter = createTRPCRouter({
             status: "PENDING",
             description: input.description,
             category: input.category ?? null,
-            supplier: input.supplier ?? null,
+            supplierId: resolvedSupplier.supplierId,
+            supplier: resolvedSupplier.supplierName,
             customerName: input.customerName ?? null,
             customerId: input.customerId ?? null,
             totalAmount: totalAmountDecimal,
@@ -378,13 +387,20 @@ export const financialRouter = createTRPCRouter({
           });
         }
 
+        // Fornecedor: em tx não-vinculada, resolve a entidade (select/criar/legado);
+        // em tx vinculada, mantém o existente (undefined = não altera).
+        const resolvedSupplier = isLinkedToSource
+          ? null
+          : await resolveSupplierId(tx, ctx.tenantId, input);
+
         await tx.financialTransaction.update({
           where: { id: input.id },
           data: {
             description: input.description,
             category: input.category ?? null,
             // Em tx vinculada, mantem cliente/fornecedor existente.
-            supplier: isLinkedToSource ? undefined : (input.supplier ?? null),
+            supplierId: resolvedSupplier ? resolvedSupplier.supplierId : undefined,
+            supplier: resolvedSupplier ? resolvedSupplier.supplierName : undefined,
             customerName: isLinkedToSource ? undefined : (input.customerName ?? null),
             notes: input.notes ?? null,
           },

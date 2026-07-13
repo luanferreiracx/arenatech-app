@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { SupplierSelect } from "@/components/domain/forms/supplier-select";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 import type { CreateTransactionInput } from "@/lib/validators/financial";
 
@@ -34,7 +35,7 @@ interface FormValues {
   type: "PAYABLE" | "RECEIVABLE";
   description: string;
   category: string;
-  supplier: string;
+  supplierId: string | null;
   customerName: string;
   totalAmount: number; // centavos
   paymentMethod: string;
@@ -53,7 +54,7 @@ export function TransactionForm() {
       type: "RECEIVABLE",
       description: "",
       category: "",
-      supplier: "",
+      supplierId: null,
       customerName: "",
       totalAmount: 0,
       paymentMethod: "",
@@ -110,7 +111,7 @@ export function TransactionForm() {
       type: values.type,
       description: values.description,
       category: values.category || null,
-      supplier: values.type === "PAYABLE" ? (values.supplier || null) : null,
+      supplierId: values.type === "PAYABLE" ? (values.supplierId || null) : null,
       customerName: values.type === "RECEIVABLE" ? (values.customerName || null) : null,
       totalAmount: values.totalAmount,
       paymentMethod: values.paymentMethod || null,
@@ -186,10 +187,12 @@ export function TransactionForm() {
           {type === "PAYABLE" && (
             <div>
               <Label>Fornecedor</Label>
-              <Input
-                {...register("supplier")}
-                placeholder="Nome do fornecedor"
-                maxLength={200}
+              <Controller
+                control={control}
+                name="supplierId"
+                render={({ field }) => (
+                  <SupplierSelect value={field.value} onChange={field.onChange} />
+                )}
               />
             </div>
           )}
