@@ -51,6 +51,11 @@ export function TwoFactorCard() {
   const [code, setCode] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
 
+  // Regenerar códigos de backup (auditoria 2026-07-13, #8): pede TOTP e substitui
+  // os códigos. Invalida os antigos.
+  const [regenMode, setRegenMode] = useState(false);
+  const [regenTotp, setRegenTotp] = useState("");
+
   // Desativação — caminho forte (senha + TOTP → email + WhatsApp) ou backup code.
   const [backupMode, setBackupMode] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
@@ -86,6 +91,20 @@ export function TwoFactorCard() {
         setCode("");
         void statusQuery.refetch();
         toast.success("2FA ativado com sucesso!");
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
+  // Regenera os códigos de backup (exige TOTP). Mostra os novos via BackupCodes.
+  const regenMutation = useMutation(
+    trpc.twoFactor.regenerateBackupCodes.mutationOptions({
+      onSuccess: (data) => {
+        setBackupCodes(data.backupCodes);
+        setRegenMode(false);
+        setRegenTotp("");
+        void statusQuery.refetch();
+        toast.success("Novos códigos de backup gerados. Os anteriores foram invalidados.");
       },
       onError: (e) => toast.error(e.message),
     }),
@@ -168,6 +187,43 @@ export function TwoFactorCard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Regenerar códigos de backup (exige TOTP) */}
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Códigos de backup</p>
+            {!regenMode ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setRegenMode(true)}>
+                Regenerar códigos de backup
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Gerar novos códigos invalida os atuais. Informe o código do app para confirmar.
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="Código do app (6 dígitos)"
+                    value={regenTotp}
+                    onChange={(e) => setRegenTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="max-w-[220px]"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => regenMutation.mutate({ code: regenTotp })}
+                    disabled={regenTotp.length !== 6 || regenMutation.isPending}
+                  >
+                    {regenMutation.isPending ? "Gerando..." : "Confirmar"}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setRegenMode(false); setRegenTotp(""); }}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <p className="text-sm font-medium">Desativar 2FA</p>
 
           {!backupMode ? (

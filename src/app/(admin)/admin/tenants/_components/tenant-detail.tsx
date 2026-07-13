@@ -110,9 +110,11 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const [twoFactorTarget, setTwoFactorTarget] = useState<UserTarget | null>(null);
   const [removeTarget, setRemoveTarget] = useState<UserTarget | null>(null);
   const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(null);
+  const [showDeleteTenant, setShowDeleteTenant] = useState(false);
 
   const tenantQuery = useQuery(trpc.admin.getTenant.queryOptions({ id: tenantId }));
   const updateTenantMutation = useMutation(trpc.admin.updateTenant.mutationOptions());
+  const deleteTenantMutation = useMutation(trpc.admin.deleteTenant.mutationOptions());
   const createUserMutation = useMutation(trpc.admin.createTenantUser.mutationOptions());
   const updateUserMutation = useMutation(trpc.admin.updateTenantUser.mutationOptions());
   const removeUserMutation = useMutation(trpc.admin.removeTenantUser.mutationOptions());
@@ -318,9 +320,19 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             />
           </div>
         </FormSection>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={updateTenantMutation.isPending}>Salvar</Button>
           <Button type="button" variant="outline" onClick={() => router.push("/admin/tenants")}>Voltar</Button>
+          {tenant.status !== "CANCELLED" && (
+            <Button
+              type="button"
+              variant="outline"
+              className="ml-auto text-destructive hover:text-destructive"
+              onClick={() => setShowDeleteTenant(true)}
+            >
+              Excluir tenant
+            </Button>
+          )}
         </div>
       </form>
 
@@ -612,6 +624,30 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={showDeleteTenant}
+        onOpenChange={(open) => {
+          if (!open && !deleteTenantMutation.isPending) setShowDeleteTenant(false);
+        }}
+        title="Excluir tenant"
+        description={`Cancelar o tenant "${tenant.name}"? O acesso é cortado (login bloqueado) e a assinatura é cancelada. Os dados são preservados (soft-delete).`}
+        confirmLabel="Excluir tenant"
+        variant="destructive"
+        onConfirm={() =>
+          deleteTenantMutation.mutate(
+            { id: tenantId },
+            {
+              onSuccess: () => {
+                toast.success("Tenant excluído (acesso cortado).");
+                router.push("/admin/tenants");
+              },
+              onError: (err) => toast.error(err.message),
+            },
+          )
+        }
+        isLoading={deleteTenantMutation.isPending}
+      />
 
       <ConfirmDialog
         open={resetTarget !== null}
