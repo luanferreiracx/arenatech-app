@@ -51,12 +51,11 @@ export type BuildTalisonBusinessContextInput = {
   tenantAssistanceSettings?: TenantAssistanceSettingsLike | null;
 };
 
-const DEFAULT_STORE_NAME = "Arena Tech";
-const DEFAULT_PHONE = "(86) 99564-7443";
-const DEFAULT_INSTAGRAM = "@arenatechpi";
-const DEFAULT_MAPS_URL = "https://maps.app.goo.gl/5dmJeT2y4cCGsKQD8";
-const DEFAULT_LOCATION =
-  "Riverside Shopping, praça da Caixa Econômica, corredor da Kalor Produções, ao lado da IAP, Teresina/PI";
+// Nada aqui é hardcoded por loja (multi-tenant): tudo vem do banco/settings do tenant.
+// Quando o banco não tem o dado, o campo é OMITIDO — nunca preenchido com o de outra
+// loja (evita vazamento cross-tenant: telefone/Instagram/endereço de um tenant no bot
+// de outro). Instagram, mapa e horário específicos da loja moram nas instruções da loja.
+const NEUTRAL_STORE_NAME = "nossa loja";
 
 function present(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -70,10 +69,11 @@ function decimalToText(value: TenantAssistanceSettingsLike["pixDiscount"]): stri
   return normalized.endsWith(",00") ? normalized.slice(0, -3) : normalized;
 }
 
+/** Endereço só do banco do tenant; null quando não configurado (não usa fallback de outra loja). */
 function formatAddress(
   tenantSettings?: TenantSettingsLike | null,
   assistanceSettings?: TenantAssistanceSettingsLike | null,
-): string {
+): string | null {
   const assistanceAddress = present(assistanceSettings?.address);
   if (assistanceAddress) {
     const cityState = [present(assistanceSettings?.city), present(assistanceSettings?.state)]
@@ -93,7 +93,7 @@ function formatAddress(
     .filter(Boolean)
     .join(" - ");
   const configured = [streetLine, cityLine].filter(Boolean).join(" — ");
-  return configured || DEFAULT_LOCATION;
+  return configured || null;
 }
 
 function formatBusinessHours(input: BuildTalisonBusinessContextInput): string | null {
@@ -107,7 +107,9 @@ function formatBusinessHours(input: BuildTalisonBusinessContextInput): string | 
   const end = present(input.chatbotConfig?.businessHoursEnd);
   if (start && end) return `Atendimento configurado das ${start} às ${end}.`;
 
-  return "Segunda a sábado, das 09h30 às 20h.";
+  // Sem horário configurado, não invente um (o de outra loja vazaria); o horário da loja
+  // vem das instruções da loja quando o admin informar.
+  return null;
 }
 
 export function buildTalisonBusinessContext(
@@ -116,8 +118,8 @@ export function buildTalisonBusinessContext(
   const tenantSettings = input.tenantSettings;
   const assistanceSettings = input.tenantAssistanceSettings;
   const storeName =
-    present(assistanceSettings?.assistanceName) ?? present(tenantSettings?.tradeName) ?? DEFAULT_STORE_NAME;
-  const phone = present(assistanceSettings?.phone) ?? present(tenantSettings?.phone) ?? DEFAULT_PHONE;
+    present(assistanceSettings?.assistanceName) ?? present(tenantSettings?.tradeName) ?? NEUTRAL_STORE_NAME;
+  const phone = present(assistanceSettings?.phone) ?? present(tenantSettings?.phone);
   const email = present(assistanceSettings?.email) ?? present(tenantSettings?.email);
   const address = formatAddress(tenantSettings, assistanceSettings);
   const pixDiscount = decimalToText(assistanceSettings?.pixDiscount);
@@ -130,11 +132,11 @@ export function buildTalisonBusinessContext(
     // da loja" (ADR 0055) — fonte única. Aqui fica só o nome (derivado do banco); o resto
     // do "quem somos / o que fazemos" vem das instruções da loja.
     identity: `Nome da loja: ${storeName}.`,
+    // Só contato derivado do banco do tenant; nada hardcoded (Instagram/mapa moram nas
+    // instruções da loja). Cada linha só entra se o dado existir — sem vazar o de outra loja.
     contact: [
-      `Endereço: ${address}`,
-      `WhatsApp/telefone: ${phone}`,
-      `Instagram: ${DEFAULT_INSTAGRAM}`,
-      `Mapa: ${DEFAULT_MAPS_URL}`,
+      ...(address ? [`Endereço: ${address}`] : []),
+      ...(phone ? [`WhatsApp/telefone: ${phone}`] : []),
       ...(email ? [`E-mail: ${email}`] : []),
     ],
     businessHours: formatBusinessHours(input),
@@ -143,7 +145,7 @@ export function buildTalisonBusinessContext(
       ...(pixDiscount ? [`PIX/à vista costuma ter ${pixDiscount}% de desconto quando a tool/configuração confirmar`] : []),
       ...(installments ? [`assistência pode ter até ${installments}x sem juros quando a regra/configuração permitir`] : []),
     ],
-    delivery: "Entrega/retirada com atendimento local; entrega restrita a Teresina/PI quando disponível.",
+    delivery: "Entrega/retirada conforme disponibilidade; confirme a área e as condições de entrega com um atendente.",
     warrantyAndTimelines: [
       ...(warrantyPolicy ? [`Política de garantia configurada: ${warrantyPolicy}`] : []),
       "prazos e garantias específicos de OS/produto devem ser consultados por tool ou confirmados por atendente",
@@ -160,7 +162,7 @@ export function buildTalisonBusinessContext(
 export function renderTalisonBusinessContext(context: TalisonBusinessContext): string {
   const sections = [
     context.identity,
-    `Contato e localização: ${context.contact.join(" | ")}.`,
+    context.contact.length > 0 ? `Contato e localização: ${context.contact.join(" | ")}.` : null,
     context.businessHours ? `Horário: ${context.businessHours}` : null,
     `Pagamentos: ${context.payments.join("; ")}.`,
     `Entrega: ${context.delivery}`,

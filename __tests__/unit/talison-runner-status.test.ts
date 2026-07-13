@@ -267,7 +267,7 @@ describe("processConversation — status e entrega", () => {
           businessContext: expect.objectContaining({
             storeName: "Arena Tech Matriz",
             businessHours: "Seg-Sex 10h-18h",
-            delivery: expect.stringContaining("Teresina/PI"),
+            delivery: expect.stringContaining("Entrega/retirada"),
             payments: expect.arrayContaining([
               expect.stringContaining("PIX, dinheiro, débito e crédito"),
               expect.stringContaining("6% de desconto"),
