@@ -1102,6 +1102,14 @@ export async function applyPixReceivedEffects(tenantId: string, transactionId: s
     }),
   );
   if (!row) return { applied: false };
+  // Cobrança de assinatura (ADR 0058): renova a assinatura ao confirmar o PIX.
+  // Idempotente (guarda por subscriptionAppliedAt).
+  if (row.sourceType === "SUBSCRIPTION") {
+    const { renewSubscriptionFromPayment } = await import(
+      "@/server/services/subscription-billing.service"
+    );
+    return renewSubscriptionFromPayment(row);
+  }
   // So libera venda de PDV/QuickSale; deposito wallet puro nao tem efeito de venda.
   if (row.sourceType !== "SALE" && row.sourceType !== "QUICK_SALE") {
     return { applied: false };
@@ -1126,6 +1134,16 @@ export async function applyDepositBusinessEffects(tenantId: string, transactionI
     }),
   );
   if (!row || row.status !== "COMPLETED") return { applied: false };
+
+  // Cobrança de assinatura (ADR 0058): rede de segurança caso o `approved` não
+  // tenha chegado e o depósito complete direto do on-chain. Idempotente (CAS em
+  // subscriptionAppliedAt) — se já renovou no marco `approved`, aqui é no-op.
+  if (row.sourceType === "SUBSCRIPTION") {
+    const { renewSubscriptionFromPayment } = await import(
+      "@/server/services/subscription-billing.service"
+    );
+    return renewSubscriptionFromPayment(row);
+  }
 
   // Webhook de SAÍDA pro parceiro (ADR 0057): depósito confirmado. Best-effort,
   // fire-and-forget (não bloqueia nem quebra o fluxo).

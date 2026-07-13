@@ -20,6 +20,9 @@ enum DepixTransactionSourceType {
   PAYMENT_LINK
   STATIC_QR
   EXTERNAL_DEPOSIT
+  /// Cobrança da ASSINATURA do tenant (ADR 0058): depósito no tenant CENTRAL
+  /// (arena-tech), sourceId = subscriptionId. Ao confirmar, renova a assinatura.
+  SUBSCRIPTION
 }
 
 enum DepixTransactionStatus {
@@ -121,6 +124,10 @@ model TenantDepixTransaction {
   /// acontece no webhook LWK `confirmed` (status COMPLETED). Usado apenas pra
   /// UI agilizar o atendimento ("PIX recebido, confirmando na rede ~2min").
   pixApprovedAt         DateTime?               @map("pix_approved_at")
+  /// ADR 0058: quando o efeito de RENOVAR A ASSINATURA já foi aplicado a partir
+  /// deste depósito (sourceType=SUBSCRIPTION). Guarda de idempotência — o período
+  /// só avança UMA vez por depósito confirmado, mesmo com webhook duplicado.
+  subscriptionAppliedAt DateTime?               @map("subscription_applied_at")
 
   /// ─── AUDITORIA ──────────────────────────────────────────────────────
   apiResponse           Json?                   @map("api_response")
