@@ -1,21 +1,57 @@
 import { describe, expect, it } from "vitest";
 import { buildTalisonBusinessContext, renderTalisonBusinessContext } from "@/lib/talison/business-context";
-import { buildSystemPrompt } from "@/lib/talison/prompt";
+import { buildSystemPrompt, STORE_INSTRUCTIONS_GUARD, STORE_SCOPE_FALLBACK } from "@/lib/talison/prompt";
 
 describe("Talison prompt", () => {
-  it("inclui conhecimento real da Arena Tech sem virar roteiro rígido", () => {
+  it("injeta os fatos derivados do banco (contato, entrega, nome) e as guardas de comportamento", () => {
     const businessContext = buildTalisonBusinessContext();
     const prompt = buildSystemPrompt({ contactName: "Maria", businessContext });
 
-    expect(prompt).toContain("assistência técnica e loja");
-    expect(prompt).toContain("iPhone, iPad, MacBook, AirPods");
-    expect(prompt).toContain("notebooks/PCs, consoles, periféricos");
+    // Fatos que continuam vindo do banco/estrutura (não do campo editável).
+    expect(prompt).toContain("Nome da loja: Arena Tech");
     expect(prompt).toContain("Riverside Shopping");
     expect(prompt).toContain("Entrega/retirada");
-    expect(prompt).toContain("não faz assistência técnica para celulares que não sejam iPhone");
-    expect(prompt).toContain("não vende celulares que não sejam iPhone nem tablets que não sejam iPad");
+    // Guardas de comportamento seguem no esqueleto fixo.
     expect(prompt).toContain("não aja como árvore de decisão");
     expect(prompt).toContain("O contato se chama Maria");
+  });
+
+  it("NÃO hardcoda mais o conhecimento da loja que passou para as instruções editáveis (ADR 0055)", () => {
+    // Sem storeInstructions, o conhecimento específico (identidade rica, escopo por
+    // aparelho, limitações, sinônimos, peças premium, iPhones não atendidos) não deve
+    // aparecer hardcoded — ele agora vive no campo editável.
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).not.toContain("foco em Apple");
+    expect(prompt).not.toContain("MacBook apenas para troca de bateria");
+    expect(prompt).not.toContain("não faz assistência técnica para celulares que não sejam iPhone");
+    expect(prompt).not.toContain("PEÇAS são PREMIUM");
+    expect(prompt).not.toContain("MODELOS DE iPHONE QUE NÃO ATENDEMOS");
+    expect(prompt).not.toContain("Troca de Tampa Traseira");
+  });
+
+  it("com instruções da loja: injeta o conhecimento como DADO e reafirma as guardas por último", () => {
+    const prompt = buildSystemPrompt({
+      contactName: null,
+      businessContext: buildTalisonBusinessContext(),
+      storeInstructions: "Não atendemos iPhone SE. Usamos peças premium equivalentes à original.",
+    });
+
+    expect(prompt).toContain("INSTRUÇÕES DA LOJA");
+    expect(prompt).toContain("Não atendemos iPhone SE.");
+    // Guarda anti-injeção é a última coisa do prompt.
+    expect(prompt.trimEnd().endsWith(STORE_INSTRUCTIONS_GUARD)).toBe(true);
+    // Sem instruções, o fallback fail-closed NÃO deve coexistir.
+    expect(prompt).not.toContain("ESCOPO NÃO CONFIGURADO");
+  });
+
+  it("fail-closed: sem instruções da loja, injeta a guarda de escopo não configurado (deny-path fechado)", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain(STORE_SCOPE_FALLBACK);
+    expect(prompt).toContain("ESCOPO NÃO CONFIGURADO");
+    // A guarda das instruções (que pressupõe texto do admin) não aparece sem texto.
+    expect(prompt).not.toContain("<<< INÍCIO DAS INSTRUÇÕES DA LOJA >>>");
   });
 
   it("usa configuração do tenant antes dos defaults do Laravel", () => {
@@ -58,13 +94,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("JÁ É o valor FINAL no cartão");
   });
 
-  it("instrui a traduzir o vocabulário do cliente pro termo canônico do catálogo", () => {
+  it("instrui a traduzir o vocabulário do cliente pro termo canônico antes de buscar", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 
+    // A REGRA comportamental (traduzir antes de buscar) fica; a LISTA de sinônimos
+    // saiu para as instruções da loja (ADR 0055).
     expect(prompt).toContain("VOCABULÁRIO");
-    expect(prompt).toContain("Troca de Tampa Traseira");
-    expect(prompt).toContain("vidro traseiro");
-    expect(prompt).toContain("power banks");
+    expect(prompt).toContain("traduza o que ele pediu para o termo canônico");
+    expect(prompt).toContain("INSTRUÇÕES DA LOJA");
+    expect(prompt).not.toContain("Troca de Tampa Traseira");
   });
 
   it("proíbe inventar links e afirmar disponibilidade sem tool", () => {
@@ -124,11 +162,12 @@ describe("Talison prompt", () => {
     // Bug Renatinha: bot ofereceu 6x sem juros num aparelho.
     expect(prompt).toContain("NENHUM APARELHO");
     expect(prompt).toContain("sem juros");
-    // Bug troca de tela pedindo armazenamento.
+    // Bug troca de tela pedindo armazenamento (regra de comportamento, permanece).
     expect(prompt).toContain("ARMAZENAMENTO NÃO IMPORTA pra reparo");
-    // Bug peça "original Apple".
-    expect(prompt).toContain("PEÇAS são PREMIUM");
-    expect(prompt).toContain("NÃO são originais da Apple");
+    // Bug peça "original Apple": a guarda de NÃO inventar detalhes técnicos fica; o
+    // fato "peças premium" agora vem das instruções da loja (ADR 0055).
+    expect(prompt).toContain("NUNCA invente detalhes técnicos das peças");
+    expect(prompt).not.toContain("PEÇAS são PREMIUM");
   });
 
   it("inclui aviso dinâmico de fora de horário quando configurado", () => {

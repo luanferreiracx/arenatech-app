@@ -8,9 +8,11 @@ import { buildSystemPrompt, STORE_INSTRUCTIONS_GUARD } from "@/lib/talison/promp
 import { updateBotConfigSchema } from "@/lib/validators/bot-config";
 
 describe("buildSystemPrompt — instruções da loja (M1/M2)", () => {
-  it("sem instruções: prompt não tem o bloco da loja", () => {
+  it("sem instruções: prompt não tem o bloco delimitado da loja", () => {
     const prompt = buildSystemPrompt({ contactName: null });
-    expect(prompt).not.toContain("INSTRUÇÕES DA LOJA");
+    // As guardas de comportamento podem citar "instruções da loja"; o que não pode
+    // existir sem texto do admin é o BLOCO delimitado.
+    expect(prompt).not.toContain("<<< INÍCIO DAS INSTRUÇÕES DA LOJA >>>");
   });
 
   it("com instruções: injeta como DADO delimitado + reafirma as guardas por ÚLTIMO", () => {
@@ -34,8 +36,10 @@ describe("buildSystemPrompt — instruções da loja (M1/M2)", () => {
     expect(idxIdentity).toBeLessThan(idxStore);
   });
 
-  it("texto vazio/espaços não injeta bloco", () => {
-    expect(buildSystemPrompt({ contactName: null, storeInstructions: "   " })).not.toContain("INSTRUÇÕES DA LOJA");
+  it("texto vazio/espaços não injeta bloco delimitado", () => {
+    expect(buildSystemPrompt({ contactName: null, storeInstructions: "   " })).not.toContain(
+      "<<< INÍCIO DAS INSTRUÇÕES DA LOJA >>>",
+    );
   });
 });
 

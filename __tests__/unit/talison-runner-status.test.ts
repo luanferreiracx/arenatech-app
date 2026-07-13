@@ -268,7 +268,6 @@ describe("processConversation — status e entrega", () => {
             storeName: "Arena Tech Matriz",
             businessHours: "Seg-Sex 10h-18h",
             delivery: expect.stringContaining("Teresina/PI"),
-            limitations: expect.arrayContaining([expect.stringContaining("não prometa disponibilidade")]),
             payments: expect.arrayContaining([
               expect.stringContaining("PIX, dinheiro, débito e crédito"),
               expect.stringContaining("6% de desconto"),

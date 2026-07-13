@@ -37,9 +37,6 @@ type TenantAssistanceSettingsLike = {
 export type TalisonBusinessContext = {
   storeName: string;
   identity: string;
-  services: string[];
-  products: string[];
-  limitations: string[];
   contact: string[];
   businessHours: string | null;
   payments: string[];
@@ -129,34 +126,10 @@ export function buildTalisonBusinessContext(
 
   return {
     storeName,
-    identity:
-      `${storeName} é assistência técnica e loja em Teresina/PI, com foco em Apple, ` +
-      "notebooks/PCs, consoles, periféricos e eletrônicos em geral.",
-    services: [
-      "status de conserto/OS",
-      "orçamento e reparo de iPhone",
-      "MacBook apenas para troca de bateria e problemas de software",
-      "iPad apenas para troca de vidro frontal",
-      "notebooks/PCs para formatação, instalação de Office e troca/upgrade de memória ou SSD",
-      "consoles para problemas na placa",
-      "assistência técnica e garantia",
-      "avaliação/troca de aparelho usado",
-      "venda de aparelhos e acessórios",
-    ],
-    products: [
-      "iPhone, iPad, MacBook, AirPods, Apple Watch, notebooks gamers e consoles em geral",
-      "acessórios para celulares com foco em iPhone",
-      "periféricos de PC/notebook",
-      "eletrônicos em geral como cabos e adaptadores",
-    ],
-    limitations: [
-      "não prometa disponibilidade de produto, preço, prazo, parcela ou valor de troca sem consultar tool ou atendente",
-      "não faz assistência técnica para celulares que não sejam iPhone, tablets que não sejam iPad, Apple Watch, AirPods ou fones de ouvido",
-      "não vende celulares que não sejam iPhone nem tablets que não sejam iPad",
-      "troca/avaliação de aparelhos não-Apple, notebook comum ou PC gamer precisa de atendente humano",
-      "se um produto existir internamente mas não estiver disponível pelo catálogo/estoque, trate como indisponível e ofereça atendimento humano",
-      "se o cliente trouxer algo que NÃO fazemos (conserto não-Apple, etc.), apenas diga com educação que não fazemos e encerre — sem indicar outra loja e sem transferir para humano",
-    ],
+    // Identidade/serviços/limitações da loja passaram para o campo editável "instruções
+    // da loja" (ADR 0055) — fonte única. Aqui fica só o nome (derivado do banco); o resto
+    // do "quem somos / o que fazemos" vem das instruções da loja.
+    identity: `Nome da loja: ${storeName}.`,
     contact: [
       `Endereço: ${address}`,
       `WhatsApp/telefone: ${phone}`,
@@ -186,10 +159,7 @@ export function buildTalisonBusinessContext(
 
 export function renderTalisonBusinessContext(context: TalisonBusinessContext): string {
   const sections = [
-    `Identidade da loja: ${context.identity}`,
-    `Serviços que pode explicar: ${context.services.join("; ")}.`,
-    `Produtos/categorias: ${context.products.join("; ")}.`,
-    `Limitações importantes: ${context.limitations.join("; ")}.`,
+    context.identity,
     `Contato e localização: ${context.contact.join(" | ")}.`,
     context.businessHours ? `Horário: ${context.businessHours}` : null,
     `Pagamentos: ${context.payments.join("; ")}.`,
