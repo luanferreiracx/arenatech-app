@@ -33,7 +33,6 @@ import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
 import { checklistRouter } from "@/server/api/routers/checklist";
 import { rewardRouter } from "@/server/api/routers/reward";
-import { chatbotRouter } from "@/server/api/routers/chatbot";
 import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
 import { noKycRouter } from "@/server/api/routers/no-kyc";
 import { receivingRouter } from "@/server/api/routers/receiving";
@@ -44,7 +43,6 @@ export const appRouter = createTRPCRouter({
   nfeImport: nfeImportRouter,
   checklist: checklistRouter,
   reward: rewardRouter,
-  chatbot: chatbotRouter,
   depixWithdraw: depixWithdrawRouter,
   depixWallet: depixWalletRouter,
   depixTransaction: depixTransactionRouter,
