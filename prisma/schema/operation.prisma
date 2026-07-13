@@ -72,60 +72,6 @@ model LabOrder {
   @@map("lab_orders")
 }
 
-/// Categorias de despesa operacional.
-enum ExpenseCategory {
-  TRAVEL          // Viagem (combustivel, transporte)
-  MEALS           // Refeicao
-  SUPPLIES        // Material de escritorio/limpeza
-  MAINTENANCE     // Manutencao predial/equipamentos
-  UTILITIES       // Agua, luz, internet, telefone
-  RENT            // Aluguel
-  SOFTWARE        // Licencas/SaaS
-  MARKETING       // Anuncios, banners
-  TAXES           // Impostos avulsos (DAS, taxas)
-  OTHER
-}
-
-enum ExpenseStatus {
-  PENDING_APPROVAL
-  APPROVED
-  PAID
-  REJECTED
-  CANCELLED
-}
-
-/// Despesa operacional. Paridade Laravel `Despesa` + integração com fluxo
-/// de aprovação por gerente e geração de PAYABLE no financeiro ao aprovar.
-model Expense {
-  id                String          @id @default(uuid()) @db.Uuid
-  tenantId          String          @map("tenant_id") @db.Uuid
-  createdByUserId   String          @map("created_by_user_id") @db.Uuid
-  category          ExpenseCategory
-  description       String
-  amount            Decimal         @db.Decimal(10, 2)
-  // Quando true, aprovação automatica (gerente registrou direto).
-  // Quando false, fica PENDING_APPROVAL até gerente aprovar.
-  status            ExpenseStatus   @default(PENDING_APPROVAL)
-  approvedByUserId  String?         @map("approved_by_user_id") @db.Uuid
-  approvedAt        DateTime?       @map("approved_at")
-  rejectedReason    String?         @map("rejected_reason")
-  dueDate           DateTime?       @map("due_date")
-  // PAYABLE gerado ao aprovar (link com financial)
-  payableTransactionId String?      @map("payable_transaction_id") @db.Uuid
-  // Anexo (URL no MinIO): NF, recibo, comprovante
-  attachmentUrl     String?         @map("attachment_url")
-  notes             String?
-  deletedAt         DateTime?       @map("deleted_at")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
-
-  @@index([tenantId, status])
-  @@index([tenantId, category])
-  @@index([tenantId, createdByUserId])
-  @@index([tenantId, dueDate])
-  @@index([tenantId, deletedAt])
-  @@map("expenses")
-}
 
 model ServiceProvider {
   id              String    @id @default(uuid()) @db.Uuid
