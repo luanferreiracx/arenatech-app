@@ -477,7 +477,23 @@ export const stockRouter = createTRPCRouter({
           }
         }
 
-        const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || existing.categoryId;
+        // Categoria nova inline também na EDIÇÃO (A5) — antes só no cadastro.
+        // Mesmo find-or-create do create (paridade Laravel nova_categoria).
+        let inlineCategoryId: string | null = null;
+        if (input.newCategoryName) {
+          const existingCat = await tx.productCategory.findFirst({
+            where: { name: { equals: input.newCategoryName, mode: "insensitive" }, deletedAt: null },
+            select: { id: true },
+          });
+          inlineCategoryId = existingCat
+            ? existingCat.id
+            : (await tx.productCategory.create({
+                data: { tenantId: ctx.tenantId, name: input.newCategoryName },
+                select: { id: true },
+              })).id;
+        }
+        const primaryCategoryId =
+          inlineCategoryId || input.categoryIds?.[0] || input.categoryId || existing.categoryId;
 
         // Marca: mesma resolução do create (entidade selecionada/criada/legado).
         const resolvedBrand = await resolveBrandId(tx, ctx.tenantId, input);
