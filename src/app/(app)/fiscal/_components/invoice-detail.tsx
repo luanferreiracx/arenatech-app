@@ -34,6 +34,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
   const [cancelReason, setCancelReason] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
+  const [downloading, setDownloading] = useState<null | "pdf" | "xml">(null);
 
   const invoiceQuery = useQuery(trpc.fiscal.getById.queryOptions({ id: invoiceId }));
   const authorizeMutation = useMutation(trpc.fiscal.authorize.mutationOptions());
@@ -57,6 +58,28 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
         onError: (err) => toast.error(err.message),
       },
     );
+  };
+
+  // Baixa o DANFE (PDF) ou o XML da NF-e autorizada: busca a URL no provedor
+  // (Nuvem Fiscal) sob demanda e abre em nova aba. O backend (downloadPdf/
+  // downloadXml) já existia — faltava a ação na UI (auditoria 2026-07-13, F).
+  const handleDownload = async (kind: "pdf" | "xml") => {
+    setDownloading(kind);
+    try {
+      const url =
+        kind === "pdf"
+          ? (await queryClient.fetchQuery(trpc.fiscal.downloadPdf.queryOptions({ invoiceId }))).pdfUrl
+          : (await queryClient.fetchQuery(trpc.fiscal.downloadXml.queryOptions({ invoiceId }))).xmlUrl;
+      if (!url) {
+        toast.error(`${kind.toUpperCase()} indisponível para esta nota.`);
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Falha ao baixar ${kind.toUpperCase()}`);
+    } finally {
+      setDownloading(null);
+    }
   };
 
   const handleCancel = () => {
@@ -184,6 +207,14 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
         )}
         {(invoice.status === "AUTHORIZED" || invoice.status === "CORRECTION_LETTER") && (
           <>
+            <Button variant="outline" onClick={() => handleDownload("pdf")} disabled={downloading !== null}>
+              <Download className="mr-2 h-4 w-4" />
+              {downloading === "pdf" ? "Baixando..." : "Baixar PDF (DANFE)"}
+            </Button>
+            <Button variant="outline" onClick={() => handleDownload("xml")} disabled={downloading !== null}>
+              <FileText className="mr-2 h-4 w-4" />
+              {downloading === "xml" ? "Baixando..." : "Baixar XML"}
+            </Button>
             <Button variant="outline" onClick={() => setShowEmailDialog(true)}>
               <Mail className="mr-2 h-4 w-4" />
               Enviar por Email
