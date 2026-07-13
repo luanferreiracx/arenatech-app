@@ -49,8 +49,10 @@ model FinancialTransaction {
 
   installments     Installment[]
   financialCategory FinancialCategory? @relation(fields: [categoryId], references: [id])
+  supplierEntity    Supplier?          @relation(fields: [supplierId], references: [id])
 
   @@index([tenantId, type, status])
+  @@index([tenantId, supplierId])
   // G2 (auditoria financeira 2026-07-11): `receivables` filtra (type,status) e
   // ORDENA por paidAt; sem paidAt no índice o Postgres ordenava em memória todos
   // os PAID. Cobre também o "recebido no mês" da dashboard.

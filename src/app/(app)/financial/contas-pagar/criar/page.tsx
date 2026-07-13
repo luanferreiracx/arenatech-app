@@ -11,6 +11,7 @@ import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { DateInput } from "@/components/inputs/date-input";
+import { SupplierSelect } from "@/components/domain/forms/supplier-select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -34,7 +35,7 @@ interface FormValues {
   emissionDate: string;
   firstDueDate: string;
   paymentMethod: string;
-  supplier: string;
+  supplierId: string | null;
   notes: string;
 }
 
@@ -55,7 +56,7 @@ export default function CreatePayablePage() {
       emissionDate: new Date().toISOString().split("T")[0]!,
       firstDueDate: "",
       paymentMethod: "dinheiro",
-      supplier: "",
+      supplierId: null,
       notes: "",
     },
   });
@@ -89,7 +90,7 @@ export default function CreatePayablePage() {
       emissionDate: data.emissionDate,
       firstDueDate: data.firstDueDate || undefined,
       paymentMethod: data.paymentMethod || undefined,
-      supplier: data.supplier || undefined,
+      supplierId: data.supplierId || undefined,
       notes: data.notes || undefined,
     });
   }
@@ -104,12 +105,12 @@ export default function CreatePayablePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="supplier"
+                name="supplierId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Fornecedor</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Nome do fornecedor (opcional)" />
+                      <SupplierSelect value={field.value} onChange={field.onChange} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

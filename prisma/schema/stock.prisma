@@ -254,6 +254,7 @@ model Supplier {
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
   stockItems   StockItem[]
+  financialTransactions FinancialTransaction[]
 
   @@index([tenantId, active])
   @@index([tenantId, cpf])
