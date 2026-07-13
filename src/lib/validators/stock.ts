@@ -48,6 +48,14 @@ export const createProductSchema = z.object({
   barcode: z.string().max(50).optional().nullable(),
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres").max(200),
   description: z.string().max(2000).optional().nullable(),
+  /**
+   * Marca do produto. `brandId` = marca existente selecionada (entidade
+   * ProductBrand). `newBrandName` = criar marca nova inline (paridade com
+   * categoria). `brand` (texto livre) é legado/sombra — o servidor resolve o
+   * brandId a partir de brandId → newBrandName → brand, nessa ordem.
+   */
+  brandId: z.string().uuid().optional().nullable(),
+  newBrandName: z.string().min(1).max(100).optional().nullable(),
   brand: z.string().max(100).optional().nullable(),
   ncm: z.string().regex(/^\d{8}$/, "NCM deve ter 8 digitos").optional().nullable(),
   cest: z.string().max(10).optional().nullable(),

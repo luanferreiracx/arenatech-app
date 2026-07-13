@@ -69,6 +69,8 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
           barcode: product.barcode ?? "",
           name: product.name,
           description: product.description ?? "",
+          brandId: product.brandId ?? null,
+          newBrandName: null,
           brand: product.brand ?? "",
           ncm: product.ncm ?? null,
           cest: product.cest ?? null,
