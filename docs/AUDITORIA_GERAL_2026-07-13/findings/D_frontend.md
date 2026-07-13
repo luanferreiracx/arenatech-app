@@ -44,3 +44,13 @@ Contagens de grep (src/app + src/components):
 - shadcn/ui + tokens OKLCH (globals.css) — base sólida.
 - Padrão select+criar-inline para categoria/marca/atributo (agora consistente).
 - Suspense/TanStack Query no fetch (não useEffect).
+
+---
+## ADENDO (verificação #10 — FALSO POSITIVO parcial)
+`condition` foi re-verificado: **já é um `<Select>` na UI** (upgrade-dialog.tsx:448,
+união tipada "USED"|"NEW"|"SEMI_NEW"|"DISPLAY") e o código seta com união tipada
+(sale.ts:1862). Dados de prod LIMPOS (SEMI_NEW/USED/NEW, sem lixo). O `String?` no
+schema é só falta de enum-no-banco, mas os valores JÁ são controlados. Converter pra
+enum Prisma = baixo valor + risco de migração, sem ganho de qualidade de dados.
+DECISÃO: **não fazer #10** (não é problema real). Lição: `String?` no schema não
+implica UI de texto livre — verificar a UI antes de flaggar (como o audit skill manda).
