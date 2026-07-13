@@ -35,7 +35,13 @@ import {
   listAuditLogsSchema,
   updateFiscalSettingsSchema,
 } from "@/lib/validators/subscription";
-import { updateBotConfigSchema, BOT_INSTRUCTIONS_MAX_CHARS } from "@/lib/validators/bot-config";
+import {
+  updateBotConfigSchema,
+  BOT_INSTRUCTIONS_MAX_CHARS,
+  updateBotScheduleSchema,
+  DEFAULT_BOT_TIMEZONE,
+  DEFAULT_BOT_OPEN_WEEKDAYS,
+} from "@/lib/validators/bot-config";
 
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -214,6 +220,63 @@ export const settingsRouter = createTRPCRouter({
       };
     });
   }),
+
+  /** Horário de atendimento do bot (fuso, janela e dias) — consciência temporal. */
+  getBotSchedule: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const cfg = await tx.chatbotConfig.findUnique({
+        where: { tenantId: ctx.tenantId },
+        select: { timezone: true, businessHoursStart: true, businessHoursEnd: true, openWeekdays: true },
+      });
+      return {
+        timezone: cfg?.timezone ?? DEFAULT_BOT_TIMEZONE,
+        start: cfg?.businessHoursStart ?? null,
+        end: cfg?.businessHoursEnd ?? null,
+        openWeekdays: cfg?.openWeekdays ?? [...DEFAULT_BOT_OPEN_WEEKDAYS],
+      };
+    });
+  }),
+
+  updateBotSchedule: tenantAdminProcedure
+    .input(updateBotScheduleSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const start = input.start?.trim() || null;
+        const end = input.end?.trim() || null;
+        const openWeekdays = [...new Set(input.openWeekdays)].sort((a, b) => a - b);
+        const updated = await tx.chatbotConfig.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: {
+            tenantId: ctx.tenantId,
+            timezone: input.timezone,
+            businessHoursStart: start,
+            businessHoursEnd: end,
+            openWeekdays,
+          },
+          update: {
+            timezone: input.timezone,
+            businessHoursStart: start,
+            businessHoursEnd: end,
+            openWeekdays,
+          },
+          select: { timezone: true, businessHoursStart: true, businessHoursEnd: true, openWeekdays: true },
+        });
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "updated",
+          entity: "bot_schedule",
+          entityId: ctx.tenantId,
+          payload: { timezone: updated.timezone, hasHours: Boolean(start && end), openDays: openWeekdays.length },
+        });
+        return {
+          timezone: updated.timezone,
+          start: updated.businessHoursStart,
+          end: updated.businessHoursEnd,
+          openWeekdays: updated.openWeekdays,
+        };
+      });
+    }),
 
   /**
    * Upload da logo do tenant. Recebe base64 + extensao, processa via Sharp
