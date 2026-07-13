@@ -19,6 +19,24 @@
 
 ---
 
+### 2026-07-13 — Talison: instruções da loja editáveis pelo admin (ADR 0055, PR #554)
+O dono cobrou a página de configuração do bot — a `/investigate` confirmou que só existia a
+proposta no ADR 0055, nada construído. Antes de codar, revisão com `audit-ai-systems`
+(`0055-REVISAO-2026-07-13.md`, melhorias M1–M7 + decisões do dono). Implementado em 3 camadas.
+- **Segurança primeiro:** o texto do admin entra no prompt de toda conversa (superfície de
+  injeção). Defesa arquitetural: bloco delimitado como DADO (`renderStoreInstructionsBlock`),
+  regras fixas ANTES, `STORE_INSTRUCTIONS_GUARD` reafirmado por ÚLTIMO (recência). Validação
+  secundária (`updateBotConfigSchema`, cliente+servidor) barra padrões óbvios + cap 4000.
+- **Isolamento por tenant:** runner lê `tenantSettings` por PK + RLS; teste prova não-vazamento A→B.
+- **Backend:** `getBotConfig` / `updateBotConfig` (admin + audit, salva `previous` só quando muda) /
+  `undoBotConfig` (desfazer 1 nível). 4 campos aditivos em `TenantSettings`.
+- **UI:** Configurações → **Assistente (Talison)** (`/settings/bot`), gateada por `service-orders`.
+  Toggle + textarea + contador + prévia (só a inserção real) + desfazer + dica de segurança/custo.
+- **Testes:** 11 unit + 3 de isolamento. CI @smoke verde, mergeado, deploy na main.
+- **Decisões:** cap 4000 · desfazer 1 nível · prévia só-inserção · admin do tenant.
+- **Dívida latente (M7):** esqueleto do prompt cita "Arena Tech" hardcoded — parametrizar por
+  `businessContext` quando um 2º tenant usar o bot.
+
 ### 2026-07-05 — Definição de módulos (Fases A–D) — gating fechado, deps, planos nomeados
 Trabalho de "deixar os módulos bem definidos" (dono). 4 fases, todas em prod.
 - **Fase A — buracos de gating (PR #395):** `/iphone-hunter` era escondido no menu (`requiresTenantSlug: arena-tech`) mas SEM gating de rota — passava por URL a qualquer tenant. `requiresTenantSlug` é do menu, não bloqueia rota. Fix: `SLUG_RESTRICTED_ROUTES` + `isRouteAllowedForTenant` (modules.ts) combinando módulo+slug; proxy passa a usar. **Teste-guardião** varre `(app)` e falha se rota nova não tiver gating (validado com teste negativo). `/dev` já se auto-protege.

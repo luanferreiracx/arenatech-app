@@ -1,6 +1,6 @@
 # ADR 0055 — Configuração do bot (Talison) editável por admin no sistema
 
-**Status:** Proposto (2026-06-23) — aguarda aprovação do dono para implementar.
+**Status:** ✅ Implementado (2026-07-13, PR #554). Revisado antes de construir — ver `0055-REVISAO-2026-07-13.md`.
 **Contexto da auditoria:** levantado no gate do Módulo 22-23 (Comunicação/Chatbot).
 
 ## Contexto
@@ -84,3 +84,36 @@ Migration aditiva (nullable), sem backfill.
 4. Testes: o bloco aparece quando `enabled`; a moldura anti-override está presente; cap aplicado.
 5. UI em Configurações (Fase Frontend).
 6. Validação: typecheck/lint/unit + E2E; migration limpa no CI.
+
+## Como foi implementado (2026-07-13, PR #554)
+
+Antes de construir, a proposta passou por revisão com a skill `audit-ai-systems` (defesa de
+prompt injection) — registrada em `0055-REVISAO-2026-07-13.md`, com as melhorias M1–M7 e as
+decisões do dono. A implementação seguiu a revisão, não só o esboço acima.
+
+- **Schema:** 4 campos em `TenantSettings` — `botInstructionsEnabled`, `botInstructions`,
+  `botInstructionsPrevious` (para o desfazer de 1 nível), `botInstructionsUpdatedAt`.
+  Migração aditiva (nullable + boolean default false), aplica em banco limpo do zero.
+- **Injeção (M1/M2):** `renderStoreInstructionsBlock` delimita o texto do admin como DADO
+  (`<<< INÍCIO/FIM DAS INSTRUÇÕES DA LOJA >>>`), rotulado como informação, não ordem. As
+  regras fixas vêm ANTES; `STORE_INSTRUCTIONS_GUARD` reafirma as guardas como ÚLTIMA linha do
+  prompt (recência favorece a segurança) — mais forte que a moldura simples da proposta.
+- **Validação (M4):** `updateBotConfigSchema` (compartilhado cliente/servidor) barra padrões
+  óbvios de injeção e o cap de 4000 chars.
+- **Isolamento por tenant (M3):** o `runner.ts` lê `tenantSettings` por PK do tenant da
+  conversa; RLS de `tenant_settings` reforça. Teste de integração prova não-vazamento A→B.
+- **Backend:** `getBotConfig` (leitura), `updateBotConfig` (admin, salva `previous` só quando
+  o texto muda + audit log), `undoBotConfig` (admin, troca current↔previous, 1 nível).
+- **UI:** Configurações → **Assistente (Talison)** (`/settings/bot`), gateada pelo módulo
+  `service-orders`. Toggle + textarea + contador + prévia mostrando SÓ a inserção real
+  (reusa `renderStoreInstructionsBlock`) + desfazer + dica de segurança/custo.
+- **Testes:** 11 unit (`bot-instructions.test.ts`) + 3 integração de isolamento por tenant.
+
+### Decisões do dono (na revisão)
+Cap 4000 chars · desfazer 1 nível · prévia mostra só a inserção (não o esqueleto) · acesso
+admin do tenant, na aba "Assistente (Talison)".
+
+### Dívida latente registrada (M7)
+O esqueleto fixo do prompt ainda cita "Arena Tech" hardcoded. Para o Talison servir outros
+tenants sem confundir a identidade, o esqueleto precisa parametrizar o nome da loja pelo
+`businessContext`. Fora do escopo deste PR — anotado para quando um 2º tenant usar o bot.
