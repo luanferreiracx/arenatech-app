@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useFormContext, useFieldArray } from "react-hook-form";
 import { useTRPC } from "@/trpc/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { FormSection } from "@/components/domain/forms/form-section";
+import { toast } from "@/lib/toast";
 import type { CreateProductInput } from "@/lib/validators/stock";
 
 /**
@@ -209,21 +210,12 @@ function VariationRow({
       {/* Atributos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {attributes.map((attr) => (
-          <div key={attr.id} className="space-y-1">
-            <Label className="text-xs">{attr.name} *</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedByAttr[attr.id] ?? ""}
-              onChange={(e) => setAttrValue(attr.id, e.target.value)}
-            >
-              <option value="">Selecione...</option>
-              {attr.values.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.value}
-                </option>
-              ))}
-            </select>
-          </div>
+          <AttributeValueSelect
+            key={attr.id}
+            attribute={attr}
+            value={selectedByAttr[attr.id] ?? ""}
+            onChange={(valueId) => setAttrValue(attr.id, valueId)}
+          />
         ))}
       </div>
 
@@ -275,6 +267,98 @@ function VariationRow({
       <p className="text-xs text-muted-foreground italic">
         Preco em branco = usa o preco do produto pai.
       </p>
+    </div>
+  );
+}
+
+/** Valor-sentinela do select para entrar no modo "criar novo valor de atributo". */
+const NEW_VALUE_OPTION = "__new__";
+
+/**
+ * Select de valor de um atributo com opção "+ Novo valor…" inline (A4): permite
+ * cadastrar um valor novo (ex.: uma cor nova) sem sair do cadastro do produto.
+ * Cria via stock.createAttributeValue, invalida a lista e já seleciona o novo.
+ */
+function AttributeValueSelect({
+  attribute,
+  value,
+  onChange,
+}: {
+  attribute: Attribute;
+  value: string;
+  onChange: (valueId: string) => void;
+}) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const [newValue, setNewValue] = useState("");
+
+  const createMutation = useMutation(
+    trpc.stock.createAttributeValue.mutationOptions({
+      onSuccess: async (created) => {
+        await queryClient.invalidateQueries({
+          queryKey: trpc.stock.listAttributes.queryKey({ active: true }),
+        });
+        onChange(created.id); // já seleciona o valor recém-criado
+        setCreating(false);
+        setNewValue("");
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const submitNew = () => {
+    const trimmed = newValue.trim();
+    if (trimmed.length < 1) {
+      toast.error("Informe o valor.");
+      return;
+    }
+    createMutation.mutate({ attributeId: attribute.id, value: trimmed });
+  };
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{attribute.name} *</Label>
+      <select
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+        value={creating ? NEW_VALUE_OPTION : value}
+        onChange={(e) => {
+          if (e.target.value === NEW_VALUE_OPTION) {
+            setCreating(true);
+          } else {
+            setCreating(false);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        <option value="">Selecione...</option>
+        {attribute.values.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.value}
+          </option>
+        ))}
+        <option value={NEW_VALUE_OPTION}>+ Novo valor…</option>
+      </select>
+      {creating && (
+        <div className="flex gap-2">
+          <Input
+            autoFocus
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitNew();
+              }
+            }}
+            placeholder={`Novo valor de ${attribute.name.toLowerCase()}`}
+            className="h-9"
+          />
+          <Button type="button" size="sm" onClick={submitNew} disabled={createMutation.isPending}>
+            Criar
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

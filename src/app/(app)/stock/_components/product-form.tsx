@@ -266,9 +266,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                             {cat.name}
                           </option>
                         ))}
-                        {!isEdit && (
-                          <option value={NEW_CATEGORY_OPTION}>+ Nova categoria…</option>
-                        )}
+                        <option value={NEW_CATEGORY_OPTION}>+ Nova categoria…</option>
                       </select>
                     </FormControl>
                     {creatingNew && (
