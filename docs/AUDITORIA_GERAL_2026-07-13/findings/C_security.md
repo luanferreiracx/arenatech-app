@@ -37,3 +37,13 @@ em validators/ vale como hardening. Confiança: baixa (não quantifiquei).
 Postura de segurança MADURA (fruto das auditorias anteriores). Nenhum P0/P1 novo
 encontrado nesta passagem. Itens acima são hardening/verificação, não exploráveis
 comprovados.
+
+---
+## ADENDO (#12 / C1 VERIFICADO — sem vazamento)
+Revisei TODOS os `withAdmin` em routers tenant-facing (sale, settings, service-order,
+provider-commission, receiving, imei). Conclusão: cada uso ou (a) consulta uma tabela
+GLOBAL (users, plan, tenant, subscription) por IDs JÁ autorizados no escopo do tenant
+(ex.: sellerIds/techIds derivados das vendas/OS do próprio tenant sob RLS), ou (b)
+filtra explicitamente `where: { tenantId: ctx.tenantId }` (ex.: service-order.ts:2862
+userTenant). NENHUM lê tabela tenant-scoped sem filtro. **Sem vazamento cross-tenant.**
+C1/#12 = verificado seguro, sem mudança de código necessária.
