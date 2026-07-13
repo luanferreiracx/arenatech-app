@@ -44,3 +44,30 @@ Contagens de grep (src/app + src/components):
 - shadcn/ui + tokens OKLCH (globals.css) — base sólida.
 - Padrão select+criar-inline para categoria/marca/atributo (agora consistente).
 - Suspense/TanStack Query no fetch (não useEffect).
+
+---
+## ADENDO (verificação #10 — FALSO POSITIVO parcial)
+`condition` foi re-verificado: **já é um `<Select>` na UI** (upgrade-dialog.tsx:448,
+união tipada "USED"|"NEW"|"SEMI_NEW"|"DISPLAY") e o código seta com união tipada
+(sale.ts:1862). Dados de prod LIMPOS (SEMI_NEW/USED/NEW, sem lixo). O `String?` no
+schema é só falta de enum-no-banco, mas os valores JÁ são controlados. Converter pra
+enum Prisma = baixo valor + risco de migração, sem ganho de qualidade de dados.
+DECISÃO: **não fazer #10** (não é problema real). Lição: `String?` no schema não
+implica UI de texto livre — verificar a UI antes de flaggar (como o audit skill manda).
+
+---
+## ADENDO (#11 frame-integrity — decisão: NÃO fazer sweep cego)
+Verifiquei os alvos do #11:
+- `#2ec4b6` (13 arquivos): a MAIORIA é em `globals.css` = DEFINIÇÃO do token (`--primary:
+  #2ec4b6`), que é CORRETA e deve ficar. Os usos em componente são quase todos na página
+  pública `/pay` (pay-shell, public-payment-form) = página branded standalone com design
+  system PRÓPRIO de propósito (navy+teal, register=brand). Trocar por `bg-primary` seria
+  ERRADO. Sobram `dashboard-content.tsx:580` (props iconColor/valueColor) que esperam
+  valor CSS, não classe Tailwind — precisaria `var(--primary)`, ganho marginal.
+- `text-[10px]`/`text-[11px]` (44 arquivos): são font-sizes INTENCIONALMENTE menores que
+  `text-xs` (12px) — badges, tabelas densas. Trocar por `text-xs` MUDA o visual (fica
+  maior) = decisão de design por caso, não cleanup mecânico.
+DECISÃO: #11 NÃO é um fix mecânico seguro. É uma passada de design-system que precisa de
+JULGAMENTO por caso (ou de adicionar tokens `text-[10px]` ao @theme se o dono quiser
+padronizar sem mudar tamanho). Não fazer sweep cego (risco de quebrar a página /pay
+branded e mudar visual de 44 telas). Fica para uma rodada de polish dedicada.
