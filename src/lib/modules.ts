@@ -216,6 +216,7 @@ const SETTINGS_TAB_MODULE: ReadonlyArray<readonly [string, ModuleKey | null]> = 
   ["/settings/installments", "tools"],
   ["/settings/integrations", "tools"],
   ["/settings/assistance", "service-orders"],
+  ["/settings/bot", "service-orders"],
   ["/settings/delivery-persons", "service-orders"],
 ];
 

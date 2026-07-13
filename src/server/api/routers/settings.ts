@@ -35,6 +35,7 @@ import {
   listAuditLogsSchema,
   updateFiscalSettingsSchema,
 } from "@/lib/validators/subscription";
+import { updateBotConfigSchema, BOT_INSTRUCTIONS_MAX_CHARS } from "@/lib/validators/bot-config";
 
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -99,6 +100,120 @@ export const settingsRouter = createTRPCRouter({
         return updated;
       });
     }),
+
+  // ═══════════════════════════════════════
+  // BOT (Talison) — instruções da loja (ADR 0055 + revisão 2026-07-13)
+  // ═══════════════════════════════════════
+
+  /** Lê as instruções do bot do tenant ativo (+ o valor anterior, para desfazer). */
+  getBotConfig: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const settings = await tx.tenantSettings.findUnique({
+        where: { tenantId: ctx.tenantId },
+        select: {
+          botInstructionsEnabled: true,
+          botInstructions: true,
+          botInstructionsPrevious: true,
+          botInstructionsUpdatedAt: true,
+        },
+      });
+      return {
+        enabled: settings?.botInstructionsEnabled ?? false,
+        instructions: settings?.botInstructions ?? null,
+        updatedAt: settings?.botInstructionsUpdatedAt ?? null,
+        canUndo: Boolean(settings?.botInstructionsPrevious),
+        maxChars: BOT_INSTRUCTIONS_MAX_CHARS,
+      };
+    });
+  }),
+
+  /**
+   * Atualiza as instruções do bot. Só admin do tenant. Valida (cap + anti-injeção no
+   * schema). Guarda o valor ANTERIOR (desfazer 1 nível) e audita quem mudou o
+   * comportamento do bot (rastreabilidade). Escopo sempre em ctx.tenantId.
+   */
+  updateBotConfig: tenantAdminProcedure
+    .input(updateBotConfigSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const before = await tx.tenantSettings.findUnique({
+          where: { tenantId: ctx.tenantId },
+          select: { botInstructions: true, botInstructionsEnabled: true },
+        });
+        const nextInstructions = input.enabled ? input.instructions?.trim() ?? null : (before?.botInstructions ?? null);
+
+        const updated = await tx.tenantSettings.upsert({
+          where: { tenantId: ctx.tenantId },
+          create: {
+            tenantId: ctx.tenantId,
+            botInstructionsEnabled: input.enabled,
+            botInstructions: nextInstructions,
+            botInstructionsUpdatedAt: new Date(),
+          },
+          update: {
+            botInstructionsEnabled: input.enabled,
+            botInstructions: nextInstructions,
+            // Só guarda o "anterior" quando o TEXTO muda (não a cada toggle).
+            botInstructionsPrevious: nextInstructions !== before?.botInstructions ? before?.botInstructions ?? null : undefined,
+            botInstructionsUpdatedAt: new Date(),
+          },
+          select: { botInstructionsEnabled: true, botInstructions: true, botInstructionsUpdatedAt: true, botInstructionsPrevious: true },
+        });
+
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "updated",
+          entity: "bot_instructions",
+          entityId: ctx.tenantId,
+          payload: { enabled: input.enabled, length: nextInstructions?.length ?? 0 },
+        });
+
+        return {
+          enabled: updated.botInstructionsEnabled,
+          instructions: updated.botInstructions,
+          updatedAt: updated.botInstructionsUpdatedAt,
+          canUndo: Boolean(updated.botInstructionsPrevious),
+        };
+      });
+    }),
+
+  /** Desfaz a última alteração das instruções (troca atual ↔ anterior, 1 nível). */
+  undoBotConfig: tenantAdminProcedure.mutation(async ({ ctx }) => {
+    return ctx.withTenant(async (tx) => {
+      const current = await tx.tenantSettings.findUnique({
+        where: { tenantId: ctx.tenantId },
+        select: { botInstructions: true, botInstructionsPrevious: true, botInstructionsEnabled: true },
+      });
+      if (!current?.botInstructionsPrevious) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Não há alteração anterior para desfazer." });
+      }
+      const updated = await tx.tenantSettings.update({
+        where: { tenantId: ctx.tenantId },
+        data: {
+          botInstructions: current.botInstructionsPrevious,
+          // Troca: o que era "atual" vira o novo "anterior" (permite refazer).
+          botInstructionsPrevious: current.botInstructions,
+          botInstructionsUpdatedAt: new Date(),
+        },
+        select: { botInstructionsEnabled: true, botInstructions: true, botInstructionsUpdatedAt: true, botInstructionsPrevious: true },
+      });
+      await logAudit(tx as never, {
+        tenantId: ctx.tenantId,
+        userId: ctx.session.user.id,
+        action: "updated",
+        entity: "bot_instructions",
+        entityId: ctx.tenantId,
+        payload: { undo: true },
+      });
+      return {
+        enabled: updated.botInstructionsEnabled,
+        instructions: updated.botInstructions,
+        updatedAt: updated.botInstructionsUpdatedAt,
+        canUndo: Boolean(updated.botInstructionsPrevious),
+      };
+    });
+  }),
 
   /**
    * Upload da logo do tenant. Recebe base64 + extensao, processa via Sharp
