@@ -56,6 +56,7 @@ import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
+import { startOfTodayBrt, startOfMonthBrt } from "@/lib/utils/date-range";
 
 // ── Helpers ──
 
@@ -2803,8 +2804,10 @@ export const saleRouter = createTRPCRouter({
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      // Ancorado em BRT (container roda UTC): sem isso, vendas de 21h–24h BRT
+      // caíam no dia/mês errado. Auditoria 2026-07-13 (E1).
+      const startOfDay = startOfTodayBrt(now);
+      const startOfMonth = startOfMonthBrt(now);
 
       const [todaySales, monthSales, totalAll, totalCompleted, totalCancelled, totalRefunded] = await Promise.all([
         tx.sale.findMany({

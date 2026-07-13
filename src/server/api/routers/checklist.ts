@@ -8,6 +8,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
+import { startOfMonthBrt } from "@/lib/utils/date-range"
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0
@@ -187,8 +188,9 @@ export const checklistRouter = createTRPCRouter({
   /** Stats for checklist dashboard */
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Ancorado em BRT (container roda UTC). Auditoria 2026-07-13 (E1).
       const now = new Date()
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      const startOfMonth = startOfMonthBrt(now)
 
       const [total, thisMonth, byDeviceType] = await Promise.all([
         tx.checklist.count(),
