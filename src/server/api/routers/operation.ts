@@ -2,7 +2,6 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
-import { isTenantAdmin } from "@/lib/auth/roles";
 import {
   createDeliveryPersonSchema,
   updateDeliveryPersonSchema,
