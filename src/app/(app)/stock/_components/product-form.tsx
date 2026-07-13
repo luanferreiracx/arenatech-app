@@ -35,8 +35,9 @@ interface ProductFormProps {
   isEdit?: boolean;
 }
 
-/** Valor-sentinela do <select> para entrar no modo "criar nova categoria". */
+/** Valor-sentinela dos <select> para entrar no modo "criar nova categoria/marca". */
 const NEW_CATEGORY_OPTION = "__new__";
+const NEW_BRAND_OPTION = "__new__";
 
 export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps) {
   const router = useRouter();
@@ -50,6 +51,8 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
       barcode: "",
       name: "",
       description: "",
+      brandId: null,
+      newBrandName: null,
       brand: "",
       ncm: null,
       cest: null,
@@ -76,6 +79,7 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
   const { data: categories } = useQuery(
     trpc.stock.listCategories.queryOptions({ pageSize: 100 })
   );
+  const { data: brands } = useQuery(trpc.stock.listBrands.queryOptions({}));
 
   const createMutation = useMutation(
     trpc.stock.create.mutationOptions({
@@ -179,16 +183,58 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
 
             <FormField
               control={form.control}
-              name="brand"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Marca</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} placeholder="Ex: Apple, Samsung" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              name="brandId"
+              render={({ field }) => {
+                const creatingNew = form.watch("newBrandName") != null;
+                return (
+                  <FormItem>
+                    <FormLabel>Marca</FormLabel>
+                    <FormControl>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={creatingNew ? NEW_BRAND_OPTION : field.value ?? ""}
+                        onChange={(e) => {
+                          if (e.target.value === NEW_BRAND_OPTION) {
+                            field.onChange(null);
+                            form.setValue("newBrandName", "");
+                          } else {
+                            field.onChange(e.target.value || null);
+                            form.setValue("newBrandName", null);
+                          }
+                        }}
+                      >
+                        <option value="">Sem marca</option>
+                        {brands?.data?.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                        <option value={NEW_BRAND_OPTION}>+ Nova marca…</option>
+                      </select>
+                    </FormControl>
+                    {creatingNew && (
+                      <FormField
+                        control={form.control}
+                        name="newBrandName"
+                        render={({ field: nameField }) => (
+                          <FormItem className="mt-2">
+                            <FormControl>
+                              <Input
+                                autoFocus
+                                placeholder="Nome da nova marca"
+                                value={nameField.value ?? ""}
+                                onChange={(e) => nameField.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
 
             <FormField

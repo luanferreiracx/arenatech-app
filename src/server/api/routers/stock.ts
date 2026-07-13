@@ -89,6 +89,7 @@ import {
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
+import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -316,6 +317,10 @@ export const stockRouter = createTRPCRouter({
           : input.categoryIds;
         const primaryCategoryId = mergedCategoryIds?.[0] || input.categoryId || inlineCategoryId || null;
 
+        // Marca: resolve a entidade (selecionada, criada inline ou texto legado)
+        // deduplicando por nome normalizado. `brand` fica como sombra sincronizada.
+        const resolvedBrand = await resolveBrandId(tx, ctx.tenantId, input);
+
         const product = await tx.product.create({
           data: {
             tenantId: ctx.tenantId,
@@ -323,7 +328,8 @@ export const stockRouter = createTRPCRouter({
             barcode: input.barcode || null,
             name: input.name,
             description: input.description || null,
-            brand: input.brand || null,
+            brandId: resolvedBrand.brandId,
+            brand: resolvedBrand.brandName,
             ncm: input.ncm || null,
             cest: input.cest || null,
             isSerialized: input.isSerialized ?? false,
@@ -473,6 +479,9 @@ export const stockRouter = createTRPCRouter({
 
         const primaryCategoryId = input.categoryIds?.[0] || input.categoryId || existing.categoryId;
 
+        // Marca: mesma resolução do create (entidade selecionada/criada/legado).
+        const resolvedBrand = await resolveBrandId(tx, ctx.tenantId, input);
+
         const product = await tx.product.update({
           where: { id: input.id },
           data: {
@@ -480,7 +489,8 @@ export const stockRouter = createTRPCRouter({
             barcode: input.barcode || null,
             name: input.name,
             description: input.description || null,
-            brand: input.brand || null,
+            brandId: resolvedBrand.brandId,
+            brand: resolvedBrand.brandName,
             ncm: input.ncm || null,
             cest: input.cest || null,
             isSerialized: nextIsSerialized,
@@ -2227,6 +2237,37 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
+  // ─── Marcas (entidade ProductBrand — paridade com categorias) ───
+
+  listBrands: tenantProcedure
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const where: Prisma.ProductBrandWhereInput = { deletedAt: null, active: true };
+        if (input?.search?.trim()) {
+          where.name = { contains: input.search.trim(), mode: "insensitive" };
+        }
+        const data = await tx.productBrand.findMany({
+          where,
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        });
+        return { data };
+      });
+    }),
+
+  createBrand: tenantProcedure
+    .input(z.object({ name: z.string().min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar marcas." });
+      }
+      return ctx.withTenant(async (tx) => {
+        // find-or-create deduplicado (não recria "Asus" se já existe "ASUS").
+        return findOrCreateBrandByName(tx, ctx.tenantId, input.name);
+      });
+    }),
+
   createCategory: tenantProcedure
     .input(createCategorySchema)
     .mutation(async ({ ctx, input }) => {
@@ -3508,6 +3549,8 @@ export const stockRouter = createTRPCRouter({
         let categoriesCreated = 0;
         const errors: string[] = [];
         const categoryCache = new Map<string, string>();
+        // Cache de marca por nome NORMALIZADO (dedup dentro do próprio CSV).
+        const brandCache = new Map<string, string>();
 
         // Pre-pass: detecta duplicatas dentro do proprio CSV (SKU/barcode
         // repetidos no mesmo arquivo).
@@ -3604,13 +3647,33 @@ export const stockRouter = createTRPCRouter({
               ? line.quantity
               : 0;
 
+            // Marca: find-or-create deduplicado (mesma normalização do cadastro),
+            // com cache por nome normalizado pra não reconsultar dentro do CSV.
+            let brandId: string | null = null;
+            let brandName: string | null = null;
+            const rawBrand = line.brand?.trim();
+            if (rawBrand) {
+              const brandKey = rawBrand.toLowerCase();
+              const cached = brandCache.get(brandKey);
+              if (cached) {
+                brandId = cached;
+                brandName = rawBrand;
+              } else {
+                const resolved = await findOrCreateBrandByName(tx, ctx.tenantId, rawBrand);
+                brandId = resolved.brandId;
+                brandName = resolved.brandName;
+                brandCache.set(brandKey, resolved.brandId);
+              }
+            }
+
             const product = await tx.product.create({
               data: {
                 tenantId: ctx.tenantId,
                 name: line.name,
                 sku: line.sku || null,
                 barcode: line.barcode || null,
-                brand: line.brand || null,
+                brandId,
+                brand: brandName,
                 description: line.description || null,
                 isSerialized: line.isSerialized ?? false,
                 costPrice: new Prisma.Decimal((line.costPrice ?? 0) / 100),
