@@ -18,6 +18,14 @@ model TenantSettings {
   warrantyNewMonths  Int      @default(12) @map("warranty_new_months")
   warrantyUsedMonths Int      @default(3) @map("warranty_used_months")
   businessHours      String?  @map("business_hours")
+  // Instruções da loja para o bot Talison (ADR 0055): conhecimento/políticas/tom
+  // que o admin injeta no prompt. NUNCA sobrepõe as regras fixas de segurança/escopo
+  // (o esqueleto vive no código). Ver docs/decisions/0055-REVISAO-2026-07-13.md.
+  botInstructionsEnabled  Boolean   @default(false) @map("bot_instructions_enabled")
+  botInstructions         String?   @map("bot_instructions") @db.Text
+  // Valor anterior — permite "desfazer última alteração" (rollback de 1 nível).
+  botInstructionsPrevious String?   @map("bot_instructions_previous") @db.Text
+  botInstructionsUpdatedAt DateTime? @map("bot_instructions_updated_at")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
