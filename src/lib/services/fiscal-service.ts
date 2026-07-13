@@ -274,10 +274,56 @@ export async function sendCorrectionLetter(
 }
 
 export async function getInvoiceDocumentUrls(providerRef: string): Promise<FiscalDocumentUrls> {
-  // Always return proxy URLs — the API route handles auth with Nuvem Fiscal
+  // URLs de PROXY — a rota /api/fiscal/download autentica o tenant e busca o
+  // documento na Nuvem Fiscal (fetchInvoiceDocument). Nunca expõe a API-key nem
+  // uma URL pública da Nuvem Fiscal ao cliente.
   return {
     pdfUrl: `/api/fiscal/download?ref=${encodeURIComponent(providerRef)}&type=pdf`,
     xmlUrl: `/api/fiscal/download?ref=${encodeURIComponent(providerRef)}&type=xml`,
+  };
+}
+
+/** Documento fiscal (PDF/XML) baixado da Nuvem Fiscal, pronto para stream. */
+export type InvoiceDocument = {
+  bytes: ArrayBuffer;
+  contentType: string;
+  filename: string;
+};
+
+/**
+ * Busca o PDF (DANFE) ou o XML da NF-e na Nuvem Fiscal pelos bytes reais, usando
+ * a API-key do servidor (nunca exposta ao cliente). Chamado pela rota autenticada
+ * /api/fiscal/download. Retorna `null` se o documento não existir/indisponível.
+ * Auditoria 2026-07-13 (I7): a rota de download referenciava esta busca mas ela
+ * não existia — o download quebrava com 404.
+ */
+export async function fetchInvoiceDocument(
+  providerRef: string,
+  type: "pdf" | "xml",
+): Promise<InvoiceDocument | null> {
+  const config = getConfig();
+  if (!config) return null; // mock/dev sem credenciais
+
+  // Nuvem Fiscal: /nfe/{id}/pdf devolve PDF; /nfe/{id}/xml devolve o XML autorizado.
+  const path = type === "pdf" ? `/nfe/${providerRef}/pdf` : `/nfe/${providerRef}/xml`;
+  const accept = type === "pdf" ? "application/pdf" : "application/xml";
+
+  const token = await getAccessToken(config);
+  const response = await fetch(`${config.baseUrl}${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: accept },
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!response.ok) {
+    logger.warn("Nuvem Fiscal: documento indisponível", { providerRef, type, status: response.status });
+    return null;
+  }
+
+  const bytes = await response.arrayBuffer();
+  return {
+    bytes,
+    contentType: type === "pdf" ? "application/pdf" : "application/xml",
+    filename: `nfe-${providerRef}.${type}`,
   };
 }
 
