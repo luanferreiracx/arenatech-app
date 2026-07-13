@@ -6,6 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
 import { writeCashMovement, refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
+import { startOfMonthBrt, endOfMonthBrt } from "@/lib/utils/date-range";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
 // RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
@@ -733,9 +734,11 @@ export const financialRouter = createTRPCRouter({
     .input(z.object({ type: z.enum(["PAYABLE", "RECEIVABLE"]) }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        // Ancorado em BRT (container roda UTC): mês corrente correto nas bordas.
+        // Auditoria 2026-07-13 (E1).
         const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        const startOfMonth = startOfMonthBrt(now);
+        const endOfMonth = endOfMonthBrt(now);
 
         const [pendingResult, overdueResult, paidMonthResult] = await Promise.all([
           tx.financialTransaction.aggregate({

@@ -69,6 +69,20 @@ export function startOfPrevMonthBrt(now: Date = new Date()): Date {
   return new Date(`${prevYear}-${mm}-01T00:00:00.000${BRT_OFFSET}`);
 }
 
+/** Início do mês SEGUINTE em BRT (dia 1 do próximo mês, 00:00 BRT). */
+export function startOfNextMonthBrt(now: Date = new Date()): Date {
+  const { year, month } = brtDateParts(now);
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const mm = String(nextMonth).padStart(2, "0");
+  return new Date(`${nextYear}-${mm}-01T00:00:00.000${BRT_OFFSET}`);
+}
+
+/** Fim do mês CORRENTE em BRT (23:59:59.999 do último dia) = 1ms antes do próximo mês. */
+export function endOfMonthBrt(now: Date = new Date()): Date {
+  return new Date(startOfNextMonthBrt(now).getTime() - 1);
+}
+
 /** Fim do mês ANTERIOR em BRT (23:59:59.999 do último dia). */
 export function endOfPrevMonthBrt(now: Date = new Date()): Date {
   // Fim do mês anterior = 1ms antes do início do mês corrente.

@@ -24,6 +24,7 @@ import {
   getInvoiceDocumentUrls,
 } from "@/lib/services/fiscal-service";
 import { sendEmail } from "@/lib/services/email-service";
+import { startOfMonthBrt } from "@/lib/utils/date-range";
 import { logger } from "@/lib/logger";
 
 // ── Helpers ──
@@ -831,8 +832,9 @@ export const fiscalRouter = createTRPCRouter({
   /** Stats for fiscal dashboard */
   stats: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
+      // Ancorado em BRT (container roda UTC). Auditoria 2026-07-13 (E1).
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfMonth = startOfMonthBrt(now);
 
       const [totalAuthorized, totalCancelled, totalDraft, monthAuthorized] = await Promise.all([
         tx.invoice.count({ where: { status: "AUTHORIZED", deletedAt: null } }),

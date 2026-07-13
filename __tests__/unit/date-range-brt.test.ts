@@ -4,6 +4,8 @@ import {
   startOfMonthBrt,
   startOfPrevMonthBrt,
   endOfPrevMonthBrt,
+  startOfNextMonthBrt,
+  endOfMonthBrt,
   brtDayKey,
 } from "@/lib/utils/date-range";
 
@@ -52,5 +54,17 @@ describe("date-range BRT — fronteiras ancoradas no fuso Brasil", () => {
   it("brtDayKey: 12/jul 00:02 UTC agrupa no dia 11/jul (BRT)", () => {
     expect(brtDayKey(new Date("2026-07-12T00:02:00.000Z"))).toBe("2026-07-11");
     expect(brtDayKey(new Date("2026-07-12T03:00:00.000Z"))).toBe("2026-07-12");
+  });
+
+  // Novos helpers (auditoria 2026-07-13, E1) usados em financial/fiscal stats.
+  it("startOfNextMonthBrt / endOfMonthBrt: agosto começa 01/ago 03:00 UTC; fim de julho = 1ms antes", () => {
+    const now = new Date("2026-07-12T11:53:00.000Z");
+    expect(startOfNextMonthBrt(now).toISOString()).toBe("2026-08-01T03:00:00.000Z");
+    expect(endOfMonthBrt(now).toISOString()).toBe("2026-08-01T02:59:59.999Z");
+  });
+
+  it("endOfMonthBrt vira o ano: dezembro → próximo mês é janeiro do ano seguinte", () => {
+    const dec = new Date("2026-12-15T12:00:00.000Z");
+    expect(startOfNextMonthBrt(dec).toISOString()).toBe("2027-01-01T03:00:00.000Z");
   });
 });
