@@ -63,9 +63,15 @@ model ChatbotConfig {
   // Telefones em whitelist (string[] JSON). Quando vazio, atende todos.
   // Quando populado, somente esses contatos sao respondidos pelo bot.
   whitelistPhones    Json?    @map("whitelist_phones")
-  // Horario de funcionamento. Formato "HH:mm-HH:mm" ou null (24h).
+  // Fuso horário IANA da loja (ex.: "America/Fortaleza", "America/Sao_Paulo").
+  // Usado pela consciência temporal do bot (aberto/fechado, "agora"). Per-tenant:
+  // o bot de cada loja calcula a hora local no fuso dela, não num fixo.
+  timezone           String   @default("America/Fortaleza") @map("timezone")
+  // Horario de funcionamento. Formato "HH:mm" ou null (usa o default do sistema).
   businessHoursStart String?  @map("business_hours_start")
   businessHoursEnd   String?  @map("business_hours_end")
+  // Dias da semana em que a loja abre (0=domingo … 6=sábado). Default seg–sáb.
+  openWeekdays       Int[]    @default([1, 2, 3, 4, 5, 6]) @map("open_weekdays")
   // Mensagens
   greetingMessage    String?  @db.Text @map("greeting_message")
   outOfHoursMessage  String?  @db.Text @map("out_of_hours_message")

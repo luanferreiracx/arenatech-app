@@ -286,8 +286,10 @@ export async function processConversation(
       businessContext,
       businessHoursNote: config?.outOfHoursMessage ?? null,
       nowNote: buildNowNote({
+        timezone: config?.timezone ?? null,
         start: config?.businessHoursStart ?? null,
         end: config?.businessHoursEnd ?? null,
+        openWeekdays: config?.openWeekdays ?? null,
       }),
       // Instruções da loja (ADR 0055) — só do MESMO tenant da conversa (tenantSettings
       // já é do tenantId), e só quando habilitado. Nunca vaza entre tenants (M3).

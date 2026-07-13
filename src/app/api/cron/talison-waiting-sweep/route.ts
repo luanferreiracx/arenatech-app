@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger"
 import { timingSafeEqualString } from "@/lib/utils/timing-safe"
 import { sendGroupMessage } from "@/lib/services/whatsapp-service"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
-import { isStoreOpen, businessHoursLabel } from "@/lib/talison/business-hours"
+import { isStoreOpen, businessHoursLabel, type BusinessHoursConfig } from "@/lib/talison/business-hours"
 import { isCustomerWaitingReply, looksLikeWaitingNudge, isObviousCloser } from "@/lib/talison/intent"
 import { recordTalisonMetric } from "@/lib/talison/metrics"
 
@@ -43,7 +43,7 @@ const WAIT_MESSAGE =
   "Desculpe, nossos atendentes estão indisponíveis no momento, provavelmente ocupados " +
   "com o atendimento na loja física. Lamentamos o inconveniente, por favor, aguarde...."
 
-function offHoursMessage(config: { start?: string | null; end?: string | null }): string {
+function offHoursMessage(config: BusinessHoursConfig): string {
   return (
     `No momento estamos fora do horário de atendimento (${businessHoursLabel(config)}). ` +
     "Assim que retornarmos, um atendente humano vai te responder por aqui. Obrigado pela paciência! 😊"
@@ -119,18 +119,23 @@ export async function POST(request: NextRequest) {
       }),
     )
 
-    // Cache de config por tenant (horário de funcionamento).
-    const configByTenant = new Map<string, { start?: string | null; end?: string | null }>()
+    // Cache de config por tenant (fuso, horário e dias de funcionamento).
+    const configByTenant = new Map<string, BusinessHoursConfig>()
     async function configFor(tenantId: string) {
       const cached = configByTenant.get(tenantId)
       if (cached) return cached
       const cfg = await withAdmin((tx) =>
         tx.chatbotConfig.findUnique({
           where: { tenantId },
-          select: { businessHoursStart: true, businessHoursEnd: true },
+          select: { timezone: true, businessHoursStart: true, businessHoursEnd: true, openWeekdays: true },
         }),
       )
-      const value = { start: cfg?.businessHoursStart ?? null, end: cfg?.businessHoursEnd ?? null }
+      const value: BusinessHoursConfig = {
+        timezone: cfg?.timezone ?? null,
+        start: cfg?.businessHoursStart ?? null,
+        end: cfg?.businessHoursEnd ?? null,
+        openWeekdays: cfg?.openWeekdays ?? null,
+      }
       configByTenant.set(tenantId, value)
       return value
     }

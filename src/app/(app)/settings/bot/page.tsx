@@ -22,6 +22,7 @@ import {
   BOT_INSTRUCTIONS_MAX_CHARS,
 } from "@/lib/validators/bot-config";
 import { renderStoreInstructionsBlock } from "@/lib/talison/prompt";
+import { BotScheduleForm } from "./_components/bot-schedule-form";
 
 export default function BotSettingsPage() {
   const trpc = useTRPC();
@@ -175,6 +176,10 @@ export default function BotSettingsPage() {
           <FormActions submitLabel="Salvar" isLoading={save.isPending} className="border-0 pt-0" />
         </div>
       </form>
+
+      <div className="mt-10 border-t border-border pt-8">
+        <BotScheduleForm />
+      </div>
     </div>
   );
 }
