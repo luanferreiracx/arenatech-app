@@ -155,3 +155,42 @@ describe("RLS multi-tenant isolation", () => {
     expect(bLogs.every((l) => l.action !== "test.hacked")).toBe(true);
   });
 });
+
+/**
+ * GUARD-RAIL (auditoria 2026-07-13, H1): toda tabela com coluna `tenant_id` DEVE
+ * ter RLS habilitado + FORÇADO + ao menos uma policy. Sem isto, uma migração nova
+ * que esquece o RLS (como #536 esqueceu em product_brands) vaza cross-tenant
+ * silenciosamente. Este teste FALHA se qualquer tabela de tenant nascer sem a rede.
+ *
+ * Exceções conhecidas (globais por design — sem tenant_id de isolamento OU só via
+ * withAdmin): subscriptions e user_tenants. Ver findings/H_rls.md.
+ */
+describe("RLS guard-rail — toda tabela com tenant_id tem RLS forçado", () => {
+  const KNOWN_GLOBAL = new Set<string>(["subscriptions", "user_tenants"]);
+
+  it("nenhuma tabela com tenant_id fica sem RLS habilitado + forçado + policy", async () => {
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{ table: string; rls_enabled: boolean; rls_forced: boolean; policies: bigint }>
+    >(`
+      SELECT c.relname AS table,
+             c.relrowsecurity AS rls_enabled,
+             c.relforcerowsecurity AS rls_forced,
+             (SELECT count(*) FROM pg_policies p WHERE p.tablename = c.relname) AS policies
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+      WHERE c.relkind = 'r'
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns col
+          WHERE col.table_schema = 'public' AND col.table_name = c.relname
+            AND col.column_name = 'tenant_id'
+        )
+    `);
+
+    const offenders = rows
+      .filter((r) => !KNOWN_GLOBAL.has(r.table))
+      .filter((r) => !r.rls_enabled || !r.rls_forced || Number(r.policies) === 0)
+      .map((r) => `${r.table} (enabled=${r.rls_enabled} forced=${r.rls_forced} policies=${r.policies})`);
+
+    expect(offenders, `Tabelas com tenant_id SEM RLS forçado: ${offenders.join(", ")}`).toEqual([]);
+  });
+});
