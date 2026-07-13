@@ -289,6 +289,11 @@ export async function processConversation(
         start: config?.businessHoursStart ?? null,
         end: config?.businessHoursEnd ?? null,
       }),
+      // Instruções da loja (ADR 0055) — só do MESMO tenant da conversa (tenantSettings
+      // já é do tenantId), e só quando habilitado. Nunca vaza entre tenants (M3).
+      storeInstructions: tenantSettings?.botInstructionsEnabled
+        ? tenantSettings.botInstructions ?? null
+        : null,
     },
     history,
   });
