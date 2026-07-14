@@ -1106,8 +1106,13 @@ export const financialRouter = createTRPCRouter({
     .input(dreSchema)
     .query(async ({ ctx, input }) => {
       const year = input.year;
-      const startOfYear = new Date(year, 0, 1);
-      const endOfYear = new Date(year, 11, 31, 23, 59, 59, 999);
+      // G-P1-05: ano e mês do DRE ancorados em BRT (UTC-3). As colunas de data
+      // são `timestamp without time zone` (UTC wall-clock); sem converter, os
+      // bounds `new Date(year,...)` usavam o fuso do processo (UTC no container)
+      // e `EXTRACT(MONTH FROM sale_date)` extraía o mês em UTC — vendas/despesas
+      // nas ~3h de borda de mês/ano caíam no bucket errado. A expressão
+      // `(col AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')` reinterpreta
+      // o instante UTC como horário de parede BRT antes do EXTRACT.
 
       const monthNames = [
         "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
@@ -1123,8 +1128,8 @@ export const financialRouter = createTRPCRouter({
       //   Ver lib/sales/sale-revenue.
       // - Custo das mercadorias: sum(saleItem.cost * qty) das vendas COMPLETED.
       // - Lucro bruto = receita liquida - custo das mercadorias
-      // - Despesas operacionais: Installments PAYABLE.PAID (regime de caixa,
-      //   paridade contas_pagar_parcelas)
+      // - Despesas operacionais: ledger installment_payments de PAYABLE (regime
+      //   de caixa correto — uma linha por evento, líquido de estornos)
       // - Lucro liquido = lucro bruto - despesas
       // Uma unica transacao com 3 queries serializadas — antes 3 transacoes
       // paralelas (3 conexoes DB abertas). Reduz pressao no pool.
@@ -1136,7 +1141,7 @@ export const financialRouter = createTRPCRouter({
         // is_os_payment não tem itens (não pode ser parcialmente estornada) →
         // fração 1. Preserva a margem ao escalar receita e custo pela mesma fração.
         const rev = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-          SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+          SELECT EXTRACT(MONTH FROM (s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'))::int AS month,
                  COALESCE(SUM(
                    (GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount)
                    * CASE
@@ -1154,30 +1159,35 @@ export const financialRouter = createTRPCRouter({
             FROM sale_items si2
             JOIN sales s2 ON s2.id = si2.sale_id
             WHERE s2.deleted_at IS NULL
-              AND s2.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+              AND EXTRACT(YEAR FROM (s2.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
             GROUP BY si2.sale_id
           ) li ON li.sale_id = s.id
           WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
-            AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+            AND EXTRACT(YEAR FROM (s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
           GROUP BY 1
         `;
+        // G-P1-01: despesas do DRE vêm do LEDGER installment_payments (regime de
+        // caixa correto), não de installments.paid_amount por installment.paid_at.
+        // Uma parcela paga em 2 meses tinha só o último paid_at → o valor todo
+        // caía no último mês; uma PARTIALLY_PAID sumia do DRE até quitar. O ledger
+        // tem uma linha por evento (data própria); estornos são negativos, então
+        // SUM(amount_cents) já é o líquido que saiu no mês. Espelha stats.paidMonth.
         const exp = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-          SELECT EXTRACT(MONTH FROM i.paid_at)::int AS month,
-                 COALESCE(SUM(i.paid_amount), 0)::float AS total
-          FROM installments i
-          JOIN financial_transactions t ON t.id = i.transaction_id
-          WHERE i.status = 'PAID'
-            AND i.paid_at BETWEEN ${startOfYear} AND ${endOfYear}
-            AND t.type = 'PAYABLE'
+          SELECT EXTRACT(MONTH FROM (ip.paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'))::int AS month,
+                 COALESCE(SUM(ip.amount_cents), 0)::float / 100 AS total
+          FROM installment_payments ip
+          JOIN financial_transactions t ON t.id = ip.transaction_id
+          WHERE t.type = 'PAYABLE'
             AND t.deleted_at IS NULL
+            AND EXTRACT(YEAR FROM (ip.paid_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
           GROUP BY 1
         `;
         // Custo das mercadorias escalado pela mesma fração mantida (margem
         // preservada): numa venda parcialmente estornada, conta só a parte do
         // custo proporcional ao que ficou. COMPLETED → fração 1 (inalterado).
         const parts = await tx.$queryRaw<Array<{ month: number; total: number | null }>>`
-          SELECT EXTRACT(MONTH FROM s.sale_date)::int AS month,
+          SELECT EXTRACT(MONTH FROM (s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'))::int AS month,
                  COALESCE(SUM(
                    si.cost_price * si.quantity
                    * CASE
@@ -1193,12 +1203,12 @@ export const financialRouter = createTRPCRouter({
             FROM sale_items si2
             JOIN sales s2 ON s2.id = si2.sale_id
             WHERE s2.deleted_at IS NULL
-              AND s2.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+              AND EXTRACT(YEAR FROM (s2.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
             GROUP BY si2.sale_id
           ) li ON li.sale_id = s.id
           WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
             AND s.deleted_at IS NULL
-            AND s.sale_date BETWEEN ${startOfYear} AND ${endOfYear}
+            AND EXTRACT(YEAR FROM (s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')) = ${year}
           GROUP BY 1
         `;
         return { revenueRows: rev, expenseRows: exp, partsCostRows: parts };
