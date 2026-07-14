@@ -21,13 +21,19 @@ export type ProviderApuracaoPdfData = {
     logoDataUrl: string | null;
   };
   providerName: string;
-  monthLabel: string; // "06/2026"
-  status: string;
+  /** Rotulo do topo do documento (ex.: "APURACAO DE COMISSAO"). */
+  docLabel?: string;
+  /** Periodo do documento: "06/2026" (mensal) ou "01/07/2026 a 13/07/2026". */
+  monthLabel: string;
+  /** Status da apuracao. Omitido na previa por periodo (nao ha apuracao). */
+  status?: string;
   summary: {
     grossCommission: number;
-    totalReversals: number;
-    totalAllowance: number;
-    netAmount: number;
+    // Estornos, ajuda de custo e liquido so existem na apuracao mensal. Na
+    // previa por periodo (so comissao) sao omitidos e os cards nao aparecem.
+    totalReversals?: number;
+    totalAllowance?: number;
+    netAmount?: number;
   };
   lines: ApuracaoPdfLine[];
 };
@@ -158,12 +164,14 @@ const COLS = { data: 11, ref: 33, cat: 15, escopo: 9, origem: 12, base: 10, comi
 export function ProviderApuracaoPdfDocument({
   store,
   providerName,
+  docLabel = "Apuracao de comissao",
   monthLabel,
   status,
   summary,
   lines,
 }: ProviderApuracaoPdfData) {
   const now = new Date();
+  const hasNetBreakdown = summary.netAmount != null;
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -184,16 +192,17 @@ export function ProviderApuracaoPdfDocument({
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.docLabel}>Apuracao de comissao</Text>
+            <Text style={styles.docLabel}>{docLabel}</Text>
             <Text style={styles.docTitle}>{monthLabel}</Text>
-            <Text style={styles.docDate}>Status: {status}</Text>
+            {status && <Text style={styles.docDate}>Status: {status}</Text>}
           </View>
         </View>
         <View style={styles.headerDivider} />
 
         <Text style={styles.title}>Comissao — {providerName}</Text>
 
-        {/* Summary */}
+        {/* Summary. Na apuracao mensal mostra o detalhamento ate o liquido; na
+            previa por periodo (so comissao) mostra apenas a comissao. */}
         <View style={styles.summaryRow}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Comissao bruta</Text>
@@ -201,22 +210,26 @@ export function ProviderApuracaoPdfDocument({
               {fmtBRL(summary.grossCommission)}
             </Text>
           </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Estornos</Text>
-            <Text style={[styles.summaryValue, styles.summaryValueRed]}>
-              -{fmtBRL(summary.totalReversals)}
-            </Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Ajuda de custo</Text>
-            <Text style={styles.summaryValue}>+{fmtBRL(summary.totalAllowance)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Liquido a pagar</Text>
-            <Text style={[styles.summaryValue, styles.summaryValueGreen]}>
-              {fmtBRL(summary.netAmount)}
-            </Text>
-          </View>
+          {hasNetBreakdown && (
+            <>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Estornos</Text>
+                <Text style={[styles.summaryValue, styles.summaryValueRed]}>
+                  -{fmtBRL(summary.totalReversals ?? 0)}
+                </Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Ajuda de custo</Text>
+                <Text style={styles.summaryValue}>+{fmtBRL(summary.totalAllowance ?? 0)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Liquido a pagar</Text>
+                <Text style={[styles.summaryValue, styles.summaryValueGreen]}>
+                  {fmtBRL(summary.netAmount ?? 0)}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
 
         {/* Memory table */}

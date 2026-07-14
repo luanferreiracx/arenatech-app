@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { ContractRulesEditor } from "./contract-rules-editor";
 import { toast } from "@/lib/toast";
+import { formatBrDate } from "@/lib/utils/format-br-date";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import {
   PROVIDER_PROFILE_LABELS,
@@ -31,11 +32,7 @@ function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function formatDate(date: string | Date | null): string {
-  if (!date) return "—";
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("pt-BR");
-}
+const formatDate = formatBrDate;
 
 function getMonthOptions() {
   const options: Array<{ value: string; label: string }> = [];
@@ -116,6 +113,20 @@ function PeriodCommissionPreview({ providerId }: { providerId: string }) {
           <Calculator className="h-4 w-4 mr-1" />
           {previewQuery.isFetching ? "Calculando..." : "Calcular periodo"}
         </Button>
+        {/* PDF do periodo EFETIVAMENTE calculado (queryRange), nao dos inputs —
+            evita baixar um recorte diferente do que esta na tela. */}
+        {queryRange && data && (
+          <Button variant="outline" size="sm" asChild>
+            <a
+              href={`/api/commissions/${providerId}/periodo/pdf?startDate=${queryRange.startDate}&endDate=${queryRange.endDate}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <FileDown className="h-4 w-4 mr-1" />
+              PDF
+            </a>
+          </Button>
+        )}
       </div>
 
       {invalidOrder && (
