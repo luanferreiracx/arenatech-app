@@ -1623,6 +1623,23 @@ export const serviceOrderRouter = createTRPCRouter({
           });
         }
 
+        // R2 (G-P1-06/auditoria OS): delete não tinha guarda de status. Em OS com
+        // dinheiro comprometido (PAID/READY_FOR_PICKUP/DELIVERED/IN_WARRANTY), o
+        // releaseAllOsItems abaixo RESTOCAVA mercadoria vendida (inflava estoque) e
+        // deixava recebível/caixa/comissão órfãos apontando pra OS soft-deletada.
+        // Em OS já revertida (CANCELLED/REFUNDED) o estoque já foi liberado pelo
+        // cancel/refund — deletar re-liberava (inflação de novo). Exigir o fluxo
+        // correto (estornar/cancelar) antes; delete só para OS ativa/não-paga.
+        const DELETE_BLOCKED_STATUSES = [
+          "PAID", "READY_FOR_PICKUP", "DELIVERED", "IN_WARRANTY", "CANCELLED", "REFUNDED",
+        ];
+        if (DELETE_BLOCKED_STATUSES.includes(order.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "OS paga, entregue, cancelada ou estornada não pode ser excluída. Estorne ou cancele primeiro — excluir restauraria estoque vendido e deixaria recebível/caixa órfãos.",
+          });
+        }
+
         // F6: CAS no soft-delete ANTES de liberar estoque. Dois deletes
         // concorrentes liberavam o estoque em dobro (releaseAllOsItems usa
         // increment não idempotente). Reivindicamos deletedAt=null→now; o

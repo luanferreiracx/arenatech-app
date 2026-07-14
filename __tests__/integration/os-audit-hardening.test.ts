@@ -106,6 +106,23 @@ describe("Auditoria OS — PR A (F1/F4/F8)", () => {
     ).rejects.toThrow(/cancelada ou estornada/i);
   });
 
+  it("R2: delete de OS PAID é bloqueado (não restoca vendido nem orfana dinheiro)", async () => {
+    const order = await mkOrder("PAID");
+    await expect(
+      caller(mkCtx(adminId, "admin", false)).serviceOrder.delete({ id: order.id }),
+    ).rejects.toThrow(/paga.*entregue.*cancelada.*estornada|estorne ou cancele/i);
+    const still = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(still.deletedAt).toBeNull();
+  });
+
+  it("R2: delete de OS aberta (IN_PROGRESS) é permitido", async () => {
+    const order = await mkOrder("IN_PROGRESS");
+    const r = await caller(mkCtx(adminId, "admin", false)).serviceOrder.delete({ id: order.id });
+    expect(r.success).toBe(true);
+    const deleted = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(deleted.deletedAt).not.toBeNull();
+  });
+
   it("F4: getQuoteByLink NÃO expõe costPrice nem IDs internos", async () => {
     const order = await mkOrder("WAITING_APPROVAL");
     const link = `${MARK}-alink-${Date.now()}`;
