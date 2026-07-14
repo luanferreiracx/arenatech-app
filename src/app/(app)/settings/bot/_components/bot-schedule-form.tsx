@@ -25,9 +25,8 @@ import {
   type UpdateBotScheduleInput,
   COMMON_TIMEZONES,
   WEEKDAY_LABELS,
+  normalizeHhmm,
 } from "@/lib/validators/bot-config";
-
-const emptyToNull = (value: string) => (value.trim() === "" ? null : value);
 
 export function BotScheduleForm() {
   const trpc = useTRPC();
@@ -95,7 +94,7 @@ export function BotScheduleForm() {
               <Input
                 id="bot-open"
                 type="time"
-                {...form.register("start", { setValueAs: emptyToNull })}
+                {...form.register("start", { setValueAs: normalizeHhmm })}
               />
             </div>
             <div className="space-y-2">
@@ -103,7 +102,7 @@ export function BotScheduleForm() {
               <Input
                 id="bot-close"
                 type="time"
-                {...form.register("end", { setValueAs: emptyToNull })}
+                {...form.register("end", { setValueAs: normalizeHhmm })}
               />
             </div>
           </div>

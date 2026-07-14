@@ -96,6 +96,17 @@ export const WEEKDAY_LABELS: ReadonlyArray<{ value: number; short: string; long:
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/**
+ * Normaliza o valor de um campo de horário "HH:mm" vindo do form. NULL-SAFE de
+ * propósito: o `setValueAs` do react-hook-form chama isto no reset com o valor CRU,
+ * que é `null` quando a loja não tem horário configurado. Chamar `.trim()` num `null`
+ * crashava o render inteiro da aba (error boundary "erro inesperado"). Vazio, espaços
+ * ou não-string → null; senão devolve a string como está.
+ */
+export function normalizeHhmm(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
 /** Fuso IANA válido? Usa o próprio motor Intl como fonte da verdade. */
 function isValidTimeZone(tz: string): boolean {
   try {
