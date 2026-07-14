@@ -7,6 +7,7 @@ import {
   updateCustomerSchema,
   listCustomersSchema,
   normalizeCnpj,
+  normalizePhoneDigits,
 } from "@/lib/validators/customer";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { Prisma } from "@prisma/client";
@@ -207,8 +208,10 @@ export const customerRouter = createTRPCRouter({
               cnpj,
               tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
               birthDate: input.type === "PF" ? birthDate : null,
-              phone: input.phone,
-              phoneSecondary: input.phoneSecondary || null,
+              // P1-13: normaliza para só dígitos (chave estável). A busca usa
+              // digitsTerm; sem isso, telefone gravado com máscara ficava invisível.
+              phone: normalizePhoneDigits(input.phone),
+              phoneSecondary: input.phoneSecondary ? normalizePhoneDigits(input.phoneSecondary) : null,
               email: input.email || null,
               zipCode: input.zipCode || null,
               street: input.street || null,
@@ -285,8 +288,10 @@ export const customerRouter = createTRPCRouter({
               cnpj,
               tradeName: input.type === "PJ" ? (input.tradeName || null) : null,
               birthDate: input.type === "PF" ? birthDate : null,
-              phone: input.phone,
-              phoneSecondary: input.phoneSecondary || null,
+              // P1-13: normaliza para só dígitos (chave estável). A busca usa
+              // digitsTerm; sem isso, telefone gravado com máscara ficava invisível.
+              phone: normalizePhoneDigits(input.phone),
+              phoneSecondary: input.phoneSecondary ? normalizePhoneDigits(input.phoneSecondary) : null,
               email: input.email || null,
               zipCode: input.zipCode || null,
               street: input.street || null,

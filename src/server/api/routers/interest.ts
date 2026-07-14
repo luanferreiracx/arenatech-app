@@ -9,6 +9,7 @@ import {
   addInteractionSchema,
   sendBatchSchema,
   isTerminalInterestStatus,
+  TERMINAL_INTEREST_STATUSES,
   normalizePhoneDigits,
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
@@ -162,6 +163,7 @@ export const interestRouter = createTRPCRouter({
         // B4 (auditoria interesses 2026-07-11): estados terminais não voltam.
         // COMPLETED/CANCELLED reabertos corrompiam o funil e as métricas.
         // Decisão do dono: para retomar, cadastra-se um interesse novo.
+        // (Guarda amigável a partir da leitura; a atomicidade vem do CAS abaixo.)
         if (
           isTerminalInterestStatus(interest.status) &&
           interest.status !== input.status
@@ -173,10 +175,28 @@ export const interestRouter = createTRPCRouter({
           });
         }
 
-        await tx.interest.update({
-          where: { id: input.id },
+        // P1-14: CAS — o read-then-update permitia que a conversão automática
+        // em venda (seta COMPLETED) e um updateStatus(CANCELLED) concorrentes
+        // lessem o mesmo estado não-terminal e ambos gravassem (last-write-wins),
+        // revertendo um lead convertido. Só atualiza se o estado atual ainda NÃO
+        // for terminal (ou já for o alvo, idempotente).
+        const cas = await tx.interest.updateMany({
+          where: {
+            id: input.id,
+            OR: [
+              { status: { notIn: [...TERMINAL_INTEREST_STATUSES] } },
+              { status: input.status },
+            ],
+          },
           data: { status: input.status },
         });
+        if (cas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "O interesse foi finalizado ou cancelado por outra operação. Cadastre um novo interesse para retomar.",
+          });
+        }
 
         return { success: true };
       });
