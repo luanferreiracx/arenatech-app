@@ -17,8 +17,8 @@ export function DataTableToolbar({
   actions,
 }: DataTableToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="relative flex-1 max-w-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:max-w-sm">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           placeholder={searchPlaceholder}
@@ -36,7 +36,7 @@ export function DataTableToolbar({
           </button>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

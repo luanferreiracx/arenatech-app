@@ -81,7 +81,7 @@ export function DataTable<TData, TValue>({
     <div className="space-y-4">
       {toolbar && <div>{toolbar}</div>}
 
-      <div className="rounded-md border border-border overflow-hidden">
+      <div className="rounded-md border border-border overflow-x-auto">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
