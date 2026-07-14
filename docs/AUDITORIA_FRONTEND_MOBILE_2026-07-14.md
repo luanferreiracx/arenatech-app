@@ -84,9 +84,24 @@ em 1 coluna no mobile e subir (`grid-cols-1 sm:grid-cols-3`).
   fixo (o conteúdo real já era `sm:grid-cols-3`); alinhado. Resto OK.
 - **Caixa** — limpo, sem achados.
 
+## Lote 3a — Fiscal ✅ (PR pendente)
+
+Maior concentração de grids de coluna fixa (9). Todos eram **campos de
+formulário** ou **exibição** — a 320px, `grid-cols-3` dá ~90px/input (CEP,
+Número, CFOP, Valor ilegíveis).
+
+| Arquivo | Problema | Correção |
+|---------|----------|----------|
+| `fiscal/[id]/edit/page.tsx` | 6 grids fixos (endereço do destinatário + item da NF): `grid-cols-2`/`grid-cols-3` sem breakpoint. | 3-col → `grid-cols-2 sm:grid-cols-3` (col-span-2 preservados); 2-col de pares → `grid-cols-1 sm:grid-cols-2`. |
+| `fiscal/inutilizar/page.tsx` | 2 grids `grid-cols-2` (Modelo/Série, Nº Inicial/Final). | `grid-cols-1 sm:grid-cols-2`. |
+| `fiscal/_components/invoice-detail.tsx` | Grid de exibição `grid-cols-2` + **tabela de itens sem wrapper de scroll** (4 colunas monetárias esmagadas a 320px). | Grid → `sm:grid-cols-2`; tabela → `overflow-x-auto` + `min-w-[26rem]`. |
+
+Demais telas do fiscal (new, entrada, listagem): sem grids fixos, sem tabelas
+descobertas. Typecheck ✅.
+
 ## Próximos lotes (pendentes)
 
-- **Lote 3** — Fiscal (9 grids fixos — maior concentração), Settings, Comissões,
-  DePix/Wallet, Admin, IMEI, e o restante.
+- **Lote 3b** — Settings, Comissões, DePix/Wallet, Admin, IMEI (4 grids fixos),
+  e o restante.
 
 Cada lote: auditar → corrigir → PR → atualizar este doc.

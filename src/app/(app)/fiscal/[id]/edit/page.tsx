@@ -183,7 +183,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                 }}
                 className="space-y-4"
               >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">CPF/CNPJ *</Label>
                     <Input name="recipientCpfCnpj" defaultValue={invoice.recipientCpfCnpj ?? ""} required disabled={!isEditable} />
@@ -204,7 +204,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
 
                 <div className="border-t pt-3 mt-3">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Endereco</p>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs">CEP</Label>
                       <Input name="recipientZipCode" defaultValue={String((payload.recipientAddress as Record<string, string>)?.zipCode ?? "")} disabled={!isEditable} />
@@ -214,7 +214,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                       <Input name="recipientStreet" defaultValue={String((payload.recipientAddress as Record<string, string>)?.street ?? "")} disabled={!isEditable} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
                     <div className="space-y-1">
                       <Label className="text-xs">Numero</Label>
                       <Input name="recipientNumber" defaultValue={String((payload.recipientAddress as Record<string, string>)?.number ?? "")} disabled={!isEditable} />
@@ -228,7 +228,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                       <Input name="recipientComplement" defaultValue={String((payload.recipientAddress as Record<string, string>)?.complement ?? "")} disabled={!isEditable} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
                     <div className="space-y-1 col-span-2">
                       <Label className="text-xs">Cidade</Label>
                       <Input name="recipientCity" defaultValue={String((payload.recipientAddress as Record<string, string>)?.city ?? "")} disabled={!isEditable} />
@@ -272,7 +272,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                   })}
                   className="space-y-3"
                 >
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs">Codigo</Label>
                       <Input {...addItemForm.register("code")} />
@@ -286,7 +286,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
                     <Label className="text-xs">Descricao *</Label>
                     <Input {...addItemForm.register("description")} required />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs">CFOP</Label>
                       <Input {...addItemForm.register("cfop")} />
