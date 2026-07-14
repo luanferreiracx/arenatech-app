@@ -266,8 +266,8 @@ export function SimulatorForm() {
             </div>
           </div>
 
-          <div ref={tableRef}>
-            <table className="w-full border-collapse">
+          <div ref={tableRef} className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] border-collapse">
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left p-3 text-sm font-medium">Parcelas</th>

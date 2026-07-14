@@ -209,8 +209,8 @@ export default function NfeDetailPage({ params }: PageProps) {
         <CardHeader>
           <CardTitle className="text-sm">Itens da NF-e</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full min-w-[52rem] text-sm">
             <thead>
               <tr className="border-b border-primary/20 bg-muted/50">
                 <th className="text-left px-2 py-2 font-semibold uppercase text-xs">#</th>

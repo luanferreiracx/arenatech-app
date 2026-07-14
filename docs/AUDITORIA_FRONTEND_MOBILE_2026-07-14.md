@@ -84,7 +84,7 @@ em 1 coluna no mobile e subir (`grid-cols-1 sm:grid-cols-3`).
   fixo (o conteúdo real já era `sm:grid-cols-3`); alinhado. Resto OK.
 - **Caixa** — limpo, sem achados.
 
-## Lote 3a — Fiscal ✅ (PR pendente)
+## Lote 3a — Fiscal ✅ (PR #567 mergeado)
 
 Maior concentração de grids de coluna fixa (9). Todos eram **campos de
 formulário** ou **exibição** — a 320px, `grid-cols-3` dá ~90px/input (CEP,
@@ -99,9 +99,36 @@ Número, CFOP, Valor ilegíveis).
 Demais telas do fiscal (new, entrada, listagem): sem grids fixos, sem tabelas
 descobertas. Typecheck ✅.
 
+## Lote 3b — Tabelas sem scroll + grids restantes ✅ (PR pendente)
+
+Scan global do restante encontrou **6 tabelas** (5–12 colunas) **sem wrapper de
+scroll** → a 320px, colunas monetárias/texto esmagam ou quebram feio; e 2 grids
+de formulário ainda apertados.
+
+| Arquivo | Problema | Correção |
+|---------|----------|----------|
+| `admin/reports/_components/admin-reports.tsx` | Tabela 7 col sem scroll. | `CardContent` → `overflow-x-auto` + `min-w-[44rem]`. |
+| `pdv/[id]/_components/sale-detail.tsx` | Tabela de itens da venda (5 col). | `overflow-x-auto` + `min-w-[32rem]`. |
+| `stock/nfe/[id]/page.tsx` | Tabela de itens da NF-e (8 col, inclui célula `w-72`). | `overflow-x-auto` + `min-w-[52rem]`. |
+| `stock/nfe/page.tsx` | Listagem de NF-e (7 col). | Wrapper `overflow-x-auto` + `min-w-[48rem]`. |
+| `simulator/_components/simulator-form.tsx` | Tabela de parcelas (6 col); div é capturada p/ PDF. | `overflow-x-auto` no div + `min-w-[40rem]` (inócuo no PDF, página cheia). |
+| `my-commission/_components/my-commission.tsx` | 2 tabelas (6 e 4 col) — 1ª só tinha `overflow-y`; form-row `flex` sem wrap. | `overflow-auto` + `min-w`; 2ª envolvida; form-row `flex-wrap`. |
+| `service-orders/new/_steps/step-items.tsx` | Grid `grid-cols-3` (Qtd/Valor/Subtotal) — MoneyInput cortava a 90px. | `grid-cols-2 sm:grid-cols-3`. |
+
+**Avaliados e mantidos (aceitáveis a 320px):**
+- `settings/card-acquirers` receiving-accounts — grid Banco/Agência/Conta é o
+  layout clássico de conta bancária; agência (4 díg.) cabe em ~90px. Mexer
+  quebraria os `col-span`.
+- `service-order-detail:869` (3 valores monetários curtos), `catalog/[id]:116`
+  (3 badges desenhados), `payment-dialog:705` (3 botões num dialog `max-w-lg`) —
+  elementos curtos, legíveis a 320px.
+
+Typecheck ✅.
+
 ## Próximos lotes (pendentes)
 
-- **Lote 3b** — Settings, Comissões, DePix/Wallet, Admin, IMEI (4 grids fixos),
-  e o restante.
+- **Lote 4** — Settings (abas restantes), DePix/Wallet, Admin (tenants/planos),
+  IMEI, comunicação, e telas públicas (catálogo, pay, os, quote) — varredura
+  fina de formulários densos e barras de ação.
 
 Cada lote: auditar → corrigir → PR → atualizar este doc.

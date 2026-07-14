@@ -17,8 +17,8 @@ export function AdminReports() {
     <div className="space-y-4">
       <Card>
         <CardHeader><CardTitle>Tenants por Status</CardTitle></CardHeader>
-        <CardContent>
-          <table className="w-full text-sm">
+        <CardContent className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-sm">
             <thead>
               <tr className="border-b">
                 <th className="text-left py-2">Nome</th>
