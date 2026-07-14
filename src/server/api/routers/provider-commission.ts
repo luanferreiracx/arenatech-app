@@ -16,10 +16,17 @@ import {
   deleteReversalSchema,
   toggleUncoveredDaySchema,
   getProviderDetailSchema,
+  previewCommissionByPeriodSchema,
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
-import { computeBucketCommission } from "@/lib/commission/bucket-commission";
+import {
+  computeCommissionLines,
+  summarizeCommissionLines,
+  toNumericRules,
+  type CommissionEvent,
+} from "@/lib/commission/compute-lines";
 import { monthRange } from "@/lib/commission/month-range";
+import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 import { calcAllowance } from "@/lib/commission/allowance";
 import { rethrowUnlessMissingTable } from "@/lib/commission/collect-events-error";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
@@ -309,6 +316,77 @@ export const providerCommissionRouter = createTRPCRouter({
         });
         if (!provider) return null; // usuario nao e prestador — a UI mostra empty state
         return buildProviderDetail(tx, provider.id, input.year, input.month);
+      });
+    }),
+
+  /**
+   * Previa de comissao por periodo LIVRE (read-only, nao persiste). Ao contrario
+   * da apuracao mensal, considera EXCLUSIVAMENTE a comissao — sem ajuda de custo
+   * e sem estornos — e aceita qualquer intervalo de datas. Serve para o admin
+   * conferir quanto um prestador comissionou num recorte arbitrario (ex.: uma
+   * quinzena, ou varios meses) sem mexer no fechamento mensal.
+   *
+   * Gerencia (tenantAdminProcedure): expoe comissao/base por item, igual ao
+   * getDetail.
+   */
+  previewByPeriod: tenantAdminProcedure
+    .input(previewCommissionByPeriodSchema)
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const periodStart = startOfDayBrt(input.startDate);
+        const periodEnd = endOfDayBrt(input.endDate);
+
+        const provider = await tx.provider.findUnique({
+          where: { id: input.providerId },
+          include: { contracts: { orderBy: { startDate: "desc" }, include: { rules: true } } },
+        });
+        if (!provider) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
+        }
+
+        // Contrato vigente que intersecta o periodo (mesma regra do recompute).
+        const contract = provider.contracts.find((c: { startDate: Date; endDate: Date | null }) => {
+          const start = new Date(c.startDate);
+          const end = c.endDate ? new Date(c.endDate) : null;
+          return start <= periodEnd && (!end || end >= periodStart);
+        });
+
+        const emptyResult = {
+          providerId: provider.id,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          grossCommission: 0,
+          lines: [] as ReturnType<typeof computeCommissionLines>["lines"],
+          subtotals: {} as ReturnType<typeof summarizeCommissionLines>,
+        };
+
+        if (!contract || contract.rules.length === 0) {
+          return emptyResult;
+        }
+
+        const hasStoreSaleRule = contract.rules.some(
+          (r: { source: string; category: string }) => r.source === "STORE" && r.category !== "servico_at_loja",
+        );
+        const hasStoreServiceRule = contract.rules.some((r: { category: string }) => r.category === "servico_at_loja");
+
+        const events = await collectProviderEvents(
+          tx,
+          provider,
+          periodStart,
+          periodEnd,
+          hasStoreSaleRule,
+          hasStoreServiceRule,
+        );
+        const { lines, grossCommission } = computeCommissionLines(events, toNumericRules(contract.rules));
+
+        return {
+          providerId: provider.id,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          grossCommission,
+          lines,
+          subtotals: summarizeCommissionLines(lines),
+        };
       });
     }),
 
@@ -799,27 +877,9 @@ async function buildProviderDetail(
 // Event collection helpers
 // ═══════════════════════════════════════
 
-interface ProviderEvent {
-  tipo: string;
-  referencia_id: string;
-  referencia_label: string;
-  data: string;
-  categoria: string;
-  escopo: string;
-  base: number;
-  detalhe: Record<string, unknown>;
-  // Aliases used in bucket grouping
-  category: string;
-  scope: string;
-  // Origem: OWN (venda propria / OS) ou STORE (participacao nas vendas de outros).
-  source: string;
-  // Bases alternativas para escolher conforme a regra do balde:
-  // baseProfit = lucro (LBC); baseGrossNet = valor total liquido do item.
-  // Servicos/OS so tem baseProfit (== base). qty = unidades (p/ valor fixo).
-  baseProfit: number;
-  baseGrossNet: number;
-  qty: number;
-}
+// `ProviderEvent` = `CommissionEvent` (forma compartilhada com o motor de
+// baldes em compute-lines.ts). Alias local para manter o nome usado aqui.
+type ProviderEvent = CommissionEvent;
 
 /**
  * C2 (auditoria comissão 2026-07-11): computa (ou recomputa) a apuração do mês —
@@ -869,36 +929,7 @@ async function recomputeProviderApuracao(
   const hasStoreServiceRule = contract.rules.some((r: { category: string }) => r.category === "servico_at_loja");
   const events = await collectProviderEvents(tx, provider, periodStart, periodEnd, hasStoreSaleRule, hasStoreServiceRule);
 
-  const buckets: Record<string, { category: string; scope: string; source: string; events: typeof events }> = {};
-  for (const ev of events) {
-    const key = `${ev.category}|${ev.scope}|${ev.source}`;
-    if (!buckets[key]) buckets[key] = { category: ev.category, scope: ev.scope, source: ev.source, events: [] };
-    buckets[key]!.events.push(ev);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lines: Array<Record<string, any>> = [];
-  const contractRules = contract.rules.map((r: { rangeMin: unknown; rangeMax: unknown; rate: unknown }) => ({
-    ...r,
-    rangeMin: decimalToNumber(r.rangeMin as Prisma.Decimal),
-    rangeMax: r.rangeMax ? decimalToNumber(r.rangeMax as Prisma.Decimal) : null,
-    rate: decimalToNumber(r.rate as Prisma.Decimal),
-  }));
-
-  for (const bucket of Object.values(buckets)) {
-    const matchingRules = contractRules.filter(
-      (r: { category: string; scope: string; source: string }) =>
-        r.category === bucket.category && r.scope === bucket.scope && r.source === bucket.source,
-    );
-    if (matchingRules.length === 0) continue;
-    const results = computeBucketCommission(matchingRules, bucket.events);
-    bucket.events.forEach((ev, i) => {
-      const r = results[i]!;
-      lines.push({ ...ev, base: r.base, comissao: r.comissao, aliquota_efetiva: r.aliquotaEfetiva, tipo_valor: r.tipoValor, origem: bucket.source });
-    });
-  }
-
-  const grossCommission = Math.round(lines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100;
+  const { lines, grossCommission } = computeCommissionLines(events, toNumericRules(contract.rules));
 
   const reversals = await tx.providerReversal.findMany({
     where: { providerId, factDate: { gte: periodStart, lte: periodEnd } },
@@ -916,17 +947,7 @@ async function recomputeProviderApuracao(
       label: `${String(month).padStart(2, "0")}/${year}`,
     },
     linhas: lines,
-    subtotais_por_categoria: Object.fromEntries(
-      Object.entries(buckets).map(([key, bucket]) => {
-        const bucketLines = lines.filter((l) => `${l.categoria}|${l.escopo}|${l.origem}` === key);
-        return [key, {
-          categoria: bucket.category, escopo: bucket.scope, origem: bucket.source,
-          base: Math.round(bucketLines.reduce((s, l) => s + (l.base as number), 0) * 100) / 100,
-          comissao: Math.round(bucketLines.reduce((s, l) => s + (l.comissao as number), 0) * 100) / 100,
-          qtd: bucketLines.length,
-        }];
-      }),
-    ),
+    subtotais_por_categoria: summarizeCommissionLines(lines),
     total_comissao: grossCommission,
   };
 

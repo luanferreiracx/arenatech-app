@@ -369,6 +369,24 @@ export const apurarProviderSchema = z.object({
 });
 export type ApurarProviderInput = z.infer<typeof apurarProviderSchema>;
 
+/**
+ * Previa de comissao por periodo LIVRE (read-only). Diferente da apuracao
+ * mensal: nao persiste, considera EXCLUSIVAMENTE a comissao (sem ajuda de custo
+ * e sem estornos), e aceita qualquer intervalo de datas. `startDate`/`endDate`
+ * no formato `YYYY-MM-DD`; a fronteira e ancorada em BRT no server.
+ */
+export const previewCommissionByPeriodSchema = z
+  .object({
+    providerId: z.string().uuid(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inicial invalida"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data final invalida"),
+  })
+  .refine((data) => data.startDate <= data.endDate, {
+    path: ["endDate"],
+    message: "A data final deve ser igual ou posterior a inicial.",
+  });
+export type PreviewCommissionByPeriodInput = z.infer<typeof previewCommissionByPeriodSchema>;
+
 export const closeApuracaoSchema = z.object({
   providerId: z.string().uuid(),
   month: z.number().int().min(1).max(12),

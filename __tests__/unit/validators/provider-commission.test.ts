@@ -12,6 +12,7 @@ import {
   deleteReversalSchema,
   toggleUncoveredDaySchema,
   getProviderDetailSchema,
+  previewCommissionByPeriodSchema,
   providerProfileEnum,
   providerBondTypeEnum,
   reversalTypeEnum,
@@ -524,6 +525,48 @@ describe("provider-commission validators", () => {
     it("rejects month 13", () => {
       expect(() =>
         apurarProviderSchema.parse({ providerId: validUuid, month: 13, year: 2026 }),
+      ).toThrow();
+    });
+  });
+
+  describe("previewCommissionByPeriodSchema", () => {
+    it("accepts a valid date range", () => {
+      const result = previewCommissionByPeriodSchema.parse({
+        providerId: validUuid,
+        startDate: "2026-07-01",
+        endDate: "2026-07-15",
+      });
+      expect(result.startDate).toBe("2026-07-01");
+      expect(result.endDate).toBe("2026-07-15");
+    });
+
+    it("accepts a single-day range (start == end)", () => {
+      expect(() =>
+        previewCommissionByPeriodSchema.parse({
+          providerId: validUuid,
+          startDate: "2026-07-10",
+          endDate: "2026-07-10",
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects end before start", () => {
+      expect(() =>
+        previewCommissionByPeriodSchema.parse({
+          providerId: validUuid,
+          startDate: "2026-07-20",
+          endDate: "2026-07-10",
+        }),
+      ).toThrow();
+    });
+
+    it("rejects malformed dates", () => {
+      expect(() =>
+        previewCommissionByPeriodSchema.parse({
+          providerId: validUuid,
+          startDate: "07/2026",
+          endDate: "2026-07-10",
+        }),
       ).toThrow();
     });
   });
