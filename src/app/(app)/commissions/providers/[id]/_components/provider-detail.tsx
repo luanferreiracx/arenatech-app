@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Lock, FileText, Calendar, Undo2, Plus, X, Calculator, FileDown, Sheet } from "lucide-react";
+import { Search, Lock, FileText, Calendar, Undo2, Plus, X, Calculator, FileDown, Sheet, CalendarRange } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,132 @@ function getMonthOptions() {
     options.push({ value: `${year}-${String(month).padStart(2, "0")}`, label });
   }
   return options;
+}
+
+/**
+ * Previa de comissao por periodo LIVRE (read-only). Independente da apuracao
+ * mensal: considera EXCLUSIVAMENTE a comissao (sem ajuda de custo e sem
+ * estornos) e aceita qualquer intervalo de datas. Nao persiste nem fecha nada —
+ * so consulta. So aparece para admin.
+ */
+function PeriodCommissionPreview({ providerId }: { providerId: string }) {
+  const trpc = useTRPC();
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  // Guardamos o par consultado a parte dos inputs: a query so dispara ao clicar,
+  // e a UI reflete o periodo efetivamente calculado (nao o que esta sendo digitado).
+  const [queryRange, setQueryRange] = useState<{ startDate: string; endDate: string } | null>(null);
+
+  const previewQuery = useQuery(
+    trpc.providerCommission.previewByPeriod.queryOptions(
+      queryRange ? { providerId, ...queryRange } : { providerId, startDate: "1970-01-01", endDate: "1970-01-01" },
+      { enabled: queryRange !== null },
+    ),
+  );
+
+  const canCalculate = startDate !== "" && endDate !== "" && startDate <= endDate;
+  const invalidOrder = startDate !== "" && endDate !== "" && startDate > endDate;
+
+  const handleCalculate = () => {
+    if (!canCalculate) return;
+    setQueryRange({ startDate, endDate });
+  };
+
+  const data = previewQuery.data;
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <CalendarRange className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold text-primary">Comissao por periodo</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Consulta a comissao de um intervalo de datas qualquer. Considera apenas a comissao —{" "}
+        <span className="font-medium">nao inclui ajuda de custo nem estornos</span>. E somente
+        leitura: nao fecha apuracao nem gera conta a pagar.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2 mb-4">
+        <div>
+          <Label className="text-xs">Inicio</Label>
+          <DateInput
+            value={startDate}
+            onChange={setStartDate}
+            className="h-8 text-xs"
+            aria-label="Data inicial do periodo"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Fim</Label>
+          <DateInput
+            value={endDate}
+            onChange={setEndDate}
+            className="h-8 text-xs"
+            aria-label="Data final do periodo"
+          />
+        </div>
+        <Button size="sm" onClick={handleCalculate} disabled={!canCalculate || previewQuery.isFetching}>
+          <Calculator className="h-4 w-4 mr-1" />
+          {previewQuery.isFetching ? "Calculando..." : "Calcular periodo"}
+        </Button>
+      </div>
+
+      {invalidOrder && (
+        <p className="text-xs text-destructive mb-3">A data final deve ser igual ou posterior a inicial.</p>
+      )}
+
+      {previewQuery.isError && (
+        <p className="text-xs text-destructive mb-3">{previewQuery.error.message}</p>
+      )}
+
+      {data && (
+        <>
+          <Card className="p-4 border-primary/25 bg-primary/5 mb-4">
+            <p className="text-xs text-muted-foreground uppercase">Comissao no periodo</p>
+            <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(data.grossCommission)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {formatDate(data.startDate)} a {formatDate(data.endDate)}
+            </p>
+          </Card>
+
+          {data.lines.length > 0 ? (
+            <div className="max-h-[420px] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="text-left p-2">Data</th>
+                    <th className="text-left p-2">Referencia</th>
+                    <th className="text-left p-2">Cat/Escopo</th>
+                    <th className="text-left p-2">Origem</th>
+                    <th className="text-right p-2">Base</th>
+                    <th className="text-right p-2">Comissao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.lines.map((l, i) => (
+                    <tr key={`${l.referencia_id}-${i}`} className="border-b">
+                      <td className="p-2 text-muted-foreground whitespace-nowrap">{formatDate(l.data)}</td>
+                      <td className="p-2">{l.referencia_label}</td>
+                      <td className="p-2">
+                        {COMMISSION_CATEGORY_LABELS[l.categoria] ?? l.categoria} / {l.escopo}
+                      </td>
+                      <td className="p-2 text-muted-foreground">
+                        {COMMISSION_SOURCE_LABELS[l.origem] ?? "Propria"}
+                      </td>
+                      <td className="p-2 text-right">{formatCurrency(l.base)}</td>
+                      <td className="p-2 text-right font-medium text-primary">{formatCurrency(l.comissao)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Nenhuma comissao no periodo selecionado.</p>
+          )}
+        </>
+      )}
+    </Card>
+  );
 }
 
 export function ProviderDetail({ providerId }: { providerId: string }) {
@@ -337,6 +463,10 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           )}
         </>
       )}
+
+      {/* Comissao por periodo livre (read-only) — so admin. Independente da
+          apuracao mensal: so comissao, sem ajuda de custo. */}
+      {isAdmin && currentContract && <PeriodCommissionPreview providerId={providerId} />}
 
       {/* Rules + Memory grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
