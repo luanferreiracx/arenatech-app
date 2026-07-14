@@ -223,17 +223,28 @@ export async function handleEulenDepositWebhook(
   if (PAID_ONCHAIN_STATUSES.has(statusRaw)) {
     const blockchainTxId = payload.blockchainTxID;
     if (!blockchainTxId) {
-      // Sem txid nao da pra cross-check; deixa o monitor on-chain creditar o
-      // saldo. Mas o PIX ja caiu -> marca PROCESSING + libera a venda (idempotente).
+      // Sem txid nao da pra cross-check on-chain; deixa o monitor on-chain
+      // creditar o saldo. Mas o PIX ja caiu -> marca PROCESSING.
       await withAdmin((tx) =>
         tx.tenantDepixTransaction.updateMany({
           where: { id: txRow.id, status: "PENDING" },
           data: { status: "PROCESSING", pixApprovedAt: new Date(), ...payerNamePatch(payload) },
         }),
       );
-      await applyPixReceivedEffects(txRow.tenantId, txRow.id);
+      // Anti-forja (S1/S2): igual ao branch `approved`, so LIBERA a venda se a
+      // Eulen corroborar por consulta ativa (API-key, nao o webhook). Sem txid
+      // nao ha cross-check on-chain, entao esta e a unica barreira contra um
+      // webhook `depix_sent` forjado (secret vazado) liberar venda/assinatura.
+      // Se a Eulen esta indisponivel, fica PROCESSING e o cron reconsulta depois.
+      const corroborated = await eulenConfirmsPixReceived(qrId);
+      if (corroborated) {
+        await applyPixReceivedEffects(txRow.tenantId, txRow.id);
+      }
       await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
-      return { status: 200, body: { ok: true, depixSent: true, awaitingMonitor: true } };
+      return {
+        status: 200,
+        body: { ok: true, depixSent: true, awaitingMonitor: true, saleReleased: corroborated },
+      };
     }
 
     // Ja concluido? idempotente.

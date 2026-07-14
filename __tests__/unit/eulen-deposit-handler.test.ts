@@ -217,6 +217,31 @@ describe("handleEulenDepositWebhook", () => {
     expect(data.data.depositTxId).toBe("bc1");
   });
 
+  it("depix_sent SEM txid, Eulen corrobora -> PROCESSING + LIBERA venda (G-P1-15)", async () => {
+    // Default: getPixStatus retorna pix_received -> corrobora.
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q7", status: "depix_sent", valueInCents: 10000 },
+      null,
+    );
+    // Sem txid nao ha cross-check on-chain.
+    expect(verifyDepositOnChain).not.toHaveBeenCalled();
+    // Marca PROCESSING e libera a venda (Eulen corroborou).
+    const data = updateMany.mock.calls[0]![0] as { data: { status: string } };
+    expect(data.data.status).toBe("PROCESSING");
+    expect(applyPixReceivedEffects).toHaveBeenCalledWith(TENANT, "tx-1");
+    expect(res.body).toMatchObject({ depixSent: true, awaitingMonitor: true, saleReleased: true });
+  });
+
+  it("depix_sent SEM txid, Eulen NAO corrobora -> PROCESSING mas NAO libera venda (anti-forja G-P1-15)", async () => {
+    getPixStatus.mockResolvedValue({ success: true, status: "pending", isFinal: false });
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "q7", status: "depix_sent", valueInCents: 10000 },
+      null,
+    );
+    expect(applyPixReceivedEffects).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ depixSent: true, saleReleased: false });
+  });
+
   it("expired -> tx EXPIRED + propaga QuickSale", async () => {
     const res = await handleEulenDepositWebhook(
       { webhookType: "deposit", qrId: "q5", status: "expired", valueInCents: 10000 },
