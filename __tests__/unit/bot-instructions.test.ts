@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt, STORE_INSTRUCTIONS_GUARD } from "@/lib/talison/prompt";
-import { updateBotConfigSchema, normalizeHhmm, updateBotScheduleSchema } from "@/lib/validators/bot-config";
+import { updateBotConfigSchema, normalizeHhmm, updateBotScheduleSchema, maskHhmm } from "@/lib/validators/bot-config";
 
 describe("buildSystemPrompt — instruções da loja (M1/M2)", () => {
   it("sem instruções: prompt não tem o bloco delimitado da loja", () => {
@@ -105,5 +105,22 @@ describe("updateBotScheduleSchema — abertura/fechamento em par (UX: erro no ca
   it("abertura + fechamento → OK; ambos vazios → OK (usa padrão)", () => {
     expect(updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: "09:00", end: "18:00", openWeekdays: [1] }).success).toBe(true);
     expect(updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: null, end: null, openWeekdays: [1] }).success).toBe(true);
+  });
+});
+
+describe("maskHhmm — máscara HH:mm (input de texto robusto no lugar do type=time)", () => {
+  it("formata dígitos em HH:mm conforme digita", () => {
+    expect(maskHhmm("0900")).toBe("09:00");
+    expect(maskHhmm("1")).toBe("1");
+    expect(maskHhmm("09")).toBe("09");
+    expect(maskHhmm("093")).toBe("09:3");
+    expect(maskHhmm("09:00")).toBe("09:00");
+  });
+  it("clampa hora ≤ 23 e minuto ≤ 59", () => {
+    expect(maskHhmm("9900")).toBe("23:00");
+    expect(maskHhmm("0999")).toBe("09:59");
+  });
+  it("ignora não-dígitos e excesso", () => {
+    expect(maskHhmm("ab09cd00ef")).toBe("09:00");
   });
 });

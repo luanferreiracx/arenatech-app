@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Clock } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
@@ -25,9 +25,9 @@ import {
   type UpdateBotScheduleInput,
   COMMON_TIMEZONES,
   WEEKDAY_LABELS,
-  normalizeHhmm,
   DEFAULT_BOT_TIMEZONE,
   DEFAULT_BOT_OPEN_WEEKDAYS,
+  maskHhmm,
 } from "@/lib/validators/bot-config";
 
 export function BotScheduleForm() {
@@ -102,10 +102,20 @@ export function BotScheduleForm() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="bot-open">Abre às</Label>
-              <Input
-                id="bot-open"
-                type="time"
-                {...form.register("start", { setValueAs: normalizeHhmm })}
+              <Controller
+                control={form.control}
+                name="start"
+                render={({ field }) => (
+                  <Input
+                    id="bot-open"
+                    inputMode="numeric"
+                    placeholder="09:00"
+                    maxLength={5}
+                    value={field.value ?? ""}
+                    onChange={(e) => field.onChange(maskHhmm(e.target.value) || null)}
+                    onBlur={field.onBlur}
+                  />
+                )}
               />
               {form.formState.errors.start && (
                 <p className="text-sm text-destructive">{form.formState.errors.start.message}</p>
@@ -113,10 +123,20 @@ export function BotScheduleForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="bot-close">Fecha às</Label>
-              <Input
-                id="bot-close"
-                type="time"
-                {...form.register("end", { setValueAs: normalizeHhmm })}
+              <Controller
+                control={form.control}
+                name="end"
+                render={({ field }) => (
+                  <Input
+                    id="bot-close"
+                    inputMode="numeric"
+                    placeholder="18:00"
+                    maxLength={5}
+                    value={field.value ?? ""}
+                    onChange={(e) => field.onChange(maskHhmm(e.target.value) || null)}
+                    onBlur={field.onBlur}
+                  />
+                )}
               />
               {form.formState.errors.end && (
                 <p className="text-sm text-destructive">{form.formState.errors.end.message}</p>

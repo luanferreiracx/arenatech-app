@@ -107,6 +107,22 @@ export function normalizeHhmm(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
+/**
+ * Máscara de horário para input de TEXTO (o `<input type="time">` nativo é frágil a
+ * re-render do react-hook-form — perdia a digitação no 1º campo — e depende de locale).
+ * Formata dígitos em "HH:mm" enquanto o usuário digita: "0900" → "09:00", "9" → "9".
+ * Clampa hora ≤ 23 e minuto ≤ 59 para evitar valores impossíveis.
+ */
+export function maskHhmm(input: string): string {
+  const digits = input.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  let hh = digits.slice(0, 2);
+  let mm = digits.slice(2, 4);
+  if (Number(hh) > 23) hh = "23";
+  if (mm.length === 2 && Number(mm) > 59) mm = "59";
+  return `${hh}:${mm}`;
+}
+
 /** Fuso IANA válido? Usa o próprio motor Intl como fonte da verdade. */
 function isValidTimeZone(tz: string): boolean {
   try {
