@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isTenantAdmin } from "@/lib/auth/roles";
+import { resolveExportTxType } from "@/lib/financial/export-access";
 import { withTenant } from "@/server/db";
 
 /**
@@ -32,11 +34,17 @@ export async function GET(req: NextRequest) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
 
+  // RBAC (F8, ADR 0032): operador só enxerga RECEIVABLE; contas a PAGAR
+  // (custos de fornecedor) são exclusivas de admin. Espelha o gate do router
+  // tRPC (financial.ts) que esta rota REST antes contornava.
+  const isAdmin = isTenantAdmin(session, tenantId);
+  const effectiveTxType = resolveExportTxType(isAdmin, txType);
+
   try {
     if (type === "transactions") {
       const data = await withTenant(tenantId, async (tx) => {
         const where: Record<string, unknown> = { deletedAt: null };
-        if (txType) where.type = txType;
+        if (effectiveTxType) where.type = effectiveTxType;
         if (status) where.status = status;
         if (from || to) {
           const range: Record<string, Date> = {};
@@ -81,6 +89,8 @@ export async function GET(req: NextRequest) {
       const data = await withTenant(tenantId, async (tx) => {
         const where: Record<string, unknown> = {};
         if (status) where.status = status;
+        // Sem esse filtro a rota dumpava PAYABLE+RECEIVABLE para qualquer usuário.
+        if (effectiveTxType) where.transaction = { type: effectiveTxType };
         if (from || to) {
           const range: Record<string, Date> = {};
           if (from) range.gte = new Date(from);
@@ -138,7 +148,13 @@ function buildCsv(headers: string[], rows: string[][]): string {
 }
 
 function csvCell(value: string): string {
-  const safe = value ?? "";
+  let safe = value ?? "";
+  // Anti CSV/formula injection: campos controlados pelo usuário (descrição,
+  // fornecedor, cliente) que começam com =,+,-,@ ou tab viram fórmula no Excel.
+  // Prefixa com aspa simples (mesma defesa já aplicada no export de comissões).
+  if (/^[=+\-@\t\r]/.test(safe)) {
+    safe = `'${safe}`;
+  }
   if (/[";\r\n]/.test(safe)) {
     return `"${safe.replace(/"/g, '""')}"`;
   }
