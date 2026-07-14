@@ -19,6 +19,30 @@
 
 ---
 
+### 2026-07-14 — Auditoria GERAL (12 domínios) + correção em ondas (15 PRs)
+Varredura completa módulo a módulo (12 agentes paralelos, cada um com sua skill de
+auditoria de 4 rodadas, cada achado verificado contra o código real). Registro em
+`docs/AUDITORIA_GERAL_2026-07-14/` (REGISTRO_GAPS.md + STATUS_CORRECOES.md). Núcleo
+transacional maduro (0 P0 em Auth/PDV/OS/Estoque/Financeiro-núcleo/DePix-crédito/RLS).
+- **Onda 1 (Segurança+P0):** #575 RBAC export financeiro · #576 DePix revalida `depix_sent`
+  s/txid + replay-guard fail-closed · #577 RLS backstop `subscriptions` · #578 custo/margem
+  admin-only nos relatórios de estoque.
+- **Onda 2 (fuso/DRE/dashboard/frontend+OS):** #579 surfacing de erro de query (toast+Sentry)
+  · #580 relatório NF em BRT+soft-delete · #581 DRE em BRT + despesas via ledger · #582
+  salesChart via engine + remove stockDashboard morto · #583 custo da OS admin-only.
+- **Onda 3 (dinheiro/integridade):** #584 applyDiscount abate trade-in do "A pagar" · #585
+  relatório de trade-in ignora canceladas · #586 delete de OS com guarda de status + PAYABLE
+  de lab atômico · #587 normaliza telefone do customer + CAS no interest.updateStatus.
+- **Decisões do dono:** fiscal/NF-e fora de escopo (API não decidida); OS custos admin-only
+  (técnico não lança custo de peças); "Total"=subtotal (soma de tudo), "A pagar"=totalAmount
+  (líquido de desconto+trade-in).
+- **Restante (follow-up):** R1 (refund de OS direct-pay sem baixa de caixa), Auth (gating
+  fail-open, lockout DoS — trade-off lockout-vs-captcha p/ decisão do dono), Bot multi-tenant T1
+  (latente, P0 no 2º tenant com bot), ~40 P2s.
+- **Processo:** cada correção em branch/PR isolada, validada com typecheck+lint+unit+E2E; dinheiro
+  e migrations validados em Postgres real (integração). LIÇÃO: OrbStack inativa sozinho entre
+  comandos — religar antes de rodar integração.
+
 ### 2026-07-13 — Talison: instruções da loja editáveis pelo admin (ADR 0055, PR #554)
 O dono cobrou a página de configuração do bot — a `/investigate` confirmou que só existia a
 proposta no ADR 0055, nada construído. Antes de codar, revisão com `audit-ai-systems`
