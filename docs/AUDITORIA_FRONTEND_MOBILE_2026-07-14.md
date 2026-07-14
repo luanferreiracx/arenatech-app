@@ -22,7 +22,7 @@ Cada achado é testado mentalmente contra os critérios da skill:
 
 ---
 
-## Lote 1 — Shell compartilhado ✅ (PR pendente)
+## Lote 1 — Shell compartilhado ✅ (PR #566 mergeado)
 
 Estes componentes são a fundação de praticamente todas as telas.
 
@@ -99,7 +99,7 @@ Número, CFOP, Valor ilegíveis).
 Demais telas do fiscal (new, entrada, listagem): sem grids fixos, sem tabelas
 descobertas. Typecheck ✅.
 
-## Lote 3b — Tabelas sem scroll + grids restantes ✅ (PR pendente)
+## Lote 3b — Tabelas sem scroll + grids restantes ✅ (PR #568 mergeado)
 
 Scan global do restante encontrou **6 tabelas** (5–12 colunas) **sem wrapper de
 scroll** → a 320px, colunas monetárias/texto esmagam ou quebram feio; e 2 grids
@@ -125,10 +125,46 @@ de formulário ainda apertados.
 
 Typecheck ✅.
 
-## Próximos lotes (pendentes)
+## Lote 4 — Telas públicas (voltadas ao cliente) ✅ (PR #569 mergeado)
 
-- **Lote 4** — Settings (abas restantes), DePix/Wallet, Admin (tenants/planos),
-  IMEI, comunicação, e telas públicas (catálogo, pay, os, quote) — varredura
-  fina de formulários densos e barras de ação.
+Priorizadas por serem de maior tráfego mobile.
 
-Cada lote: auditar → corrigir → PR → atualizar este doc.
+| Tela | Achado | Correção |
+|------|--------|----------|
+| `quote/[link]/page.tsx` | Cards "Valor Anterior/Novo Valor" em `grid-cols-2` com valores `text-2xl`: a 320px cada card (~140px) não comporta "R$ 1.234,56" (~155px) → estoura. Tela crítica de conversão. | `grid-cols-1 sm:grid-cols-2` (empilha no mobile). |
+
+**Auditadas e OK:** `/pay` (checkout QR DePix — sem grids/tabelas problemáticos);
+login/auth (os `w-[800px]` são glows decorativos `pointer-events-none` dentro de
+`overflow-hidden`); `/os/[publicLink]` (grid 2-col de texto pequeno, legível);
+catálogo (grids/badges desenhados).
+
+---
+
+## Verificação global final
+
+Após os 4 lotes, `grep` em todo `src/app` confirma:
+- **0 tabelas `<table>` sem wrapper de scroll** (antes: 7).
+- **0 grids `grid-cols-{3..6}` fixos problemáticos** — os 4 remanescentes foram
+  avaliados e são legíveis a 320px (conta bancária, 3 valores curtos na OS,
+  botões num dialog, badges do catálogo).
+- Nenhuma altura `100vh`/`h-screen` travando scroll (as `min-h-screen` crescem;
+  o único `h-screen` é a sidebar sticky do catálogo, intencional).
+
+### Fundação corrigida (propaga para todo o app)
+- **PageHeader** (121 páginas), **DataTable**, **DataTableToolbar**, **Dialog** —
+  agora com `flex-wrap`, scroll-x e `max-h`/`overflow-y`. A causa raiz do sintoma
+  relatado (botões fora da tela no mobile) estava aqui e no PDV.
+
+### Cobertura por lote
+| Lote | Escopo | PR |
+|------|--------|----|
+| 1 | Shell compartilhado | #566 |
+| 2 | PDV + OS/Estoque/Financeiro/Caixa | #566 |
+| 3a | Fiscal | #567 |
+| 3b | Tabelas densas + grids restantes | #568 |
+| 4 | Telas públicas | #569 |
+
+### Recomendação de prevenção (opcional, futura)
+Adicionar uma regra de lint (ex.: `eslint-plugin-tailwindcss` ou grep no CI) que
+sinalize `grid-cols-{3..6}` sem prefixo responsivo e `<table>` sem ancestral com
+`overflow-x-auto`, evitando reintrodução dos mesmos padrões.
