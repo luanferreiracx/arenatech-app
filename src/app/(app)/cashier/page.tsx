@@ -15,7 +15,7 @@ export default function CashierPage() {
         title="Caixa"
         subtitle="Gerencie a abertura, movimentacoes e fechamento do caixa"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/cashier/reviews">
                 <CheckSquare className="mr-2 h-4 w-4" />

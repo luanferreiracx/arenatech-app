@@ -242,7 +242,7 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
           </span>
         }
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {!["PAID", "CANCELLED"].includes(t.status) && (
               <Button variant="outline" onClick={openEditDialog}>
                 <Pencil className="mr-2 h-4 w-4" />

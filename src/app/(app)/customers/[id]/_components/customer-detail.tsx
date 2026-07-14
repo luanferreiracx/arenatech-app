@@ -100,7 +100,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <PageHeader
         title={customer.name}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isDeleted ? (
               <Button
                 variant="outline"

@@ -57,7 +57,7 @@ export default function TechnicianReportPage() {
         title="Relatorio por Tecnico"
         subtitle="Desempenho individual de cada tecnico nas assistencias"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={() => {
