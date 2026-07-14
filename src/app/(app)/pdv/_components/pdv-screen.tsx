@@ -656,7 +656,7 @@ export function PdvScreen() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-4 h-[calc(100vh-80px)]">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-4 lg:h-[calc(100dvh-80px)]">
       {/* -- Left: Products + Cart -- */}
       <div className="flex flex-col min-h-0">
         {/* Header */}
@@ -781,9 +781,9 @@ export function PdvScreen() {
         )}
 
         {/* Cart table */}
-        <Card className="flex-1 overflow-hidden flex flex-col relative z-10">
-          <div className="overflow-y-auto flex-1">
-            <table className="w-full">
+        <Card className="flex-1 min-h-[16rem] overflow-hidden flex flex-col relative z-10">
+          <div className="overflow-auto flex-1">
+            <table className="w-full min-w-[32rem]">
               <thead className="sticky top-0 bg-muted/50 z-10">
                 <tr className="border-b-2 border-primary/20">
                   <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
