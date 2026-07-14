@@ -3357,6 +3357,9 @@ export const stockRouter = createTRPCRouter({
 
         const purchases = await tx.devicePurchase.findMany({
           where: {
+            // G-P1-06: exclui trade-ins cancelados (estoque revertido, pagável
+            // cancelado, dinheiro devolvido) — antes inflavam qtd/valor do relatório.
+            cancelledAt: null,
             createdAt: { gte: dateFrom, lte: dateTo },
           },
           orderBy: { createdAt: "desc" },
@@ -3430,7 +3433,8 @@ export const stockRouter = createTRPCRouter({
             _sum: { quantity: true },
           }),
           tx.devicePurchase.count({
-            where: { createdAt: { gte: dateFrom, lte: dateTo } },
+            // G-P1-06: não conta trade-ins cancelados no resumo.
+            where: { cancelledAt: null, createdAt: { gte: dateFrom, lte: dateTo } },
           }),
         ]);
 
