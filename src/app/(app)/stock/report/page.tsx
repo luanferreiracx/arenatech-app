@@ -2,6 +2,7 @@
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ function formatCurrency(value: unknown): string {
 
 export default function StockReportPage() {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const { data, isLoading } = useQuery(trpc.stock.inventoryReport.queryOptions());
 
   if (isLoading) {
@@ -62,12 +64,17 @@ export default function StockReportPage() {
       icon: Boxes,
       color: "text-emerald-500",
     },
-    {
-      title: "Valor de Custo",
-      value: formatCurrency(summary.totalCostValue),
-      icon: DollarSign,
-      color: "text-muted-foreground",
-    },
+    // Valor de custo só para admin (A3).
+    ...(isAdmin && summary.totalCostValue !== null
+      ? [
+          {
+            title: "Valor de Custo",
+            value: formatCurrency(summary.totalCostValue),
+            icon: DollarSign,
+            color: "text-muted-foreground",
+          },
+        ]
+      : []),
     {
       title: "Valor de Venda",
       value: formatCurrency(summary.totalSaleValue),
@@ -121,9 +128,9 @@ export default function StockReportPage() {
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Estoque</TableHead>
                 <TableHead className="text-right">Minimo</TableHead>
-                <TableHead className="text-right">Custo Unit.</TableHead>
+                {isAdmin && <TableHead className="text-right">Custo Unit.</TableHead>}
                 <TableHead className="text-right">Venda Unit.</TableHead>
-                <TableHead className="text-right">Valor Total (Custo)</TableHead>
+                {isAdmin && <TableHead className="text-right">Valor Total (Custo)</TableHead>}
                 <TableHead className="text-right">Valor Total (Venda)</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
@@ -142,15 +149,19 @@ export default function StockReportPage() {
                     <TableCell className="text-right text-muted-foreground">
                       {product.minStock || "-"}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {formatCurrency(product.costPrice)}
-                    </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right font-mono text-sm">
+                        {formatCurrency(product.costPrice)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right font-mono text-sm">
                       {formatCurrency(product.salePrice)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {formatCurrency(product.currentStock * Number(product.costPrice))}
-                    </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right font-mono text-sm">
+                        {formatCurrency(product.currentStock * Number(product.costPrice))}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right font-mono text-sm">
                       {formatCurrency(product.currentStock * Number(product.salePrice))}
                     </TableCell>
@@ -168,7 +179,7 @@ export default function StockReportPage() {
               })}
               {products.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={isAdmin ? 9 : 7} className="text-center text-muted-foreground py-8">
                     Nenhum produto encontrado.
                   </TableCell>
                 </TableRow>

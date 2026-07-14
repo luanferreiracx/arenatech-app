@@ -2,6 +2,7 @@
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 import { LoadingState } from "@/components/domain/loading-state";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -16,6 +17,7 @@ interface Props {
 
 export function VendasVendedorTab({ dateFrom, dateTo }: Props) {
   const trpc = useTRPC();
+  const isAdmin = useIsTenantAdmin();
   const { data, isLoading } = useQuery(
     trpc.stock.reportVendasVendedor.queryOptions({ dateFrom, dateTo }),
   );
@@ -23,9 +25,12 @@ export function VendasVendedorTab({ dateFrom, dateTo }: Props) {
   if (isLoading) return <LoadingState variant="table" />;
   if (!data) return null;
 
+  // Lucro (margem por vendedor) só para admin (A3) — backend retorna null p/ operador.
+  const showProfit = isAdmin && data.totals.profit !== null;
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3 mb-4">
+      <div className={`grid gap-4 mb-4 ${showProfit ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <Card className="bg-primary text-primary-foreground">
           <CardContent className="text-center py-4">
             <div className="text-2xl font-bold">{data.totals.quantity}</div>
@@ -38,12 +43,14 @@ export function VendasVendedorTab({ dateFrom, dateTo }: Props) {
             <p className="text-sm opacity-80">Valor Total</p>
           </CardContent>
         </Card>
-        <Card className="bg-blue-600 text-white">
-          <CardContent className="text-center py-4">
-            <div className="text-2xl font-bold">{formatCurrency(data.totals.profit)}</div>
-            <p className="text-sm opacity-80">Lucro Bruto Total</p>
-          </CardContent>
-        </Card>
+        {showProfit && (
+          <Card className="bg-blue-600 text-white">
+            <CardContent className="text-center py-4">
+              <div className="text-2xl font-bold">{formatCurrency(data.totals.profit ?? 0)}</div>
+              <p className="text-sm opacity-80">Lucro Bruto Total</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card>
@@ -57,7 +64,7 @@ export function VendasVendedorTab({ dateFrom, dateTo }: Props) {
                 <TableHead className="text-right">Valor Total</TableHead>
                 <TableHead className="text-right">Descontos</TableHead>
                 <TableHead className="text-right">Ticket Medio</TableHead>
-                <TableHead className="text-right">Lucro</TableHead>
+                {showProfit && <TableHead className="text-right">Lucro</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -73,14 +80,16 @@ export function VendasVendedorTab({ dateFrom, dateTo }: Props) {
                   <TableCell className="text-right font-mono">
                     {formatCurrency(s.ticketMedio)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-emerald-500">
-                    {formatCurrency(s.profit)}
-                  </TableCell>
+                  {showProfit && (
+                    <TableCell className="text-right font-mono text-emerald-500">
+                      {formatCurrency(s.profit ?? 0)}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {data.sellers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={showProfit ? 7 : 6} className="text-center text-muted-foreground py-8">
                     Nenhuma venda encontrada
                   </TableCell>
                 </TableRow>
