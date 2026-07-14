@@ -1,19 +1,24 @@
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { nfReportSchema } from "@/lib/validators/report";
 import type { NfReportLine, NfReportTotals } from "@/lib/validators/report";
+import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 
 export const reportRouter = createTRPCRouter({
   nfReport: tenantProcedure
     .input(nfReportSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const dateFrom = new Date(input.dateFrom);
-        const dateTo = new Date(input.dateTo + "T23:59:59.999Z");
+        // Ancorar o intervalo em BRT (UTC-3): `new Date("2026-05-25")` parseava
+        // como UTC (21:00 BRT do dia anterior) e `+"T23:59:59.999Z"` = 20:59 BRT
+        // → a janela ficava deslocada −3h e perdia vendas das 21h-23:59. (R1)
+        const dateFrom = startOfDayBrt(input.dateFrom);
+        const dateTo = endOfDayBrt(input.dateTo);
 
         // Fetch sales in period
         const sales = await tx.sale.findMany({
           where: {
             status: "COMPLETED",
+            deletedAt: null,
             createdAt: { gte: dateFrom, lte: dateTo },
           },
           select: {
@@ -30,6 +35,7 @@ export const reportRouter = createTRPCRouter({
         const orders = await tx.serviceOrder.findMany({
           where: {
             status: { in: ["COMPLETED", "DELIVERED"] },
+            deletedAt: null,
             paymentDate: { gte: dateFrom, lte: dateTo },
           },
           select: {
