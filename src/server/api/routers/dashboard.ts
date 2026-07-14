@@ -270,35 +270,46 @@ export const dashboardRouter = createTRPCRouter({
         const startOfToday = startOfTodayBrt(now);
         const startDate = new Date(startOfToday.getTime() - (input.days - 1) * 24 * 60 * 60 * 1000);
 
-        const sales = await tx.sale.findMany({
-          where: {
-            status: "COMPLETED",
-            createdAt: { gte: startDate },
-            deletedAt: null,
-          },
-          select: { totalAmount: true, createdAt: true },
-        });
+        // G-P1-02: as barras usam a MESMA receita de mercadoria dos cards/DRE
+        // (subtotal−desconto−taxa, escalada pela fração mantida; inclui
+        // PARTIALLY_REFUNDED), agrupada por DIA BRT de sale_date. Antes somava
+        // totalAmount (líquido do trade-in), só COMPLETED, por createdAt → as
+        // barras não batiam com o card "Vendas do mês". Espelha computePeriodSalesRevenue.
+        const rows = await tx.$queryRaw<Array<{ day: string; total: number | null; cnt: number | null }>>`
+          SELECT to_char((s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS day,
+                 COALESCE(SUM(
+                   (GREATEST(s.subtotal - s.discount_amount, 0) - s.operator_fee_amount)
+                   * CASE
+                       WHEN s.is_os_payment THEN 1
+                       WHEN s.subtotal > 0 THEN LEAST(COALESCE(li.live_total, 0) / s.subtotal, 1)
+                       ELSE 1
+                     END
+                 ), 0)::float AS total,
+                 COUNT(*)::int AS cnt
+          FROM sales s
+          LEFT JOIN (
+            SELECT sale_id, SUM(total) AS live_total FROM sale_items GROUP BY sale_id
+          ) li ON li.sale_id = s.id
+          WHERE s.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
+            AND s.deleted_at IS NULL
+            AND s.sale_date >= ${startDate}
+          GROUP BY 1
+        `;
+        const byDay = new Map(rows.map((r) => [r.day, r]));
 
-        // Agrupa por DIA BRT (chave YYYY-MM-DD no fuso Brasil).
-        const dayMap = new Map<string, { count: number; totalCents: number }>();
+        // Zero-fill de todos os dias da janela (chave YYYY-MM-DD no fuso BRT).
+        const result: Array<{ date: string; count: number; totalCents: number }> = [];
         for (let i = 0; i < input.days; i++) {
           const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
-          dayMap.set(brtDayKey(d), { count: 0, totalCents: 0 });
+          const key = brtDayKey(d);
+          const row = byDay.get(key);
+          result.push({
+            date: key,
+            count: row?.cnt ?? 0,
+            totalCents: Math.round((row?.total ?? 0) * 100),
+          });
         }
-
-        for (const sale of sales) {
-          const entry = dayMap.get(brtDayKey(sale.createdAt));
-          if (entry) {
-            entry.count += 1;
-            entry.totalCents += decimalToCents(sale.totalAmount);
-          }
-        }
-
-        return Array.from(dayMap.entries()).map(([date, data]) => ({
-          date,
-          count: data.count,
-          totalCents: data.totalCents,
-        }));
+        return result;
       });
     }),
 
@@ -446,92 +457,10 @@ export const dashboardRouter = createTRPCRouter({
     });
   }),
 
-  // ═══════════════════════════════════════
-  // STOCK DASHBOARD (faithful to DashboardEstoqueController)
-  // ═══════════════════════════════════════
-
-  /** Stock inventory dashboard with metrics, alerts, and top products */
-  stockDashboard: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      // Cards metrics
-      const [
-        totalProducts,
-        totalActiveProducts,
-        lowStockProducts,
-        outOfStockProducts,
-        totalStockValue,
-      ] = await Promise.all([
-        tx.product.count({ where: { deletedAt: null } }),
-        tx.product.count({ where: { active: true, deletedAt: null } }),
-        tx.product.count({
-          where: {
-            active: true,
-            deletedAt: null,
-            isSerialized: false,
-            currentStock: { gt: 0, lte: 5 },
-          },
-        }),
-        tx.product.count({
-          where: {
-            active: true,
-            deletedAt: null,
-            isSerialized: false,
-            currentStock: 0,
-          },
-        }),
-        tx.product.aggregate({
-          where: { active: true, deletedAt: null, isSerialized: false },
-          _sum: {
-            currentStock: true,
-          },
-        }),
-      ]);
-
-      // Top products sold last 7 days
-      const recentSaleItems = await tx.saleItem.findMany({
-        where: {
-          sale: { status: "COMPLETED", saleDate: { gte: sevenDaysAgo } },
-        },
-        select: { productId: true, description: true, quantity: true, total: true },
-      });
-
-      const productSales = new Map<string, { description: string; quantity: number; total: number }>();
-      for (const item of recentSaleItems) {
-        const existing = productSales.get(item.productId) ?? {
-          description: item.description,
-          quantity: 0,
-          total: 0,
-        };
-        existing.quantity += item.quantity;
-        existing.total += Number(item.total);
-        productSales.set(item.productId, existing);
-      }
-
-      const topProducts = Array.from(productSales.entries())
-        .sort((a, b) => b[1].quantity - a[1].quantity)
-        .slice(0, 10)
-        .map(([productId, data]) => ({
-          productId,
-          description: data.description,
-          quantity: data.quantity,
-          totalCents: Math.round(data.total * 100),
-        }));
-
-      return {
-        metrics: {
-          totalProducts,
-          totalActiveProducts,
-          lowStockProducts,
-          outOfStockProducts,
-          totalStockUnits: totalStockValue._sum.currentStock ?? 0,
-        },
-        topProductsWeek: topProducts,
-      };
-    });
-  }),
+  // (dashboard.stockDashboard removido — G-P1-04: procedure órfã (0 consumidores)
+  // que subcontava estoque por excluir serializados e ler a coluna currentStock.
+  // O dashboard de estoque em uso é stock.stockDashboard, que cobre os 3 tipos
+  // via CTE e o saldo efetivo resolvido.)
 
   // ═══════════════════════════════════════
   // ADVANCED ALERTS
