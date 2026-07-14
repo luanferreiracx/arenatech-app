@@ -13,7 +13,6 @@ import { withTenant } from "@/server/db";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "customer-phone-normalize-test";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ctx: any, tenantId: string, adminId: string;
 const customerIds: string[] = [];
 
@@ -27,7 +26,6 @@ beforeAll(async () => {
   ctx = {
     session: { user: { id: adminId, isSuperAdmin: false }, activeTenantId: tenantId, availableTenants: [{ id: tenantId, slug: "arena-tech", role: "admin" }] },
     tenantId,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withTenant: (fn: any) => withTenant(tenantId, fn),
   };
 });
