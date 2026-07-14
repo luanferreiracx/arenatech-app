@@ -164,7 +164,18 @@ Após os 4 lotes, `grep` em todo `src/app` confirma:
 | 3b | Tabelas densas + grids restantes | #568 |
 | 4 | Telas públicas | #569 |
 
-### Recomendação de prevenção (opcional, futura)
-Adicionar uma regra de lint (ex.: `eslint-plugin-tailwindcss` ou grep no CI) que
-sinalize `grid-cols-{3..6}` sem prefixo responsivo e `<table>` sem ancestral com
-`overflow-x-auto`, evitando reintrodução dos mesmos padrões.
+### Trava de prevenção — implementada ✅
+
+`scripts/check-responsive.ts` (rode com `pnpm check:responsive`) roda no CI no job
+**Typecheck** (após `openapi:check`) e bloqueia o PR se reintroduzir:
+
+- **`grid-cols-{3..6}` sem breakpoint** — só sinaliza quando **não há** nenhuma
+  variante `:grid-cols-` na mesma className. Assim `grid-cols-3 sm:grid-cols-5`
+  (base pequena deliberada p/ ícones/thumbs) passa; `grid-cols-3 gap-3` cru é o
+  smell e é barrado.
+- **`<table>` sem ancestral `overflow-x-auto`/`overflow-auto`** no arquivo.
+
+**Exceção pontual:** comentário `responsive-audit-ignore` na linha (ou acima),
+com o motivo. Casos já marcados (legíveis a 320px): `payment-dialog` (3 botões
+num dialog), `service-order-detail` (3 valores curtos), `receiving-accounts-tab`
+(layout de conta bancária), `catalog/[id]` (3 badges desenhados).

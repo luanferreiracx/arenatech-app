@@ -171,6 +171,11 @@ jobs:
       - name: OpenAPI da API de parceiros em sincronia
         run: pnpm openapi:check
 
+      # Trava de responsividade mobile (auditoria 2026-07-14): impede reintroduzir
+      # grid-cols-3+ sem breakpoint e <table> sem scroll horizontal (quebram a 320px).
+      - name: Responsividade mobile (grids/tabelas)
+        run: pnpm check:responsive
+
   # ============================================================
   # Unit tests (paralelo)
   # ============================================================

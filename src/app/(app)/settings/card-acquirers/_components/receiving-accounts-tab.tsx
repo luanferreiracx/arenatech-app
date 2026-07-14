@@ -235,6 +235,7 @@ export function ReceivingAccountsTab() {
               </div>
 
               {isBankLike && (
+                // responsive-audit-ignore: layout de conta bancária (Banco/Agência/Conta), agência de 4 díg. cabe a 320px; col-span depende de 3 colunas
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5 col-span-3">
                     <label className="text-sm font-medium">Banco</label>

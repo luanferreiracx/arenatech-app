@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
+    "check:responsive": "tsx scripts/check-responsive.ts",
     "test": "pnpm test:unit",
     "test:unit": "vitest run --exclude=\"**/integration/**\"",
     "test:integration:prepare": "tsx scripts/check-local-postgres.ts && DATABASE_URL=\"postgresql://arenatech:arenatech_local@localhost:5432/arenatech?schema=public\" prisma migrate deploy && DATABASE_URL=\"postgresql://arenatech:arenatech_local@localhost:5432/arenatech?schema=public\" tsx --env-file=.env.local prisma/seed.ts",

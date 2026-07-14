@@ -113,6 +113,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
               )}
             </div>
 
+            {/* responsive-audit-ignore: 3 badges curtos (ícone + texto), desenhado p/ 320px */}
             <div className="mt-4 grid grid-cols-3 gap-2.5">
               <Benefit icon={Package} title="Disponível" text={`${product.availableQuantity} un.`} />
               <Benefit icon={MapPin} title="Retirada" text="Na loja" />
