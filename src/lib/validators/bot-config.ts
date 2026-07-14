@@ -138,11 +138,19 @@ export const updateBotScheduleSchema = z
   .superRefine((value, ctx) => {
     const start = value.start?.trim() || null;
     const end = value.end?.trim() || null;
-    if ((start && !end) || (!start && end)) {
+    // Uma janela precisa dos dois limites. Aponta o erro no campo QUE FALTA, com
+    // mensagem acionável (não num campo genérico) — evita o "por que abertura é inválida?".
+    if (start && !end) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: [start ? "end" : "start"],
-        message: "Informe abertura e fechamento juntos, ou deixe ambos em branco.",
+        path: ["end"],
+        message: "Informe também o fechamento (ou apague a abertura para usar o horário padrão).",
+      });
+    } else if (!start && end) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["start"],
+        message: "Informe também a abertura (ou apague o fechamento para usar o horário padrão).",
       });
     }
     if (start && end) {
