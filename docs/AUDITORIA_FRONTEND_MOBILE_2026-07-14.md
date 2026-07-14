@@ -44,10 +44,35 @@ Typecheck: ✅ limpo.
 
 ---
 
+## Lote 2 — Módulos de uso diário (em andamento)
+
+### PDV (`pdv/_components/pdv-screen.tsx`) — corrigido
+
+| # | Problema | Impacto | Correção |
+|---|----------|---------|----------|
+| 1 | Container com `h-[calc(100vh-80px)]` **fixo em todos os breakpoints**. No mobile (1 coluna) a coluna direita (resumo + **Finalizar Venda** + Reiniciar) empilha abaixo do carrinho, mas a altura travada em `100vh` **impede o scroll da página** → botões de ação ficam abaixo da dobra e **inalcançáveis**. Causa direta do sintoma relatado, na tela mais crítica. | **Alto** | Altura fixa só a partir de `lg:` (`lg:h-[calc(100dvh-80px)]`). No mobile a página cresce e rola naturalmente. `100vh` → `100dvh` (barra de URL do Safari iOS). |
+| 2 | Tabela do carrinho (`w-full`) com colunas de largura fixa (`w-24/w-32/w-28`) dentro de wrapper só com `overflow-y-auto`. Em 320px a coluna Produto é esmagada / estoura sem scroll horizontal. | Médio | `overflow-auto` + `min-w-[32rem]` na tabela → scroll horizontal preserva legibilidade. |
+| 3 | Card do carrinho com `flex-1` sem altura-pai no mobile → colapsa. | Baixo | `min-h-[16rem]`. |
+
+**payment-dialog:** já responsivo — `max-h-[85vh] overflow-y-auto` no DialogContent (o autor antecipou o problema que o fix do `dialog.tsx` base agora resolve para todos). Sem ação.
+
+Restante do PDV (history) e demais módulos: pendente.
+
+### Achado sistêmico — grids de coluna fixa sem breakpoint
+
+`grep` encontrou **43** ocorrências de `grid-cols-{2..6}` **sem** prefixo
+responsivo (`sm:`/`md:`/`lg:`) em `src/app`. Um `grid-cols-3` fixo a 320px
+espreme 3 colunas em ~100px cada, cortando rótulos/valores. Concentração:
+fiscal (9), pdv (6), service-orders (4), imei (4), admin (4), settings (3).
+
+Nem todos são bugs (um `grid-cols-2` de campos curtos num dialog é aceitável),
+então a correção é **triada módulo a módulo** nos lotes seguintes — não em massa,
+para não quebrar layouts que dependem de 2 colunas. Regra ao corrigir: começar
+em 1 coluna no mobile e subir (`grid-cols-1 sm:grid-cols-3`).
+
 ## Próximos lotes (pendentes)
 
-- **Lote 2** — Módulos de uso diário: PDV, Ordens de Serviço, Estoque,
-  Financeiro, Caixa.
+- **Lote 2 (cont.)** — OS, Estoque, Financeiro, Caixa.
 - **Lote 3** — Settings, Comissões, DePix/Wallet, Admin, e o restante.
 
 Cada lote: auditar → corrigir → PR → atualizar este doc.
