@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 
@@ -10,7 +11,14 @@ import { logger } from "@/lib/logger";
  * deve retornar 200 OK idempotente sem reprocessar.
  *
  * Retorna `true` se eh um evento novo (deve ser processado).
- * Retorna `false` se eh duplicate (replay).
+ * Retorna `false` se eh duplicate (replay = unique violation P2002).
+ *
+ * Erros transitorios (DB indisponivel etc) NAO sao tratados como duplicata —
+ * sao relancados. Tratar tudo como `false` (replay) fazia um evento genuino ser
+ * ACKado como duplicado e nunca processado (drop silencioso, sem retry). Em
+ * particular um MED (chargeback) perdido nunca dispararia o alerta. Ao relancar,
+ * as rotas REST devolvem 5xx (provider reenvia) e a rota Eulen loga erro (->Sentry)
+ * em vez de fingir sucesso. (G-P1-16)
  */
 export async function recordWebhookEvent(params: {
   provider: string;
@@ -35,12 +43,19 @@ export async function recordWebhookEvent(params: {
       });
     });
     return true;
-  } catch {
-    // Unique violation (provider, event_id) = replay. Tratamos o erro
-    // como sinal de duplicidade — outros erros (e.g. DB down) tambem
-    // caem aqui mas ai o caller falha de qualquer jeito ao fazer suas
-    // proprias queries; perda eh aceitavel.
-    return false;
+  } catch (err) {
+    // Unique violation (provider, event_id) = replay legitimo -> idempotente.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return false;
+    }
+    // Qualquer outro erro (DB down, timeout) NAO e replay: relanca pra nao
+    // engolir um evento real como duplicado.
+    logger.error("recordWebhookEvent falhou (nao-duplicata) — relancando", {
+      provider: params.provider,
+      eventId: params.eventId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
 }
 
