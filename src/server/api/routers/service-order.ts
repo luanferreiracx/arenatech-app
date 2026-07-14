@@ -255,7 +255,6 @@ function canForceSignatureOps(ctx: {
  * OS202600260). O status de origem correto e o ultimo que NAO era WAITING_APPROVAL.
  */
 async function resolveStatusAfterQuote(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tx: any,
   orderId: string,
   action: "approve" | "reject",
@@ -269,29 +268,32 @@ async function resolveStatusAfterQuote(
 }
 
  
-function serializeOrder(order: any) {
+function serializeOrder(order: any, isAdmin: boolean) {
   return {
     ...order,
     serviceAmount: decimalToCents(order.serviceAmount),
     partsAmount: decimalToCents(order.partsAmount),
-    partsCost: decimalToCents(order.partsCost),
+    // A3 (G-P1-09): custo (partsCost/otherCost) e margem da OS não vazam para
+    // não-admin — mesma regra do balcão/estoque. A UI esconde o card, mas o
+    // payload ia com o custo. Strip no servidor (autoritativo).
+    partsCost: isAdmin ? decimalToCents(order.partsCost) : null,
     discount: decimalToCents(order.discount),
     totalAmount: decimalToCents(order.totalAmount),
     paidAmount: decimalToCents(order.paidAmount),
-    otherCost: decimalToCents(order.otherCost),
+    otherCost: isAdmin ? decimalToCents(order.otherCost) : null,
     paymentDiscount: decimalToCents(order.paymentDiscount),
-    items: order.items?.map(serializeItem) ?? [],
+    items: order.items?.map((item: any) => serializeItem(item, isAdmin)) ?? [],
     quotes: order.quotes?.map(serializeQuote) ?? [],
   };
 }
 
- 
-function serializeItem(item: any) {
+
+function serializeItem(item: any, isAdmin: boolean) {
   return {
     ...item,
     quantity: Number(item.quantity),
     unitPrice: decimalToCents(item.unitPrice),
-    costPrice: decimalToCents(item.costPrice),
+    costPrice: isAdmin ? decimalToCents(item.costPrice) : null,
     total: decimalToCents(item.total),
   };
 }
@@ -559,8 +561,9 @@ export const serviceOrderRouter = createTRPCRouter({
           orderBy: { saleDate: "desc" },
         });
 
+        const viewerIsAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
         return {
-          ...serializeOrder(order),
+          ...serializeOrder(order, viewerIsAdmin),
           customer,
           createdByName: userMap.get(order.createdById) ?? "Sistema",
           technicianName: order.technicianId ? (userMap.get(order.technicianId) ?? null) : null,
@@ -571,9 +574,9 @@ export const serviceOrderRouter = createTRPCRouter({
           linkedSale,
           // Expose admin flag para UI poder mostrar botões restritos sem
           // depender de useSession no client.
-          viewerIsAdmin: isTenantAdmin(ctx.session, ctx.tenantId),
+          viewerIsAdmin,
           // Pode autorizar orcamento manualmente (mesma RBAC): admin do tenant.
-          viewerCanAuthorize: isTenantAdmin(ctx.session, ctx.tenantId),
+          viewerCanAuthorize: viewerIsAdmin,
           termsOfService: assistance?.termsOfService ?? null,
           warrantyPolicy: assistance?.warrantyPolicy ?? null,
           history: order.history.map((h) => ({
@@ -1963,23 +1966,22 @@ export const serviceOrderRouter = createTRPCRouter({
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // F1 (auditoria OS): custo alimenta lucro/DRE/comissão. Em OS finalizada
-        // a base já está fechada, então alterá-la é operação privilegiada:
-        // - PAID/DELIVERED: só admin (correção de custo real conhecido após o
-        //   serviço). Membro comum segue bloqueado.
-        // - CANCELLED/REFUNDED: bloqueado para todos — não há base a corrigir.
+        // F1 + G-P1-09 (A3): custo alimenta lucro/DRE/comissão e é dado de admin
+        // (operador não vê nem edita custo/margem — mesma regra do balcão/estoque).
+        // - CANCELLED/REFUNDED: bloqueado para TODOS — não há base a corrigir.
+        // - Demais status: só admin edita custo (antes membro comum editava em OS
+        //   aberta; isso vazava/expunha custo ao operador, incoerente com A3).
         const isReverted = ["CANCELLED", "REFUNDED"].includes(order.status);
-        const isClosed = ["PAID", "DELIVERED"].includes(order.status);
         if (isReverted) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Não é possível alterar custos de uma OS cancelada ou estornada.",
           });
         }
-        if (isClosed && !isTenantAdmin(ctx.session, ctx.tenantId)) {
+        if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Apenas administradores podem alterar custos de uma OS já finalizada.",
+            message: "Apenas administradores podem alterar custos de uma OS.",
           });
         }
 

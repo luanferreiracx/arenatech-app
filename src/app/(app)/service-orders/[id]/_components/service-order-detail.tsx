@@ -566,7 +566,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   ].filter(Boolean) as Array<{ key: string; title: string; description: string }>;
 
   // Costs / Profit
-  const profit = order.totalAmount - order.partsCost - order.otherCost;
+  // partsCost/otherCost vêm null para não-admin (A3/G-P1-09) — o card "Custos e
+  // Lucro" é admin-only, então o `?? 0` só satisfaz o tipo (nunca renderiza p/ operador).
+  const profit = order.totalAmount - (order.partsCost ?? 0) - (order.otherCost ?? 0);
 
   return (
     <div>
@@ -1267,37 +1269,39 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
           <OrderDatesCard {...order} />
 
-          {/* Costs & Profit */}
-          <div className="rounded-lg border border-border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Custos e Lucro</h3>
-              {!costsEditing && canEditCosts && (
-                <Button size="sm" variant="ghost" onClick={() => { setPartsCostEdit(order.partsCost); setOtherCostEdit(order.otherCost); setCostsEditing(true); }}>
-                  <Pencil className="h-3 w-3" />
-                </Button>
+          {/* Costs & Profit — admin-only (A3/G-P1-09): operador não vê custo/margem. */}
+          {isAdmin && (
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Custos e Lucro</h3>
+                {!costsEditing && canEditCosts && (
+                  <Button size="sm" variant="ghost" onClick={() => { setPartsCostEdit(order.partsCost ?? 0); setOtherCostEdit(order.otherCost ?? 0); setCostsEditing(true); }}>
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              {costsEditing ? (
+                <div className="space-y-3">
+                  <div><Label className="text-xs">Custo de Pecas</Label><MoneyInput value={partsCostEdit} onChange={setPartsCostEdit} /></div>
+                  <div><Label className="text-xs">Outros Custos</Label><MoneyInput value={otherCostEdit} onChange={setOtherCostEdit} /></div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => updateCostsMut.mutate({ id, partsCost: partsCostEdit, otherCost: otherCostEdit })}>Salvar</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCostsEditing(false)}>Cancelar</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Receita</span><span className="font-mono">{formatMoney(order.totalAmount)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Custo Pecas</span><span className="font-mono text-destructive">-{formatMoney(order.partsCost ?? 0)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Outros Custos</span><span className="font-mono text-destructive">-{formatMoney(order.otherCost ?? 0)}</span></div>
+                  <div className="flex justify-between pt-2 border-t border-border">
+                    <span className="font-semibold">Lucro</span>
+                    <span className={`font-mono font-bold ${profit >= 0 ? "text-success" : "text-destructive"}`}>{formatMoney(profit)}</span>
+                  </div>
+                </div>
               )}
             </div>
-            {costsEditing ? (
-              <div className="space-y-3">
-                <div><Label className="text-xs">Custo de Pecas</Label><MoneyInput value={partsCostEdit} onChange={setPartsCostEdit} /></div>
-                <div><Label className="text-xs">Outros Custos</Label><MoneyInput value={otherCostEdit} onChange={setOtherCostEdit} /></div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => updateCostsMut.mutate({ id, partsCost: partsCostEdit, otherCost: otherCostEdit })}>Salvar</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setCostsEditing(false)}>Cancelar</Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Receita</span><span className="font-mono">{formatMoney(order.totalAmount)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Custo Pecas</span><span className="font-mono text-destructive">-{formatMoney(order.partsCost)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Outros Custos</span><span className="font-mono text-destructive">-{formatMoney(order.otherCost)}</span></div>
-                <div className="flex justify-between pt-2 border-t border-border">
-                  <span className="font-semibold">Lucro</span>
-                  <span className={`font-mono font-bold ${profit >= 0 ? "text-success" : "text-destructive"}`}>{formatMoney(profit)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+          )}
 
           <OrderWarrantyCard {...order} />
 
