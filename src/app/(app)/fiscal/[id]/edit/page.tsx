@@ -128,7 +128,7 @@ export default function EditInvoicePage({ params }: { params: Promise<{ id: stri
           </div>
         }
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isEditable && (invoice.items?.length ?? 0) > 0 && (
               <Button
                 onClick={() => setConfirmAuthorize(true)}

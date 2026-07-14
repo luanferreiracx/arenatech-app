@@ -15,7 +15,7 @@ export default function FinancialPage() {
         title="Financeiro"
         subtitle="Gerencie contas a pagar e a receber"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <a href="/api/financial/export?type=transactions">
                 <Download className="mr-2 h-4 w-4" />

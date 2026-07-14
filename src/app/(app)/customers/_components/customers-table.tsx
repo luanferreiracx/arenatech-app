@@ -236,7 +236,7 @@ export function CustomersTable() {
           onSearchChange={handleSearchChange}
           searchPlaceholder="Buscar por nome, CPF, CNPJ, telefone, email..."
           actions={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Select
                 value={typeFilter}
                 onValueChange={(v) => {

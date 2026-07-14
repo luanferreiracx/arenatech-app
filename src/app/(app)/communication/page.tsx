@@ -15,7 +15,7 @@ export default function CommunicationPage() {
         title="Comunicacao"
         subtitle="Historico de mensagens WhatsApp e e-mail"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/communication/templates">
                 <FileText className="mr-2 h-4 w-4" />

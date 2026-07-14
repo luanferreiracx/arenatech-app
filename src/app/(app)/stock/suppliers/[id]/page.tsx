@@ -36,7 +36,7 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
         title={supplier.tradeName || supplier.name}
         subtitle={(supplier.cpf || supplier.cnpj) || (supplier.type === "PF" ? "Pessoa Fisica" : "Pessoa Juridica")}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href={`/stock/suppliers/${id}/edit`}>
                 <Pencil className="mr-2 h-4 w-4" />

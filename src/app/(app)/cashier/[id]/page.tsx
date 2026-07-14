@@ -108,7 +108,7 @@ export default function CashierDetailPage({
         title="Relatorio de Fechamento"
         subtitle={formatDateTime(register.openedAt)}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={() => window.open(`/api/cashier/report?id=${id}`, "_blank")}

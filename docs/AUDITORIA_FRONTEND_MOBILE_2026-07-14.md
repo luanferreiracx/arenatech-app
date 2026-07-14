@@ -138,6 +138,22 @@ login/auth (os `w-[800px]` são glows decorativos `pointer-events-none` dentro d
 `overflow-hidden`); `/os/[publicLink]` (grid 2-col de texto pequeno, legível);
 catálogo (grids/badges desenhados).
 
+## Lote 5 — Barras de ação (PageHeader `actions`) sem wrap ✅ (PR pendente)
+
+Mesma causa-raiz do PageHeader (lote 1), mas **dentro** do bloco `actions`: vários
+clusters usavam `<div className="flex gap-2">` **sem `flex-wrap`**. Quando há 3+
+botões com rótulo (ex.: Editar / Cancelar Conta / Voltar ≈ 310px), estouram os
+~272px úteis a 320px — o último botão sai da largura visível.
+
+Padronizado para `flex flex-wrap gap-2` (o padrão que OS-detail, venda e NF já
+usavam) em **12 telas**: `customers` (lista + detalhe), `cashier` (lista +
+sessão), `financial` (lista + transaction-detail), `fiscal/[id]/edit`,
+`communication`, `stock/[id]`, `stock/suppliers/[id]`, `quick-sales/[id]`,
+`service-orders/technician-report`.
+
+Varredura confirma **0 blocos `actions` sem wrap** restantes. As demais barras de
+ação (OS-detail, sale-detail, invoice-detail) já usavam `flex-wrap`. Typecheck ✅.
+
 ---
 
 ## Verificação global final
