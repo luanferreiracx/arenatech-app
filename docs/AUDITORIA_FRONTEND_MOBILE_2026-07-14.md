@@ -70,9 +70,23 @@ então a correção é **triada módulo a módulo** nos lotes seguintes — não
 para não quebrar layouts que dependem de 2 colunas. Regra ao corrigir: começar
 em 1 coluna no mobile e subir (`grid-cols-1 sm:grid-cols-3`).
 
+### OS, Estoque, Financeiro, Caixa — auditados
+
+- **Ordens de Serviço** — wizard de criação já responsivo: stepper com
+  `overflow-x-auto`, labels ocultos no mobile (`hidden sm:inline`), navegação
+  Anterior/Próximo (2 botões) segura; `status-stepper` do detalhe já usa
+  `overflow-x-auto`. `detail-sections` são pares label/valor (seguros).
+  **Sem ação.**
+- **Estoque** — sem alturas fixas, sem grids fixos; todos os `overflow-hidden`
+  são thumbnails de imagem (corretos). Único ajuste: `bulk-adjust` — tabela com
+  colunas `w-32` dentro de `overflow-hidden` → `overflow-x-auto` + `min-w`.
+- **Financeiro** — só o **skeleton** de `projected-cash-flow` tinha `grid-cols-3`
+  fixo (o conteúdo real já era `sm:grid-cols-3`); alinhado. Resto OK.
+- **Caixa** — limpo, sem achados.
+
 ## Próximos lotes (pendentes)
 
-- **Lote 2 (cont.)** — OS, Estoque, Financeiro, Caixa.
-- **Lote 3** — Settings, Comissões, DePix/Wallet, Admin, e o restante.
+- **Lote 3** — Fiscal (9 grids fixos — maior concentração), Settings, Comissões,
+  DePix/Wallet, Admin, IMEI, e o restante.
 
 Cada lote: auditar → corrigir → PR → atualizar este doc.

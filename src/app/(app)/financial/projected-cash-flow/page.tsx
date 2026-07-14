@@ -65,7 +65,7 @@ export default function ProjectedCashFlowPage() {
 
       {query.isLoading ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}
           </div>
           <Skeleton className="h-96" />

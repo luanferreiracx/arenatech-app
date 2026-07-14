@@ -165,8 +165,8 @@ export default function BulkAdjustStockPage() {
 
         {rows.length > 0 && (
           <FormSection title={`Produtos selecionados (${rows.length})`}>
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border border-border rounded-md overflow-x-auto">
+              <table className="w-full min-w-[36rem] text-sm">
                 <thead>
                   <tr className="border-b border-primary/20 bg-muted/50">
                     <th className="text-left px-4 py-2 font-semibold uppercase text-xs">
