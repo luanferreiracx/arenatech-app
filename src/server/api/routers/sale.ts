@@ -914,8 +914,6 @@ export const saleRouter = createTRPCRouter({
           discountPercentOf(discountAmountCents, subtotalCents),
         );
 
-        const totalCents = subtotalCents - discountAmountCents;
-
         // discountValue armazena: centavos quando fixed; percentual (0-100)
         // quando percentage. NAO usar centsToPrisma aqui (dividiria por 100
         // e zeraria descontos percentuais).
@@ -927,15 +925,16 @@ export const saleRouter = createTRPCRouter({
             discountAmount: centsToPrisma(discountAmountCents),
             discountReason: input.discountReason ?? null,
             subtotal: centsToPrisma(subtotalCents),
-            totalAmount: centsToPrisma(totalCents),
           },
         });
 
-        const updated = await tx.sale.findUniqueOrThrow({
-          where: { id: input.saleId },
-          include: { items: true },
-        });
-        return serializeSale(updated);
+        // G-P1-07: delega a recalculateSale (fonte única) em vez de escrever
+        // totalAmount aqui. O cálculo inline ignorava o abatimento de trade-in
+        // (upgradeAbateCents) e não tocava refundDueAmount — aplicar desconto
+        // depois de um trade-in cobrava a mais, e desconto+downgrade deixava
+        // um estado contraditório (refundDueAmount>0 && totalAmount>0) que o
+        // finalize rejeita. recalculateSale abate o upgrade e ajusta o refund.
+        return recalculateSale(tx, input.saleId, ctx.tenantId);
       });
     }),
 
