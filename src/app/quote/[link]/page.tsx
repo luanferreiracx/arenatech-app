@@ -129,7 +129,7 @@ export default function QuoteApprovalPage({
         )}
 
         {/* Values Comparison */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div className="bg-gray-100 rounded-lg p-4 text-center">
             <p className="text-sm text-gray-600">Valor Anterior</p>
             <p className="text-2xl font-bold text-gray-800">{formatMoney(quote.previousTotal)}</p>
