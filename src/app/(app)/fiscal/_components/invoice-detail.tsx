@@ -141,7 +141,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Destinatario:</span>
               <p className="font-medium">{invoice.recipientName}</p>
@@ -174,7 +174,8 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           <CardTitle>Itens</CardTitle>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[26rem] text-sm">
             <thead>
               <tr className="border-b">
                 <th className="text-left py-2">Descricao</th>
@@ -194,6 +195,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
               ))}
             </tbody>
           </table>
+          </div>
         </CardContent>
       </Card>
 
