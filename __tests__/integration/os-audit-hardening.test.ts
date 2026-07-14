@@ -1,6 +1,7 @@
 /**
  * Auditoria OS — PR A (endurecimento). Validação ao vivo contra Postgres local.
- * F1: updateCosts rejeita OS finalizada. F4: getQuoteByLink NÃO vaza costPrice.
+ * F1: updateCosts — admin corrige custo de OS finalizada (PAID/DELIVERED),
+ *      operador não; CANCELLED/REFUNDED bloqueado p/ todos. F4: getQuoteByLink NÃO vaza costPrice.
  * F8: technicianReport restrito a admin/gerente (operador comum é barrado).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -54,17 +55,46 @@ async function mkOrder(status: string) {
 }
 
 describe("Auditoria OS — PR A (F1/F4/F8)", () => {
-  it("F1: updateCosts rejeita OS finalizada (PAID)", async () => {
-    const order = await mkOrder("PAID");
-    await expect(
-      caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 0 }),
-    ).rejects.toThrow(/finalizada/i);
-  });
-
   it("F1: updateCosts OK em OS aberta (IN_PROGRESS)", async () => {
     const order = await mkOrder("IN_PROGRESS");
     const r = await caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1500, otherCost: 200 });
     expect(r.success).toBe(true);
+  });
+
+  it("F1: admin PODE corrigir custos de OS finalizada (PAID)", async () => {
+    const order = await mkOrder("PAID");
+    const r = await caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 300 });
+    expect(r.success).toBe(true);
+    const updated = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(Number(updated.partsCost)).toBe(10); // 1000 centavos → 10,00
+    expect(Number(updated.otherCost)).toBe(3);
+  });
+
+  it("F1: admin PODE corrigir custos de OS entregue (DELIVERED)", async () => {
+    const order = await mkOrder("DELIVERED");
+    const r = await caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 500, otherCost: 0 });
+    expect(r.success).toBe(true);
+  });
+
+  it("F1: operador comum NÃO edita custos de OS finalizada (PAID)", async () => {
+    const order = await mkOrder("PAID");
+    await expect(
+      caller(mkCtx(operatorId, "operator", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 0 }),
+    ).rejects.toThrow(/administradores/i);
+  });
+
+  it("F1: nem admin edita custos de OS cancelada (CANCELLED)", async () => {
+    const order = await mkOrder("CANCELLED");
+    await expect(
+      caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 0 }),
+    ).rejects.toThrow(/cancelada ou estornada/i);
+  });
+
+  it("F1: nem admin edita custos de OS estornada (REFUNDED)", async () => {
+    const order = await mkOrder("REFUNDED");
+    await expect(
+      caller(mkCtx(adminId, "admin", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 0 }),
+    ).rejects.toThrow(/cancelada ou estornada/i);
   });
 
   it("F4: getQuoteByLink NÃO expõe costPrice nem IDs internos", async () => {

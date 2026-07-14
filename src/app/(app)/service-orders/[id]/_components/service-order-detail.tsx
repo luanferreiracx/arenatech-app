@@ -516,6 +516,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // Itens so podem ser alterados fora dos estados finalizados (paridade com o
   // guard do servidor em add/update/removeItem).
   const canEditItems = !isCancelled && !isRefunded && !["PAID", "DELIVERED"].includes(status);
+  // Custos: espelha o guard de `updateCosts` no servidor. CANCELLED/REFUNDED
+  // nunca editam; PAID/DELIVERED só admin corrige; demais estados todos editam.
+  const isCostClosed = ["PAID", "DELIVERED"].includes(status);
+  const canEditCosts = !isCancelled && !isRefunded && (!isCostClosed || isAdmin);
   const pendingQuote = order.quotes?.find((q: { status: string }) => q.status === "pending");
   const deliveryTermSigned = !!order.deliveryTermSigned || !!order.deliveryTermPhysical;
   const returnTermSigned = !!order.returnTermSigned || !!order.returnTermPhysical;
@@ -1266,7 +1270,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div className="rounded-lg border border-border p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Custos e Lucro</h3>
-              {!costsEditing && !isCancelled && (
+              {!costsEditing && canEditCosts && (
                 <Button size="sm" variant="ghost" onClick={() => { setPartsCostEdit(order.partsCost); setOtherCostEdit(order.otherCost); setCostsEditing(true); }}>
                   <Pencil className="h-3 w-3" />
                 </Button>

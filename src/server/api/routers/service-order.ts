@@ -1962,15 +1962,27 @@ export const serviceOrderRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const order = await tx.serviceOrder.findUnique({ where: { id: input.id } });
         if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
-        // F1 (auditoria OS): não altera custos de OS finalizada — mudaria a base
-        // de lucro/DRE/comissão de uma OS já fechada, sem re-cobrança nem trilha.
-        // Espelha o gate dos item-procedures (add/update/remove).
-        if (["PAID", "DELIVERED", "CANCELLED", "REFUNDED"].includes(order.status)) {
+
+        // F1 (auditoria OS): custo alimenta lucro/DRE/comissão. Em OS finalizada
+        // a base já está fechada, então alterá-la é operação privilegiada:
+        // - PAID/DELIVERED: só admin (correção de custo real conhecido após o
+        //   serviço). Membro comum segue bloqueado.
+        // - CANCELLED/REFUNDED: bloqueado para todos — não há base a corrigir.
+        const isReverted = ["CANCELLED", "REFUNDED"].includes(order.status);
+        const isClosed = ["PAID", "DELIVERED"].includes(order.status);
+        if (isReverted) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Não é possível alterar custos de uma OS finalizada.",
+            message: "Não é possível alterar custos de uma OS cancelada ou estornada.",
           });
         }
+        if (isClosed && !isTenantAdmin(ctx.session, ctx.tenantId)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Apenas administradores podem alterar custos de uma OS já finalizada.",
+          });
+        }
+
         await tx.serviceOrder.update({
           where: { id: input.id },
           data: {
@@ -1978,6 +1990,20 @@ export const serviceOrderRouter = createTRPCRouter({
             otherCost: centsToPrisma(input.otherCost),
           },
         });
+
+        // Trilha de auditoria: quem alterou o custo de uma OS e quando. Sem isso,
+        // mexer na base de lucro de uma OS fechada seria invisível.
+        await tx.serviceOrderHistory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.id,
+            userId: ctx.session.user.id,
+            previousStatus: order.status,
+            newStatus: order.status,
+            notes: `Custos atualizados (peças: ${input.partsCost / 100}, outros: ${input.otherCost / 100})`,
+          },
+        });
+
         return { success: true };
       });
     }),
