@@ -5,9 +5,12 @@
 /// (o gating lê deles); a Subscription é o registro de billing. Suspender a
 /// assinatura seta `Tenant.status = SUSPENDED` (que já corta o login) em conjunto.
 ///
-/// Tabela GLOBAL (sem tenant_id de RLS — a chave é o próprio tenant): só o
-/// superadmin (adminProcedure, bypass RLS) lê/escreve, como `plans`/`addons`.
-/// Sem campos de gateway (asaas/pix/boleto) — cobrança automática é fase futura.
+/// Acesso legítimo é só via `withAdmin` (adminProcedure, role app_admin BYPASSRLS),
+/// como `plans`/`addons`. Ainda assim a tabela tem RLS backstop (ENABLE+FORCE +
+/// policy `tenant_isolation` por `tenant_id`, migration 20260714120000): um
+/// `withTenant` acidental sobre `subscription` sem filtro não lê o billing de
+/// outro tenant. Sem campos de gateway (asaas/pix/boleto) — cobrança automática
+/// é fase futura.
 model Subscription {
   id       String @id @default(uuid()) @db.Uuid
   tenantId String @unique @map("tenant_id") @db.Uuid

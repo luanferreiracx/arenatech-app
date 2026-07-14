@@ -162,11 +162,12 @@ describe("RLS multi-tenant isolation", () => {
  * que esquece o RLS (como #536 esqueceu em product_brands) vaza cross-tenant
  * silenciosamente. Este teste FALHA se qualquer tabela de tenant nascer sem a rede.
  *
- * Exceções conhecidas (globais por design — sem tenant_id de isolamento OU só via
- * withAdmin): subscriptions e user_tenants. Ver findings/H_rls.md.
+ * Exceções conhecidas (globais por design — acesso só via withAdmin): user_tenants.
+ * `subscriptions` GANHOU RLS backstop (G-P1-17, migration 20260714120000) e voltou
+ * a ser exigida aqui. Ver findings/H_rls.md.
  */
 describe("RLS guard-rail — toda tabela com tenant_id tem RLS forçado", () => {
-  const KNOWN_GLOBAL = new Set<string>(["subscriptions", "user_tenants"]);
+  const KNOWN_GLOBAL = new Set<string>(["user_tenants"]);
 
   it("nenhuma tabela com tenant_id fica sem RLS habilitado + forçado + policy", async () => {
     const rows = await prisma.$queryRawUnsafe<
