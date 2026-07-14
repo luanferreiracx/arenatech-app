@@ -866,6 +866,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 ? "Enviado ao cliente — aguardando resposta. Voce pode reenviar, autorizar manualmente ou cancelar a alteracao."
                 : "O orcamento foi alterado apos a assinatura. Envie ao cliente para autorizar, autorize manualmente (gerente) ou cancele a alteracao."}
             </p>
+            {/* responsive-audit-ignore: 3 valores monetários curtos (text-sm), legível a 320px */}
             <div className="grid grid-cols-3 gap-3 text-sm mb-3">
               <div>
                 <p className="text-muted-foreground text-xs">Valor Anterior</p>

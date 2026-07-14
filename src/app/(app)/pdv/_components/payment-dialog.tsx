@@ -702,6 +702,7 @@ export function PaymentDialog({
                 ? "Adicionar outra forma"
                 : "Selecione a forma de pagamento"}
             </div>
+            {/* responsive-audit-ignore: 3 botões curtos num dialog max-w-lg, legível a 320px */}
             <div className="grid grid-cols-3 gap-2">
               {methodOptions.map((m) => (
                 <Button
