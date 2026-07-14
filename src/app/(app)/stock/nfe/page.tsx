@@ -187,7 +187,8 @@ export default function NfeImportListPage() {
               Nenhuma NF-e encontrada
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[48rem] text-sm">
               <thead>
                 <tr className="border-b border-primary/20 bg-muted/50">
                   <th className="text-left px-4 py-2 font-semibold uppercase text-xs">Numero</th>
@@ -226,6 +227,7 @@ export default function NfeImportListPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>

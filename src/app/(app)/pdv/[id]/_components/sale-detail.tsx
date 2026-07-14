@@ -599,8 +599,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
         <CardHeader>
           <CardTitle className="text-sm">Itens da Venda</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full min-w-[32rem] text-sm">
             <thead>
               <tr className="border-b border-primary/20 bg-muted/50">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

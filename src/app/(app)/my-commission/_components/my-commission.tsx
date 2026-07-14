@@ -201,8 +201,8 @@ export function MyCommission() {
           Memoria de calculo — {String(month).padStart(2, "0")}/{year}
         </h3>
         {memoryLinhas && memoryLinhas.length > 0 ? (
-          <div className="max-h-[420px] overflow-y-auto">
-            <table className="w-full text-xs">
+          <div className="max-h-[420px] overflow-auto">
+            <table className="w-full min-w-[36rem] text-xs">
               <thead>
                 <tr className="border-b text-muted-foreground">
                   <th className="text-left p-2">Data</th>
@@ -247,7 +247,8 @@ export function MyCommission() {
         {reversals.length === 0 ? (
           <p className="text-xs text-muted-foreground">Sem estornos no periodo.</p>
         ) : (
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[28rem] text-xs">
             <thead>
               <tr className="border-b text-muted-foreground">
                 <th className="text-left p-2">Data</th>
@@ -267,6 +268,7 @@ export function MyCommission() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 
@@ -282,7 +284,7 @@ export function MyCommission() {
         </p>
 
         {!isClosed && (
-          <div className="flex gap-2 items-end mb-4">
+          <div className="flex flex-wrap gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
               <DateInput
