@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,10 @@ export default function ErrorPage({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Unhandled error:", error);
+    // error.tsx cobre o caso COMUM (erro de render dentro de uma rota/página);
+    // global-error só dispara em crash do layout raiz. Sem este capture, erros
+    // de render client-side ficavam invisíveis na observabilidade. (T5)
+    Sentry.captureException(error);
   }, [error]);
 
   return (
