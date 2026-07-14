@@ -107,6 +107,9 @@ export function BotScheduleForm() {
                 type="time"
                 {...form.register("start", { setValueAs: normalizeHhmm })}
               />
+              {form.formState.errors.start && (
+                <p className="text-sm text-destructive">{form.formState.errors.start.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="bot-close">Fecha às</Label>
@@ -115,14 +118,12 @@ export function BotScheduleForm() {
                 type="time"
                 {...form.register("end", { setValueAs: normalizeHhmm })}
               />
+              {form.formState.errors.end && (
+                <p className="text-sm text-destructive">{form.formState.errors.end.message}</p>
+              )}
             </div>
           </div>
         </div>
-        {(form.formState.errors.start || form.formState.errors.end) && (
-          <p className="text-sm text-destructive">
-            {form.formState.errors.start?.message ?? form.formState.errors.end?.message}
-          </p>
-        )}
 
         <div className="space-y-2">
           <Label>Dias de atendimento</Label>

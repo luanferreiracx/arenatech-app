@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt, STORE_INSTRUCTIONS_GUARD } from "@/lib/talison/prompt";
-import { updateBotConfigSchema, normalizeHhmm } from "@/lib/validators/bot-config";
+import { updateBotConfigSchema, normalizeHhmm, updateBotScheduleSchema } from "@/lib/validators/bot-config";
 
 describe("buildSystemPrompt — instruções da loja (M1/M2)", () => {
   it("sem instruções: prompt não tem o bloco delimitado da loja", () => {
@@ -88,5 +88,22 @@ describe("normalizeHhmm — null-safe (regressão: crash da aba do bot com horá
   });
   it("HH:mm válido é preservado", () => {
     expect(normalizeHhmm("09:30")).toBe("09:30");
+  });
+});
+
+describe("updateBotScheduleSchema — abertura/fechamento em par (UX: erro no campo que falta)", () => {
+  it("só abertura → erro no campo 'end' (fechamento), não no de abertura", () => {
+    const r = updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: "09:00", end: null, openWeekdays: [1] });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0]?.path[0]).toBe("end");
+  });
+  it("só fechamento → erro no campo 'start' (abertura)", () => {
+    const r = updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: null, end: "18:00", openWeekdays: [1] });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0]?.path[0]).toBe("start");
+  });
+  it("abertura + fechamento → OK; ambos vazios → OK (usa padrão)", () => {
+    expect(updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: "09:00", end: "18:00", openWeekdays: [1] }).success).toBe(true);
+    expect(updateBotScheduleSchema.safeParse({ timezone: "America/Fortaleza", start: null, end: null, openWeekdays: [1] }).success).toBe(true);
   });
 });
