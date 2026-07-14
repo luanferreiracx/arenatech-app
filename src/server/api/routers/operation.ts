@@ -299,7 +299,22 @@ export const operationRouter = createTRPCRouter({
               status: "PENDING",
             },
           });
-          data.payableTransactionId = ft.id;
+          // R3 (auditoria OS): a checagem !order.payableTransactionId era
+          // read-then-create — duas chamadas RETURNED/COMPLETED concorrentes
+          // liam null e criavam PAYABLE em DOBRO. CAS: só uma seta o vínculo
+          // (guard payableTransactionId IS NULL); a perdedora aborta (rollback
+          // do ft/installment que ela criou). O vencedor já gerou o PAYABLE.
+          const payableClaim = await tx.labOrder.updateMany({
+            where: { id: input.id, payableTransactionId: null },
+            data: { payableTransactionId: ft.id },
+          });
+          if (payableClaim.count !== 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "O PAYABLE deste envio de laboratório já foi gerado por outra operação.",
+            });
+          }
+          // payableTransactionId já persistido pelo CAS — não repetir no update abaixo.
         }
 
         await tx.labOrder.update({ where: { id: input.id }, data });
