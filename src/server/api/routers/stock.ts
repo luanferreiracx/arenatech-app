@@ -1866,6 +1866,9 @@ export const stockRouter = createTRPCRouter({
 
   /** Inventory report — stock summary by product */
   inventoryReport: tenantProcedure.query(async ({ ctx }) => {
+    // A3: custo/valor de custo não vazam para o operador de balcão (o gating de
+    // rota é por módulo, não por papel — operador alcança este relatório).
+    const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
     return ctx.withTenant(async (tx) => {
       const products = await tx.product.findMany({
         where: { deletedAt: null, active: true },
@@ -1887,6 +1890,7 @@ export const stockRouter = createTRPCRouter({
       const stockByProduct = await resolveCurrentStockByProduct(tx, products);
       const productsWithStock = products.map((p) => ({
         ...p,
+        costPrice: isAdmin ? p.costPrice : null,
         currentStock: stockByProduct.get(p.id) ?? 0,
       }));
 
@@ -1910,7 +1914,7 @@ export const stockRouter = createTRPCRouter({
         summary: {
           totalProducts,
           totalItems,
-          totalCostValue,
+          totalCostValue: isAdmin ? totalCostValue : null,
           totalSaleValue,
           lowStockCount,
           outOfStockCount,
@@ -2584,6 +2588,9 @@ export const stockRouter = createTRPCRouter({
 
   /** Stock dashboard stats with alerts (enhanced) */
   stockDashboard: tenantProcedure.query(async ({ ctx }) => {
+    // A3: valor de custo do estoque e lucro do dia são só de admin (operador vê
+    // os cards de saldo/vendas, não os de custo/margem).
+    const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
     return ctx.withTenant(async (tx) => {
       // Saldo efetivo por produto cobrindo os TRES tipos (antes so contava
       // stock_items, ignorando produtos simples e com variacoes — totais e
@@ -2751,9 +2758,9 @@ export const stockRouter = createTRPCRouter({
       return {
         totalProducts,
         totalItems,
-        totalCostValue: Math.round(totalCostValue * 100),
+        totalCostValue: isAdmin ? Math.round(totalCostValue * 100) : null,
         totalSaleValue: Math.round(totalSaleValue * 100),
-        lucroHoje: Math.round(lucroHoje * 100),
+        lucroHoje: isAdmin ? Math.round(lucroHoje * 100) : null,
         lowStockProducts,
         outOfStockProducts,
         recentMovements,
@@ -2774,6 +2781,7 @@ export const stockRouter = createTRPCRouter({
   reportPosicao: tenantProcedure
     .input(posicaoEstoqueSchema)
     .query(async ({ ctx, input }) => {
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const where: Prisma.ProductWhereInput = { deletedAt: null, active: true };
 
@@ -2802,6 +2810,7 @@ export const stockRouter = createTRPCRouter({
         const stockByProduct = await resolveCurrentStockByProduct(tx, products);
         const productsWithStock = products.map((p) => ({
           ...p,
+          costPrice: isAdmin ? p.costPrice : null,
           currentStock: stockByProduct.get(p.id) ?? 0,
         }));
 
@@ -3118,6 +3127,7 @@ export const stockRouter = createTRPCRouter({
   reportVendasProduto: tenantProcedure
     .input(vendasProdutoSchema)
     .query(async ({ ctx, input }) => {
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
           ? new Date(input.dateFrom)
@@ -3211,17 +3221,22 @@ export const stockRouter = createTRPCRouter({
           quantity: p.qty,
           numSales: p.salesSet.size,
           totalAmount: Math.round(p.total * 100),
-          costTotal: Math.round(p.cost * 100),
-          profit: Math.round((p.total - p.cost) * 100),
+          // A3: custo e lucro só para admin.
+          costTotal: isAdmin ? Math.round(p.cost * 100) : null,
+          profit: isAdmin ? Math.round((p.total - p.cost) * 100) : null,
         }));
 
         const totalQtd = result.reduce((s, p) => s + p.quantity, 0);
         const totalValor = result.reduce((s, p) => s + p.totalAmount, 0);
-        const totalLucro = result.reduce((s, p) => s + p.profit, 0);
+        const totalLucro = result.reduce((s, p) => s + (p.profit ?? 0), 0);
 
         return {
           products: result,
-          totals: { quantity: totalQtd, totalAmount: totalValor, profit: totalLucro },
+          totals: {
+            quantity: totalQtd,
+            totalAmount: totalValor,
+            profit: isAdmin ? totalLucro : null,
+          },
         };
       });
     }),
@@ -3230,6 +3245,7 @@ export const stockRouter = createTRPCRouter({
   reportVendasVendedor: tenantProcedure
     .input(vendasVendedorSchema)
     .query(async ({ ctx, input }) => {
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
           ? new Date(input.dateFrom)
@@ -3307,17 +3323,22 @@ export const stockRouter = createTRPCRouter({
             totalAmount: data.total,
             discountAmount: data.discount,
             ticketMedio: data.qty > 0 ? Math.round(data.total / data.qty) : 0,
-            profit: data.total - data.cost,
+            // A3: lucro (margem do vendedor) só para admin.
+            profit: isAdmin ? data.total - data.cost : null,
           }))
           .sort((a, b) => b.totalAmount - a.totalAmount);
 
         const totalQtd = result.reduce((s, v) => s + v.quantity, 0);
         const totalValor = result.reduce((s, v) => s + v.totalAmount, 0);
-        const totalLucro = result.reduce((s, v) => s + v.profit, 0);
+        const totalLucro = result.reduce((s, v) => s + (v.profit ?? 0), 0);
 
         return {
           sellers: result,
-          totals: { quantity: totalQtd, totalAmount: totalValor, profit: totalLucro },
+          totals: {
+            quantity: totalQtd,
+            totalAmount: totalValor,
+            profit: isAdmin ? totalLucro : null,
+          },
         };
       });
     }),
