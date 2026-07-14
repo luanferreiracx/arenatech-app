@@ -25,9 +25,10 @@ import {
   type UpdateBotScheduleInput,
   COMMON_TIMEZONES,
   WEEKDAY_LABELS,
+  normalizeHhmm,
+  DEFAULT_BOT_TIMEZONE,
+  DEFAULT_BOT_OPEN_WEEKDAYS,
 } from "@/lib/validators/bot-config";
-
-const emptyToNull = (value: string) => (value.trim() === "" ? null : value);
 
 export function BotScheduleForm() {
   const trpc = useTRPC();
@@ -36,6 +37,15 @@ export function BotScheduleForm() {
 
   const form = useForm<UpdateBotScheduleInput>({
     resolver: zodResolver(updateBotScheduleSchema),
+    // defaultValues garante que o Select do fuso já nasce CONTROLADO com um valor válido
+    // (evita o gotcha do Radix uncontrolled→controlled, que deixava o fuso vazio + erro).
+    // `values` sobrescreve quando a query carrega os dados reais da loja.
+    defaultValues: {
+      timezone: DEFAULT_BOT_TIMEZONE,
+      start: null,
+      end: null,
+      openWeekdays: [...DEFAULT_BOT_OPEN_WEEKDAYS],
+    },
     values: data
       ? { timezone: data.timezone, start: data.start, end: data.end, openWeekdays: data.openWeekdays }
       : undefined,
@@ -95,7 +105,7 @@ export function BotScheduleForm() {
               <Input
                 id="bot-open"
                 type="time"
-                {...form.register("start", { setValueAs: emptyToNull })}
+                {...form.register("start", { setValueAs: normalizeHhmm })}
               />
             </div>
             <div className="space-y-2">
@@ -103,7 +113,7 @@ export function BotScheduleForm() {
               <Input
                 id="bot-close"
                 type="time"
-                {...form.register("end", { setValueAs: emptyToNull })}
+                {...form.register("end", { setValueAs: normalizeHhmm })}
               />
             </div>
           </div>

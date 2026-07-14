@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt, STORE_INSTRUCTIONS_GUARD } from "@/lib/talison/prompt";
-import { updateBotConfigSchema } from "@/lib/validators/bot-config";
+import { updateBotConfigSchema, normalizeHhmm } from "@/lib/validators/bot-config";
 
 describe("buildSystemPrompt — instruções da loja (M1/M2)", () => {
   it("sem instruções: prompt não tem o bloco delimitado da loja", () => {
@@ -74,5 +74,19 @@ describe("updateBotConfigSchema — validação anti-injeção (M4)", () => {
 
   it("rejeita texto acima do cap (4000)", () => {
     expect(updateBotConfigSchema.safeParse({ enabled: true, instructions: "a".repeat(4001) }).success).toBe(false);
+  });
+});
+
+describe("normalizeHhmm — null-safe (regressão: crash da aba do bot com horário nulo)", () => {
+  it("null → null (o setValueAs do RHF chama com null no reset quando a loja não tem horário)", () => {
+    expect(normalizeHhmm(null)).toBeNull();
+  });
+  it("undefined/vazio/espaços → null", () => {
+    expect(normalizeHhmm(undefined)).toBeNull();
+    expect(normalizeHhmm("")).toBeNull();
+    expect(normalizeHhmm("   ")).toBeNull();
+  });
+  it("HH:mm válido é preservado", () => {
+    expect(normalizeHhmm("09:30")).toBe("09:30");
   });
 });
