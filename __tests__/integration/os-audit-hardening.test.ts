@@ -83,6 +83,15 @@ describe("Auditoria OS — PR A (F1/F4/F8)", () => {
     ).rejects.toThrow(/administradores/i);
   });
 
+  it("G-P1-09: operador comum NÃO edita custos de OS aberta (IN_PROGRESS)", async () => {
+    // A3: custo é dado de admin. Antes o operador editava custo em OS aberta
+    // (só PAID/DELIVERED barrava); agora é admin em qualquer status editável.
+    const order = await mkOrder("IN_PROGRESS");
+    await expect(
+      caller(mkCtx(operatorId, "operator", false)).serviceOrder.updateCosts({ id: order.id, partsCost: 1000, otherCost: 0 }),
+    ).rejects.toThrow(/administradores/i);
+  });
+
   it("F1: nem admin edita custos de OS cancelada (CANCELLED)", async () => {
     const order = await mkOrder("CANCELLED");
     await expect(
