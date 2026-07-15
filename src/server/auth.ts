@@ -12,7 +12,7 @@ import Credentials from "next-auth/providers/credentials";
 import { createHash } from "node:crypto";
 import { compare } from "bcryptjs";
 import { hashPassword } from "@/lib/password";
-import { resolveLoginIdentifier, maskIdentifier } from "@/lib/auth/login-identifier";
+import { resolveLoginIdentifier, maskIdentifier, loginRateLimitKey } from "@/lib/auth/login-identifier";
 import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
@@ -255,7 +255,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (typeof password !== "string" || !password) return null;
 
         // Rate limit por identificador (5 tentativas / 15min → lockout 15min).
-        const rateLimitKey = `login:${identifier.kind}:${identifier.value}`;
+        // Chave via helper compartilhado — DEVE bater com a lida pelo loginAction
+        // (senão o desafio Turnstile adaptativo nunca dispara). Ver loginRateLimitKey.
+        const rateLimitKey = loginRateLimitKey(identifier);
         const limitCheck = checkRateLimit(rateLimitKey);
         if (!limitCheck.allowed) {
           const minutes = Math.ceil(limitCheck.retryAfterMs / 60000);
