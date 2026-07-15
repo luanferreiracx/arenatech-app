@@ -416,10 +416,37 @@ export async function createDeposit(args: CreateDepositArgs) {
     if (existing) return existing;
   }
 
+  // Modo carteira EXTERNAL: o tenant administra a PROPRIA carteira. Se o chamador
+  // nao informou um endereco BYOW explicito (so a API de parceiro informa), mas o
+  // tenant e "external", resolvemos aqui o endereco primario da allowlist — assim
+  // TODO caminho de deposito (PDV, venda, link, receive, assinatura) roteia pro
+  // endereco do tenant sem cada call site conhecer o modo. A barreira
+  // assertAddressAllowed (ETAPA 1) revalida que o endereco esta na allowlist ativa.
+  let byowAddress = args.byowAddress ?? null;
+  if (!byowAddress) {
+    const wallet = await withTenant(args.tenantId, (tx) =>
+      tx.tenantDepixWallet.findUnique({
+        where: { tenantId: args.tenantId },
+        select: { custodyModel: true },
+      }),
+    );
+    if (wallet?.custodyModel === "external") {
+      const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
+      byowAddress = await getPrimaryByowAddress(args.tenantId);
+      if (!byowAddress) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Cadastre um endereco de recebimento (carteira externa) antes de receber DePix.",
+        });
+      }
+    }
+  }
+
   // ETAPA 1: cria registro PENDING + gera numero. Se duas chamadas concorrentes
   // usarem a mesma idempotencyKey, o unique constraint rejeita a 2a (P2002) — nesse
   // caso devolvemos a transacao ja criada em vez de estourar 500.
-  const isByow = !!args.byowAddress;
+  const isByow = !!byowAddress;
   let created;
   try {
     created = await withTenant(args.tenantId, async (tx) => {
@@ -430,7 +457,7 @@ export async function createDeposit(args: CreateDepositArgs) {
       // (auditoria backend R2, 2026-07-08). Barra antes do create → sem órfão.
       if (isByow) {
         const { assertAddressAllowed } = await import("@/server/services/depix-byow.service");
-        await assertAddressAllowed(args.tenantId, args.byowAddress!, tx);
+        await assertAddressAllowed(args.tenantId, byowAddress!, tx);
       }
       const number = await nextTransactionNumber(tx, "DEPOSIT");
       return tx.tenantDepixTransaction.create({
@@ -478,7 +505,7 @@ export async function createDeposit(args: CreateDepositArgs) {
   // e a taxa pra master da Arena, já dividido on-chain.
   let depixAddress: string;
   if (isByow) {
-    depixAddress = args.byowAddress!.trim();
+    depixAddress = byowAddress!.trim();
   } else {
     const addr = await lwk.generateAddress(args.tenantId, created.id);
     if (!addr.success || !addr.address) {
@@ -777,6 +804,8 @@ export async function settleDepositViaFeeWallet(args: {
     // Deixa em PROCESSING_FEE; sem destino nao ha como enfileirar.
     return { matched: true, repayPending: true };
   }
+  // Captura o valor ja narrowed (o await abaixo descarta o narrowing de propriedade).
+  const destinationMasterAddress = realWallet.masterAddress;
 
   // Liquido a repassar = on-chain - taxa Arena Tech (= breakdown.netCents, que
   // calcDepositSettlement ja calcula sem re-descontar a taxa Eulen).
@@ -790,7 +819,7 @@ export async function settleDepositViaFeeWallet(args: {
       create: {
         tenantId: realTenantId,
         transactionId: txRow.id,
-        destinationAddress: realWallet.masterAddress,
+        destinationAddress: destinationMasterAddress,
         netAmountCents: netCents,
         status: "PENDING",
       },
@@ -1232,6 +1261,17 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       select: { custodyModel: true, encryptedSeed: true },
     }),
   );
+  // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
+  // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
+  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  if (wallet?.custodyModel === "external") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+    });
+  }
+
   const isNonCustodial = wallet?.custodyModel === "non_custodial";
   if (isNonCustodial) {
     if (!args.passphrase) {
@@ -1580,6 +1620,17 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
       select: { custodyModel: true, encryptedSeed: true },
     }),
   );
+  // Carteira EXTERNAL: a Arena nao custodia o saldo, entao nao ha o que debitar
+  // via LWK. O saque no modo externo e uma INTENCAO Eulen (o tenant envia o DePix
+  // da propria carteira) — implementado na Fase B. Bloqueia o caminho gerenciado.
+  if (wallet?.custodyModel === "external") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "Sua carteira e externa (voce administra a propria carteira). O saque para carteira externa estara disponivel em breve.",
+    });
+  }
+
   const isNonCustodial = wallet?.custodyModel === "non_custodial";
   if (isNonCustodial) {
     if (!args.passphrase) {

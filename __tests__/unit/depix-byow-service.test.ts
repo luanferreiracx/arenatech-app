@@ -38,6 +38,7 @@ import {
   assertAddressAllowed,
   addByowWallet,
   removeByowWallet,
+  getPrimaryByowAddress,
   stashPendingByowAdd,
   readPendingByowAdd,
   clearPendingByowAdd,
@@ -138,6 +139,30 @@ describe("removeByowWallet", () => {
   it("NOT_FOUND quando não afeta nenhuma linha", async () => {
     updateMany.mockResolvedValue({ count: 0 });
     await expect(removeByowWallet(TENANT, "w1")).rejects.toThrow(/não encontrada/i);
+  });
+});
+
+describe("getPrimaryByowAddress (endereço padrão do modo externo)", () => {
+  it("devolve o endereço da carteira ativa mais antiga (default determinístico)", async () => {
+    findFirst.mockResolvedValue({ address: ADDR });
+    await expect(getPrimaryByowAddress(TENANT)).resolves.toBe(ADDR);
+    expect(findFirst.mock.calls[0]![0]).toMatchObject({
+      where: { tenantId: TENANT, active: true },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+
+  it("devolve null quando não há nenhuma carteira ativa", async () => {
+    findFirst.mockResolvedValue(null);
+    await expect(getPrimaryByowAddress(TENANT)).resolves.toBeNull();
+  });
+
+  it("usa o tx recebido quando passado (não abre transação nova)", async () => {
+    const externalFindFirst = vi.fn().mockResolvedValue({ address: ADDR });
+    const externalTx = { tenantByowWallet: { findFirst: externalFindFirst } };
+    await expect(getPrimaryByowAddress(TENANT, externalTx)).resolves.toBe(ADDR);
+    expect(externalFindFirst).toHaveBeenCalledOnce();
+    expect(findFirst).not.toHaveBeenCalled();
   });
 });
 

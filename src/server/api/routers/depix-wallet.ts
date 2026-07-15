@@ -189,9 +189,16 @@ export const depixWalletRouter = createTRPCRouter({
     .input(
       z
         .object({
-          mode: z.enum(["create", "import"]),
-          passphrase: passphraseSchema,
+          // "external": o tenant administra a PROPRIA carteira (a Arena nao custodia).
+          // Nao usa seed/passphrase nem LWK — so marca o modo. Exige >=1 endereco
+          // de recebimento ja cadastrado na allowlist BYOW.
+          mode: z.enum(["create", "import", "external"]),
+          passphrase: passphraseSchema.optional(),
           mnemonic: z.string().min(1).max(1000).optional(),
+        })
+        .refine((v) => v.mode === "external" || !!v.passphrase, {
+          message: "Informe a senha da carteira.",
+          path: ["passphrase"],
         })
         .refine((v) => v.mode !== "import" || !!v.mnemonic, {
           message: "Informe as 24 palavras para importar.",
@@ -217,9 +224,44 @@ export const depixWalletRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Carteira ja provisionada." });
       }
 
+      // ── Modo EXTERNAL: sem LWK, sem seed. So marca o modo apos garantir que o
+      // tenant ja cadastrou ao menos um endereco de recebimento (allowlist BYOW).
+      // A escolha do modo e feita 1x no onboarding e fica travada (setup rejeita
+      // recadastro pos-provisionamento acima) — troca posterior = suporte manual.
+      if (input.mode === "external") {
+        const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
+        const primary = await getPrimaryByowAddress(ctx.tenantId);
+        if (!primary) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Cadastre ao menos um endereco de recebimento antes de concluir a configuracao da carteira externa.",
+          });
+        }
+        await ctx.withTenant(async (tx) =>
+          tx.tenantDepixWallet.upsert({
+            where: { tenantId: ctx.tenantId },
+            create: {
+              tenantId: ctx.tenantId,
+              network: "mainnet",
+              provisionedAt: new Date(),
+              custodyModel: "external",
+            },
+            update: {
+              provisionedAt: new Date(),
+              custodyModel: "external",
+            },
+          }),
+        );
+        logger.info("DePix wallet provisionada external", { tenantId: ctx.tenantId });
+        return { success: true, masterAddress: null, mnemonic: null };
+      }
+
+      // passphrase garantida pelo refine para create/import (so opcional no external,
+      // que retornou acima). input.mode ja narrowed p/ "create" | "import".
       const res = await lwk.setupWallet(ctx.tenantId, {
         mode: input.mode,
-        passphrase: input.passphrase,
+        passphrase: input.passphrase!,
         mnemonic: input.mnemonic,
       });
       if (!res.success || !res.encryptedSeed || !res.descriptor || !res.masterAddress) {

@@ -379,10 +379,15 @@ export const depixTransactionRouter = createTRPCRouter({
     // saldo de um tenant sem carteira faria o LWK AUTO-CRIAR uma carteira
     // custodial (load_or_create_wallet grava mnemonic.txt), gerando uma
     // carteira fantasma que depois bloqueia o setup non-custodial (guard 409).
+    //
+    // Carteira EXTERNAL: a Arena nao custodia — nao ha saldo pra consultar (e
+    // chamar o LWK criaria a MESMA carteira fantasma). Saldo fica 0/sem consulta.
+    const isExternal = wallet?.custodyModel === "external";
     const provisioned = !!wallet?.provisionedAt;
-    const balance = provisioned
-      ? await lwk.getBalance(ctx.tenantId)
-      : { success: true as const, depixBalance: 0, error: null };
+    const balance =
+      provisioned && !isExternal
+        ? await lwk.getBalance(ctx.tenantId)
+        : { success: true as const, depixBalance: 0, error: null };
 
     if (!balance.success) {
       logger.warn("Overview: lwk getBalance falhou", {
@@ -397,8 +402,9 @@ export const depixTransactionRouter = createTRPCRouter({
             provisioned,
             masterAddress: wallet.masterAddress,
             network: wallet.network,
+            custodyModel: wallet.custodyModel,
           }
-        : { provisioned: false, masterAddress: null, network: null },
+        : { provisioned: false, masterAddress: null, network: null, custodyModel: "custodial" },
       feeConfig: feeCfg,
       isCentralTenant,
       balance: {

@@ -14,6 +14,7 @@ import {
   Loader2,
   ShieldAlert,
   KeyRound,
+  Wallet,
 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { toast } from "@/lib/toast";
@@ -26,8 +27,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { WizardStepper } from "../_components/wizard-stepper";
+import { ByowWalletsCard } from "../_components/byow-wallets-card";
 
-type Mode = "create" | "import";
+// "external": o tenant administra a PROPRIA carteira (a Arena nao custodia).
+type Mode = "create" | "import" | "external";
+
+// Passo dedicado do modo externo (cadastro do endereco de recebimento).
+const EXTERNAL_STEP = 5;
 
 const MIN_PASSPHRASE = 8;
 
@@ -59,6 +65,12 @@ export default function DepixWalletSetupPage() {
 
   const [step, setStep] = useState(1);
   const [mode, setMode] = useState<Mode | null>(null);
+
+  // Carteiras de recebimento cadastradas (modo externo). Concluir exige >=1.
+  const byowListQuery = useQuery(
+    trpc.depixByow.list.queryOptions(undefined, { enabled: step === EXTERNAL_STEP }),
+  );
+  const byowCount = byowListQuery.data?.length ?? 0;
   const [importMnemonic, setImportMnemonic] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [passphraseConfirm, setPassphraseConfirm] = useState("");
@@ -92,6 +104,12 @@ export default function DepixWalletSetupPage() {
   }
 
   const steps = useMemo(() => {
+    if (mode === "external") {
+      return [
+        { id: 1, label: "Carteira" },
+        { id: EXTERNAL_STEP, label: "Recebimento" },
+      ];
+    }
     if (mode === "import") {
       return [
         { id: 1, label: "Carteira" },
@@ -112,7 +130,9 @@ export default function DepixWalletSetupPage() {
   const importWordCount = countWords(importMnemonic);
 
   function handleModeNext() {
-    if (mode === "import") {
+    if (mode === "external") {
+      setStep(EXTERNAL_STEP);
+    } else if (mode === "import") {
       setStep(2);
     } else {
       setStep(3);
@@ -182,7 +202,7 @@ export default function DepixWalletSetupPage() {
             <span>Configurar carteira DePix</span>
           </div>
         }
-        subtitle="Crie uma carteira nova ou importe uma existente. So voce conhece a senha."
+        subtitle="Use a carteira gerenciada (criar/importar) ou administre a sua propria carteira."
       />
 
       <WizardStepper steps={steps} current={step} />
@@ -227,6 +247,38 @@ export default function DepixWalletSetupPage() {
               </p>
             </button>
           </div>
+
+          {/* Alternativa: nao usar a carteira gerenciada; administrar a propria. */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center" aria-hidden>
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-background px-2 text-xs uppercase tracking-wide text-muted-foreground">
+                ou
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setMode("external")}
+            aria-pressed={mode === "external"}
+            className={cn(
+              "w-full text-left rounded-xl border-2 p-5 transition-all",
+              mode === "external"
+                ? "border-primary bg-primary/[0.06] shadow-[0_0_0_4px_var(--primary)]/10"
+                : "border-border hover:border-primary/40",
+            )}
+          >
+            <Wallet className="h-6 w-6 text-primary mb-2" />
+            <p className="font-semibold">Administrar minha propria carteira</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Voce recebe o DePix direto na sua carteira Liquid e nao usa a carteira
+              gerenciada da Arena. Nao guardamos seus fundos nem sua frase de
+              recuperacao — basta cadastrar o endereco de recebimento.
+            </p>
+          </button>
 
           <div className="flex justify-end gap-2">
             <Button asChild variant="outline">
@@ -430,6 +482,58 @@ export default function DepixWalletSetupPage() {
               Concluir
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* ─── PASSO EXTERNAL — cadastrar endereco de recebimento ─── */}
+      {step === EXTERNAL_STEP && mode === "external" && (
+        <div className="max-w-xl mx-auto space-y-5 animate-in fade-in slide-in-from-right-2 duration-300">
+          <Card className="p-5 sm:p-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold">Sua carteira de recebimento</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Cadastre o endereco Liquid onde voce quer receber o DePix. Para sua
+              seguranca, o cadastro exige confirmacao por 2FA, email e WhatsApp. Voce
+              pode adicionar mais de um; o primeiro sera o padrao de recebimento.
+            </p>
+          </Card>
+
+          {/* Cadastro forte (2FA + email + WhatsApp) reusado da carteira. */}
+          <ByowWalletsCard canManage />
+
+          <div className="flex justify-between gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setStep(1)}
+              disabled={setupMutation.isPending}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+            <Button
+              onClick={() => setupMutation.mutate({ mode: "external" })}
+              disabled={byowCount < 1 || setupMutation.isPending}
+            >
+              {setupMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Concluindo…
+                </>
+              ) : (
+                <>
+                  <Check className="mr-2 h-4 w-4" />
+                  Concluir
+                </>
+              )}
+            </Button>
+          </div>
+          {byowCount < 1 && (
+            <p className="text-center text-xs text-muted-foreground">
+              Cadastre ao menos um endereco de recebimento para concluir.
+            </p>
+          )}
         </div>
       )}
     </div>
