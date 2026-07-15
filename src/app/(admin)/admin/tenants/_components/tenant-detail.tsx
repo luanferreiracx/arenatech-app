@@ -123,12 +123,13 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
   const tenant = tenantQuery.data;
 
-  // O status e o plano NÃO são editados aqui: mudança de acesso/plano passa pelo
-  // Painel de Assinatura (que sincroniza billing). O form envia o status atual
-  // inalterado (o schema exige o campo) e não manda mais `plan`.
+  // O status e o plano NÃO são editados aqui: mudança de acesso/plano/status passa
+  // pelo Painel de Assinatura (que sincroniza billing). O status é read-only (badge);
+  // não é mais enviado no submit (P1-19 — removido do schema para não divergir da
+  // Subscription).
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
-    values: tenant ? { id: tenant.id, name: tenant.name, status: tenant.status as UpdateTenantInput["status"], apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
+    values: tenant ? { id: tenant.id, name: tenant.name, apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
   });
   const createUserForm = useForm<CreateTenantUserInput>({
     resolver: zodResolver(createTenantUserSchema),
