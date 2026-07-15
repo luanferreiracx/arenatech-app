@@ -71,6 +71,15 @@ export function signedDepositCents(amountCents: number, nature: string): number 
  */
 const CASH_DRAWER_METHODS = new Set(["dinheiro", "ajuste_manual"])
 
+/**
+ * A forma de pagamento movimenta a GAVETA física? Fonte única (CASH_DRAWER_METHODS).
+ * Usada por guards de estorno para exigir caixa aberto SÓ quando o estorno vai
+ * gerar saída em espécie (dinheiro) — PIX/cartão/DePix não passam pela gaveta.
+ */
+export function paymentMethodAffectsCashDrawer(method: string | null | undefined): boolean {
+  return !!method && CASH_DRAWER_METHODS.has(method)
+}
+
 export interface CashDrawerMovement {
   nature: string
   amountCents: number

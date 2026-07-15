@@ -72,6 +72,7 @@ import { reverseServiceOrderCommissions } from "@/server/services/provider-rever
 import { resolveOsAssignee } from "@/server/services/os-assignee.service";
 import {
   refundNeedsOpenCashSession,
+  paymentMethodAffectsCashDrawer,
   writeCashMovement,
 } from "@/server/services/cash-session.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
@@ -1370,7 +1371,19 @@ export const serviceOrderRouter = createTRPCRouter({
             },
             select: { totalAmount: true },
           });
-          if (paidLinkedSale && refundNeedsOpenCashSession(decimalToCents(paidLinkedSale.totalAmount))) {
+          const needsForLinkedSale =
+            !!paidLinkedSale && refundNeedsOpenCashSession(decimalToCents(paidLinkedSale.totalAmount));
+          // R1 (auditoria OS): OS paga DIRETO em dinheiro (registerPayment, sem
+          // Sale no PDV) também gera saída na gaveta. Antes o guard só cobria a
+          // venda vinculada — a direct-pay passava sem caixa, o `if (refundOpenSession)`
+          // pulava a WITHDRAWAL e a gaveta ficava inflada pelo valor estornado.
+          // Exige caixa aberto quando NÃO há venda vinculada e o método bate na
+          // gaveta (dinheiro) com valor pago > 0. PIX/DePix/cartão não precisam.
+          const needsForDirectPay =
+            !paidLinkedSale &&
+            paymentMethodAffectsCashDrawer(order.paymentMethod) &&
+            refundNeedsOpenCashSession(decimalToCents(order.paidAmount));
+          if (needsForLinkedSale || needsForDirectPay) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "Caixa nao esta aberto. Abra um caixa antes de estornar a OS (a saida precisa ser registrada na gaveta).",
