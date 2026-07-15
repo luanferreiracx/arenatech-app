@@ -6,23 +6,34 @@
 ///
 /// Modelo NON-CUSTODIAL (ADR 0051): o mnemonic e cifrado com uma passphrase que
 /// SO o usuario sabe (Argon2id + AES-256-GCM) e o blob fica em `encryptedSeed`
-/// AQUI. O servidor nao consegue ler a seed sem a passphrase. `custodyModel`
-/// controla a coexistencia: default "custodial" (comportamento atual intacto),
-/// "non_custodial" apos o tenant migrar.
+/// AQUI. O servidor nao consegue ler a seed sem a passphrase.
+///
+/// Modelo EXTERNAL (carteira externa / sem saldo): o tenant NAO usa a carteira
+/// LWK — administra a PROPRIA carteira. A Arena nao custodia nada (sem seed, sem
+/// descriptor, sem saldo). O recebimento vai direto pra um endereco da allowlist
+/// BYOW (TenantByowWallet) e o saque e uma intencao via Eulen (o tenant envia o
+/// DePix manualmente). Aqui a linha existe so como MARCADOR de modo: liquidDescriptor
+/// e masterAddress ficam null; provisionedAt marca a conclusao do onboarding.
+///
+/// `custodyModel` controla a coexistencia: default "custodial" (comportamento atual
+/// intacto), "non_custodial" (ADR 0051), "external" (carteira externa).
 model TenantDepixWallet {
   tenantId           String    @id @map("tenant_id") @db.Uuid
   /// Descriptor publico (watch-only) — permite ver saldo/historico, NAO gastar.
-  liquidDescriptor   String    @map("liquid_descriptor") @db.Text
+  /// null no modo "external" (a carteira nao e nossa).
+  liquidDescriptor   String?   @map("liquid_descriptor") @db.Text
   /// Endereco Liquid de recebimento (index 0). Tambem destino das taxas quando
-  /// for a carteira mestre da Arena Tech.
-  masterAddress      String    @map("master_address")
+  /// for a carteira mestre da Arena Tech. null no modo "external".
+  masterAddress      String?   @map("master_address")
   network            String    @default("mainnet")
   /// Endereco pra abastecer L-BTC de fee de rede (previsto p/ fase 2; toda tx
   /// Liquid paga fee em L-BTC, nao DePix). Nao usado na fase 1.
   lbtcFundingAddress String?   @map("lbtc_funding_address")
   provisionedAt      DateTime? @map("provisioned_at")
   /// Modelo de custodia: "custodial" (seed no volume LWK) | "non_custodial"
-  /// (seed cifrada com passphrase do usuario, blob em encryptedSeed). ADR 0051.
+  /// (seed cifrada com passphrase do usuario, blob em encryptedSeed, ADR 0051) |
+  /// "external" (carteira externa do tenant; a Arena nao custodia — recebe via
+  /// allowlist BYOW e saca por intencao Eulen).
   custodyModel       String    @default("custodial") @map("custody_model")
   /// Blob versionado do mnemonic cifrado (Argon2id + AES-256-GCM). So presente
   /// quando custodyModel = "non_custodial". INUTIL sem a passphrase do usuario —

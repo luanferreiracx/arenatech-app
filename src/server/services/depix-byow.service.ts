@@ -105,6 +105,30 @@ export async function listByowWallets(tenantId: string): Promise<ByowWalletDto[]
 }
 
 /**
+ * Endereço de recebimento PADRÃO (primário) do tenant no modo carteira externa.
+ * Default determinístico = a carteira ativa mais ANTIGA (primeira cadastrada) —
+ * estável mesmo que o tenant cadastre outras depois. Usado pelo `createDeposit`
+ * para rotear o DePix automaticamente quando o tenant é "external", sem cada
+ * chamador (PDV/venda/link/receive) precisar informar o endereço.
+ *
+ * Retorna null se o tenant não tem nenhuma carteira ativa (ex.: removeu todas) —
+ * o chamador decide como falhar. Aceita `tx` opcional para reusar a transação.
+ */
+export async function getPrimaryByowAddress(
+  tenantId: string,
+  tx?: TxClient,
+): Promise<string | null> {
+  const query = (client: TxClient) =>
+    client.tenantByowWallet.findFirst({
+      where: { tenantId, active: true },
+      orderBy: { createdAt: "asc" },
+      select: { address: true },
+    });
+  const row = tx ? await query(tx) : await withTenant(tenantId, query);
+  return row?.address ?? null;
+}
+
+/**
  * Grava uma carteira na allowlist. Chamado APÓS o router validar senha + 2FA +
  * os códigos de email/WhatsApp. Idempotente por (tenant, address): se já existe
  * ativa, retorna a existente; se existe inativa, reativa.

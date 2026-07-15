@@ -10,11 +10,14 @@ const txUpdate = vi.fn();
 const txFindFirst = vi.fn(); // nextTransactionNumber
 const feeConfigFindUnique = vi.fn();
 const walletFindUnique = vi.fn(); // master da Arena (getArenaMasterAddress)
+const depositWalletFindUnique = vi.fn(); // custodyModel do tenant (roteamento external)
 const tenantFindUnique = vi.fn(); // getCentralTenantId / arena-tech slug
 const generateAddress = vi.fn();
 const createPixPayment = vi.fn();
 const getFeeWalletTenantId = vi.fn();
 const getFeeWalletMasterAddress = vi.fn();
+const assertAddressAllowedMock = vi.fn();
+const getPrimaryByowAddressMock = vi.fn();
 
 const adminTx = {
   tenant: { findUnique: tenantFindUnique },
@@ -30,12 +33,20 @@ vi.mock("@/server/db", () => ({
         update: txUpdate,
       },
       tenantDepixFeeConfig: { findUnique: feeConfigFindUnique },
+      tenantDepixWallet: { findUnique: depositWalletFindUnique },
       tenant: { findUnique: tenantFindUnique },
     }),
   withAdmin: (fn: (tx: unknown) => unknown) => fn(adminTx),
 }));
 
 vi.mock("@/server/api/trpc", () => ({ CENTRAL_TENANT_SLUG: "arena-tech" }));
+
+// Allowlist BYOW: importada dinamicamente pelo createDeposit (barreira + endereço
+// primário do modo externo). Mockada para controlar o roteamento sem tocar no DB.
+vi.mock("@/server/services/depix-byow.service", () => ({
+  assertAddressAllowed: (...a: unknown[]) => assertAddressAllowedMock(...a),
+  getPrimaryByowAddress: (...a: unknown[]) => getPrimaryByowAddressMock(...a),
+}));
 
 vi.mock("@/lib/services/lwk-service", () => ({
   generateAddress: (...a: unknown[]) => generateAddress(...a),
@@ -72,10 +83,15 @@ const baseArgs = {
 beforeEach(() => {
   for (const m of [
     txCreate, txUpdate, txFindFirst, feeConfigFindUnique, walletFindUnique,
-    tenantFindUnique, generateAddress, createPixPayment, getFeeWalletTenantId,
-    getFeeWalletMasterAddress,
+    depositWalletFindUnique, tenantFindUnique, generateAddress, createPixPayment,
+    getFeeWalletTenantId, getFeeWalletMasterAddress, assertAddressAllowedMock,
+    getPrimaryByowAddressMock,
   ]) m.mockReset();
 
+  // Default: tenant gerenciado (custodyModel != external) -> caminho LWK atual.
+  depositWalletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
+  assertAddressAllowedMock.mockResolvedValue(undefined);
+  getPrimaryByowAddressMock.mockResolvedValue(null);
   txFindFirst.mockResolvedValue(null);
   txCreate.mockResolvedValue({ id: TX_ID, number: "TXD20260616-00001" });
   txUpdate.mockImplementation(async (a: { data: unknown }) => a.data);
@@ -121,6 +137,44 @@ describe("createDeposit — split nativo Eulen", () => {
     expect(getFeeWalletTenantId).not.toHaveBeenCalled();
     const opts = createPixPayment.mock.calls[0]![4] as { depixSplitAddress?: string };
     expect(opts.depixSplitAddress).toBe(FEE_MASTER);
+  });
+
+  it("carteira EXTERNAL: roteia pro endereço primário da allowlist (sem LWK) + mantém split", async () => {
+    const EXTERNAL_ADDR = "lq1qqexternaldestaddr00000000000000000000";
+    depositWalletFindUnique.mockResolvedValue({ custodyModel: "external" });
+    getPrimaryByowAddressMock.mockResolvedValue(EXTERNAL_ADDR);
+
+    await createDeposit(baseArgs);
+
+    // Resolveu o endereço próprio e NÃO gerou endereço LWK (a Arena não custodia).
+    expect(getPrimaryByowAddressMock).toHaveBeenCalledWith(REAL_TENANT);
+    expect(generateAddress).not.toHaveBeenCalled();
+    // Revalidou o endereço na allowlist (barreira anti-desvio).
+    expect(assertAddressAllowedMock).toHaveBeenCalledWith(REAL_TENANT, EXTERNAL_ADDR, expect.anything());
+    // PixPay aponta pro endereço EXTERNO do tenant, ainda com split (Arena ganha).
+    const opts = createPixPayment.mock.calls[0]![4] as {
+      depixAddress: string;
+      depixSplitAddress?: string;
+      splitFeePercent?: number;
+    };
+    expect(opts.depixAddress).toBe(EXTERNAL_ADDR);
+    expect(opts.depixSplitAddress).toBe(FEE_MASTER);
+    expect(opts.splitFeePercent).toBeCloseTo(2.49, 2);
+    // isByow: sem label/receiving do monitor LWK.
+    const persisted = txUpdate.mock.calls.at(-1)![0] as {
+      data: { depositReceivingTenantId: string | null; depositLabel: string | null };
+    };
+    expect(persisted.data.depositReceivingTenantId).toBeNull();
+    expect(persisted.data.depositLabel).toBeNull();
+  });
+
+  it("carteira EXTERNAL sem endereço cadastrado: recusa (não gera QR)", async () => {
+    depositWalletFindUnique.mockResolvedValue({ custodyModel: "external" });
+    getPrimaryByowAddressMock.mockResolvedValue(null);
+
+    await expect(createDeposit(baseArgs)).rejects.toThrow(/endereco de recebimento|endereço de recebimento/i);
+    expect(createPixPayment).not.toHaveBeenCalled();
+    expect(generateAddress).not.toHaveBeenCalled();
   });
 
   it("tenant central: SEM split (taxa 0, recebe 100%)", async () => {

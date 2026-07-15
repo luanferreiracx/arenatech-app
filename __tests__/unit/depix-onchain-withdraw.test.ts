@@ -130,6 +130,18 @@ describe("createOnchainWithdraw", () => {
     expect(upd.data.withdrawTxId).toBe("liquid-txid-1");
   });
 
+  it("carteira EXTERNAL: bloqueia o saque gerenciado (a Arena não custodia)", async () => {
+    walletFindUnique.mockResolvedValue({ custodyModel: "external", encryptedSeed: null });
+
+    await expect(
+      createOnchainWithdraw({ tenantId: NON_CENTRAL, userId: "u1", toAddress: ADDR, amountCents: 5000 }),
+    ).rejects.toThrow(/externa/i);
+
+    // Nunca chega a adquirir lock nem transferir on-chain.
+    expect(executeRaw).not.toHaveBeenCalled();
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
   it("usa a taxa ON-CHAIN propria (2o output da taxa), nao a do PIX", async () => {
     // Tenant nao-central com taxa on-chain 1% (e exitFee PIX alto, que NAO deve ser usado).
     feeConfigFindUnique.mockResolvedValue({

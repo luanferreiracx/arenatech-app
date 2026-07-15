@@ -111,7 +111,9 @@ export async function ensureFeeWalletProvisioned(): Promise<ProvisionFeeWalletRe
     return {
       success: true,
       tenantId: tenant.id,
-      masterAddress: existing.masterAddress,
+      // A carteira de taxas e sempre custodial e provisionada com masterAddress;
+      // coalesce cobre a nova nulabilidade da coluna (modo external nao a usa).
+      masterAddress: existing.masterAddress ?? undefined,
       alreadyProvisioned: true,
     };
   }
