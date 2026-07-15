@@ -123,6 +123,42 @@ describe("Auditoria OS — PR A (F1/F4/F8)", () => {
     expect(deleted.deletedAt).not.toBeNull();
   });
 
+  it("R1: estorno de OS paga DIRETO em dinheiro exige caixa aberto (não infla a gaveta)", async () => {
+    // OS paga direto (sem Sale no PDV) em dinheiro: o estorno gera saída na gaveta.
+    // Sem caixa aberto, a saída era pulada e a gaveta ficava inflada. Agora bloqueia.
+    await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+    const order = await prisma.serviceOrder.create({
+      data: {
+        tenantId, number: `${MARK}-r1-${Date.now()}`, customerId, createdById: adminId,
+        status: "DELIVERED", publicLink: `${MARK}-r1pl-${Date.now()}`,
+        totalAmount: 200, serviceAmount: 200,
+        paymentMethod: "dinheiro", paidAmount: 200,
+      } as any,
+    });
+    orderIds.push(order.id);
+    await expect(
+      caller(mkCtx(adminId, "admin", false)).serviceOrder.refund({ id: order.id, reason: "cliente desistiu do reparo" }),
+    ).rejects.toThrow(/[Cc]aixa nao esta aberto|[Cc]aixa não está aberto/);
+    // OS não foi estornada (o guard barrou antes).
+    const still = await prisma.serviceOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(still.status).toBe("DELIVERED");
+  });
+
+  it("R1: estorno de OS paga DIRETO em PIX NÃO exige caixa (não bate na gaveta)", async () => {
+    await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+    const order = await prisma.serviceOrder.create({
+      data: {
+        tenantId, number: `${MARK}-r1pix-${Date.now()}`, customerId, createdById: adminId,
+        status: "DELIVERED", publicLink: `${MARK}-r1pixpl-${Date.now()}`,
+        totalAmount: 200, serviceAmount: 200,
+        paymentMethod: "pix", paidAmount: 200,
+      } as any,
+    });
+    orderIds.push(order.id);
+    const r = await caller(mkCtx(adminId, "admin", false)).serviceOrder.refund({ id: order.id, reason: "cliente desistiu do reparo" });
+    expect(r.success).toBe(true);
+  });
+
   it("F4: getQuoteByLink NÃO expõe costPrice nem IDs internos", async () => {
     const order = await mkOrder("WAITING_APPROVAL");
     const link = `${MARK}-alink-${Date.now()}`;
