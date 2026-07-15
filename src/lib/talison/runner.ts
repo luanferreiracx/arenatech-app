@@ -16,6 +16,7 @@ import { sendBotMessage, sendPrivateNote } from "@/lib/talison/chatwoot-client";
 import { buildTalisonBusinessContext } from "@/lib/talison/business-context";
 import { buildNowNote } from "@/lib/talison/business-hours";
 import { recordTalisonMetric } from "@/lib/talison/metrics";
+import { CENTRAL_TENANT_SLUG } from "@/lib/tenants/central-tenant";
 import type { LlmMessage } from "@/lib/talison/types";
 import type { TalisonToolContext, TalisonTx } from "@/lib/talison/tools/contract";
 
@@ -179,7 +180,8 @@ export async function processConversation(
     if (!conversation) return null;
 
     const config = await tx.chatbotConfig.findUnique({ where: { tenantId } });
-    const [tenantSettings, tenantAssistanceSettings, messages] = await Promise.all([
+    const [tenantRow, tenantSettings, tenantAssistanceSettings, messages] = await Promise.all([
+      tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
       tx.tenantSettings.findUnique({ where: { tenantId } }),
       tx.tenantAssistanceSettings.findUnique({ where: { tenantId } }),
       tx.chatbotMessage.findMany({
@@ -192,6 +194,7 @@ export async function processConversation(
     return {
       conversation,
       config,
+      tenantSlug: tenantRow?.slug ?? null,
       tenantSettings,
       tenantAssistanceSettings,
       messages: messages.reverse(),
@@ -199,7 +202,7 @@ export async function processConversation(
   });
 
   if (!state) return { status: "skipped", reason: "conversa não encontrada" };
-  const { conversation, config, messages, tenantSettings, tenantAssistanceSettings } = state;
+  const { conversation, config, messages, tenantSlug, tenantSettings, tenantAssistanceSettings } = state;
 
   // Bot desativado por tenant.
   if (config && !config.enabled) return { status: "skipped", reason: "bot desativado" };
@@ -260,8 +263,11 @@ export async function processConversation(
     .map((message, index) => toLlmMessage(message, resolvedContents[index] ?? message.content))
     .filter((m): m is LlmMessage => m !== null);
 
+  const resolvedSlug = tenantSlug ?? "";
   const toolContext: TalisonToolContext = {
     tenantId,
+    tenantSlug: resolvedSlug,
+    isCentralTenant: resolvedSlug === CENTRAL_TENANT_SLUG,
     conversation: {
       id: conversation.id,
       contactPhone: conversation.contactPhone,

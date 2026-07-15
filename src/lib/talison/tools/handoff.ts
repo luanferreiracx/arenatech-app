@@ -162,7 +162,16 @@ export const sinalizarLeadQuente: TalisonTool<typeof leadQuenteSchema> = {
 
     // Avisa o time no grupo do WhatsApp (mesmo grupo do alerta de abandono).
     // Falha de entrega não invalida a tool — o lead já está registrado.
-    const groupJid = process.env.TALISON_ALERT_GROUP_JID;
+    // T1 (multi-tenant): o grupo global (env) é do tenant CENTRAL (arena-tech).
+    // Só ele posta nele — um 2º tenant NÃO pode vazar seus leads pro grupo da
+    // Arena. Config de grupo por-tenant é follow-up (quando um 2º tenant usar o bot).
+    const groupJid = ctx.isCentralTenant ? process.env.TALISON_ALERT_GROUP_JID : undefined;
+    if (!ctx.isCentralTenant) {
+      logger.info("Talison: lead quente de tenant não-central — alerta de grupo pulado (fail-safe T1)", {
+        conversationId: ctx.conversation.id,
+        tenantSlug: ctx.tenantSlug,
+      });
+    }
     if (groupJid) {
       const lines = [
         "🔥 *Lead quente no WhatsApp!*",

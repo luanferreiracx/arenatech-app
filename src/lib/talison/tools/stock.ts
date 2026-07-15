@@ -18,18 +18,30 @@
 
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { formatBRL, type TalisonTool } from "@/lib/talison/tools/contract";
+import { formatBRL, type TalisonTool, type TalisonToolContext } from "@/lib/talison/tools/contract";
 import { searchWords, expandWord } from "@/lib/search/synonyms";
 
 const MAX_RESULTS = 8;
 const ACESSORIO_PIX_DISCOUNT = 0.05;
 
-/** Base do catálogo público (configurável). Link já com a busca aplicada. */
-const CATALOG_BASE_URL = process.env.TALISON_CATALOG_URL ?? "https://catalogo.arenatechpi.com.br";
+/** Base do catálogo do tenant CENTRAL (arena-tech), configurável por env. */
+const CENTRAL_CATALOG_BASE_URL = process.env.TALISON_CATALOG_URL ?? "https://catalogo.arenatechpi.com.br";
+/** Domínio-base do catálogo multi-tenant (subdomínio por slug). */
+const CATALOG_BASE_DOMAIN = "pdvdepix.app";
+
+/**
+ * Base do catálogo POR TENANT (T1): o central usa o domínio próprio (env); os
+ * demais usam o subdomínio do catálogo (`{slug}.pdvdepix.app`). Sem isso, o bot
+ * de qualquer tenant apontava o cliente pro catálogo da Arena (vazamento).
+ */
+function resolveCatalogBaseUrl(ctx: TalisonToolContext): string {
+  if (ctx.isCentralTenant) return CENTRAL_CATALOG_BASE_URL;
+  return `https://${ctx.tenantSlug}.${CATALOG_BASE_DOMAIN}`;
+}
 
 /** Monta o link do catálogo público com a busca do cliente já aplicada. */
-function catalogSearchLink(term: string): string {
-  return `${CATALOG_BASE_URL.replace(/\/$/, "")}/catalog?q=${encodeURIComponent(term)}`;
+function catalogSearchLink(baseUrl: string, term: string): string {
+  return `${baseUrl.replace(/\/$/, "")}/catalog?q=${encodeURIComponent(term)}`;
 }
 
 const STORAGE_OR_COLOR_WORDS = new Set(["64", "64gb", "128", "128gb", "256", "256gb", "512", "512gb", "1tb"]);
@@ -282,7 +294,7 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           return `${product.name}: ${priceLabel} — ${quantity} em estoque`;
         });
 
-        const link = catalogSearchLink(term);
+        const link = catalogSearchLink(resolveCatalogBaseUrl(ctx), term);
         return {
           ok: true as const,
           data: { total: products.length, algum_em_estoque: true, link_catalogo: link },
@@ -317,7 +329,7 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
           : [];
 
       if (devices.length > 0) {
-        const link = catalogSearchLink(term);
+        const link = catalogSearchLink(resolveCatalogBaseUrl(ctx), term);
         return {
           ok: true as const,
           data: { total: devices.length, fonte: "catalogo", algum_em_estoque: true, link_catalogo: link },
@@ -332,7 +344,7 @@ export const buscarAcessorio: TalisonTool<typeof buscarAcessorioSchema> = {
       // carregador) costumam estar cadastrados com nome genérico, sem o modelo.
       // NÃO negue ("não temos"): ofereça o link do catálogo pra o cliente navegar
       // com fotos. Só transfira/diga indisponível se o cliente pedir.
-      const link = catalogSearchLink(term);
+      const link = catalogSearchLink(resolveCatalogBaseUrl(ctx), term);
       return {
         ok: true as const,
         data: { total: 0, encontrou_exato: false, link_catalogo: link },

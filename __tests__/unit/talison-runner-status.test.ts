@@ -51,6 +51,9 @@ const state = vi.hoisted(() => ({
       findFirst: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
+    tenant: {
+      findUnique: vi.fn(),
+    },
     chatbotConfig: {
       findUnique: vi.fn(),
     },
@@ -108,6 +111,7 @@ function resetState() {
     { direction: "incoming", senderType: "customer", content: "oi", contentType: "text", mediaUrl: null },
   ];
   state.tx.chatbotConversation.findFirst.mockResolvedValue(state.conversation);
+  state.tx.tenant.findUnique.mockResolvedValue({ slug: "arena-tech" });
   state.tx.chatbotConfig.findUnique.mockImplementation(() => Promise.resolve(state.config));
   state.tx.tenantSettings.findUnique.mockImplementation(() => Promise.resolve(state.tenantSettings));
   state.tx.tenantAssistanceSettings.findUnique.mockImplementation(() =>
