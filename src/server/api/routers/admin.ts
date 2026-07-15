@@ -445,15 +445,15 @@ export const adminRouter = createTRPCRouter({
         });
         if (!currentTenant) throw new TRPCError({ code: "NOT_FOUND" });
 
-        // O PLANO NÃO é editável aqui: a fonte da verdade é a Subscription, alterada
-        // só por activateSubscription (que sincroniza Tenant.plan). updateTenant cuida
-        // apenas de identidade/config (nome, status, acesso à API). `input.plan` é
-        // aceito por compat mas ignorado.
+        // PLANO e STATUS NÃO são editáveis aqui: a fonte da verdade é a Subscription,
+        // alterada só por activateSubscription/suspendSubscription (que sincronizam
+        // Tenant.plan/Tenant.status). updateTenant cuida apenas de identidade/config
+        // (nome, acesso à API). `input.plan` é aceito por compat mas ignorado; `status`
+        // foi removido do input (P1-19) para não divergir da Subscription.
         await tx.tenant.update({
           where: { id: input.id },
           data: {
             name: input.name,
-            status: input.status,
             ...(input.apiAccessEnabled !== undefined
               ? { apiAccessEnabled: input.apiAccessEnabled }
               : {}),

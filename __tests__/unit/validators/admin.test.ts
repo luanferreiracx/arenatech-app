@@ -140,21 +140,27 @@ describe("listTenantsSchema", () => {
 });
 
 describe("updateTenantSchema", () => {
-  it("aceita update valido", () => {
-    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja Updated", status: "SUSPENDED" }).success).toBe(true);
+  it("aceita update valido (só id + name)", () => {
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja Updated" }).success).toBe(true);
+  });
+
+  it("P1-19: NÃO expõe `status` (removido — muda só via ações de assinatura)", () => {
+    // status é read-only na UI; o schema o ignora (chave desconhecida stripada).
+    const parsed = updateTenantSchema.parse({ id: UUID, name: "Loja", status: "ACTIVE" });
+    expect("status" in parsed).toBe(false);
   });
 
   it("aceita plano como UUID ou sem plano", () => {
-    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: UUID }).success).toBe(true);
-    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: null }).success).toBe(true);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", plan: UUID }).success).toBe(true);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", plan: null }).success).toBe(true);
   });
 
   it("aceita plano legado para preservacao na edicao", () => {
-    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "basico" }).success).toBe(true);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", plan: "basico" }).success).toBe(true);
   });
 
   it("rejeita plano vazio", () => {
-    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", status: "ACTIVE", plan: "" }).success).toBe(false);
+    expect(updateTenantSchema.safeParse({ id: UUID, name: "Loja", plan: "" }).success).toBe(false);
   });
 });
 

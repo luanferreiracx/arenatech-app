@@ -157,7 +157,11 @@ export type ListTenantsInput = z.infer<typeof listTenantsSchema>;
 export const updateTenantSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
-  status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]),
+  // P1-19: `status` REMOVIDO daqui. Mudança de status/acesso é EXCLUSIVA das ações
+  // de assinatura (activateSubscription/suspendSubscription), que mantêm
+  // Tenant.status ↔ Subscription em sincronia. updateTenant escrever status permitia
+  // divergência (Tenant.status=ACTIVE com Subscription=CANCELLED → login liberado +
+  // gating caindo no plano-sombra). A UI já tratava status como read-only (badge).
   plan: z.string().min(1).max(100).optional().nullable(),
   /** Gate da API externa (ADR 0057): libera o tenant a emitir/usar API-keys. */
   apiAccessEnabled: z.boolean().optional(),
