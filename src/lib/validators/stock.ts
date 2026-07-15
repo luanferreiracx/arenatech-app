@@ -5,6 +5,10 @@ import { z } from "zod";
 // agregados (valor de estoque, DRE) por input adulterado. Mesmo padrão do PDV.
 const MAX_PRICE_CENTS = 100_000_000; // R$ 1.000.000,00
 const MAX_QTY = 10_000_000;
+// E7 (auditoria estoque): teto de itens por lote. Sem isso, entrada/ajuste em
+// massa aceitava um array ilimitado → transação longa + contenção de lock
+// (bulkAdjust pega FOR UPDATE por item). Alinha com o cap do import CSV.
+const BATCH_ITEMS_MAX = 500;
 
 // ── Product schemas ──
 
@@ -353,7 +357,8 @@ export const stockEntryBatchSchema = z.object({
         unitCost: z.number().int().min(0).optional(),
       }),
     )
-    .min(1, "Adicione ao menos um produto"),
+    .min(1, "Adicione ao menos um produto")
+    .max(BATCH_ITEMS_MAX, `Máximo de ${BATCH_ITEMS_MAX} itens por lote`),
 });
 
 export type StockEntryBatchInput = z.infer<typeof stockEntryBatchSchema>;
@@ -401,7 +406,10 @@ export const bulkAdjustItemSchema = z.object({
 });
 
 export const bulkAdjustStockSchema = z.object({
-  items: z.array(bulkAdjustItemSchema).min(1, "Adicione ao menos um produto"),
+  items: z
+    .array(bulkAdjustItemSchema)
+    .min(1, "Adicione ao menos um produto")
+    .max(BATCH_ITEMS_MAX, `Máximo de ${BATCH_ITEMS_MAX} itens por lote`),
   reason: z.string().min(1, "Motivo obrigatorio").max(200),
 });
 
