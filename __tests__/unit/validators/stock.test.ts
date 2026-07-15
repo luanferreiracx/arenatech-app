@@ -9,7 +9,11 @@ import {
   listDevicePurchasesSchema,
   stockMovementTypeLabels,
   deviceConditionLabels,
+  stockEntryBatchSchema,
+  bulkAdjustStockSchema,
 } from "@/lib/validators/stock";
+
+const uuid = () => "550e8400-e29b-41d4-a716-446655440000";
 
 // ── Product schemas ──
 
@@ -619,5 +623,26 @@ describe("labels", () => {
     expect(deviceConditionLabels.USED).toBe("Usado");
     expect(deviceConditionLabels.REFURBISHED).toBe("Recondicionado");
     expect(deviceConditionLabels.DEFECTIVE).toBe("Defeituoso");
+  });
+});
+
+// ── Batch caps (E7): teto de itens por lote ──
+describe("stockEntryBatchSchema / bulkAdjustStockSchema — cap de itens (E7)", () => {
+  it("stockEntryBatch aceita 500 itens e rejeita 501", () => {
+    const mk = (n: number) => ({
+      reason: "compra",
+      items: Array.from({ length: n }, () => ({ productId: uuid(), quantity: 1 })),
+    });
+    expect(stockEntryBatchSchema.safeParse(mk(500)).success).toBe(true);
+    expect(stockEntryBatchSchema.safeParse(mk(501)).success).toBe(false);
+  });
+
+  it("bulkAdjustStock aceita 500 itens e rejeita 501", () => {
+    const mk = (n: number) => ({
+      reason: "ajuste",
+      items: Array.from({ length: n }, () => ({ productId: uuid(), newQuantity: 1 })),
+    });
+    expect(bulkAdjustStockSchema.safeParse(mk(500)).success).toBe(true);
+    expect(bulkAdjustStockSchema.safeParse(mk(501)).success).toBe(false);
   });
 });
