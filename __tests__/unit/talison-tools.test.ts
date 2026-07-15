@@ -46,6 +46,8 @@ const baseConversation = {
 function makeCtx(tx: Partial<TalisonTx>): TalisonToolContext {
   return {
     tenantId: "tenant-1",
+    tenantSlug: "arena-tech",
+    isCentralTenant: true,
     conversation: baseConversation,
     withTenant: (fn) => fn(tx as TalisonTx),
   };
@@ -476,6 +478,41 @@ describe("buscar_acessorio", () => {
     }
   });
 
+  it("T1: tenant NÃO-central aponta pro catálogo do PRÓPRIO subdomínio (não a Arena)", async () => {
+    const tx = {
+      product: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            name: "Capa Xpto",
+            salePrice: { toString: () => "30.00" },
+            promotionalPrice: null,
+            currentStock: 2,
+            isSerialized: false,
+            hasVariations: false,
+            stockItems: [],
+            variations: [],
+          },
+        ]),
+      },
+    } as unknown as Partial<TalisonTx>;
+
+    const ctx: TalisonToolContext = {
+      tenantId: "tenant-2",
+      tenantSlug: "loja-teste",
+      isCentralTenant: false,
+      conversation: baseConversation,
+      withTenant: (fn) => fn(tx as TalisonTx),
+    };
+
+    const result = await buscarAcessorio.execute({ termo: "capa" }, ctx);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // NÃO vaza pro catálogo da Arena — usa o subdomínio do tenant.
+      expect(result.data.link_catalogo).toBe("https://loja-teste.pdvdepix.app/catalog?q=capa");
+      expect(result.data.link_catalogo).not.toContain("arenatechpi");
+    }
+  });
+
   it("busca também por descrição, sku e marca", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
@@ -694,6 +731,8 @@ describe("transferir_para_humano", () => {
     } as unknown as Partial<TalisonTx>;
     const ctx: TalisonToolContext = {
       tenantId: "tenant-1",
+      tenantSlug: "arena-tech",
+      isCentralTenant: true,
       conversation,
       withTenant: (fn) => fn(tx as TalisonTx),
     };

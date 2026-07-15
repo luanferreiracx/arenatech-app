@@ -20,6 +20,12 @@ export type TalisonTx = Prisma.TransactionClient;
 /** Contexto repassado a toda tool durante uma rodada do agente. */
 export type TalisonToolContext = {
   tenantId: string;
+  /** Slug do tenant (chave estável, ex.: "arena-tech"). Usado para derivar
+   *  recursos por-tenant (URL do catálogo) e gatear o global central (T1). */
+  tenantSlug: string;
+  /** É o tenant central (arena-tech)? Só ele usa os globais de infra (grupo de
+   *  alerta via env); os demais são fail-safe até terem config própria. */
+  isCentralTenant: boolean;
   /** Conversa atual — telefone do contato, cliente vinculado, id da conversa. */
   conversation: {
     id: string;

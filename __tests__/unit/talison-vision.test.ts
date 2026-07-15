@@ -30,6 +30,7 @@ vi.mock("@/server/db", () => {
       findFirst: vi.fn().mockResolvedValue(conversation),
       update: vi.fn().mockResolvedValue({}),
     },
+    tenant: { findUnique: vi.fn().mockResolvedValue({ slug: "arena-tech" }) },
     chatbotConfig: { findUnique: vi.fn().mockResolvedValue(null) },
     tenantSettings: { findUnique: vi.fn().mockResolvedValue(null) },
     tenantAssistanceSettings: { findUnique: vi.fn().mockResolvedValue(null) },

@@ -32,6 +32,8 @@ function fakeProvider(queue: LlmCompletion[]): LlmProvider {
 function makeToolContext(): TalisonToolContext {
   return {
     tenantId: "tenant-1",
+    tenantSlug: "arena-tech",
+    isCentralTenant: true,
     conversation: {
       id: "conv-1",
       contactPhone: "5586999998888",

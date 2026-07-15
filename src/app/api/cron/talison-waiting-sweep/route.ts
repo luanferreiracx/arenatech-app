@@ -8,6 +8,7 @@ import { sendBotMessage } from "@/lib/talison/chatwoot-client"
 import { isStoreOpen, businessHoursLabel, type BusinessHoursConfig } from "@/lib/talison/business-hours"
 import { isCustomerWaitingReply, looksLikeWaitingNudge, isObviousCloser } from "@/lib/talison/intent"
 import { recordTalisonMetric } from "@/lib/talison/metrics"
+import { CENTRAL_TENANT_SLUG } from "@/lib/tenants/central-tenant"
 
 export const dynamic = "force-dynamic"
 
@@ -118,6 +119,13 @@ export async function POST(request: NextRequest) {
         take: BATCH,
       }),
     )
+
+    // T1 (multi-tenant): o grupo global de alerta (env) é do tenant CENTRAL.
+    // Só conversas do central postam nele — um 2º tenant NÃO vaza alertas de
+    // abandono pro grupo da Arena. Config de grupo por-tenant é follow-up.
+    const centralTenantId = (await withAdmin((tx) =>
+      tx.tenant.findUnique({ where: { slug: CENTRAL_TENANT_SLUG }, select: { id: true } }),
+    ))?.id ?? null
 
     // Cache de config por tenant (fuso, horário e dias de funcionamento).
     const configByTenant = new Map<string, BusinessHoursConfig>()
@@ -239,8 +247,9 @@ export async function POST(request: NextRequest) {
           recordTalisonMetric("off_hours_notice", { conversationId: conv.id })
         }
       } else {
-        // Dentro do horário: alerta no grupo aos 10 min.
-        if (ALERT_GROUP_JID) {
+        // Dentro do horário: alerta no grupo aos 10 min. Só o tenant central
+        // posta no grupo global (T1) — não-central é pulado (sem vazamento).
+        if (ALERT_GROUP_JID && conv.tenantId === centralTenantId) {
           const alertedAt = metaDate(conv.metadata, "abandonedAlertedAt")
           if (!alertedAt || alertedAt < lastCustomer) {
             // Pra Instagram o contactPhone é "ig:<id>" (não é telefone) — nunca

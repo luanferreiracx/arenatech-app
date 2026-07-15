@@ -6,6 +6,7 @@ import { withTenant, withAdmin } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { isTenantAdmin } from "@/lib/auth/roles";
+import { CENTRAL_TENANT_SLUG } from "@/lib/tenants/central-tenant";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -142,11 +143,11 @@ export const superAdminTenantProcedure = tenantProcedure.use(async ({ ctx, next 
 });
 
 /**
- * Central tenant slug — single source of truth.
- * Resources gated behind centralTenantProcedure are exclusive to this tenant
- * (e.g., iPhone hunter that monitors REVENDA WhatsApp groups).
+ * Central tenant slug — fonte única em `@/lib/tenants/central-tenant` (módulo
+ * leve, sem next-auth, importável por código puro/testável). Re-exportado aqui
+ * para não quebrar os importadores server-side existentes.
  */
-export const CENTRAL_TENANT_SLUG = "arena-tech";
+export { CENTRAL_TENANT_SLUG };
 
 /**
  * Fee wallet tenant slug — carteira custodial operacional da Arena Tech,
