@@ -34,6 +34,17 @@ export function resolveLoginIdentifier(raw: unknown): LoginIdentifier | null {
   return { kind: "cpf", value: normalizeCpf(trimmed) };
 }
 
+/**
+ * Chave do rate-limit/lockout de login — FONTE ÚNICA usada por `authorize`
+ * (registra as falhas) E por `loginAction` (lê para decidir o desafio Turnstile).
+ * Antes cada lado montava a chave à mão de forma DIFERENTE (`login:cpf:<x>` vs
+ * `login:<x>`), então o captcha adaptativo lia um balde vazio e NUNCA disparava —
+ * o que deixava o lockout de 15min alcançável por um atacante (DoS por CPF).
+ */
+export function loginRateLimitKey(identifier: LoginIdentifier): string {
+  return `login:${identifier.kind}:${identifier.value}`;
+}
+
 /** Mascara o identificador para logs (não vaza CPF/email completos). */
 export function maskIdentifier(identifier: LoginIdentifier): string {
   if (identifier.kind === "cpf") return `${identifier.value.slice(0, 3)}***`;

@@ -6,6 +6,7 @@ import { AuthError } from "next-auth";
 import { headers } from "next/headers";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { getFailedAttempts } from "@/lib/utils/rate-limit";
+import { resolveLoginIdentifier, loginRateLimitKey } from "@/lib/auth/login-identifier";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { isTurnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { TWO_FACTOR_REQUIRED_CODE, TWO_FACTOR_INVALID_CODE } from "@/lib/auth/two-factor-errors";
@@ -16,9 +17,9 @@ const INVALID_CREDENTIALS = "CPF ou senha inválidos. Tente novamente.";
 const GENERIC_ERROR = "Não foi possível entrar agora. Tente novamente em instantes.";
 
 /**
- * Após este número de falhas para o mesmo CPF, o login passa a exigir o desafio
- * do Turnstile (adaptativo). O contador é o mesmo do `authorize()` (key
- * `login:<cpf>`), então não há dupla contagem — aqui só lemos para decidir o gate.
+ * Após este número de falhas para o mesmo identificador, o login passa a exigir o
+ * desafio do Turnstile (adaptativo). O contador é o MESMO do `authorize()`
+ * (chave via `loginRateLimitKey`) — aqui só lemos para decidir o gate.
  */
 const CAPTCHA_AFTER_FAILED_ATTEMPTS = 3;
 
@@ -42,12 +43,19 @@ function clientIp(headerStore: Headers): string {
   );
 }
 
-/** Exige Turnstile quando configurado e o CPF já acumulou falhas suficientes. */
-function captchaRequiredFor(cpf: string): boolean {
-  return (
-    isTurnstileConfigured() &&
-    getFailedAttempts(`login:${cpf}`) >= CAPTCHA_AFTER_FAILED_ATTEMPTS
-  );
+/**
+ * Exige Turnstile quando configurado e o identificador já acumulou falhas.
+ * A chave é a MESMA que o `authorize` incrementa (via `loginRateLimitKey`) —
+ * antes lia `login:<cpf>` enquanto o authorize gravava em `login:cpf:<cpf>`, então
+ * o contador nunca subia e o captcha NUNCA disparava (deixando o lockout de 15min
+ * alcançável por atacante = DoS por CPF). Resolve o identificador igual ao authorize,
+ * então funciona tanto para CPF quanto para e-mail (NO-KYC).
+ */
+function captchaRequiredFor(rawLogin: string): boolean {
+  if (!isTurnstileConfigured()) return false;
+  const identifier = resolveLoginIdentifier(rawLogin);
+  if (!identifier) return false;
+  return getFailedAttempts(loginRateLimitKey(identifier)) >= CAPTCHA_AFTER_FAILED_ATTEMPTS;
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
@@ -97,7 +105,7 @@ async function runLogin(formData: FormData): Promise<LoginState> {
 
   // Desafio adaptativo: após N falhas para este CPF, exige Turnstile válido
   // ANTES de checar a senha (encarece o brute force sem atritar o caminho feliz).
-  if (captchaRequiredFor(cpf)) {
+  if (captchaRequiredFor(rawCpf)) {
     const human = await verifyTurnstile(turnstileToken, ip);
     if (!human) {
       return {
@@ -131,7 +139,7 @@ async function runLogin(formData: FormData): Promise<LoginState> {
         hadTotp: totp.length > 0,
         hadPassword: password.length > 0,
       });
-      return { error: INVALID_CREDENTIALS, captchaRequired: captchaRequiredFor(cpf) };
+      return { error: INVALID_CREDENTIALS, captchaRequired: captchaRequiredFor(rawCpf) };
     }
 
     // Erro inesperado no authorize/signIn: loga e mostra mensagem amigável, em
