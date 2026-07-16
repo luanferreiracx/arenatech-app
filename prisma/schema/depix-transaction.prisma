@@ -29,6 +29,11 @@ enum DepixTransactionStatus {
   PENDING                   // criado, aguardando proximo passo
   AWAITING_DEPOSIT          // (saque externo) intencao criada, aguardando o tenant
                             // enviar o DePix pra nossa carteira de intermediacao
+  HELD                      // (saque externo) inbound recebido mas NAO pode ser
+                            // repassado (valor divergente / janela vencida / sem gas /
+                            // inesperado) — fundo SEGURO na arena-fees aguardando
+                            // DECISAO HUMANA (admin reembolsa ou resolve). Nunca
+                            // move dinheiro sozinho.
   PROCESSING                // PIX pago / saque enviado, aguardando confirmacao
   PROCESSING_FEE            // (deposito) recebimento confirmado, debitando taxa
   COMPLETED                 // tudo concluido
@@ -85,6 +90,16 @@ model TenantDepixTransaction {
   /// preenchido (com kind=WITHDRAW), discrimina um envio on-chain direto de um
   /// saque PIX — nao ha chave PIX nem off-ramp Eulen.
   onchainAddress        String?                 @map("onchain_address")
+  /// (Saque externo, Fase B) Indice BIP32 do endereco de intermediacao gerado na
+  /// arena-fees pra ESTE saque. UNICO por saque (alocado denso sob advisory lock,
+  /// reusa indices de saques expirados sem receber) — garante que o inbound e
+  /// atribuido ao saque certo (endereco = identidade). Sem isto, o LWK reusa o
+  /// mesmo endereco e dois saques colidem.
+  intermediationIndex   Int?                    @map("intermediation_index")
+  /// (Saque externo) Valor REALMENTE recebido on-chain na carteira de intermediacao
+  /// (centavos), gravado quando o inbound confirma. Usado no HELD pro admin decidir
+  /// o reembolso (recebido vs esperado).
+  intermediationReceivedCents Int?              @map("intermediation_received_cents")
   /// URL do comprovante oficial de transferencia PIX retornada pela PixPay no webhook/status.
   pixpayReceiptUrl      String?                 @map("pixpay_receipt_url") @db.Text
 
@@ -153,6 +168,8 @@ model TenantDepixTransaction {
   @@index([tenantId, depositTxId])
   @@index([tenantId, withdrawTxId])
   @@index([pixpayDepixId])
+  /// Alocacao do indice de intermediacao (query cross-tenant do menor livre).
+  @@index([intermediationIndex])
   @@map("tenant_depix_transactions")
 }
 
