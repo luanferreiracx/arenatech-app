@@ -75,6 +75,7 @@ vi.mock("@/server/services/depix-lbtc-refill.service", () => ({ ensureLbtcFor: v
 import {
   settleExternalWithdrawInbound,
   processWithdrawForward,
+  refundHeldWithdraw,
 } from "@/server/services/depix-transaction.service";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
@@ -150,46 +151,43 @@ describe("settleExternalWithdrawInbound — matriz de decisao", () => {
     });
   });
 
-  it("underpay (recebeu menos): NAO repassa — refund integral + FAILED", async () => {
+  it("underpay (recebeu menos): NAO move dinheiro — RETEM (HELD) pra revisao humana", async () => {
     txFindUnique.mockResolvedValueOnce(awaitingRow());
     const res = await settleExternalWithdrawInbound({
       withdrawId: WID, feeWalletTenantId: FEE_WALLET,
       depositTxId: DEPOSIT_TXID, receivedAmountCents: FINAL_GROSS - 500, confirmations: 2,
     });
-    expect(res.outcome).toBe("ext_withdraw_refund_enqueued");
+    expect(res.outcome).toBe("ext_withdraw_held");
+    // Marca HELD (nao move nada) e grava o valor recebido pro admin decidir.
     expect(txUpdateMany.mock.calls[0]![0]).toMatchObject({
-      where: { id: WID, status: "AWAITING_DEPOSIT" }, data: { status: "FAILED" },
+      where: { id: WID, status: "AWAITING_DEPOSIT" },
+      data: { status: "HELD", intermediationReceivedCents: FINAL_GROSS - 500 },
     });
-    // refund = valor INTEGRAL recebido (fee de rede e L-BTC, nao DePix).
-    expect(fwdUpsert.mock.calls[0]![0]).toMatchObject({
-      create: { kind: "REFUND", destinationAddress: BYOW_ADDR, amountCents: FINAL_GROSS - 500 },
-    });
+    // NAO enfileira NENHUM envio (nem forward nem refund automatico).
+    expect(fwdUpsert).not.toHaveBeenCalled();
   });
 
-  it("overpay (recebeu mais): NAO fica com o excesso — refund integral + FAILED", async () => {
+  it("overpay (recebeu mais): NAO fica com o excesso — RETEM (HELD)", async () => {
     txFindUnique.mockResolvedValueOnce(awaitingRow());
     const res = await settleExternalWithdrawInbound({
       withdrawId: WID, feeWalletTenantId: FEE_WALLET,
       depositTxId: DEPOSIT_TXID, receivedAmountCents: FINAL_GROSS + 5000, confirmations: 2,
     });
-    expect(res.outcome).toBe("ext_withdraw_refund_enqueued");
-    expect(fwdUpsert.mock.calls[0]![0]).toMatchObject({
-      create: { kind: "REFUND", amountCents: FINAL_GROSS + 5000 },
-    });
+    expect(res.outcome).toBe("ext_withdraw_held");
+    expect(fwdUpsert).not.toHaveBeenCalled();
   });
 
-  it("janela da Eulen perto de expirar: refund (nao arrisca perda)", async () => {
-    // expiresAt daqui a 1min < margem de 5min -> eulenExpired.
+  it("janela da Eulen perto de expirar: RETEM (HELD) — nao arrisca perda nem move", async () => {
     txFindUnique.mockResolvedValueOnce(awaitingRow({ expiresAt: new Date(Date.now() + 60_000) }));
     const res = await settleExternalWithdrawInbound({
       withdrawId: WID, feeWalletTenantId: FEE_WALLET,
       depositTxId: DEPOSIT_TXID, receivedAmountCents: FINAL_GROSS, confirmations: 2,
     });
-    expect(res.outcome).toBe("ext_withdraw_refund_enqueued");
-    expect(fwdUpsert.mock.calls[0]![0]).toMatchObject({ create: { kind: "REFUND" } });
+    expect(res.outcome).toBe("ext_withdraw_held");
+    expect(fwdUpsert).not.toHaveBeenCalled();
   });
 
-  it("tolerancia simetrica: 2c a mais ainda repassa (nao refunda)", async () => {
+  it("tolerancia simetrica: 2c a mais ainda repassa (nao retem)", async () => {
     txFindUnique.mockResolvedValueOnce(awaitingRow());
     const res = await settleExternalWithdrawInbound({
       withdrawId: WID, feeWalletTenantId: FEE_WALLET,
@@ -207,16 +205,6 @@ describe("settleExternalWithdrawInbound — matriz de decisao", () => {
     expect(res.outcome).toBe("ext_withdraw_already_processed");
     expect(txUpdateMany).not.toHaveBeenCalled();
     expect(fwdUpsert).not.toHaveBeenCalled();
-  });
-
-  it("refund sem endereco BYOW cadastrado: nao enfileira, sinaliza retido", async () => {
-    txFindUnique.mockResolvedValueOnce(awaitingRow());
-    getPrimaryByowAddress.mockResolvedValue(null);
-    const res = await settleExternalWithdrawInbound({
-      withdrawId: WID, feeWalletTenantId: FEE_WALLET,
-      depositTxId: DEPOSIT_TXID, receivedAmountCents: FINAL_GROSS - 500, confirmations: 2,
-    });
-    expect(res.outcome).toBe("ext_withdraw_refund_no_address");
   });
 });
 
@@ -270,55 +258,81 @@ describe("processWithdrawForward — envio idempotente", () => {
     expect(ledgerUpsert).not.toHaveBeenCalled();
   });
 
-  it("SEM GÁS (attempts=0): NÃO repassa — converte em reembolso e falha o saque", async () => {
+  it("sem gás + janela válida (attempts=0): NÃO move nada — aguarda o gás (PENDING)", async () => {
     getBalance.mockResolvedValue({ success: true, lbtcSatoshis: 100 }); // < 300 = sem gás
     await processWithdrawForward("fwd-1");
-    // Nada transmitido pra Eulen.
-    expect(transfer).not.toHaveBeenCalledWith(
-      FEE_WALLET, expect.anything(), { idempotencyKey: "fwd:fwd-1" },
+    expect(transfer).not.toHaveBeenCalled();
+    // Nao retem (janela ainda valida) nem reembolsa: so marca "aguardando gas".
+    expect(txUpdateMany).not.toHaveBeenCalled();
+    expect(fwdUpdateMany.mock.calls.at(-1)![0]).toMatchObject({ where: { id: "fwd-1", status: "PENDING" } });
+  });
+
+  it("janela vencida (attempts=0): NÃO repassa — RETÉM (HELD), reembolso é humano", async () => {
+    txFindUnique.mockResolvedValue({
+      tenantId: TENANT, grossAmountCents: FINAL_GROSS, feeArenaTechCents: FEE_ARENA,
+      expiresAt: new Date(Date.now() + 60_000), // < margem 5min -> vencida
+    });
+    await processWithdrawForward("fwd-1");
+    expect(transfer).not.toHaveBeenCalled();
+    // Retem o saque (HELD) e NAO converte em reembolso automatico.
+    const held = txUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { status?: string } }).data?.status === "HELD",
     );
-    // Converteu a fila FORWARD -> REFUND e marcou o saque FAILED.
+    expect(held).toBe(true);
     const kindChanged = fwdUpdateMany.mock.calls.some(
       (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
     );
-    expect(kindChanged).toBe(true);
-    const failed = txUpdateMany.mock.calls.some(
-      (c) => (c[0] as { data?: { status?: string } }).data?.status === "FAILED",
-    );
-    expect(failed).toBe(true);
+    expect(kindChanged).toBe(false);
   });
 
-  it("JANELA VENCIDA (attempts=0): NÃO repassa — converte em reembolso (sem perda)", async () => {
+  it("janela vencida + tentativa prévia (attempts>0): RETÉM (HELD), nunca reembolsa sozinho", async () => {
     fwdFindUnique.mockResolvedValue({
       id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "FORWARD",
-      destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 0,
+      destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 2,
     });
-    // Janela a 1min < margem de 5min -> vencida (mesmo com gás de sobra).
     txFindUnique.mockResolvedValue({
       tenantId: TENANT, grossAmountCents: FINAL_GROSS, feeArenaTechCents: FEE_ARENA,
       expiresAt: new Date(Date.now() + 60_000),
     });
     await processWithdrawForward("fwd-1");
-    expect(transfer).not.toHaveBeenCalledWith(FEE_WALLET, expect.anything(), { idempotencyKey: "fwd:fwd-1" });
-    const kindChanged = fwdUpdateMany.mock.calls.some(
-      (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
+    const held = txUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { status?: string } }).data?.status === "HELD",
     );
-    expect(kindChanged).toBe(true);
-  });
-
-  it("sem gás mas COM tentativa prévia (attempts>0): NÃO reembolsa (risco de duplo gasto)", async () => {
-    fwdFindUnique.mockResolvedValue({
-      id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "FORWARD",
-      destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 2,
-    });
-    getBalance.mockResolvedValue({ success: true, lbtcSatoshis: 100 }); // sem gás
-    await processWithdrawForward("fwd-1");
-    // Não converte em refund, não falha o saque, não transmite.
+    expect(held).toBe(true);
     const kindChanged = fwdUpdateMany.mock.calls.some(
       (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
     );
     expect(kindChanged).toBe(false);
-    expect(txUpdateMany).not.toHaveBeenCalled();
-    expect(transfer).not.toHaveBeenCalled();
+  });
+});
+
+describe("refundHeldWithdraw (admin — reembolso humano)", () => {
+  it("HELD: enfileira REFUND pro endereço allowlisted com o valor recebido", async () => {
+    txFindUnique.mockResolvedValue({ id: WID, tenantId: TENANT, status: "HELD", intermediationReceivedCents: 9800 });
+    fwdFindUnique.mockResolvedValue({
+      id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "REFUND",
+      destinationAddress: BYOW_ADDR, amountCents: 9800, status: "PENDING", attempts: 0,
+    });
+    const res = await refundHeldWithdraw(WID);
+    expect(res.ok).toBe(true);
+    // Destino = SO o endereço allowlisted do tenant; valor = o recebido.
+    expect(fwdUpsert.mock.calls[0]![0]).toMatchObject({
+      create: { kind: "REFUND", destinationAddress: BYOW_ADDR, amountCents: 9800 },
+    });
+  });
+
+  it("não-HELD: recusa (só age em saque retido)", async () => {
+    txFindUnique.mockResolvedValue({ id: WID, tenantId: TENANT, status: "PROCESSING", intermediationReceivedCents: 9800 });
+    const res = await refundHeldWithdraw(WID);
+    expect(res.ok).toBe(false);
+    expect(fwdUpsert).not.toHaveBeenCalled();
+  });
+
+  it("tenant sem endereço allowlisted: recusa (não há destino permitido)", async () => {
+    txFindUnique.mockResolvedValue({ id: WID, tenantId: TENANT, status: "HELD", intermediationReceivedCents: 9800 });
+    getPrimaryByowAddress.mockResolvedValue(null);
+    const res = await refundHeldWithdraw(WID);
+    expect(res.ok).toBe(false);
+    expect(fwdUpsert).not.toHaveBeenCalled();
   });
 });

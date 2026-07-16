@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Users,
   Package,
+  AlertTriangle,
   Banknote,
   Wallet,
   ClipboardList,
@@ -221,5 +222,6 @@ export const adminNavItems: NavItem[] = [
   { label: "WhatsApp Logs", href: "/admin/whatsapp-logs", icon: MessageSquare },
   { label: "L-BTC Refills", href: "/admin/depix-lbtc", icon: Banknote },
   { label: "Carteira de Taxas", href: "/admin/depix-fees", icon: Percent },
+  { label: "Saques Retidos", href: "/admin/depix-holds", icon: AlertTriangle },
   { label: "Relatórios", href: "/admin/reports", icon: FileText },
 ];

@@ -150,63 +150,81 @@ export async function handleLwkDepositWebhook(
   }
 
   // INTERMEDIACAO (saque externo, Fase B): o inbound chega na carteira arena-fees
-  // com label.user = id de um saque WITHDRAW em AWAITING_DEPOSIT (o tenant enviou o
-  // DePix pra nossa carteira). Casa por label via withAdmin (a tx pertence ao tenant
-  // externo, nao a arena-fees). No `pending` so ACK; no `confirmed` cross-check
-  // anti-spoof e entao repassa pra Eulen (ou refund) via settleExternalWithdrawInbound.
+  // com label.user = id de um saque WITHDRAW. O endereco e UNICO por saque, entao o
+  // label identifica o saque com certeza. Casa por label via withAdmin (a tx pertence
+  // ao tenant externo, nao a arena-fees) em QUALQUER status — pra detectar inbound
+  // inesperado (2o envio / envio tardio a um saque que nao esta mais aguardando).
   const extWithdrawRow = await withAdmin(async (tx) =>
     tx.tenantDepixTransaction.findFirst({
-      where: { kind: "WITHDRAW", depositLabel, status: { in: ["AWAITING_DEPOSIT", "PROCESSING"] } },
+      where: { kind: "WITHDRAW", depositLabel },
       select: { id: true, status: true },
     }),
   );
   if (extWithdrawRow) {
-    if (status === "pending") {
-      await withAdmin(async (tx) =>
-        tx.tenantDepixTransaction.updateMany({
-          where: { id: extWithdrawRow.id, status: "AWAITING_DEPOSIT" },
-          data: { depositTxId: txid, confirmations: payload.confirmations ?? 0 },
-        }),
-      );
-      await markProcessed(eventKey, status, "ext_withdraw_inbound_pending");
-      return { status: 200, body: { ok: true, externalWithdraw: true, status: "pending" } };
-    }
-    // confirmed: cross-check anti-spoof (payload vs on-chain real) antes de mover.
-    const crossCheck = await verifyDepositOnChain({
-      tenantId,
-      txid,
-      expectedAmount: depixAmount,
-      expectedAddress: payload.label?.address ?? null,
-      maxUnderpayCents: 0,
-    });
-    if (!crossCheck.ok) {
-      logger.warn("LWK webhook (saque externo): cross-check on-chain falhou — ignorando", {
+    // Inbound ESPERADO: o saque esta aguardando o deposito do tenant.
+    if (extWithdrawRow.status === "AWAITING_DEPOSIT") {
+      if (status === "pending") {
+        await withAdmin(async (tx) =>
+          tx.tenantDepixTransaction.updateMany({
+            where: { id: extWithdrawRow.id, status: "AWAITING_DEPOSIT" },
+            data: { depositTxId: txid, confirmations: payload.confirmations ?? 0 },
+          }),
+        );
+        await markProcessed(eventKey, status, "ext_withdraw_inbound_pending");
+        return { status: 200, body: { ok: true, externalWithdraw: true, status: "pending" } };
+      }
+      // confirmed: cross-check anti-spoof (payload vs on-chain real) antes de mover.
+      const crossCheck = await verifyDepositOnChain({
         tenantId,
         txid,
-        reason: crossCheck.reason,
+        expectedAmount: depixAmount,
+        expectedAddress: payload.label?.address ?? null,
+        maxUnderpayCents: 0,
       });
-      await markProcessed(eventKey, status, `ext_withdraw_rejected: ${crossCheck.reason}`);
-      return { status: 200, body: { ok: true, externalWithdraw: true, rejected: true } };
+      if (!crossCheck.ok) {
+        logger.warn("LWK webhook (saque externo): cross-check on-chain falhou — ignorando", {
+          tenantId,
+          txid,
+          reason: crossCheck.reason,
+        });
+        await markProcessed(eventKey, status, `ext_withdraw_rejected: ${crossCheck.reason}`);
+        return { status: 200, body: { ok: true, externalWithdraw: true, rejected: true } };
+      }
+      try {
+        const res = await settleExternalWithdrawInbound({
+          withdrawId: extWithdrawRow.id,
+          feeWalletTenantId: tenantId,
+          depositTxId: txid,
+          receivedAmountCents: Math.round(crossCheck.onchainAmount * 100),
+          confirmations: payload.confirmations ?? 0,
+        });
+        await markProcessed(eventKey, status, res.outcome);
+        return { status: 200, body: { ok: true, externalWithdraw: true, ...res } };
+      } catch (err) {
+        logger.error("LWK webhook: settle saque externo erro", {
+          tenantId,
+          txid,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        await markProcessed(eventKey, status, `ext_withdraw_error: ${String(err)}`);
+        return { status: 200, body: { ok: true, externalWithdraw: true, error: "internal" } };
+      }
     }
-    try {
-      const res = await settleExternalWithdrawInbound({
+
+    // Inbound INESPERADO: fundos chegaram num endereco cujo saque NAO esta mais
+    // aguardando (2o envio, envio tardio). NUNCA move dinheiro sozinho — ALERTA pra
+    // revisao humana (o DePix fica na arena-fees; um admin decide). Idempotente.
+    if (status === "confirmed") {
+      logger.error("Saque externo: inbound INESPERADO (saque nao esta aguardando) — revisar manualmente", {
         withdrawId: extWithdrawRow.id,
-        feeWalletTenantId: tenantId,
-        depositTxId: txid,
-        receivedAmountCents: Math.round(crossCheck.onchainAmount * 100),
-        confirmations: payload.confirmations ?? 0,
-      });
-      await markProcessed(eventKey, status, res.outcome);
-      return { status: 200, body: { ok: true, externalWithdraw: true, ...res } };
-    } catch (err) {
-      logger.error("LWK webhook: settle saque externo erro", {
+        withdrawStatus: extWithdrawRow.status,
         tenantId,
         txid,
-        err: err instanceof Error ? err.message : String(err),
+        amountCents: Math.round(depixAmount * 100),
       });
-      await markProcessed(eventKey, status, `ext_withdraw_error: ${String(err)}`);
-      return { status: 200, body: { ok: true, externalWithdraw: true, error: "internal" } };
     }
+    await markProcessed(eventKey, status, `ext_withdraw_unexpected_${extWithdrawRow.status}`);
+    return { status: 200, body: { ok: true, externalWithdraw: true, unexpected: true } };
   }
 
   // DEPRECATED (split nativo Eulen): novos depositos NAO passam mais pela carteira

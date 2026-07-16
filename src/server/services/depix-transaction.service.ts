@@ -1601,6 +1601,35 @@ export interface CreateExternalWithdrawArgs {
  * diario (AML), cotacao Eulen, geracao do endereco de intermediacao e persistencia
  * em AWAITING_DEPOSIT.
  */
+/**
+ * Aloca um indice BIP32 UNICO pro endereco de intermediacao na arena-fees.
+ * DENSO: escolhe o menor indice >= 1 nao usado por saques VIVOS
+ * (PENDING/AWAITING_DEPOSIT/PROCESSING/HELD) nem por saques que JA receberam fundos
+ * (deposit_tx_id != null). Indices de saques que expiraram SEM receber sao
+ * reutilizados -> mantem os enderecos nao-usados densos (respeita o gap limit da
+ * carteira Liquid). Serializado por advisory lock FIXO (a arena-fees e unica pra
+ * todos os saques externos).
+ */
+async function allocateIntermediationIndex(withdrawId: string): Promise<number> {
+  return withAdmin(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('depix_intermediation_index'))`;
+    const rows = await tx.$queryRaw<Array<{ idx: number }>>`
+      SELECT intermediation_index AS idx
+      FROM tenant_depix_transactions
+      WHERE intermediation_index IS NOT NULL
+        AND (status IN ('PENDING', 'AWAITING_DEPOSIT', 'PROCESSING', 'HELD')
+             OR deposit_tx_id IS NOT NULL)`;
+    const taken = new Set(rows.map((r) => Number(r.idx)));
+    let index = 1;
+    while (taken.has(index)) index += 1;
+    await tx.tenantDepixTransaction.update({
+      where: { id: withdrawId },
+      data: { intermediationIndex: index },
+    });
+    return index;
+  });
+}
+
 export async function createExternalWithdraw(args: CreateExternalWithdrawArgs) {
   const taxId = args.recipientTaxId.replace(/\D/g, "");
   let pixKey = args.pixKey.trim();
@@ -1706,7 +1735,9 @@ export async function createExternalWithdraw(args: CreateExternalWithdrawArgs) {
   const withdrawExpiresAt = withdrawResult.expiration ? new Date(withdrawResult.expiration) : null;
 
   // Endereco de intermediacao na carteira arena-fees (custodial, monitorada pelo
-  // LWK). Unico por saque; label.user = created.id (chave de match no webhook).
+  // LWK). UNICO por saque: aloca um indice BIP32 exclusivo e passa ao generateAddress
+  // (sem indice, o LWK REUSA o mesmo endereco -> dois saques colidem e o inbound e
+  // atribuido ao saque errado). label.user = created.id (chave de match no webhook).
   const { getFeeWalletTenantId } = await import("@/server/services/depix-fee-wallet.service");
   const feeWalletTenantId = await getFeeWalletTenantId();
   if (!feeWalletTenantId) {
@@ -1718,7 +1749,8 @@ export async function createExternalWithdraw(args: CreateExternalWithdrawArgs) {
     );
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Carteira de intermediacao indisponivel." });
   }
-  const addr = await lwk.generateAddress(feeWalletTenantId, created.id);
+  const intermediationIndex = await allocateIntermediationIndex(created.id);
+  const addr = await lwk.generateAddress(feeWalletTenantId, created.id, intermediationIndex);
   if (!addr.success || !addr.address) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
@@ -1822,81 +1854,61 @@ export async function settleExternalWithdrawInbound(args: {
 
   const forwardAmountCents = row.grossAmountCents - row.feeArenaTechCents; // = depositAmountInCents
   const eulenAddr = row.pixpayDepositAddress;
-  // Repassa SO se o recebido bate com o `finalGross` (= grossAmountCents) dentro da
-  // tolerancia simetrica. Fora dela (pagou a menos OU a mais) devolve tudo — evita
-  // repasse parcial e skim de excesso.
+  // So repassa se o recebido bate com o `finalGross` (= grossAmountCents) dentro da
+  // tolerancia simetrica (pagou exato). Fora dela = anomalia.
   const amountMismatch =
     Math.abs(args.receivedAmountCents - row.grossAmountCents) >
     EXTERNAL_WITHDRAW_AMOUNT_TOLERANCE_CENTS;
-  // Janela da Eulen: repassar perto/depois do expiration = risco de PERDA. Refund.
+  // Janela da Eulen: repassar perto/depois do expiration = risco de PERDA.
   const eulenExpired =
     row.expiresAt != null &&
     row.expiresAt.getTime() - EXTERNAL_WITHDRAW_EULEN_MARGIN_MS < Date.now();
-  const mustRefund = amountMismatch || eulenExpired || !eulenAddr;
 
-  const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
-
-  if (mustRefund) {
-    const refundAddr = await getPrimaryByowAddress(row.tenantId);
+  // NAO-LIMPO (valor divergente / janela vencida / sem endereco Eulen): a Arena
+  // NUNCA move dinheiro sozinha. SEGURA o DePix (HELD, fundo intacto na arena-fees)
+  // e chama um humano — o admin decide o reembolso em /admin/depix-holds. Decisao do
+  // dono: reembolso e SEMPRE humano (nao da pra ter 100% de certeza numa anomalia).
+  if (amountMismatch || eulenExpired || !eulenAddr) {
     const reason = amountMismatch
       ? `valor recebido (R$ ${(args.receivedAmountCents / 100).toFixed(2)}) diferente do esperado (R$ ${(row.grossAmountCents / 100).toFixed(2)})`
       : eulenExpired
         ? "janela do saque na Eulen expirou antes do repasse"
-        : "endereco de saque indisponivel";
-    // Devolve o valor INTEGRAL recebido — a fee de rede da Liquid e paga em L-BTC
-    // (separado), nao em DePix, entao nao ha o que descontar do refund.
-    const refundAmountCents = args.receivedAmountCents;
-    let forwardId: string | undefined;
-    await withAdmin(async (tx) => {
-      const upd = await tx.tenantDepixTransaction.updateMany({
+        : "endereco de saque (Eulen) indisponivel";
+    const upd = await withAdmin(async (tx) =>
+      tx.tenantDepixTransaction.updateMany({
         where: { id: row.id, status: "AWAITING_DEPOSIT" },
         data: {
-          status: "FAILED",
+          status: "HELD",
           depositTxId: args.depositTxId,
           confirmations: args.confirmations,
-          errorMessage: `Reembolso do saque: ${reason}`,
+          intermediationReceivedCents: args.receivedAmountCents,
+          errorMessage: `Retido para revisao: ${reason}`,
         },
-      });
-      if (upd.count === 0) return; // corrida — outro processou
-      if (refundAddr && refundAmountCents > 0) {
-        const f = await tx.depixWithdrawForward.upsert({
-          where: { transactionId: row.id },
-          create: {
-            tenantId: row.tenantId,
-            transactionId: row.id,
-            kind: "REFUND",
-            destinationAddress: refundAddr,
-            amountCents: refundAmountCents,
-            status: "PENDING",
-          },
-          update: {},
-        });
-        forwardId = f.id;
-      }
-    });
-    if (forwardId) {
-      await processWithdrawForward(forwardId).catch((e) =>
-        logger.error("settleExternalWithdrawInbound: refund inline falhou (fica pro cron)", {
-          forwardId,
-          err: String(e),
-        }),
-      );
-      return { outcome: "ext_withdraw_refund_enqueued", forwardId };
-    }
-    logger.error("Saque externo: refund SEM endereco BYOW — DePix retido na arena-fees", {
+      }),
+    );
+    if (upd.count === 0) return { outcome: "ext_withdraw_already_processed" };
+    logger.error("Saque externo: inbound RETIDO para revisao humana (nao repassado)", {
       withdrawId: row.id,
       tenantId: row.tenantId,
-      receivedAmountCents: args.receivedAmountCents,
+      reason,
+      receivedCents: args.receivedAmountCents,
+      expectedCents: row.grossAmountCents,
     });
-    return { outcome: "ext_withdraw_refund_no_address" };
+    return { outcome: "ext_withdraw_held" };
   }
 
-  // Repasse pra Eulen.
+  // LIMPO (valor exato + janela valida): repassa pra Eulen. Automatico — e o saque
+  // concluindo normalmente (o unico movimento automatico de dinheiro).
   let forwardId: string | undefined;
   await withAdmin(async (tx) => {
     const upd = await tx.tenantDepixTransaction.updateMany({
       where: { id: row.id, status: "AWAITING_DEPOSIT" },
-      data: { status: "PROCESSING", depositTxId: args.depositTxId, confirmations: args.confirmations },
+      data: {
+        status: "PROCESSING",
+        depositTxId: args.depositTxId,
+        confirmations: args.confirmations,
+        intermediationReceivedCents: args.receivedAmountCents,
+      },
     });
     if (upd.count === 0) return;
     const f = await tx.depixWithdrawForward.upsert({
@@ -1967,43 +1979,45 @@ export async function processWithdrawForward(forwardId: string): Promise<void> {
     const bal = await lwk.getBalance(feeWalletTenantId);
     const noGas = !bal.success || (bal.lbtcSatoshis ?? 0) < EXTERNAL_WITHDRAW_MIN_GAS_SATS;
 
-    if (windowExpired || noGas) {
-      const reason = windowExpired
-        ? "janela do saque na Eulen expirou antes do repasse"
-        : "sem gas (L-BTC) para o repasse";
-      if (fwd.attempts > 0) {
-        // Tentativa previa pode ter caido on-chain -> reembolsar arriscaria duplo gasto.
-        if (windowExpired) {
-          logger.error(
-            "Saque externo: repasse com tentativa previa venceu — verificar on-chain se caiu na Eulen",
-            { forwardId: fwd.id, transactionId: fwd.transactionId, attempts: fwd.attempts },
-          );
-        }
-        return;
-      }
-      // Nada transmitido -> devolve com seguranca e falha o saque (tenant refaz).
-      await convertForwardToRefund(fwd, w, reason);
-      fwd = await withAdmin(async (tx) =>
-        tx.depixWithdrawForward.findUnique({ where: { id: forwardId } }),
+    if (windowExpired) {
+      // Nunca repassa apos vencer (deposito tardio = PERDA). RETEM pra DECISAO HUMANA
+      // — reembolso e SEMPRE manual (decisao do dono). Com tentativa previa, o admin
+      // confere on-chain se caiu na Eulen antes de reembolsar.
+      await holdWithdraw(
+        fwd,
+        fwd.attempts > 0
+          ? "janela vencida durante o processamento (houve tentativa de repasse — conferir on-chain antes de reembolsar)"
+          : "janela do saque na Eulen expirou antes do repasse",
       );
-      if (!fwd || fwd.kind !== "REFUND" || fwd.status !== "PENDING") return;
-      // segue pro bloco REFUND abaixo (tenta devolver ja)
-    } else {
-      // Janela valida + gas: transmite (idempotente por fwd:{id}).
-      const res = await lwk.transfer(
-        feeWalletTenantId,
-        [{ to: fwd.destinationAddress, amountBrl: fwd.amountCents / 100 }],
-        { idempotencyKey: `fwd:${fwd.id}` },
-      );
-      if (res.success && res.txid) {
-        await completeWithdrawForward(fwd, w.feeArenaTechCents, res.txid);
-        return;
-      }
-      // Falha COM gas (ambigua — pode ter transmitido): mantem PENDING pra retry
-      // idempotente DENTRO da janela. NAO converte em refund (risco de duplo gasto).
-      await bumpAmbiguousForwardFailure(fwd.id, fwd.attempts, res.error ?? "repasse falhou");
       return;
     }
+    if (noGas) {
+      // Janela AINDA valida: o gas pode voltar (ensureFeeWalletLbtc puxa da central).
+      // Mantem PENDING pra retry no proximo ciclo — NAO move nada, nao retem ainda.
+      // Se o gas nunca voltar, a janela vence e ai sim vai pra HELD (acima).
+      await withAdmin(async (tx) =>
+        tx.depixWithdrawForward.updateMany({
+          where: { id: fwd!.id, status: "PENDING" },
+          data: { lastError: "aguardando gas (L-BTC) para o repasse" },
+        }),
+      );
+      logger.warn("Saque externo: repasse aguardando gas (janela ainda valida)", { forwardId: fwd.id });
+      return;
+    }
+    // Janela valida + gas: transmite (idempotente por fwd:{id}).
+    const res = await lwk.transfer(
+      feeWalletTenantId,
+      [{ to: fwd.destinationAddress, amountBrl: fwd.amountCents / 100 }],
+      { idempotencyKey: `fwd:${fwd.id}` },
+    );
+    if (res.success && res.txid) {
+      await completeWithdrawForward(fwd, w.feeArenaTechCents, res.txid);
+      return;
+    }
+    // Falha COM gas (ambigua — pode ter transmitido): mantem PENDING pra retry
+    // idempotente DENTRO da janela. NAO reembolsa (risco de duplo gasto).
+    await bumpAmbiguousForwardFailure(fwd.id, fwd.attempts, res.error ?? "repasse falhou");
+    return;
   }
 
   // ── REFUND: devolve pro endereco do tenant. Sem prazo; retenta ate cair.
@@ -2021,9 +2035,15 @@ export async function processWithdrawForward(forwardId: string): Promise<void> {
         data: { status: "COMPLETED", forwardTxId: res.txid, completedAt: new Date() },
       });
       if (upd.count === 0) return;
-      await tx.tenantDepixTransaction.update({
-        where: { id: fwd!.transactionId },
-        data: { withdrawTxId: res.txid },
+      // Fecha o saque como reembolsado (o admin autorizou; o valor voltou ao tenant).
+      await tx.tenantDepixTransaction.updateMany({
+        where: { id: fwd!.transactionId, status: { in: ["HELD", "PROCESSING", "FAILED"] } },
+        data: {
+          withdrawTxId: res.txid,
+          status: "FAILED",
+          completedAt: new Date(),
+          errorMessage: "Reembolsado ao tenant (revisao)",
+        },
       });
     });
     logger.info("Saque externo: reembolso concluido", {
@@ -2090,51 +2110,29 @@ async function completeWithdrawForward(
   logger.info("Saque externo: repasse concluido", { forwardId: fwd.id, txid });
 }
 
-/** Converte um repasse que NAO pode acontecer (janela vencida / sem gas, e sem
- *  tentativa previa) em REFUND pro endereco BYOW primario do tenant, e falha o saque.
- *  Sem endereco de recebimento -> escala (DePix retido ate intervencao). */
-async function convertForwardToRefund(
+/** RETEM o saque (HELD) pra decisao humana e PARA o processamento automatico do
+ *  repasse (a fila FORWARD vira FAILED — o admin decide o reembolso). O DePix fica
+ *  intacto na arena-fees. Nunca move dinheiro. Idempotente por status. */
+async function holdWithdraw(
   fwd: { id: string; transactionId: string },
-  w: { tenantId: string; grossAmountCents: number },
   reason: string,
 ): Promise<void> {
-  const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
-  const refundAddr = await getPrimaryByowAddress(w.tenantId);
-  if (!refundAddr) {
-    await withAdmin(async (tx) =>
-      tx.tenantDepixTransaction.updateMany({
-        where: { id: fwd.transactionId, status: "PROCESSING" },
-        data: {
-          status: "FAILED",
-          errorMessage: `Saque falhou: ${reason}. Reembolso pendente — cadastre um endereco de recebimento e contate o suporte.`,
-        },
-      }),
-    );
-    logger.error("Saque externo: sem endereco BYOW p/ reembolso — DePix retido na arena-fees", {
-      forwardId: fwd.id,
-      transactionId: fwd.transactionId,
-      tenantId: w.tenantId,
-    });
-    return;
-  }
   await withAdmin(async (tx) => {
     await tx.tenantDepixTransaction.updateMany({
-      where: { id: fwd.transactionId, status: "PROCESSING" },
-      data: { status: "FAILED", errorMessage: `Saque devolvido: ${reason}. Refaca o saque.` },
+      where: { id: fwd.transactionId, status: { in: ["PROCESSING", "AWAITING_DEPOSIT"] } },
+      data: { status: "HELD", errorMessage: `Retido para revisao: ${reason}` },
     });
+    // Para o retry automatico deste repasse (o cron so pega PENDING).
     await tx.depixWithdrawForward.updateMany({
-      where: { id: fwd.id, kind: "FORWARD" },
-      data: {
-        kind: "REFUND",
-        destinationAddress: refundAddr,
-        amountCents: w.grossAmountCents,
-        status: "PENDING",
-        attempts: 0,
-        lastError: reason,
-      },
+      where: { id: fwd.id, status: { in: ["PENDING", "FAILED"] } },
+      data: { status: "FAILED", lastError: reason },
     });
   });
-  logger.info("Saque externo: repasse convertido em reembolso", { forwardId: fwd.id, reason });
+  logger.error("Saque externo: repasse RETIDO para revisao humana (nao repassado, nao reembolsado)", {
+    forwardId: fwd.id,
+    transactionId: fwd.transactionId,
+    reason,
+  });
 }
 
 /** Falha AMBIGUA do repasse (tinha gas + janela, mas o transfer errou — pode ter
@@ -2180,6 +2178,141 @@ export async function retryWithdrawForwards(limit = 50): Promise<{ processed: nu
     );
   }
   return { processed: pending.length };
+}
+
+// ── SAQUE EXTERNO: revisao humana dos HELD (admin) ──────────────────────────
+
+export interface HeldWithdrawDto {
+  id: string;
+  number: string;
+  tenantId: string;
+  tenantName: string;
+  expectedCents: number;
+  receivedCents: number | null;
+  reason: string | null;
+  refundAddress: string | null; // endereco allowlisted do tenant (destino do reembolso)
+  depositTxId: string | null;
+  createdAt: Date;
+}
+
+/** Lista os saques externos RETIDOS (HELD) aguardando decisao humana. Cross-tenant
+ *  (admin). Inclui o endereco allowlisted do tenant — o UNICO destino permitido de
+ *  reembolso. */
+export async function listHeldWithdraws(): Promise<HeldWithdrawDto[]> {
+  const rows = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findMany({
+      where: { kind: "WITHDRAW", status: "HELD" },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        number: true,
+        tenantId: true,
+        grossAmountCents: true,
+        intermediationReceivedCents: true,
+        errorMessage: true,
+        depositTxId: true,
+        createdAt: true,
+      },
+    }),
+  );
+  if (rows.length === 0) return [];
+  // Nomes dos tenants (nao ha relacao Prisma direta transacao->tenant).
+  const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+  const tenants = await withAdmin(async (tx) =>
+    tx.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, name: true } }),
+  );
+  const nameById = new Map(tenants.map((t) => [t.id, t.name]));
+  const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
+  return Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      number: r.number,
+      tenantId: r.tenantId,
+      tenantName: nameById.get(r.tenantId) ?? "—",
+      expectedCents: r.grossAmountCents,
+      receivedCents: r.intermediationReceivedCents,
+      reason: r.errorMessage,
+      refundAddress: await getPrimaryByowAddress(r.tenantId),
+      depositTxId: r.depositTxId,
+      createdAt: r.createdAt,
+    })),
+  );
+}
+
+/** ADMIN: autoriza o REEMBOLSO de um saque HELD. Enfileira o envio do valor RECEBIDO
+ *  de volta ao endereco allowlisted do tenant (unico destino permitido) e processa.
+ *  A allowlist ja passou por 2FA+email+WhatsApp na Fase A, entao o destino e um
+ *  endereco verificado por humano — o dinheiro so pode voltar pro proprio tenant. */
+export async function refundHeldWithdraw(withdrawId: string): Promise<{ ok: boolean; reason?: string }> {
+  const row = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findUnique({
+      where: { id: withdrawId },
+      select: { id: true, tenantId: true, status: true, intermediationReceivedCents: true },
+    }),
+  );
+  if (!row) return { ok: false, reason: "Saque nao encontrado." };
+  if (row.status !== "HELD") return { ok: false, reason: "Saque nao esta retido (HELD)." };
+  const received = row.intermediationReceivedCents ?? 0;
+  if (received <= 0) return { ok: false, reason: "Valor recebido desconhecido — resolva manualmente." };
+
+  const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
+  const refundAddr = await getPrimaryByowAddress(row.tenantId);
+  if (!refundAddr) {
+    return {
+      ok: false,
+      reason: "Tenant sem endereco de recebimento cadastrado — nao ha destino allowlisted para o reembolso.",
+    };
+  }
+
+  const forwardId = await withAdmin(async (tx) => {
+    const f = await tx.depixWithdrawForward.upsert({
+      where: { transactionId: row.id },
+      create: {
+        tenantId: row.tenantId,
+        transactionId: row.id,
+        kind: "REFUND",
+        destinationAddress: refundAddr,
+        amountCents: received,
+        status: "PENDING",
+      },
+      // Pode existir como FAILED (do holdWithdraw): reativa como REFUND PENDING.
+      update: {
+        kind: "REFUND",
+        destinationAddress: refundAddr,
+        amountCents: received,
+        status: "PENDING",
+        attempts: 0,
+        lastError: null,
+      },
+    });
+    return f.id;
+  });
+
+  logger.info("Saque externo: reembolso AUTORIZADO por admin", {
+    withdrawId: row.id,
+    tenantId: row.tenantId,
+    refundAddr,
+    amountCents: received,
+  });
+  // Envia ja (o cron retenta se faltar gas). O status do saque fecha no sucesso.
+  await processWithdrawForward(forwardId).catch((e) =>
+    logger.error("refundHeldWithdraw: envio inline falhou (fica pro cron)", { forwardId, err: String(e) }),
+  );
+  return { ok: true };
+}
+
+/** ADMIN: marca um saque HELD como resolvido MANUALMENTE (ex.: tratado fora da
+ *  plataforma). NAO move dinheiro — apenas fecha o registro com a nota. */
+export async function resolveHeldWithdraw(withdrawId: string, note: string): Promise<{ ok: boolean; reason?: string }> {
+  const upd = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.updateMany({
+      where: { id: withdrawId, status: "HELD" },
+      data: { status: "FAILED", completedAt: new Date(), errorMessage: `Resolvido manualmente: ${note}` },
+    }),
+  );
+  if (upd.count === 0) return { ok: false, reason: "Saque nao esta retido (HELD)." };
+  logger.info("Saque externo: HELD resolvido manualmente por admin", { withdrawId, note });
+  return { ok: true };
 }
 
 export interface CreateOnchainWithdrawArgs {
