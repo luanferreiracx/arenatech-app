@@ -6,6 +6,7 @@ import { reconcileStaleDepixTransactions } from "@/server/services/depix-transac
 import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
+import { checkCentralLbtcFloor } from "@/server/services/depix-lbtc-refill.service";
 
 /**
  * Monitora a saúde das Esploras do LWK e alerta (logger.error → Sentry) quando
@@ -66,6 +67,8 @@ export async function POST(request: NextRequest) {
       expiredLinks = (await expireStalePaymentLinks()).expired;
       // ...e pra vigiar a saúde das Esploras do LWK (alerta antecipado).
       await checkEsploraHealth();
+      // ...e pra alertar quando o L-BTC da central seca (gás dos repasses/saques).
+      await checkCentralLbtcFloor();
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
