@@ -21,6 +21,12 @@ import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 
 export const LBTC_LOW_SATS = Number(process.env.DEPIX_LBTC_LOW_SATS ?? "1000");
 export const LBTC_REFILL_SATS = Number(process.env.DEPIX_LBTC_REFILL_SATS ?? "5000");
+// Piso de alerta do L-BTC da CENTRAL (sats). Abaixo disto a central nao consegue
+// reabastecer os tenants de forma confiavel (1 refill = LBTC_REFILL_SATS) e os
+// repasses/saques comecam a travar. Default = 2 refills. Alerta via logger.error.
+export const LBTC_CENTRAL_FLOOR_SATS = Number(
+  process.env.DEPIX_LBTC_CENTRAL_FLOOR_SATS ?? String(2 * Number(process.env.DEPIX_LBTC_REFILL_SATS ?? "5000")),
+);
 
 interface EnsureOpts {
   source: "auto" | "manual";
@@ -49,6 +55,44 @@ async function getCentralTenantId(): Promise<string | null> {
   );
   _centralIdCache = t?.id ?? null;
   return _centralIdCache;
+}
+
+/**
+ * Monitor: alerta (logger.error -> Sentry) quando o L-BTC da CENTRAL cai abaixo do
+ * piso. Se a central seca, NADA reabastece os tenants -> repasses do saque externo e
+ * saques em geral travam por falta de gas. Roda de carona no cron de reconcile.
+ * Best-effort: nunca lanca. Retorna o saldo pra observabilidade/teste.
+ */
+export async function checkCentralLbtcFloor(): Promise<{
+  ok: boolean;
+  sats: number | null;
+  floor: number;
+}> {
+  const floor = LBTC_CENTRAL_FLOOR_SATS;
+  try {
+    const centralId = await getCentralTenantId();
+    if (!centralId) {
+      logger.warn("checkCentralLbtcFloor: central nao encontrada");
+      return { ok: false, sats: null, floor };
+    }
+    const balance = await lwk.getBalance(centralId);
+    if (!balance.success) {
+      logger.warn("checkCentralLbtcFloor: getBalance falhou", { error: balance.error });
+      return { ok: false, sats: null, floor };
+    }
+    const sats = balance.lbtcSatoshis ?? 0;
+    if (sats < floor) {
+      logger.error(
+        "[lbtc-central] L-BTC da central abaixo do piso — repasses/saques podem travar; reabasteca a central",
+        { sats, floor },
+      );
+      return { ok: false, sats, floor };
+    }
+    return { ok: true, sats, floor };
+  } catch (err) {
+    logger.warn("[lbtc-central] check falhou", { err: err instanceof Error ? err.message : String(err) });
+    return { ok: false, sats: null, floor };
+  }
 }
 
 /**

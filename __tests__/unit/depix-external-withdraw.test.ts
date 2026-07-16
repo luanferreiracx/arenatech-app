@@ -46,12 +46,13 @@ vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeRecipientAddress: vi.fn(),
 }));
 
-// lwk.transfer (o envio on-chain).
+// lwk.transfer (o envio on-chain) + getBalance (gas L-BTC da arena-fees).
 const transfer = vi.fn();
+const getBalance = vi.fn();
 vi.mock("@/lib/services/lwk-service", () => ({
   transfer: (...a: unknown[]) => transfer(...a),
+  getBalance: (...a: unknown[]) => getBalance(...a),
   generateAddress: vi.fn(),
-  getBalance: vi.fn(),
   LBTC_ASSET_ID: "lbtc",
 }));
 
@@ -105,7 +106,8 @@ function awaitingRow(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   for (const m of [
     txFindUnique, txUpdateMany, txUpdate, fwdUpsert, fwdFindUnique, fwdUpdateMany,
-    ledgerUpsert, getPrimaryByowAddress, getFeeWalletTenantId, ensureFeeWalletLbtc, transfer,
+    ledgerUpsert, getPrimaryByowAddress, getFeeWalletTenantId, ensureFeeWalletLbtc,
+    transfer, getBalance,
   ]) m.mockReset();
 
   txUpdateMany.mockResolvedValue({ count: 1 }); // CAS ganha por padrao
@@ -119,7 +121,12 @@ beforeEach(() => {
     destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 0,
   });
   fwdUpdateMany.mockResolvedValue({ count: 1 });
-  txFindUnique.mockResolvedValue({ feeArenaTechCents: FEE_ARENA });
+  // Row do saque carregada pelo processWithdrawForward (janela distante + campos de taxa).
+  txFindUnique.mockResolvedValue({
+    tenantId: TENANT, grossAmountCents: FINAL_GROSS, feeArenaTechCents: FEE_ARENA,
+    expiresAt: new Date(Date.now() + 60 * 60_000),
+  });
+  getBalance.mockResolvedValue({ success: true, lbtcSatoshis: 100_000 }); // gas de sobra
   transfer.mockResolvedValue({ success: true, txid: "forward-txid-1" });
 });
 
@@ -250,15 +257,68 @@ describe("processWithdrawForward — envio idempotente", () => {
     expect(transfer).not.toHaveBeenCalled();
   });
 
-  it("REFUND com sucesso: nao cria fee ledger (so grava o txid do reembolso)", async () => {
+  it("REFUND com sucesso: nao cria fee ledger + idempotencyKey PROPRIO (refund:)", async () => {
     fwdFindUnique.mockResolvedValue({
       id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "REFUND",
       destinationAddress: BYOW_ADDR, amountCents: FINAL_GROSS, status: "PENDING", attempts: 0,
     });
     await processWithdrawForward("fwd-1");
+    // Chave PROPRIA do refund — nunca colide com a do repasse (fwd:).
     expect(transfer).toHaveBeenCalledWith(
-      FEE_WALLET, [{ to: BYOW_ADDR, amountBrl: FINAL_GROSS / 100 }], { idempotencyKey: "fwd:fwd-1" },
+      FEE_WALLET, [{ to: BYOW_ADDR, amountBrl: FINAL_GROSS / 100 }], { idempotencyKey: "refund:fwd-1" },
     );
     expect(ledgerUpsert).not.toHaveBeenCalled();
+  });
+
+  it("SEM GÁS (attempts=0): NÃO repassa — converte em reembolso e falha o saque", async () => {
+    getBalance.mockResolvedValue({ success: true, lbtcSatoshis: 100 }); // < 300 = sem gás
+    await processWithdrawForward("fwd-1");
+    // Nada transmitido pra Eulen.
+    expect(transfer).not.toHaveBeenCalledWith(
+      FEE_WALLET, expect.anything(), { idempotencyKey: "fwd:fwd-1" },
+    );
+    // Converteu a fila FORWARD -> REFUND e marcou o saque FAILED.
+    const kindChanged = fwdUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
+    );
+    expect(kindChanged).toBe(true);
+    const failed = txUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { status?: string } }).data?.status === "FAILED",
+    );
+    expect(failed).toBe(true);
+  });
+
+  it("JANELA VENCIDA (attempts=0): NÃO repassa — converte em reembolso (sem perda)", async () => {
+    fwdFindUnique.mockResolvedValue({
+      id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "FORWARD",
+      destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 0,
+    });
+    // Janela a 1min < margem de 5min -> vencida (mesmo com gás de sobra).
+    txFindUnique.mockResolvedValue({
+      tenantId: TENANT, grossAmountCents: FINAL_GROSS, feeArenaTechCents: FEE_ARENA,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await processWithdrawForward("fwd-1");
+    expect(transfer).not.toHaveBeenCalledWith(FEE_WALLET, expect.anything(), { idempotencyKey: "fwd:fwd-1" });
+    const kindChanged = fwdUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
+    );
+    expect(kindChanged).toBe(true);
+  });
+
+  it("sem gás mas COM tentativa prévia (attempts>0): NÃO reembolsa (risco de duplo gasto)", async () => {
+    fwdFindUnique.mockResolvedValue({
+      id: "fwd-1", tenantId: TENANT, transactionId: WID, kind: "FORWARD",
+      destinationAddress: EULEN_ADDR, amountCents: FORWARD_AMOUNT, status: "PENDING", attempts: 2,
+    });
+    getBalance.mockResolvedValue({ success: true, lbtcSatoshis: 100 }); // sem gás
+    await processWithdrawForward("fwd-1");
+    // Não converte em refund, não falha o saque, não transmite.
+    const kindChanged = fwdUpdateMany.mock.calls.some(
+      (c) => (c[0] as { data?: { kind?: string } }).data?.kind === "REFUND",
+    );
+    expect(kindChanged).toBe(false);
+    expect(txUpdateMany).not.toHaveBeenCalled();
+    expect(transfer).not.toHaveBeenCalled();
   });
 });

@@ -1771,6 +1771,10 @@ const EXTERNAL_WITHDRAW_AMOUNT_TOLERANCE_CENTS = 2;
 // Maximo de tentativas do repasse/refund antes de marcar FAILED (mesmo teto do
 // repayment de deposito).
 const MAX_WITHDRAW_FORWARD_ATTEMPTS = 8;
+// L-BTC minimo (sats) na arena-fees pra TENTAR um envio. Abaixo disso tratamos como
+// "sem gas" e NAO transmitimos (uma tx Liquid custa ~30-100 sats). Sem transmitir,
+// nada foi pro on-chain -> podemos converter em reembolso com seguranca.
+const EXTERNAL_WITHDRAW_MIN_GAS_SATS = 300;
 // Margem de seguranca da janela da Eulen no modo INTERMEDIACAO. Maior que a do
 // sweep gerenciado (90s): aqui o repasse acontece MINUTOS apos a cotacao (confirmar
 // o inbound do tenant) e a Eulen ainda precisa confirmar o DEPOSITO repassado antes
@@ -1920,104 +1924,244 @@ export async function settleExternalWithdrawInbound(args: {
 }
 
 /**
- * Executa (ou retenta) um repasse/refund do saque externo via `lwk.transfer` a
- * partir da carteira arena-fees. Idempotente pelo `idempotencyKey` estavel
- * (fwd:{id}) no LWK + CAS de status no banco (mesmo padrao do repayment). Chamado
- * inline no settle e pelo cron de retry.
+ * Executa (ou retenta) o REPASSE (-> Eulen) ou o REFUND (-> tenant) do saque externo
+ * via `lwk.transfer` a partir da arena-fees. CAS de status no banco + idempotencyKey
+ * estavel por operacao. Chamado inline no settle e pelo cron de retry.
+ *
+ * SEGURANCA (dinheiro):
+ *  - NUNCA repassa apos o vencimento da janela da Eulen (deposito tardio = PERDA).
+ *  - Se o repasse nao pode acontecer (janela vencida OU sem gas) E NADA foi transmitido
+ *    ainda (attempts=0), converte em REFUND pro endereco do tenant e falha o saque (ele
+ *    refaz). Com tentativa previa (attempts>0, o envio PODE ter caido on-chain), NAO
+ *    converte — reembolsar arriscaria duplo gasto; mantem/escala pra verificacao humana.
+ *  - O REFUND nao tem prazo (o endereco do tenant nao expira) — retenta ate cair.
  */
 export async function processWithdrawForward(forwardId: string): Promise<void> {
-  const fwd = await withAdmin(async (tx) =>
+  let fwd = await withAdmin(async (tx) =>
     tx.depixWithdrawForward.findUnique({ where: { id: forwardId } }),
   );
-  if (!fwd) return;
-  if (fwd.status === "COMPLETED") return;
-  if (fwd.status === "FAILED" && fwd.attempts >= MAX_WITHDRAW_FORWARD_ATTEMPTS) return;
+  if (!fwd || fwd.status === "COMPLETED") return;
 
   const feeWalletSvc = await import("@/server/services/depix-fee-wallet.service");
   const feeWalletTenantId = await feeWalletSvc.getFeeWalletTenantId();
   if (!feeWalletTenantId) {
-    await bumpWithdrawForwardFailure(fwd.id, fwd.attempts, "Carteira de intermediacao indisponivel");
+    logger.error("Saque externo: carteira de intermediacao indisponivel", { forwardId });
     return;
   }
-  // Gas L-BTC na arena-fees antes do envio (a carteira de taxas nunca saca, entao
-  // nada mais a reabastece).
-  await feeWalletSvc.ensureFeeWalletLbtc();
 
+  // ── REPASSE: valida janela + gas ANTES de transmitir.
+  if (fwd.kind === "FORWARD") {
+    const w = await withAdmin(async (tx) =>
+      tx.tenantDepixTransaction.findUnique({
+        where: { id: fwd!.transactionId },
+        select: { tenantId: true, grossAmountCents: true, expiresAt: true, feeArenaTechCents: true },
+      }),
+    );
+    if (!w) return;
+
+    const windowExpired =
+      w.expiresAt != null && w.expiresAt.getTime() - EXTERNAL_WITHDRAW_EULEN_MARGIN_MS < Date.now();
+
+    // Best-effort: puxa L-BTC da central e mede o gas real da arena-fees.
+    await feeWalletSvc.ensureFeeWalletLbtc();
+    const bal = await lwk.getBalance(feeWalletTenantId);
+    const noGas = !bal.success || (bal.lbtcSatoshis ?? 0) < EXTERNAL_WITHDRAW_MIN_GAS_SATS;
+
+    if (windowExpired || noGas) {
+      const reason = windowExpired
+        ? "janela do saque na Eulen expirou antes do repasse"
+        : "sem gas (L-BTC) para o repasse";
+      if (fwd.attempts > 0) {
+        // Tentativa previa pode ter caido on-chain -> reembolsar arriscaria duplo gasto.
+        if (windowExpired) {
+          logger.error(
+            "Saque externo: repasse com tentativa previa venceu — verificar on-chain se caiu na Eulen",
+            { forwardId: fwd.id, transactionId: fwd.transactionId, attempts: fwd.attempts },
+          );
+        }
+        return;
+      }
+      // Nada transmitido -> devolve com seguranca e falha o saque (tenant refaz).
+      await convertForwardToRefund(fwd, w, reason);
+      fwd = await withAdmin(async (tx) =>
+        tx.depixWithdrawForward.findUnique({ where: { id: forwardId } }),
+      );
+      if (!fwd || fwd.kind !== "REFUND" || fwd.status !== "PENDING") return;
+      // segue pro bloco REFUND abaixo (tenta devolver ja)
+    } else {
+      // Janela valida + gas: transmite (idempotente por fwd:{id}).
+      const res = await lwk.transfer(
+        feeWalletTenantId,
+        [{ to: fwd.destinationAddress, amountBrl: fwd.amountCents / 100 }],
+        { idempotencyKey: `fwd:${fwd.id}` },
+      );
+      if (res.success && res.txid) {
+        await completeWithdrawForward(fwd, w.feeArenaTechCents, res.txid);
+        return;
+      }
+      // Falha COM gas (ambigua — pode ter transmitido): mantem PENDING pra retry
+      // idempotente DENTRO da janela. NAO converte em refund (risco de duplo gasto).
+      await bumpAmbiguousForwardFailure(fwd.id, fwd.attempts, res.error ?? "repasse falhou");
+      return;
+    }
+  }
+
+  // ── REFUND: devolve pro endereco do tenant. Sem prazo; retenta ate cair.
+  // idempotencyKey PROPRIO (refund:) — nunca colide com o repasse (fwd:).
+  await feeWalletSvc.ensureFeeWalletLbtc();
   const res = await lwk.transfer(
     feeWalletTenantId,
     [{ to: fwd.destinationAddress, amountBrl: fwd.amountCents / 100 }],
-    { idempotencyKey: `fwd:${fwd.id}` },
+    { idempotencyKey: `refund:${fwd.id}` },
   );
-  if (!res.success || !res.txid) {
-    await bumpWithdrawForwardFailure(fwd.id, fwd.attempts, res.error ?? "transfer falhou");
+  if (res.success && res.txid) {
+    await withAdmin(async (tx) => {
+      const upd = await tx.depixWithdrawForward.updateMany({
+        where: { id: fwd!.id, status: { in: ["PENDING", "FAILED"] } },
+        data: { status: "COMPLETED", forwardTxId: res.txid, completedAt: new Date() },
+      });
+      if (upd.count === 0) return;
+      await tx.tenantDepixTransaction.update({
+        where: { id: fwd!.transactionId },
+        data: { withdrawTxId: res.txid },
+      });
+    });
+    logger.info("Saque externo: reembolso concluido", {
+      forwardId: fwd.id,
+      txid: res.txid,
+      amountCents: fwd.amountCents,
+    });
     return;
   }
+  // Reembolso falhou (provavelmente gas): mantem PENDING (NUNCA terminal — o tenant
+  // TEM que receber de volta); escala se estiver demorando.
+  const nextAttempts = fwd.attempts + 1;
+  await withAdmin(async (tx) =>
+    tx.depixWithdrawForward.updateMany({
+      where: { id: fwd!.id, status: { in: ["PENDING", "FAILED"] } },
+      data: { attempts: { increment: 1 }, lastError: res.error ?? "reembolso falhou" },
+    }),
+  );
+  if (nextAttempts >= MAX_WITHDRAW_FORWARD_ATTEMPTS) {
+    logger.error("Saque externo: reembolso preso (sem gas?) — verificar L-BTC da central", {
+      forwardId: fwd.id,
+      tenantId: fwd.tenantId,
+      attempts: nextAttempts,
+      error: res.error,
+    });
+  } else {
+    logger.warn("Saque externo: reembolso falhou (fica na fila)", { forwardId: fwd.id, attempts: nextAttempts });
+  }
+}
 
-  // Sucesso: CAS forward -> COMPLETED + efeitos por tipo.
+/** Marca o repasse concluido: CAS -> COMPLETED, grava withdrawTxId e registra a taxa
+ *  Arena RETIDA no ledger. Idempotente (CAS por status). */
+async function completeWithdrawForward(
+  fwd: { id: string; transactionId: string; tenantId: string },
+  feeArenaTechCents: number,
+  txid: string,
+): Promise<void> {
   await withAdmin(async (tx) => {
     const upd = await tx.depixWithdrawForward.updateMany({
       where: { id: fwd.id, status: { in: ["PENDING", "FAILED"] } },
-      data: { status: "COMPLETED", forwardTxId: res.txid, completedAt: new Date() },
+      data: { status: "COMPLETED", forwardTxId: txid, completedAt: new Date() },
     });
     if (upd.count === 0) return; // ja completado por outra execucao
-    if (fwd.kind === "FORWARD") {
-      const wrow = await tx.tenantDepixTransaction.findUnique({
-        where: { id: fwd.transactionId },
-        select: { feeArenaTechCents: true },
-      });
-      await tx.tenantDepixTransaction.update({
-        where: { id: fwd.transactionId },
-        data: { withdrawTxId: res.txid },
-      });
-      // Taxa Arena RETIDA (ficou na arena-fees). Registra no ledger p/ auditoria.
-      if (wrow && wrow.feeArenaTechCents > 0) {
-        await tx.tenantDepixFeeLedger.upsert({
-          where: { transactionId_kind: { transactionId: fwd.transactionId, kind: "WITHDRAW" } },
-          create: {
-            tenantId: fwd.tenantId,
-            transactionId: fwd.transactionId,
-            kind: "WITHDRAW",
-            amountCents: wrow.feeArenaTechCents,
-            status: "SETTLED",
-            settlementTxId: res.txid!,
-            settledAt: new Date(),
-          },
-          update: {},
-        });
-      }
-    } else {
-      // REFUND concluido: a tx do saque ja esta FAILED; guarda o txid do reembolso.
-      await tx.tenantDepixTransaction.update({
-        where: { id: fwd.transactionId },
-        data: { withdrawTxId: res.txid },
+    await tx.tenantDepixTransaction.update({
+      where: { id: fwd.transactionId },
+      data: { withdrawTxId: txid },
+    });
+    if (feeArenaTechCents > 0) {
+      await tx.tenantDepixFeeLedger.upsert({
+        where: { transactionId_kind: { transactionId: fwd.transactionId, kind: "WITHDRAW" } },
+        create: {
+          tenantId: fwd.tenantId,
+          transactionId: fwd.transactionId,
+          kind: "WITHDRAW",
+          amountCents: feeArenaTechCents,
+          status: "SETTLED",
+          settlementTxId: txid,
+          settledAt: new Date(),
+        },
+        update: {},
       });
     }
   });
-  logger.info("Saque externo: envio concluido", {
-    forwardId: fwd.id,
-    kind: fwd.kind,
-    txid: res.txid,
-    amountCents: fwd.amountCents,
-  });
+  logger.info("Saque externo: repasse concluido", { forwardId: fwd.id, txid });
 }
 
-async function bumpWithdrawForwardFailure(
+/** Converte um repasse que NAO pode acontecer (janela vencida / sem gas, e sem
+ *  tentativa previa) em REFUND pro endereco BYOW primario do tenant, e falha o saque.
+ *  Sem endereco de recebimento -> escala (DePix retido ate intervencao). */
+async function convertForwardToRefund(
+  fwd: { id: string; transactionId: string },
+  w: { tenantId: string; grossAmountCents: number },
+  reason: string,
+): Promise<void> {
+  const { getPrimaryByowAddress } = await import("@/server/services/depix-byow.service");
+  const refundAddr = await getPrimaryByowAddress(w.tenantId);
+  if (!refundAddr) {
+    await withAdmin(async (tx) =>
+      tx.tenantDepixTransaction.updateMany({
+        where: { id: fwd.transactionId, status: "PROCESSING" },
+        data: {
+          status: "FAILED",
+          errorMessage: `Saque falhou: ${reason}. Reembolso pendente — cadastre um endereco de recebimento e contate o suporte.`,
+        },
+      }),
+    );
+    logger.error("Saque externo: sem endereco BYOW p/ reembolso — DePix retido na arena-fees", {
+      forwardId: fwd.id,
+      transactionId: fwd.transactionId,
+      tenantId: w.tenantId,
+    });
+    return;
+  }
+  await withAdmin(async (tx) => {
+    await tx.tenantDepixTransaction.updateMany({
+      where: { id: fwd.transactionId, status: "PROCESSING" },
+      data: { status: "FAILED", errorMessage: `Saque devolvido: ${reason}. Refaca o saque.` },
+    });
+    await tx.depixWithdrawForward.updateMany({
+      where: { id: fwd.id, kind: "FORWARD" },
+      data: {
+        kind: "REFUND",
+        destinationAddress: refundAddr,
+        amountCents: w.grossAmountCents,
+        status: "PENDING",
+        attempts: 0,
+        lastError: reason,
+      },
+    });
+  });
+  logger.info("Saque externo: repasse convertido em reembolso", { forwardId: fwd.id, reason });
+}
+
+/** Falha AMBIGUA do repasse (tinha gas + janela, mas o transfer errou — pode ter
+ *  caido on-chain). Incrementa tentativa; ao esgotar, marca FAILED e escala (humano
+ *  confere on-chain). NAO reembolsa (risco de duplo gasto). */
+async function bumpAmbiguousForwardFailure(
   forwardId: string,
   currentAttempts: number,
   error: string,
 ): Promise<void> {
   const nextAttempts = currentAttempts + 1;
+  const terminal = nextAttempts >= MAX_WITHDRAW_FORWARD_ATTEMPTS;
   await withAdmin(async (tx) =>
     tx.depixWithdrawForward.updateMany({
       where: { id: forwardId, status: { in: ["PENDING", "FAILED"] } },
-      data: {
-        attempts: { increment: 1 },
-        lastError: error,
-        status: nextAttempts >= MAX_WITHDRAW_FORWARD_ATTEMPTS ? "FAILED" : "PENDING",
-      },
+      data: { attempts: { increment: 1 }, lastError: error, status: terminal ? "FAILED" : "PENDING" },
     }),
   );
-  logger.warn("Saque externo: envio falhou (fica na fila)", { forwardId, attempts: nextAttempts, error });
+  if (terminal) {
+    logger.error("Saque externo: repasse ambiguo esgotou tentativas — verificar on-chain", {
+      forwardId,
+      attempts: nextAttempts,
+      error,
+    });
+  } else {
+    logger.warn("Saque externo: repasse falhou (retry na fila)", { forwardId, attempts: nextAttempts });
+  }
 }
 
 /** Cron: reprocessa repasses/refunds PENDING do saque externo. */
