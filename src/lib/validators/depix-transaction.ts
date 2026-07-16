@@ -5,6 +5,7 @@ import { isValidTaxId as isValidTaxIdMod11 } from "@/lib/utils/tax-id";
 /** Status labels pra UI. */
 export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
   PENDING: "Aguardando pagamento",
+  AWAITING_DEPOSIT: "Aguardando seu envio",
   PROCESSING: "Processando",
   PROCESSING_FEE: "Concluindo (taxa)",
   COMPLETED: "Concluido",

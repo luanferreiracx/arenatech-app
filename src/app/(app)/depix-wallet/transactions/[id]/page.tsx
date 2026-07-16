@@ -22,6 +22,7 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ExternalWithdrawDeposit } from "../../_components/external-withdraw-deposit";
 
 function formatBRL(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -49,6 +50,7 @@ type StatusTone = "pending" | "processing" | "success" | "warning" | "danger" | 
 
 const STATUS_TONE: Record<string, StatusTone> = {
   PENDING: "pending",
+  AWAITING_DEPOSIT: "pending",
   PROCESSING: "processing",
   PROCESSING_FEE: "processing",
   COMPLETED: "success",
@@ -122,6 +124,9 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   if (!t) return <div className="text-center py-12 text-muted-foreground">Transacao nao encontrada</div>;
 
   const isDeposit = t.kind === "DEPOSIT";
+  // Saque no modo carteira externa: WITHDRAW com endereco de intermediacao (o tenant
+  // envia o DePix pra NOSSA carteira). O saque gerenciado nao grava depositAddress.
+  const isExternalWithdraw = !isDeposit && Boolean(t.depositAddress);
   const isFinal = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
   const isCompleted = t.status === "COMPLETED";
   const isFailed = ["FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
@@ -373,6 +378,15 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
             </Card>
           )}
 
+          {/* Saque externo aguardando o deposito do tenant: mostra endereco + valor + QR + prazo. */}
+          {isExternalWithdraw && t.status === "AWAITING_DEPOSIT" && (
+            <ExternalWithdrawDeposit
+              address={t.depositAddress ?? null}
+              amountCents={t.grossAmountCents}
+              expiresAt={t.expiresAt ?? null}
+            />
+          )}
+
           {/* Resumo financeiro */}
           <Card className="p-6">
             <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground mb-4">
@@ -381,7 +395,7 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
             <dl className="space-y-2.5 text-sm">
               <div className="flex justify-between items-baseline">
                 <dt className="text-muted-foreground">
-                  {isDeposit ? "Valor pago pelo cliente" : "Debitado do saldo"}
+                  {isDeposit ? "Valor pago pelo cliente" : isExternalWithdraw ? "Você envia" : "Debitado do saldo"}
                 </dt>
                 <dd className="font-mono tabular-nums font-semibold">
                   {formatBRL(t.grossAmountCents)}

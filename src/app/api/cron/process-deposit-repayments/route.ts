@@ -3,7 +3,7 @@ import { withAdmin } from "@/server/db";
 import { withCronLock } from "@/server/cron-lock";
 import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
-import { retryRepayment } from "@/server/services/depix-transaction.service";
+import { retryRepayment, retryWithdrawForwards } from "@/server/services/depix-transaction.service";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let summary = { scanned: 0, completed: 0, stillPending: 0, failed: 0, skipped: 0 };
+    let summary = { scanned: 0, completed: 0, stillPending: 0, failed: 0, skipped: 0, withdrawForwards: 0 };
     // Lock por job: idempotencyKey ja impede duplo repasse on-chain, mas o lock
     // evita duas instancias varrendo o mesmo lote (contadores/lastError em corrida).
     const ran = await withCronLock("process-deposit-repayments", async () => {
@@ -59,7 +59,17 @@ export async function POST(request: NextRequest) {
         else if (res.status === "failed") failed += 1;
         else skipped += 1;
       }
-      summary = { scanned: pending.length, completed, stillPending, failed, skipped };
+      // Repasses/refunds PENDING do SAQUE EXTERNO (Fase B) — mesma fila idempotente
+      // (fwd:{id}); reprocessa junto neste ciclo.
+      const fwd = await retryWithdrawForwards(BATCH_SIZE);
+      summary = {
+        scanned: pending.length,
+        completed,
+        stillPending,
+        failed,
+        skipped,
+        withdrawForwards: fwd.processed,
+      };
     });
     if (!ran) return NextResponse.json({ skipped: "locked" });
 
