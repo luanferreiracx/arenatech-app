@@ -27,6 +27,8 @@ enum DepixTransactionSourceType {
 
 enum DepixTransactionStatus {
   PENDING                   // criado, aguardando proximo passo
+  AWAITING_DEPOSIT          // (saque externo) intencao criada, aguardando o tenant
+                            // enviar o DePix pra nossa carteira de intermediacao
   PROCESSING                // PIX pago / saque enviado, aguardando confirmacao
   PROCESSING_FEE            // (deposito) recebimento confirmado, debitando taxa
   COMPLETED                 // tudo concluido
@@ -214,4 +216,43 @@ model DepixDepositRepayment {
   @@index([status, createdAt])
   @@index([tenantId, createdAt])
   @@map("depix_deposit_repayments")
+}
+
+/// Fila idempotente do REPASSE (ou REFUND) do saque no modo CARTEIRA EXTERNA
+/// (Fase B). O tenant externo manda o DePix pra nossa carteira de intermediacao
+/// (arena-fees); ao confirmar on-chain, enfileiramos:
+///   - kind=FORWARD: repassa `depositAmountInCents` pro endereco de saque da Eulen
+///     (a taxa Arena fica retida na arena-fees — mandamos so o que a Eulen precisa).
+///   - kind=REFUND:  se a janela da Eulen expirou / underpay / repasse falhou de
+///     vez, devolve o DePix pro endereco BYOW primario do tenant.
+/// Mesmo padrao do DepixDepositRepayment: 1 por transacao (@unique), transfer LWK
+/// idempotente (fwd:{id}), reprocessado pelo cron. Modelo separado pra nao acoplar
+/// a logica de deposito.
+model DepixWithdrawForward {
+  id                 String    @id @default(uuid()) @db.Uuid
+  /// Tenant externo dono do saque (RLS).
+  tenantId           String    @map("tenant_id") @db.Uuid
+  /// 1 forward por saque — defesa estrutural anti-duplo (alem do guard de status
+  /// no service e do idempotencyKey no LWK).
+  transactionId      String    @unique @map("transaction_id") @db.Uuid
+  /// "FORWARD" (-> Eulen) | "REFUND" (-> endereco do tenant)
+  kind               String
+  /// Destino do envio (endereco Eulen no FORWARD; endereco do tenant no REFUND).
+  destinationAddress String    @map("destination_address")
+  /// Valor a enviar (centavos). FORWARD = depositAmountInCents (o que a Eulen
+  /// precisa). REFUND = o recebido menos a fee de rede.
+  amountCents        Int       @map("amount_cents")
+  /// PENDING | COMPLETED | FAILED
+  status             String    @default("PENDING")
+  /// txid LWK do envio (preenchido em COMPLETED).
+  forwardTxId        String?   @map("forward_tx_id")
+  attempts           Int       @default(0)
+  lastError          String?   @map("last_error") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  completedAt        DateTime? @map("completed_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("depix_withdraw_forwards")
 }

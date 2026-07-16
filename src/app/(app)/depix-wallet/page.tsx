@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownToLine, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Wallet } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -77,13 +77,21 @@ export default function DepixWalletPage() {
               </p>
             </div>
           </div>
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             <Button asChild size="sm">
               <Link href="/depix-wallet/receive">
                 <ArrowDownToLine className="mr-1 h-4 w-4" />
                 Receber DePix
               </Link>
             </Button>
+            {walletInfo?.canWithdraw === true && (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/depix-wallet/withdraw-external">
+                  <ArrowUpRight className="mr-1 h-4 w-4" />
+                  Sacar
+                </Link>
+              </Button>
+            )}
           </div>
         </Card>
 

@@ -32,10 +32,16 @@ vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: vi.fn().mockResolvedValue(null),
 }));
 
+// O handler faz um pre-check de INTERMEDIACAO (saque externo) via withAdmin antes
+// da logica de deposito: findFirst de WITHDRAW por label. Aqui retorna null (nao e
+// saque externo) pra o fluxo seguir pro deposito normal.
+const extWithdrawFindFirst = vi.fn().mockResolvedValue(null);
+
 vi.mock("@/server/db", () => ({
   withAdmin: (fn: (tx: unknown) => unknown) =>
     fn({
       depixWebhookEvent: { create: eventCreate, updateMany: eventUpdateMany },
+      tenantDepixTransaction: { findFirst: extWithdrawFindFirst },
     }),
   withTenant: (_tenantId: string, fn: (tx: unknown) => unknown) =>
     fn({

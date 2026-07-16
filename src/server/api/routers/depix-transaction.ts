@@ -22,6 +22,7 @@ import {
 import {
   createDeposit,
   createWithdraw,
+  createExternalWithdraw,
   createOnchainWithdraw,
   checkTransactionStatus,
   loadFeeConfig,
@@ -120,6 +121,48 @@ export const depixTransactionRouter = createTRPCRouter({
           // Non-custodial (ADR 0051): repassa a passphrase da carteira. O service
           // exige-a se o tenant for non_custodial; ignora se custodial.
           passphrase: input.walletPassphrase,
+        });
+        return tx;
+      } catch (err) {
+        await rl.refund();
+        throw err;
+      }
+    }),
+
+  /** Saque no modo CARTEIRA EXTERNA por intermediacao (Fase B). Cria a INTENCAO
+   *  (cotacao Eulen + endereco de intermediacao) e devolve pro tenant enviar o
+   *  DePix da propria carteira. Nao move nenhum fundo aqui.
+   *
+   *  Seguranca (igual ao saque gerenciado): tenantAdminProcedure + step-up 2FA +
+   *  rate-limit anti-flood. 2FA falho NAO devolve o token (anti-brute-force). */
+  createExternalWithdraw: tenantAdminProcedure
+    .input(createWithdrawSchema)
+    .mutation(async ({ ctx, input }) => {
+      const rl = await rlCreateWithdraw(ctx, "depixTransaction.createExternalWithdraw");
+
+      const stepUp = await verifyUserTwoFactor(ctx.session.user.id, input.twoFactorCode);
+      if (!stepUp.ok) {
+        if (stepUp.reason === "not_enrolled") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Saque exige autenticacao de dois fatores (2FA). Habilite o 2FA em Configuracoes > Seguranca antes de sacar.",
+          });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Codigo 2FA invalido." });
+      }
+
+      try {
+        const tx = await createExternalWithdraw({
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? null,
+          pixKeyType: input.pixKeyType,
+          pixKey: input.pixKey,
+          recipientName: input.recipientName,
+          recipientTaxId: input.recipientTaxId,
+          netAmountCents: input.netAmountCents,
+          idempotencyKey: input.idempotencyKey,
         });
         return tx;
       } catch (err) {
