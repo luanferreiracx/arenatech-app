@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, Copy, Link2, Send, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Copy, Link2, Send, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GenerateLinkDialog } from "./generate-link-dialog";
@@ -15,6 +15,10 @@ interface BalanceHeroProps {
   success: boolean;
   error: string | null;
   canWithdraw: boolean;
+  /** true = sincronização degradada; o saldo pode não refletir a realidade on-chain. */
+  stale?: boolean;
+  /** ISO do último sync bem-sucedido do LWK (exibe "atualizado há X"). */
+  lastSyncOkAt?: string | null;
   className?: string;
 }
 
@@ -27,6 +31,18 @@ function formatBRL(value: number): string {
  * saldo em fonte mono grande e tabular-nums. Acoes Receber/Sacar como
  * botoes primarios + endereco de recebimento com copy abaixo.
  */
+function formatRelativeSync(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const diffMin = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (diffMin < 1) return "há instantes";
+  if (diffMin < 60) return `há ${diffMin} min`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `há ${diffH} h`;
+  return `há ${Math.round(diffH / 24)} d`;
+}
+
 export function BalanceHero({
   depixBalance,
   masterAddress,
@@ -34,8 +50,11 @@ export function BalanceHero({
   success,
   error,
   canWithdraw,
+  stale = false,
+  lastSyncOkAt = null,
   className,
 }: BalanceHeroProps) {
+  const relativeSync = formatRelativeSync(lastSyncOkAt);
   return (
     <Card
       className={cn(
@@ -62,15 +81,35 @@ export function BalanceHero({
               </p>
             </div>
             <div className="flex items-baseline gap-2">
-              <p className="text-4xl sm:text-5xl font-mono font-bold tabular-nums text-foreground">
+              <p
+                className={cn(
+                  "text-4xl sm:text-5xl font-mono font-bold tabular-nums",
+                  success && stale ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
                 {success ? formatBRL(depixBalance) : "—"}
               </p>
             </div>
             {!success && error && (
               <p className="text-xs text-destructive mt-1.5">{error}</p>
             )}
+            {success && stale && (
+              <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <p className="text-xs text-warning-foreground">
+                  Saldo pode estar desatualizado — a sincronizacao com a rede esta
+                  degradada
+                  {relativeSync ? ` (ultima atualizacao ${relativeSync})` : ""}.
+                </p>
+              </div>
+            )}
             <p className="text-[11px] text-muted-foreground mt-2 inline-flex items-center gap-2">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+              <span
+                className={cn(
+                  "inline-block h-1.5 w-1.5 rounded-full",
+                  stale ? "bg-warning" : "bg-success animate-pulse",
+                )}
+              />
               Rede {network ?? "Liquid"}
             </p>
           </div>
