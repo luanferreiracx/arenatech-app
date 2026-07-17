@@ -1262,13 +1262,16 @@ export const adminRouter = createTRPCRouter({
           phone: ownerPhone,
         });
 
-        // Update pre-registration
+        // Update pre-registration. Segurança: o hash da senha já foi copiado pro
+        // User (acima) — não há motivo pra manter uma 2ª cópia no pré-cadastro.
+        // Limpa pra reduzir a superfície de vazamento (P2 auditoria 2026-07-14).
         await tx.preRegistration.update({
           where: { id: input.id },
           data: {
             status: "APPROVED",
             reviewedAt: new Date(),
             reviewedById: ctx.session.user.id,
+            passwordHash: null,
           },
         });
 
@@ -1298,6 +1301,8 @@ export const adminRouter = createTRPCRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Pre-cadastro ja processado" });
         }
 
+        // Rejeitado nunca vira User → o hash da senha não serve mais pra nada.
+        // Limpa pra não reter credencial de cadastro descartado (P2 auditoria).
         await tx.preRegistration.update({
           where: { id: input.id },
           data: {
@@ -1305,6 +1310,7 @@ export const adminRouter = createTRPCRouter({
             notes: input.reason,
             reviewedAt: new Date(),
             reviewedById: ctx.session.user.id,
+            passwordHash: null,
           },
         });
 
