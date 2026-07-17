@@ -1,6 +1,6 @@
 # ADR 0059 — Fonte on-chain própria para o LWK (Esplora self-hosted)
 
-**Status:** proposto (decisão de direção tomada pelo dono; provisionamento pendente de medição)
+**Status:** em implementação — stack deployada, IBD (initial block download) em curso
 **Data:** 2026-07-17
 **Contexto relacionado:** incidente do saldo inflado da carteira central (2026-07),
 [[depix-saldo-obsoleto-cache-2026-07-17]], PR #602 (guards de exibição + detector).
@@ -112,3 +112,52 @@ Enquanto o node não sobe, o sistema está protegido pelos **curativos do #602**
 (guard de exibição de saldo obsoleto + detector de UTXO-gasto que alerta a
 corrupção). O reparo do cache da central (purge + rescan) fica **pendente até haver
 uma fonte que complete o rescan** — hoje bloqueado pelas públicas.
+
+---
+
+## Estado da implementação (2026-07-17)
+
+**Escolha:** waterfalls self-hosted (backend leve, o LWK já fala) — opção B.
+
+**Deployado na VPS** em `/opt/waterfalls/` (fora do repo; secrets só na VPS):
+- `elements` — `blockstream/elementsd:23.3.3` (digest-pinned). Nó **watch-only, SEM
+  chaves** (só lê blocos + transmite tx já assinada pelo LWK). `chain=liquidv1`,
+  `validatepegin=0` (sem nó Bitcoin), `txindex=1`, `rest=1`+`server=1`, ZMQ rawtx.
+  Volume `elements_data`. **IBD em curso** (Liquid ~3,98M blocos; horas).
+- `waterfalls` — `blockstream/waterfalls@sha256:4d01…` (digest-pinned). `--network=liquid`
+  (minúsculo!), `--node-url=http://elements:7041`, `--listen 0.0.0.0:3100`, RocksDB em
+  `waterfalls_db`, `nofile=65536`. Indexa em paralelo, seguindo o tip do nó.
+- Ambos na rede externa `arenatech-prod_arenatech` (mesma do LWK).
+
+**Auditoria de cutover (rotas que o app usa vs. o que o waterfalls serve):**
+- `full_scan` (a chamada que rate-limitava e causou o incidente), `broadcast`
+  (`POST /tx`) e `get_tip_height` (`.tip()`) usam o **`EsploraClient` do LWK** →
+  rotas SERVIDAS pelo waterfalls. ✅ **Caminho crítico resolvido.**
+- `verify_in_mempool` faz `GET /tx/{txid}` (JSON) cru → waterfalls 404 → **cai no
+  fallback público** (inócuo; round-trip extra). Melhoria opcional: trocar por
+  `/tx/{txid}/raw` ou o client do LWK.
+- O **detector de spent-status (#602)** usa `/outspend`, que o waterfalls NÃO serve
+  → mantém `DEPIX_ESPLORA_OUTSPEND_URL` no blockstream (default). **Não** apontar
+  esse env pro waterfalls.
+
+**Validado empiricamente:** `GET http://waterfalls:3100/blocks/tip/hash` → 200 (do
+container do LWK, mesma rede).
+
+### Passos restantes (executar QUANDO o IBD terminar)
+
+Checar sync: `ssh contabo 'docker exec elements elements-cli -datadir=/data -conf=/etc/elements/elements.conf getblockchaininfo | grep -E "blocks|verificationprogress|initialblockdownload"'` — pronto quando `initialblockdownload:false` e `verificationprogress ≈ 1.0`. Depois, o waterfalls terminar de indexar (`docker logs waterfalls | tail`).
+
+1. **Paridade:** comparar `tip` e o saldo/UTXOs da central via waterfalls próprio vs.
+   público (o detector de spent-status vira o oráculo). Confirmar que batem.
+2. **Promover:** em `/opt/lwk-wallet/.env`, setar
+   `ESPLORA_URL=http://waterfalls:3100` (SEM `/liquid/api` — o público tem nginx que
+   tira esse prefixo; o nosso não). Recriar o LWK: `docker compose up -d`. As
+   públicas continuam de fallback (app.py monta a lista). Conferir `/readiness`.
+3. **Reparar o cache da central** (o incidente): parar o monitor / o LWK; **backup**
+   do dir de cache; apagar SÓ os arquivos de cache do wollet em
+   `wallet_data/dd308431-.../` (**NUNCA** `descriptor.txt`/`mnemonic.txt`); rescan
+   completo pelo waterfalls próprio (`full_scan`, sem rate-limit); religar; conferir
+   saldo → **R$ 131,21**.
+4. Apontar o monitoramento (`/readiness`, `checkEsploraHealth`) pra fonte própria.
+
+**Runbook de operação:** ver `docs/runbooks/waterfalls-esplora.md`.
