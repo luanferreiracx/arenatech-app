@@ -145,6 +145,12 @@ model TenantDepixTransaction {
   /// deste depósito (sourceType=SUBSCRIPTION). Guarda de idempotência — o período
   /// só avança UMA vez por depósito confirmado, mesmo com webhook duplicado.
   subscriptionAppliedAt DateTime?               @map("subscription_applied_at")
+  /// ADR 0057: quando o webhook de saida `deposit.pix_received` ja foi disparado pro
+  /// parceiro (guarda de idempotencia via CAS — dispara UMA vez no marco PIX recebido,
+  /// mesmo com approved/delayed + polling reentrando). O `deposit.completed` continua
+  /// no COMPLETED (on-chain). Com o delay 24h da Eulen, o parceiro precisa deste sinal
+  /// pra saber que o pagamento caiu sem esperar 24h.
+  partnerPixReceivedNotifiedAt DateTime?         @map("partner_pix_received_notified_at")
 
   /// ─── AUDITORIA ──────────────────────────────────────────────────────
   apiResponse           Json?                   @map("api_response")

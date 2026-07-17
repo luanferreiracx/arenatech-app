@@ -1139,11 +1139,50 @@ export async function applyPixReceivedEffects(tenantId: string, transactionId: s
     );
     return renewSubscriptionFromPayment(row);
   }
+  // Webhook de SAÍDA pro parceiro (ADR 0057): PIX RECEBIDO. Pra QUALQUER depósito (não
+  // só venda) — o parceiro precisa saber que o pagamento caiu SEM esperar o
+  // `deposit.completed`, que com o delay de 24h da Eulen só vem no dia seguinte.
+  // Once-only via CAS. Best-effort, fire-and-forget.
+  void notifyPartnerDepositPixReceived(tenantId, transactionId);
   // So libera venda de PDV/QuickSale; deposito wallet puro nao tem efeito de venda.
   if (row.sourceType !== "SALE" && row.sourceType !== "QUICK_SALE") {
     return { applied: false };
   }
   return applyDepositSaleEffects(row);
+}
+
+/** Dispara o webhook de PIX RECEBIDO pro parceiro (best-effort, ONCE-ONLY via CAS em
+ *  partnerPixReceivedNotifiedAt — approved/delayed + polling reentram, mas só a 1ª
+ *  transição envia). Sem config de webhook no tenant, é no-op. */
+async function notifyPartnerDepositPixReceived(tenantId: string, transactionId: string): Promise<void> {
+  try {
+    // CAS: reivindica o disparo. count===0 => já enviado (ou não existe) => no-op.
+    const claimed = await withTenant(tenantId, async (tx) =>
+      tx.tenantDepixTransaction.updateMany({
+        where: { id: transactionId, partnerPixReceivedNotifiedAt: null },
+        data: { partnerPixReceivedNotifiedAt: new Date() },
+      }),
+    );
+    if (claimed.count === 0) return;
+    const row = await withTenant(tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findUnique({
+        where: { id: transactionId },
+        select: { id: true, number: true, status: true, netAmountCents: true, grossAmountCents: true },
+      }),
+    );
+    if (!row) return;
+    const { notifyPartnerWebhook } = await import("./partner-webhook.service");
+    await notifyPartnerWebhook(tenantId, {
+      type: "deposit.pix_received",
+      transactionId: row.id,
+      number: row.number,
+      status: row.status,
+      amountCents: row.netAmountCents ?? row.grossAmountCents,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch {
+    // notifyPartnerWebhook já é fail-safe; este catch cobre o import/CAS.
+  }
 }
 
 export async function applyDepositBusinessEffects(tenantId: string, transactionId: string) {

@@ -21,7 +21,13 @@ import { sealSecret, openSecret } from "@/lib/security/secret-box";
  */
 const WEBHOOK_SECRET_CONTEXT = "partner-webhook";
 
-export type PartnerWebhookEventType = "deposit.completed" | "withdrawal.completed";
+export type PartnerWebhookEventType =
+  // PIX recebido: o cliente PAGOU (pagamento confirmado). Dispara no marco pix-received
+  // — sem esperar o DePix on-chain, que com o delay da Eulen pode levar ~24h. Use este
+  // evento pra confirmar o pagamento; o `deposit.completed` = DePix liquidado on-chain.
+  | "deposit.pix_received"
+  | "deposit.completed"
+  | "withdrawal.completed";
 
 export interface PartnerWebhookEvent {
   type: PartnerWebhookEventType;

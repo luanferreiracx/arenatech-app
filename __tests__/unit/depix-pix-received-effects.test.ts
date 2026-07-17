@@ -6,13 +6,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const txFindUnique = vi.fn();
+const txUpdateMany = vi.fn();
 const quickSaleFindFirst = vi.fn();
 const quickSaleUpdate = vi.fn();
 const saleFindUnique = vi.fn();
 const executeRaw = vi.fn();
 
 const tx = {
-  tenantDepixTransaction: { findUnique: txFindUnique },
+  tenantDepixTransaction: { findUnique: txFindUnique, updateMany: txUpdateMany },
   quickSale: { findFirst: quickSaleFindFirst, update: quickSaleUpdate },
   sale: { findUnique: saleFindUnique },
   $executeRaw: executeRaw,
@@ -29,6 +30,11 @@ vi.mock("@/server/services/depix-fee-wallet.service", () => ({
   getFeeWalletTenantId: vi.fn(),
   ensureFeeWalletLbtc: vi.fn(),
 }));
+// Webhook de saída pro parceiro (deposit.pix_received) — importado dinamicamente.
+const notifyPartnerWebhook = vi.fn();
+vi.mock("@/server/services/partner-webhook.service", () => ({
+  notifyPartnerWebhook: (...a: unknown[]) => notifyPartnerWebhook(...a),
+}));
 
 import { applyPixReceivedEffects } from "@/server/services/depix-transaction.service";
 
@@ -37,10 +43,16 @@ const TX_ID = "33333333-3333-3333-3333-333333333333";
 const SALE_ID = "44444444-4444-4444-4444-444444444444";
 
 beforeEach(() => {
-  for (const m of [txFindUnique, quickSaleFindFirst, quickSaleUpdate, saleFindUnique, executeRaw])
-    m.mockReset();
+  for (const m of [
+    txFindUnique, txUpdateMany, quickSaleFindFirst, quickSaleUpdate, saleFindUnique,
+    executeRaw, notifyPartnerWebhook,
+  ]) m.mockReset();
   executeRaw.mockResolvedValue(undefined);
   quickSaleUpdate.mockResolvedValue({});
+  // Default: o CAS do webhook de parceiro PERDE (já notificado / sem config) -> não
+  // dispara. Os testes de venda existentes não se importam com o webhook.
+  txUpdateMany.mockResolvedValue({ count: 0 });
+  notifyPartnerWebhook.mockResolvedValue(undefined);
 });
 
 describe("applyPixReceivedEffects", () => {
@@ -94,5 +106,49 @@ describe("applyPixReceivedEffects", () => {
 
     expect(quickSaleUpdate).not.toHaveBeenCalled();
     expect(executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("PIX recebido: dispara deposit.pix_received pro parceiro (1a vez: CAS ganha)", async () => {
+    // Deposito WALLET puro (sem venda) — o webhook de parceiro vale pra QUALQUER deposito.
+    txFindUnique.mockResolvedValue({
+      id: TX_ID, tenantId: TENANT, sourceType: "WALLET", sourceId: null, pixApprovedAt: new Date(),
+      number: "TXD-1", status: "PROCESSING", netAmountCents: 9800, grossAmountCents: 10000,
+    });
+    txUpdateMany.mockResolvedValue({ count: 1 }); // CAS reivindica o disparo
+
+    await applyPixReceivedEffects(TENANT, TX_ID);
+    // O webhook é fire-and-forget (void) — dá um tick pra ele completar.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // CAS foi tentado no marcador de idempotencia.
+    expect(txUpdateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: TX_ID, partnerPixReceivedNotifiedAt: null },
+    });
+    expect(notifyPartnerWebhook).toHaveBeenCalledWith(
+      TENANT,
+      expect.objectContaining({ type: "deposit.pix_received", transactionId: TX_ID, amountCents: 9800 }),
+    );
+  });
+
+  it("PIX recebido reentrante (CAS perde): NAO redispara o webhook (once-only)", async () => {
+    txFindUnique.mockResolvedValue({
+      id: TX_ID, tenantId: TENANT, sourceType: "WALLET", sourceId: null, pixApprovedAt: new Date(),
+    });
+    txUpdateMany.mockResolvedValue({ count: 0 }); // ja notificado antes
+
+    await applyPixReceivedEffects(TENANT, TX_ID);
+
+    expect(notifyPartnerWebhook).not.toHaveBeenCalled();
+  });
+
+  it("SUBSCRIPTION: NAO dispara webhook de deposito pro parceiro", async () => {
+    txFindUnique.mockResolvedValue({
+      id: TX_ID, tenantId: TENANT, sourceType: "SUBSCRIPTION", sourceId: "sub-1", pixApprovedAt: new Date(),
+    });
+    txUpdateMany.mockResolvedValue({ count: 1 });
+
+    await applyPixReceivedEffects(TENANT, TX_ID).catch(() => {});
+
+    expect(notifyPartnerWebhook).not.toHaveBeenCalled();
   });
 });

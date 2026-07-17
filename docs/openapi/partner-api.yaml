@@ -37,7 +37,11 @@ components:
             - WITHDRAW
         status:
           type: string
-          description: PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED
+          description: >-
+            PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED.
+            IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento confirmado); use isto para
+            confirmar o pagamento. COMPLETED = DePix liquidado on-chain, que pode levar até ~24h por
+            retenção do provedor (Eulen). Não espere COMPLETED para confirmar o pagamento.
         sourceType:
           type: string
         grossAmountCents:
@@ -232,6 +236,7 @@ components:
         type:
           type: string
           enum:
+            - deposit.pix_received
             - deposit.completed
             - withdrawal.completed
         transactionId:
