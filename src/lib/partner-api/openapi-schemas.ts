@@ -16,7 +16,12 @@ export const partnerTransactionResponseSchema = z
     kind: z.enum(["DEPOSIT", "WITHDRAW"]),
     status: z
       .string()
-      .describe("PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED"),
+      .describe(
+        "PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED | EXPIRED | MED_REFUNDED. " +
+          "IMPORTANTE (depósito): PROCESSING = PIX RECEBIDO (pagamento confirmado); use isto " +
+          "para confirmar o pagamento. COMPLETED = DePix liquidado on-chain, que pode levar até " +
+          "~24h por retenção do provedor (Eulen). Não espere COMPLETED para confirmar o pagamento.",
+      ),
     sourceType: z.string(),
     grossAmountCents: z.number().int().describe("Valor bruto em centavos."),
     netAmountCents: z.number().int().nullable().describe("Líquido (após taxas), em centavos."),
@@ -60,10 +65,15 @@ export const partnerErrorResponseSchema = z
   })
   .meta({ id: "PartnerError" });
 
-/** Evento de webhook de saída (corpo do POST que enviamos ao parceiro). */
+/** Evento de webhook de saída (corpo do POST que enviamos ao parceiro).
+ *  - deposit.pix_received: PIX recebido (pagamento confirmado). Dispara sem esperar o
+ *    DePix on-chain — use para confirmar o pagamento (com o delay da Eulen, o
+ *    deposit.completed pode levar ~24h).
+ *  - deposit.completed: DePix liquidado on-chain.
+ *  - withdrawal.completed: saque PIX concluído. */
 export const partnerWebhookEventSchema = z
   .object({
-    type: z.enum(["deposit.completed", "withdrawal.completed"]),
+    type: z.enum(["deposit.pix_received", "deposit.completed", "withdrawal.completed"]),
     transactionId: z.string(),
     number: z.string(),
     status: z.string(),
