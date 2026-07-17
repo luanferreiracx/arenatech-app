@@ -8,13 +8,13 @@ import {
   depositUnderpayToleranceCents,
 } from "@/server/services/depix-transaction.service";
 import type { EulenDepositPayload } from "@/lib/webhooks/eulen-deposit-handler";
-
-const PAID_ONCHAIN = new Set(["depix_sent"]);
-// `approved` E `delayed` = PIX recebido (o delay de 24h da Eulen segura o DePix, mas
-// o pagamento ja caiu). Vale pra TODO deposito, inclusive o QR estatico da central.
-const PIX_APPROVED = new Set(["approved", "delayed"]);
-const EXPIRED = new Set(["expired"]);
-const FAILED = new Set(["refunded", "will_refund", "canceled", "error"]);
+import {
+  isPixReceivedStatus,
+  isDepixSentStatus,
+  isExpiredStatus,
+  isFailedStatus,
+  isRefundedStatus,
+} from "@/lib/depix/deposit-status";
 
 /**
  * Webhook de DEPOSITO da Eulen com `qrId` VAZIO = pagamento no QR PIX ESTATICO
@@ -71,7 +71,7 @@ export async function handleStaticQrDeposit(
   }
 
   // ── PIX aprovado: marca PROCESSING (pago, aguardando on-chain). Sem creditar.
-  if (PIX_APPROVED.has(statusRaw)) {
+  if (isPixReceivedStatus(statusRaw)) {
     await withAdmin((t) =>
       t.tenantDepixTransaction.updateMany({
         where: { id: tx.id, status: "PENDING" },
@@ -83,7 +83,7 @@ export async function handleStaticQrDeposit(
   }
 
   // ── DePix enviado on-chain: cross-check + credita na central.
-  if (PAID_ONCHAIN.has(statusRaw)) {
+  if (isDepixSentStatus(statusRaw)) {
     const blockchainTxId = payload.blockchainTxID;
     if (!blockchainTxId) {
       await markWebhookProcessed("eulen_static", eventKey, { ok: true });
@@ -142,8 +142,8 @@ export async function handleStaticQrDeposit(
   }
 
   // ── Expirado / falho.
-  if (EXPIRED.has(statusRaw) || FAILED.has(statusRaw)) {
-    const outcome = EXPIRED.has(statusRaw) ? "EXPIRED" : "FAILED";
+  if (isExpiredStatus(statusRaw) || isFailedStatus(statusRaw) || isRefundedStatus(statusRaw)) {
+    const outcome = isExpiredStatus(statusRaw) ? "EXPIRED" : "FAILED";
     await withAdmin((t) =>
       t.tenantDepixTransaction.updateMany({
         where: { id: tx.id, status: { in: ["PENDING", "PROCESSING"] } },
@@ -154,7 +154,7 @@ export async function handleStaticQrDeposit(
     return { status: 200, body: { ok: true, finalized: outcome } };
   }
 
-  // pending / under_review / delayed: ack (tx fica PENDING).
+  // pending / under_review: ack (tx fica PENDING; `delayed` ja e PIX recebido acima).
   await markWebhookProcessed("eulen_static", eventKey, { ok: true });
   return { status: 200, body: { ok: true, ignored: statusRaw } };
 }

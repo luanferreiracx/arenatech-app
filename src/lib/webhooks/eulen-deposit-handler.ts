@@ -12,6 +12,13 @@ import {
 import { handleStaticQrDeposit } from "@/lib/webhooks/eulen-static-qr-handler";
 import { getFeeWalletTenantId } from "@/server/services/depix-fee-wallet.service";
 import { getPixStatus, isDepixConfigured } from "@/lib/services/depix-service";
+import {
+  isPixReceivedStatus,
+  isDepixSentStatus,
+  isExpiredStatus,
+  isFailedStatus,
+  isRefundedStatus,
+} from "@/lib/depix/deposit-status";
 
 /** Payload do webhook de deposito da Eulen (docs.eulen.app — DepositWebhookBody). */
 export interface EulenDepositPayload {
@@ -27,13 +34,6 @@ export interface EulenDepositPayload {
   [key: string]: unknown;
 }
 
-const PAID_ONCHAIN_STATUSES = new Set(["depix_sent"]);
-// `approved` E `delayed` significam PIX RECEBIDO (o cliente pagou). O `delayed` e o
-// novo estado da Eulen quando o DePix e segurado por ~24h (delayUntil) antes de ir
-// on-chain — o PIX ja caiu, entao LIBERA a venda igual ao `approved`. O saldo so e
-// creditado no `depix_sent` (on-chain), 24h depois. `under_review` NAO libera (a
-// Eulen ainda esta revisando o pagamento).
-const PIX_APPROVED_STATUSES = new Set(["approved", "delayed"]);
 
 /**
  * Timeout curto do cross-check on-chain (LWK) DENTRO do webhook. A Eulen desiste
@@ -95,8 +95,6 @@ async function eulenConfirmsPixReceived(qrId: string): Promise<boolean> {
   }
   return corroborated;
 }
-const EXPIRED_STATUSES = new Set(["expired"]);
-const FAILED_STATUSES = new Set(["refunded", "will_refund", "canceled", "error"]);
 
 /**
  * Nome do pagador vindo da Eulen (`payerName`), pronto pra mesclar no `data:` de
@@ -169,7 +167,7 @@ export async function handleEulenDepositWebhook(
   // ── PIX aprovado: o cliente pagou (fiat caiu). Marca PROCESSING na hora
   //    (pagamento confirmado, aguardando o DePix on-chain) e LIBERA a venda
   //    (PDV/QuickSale). NAO credita saldo (isso e COMPLETED, on-chain).
-  if (PIX_APPROVED_STATUSES.has(statusRaw)) {
+  if (isPixReceivedStatus(statusRaw)) {
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
         where: { id: txRow.id, status: "PENDING" },
@@ -195,7 +193,7 @@ export async function handleEulenDepositWebhook(
   //    pra cross-check on-chain (o endereço não está no nosso LWK) — a Eulen é a
   //    fonte de verdade. Marca COMPLETED com o valueInCents dela e encerra. Não
   //    credita saldo interno (a Arena não custodia esse endereço) nem faz 2ª tx.
-  if (txRow.isByow && PAID_ONCHAIN_STATUSES.has(statusRaw)) {
+  if (txRow.isByow && isDepixSentStatus(statusRaw)) {
     if (["COMPLETED", "COMPLETED_FEE_PENDING"].includes(txRow.status)) {
       await markWebhookProcessed("eulen_deposit", eventKey, { ok: true });
       return { status: 200, body: { ok: true, byow: true, alreadyCompleted: true } };
@@ -225,7 +223,7 @@ export async function handleEulenDepositWebhook(
   }
 
   // ── DePix enviado on-chain: cross-check + credita ──
-  if (PAID_ONCHAIN_STATUSES.has(statusRaw)) {
+  if (isDepixSentStatus(statusRaw)) {
     const blockchainTxId = payload.blockchainTxID;
     if (!blockchainTxId) {
       // Sem txid nao da pra cross-check on-chain; deixa o monitor on-chain
@@ -332,8 +330,8 @@ export async function handleEulenDepositWebhook(
   }
 
   // ── Expirado / falho ──
-  if (EXPIRED_STATUSES.has(statusRaw) || FAILED_STATUSES.has(statusRaw)) {
-    const outcome = EXPIRED_STATUSES.has(statusRaw) ? "EXPIRED" : "FAILED";
+  if (isExpiredStatus(statusRaw) || isFailedStatus(statusRaw) || isRefundedStatus(statusRaw)) {
+    const outcome = isExpiredStatus(statusRaw) ? "EXPIRED" : "FAILED";
     await withAdmin((tx) =>
       tx.tenantDepixTransaction.updateMany({
         // So finaliza quem ainda nao concluiu (nao reverte um COMPLETED).
