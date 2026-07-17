@@ -15,6 +15,7 @@ import {
   type EulenMedPayload,
 } from "@/lib/webhooks/eulen-med-handler";
 import { notifyDepixWebhook } from "@/lib/webhooks/eulen-webhook-notify";
+import { isPixReceivedStatus } from "@/lib/depix/deposit-status";
 
 export const runtime = "nodejs";
 
@@ -59,9 +60,8 @@ function notifyFromPayload(
     });
   }
   if (type === "deposit") {
-    // Notifica no marco "PIX recebido": `approved` OU `delayed` (delay de 24h da
-    // Eulen — o pagamento ja caiu, so o DePix e segurado). Demais status nao alertam.
-    if (status !== "approved" && status !== "delayed") return Promise.resolve();
+    // Notifica so no marco "PIX recebido" (approved | delayed) — fonte unica.
+    if (!isPixReceivedStatus(status)) return Promise.resolve();
     const isStatic = !str(p.qrId);
     return notifyDepixWebhook({
       kind: isStatic ? "static" : "deposit",
