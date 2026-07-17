@@ -19,6 +19,31 @@
 
 ---
 
+### 2026-07-17 — Incidente do saldo DePix inflado + Esplora self-hosted + P2s de segurança
+**Incidente (dinheiro):** saldo da carteira central exibia R$4.304,44 vs R$131,21 real.
+Diagnóstico confirmado on-chain (skill `diagnose` + `empirical-validation`): o cache do
+LWK prendia **20 de 21 UTXOs de DePix já GASTOS** (`full_scan` é incremental, não purga
+gasto). Raiz: dependência de Esploras públicas flaky que rate-limitam o rescan corretivo.
+- **#602 (merjado):** guard de exibição (`resolveBalanceStaleness` — não mostra saldo
+  obsoleto como verdade quando o sync degrada) + **detector ativo** de UTXO-gasto-no-cache
+  (`depix-cache-integrity.service.ts`, de carona no cron de reconcile, alerta no Sentry).
+  Validado empírico na prod: detecta 20/21, phantom R$4.173,22 (= 4304−131).
+- **Auditoria DePix/LWK (skill `audit-security`):** 5 frentes fan-out + verificação
+  adversarial. Maioria dos "P0" dos agentes = FALSOS-POSITIVOS (idempotência do LWK é
+  durável; advisory-lock de índice correto; cron auth ok; fee-split é informativo;
+  broadcast levanta em all-fail). Achados reais = a classe do cache + o SPOF de Esplora.
+- **Esplora self-hosted (ADR 0059 + runbook, #603):** dono liberou disco (73GiB). Stack
+  `elements`+`waterfalls` deployada na VPS (`/opt/waterfalls/`, imagens digest-pinadas, nó
+  watch-only SEM chaves). **IBD em curso.** Cutover é drop-in (`ESPLORA_URL=http://waterfalls:3100`,
+  públicas viram fallback). Pendente do IBD: paridade → promover → **reparar cache central**
+  (4304→131). Ver `docs/runbooks/waterfalls-esplora.md`. `F3 (ledger integrity)` NÃO se
+  aplica (sem ledger interno; saldo = on-chain).
+- **P2s de segurança shipados (auditoria 2026-07-14):** #604 `publicPlans` não vaza mais o
+  gating de módulos (`toPublicPlanView` allowlist + teste-guard) · #605 limpa `passwordHash`
+  do pré-cadastro ao aprovar/rejeitar · #606 fecha TOCTOU do `assertTenantUserQuota`
+  (advisory lock). **Vários itens do "restante" da auditoria já estavam feitos** (R1, P1-19,
+  Bot T1) — doc STATUS_CORRECOES estava defasado; verificar sempre contra o código.
+
 ### 2026-07-14 — Auditoria GERAL (12 domínios) + correção em ondas (15 PRs)
 Varredura completa módulo a módulo (12 agentes paralelos, cada um com sua skill de
 auditoria de 4 rodadas, cada achado verificado contra o código real). Registro em
