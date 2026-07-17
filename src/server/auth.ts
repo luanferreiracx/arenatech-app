@@ -15,13 +15,12 @@ import { hashPassword } from "@/lib/password";
 import { resolveLoginIdentifier, maskIdentifier, loginRateLimitKey } from "@/lib/auth/login-identifier";
 import { isSessionRefreshStale } from "@/lib/auth/session-staleness";
 import { withAdmin } from "@/server/db";
-import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
+import { recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
 import { allowedModulesForTenant, type ModuleKey } from "@/lib/modules";
 import { decryptSecret, verifyTotp } from "@/lib/auth/two-factor";
 import { consumeBackupCodeAtomic } from "@/server/services/backup-code.service";
 import { TwoFactorRequiredError, TwoFactorInvalidError } from "@/lib/auth/two-factor-errors";
-import { RateLimitedError } from "@/lib/auth/login-errors";
 
 /**
  * Resolve os módulos liberados por tenant (gating por plano), com cache em
@@ -255,21 +254,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const password = credentials?.password;
         if (typeof password !== "string" || !password) return null;
 
-        // Rate limit por identificador (5 tentativas / 15min → lockout 15min).
-        // Chave via helper compartilhado — DEVE bater com a lida pelo loginAction
-        // (senão o desafio Turnstile adaptativo nunca dispara). Ver loginRateLimitKey.
+        // Contador de falhas por identificador (chave compartilhada com o
+        // loginAction). NÃO há mais lockout duro por CPF: ele era DoS-able — quem
+        // sabe o CPF da vítima (semi-público no BR) trancava o login dela por
+        // 15min (G-P1-20). O brute-force é barrado pelo Turnstile ADAPTATIVO (o
+        // loginAction exige captcha após 3 falhas) + rate-limit por IP; este
+        // contador alimenta esse captcha e é zerado no sucesso (clearRateLimit).
+        // Decisão 3, auditoria 2026-07-14.
         const rateLimitKey = loginRateLimitKey(identifier);
-        const limitCheck = checkRateLimit(rateLimitKey);
-        if (!limitCheck.allowed) {
-          const minutes = Math.ceil(limitCheck.retryAfterMs / 60000);
-          logger.warn("Login bloqueado por rate limit", {
-            kind: identifier.kind,
-            id: maskIdentifier(identifier),
-            retryAfterMin: minutes,
-          });
-          // AuthError tipado → loginAction mostra mensagem amigável (não crasha).
-          throw new RateLimitedError(minutes);
-        }
 
         // cpf/email são únicos PARCIAIS no banco (ADR 0050), não @unique p/ o
         // Prisma → findFirst pelo campo do identificador resolvido.

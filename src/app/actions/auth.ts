@@ -10,7 +10,6 @@ import { resolveLoginIdentifier, loginRateLimitKey } from "@/lib/auth/login-iden
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { isTurnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { TWO_FACTOR_REQUIRED_CODE, TWO_FACTOR_INVALID_CODE } from "@/lib/auth/two-factor-errors";
-import { RATE_LIMITED_CODE } from "@/lib/auth/login-errors";
 import { logger } from "@/lib/logger";
 
 const INVALID_CREDENTIALS = "CPF ou senha inválidos. Tente novamente.";
@@ -127,9 +126,6 @@ async function runLogin(formData: FormData): Promise<LoginState> {
       }
       if (code === TWO_FACTOR_INVALID_CODE) {
         return { twoFactorRequired: true, error: "Código de verificação inválido. Tente novamente." };
-      }
-      if (code === RATE_LIMITED_CODE) {
-        return { error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." };
       }
       // Credenciais inválidas (ou senha ausente na 2ª etapa). Loga o code real
       // para diagnóstico — "CredentialsSignin" genérico aqui com hasTotp=true
