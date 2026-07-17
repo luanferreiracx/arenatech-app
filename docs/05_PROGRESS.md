@@ -41,8 +41,24 @@ gasto). Raiz: dependência de Esploras públicas flaky que rate-limitam o rescan
 - **P2s de segurança shipados (auditoria 2026-07-14):** #604 `publicPlans` não vaza mais o
   gating de módulos (`toPublicPlanView` allowlist + teste-guard) · #605 limpa `passwordHash`
   do pré-cadastro ao aprovar/rejeitar · #606 fecha TOCTOU do `assertTenantUserQuota`
-  (advisory lock). **Vários itens do "restante" da auditoria já estavam feitos** (R1, P1-19,
-  Bot T1) — doc STATUS_CORRECOES estava defasado; verificar sempre contra o código.
+  (advisory lock) · #608 fecha oráculo de timing no reset de senha (`dispatchPasswordReset`
+  fire-and-forget → resposta em tempo uniforme) · **#609 gating de rota FAIL-CLOSED**
+  (`UNGATED_ROUTE_PREFIXES`; rota não-registrada é NEGADA em vez de vazar pra qualquer
+  tenant, G-P1-18 — auditoria completa de rotas + guardião reescrito + E2E; rota 404 agora
+  redireciona pro painel). **Vários itens do "restante" da auditoria já estavam feitos** (R1,
+  P1-19, Bot T1) — doc STATUS_CORRECOES estava defasado; verificar sempre contra o código.
+- **Tradeoffs de auth decididos pelo dono (#610 + verificações):**
+  - (1) Enumeração no signup NO-KYC → **manter** (tradeoff de UX de cadastro; rate-limited).
+  - (2) Fail-open do refresh do JWT → **com TETO** (#610): `token.lastVerifiedAt` +
+    `isSessionRefreshStale`; tolera blip transitório, invalida se não se re-verifica há >15min.
+  - (3) Lockout de login por CPF (DoS, G-P1-20) → **removido** (#610); o Turnstile adaptativo
+    (após 3 falhas, já existente) + rate-limit por IP cobrem o brute-force. Tradeoff:
+    brute-force deixa de ter lockout-de-conta, fica em captcha + limite-por-IP.
+  - (4) CSP `unsafe-eval` → **já satisfeito**: prod só tem no dev/HMR e no CSP isolado do
+    Swagger `/docs/partner-api` (sem dado de tenant). `unsafe-inline` (nonce) fica pendente.
+- **LIÇÃO recorrente:** o doc de auditoria estava MUITO defasado — R1/P1-19/Bot-T1/`deletePlan`
+  (FK Restrict)/enumeração já resolvidos/mitigados. Sempre verificar cada achado contra o
+  código atual antes de implementar (evitou retrabalho várias vezes).
 
 ### 2026-07-14 — Auditoria GERAL (12 domínios) + correção em ondas (15 PRs)
 Varredura completa módulo a módulo (12 agentes paralelos, cada um com sua skill de
