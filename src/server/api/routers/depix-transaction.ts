@@ -29,6 +29,7 @@ import {
 } from "@/server/services/depix-transaction.service";
 import { onchainWithdrawSchema } from "@/lib/validators/depix-onchain";
 import * as lwk from "@/lib/services/lwk-service";
+import { resolveBalanceStaleness } from "@/lib/depix/balance-staleness";
 import { logger } from "@/lib/logger";
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
 
@@ -427,10 +428,20 @@ export const depixTransactionRouter = createTRPCRouter({
     // chamar o LWK criaria a MESMA carteira fantasma). Saldo fica 0/sem consulta.
     const isExternal = wallet?.custodyModel === "external";
     const provisioned = !!wallet?.provisionedAt;
-    const balance =
-      provisioned && !isExternal
-        ? await lwk.getBalance(ctx.tenantId)
-        : { success: true as const, depixBalance: 0, error: null };
+    const queriesBalance = provisioned && !isExternal;
+    // Consulta o saldo E a saúde do sync em paralelo. O saldo do LWK vem do cache
+    // (sync=false); se as Esploras estão degradadas, esse cache pode estar OBSOLETO
+    // (não reflete gastos recentes) — mostrar o número como verdade seria enganoso
+    // (incidente do saldo inflado da central). A saúde do sync (last_sync_ok_at,
+    // consecutive_failures) qualifica a confiança no número.
+    const [balance, health] = await Promise.all([
+      queriesBalance
+        ? lwk.getBalance(ctx.tenantId)
+        : Promise.resolve({ success: true as const, depixBalance: 0, error: null }),
+      queriesBalance
+        ? lwk.getEsploraHealth().catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
     if (!balance.success) {
       logger.warn("Overview: lwk getBalance falhou", {
@@ -438,6 +449,8 @@ export const depixTransactionRouter = createTRPCRouter({
         error: balance.error,
       });
     }
+
+    const staleness = resolveBalanceStaleness(health);
 
     return {
       wallet: wallet
@@ -454,6 +467,9 @@ export const depixTransactionRouter = createTRPCRouter({
         depix: balance.depixBalance ?? 0,
         success: balance.success,
         error: balance.error ?? null,
+        // Sinal de confiança no saldo (só relevante quando consultamos o LWK).
+        stale: queriesBalance ? staleness.stale : false,
+        lastSyncOkAt: queriesBalance ? staleness.lastSyncOkAt : null,
       },
     };
   }),

@@ -118,6 +118,8 @@ export default function DepixWalletPage() {
         network={o?.wallet.network ?? null}
         success={o?.balance.success ?? false}
         error={o?.balance.error ?? null}
+        stale={o?.balance.stale ?? false}
+        lastSyncOkAt={o?.balance.lastSyncOkAt ?? null}
         canWithdraw={walletInfo?.canWithdraw === true}
       />
 
