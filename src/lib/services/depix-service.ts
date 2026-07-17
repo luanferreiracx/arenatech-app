@@ -725,11 +725,17 @@ export async function getPixStatus(
 /** Status Eulen de deposito -> status normalizado. */
 function normalizeDepositStatus(raw: string): NonNullable<DepixStatusResult["status"]> {
   if (raw === "depix_sent") return "paid";
-  if (raw === "approved") return "pix_received";
+  // `approved` E `delayed` = PIX recebido (o cliente pagou). `delayed` e o novo
+  // estado quando a Eulen segura o DePix ~24h (delayUntil) antes de enviar on-chain;
+  // o pagamento JA caiu, entao e "pix_received" (libera a venda; NAO credita saldo,
+  // que so vem no `depix_sent`). Sem isto, `delayed` cairia em "pending" e a venda
+  // nunca liberaria — e a corroboracao anti-forja (status !== "pending") tambem
+  // falharia. `under_review` fica "pending" (a Eulen ainda revisa o pagamento).
+  if (raw === "approved" || raw === "delayed") return "pix_received";
   if (raw === "expired") return "expired";
   if (["refunded", "will_refund"].includes(raw)) return "refunded";
   if (["canceled", "cancelled", "error"].includes(raw)) return "failed";
-  // pending / under_review / delayed
+  // pending / under_review
   return "pending";
 }
 

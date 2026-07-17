@@ -274,8 +274,9 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                   PIX recebido
                 </p>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  Confirmando na rede Liquid (~2 min). O saldo é creditado assim que
-                  a rede confirmar.
+                  O pagamento foi confirmado. O DePix está em processamento e pode levar
+                  de alguns minutos até ~24h para ser liberado (retenção da Eulen); o
+                  saldo é creditado assim que a rede confirmar.
                 </p>
               </div>
             </div>

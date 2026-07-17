@@ -28,7 +28,12 @@ export interface EulenDepositPayload {
 }
 
 const PAID_ONCHAIN_STATUSES = new Set(["depix_sent"]);
-const PIX_APPROVED_STATUSES = new Set(["approved"]);
+// `approved` E `delayed` significam PIX RECEBIDO (o cliente pagou). O `delayed` e o
+// novo estado da Eulen quando o DePix e segurado por ~24h (delayUntil) antes de ir
+// on-chain — o PIX ja caiu, entao LIBERA a venda igual ao `approved`. O saldo so e
+// creditado no `depix_sent` (on-chain), 24h depois. `under_review` NAO libera (a
+// Eulen ainda esta revisando o pagamento).
+const PIX_APPROVED_STATUSES = new Set(["approved", "delayed"]);
 
 /**
  * Timeout curto do cross-check on-chain (LWK) DENTRO do webhook. A Eulen desiste
