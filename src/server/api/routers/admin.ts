@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
+import { toPublicPlanView } from "@/lib/plans/public-plan-view";
 import { createTRPCRouter, adminProcedure, publicProcedure } from "@/server/api/trpc";
 import { prisma } from "@/server/db";
 import { tenantFinancialInit } from "@/server/services/tenant-financial-init.service";
@@ -1881,16 +1882,9 @@ export const adminRouter = createTRPCRouter({
       orderBy: { monthlyPrice: "asc" },
     });
 
-    return plans.map((p) => ({
-      id: p.id,
-      name: p.name,
-      slug: p.slug,
-      description: p.description,
-      monthlyPrice: decimalToCents(p.monthlyPrice),
-      yearlyPrice: p.yearlyPrice ? decimalToCents(p.yearlyPrice) : null,
-      maxUsers: p.maxUsers,
-      features: p.features,
-    }));
+    // Endpoint SEM auth: usa a view pública (allowlist explícito). NUNCA expõe
+    // `features` — é a intenção de gating de módulos (P2 auditoria 2026-07-14).
+    return plans.map(toPublicPlanView);
   }),
 
   // O auto-cadastro público KYC (submitPreRegistration) foi aposentado na Fase 5
