@@ -31,6 +31,12 @@ export const DEFAULT_MAX_USERS = 5;
  * caminhos de criação (superadmin e admin do tenant) — o limite vale pra todos.
  */
 export async function assertTenantUserQuota(tx: Tx, tenantId: string): Promise<void> {
+  // Fecha o TOCTOU do count-then-create: sem lock, duas adições concorrentes de
+  // usuário ao mesmo tenant contam o mesmo valor, passam as duas e estouram o
+  // maxUsers do plano. Advisory xact-lock por tenant serializa a checagem+insert
+  // (o lock segura até o COMMIT da tx que cria o userTenant). Mesmo padrão dos
+  // locks de saque/índice no DePix. Exige que o caller faça o create no MESMO tx.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('tenant_user_quota:' || ${tenantId}, 0))`;
   const plan = await resolveTenantPlan(tx, tenantId);
   const maxUsers = plan?.maxUsers ?? DEFAULT_MAX_USERS;
   const currentUsers = await tx.userTenant.count({ where: { tenantId } });
