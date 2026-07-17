@@ -41,6 +41,9 @@ declare module "next-auth/jwt" {
     mustChangePassword: boolean;
     /** A5: fingerprint da senha na emissão do token — invalida sessão se a senha mudar. */
     pwdSig?: string;
+    /** Decisão 2: ms epoch do último login/refresh bem-sucedido. Bounda o fail-open
+     *  do refresh — sessão que não se re-verifica há > teto é invalidada. */
+    lastVerifiedAt?: number;
     activeTenantId: string | null;
     impersonatedTenantId?: string | null;
     availableTenants: Array<{

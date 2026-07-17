@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { compare } from "bcryptjs";
 import { hashPassword } from "@/lib/password";
 import { resolveLoginIdentifier, maskIdentifier, loginRateLimitKey } from "@/lib/auth/login-identifier";
+import { isSessionRefreshStale } from "@/lib/auth/session-staleness";
 import { withAdmin } from "@/server/db";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/utils/rate-limit";
 import { logger } from "@/lib/logger";
@@ -451,6 +452,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           }
         }
 
+        // Login ou refresh OK → sessão re-verificada contra o banco AGORA. Marca
+        // pra bounding do fail-open (decisão 2).
+        token.lastVerifiedAt = Date.now();
         return token;
       } catch (error) {
         // Caminho de LOGIN (user presente): deixa o erro subir — o loginAction
@@ -458,9 +462,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (user) throw error;
         // Caminho de REFRESH (sem user, roda em TODA navegação via proxy): uma
         // falha de banco aqui NÃO pode derrubar a navegação para o error boundary
-        // ("Algo deu errado"). Degrada mantendo o token atual (módulos/tenants do
-        // último refresh) — o cache/TTL já pressupõe essa tolerância.
-        logger.error("jwt refresh falhou — mantendo token atual", {
+        // ("Algo deu errado"). Degrada mantendo o token atual (fail-open) — MAS
+        // só até o teto de graça (decisão 2). Além dele, invalida (return null →
+        // re-login): limita a janela em que um usuário revogado retém acesso num
+        // erro de banco, sem deslogar todo mundo num blip transitório.
+        if (isSessionRefreshStale(token.lastVerifiedAt, Date.now())) {
+          logger.error("jwt refresh falhou e sessão stale além do teto — invalidando (fail-closed)", {
+            userId: typeof token.id === "string" ? token.id : undefined,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }
+        logger.error("jwt refresh falhou — mantendo token atual (dentro do teto de graça)", {
           error: error instanceof Error ? error.message : String(error),
         });
         return token;
