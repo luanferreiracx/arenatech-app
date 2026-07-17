@@ -17,6 +17,54 @@ import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { generateResetToken, hashResetToken } from "@/lib/auth/reset-token";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 
+/**
+ * Fluxo de reset de senha (gera+grava token, envia email). Isolado pra ser
+ * disparado FIRE-AND-FORGET pelo forgotPassword — assim a resposta tem tempo
+ * uniforme haja ou não usuário (senão o envio de email vira oráculo de timing
+ * pra enumeração). Roda no servidor Node persistente (output standalone), então
+ * a promise não-esperada conclui normalmente. Erros são tratados por quem chama.
+ */
+async function dispatchPasswordReset(user: { id: string; email: string; name: string }): Promise<void> {
+  const token = generateResetToken();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+  // Invalida tokens anteriores ainda válidos deste usuário.
+  await prisma.passwordResetToken.updateMany({
+    where: { userId: user.id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  // Guarda só o HASH — o token em claro vai pro usuário via email.
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, token: hashResetToken(token), expiresAt },
+  });
+
+  const resetLink = `${getAppBaseUrl()}/reset-password?token=${token}`;
+  // Escapa o nome (anti HTML-injection). Link é server-side (token + baseUrl env).
+  const safeName = escapeHtml(user.name);
+  await sendEmail(
+    user.email,
+    "Arena Tech - Redefinir senha",
+    `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #2ec4b6;">Arena Tech</h2>
+          <p>Ola, ${safeName}!</p>
+          <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${resetLink}"
+               style="background-color: #2ec4b6; color: #0a0a0a; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+              Redefinir Senha
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #666;">Este link expira em 1 hora. Se voce nao solicitou a redefinicao, ignore este e-mail.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+          <p style="font-size: 12px; color: #999;">Arena Tech - Sistema de Gestao</p>
+        </div>
+        `,
+  );
+  logger.info("forgotPassword: reset email sent", { userId: user.id });
+}
+
 export const authRouter = createTRPCRouter({
   /** Return current session info */
   me: protectedProcedure.query(({ ctx }) => {
@@ -58,62 +106,27 @@ export const authRouter = createTRPCRouter({
         select: { id: true, email: true, name: true },
       });
 
-      // Always return success to prevent user enumeration
-      if (!user || !user.email) {
+      // Enumeração por TIMING: a resposta já é sempre `success`, mas o caminho
+      // com usuário existente faz trabalho extra (gera/grava token + ENVIA email,
+      // que é lento) antes de retornar — um atacante medindo o tempo distinguia
+      // "existe" (lento) de "não existe" (rápido). Fix: dispara o fluxo de reset
+      // SEM esperar (fire-and-forget) e retorna no MESMO tempo nos dois casos.
+      // Erros do envio são só logados (nunca revelados — mesma UX de antes).
+      if (user?.email) {
+        void dispatchPasswordReset({ id: user.id, email: user.email, name: user.name }).catch(
+          (err) =>
+            logger.error("forgotPassword: falha no fluxo de reset (async)", {
+              userId: user.id,
+              err: err instanceof Error ? err.message : String(err),
+            }),
+        );
+      } else {
         logger.info("forgotPassword: user not found or no email", {
           identifier: isCpf ? "***CPF***" : input.identifier,
         });
-        return { success: true };
       }
 
-      // Generate token
-      const token = generateResetToken();
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      // Invalidate previous tokens for this user
-      await prisma.passwordResetToken.updateMany({
-        where: { userId: user.id, usedAt: null },
-        data: { usedAt: new Date() },
-      });
-
-      // Store only the hash — the plaintext token is sent to the user via email
-      await prisma.passwordResetToken.create({
-        data: {
-          userId: user.id,
-          token: hashResetToken(token),
-          expiresAt,
-        },
-      });
-
-      // Build reset link
-      const baseUrl = getAppBaseUrl();
-      const resetLink = `${baseUrl}/reset-password?token=${token}`;
-
-      // Send email — escapa nome do usuario para evitar HTML injection.
-      // O link e gerado server-side (token UUID + baseUrl env) — seguro.
-      const safeName = escapeHtml(user.name);
-      await sendEmail(
-        user.email,
-        "Arena Tech - Redefinir senha",
-        `
-        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #2ec4b6;">Arena Tech</h2>
-          <p>Ola, ${safeName}!</p>
-          <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
-          <div style="text-align: center; margin: 32px 0;">
-            <a href="${resetLink}"
-               style="background-color: #2ec4b6; color: #0a0a0a; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
-              Redefinir Senha
-            </a>
-          </div>
-          <p style="font-size: 13px; color: #666;">Este link expira em 1 hora. Se voce nao solicitou a redefinicao, ignore este e-mail.</p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-          <p style="font-size: 12px; color: #999;">Arena Tech - Sistema de Gestao</p>
-        </div>
-        `,
-      );
-
-      logger.info("forgotPassword: reset email sent", { userId: user.id });
+      // Sempre sucesso, sempre no mesmo tempo (não espera o envio).
       return { success: true };
     }),
 
