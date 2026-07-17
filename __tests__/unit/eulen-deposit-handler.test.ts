@@ -100,6 +100,24 @@ describe("handleEulenDepositWebhook", () => {
     expect(getPixStatus).toHaveBeenCalledWith("q1", expect.objectContaining({ timeoutMs: expect.any(Number) }));
   });
 
+  it("delayed (delay 24h): trata como PIX recebido -> PROCESSING + LIBERA venda, NAO credita", async () => {
+    // Eulen passou a segurar o DePix por 24h; o deposito fica em `delayed` mas o
+    // PIX JA FOI PAGO. Deve liberar a venda igual ao `approved` (sem creditar saldo,
+    // que so acontece no `depix_sent` on-chain 24h depois).
+    const res = await handleEulenDepositWebhook(
+      { webhookType: "deposit", qrId: "qd", status: "delayed", valueInCents: 10000, delayUntil: "2026-07-18T12:00:00Z" },
+      null,
+    );
+    expect(res.body).toMatchObject({ pixApproved: true, saleReleased: true });
+    const data = updateMany.mock.calls[0]![0] as { data: { status: string; pixApprovedAt: unknown } };
+    expect(data.data.status).toBe("PROCESSING");
+    expect(data.data.pixApprovedAt).toBeInstanceOf(Date);
+    expect(applyPixReceivedEffects).toHaveBeenCalledWith(TENANT, "tx-1");
+    // NAO credita saldo (isso e on-chain / depix_sent, 24h depois).
+    expect(settleDepositConfirmed).not.toHaveBeenCalled();
+    expect(settleDepositViaFeeWallet).not.toHaveBeenCalled();
+  });
+
   it("approved NAO corroborado pela Eulen (status pending) -> NAO libera a venda (anti-forja S1/S2)", async () => {
     getPixStatus.mockResolvedValue({ success: true, status: "pending", isFinal: false });
     const res = await handleEulenDepositWebhook(

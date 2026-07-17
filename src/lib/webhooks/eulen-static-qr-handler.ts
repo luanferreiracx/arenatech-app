@@ -10,7 +10,9 @@ import {
 import type { EulenDepositPayload } from "@/lib/webhooks/eulen-deposit-handler";
 
 const PAID_ONCHAIN = new Set(["depix_sent"]);
-const PIX_APPROVED = new Set(["approved"]);
+// `approved` E `delayed` = PIX recebido (o delay de 24h da Eulen segura o DePix, mas
+// o pagamento ja caiu). Vale pra TODO deposito, inclusive o QR estatico da central.
+const PIX_APPROVED = new Set(["approved", "delayed"]);
 const EXPIRED = new Set(["expired"]);
 const FAILED = new Set(["refunded", "will_refund", "canceled", "error"]);
 

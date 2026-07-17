@@ -59,7 +59,9 @@ function notifyFromPayload(
     });
   }
   if (type === "deposit") {
-    if (status !== "approved") return Promise.resolve();
+    // Notifica no marco "PIX recebido": `approved` OU `delayed` (delay de 24h da
+    // Eulen — o pagamento ja caiu, so o DePix e segurado). Demais status nao alertam.
+    if (status !== "approved" && status !== "delayed") return Promise.resolve();
     const isStatic = !str(p.qrId);
     return notifyDepixWebhook({
       kind: isStatic ? "static" : "deposit",
