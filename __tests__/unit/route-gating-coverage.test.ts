@@ -9,19 +9,22 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { resolveModuleForPath, isRouteAllowedForTenant } from "@/lib/modules";
+import {
+  resolveModuleForPath,
+  isRouteAllowedForTenant,
+  isUngatedByDesign,
+} from "@/lib/modules";
 
 const APP_DIR = join(process.cwd(), "src", "app", "(app)");
 
-/**
- * Rotas top-level SEM módulo por design:
- * - painel: dashboard (infra mínima, sempre disponível).
- * - dev: ferramentas de desenvolvimento; a própria página bloqueia produção/não-admin.
- */
-const ALWAYS_ON_ROUTES = new Set(["painel", "dev"]);
-
 /** Diretórios que não são rotas top-level reais. */
 const IGNORED = new Set(["_components"]);
+
+/** Todos os módulos — um tenant "completo" pra testar rotas com gating de módulo. */
+const ALL_MODULES = [
+  "wallet", "depix-ops", "service-orders", "customers", "tools", "pdv",
+  "stock", "cashier", "financial", "fiscal", "commissions", "settings",
+];
 
 function topLevelRoutes(): string[] {
   return readdirSync(APP_DIR, { withFileTypes: true })
@@ -30,24 +33,38 @@ function topLevelRoutes(): string[] {
 }
 
 describe("cobertura de gating de rota", () => {
-  it("toda rota top-level de (app) tem gating explícito (módulo, slug ou sempre-on)", () => {
+  it("toda rota top-level de (app) é registrada (módulo, slug ou sem-gating por design)", () => {
+    // Sob FAIL-CLOSED, uma rota nova não-registrada é NEGADA — o dono do feature
+    // descobriria só testando. Este guardião flagra a rota antes: exige que cada
+    // rota case um módulo, uma restrição de slug, ou o allowlist sem-gating.
     const uncovered: string[] = [];
 
     for (const route of topLevelRoutes()) {
-      if (ALWAYS_ON_ROUTES.has(route)) continue;
-
       const pathname = `/${route}`;
       const hasModule = resolveModuleForPath(pathname) !== null;
-      // Um tenant sem nenhum módulo e sem o slug da allowlist não deve acessar
-      // uma rota gateada. Se ele PODE, a rota está passando livre (buraco).
-      const blockedForBareTenant = !isRouteAllowedForTenant(pathname, { slug: "loja-x", modules: [] });
+      // Restrita por slug: acessível ao tenant do slug (arena-tech), o que prova
+      // que é gateada por slug (e não um buraco).
+      const slugGated = isRouteAllowedForTenant(pathname, { slug: "arena-tech", modules: ALL_MODULES });
+      const ungated = isUngatedByDesign(pathname);
 
-      if (!hasModule && !blockedForBareTenant) {
+      if (!hasModule && !slugGated && !ungated) {
         uncovered.push(route);
       }
     }
 
-    expect(uncovered, `Rotas sem gating (adicione módulo/slug ou allowlist sempre-on): ${uncovered.join(", ")}`).toEqual([]);
+    expect(uncovered, `Rotas não-registradas (serão NEGADAS por fail-closed — registre módulo/slug ou adicione ao allowlist sem-gating): ${uncovered.join(", ")}`).toEqual([]);
+  });
+
+  it("FAIL-CLOSED: rota desconhecida/não-registrada é NEGADA mesmo com todos os módulos", () => {
+    // O coração do fix G-P1-18: sem módulo E sem estar no allowlist → negada.
+    expect(isRouteAllowedForTenant("/rota-nova-nao-registrada", { slug: "loja-x", modules: ALL_MODULES })).toBe(false);
+    expect(isRouteAllowedForTenant("/settings/aba-nova-fantasma", { slug: "loja-x", modules: ALL_MODULES })).toBe(true); // cai no fallback "settings" (sempre-on) — comportamento existente
+  });
+
+  it("rotas sem-gating por design continuam acessíveis a qualquer tenant", () => {
+    for (const p of ["/painel", "/dev/components", "/change-password", "/no-access", "/settings/security", "/settings/users/new"]) {
+      expect(isRouteAllowedForTenant(p, { slug: "loja-x", modules: [] }), `${p} deveria passar`).toBe(true);
+    }
   });
 
   it("iphone-hunter é bloqueado para tenant comum, mesmo com todos os módulos", () => {

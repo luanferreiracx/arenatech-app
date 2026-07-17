@@ -376,14 +376,44 @@ function applyPerTenantOverrides(
   return [...set];
 }
 
+/**
+ * Rotas SEM gating de módulo POR DESIGN (default-allow explícito). É o allowlist
+ * que torna o gating FAIL-CLOSED: uma rota que não casa um módulo (ROUTE_MODULE_
+ * PREFIXES/SETTINGS_TAB_MODULE) NEM esta lista é tratada como DESCONHECIDA e
+ * NEGADA. Antes o `null` significava "libera" — uma rota nova não-registrada
+ * vazava pra qualquer tenant, ignorando o plano (G-P1-18, auditoria 2026-07-14).
+ *
+ * Só entram aqui rotas que legitimamente atravessam o gating do proxy sem módulo:
+ * dashboard, dev (auto-protegida), troca de senha, tela de sem-acesso, e as abas
+ * de settings SEMPRE-ON (as demais abas gateiam por módulo em SETTINGS_TAB_MODULE).
+ * `/settings` (índice) e abas não-listadas caem no fallback "settings" (always-on)
+ * em ROUTE_MODULE_PREFIXES, então não são `null` e não passam por aqui.
+ */
+export const UNGATED_ROUTE_PREFIXES: readonly string[] = [
+  "/painel",
+  "/dev",
+  "/change-password",
+  "/no-access",
+  ...SETTINGS_TAB_MODULE.filter(([, mod]) => mod === null).map(([prefix]) => prefix),
+];
+
+/** True se a rota é sem-módulo por design (ver UNGATED_ROUTE_PREFIXES). */
+export function isUngatedByDesign(pathname: string): boolean {
+  return UNGATED_ROUTE_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+}
+
 /** True se o módulo da rota está liberado para a lista de módulos do tenant. */
 export function isPathAllowed(
   pathname: string,
   allowedModules: readonly string[],
 ): boolean {
   const mod = resolveModuleForPath(pathname);
-  if (mod === null) return true; // rota sem gating de módulo
-  return allowedModules.includes(mod);
+  if (mod !== null) return allowedModules.includes(mod);
+  // FAIL-CLOSED: sem módulo → libera SÓ se for sem-gating por design; caso
+  // contrário nega (rota desconhecida/não-registrada não vaza pra o tenant).
+  return isUngatedByDesign(pathname);
 }
 
 /**
@@ -398,8 +428,14 @@ export function isRouteAllowedForTenant(
   tenant: { slug: string | null | undefined; modules: readonly string[] },
 ): boolean {
   const slugAllowlist = slugAllowlistForPath(pathname);
-  if (slugAllowlist && !slugAllowlist.includes(tenant.slug ?? "")) {
-    return false;
+  if (slugAllowlist) {
+    // Rota restrita por SLUG: o slug É a dimensão de gating (allowlist explícita).
+    // Passou o slug → permitida — NÃO aplicar o fail-closed de módulo (a rota é
+    // sem-módulo por design, ex.: iphone-hunter). Ainda respeita o módulo se a
+    // rota tiver um.
+    if (!slugAllowlist.includes(tenant.slug ?? "")) return false;
+    const mod = resolveModuleForPath(pathname);
+    return mod === null || tenant.modules.includes(mod);
   }
   return isPathAllowed(pathname, tenant.modules);
 }

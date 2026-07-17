@@ -242,9 +242,15 @@ describe("allowedModulesForTenant", () => {
 });
 
 describe("isPathAllowed", () => {
-  it("libera rota sem gating sempre", () => {
+  it("libera rota sem-gating POR DESIGN", () => {
     expect(isPathAllowed("/painel", [])).toBe(true);
-    expect(isPathAllowed("/select-tenant", [])).toBe(true);
+    expect(isPathAllowed("/change-password", [])).toBe(true);
+    expect(isPathAllowed("/settings/security", [])).toBe(true); // aba sempre-on
+  });
+
+  it("FAIL-CLOSED: nega rota desconhecida sem módulo (não vaza pra o tenant)", () => {
+    expect(isPathAllowed("/rota-desconhecida", [])).toBe(false);
+    expect(isPathAllowed("/rota-desconhecida", ["pdv", "stock"])).toBe(false);
   });
 
   it("bloqueia rota de módulo não liberado", () => {
