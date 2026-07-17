@@ -1,6 +1,6 @@
 # ADR 0059 — Fonte on-chain própria para o LWK (Esplora self-hosted)
 
-**Status:** em implementação — stack deployada, IBD (initial block download) em curso
+**Status:** PAUSADA — stack `docker compose stop` após incidente de RAM (ver adendo 2026-07-17). Precisa de box dedicada / upgrade de RAM antes de retomar.
 **Data:** 2026-07-17
 **Contexto relacionado:** incidente do saldo inflado da carteira central (2026-07),
 [[depix-saldo-obsoleto-cache-2026-07-17]], PR #602 (guards de exibição + detector).
@@ -161,3 +161,32 @@ Checar sync: `ssh contabo 'docker exec elements elements-cli -datadir=/data -con
 4. Apontar o monitoramento (`/readiness`, `checkEsploraHealth`) pra fonte própria.
 
 **Runbook de operação:** ver `docs/runbooks/waterfalls-esplora.md`.
+
+---
+
+## Adendo 2026-07-17 — Incidente de RAM: stack PAUSADA
+
+O IBD do `elementsd` derrubou o caminho de dinheiro. Config inicial (`dbcache=2000`,
+`mem_limit 7g`) consumiu **6,7 GiB** na VPS **compartilhada** (11,68 GiB, rodando toda
+a stack de produção) → **swap 100% cheio** → o LWK ficou **swap-frozen**
+(`lwk_unavailable`) → o cross-check do webhook de depósito travou → **a Eulen reportou
+TIMEOUT**. (Não era CPU: load 1.68/6.)
+
+Tentei reduzir para `dbcache=300` + `mem_limit 3g`: o box recuperou, mas o `elementsd`
+**OOM-loopava mesmo a 3g** — `dmesg` mostrou **anon-rss 3,1 GiB** (RSS real, não cache).
+A validação de IBD da Liquid (transações confidenciais: rangeproofs/blinding) precisa
+inerentemente de **~3+ GiB de RSS**, que `dbcache` não reduz.
+
+**Conclusão:** esta VPS compartilhada **não comporta** um full node Liquid (elementsd)
+junto da stack de produção de dinheiro. O erro na análise original foi olhar só o
+**disco** (73 GiB, ok) e subestimar a **RAM**. Stack parada (`docker compose stop`,
+volumes preservados no disco).
+
+**Revisão da decisão:** retomar exige uma das opções, decisão do dono:
+- **Box dedicada** só pra elementsd+waterfalls (isolamento de RAM/CPU) — recomendado.
+- **Upgrade de RAM** da VPS atual (para ~16-24 GiB) — mantém tudo num lugar.
+- **Esplora paga** (sem full node) — sem RAM de node, custo mensal.
+
+Enquanto isso, o LWK segue nas Esploras públicas (recorrência ativa: waterfalls público
+down + blockstream rate-limita o full_scan). Os curativos do #602 (guard de saldo +
+detector) seguem protegendo em produção.
