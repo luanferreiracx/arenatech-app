@@ -13,6 +13,8 @@
  */
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
+import { request as httpsRequest } from "node:https";
 
 /** Um IP literal (v4 ou v6) é interno/reservado e deve ser bloqueado? */
 export function isBlockedIp(ip: string): boolean {
@@ -121,4 +123,90 @@ export async function assertUrlResolvesToPublicIp(url: URL): Promise<void> {
   if (addresses.length === 0 || addresses.some((a) => isBlockedIp(a.address))) {
     throw new Error("Host de destino resolve para um endereço interno.");
   }
+}
+
+// ── Entrega com IP pinado (fecha DNS-rebinding de verdade) ───────────────────
+
+/** Resolver injetável (o `lookup` de node:dns/promises por padrão; fake nos testes). */
+type Resolver = (host: string) => Promise<ReadonlyArray<LookupAddress>>;
+
+const defaultResolver: Resolver = (host) => lookup(host, { all: true });
+
+/**
+ * Cria um `lookup` compatível com `node:https`/`node:dns` que BLOQUEIA se qualquer
+ * IP resolvido for interno. Diferente de `assertUrlResolvesToPublicIp` (que checa
+ * ANTES do fetch e deixa a conexão re-resolver — janela de rebinding), este é o
+ * MESMO resolver que a conexão usa: a checagem acontece no IP para o qual de fato
+ * vamos conectar. Sem TOCTOU.
+ *
+ * Fail-closed: erro de resolução, zero endereços, ou qualquer IP interno → erro.
+ */
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | LookupAddress[],
+  family?: number,
+) => void;
+
+export function makeGuardedLookup(resolver: Resolver = defaultResolver) {
+  return (host: string, options: unknown, callback: LookupCallback): void => {
+    resolver(host)
+      .then((addresses) => {
+        // Em erro, node ignora o `address` — passamos `[]` só para o tipo.
+        if (addresses.length === 0) {
+          callback(new Error("Host de destino não resolveu para nenhum endereço."), []);
+          return;
+        }
+        const blocked = addresses.find((a) => isBlockedIp(a.address));
+        if (blocked) {
+          callback(new Error("Host de destino resolve para um endereço interno."), []);
+          return;
+        }
+        // `all: true` → devolve a lista; senão o 1º (address, family).
+        const wantsAll = typeof options === "object" && options !== null && (options as { all?: boolean }).all === true;
+        if (wantsAll) {
+          callback(null, addresses.map((a) => ({ address: a.address, family: a.family })));
+          return;
+        }
+        const first = addresses[0]!;
+        callback(null, first.address, first.family);
+      })
+      .catch((err) => callback(err instanceof Error ? err : new Error(String(err)), []));
+  };
+}
+
+export type SignedJsonResponse = { status: number; ok: boolean };
+
+/**
+ * POST de JSON assinado para uma URL PÚBLICA fornecida por usuário, à prova de
+ * SSRF (incl. DNS-rebinding via `makeGuardedLookup`) e sem seguir redirects
+ * (`node:https` não segue 3xx — um 3xx vira resposta não-2xx, nunca um pulo pra
+ * host interno). Usado na entrega de webhooks de saída (ADR 0057).
+ */
+export function postSignedJson(args: {
+  url: URL;
+  body: string;
+  headers: Record<string, string>;
+  timeoutMs: number;
+}): Promise<SignedJsonResponse> {
+  const { url, body, headers, timeoutMs } = args;
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      {
+        method: "POST",
+        lookup: makeGuardedLookup(),
+        headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        res.resume(); // drena a resposta (não lemos o corpo — best-effort)
+        resolve({ status, ok: status >= 200 && status < 300 });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
 }

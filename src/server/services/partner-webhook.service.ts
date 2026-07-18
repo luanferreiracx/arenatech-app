@@ -10,7 +10,7 @@
 import { randomBytes, createHmac } from "node:crypto";
 import { withTenant } from "@/server/db";
 import { logger } from "@/lib/logger";
-import { assertPublicHttpsUrl, assertUrlResolvesToPublicIp } from "@/lib/security/ssrf";
+import { assertPublicHttpsUrl, postSignedJson } from "@/lib/security/ssrf";
 import { sealSecret, openSecret } from "@/lib/security/secret-box";
 
 /**
@@ -122,11 +122,11 @@ export async function notifyPartnerWebhook(
     );
     if (!cfg?.url || !cfg.secret) return;
 
-    // Anti-SSRF na ENTREGA: revalida formato e resolve o DNS antes do fetch (o host
-    // pode ter sido cadastrado válido e depois apontar para um IP interno —
-    // DNS-rebinding). `redirect: "error"` impede bypass via 3xx → host interno.
+    // Anti-SSRF na ENTREGA: valida formato/host literal, e a entrega pina o IP no
+    // momento do connect (makeGuardedLookup) — fecha DNS-rebinding sem TOCTOU (um
+    // host pode ter sido cadastrado válido e depois apontar pra IP interno). node:https
+    // NÃO segue 3xx, então não há bypass via redirect pra host interno.
     const target = assertPublicHttpsUrl(cfg.url);
-    await assertUrlResolvesToPublicIp(target);
 
     const body = JSON.stringify(event);
     // Secret cifrado em repouso — decifra antes de assinar. openSecret tolera
@@ -134,17 +134,16 @@ export async function notifyPartnerWebhook(
     const secret = openSecret(cfg.secret, WEBHOOK_SECRET_CONTEXT);
     const signature = "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
 
-    const res = await fetch(target, {
-      method: "POST",
+    const res = await postSignedJson({
+      url: target,
+      body,
       headers: {
         "content-type": "application/json",
         "x-signature": signature,
         "x-event-type": event.type,
         "x-event-id": event.transactionId,
       },
-      body,
-      redirect: "error",
-      signal: AbortSignal.timeout(8_000),
+      timeoutMs: 8_000,
     });
     if (!res.ok) {
       logger.warn("partner-webhook: entrega não-2xx", {
