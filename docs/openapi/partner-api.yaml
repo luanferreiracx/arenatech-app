@@ -117,6 +117,7 @@ components:
         depositAddress:
           nullable: true
           type: string
+          minLength: 20
           maxLength: 110
       required:
         - amountCents
