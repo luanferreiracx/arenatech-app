@@ -59,6 +59,7 @@ describe("applyPixReceivedEffects", () => {
   it("QUICK_SALE -> marca PAID e notifica (sem creditar saldo)", async () => {
     txFindUnique.mockResolvedValue({
       id: TX_ID, tenantId: TENANT, sourceType: "QUICK_SALE", sourceId: SALE_ID, pixApprovedAt: new Date(),
+      status: "PROCESSING",
     });
     quickSaleFindFirst.mockResolvedValue({ id: SALE_ID, number: 7 });
 
@@ -74,6 +75,7 @@ describe("applyPixReceivedEffects", () => {
   it("SALE -> notifica o SSE (operador finaliza)", async () => {
     txFindUnique.mockResolvedValue({
       id: TX_ID, tenantId: TENANT, sourceType: "SALE", sourceId: SALE_ID, pixApprovedAt: new Date(),
+      status: "PROCESSING",
     });
     saleFindUnique.mockResolvedValue({ id: SALE_ID, number: 9 });
 
@@ -82,6 +84,20 @@ describe("applyPixReceivedEffects", () => {
     expect(res.applied).toBe(true);
     expect(executeRaw).toHaveBeenCalledTimes(1);
     expect(quickSaleUpdate).not.toHaveBeenCalled();
+  });
+
+  it("WH-3: status revertido (MED_REFUNDED) -> NAO libera a venda (guard de corrida MED)", async () => {
+    // Corrida: entre a revalidacao e aqui, um webhook MED reverteu o deposito.
+    txFindUnique.mockResolvedValue({
+      id: TX_ID, tenantId: TENANT, sourceType: "QUICK_SALE", sourceId: SALE_ID, pixApprovedAt: new Date(),
+      status: "MED_REFUNDED",
+    });
+
+    const res = await applyPixReceivedEffects(TENANT, TX_ID);
+
+    expect(res.applied).toBe(false);
+    expect(quickSaleUpdate).not.toHaveBeenCalled(); // venda NAO sai com deposito estornado
+    expect(executeRaw).not.toHaveBeenCalled();
   });
 
   it("deposito wallet puro (sem sourceType) -> no-op", async () => {

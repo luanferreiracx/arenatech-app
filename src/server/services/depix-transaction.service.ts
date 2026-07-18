@@ -41,6 +41,7 @@ import {
   listEulenDeposits,
 } from "@/lib/services/depix-service";
 import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
+import { maySettleSaleEffect } from "@/lib/depix/tx-status";
 
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
@@ -1127,6 +1128,7 @@ export async function applyPixReceivedEffects(tenantId: string, transactionId: s
         sourceType: true,
         sourceId: true,
         pixApprovedAt: true,
+        status: true,
       },
     }),
   );
@@ -1146,6 +1148,18 @@ export async function applyPixReceivedEffects(tenantId: string, transactionId: s
   void notifyPartnerDepositPixReceived(tenantId, transactionId);
   // So libera venda de PDV/QuickSale; deposito wallet puro nao tem efeito de venda.
   if (row.sourceType !== "SALE" && row.sourceType !== "QUICK_SALE") {
+    return { applied: false };
+  }
+  // Guard de status (auditoria WH-3): entre a revalidação do `approved` e aqui, um
+  // webhook MED (devolução do BC) pode ter revertido o depósito (MED_REFUNDED). Só
+  // libera a venda se o status ainda for compatível com "PIX recebido não revertido"
+  // — senão a venda sairia com o depósito já estornado.
+  if (!maySettleSaleEffect(row.status)) {
+    logger.warn("applyPixReceivedEffects: status não-liberável, venda NÃO liberada", {
+      tenantId,
+      transactionId,
+      status: row.status,
+    });
     return { applied: false };
   }
   return applyDepositSaleEffects(row);
