@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/inputs/date-input";
+import { brtDayKey, todayBrtISO } from "@/lib/utils/date-range";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -61,8 +62,8 @@ export function CashFlowReport() {
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [dateFrom, setDateFrom] = useState(thirtyDaysAgo.toISOString().split("T")[0]!);
-  const [dateTo, setDateTo] = useState(today.toISOString().split("T")[0]!);
+  const [dateFrom, setDateFrom] = useState(brtDayKey(thirtyDaysAgo));
+  const [dateTo, setDateTo] = useState(todayBrtISO(today));
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("day");
   const cashFlowQuery = useQuery(
     trpc.financial.cashFlow.queryOptions(

@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { todayBrtISO } from "@/lib/utils/date-range";
 import { DateInput } from "@/components/inputs/date-input";
 import { SupplierSelect } from "@/components/domain/forms/supplier-select";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,7 @@ export default function CreatePayablePage() {
       description: "",
       totalAmount: 0,
       numInstallments: 1,
-      emissionDate: new Date().toISOString().split("T")[0]!,
+      emissionDate: todayBrtISO(),
       firstDueDate: "",
       paymentMethod: "dinheiro",
       supplierId: null,
