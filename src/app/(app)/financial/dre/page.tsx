@@ -77,7 +77,7 @@ export default function DrePage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Receita</p>
-                <p className="text-lg font-bold text-green-500 font-mono mt-1">
+                <p className="text-lg font-bold text-success font-mono mt-1">
                   {formatCents(dreQuery.data.totals.revenue)}
                 </p>
               </CardContent>
@@ -85,7 +85,7 @@ export default function DrePage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Custo das Pecas</p>
-                <p className="text-lg font-bold text-yellow-500 font-mono mt-1">
+                <p className="text-lg font-bold text-warning font-mono mt-1">
                   {formatCents(dreQuery.data.totals.partsCost)}
                 </p>
               </CardContent>
@@ -93,7 +93,7 @@ export default function DrePage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Lucro Bruto</p>
-                <p className="text-lg font-bold text-blue-400 font-mono mt-1">
+                <p className="text-lg font-bold text-info font-mono mt-1">
                   {formatCents(dreQuery.data.totals.grossProfit)}
                 </p>
               </CardContent>
@@ -101,7 +101,7 @@ export default function DrePage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Despesas</p>
-                <p className="text-lg font-bold text-red-500 font-mono mt-1">
+                <p className="text-lg font-bold text-destructive font-mono mt-1">
                   {formatCents(dreQuery.data.totals.expenses)}
                 </p>
               </CardContent>
@@ -109,7 +109,7 @@ export default function DrePage() {
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-primary uppercase tracking-wide">Lucro Liquido</p>
-                <p className={`text-lg font-bold font-mono mt-1 ${dreQuery.data.totals.netProfit >= 0 ? "text-primary" : "text-red-500"}`}>
+                <p className={`text-lg font-bold font-mono mt-1 ${dreQuery.data.totals.netProfit >= 0 ? "text-primary" : "text-destructive"}`}>
                   {formatCents(dreQuery.data.totals.netProfit)}
                 </p>
               </CardContent>
@@ -138,22 +138,22 @@ export default function DrePage() {
                       return (
                         <TableRow key={m.month}>
                           <TableCell className="capitalize">{m.monthName}</TableCell>
-                          <TableCell className="text-right text-green-500 font-mono">
+                          <TableCell className="text-right text-success font-mono">
                             {formatCents(m.revenue)}
                           </TableCell>
-                          <TableCell className="text-right text-yellow-500 font-mono">
+                          <TableCell className="text-right text-warning font-mono">
                             {formatCents(m.partsCost)}
                           </TableCell>
-                          <TableCell className="text-right text-blue-400 font-bold font-mono">
+                          <TableCell className="text-right text-info font-bold font-mono">
                             {formatCents(m.grossProfit)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
                             {margin.toFixed(1)}%
                           </TableCell>
-                          <TableCell className="text-right text-red-500 font-mono">
+                          <TableCell className="text-right text-destructive font-mono">
                             {formatCents(m.expenses)}
                           </TableCell>
-                          <TableCell className={`text-right font-bold font-mono ${m.netProfit >= 0 ? "text-primary" : "text-red-500"}`}>
+                          <TableCell className={`text-right font-bold font-mono ${m.netProfit >= 0 ? "text-primary" : "text-destructive"}`}>
                             {formatCents(m.netProfit)}
                           </TableCell>
                         </TableRow>
@@ -162,13 +162,13 @@ export default function DrePage() {
                     {/* Total row */}
                     <TableRow className="border-t-2 font-bold">
                       <TableCell>TOTAL</TableCell>
-                      <TableCell className="text-right text-green-500 font-mono">
+                      <TableCell className="text-right text-success font-mono">
                         {formatCents(dreQuery.data.totals.revenue)}
                       </TableCell>
-                      <TableCell className="text-right text-yellow-500 font-mono">
+                      <TableCell className="text-right text-warning font-mono">
                         {formatCents(dreQuery.data.totals.partsCost)}
                       </TableCell>
-                      <TableCell className="text-right text-blue-400 font-mono">
+                      <TableCell className="text-right text-info font-mono">
                         {formatCents(dreQuery.data.totals.grossProfit)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
@@ -176,10 +176,10 @@ export default function DrePage() {
                           ? ((dreQuery.data.totals.grossProfit / dreQuery.data.totals.revenue) * 100).toFixed(1)
                           : "0.0"}%
                       </TableCell>
-                      <TableCell className="text-right text-red-500 font-mono">
+                      <TableCell className="text-right text-destructive font-mono">
                         {formatCents(dreQuery.data.totals.expenses)}
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${dreQuery.data.totals.netProfit >= 0 ? "text-primary" : "text-red-500"}`}>
+                      <TableCell className={`text-right font-mono ${dreQuery.data.totals.netProfit >= 0 ? "text-primary" : "text-destructive"}`}>
                         {formatCents(dreQuery.data.totals.netProfit)}
                       </TableCell>
                     </TableRow>
@@ -189,7 +189,7 @@ export default function DrePage() {
             </CardContent>
           </Card>
 
-          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-300">
+          <div className="rounded-lg border border-info/20 bg-info/10 p-3 text-xs text-info">
             <strong>Notas:</strong> Receita soma recebimentos pagos no periodo.
             Custo das pecas considera movimentacoes de estoque do tipo SALE.
             Despesas somam as parcelas de contas a pagar efetivamente baixadas no periodo.

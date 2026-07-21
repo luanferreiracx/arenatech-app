@@ -232,7 +232,7 @@ export function CashierDashboard() {
                               reg.difference < 0
                                 ? "text-destructive"
                                 : reg.difference > 0
-                                  ? "text-green-600"
+                                  ? "text-success"
                                   : ""
                             }
                           >
@@ -285,7 +285,7 @@ export function CashierDashboard() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-green-600 text-white">
+        <Card className="bg-success text-success-foreground">
           <CardContent className="pt-6">
             <div className="text-sm opacity-80">Total Vendas</div>
             <div className="text-2xl font-bold">
@@ -296,7 +296,7 @@ export function CashierDashboard() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-amber-500 text-white">
+        <Card className="bg-warning text-warning-foreground">
           <CardContent className="pt-6">
             <div className="text-sm opacity-80">Sangrias</div>
             <div className="text-2xl font-bold">
@@ -304,7 +304,7 @@ export function CashierDashboard() {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-blue-600 text-white">
+        <Card className="bg-info text-info-foreground">
           <CardContent className="pt-6">
             <div className="text-sm opacity-80">Suprimentos</div>
             <div className="text-2xl font-bold">
@@ -318,7 +318,7 @@ export function CashierDashboard() {
       <div className="flex flex-wrap gap-2 mb-6">
         <Button
           variant="outline"
-          className="text-green-600 border-green-600 hover:bg-green-50"
+          className="text-success border-success hover:bg-success/10"
           onClick={() => setShowDepositDialog(true)}
         >
           <ArrowDownToLine className="mr-2 h-4 w-4" />
@@ -326,7 +326,7 @@ export function CashierDashboard() {
         </Button>
         <Button
           variant="outline"
-          className="text-amber-600 border-amber-600 hover:bg-amber-50"
+          className="text-warning border-warning hover:bg-warning/10"
           onClick={() => setShowWithdrawalDialog(true)}
         >
           <ArrowUpFromLine className="mr-2 h-4 w-4" />
@@ -334,7 +334,7 @@ export function CashierDashboard() {
         </Button>
         <Button
           variant="outline"
-          className="text-red-600 border-red-600 hover:bg-red-50"
+          className="text-destructive border-destructive hover:bg-destructive/10"
           onClick={() => setShowExpenseDialog(true)}
         >
           <Receipt className="mr-2 h-4 w-4" />
@@ -397,7 +397,7 @@ export function CashierDashboard() {
                       <TableCell
                         className={`text-right font-mono text-sm ${
                           m.nature === "INCOME"
-                            ? "text-green-600"
+                            ? "text-success"
                             : "text-destructive"
                         }`}
                       >
@@ -713,7 +713,7 @@ function WithdrawalDialog({
           </Button>
           <Button
             variant="default"
-            className="bg-amber-600 hover:bg-amber-700"
+            className="bg-warning text-warning-foreground hover:bg-warning/90"
             onClick={onSubmit}
             disabled={isPending || amount <= 0 || !description.trim()}
           >

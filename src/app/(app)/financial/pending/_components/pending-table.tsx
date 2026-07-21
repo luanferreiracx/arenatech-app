@@ -78,15 +78,15 @@ export function PendingTable() {
     <div className="space-y-4">
       {/* Totals card */}
       {data && (
-        <Card className="border-l-4 border-l-amber-500">
+        <Card className="border-warning/30">
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <Clock className="h-6 w-6 text-amber-500" />
+              <div className="h-12 w-12 rounded-full bg-warning/20 flex items-center justify-center">
+                <Clock className="h-6 w-6 text-warning" />
               </div>
               <div>
                 <div className="text-sm text-muted-foreground">Total Pendente</div>
-                <div className="text-2xl font-bold text-amber-500">
+                <div className="text-2xl font-bold text-warning">
                   {formatCents(data.totals.totalPending)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
@@ -196,10 +196,10 @@ export function PendingTable() {
                     <TableCell className="text-right font-mono">
                       {formatCents(t.totalAmount)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {t.paidAmount > 0 ? formatCents(t.paidAmount) : "-"}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-amber-500 font-semibold">
+                    <TableCell className="text-right font-mono text-warning font-semibold">
                       {formatCents(t.remainingAmount)}
                     </TableCell>
                     <TableCell>
