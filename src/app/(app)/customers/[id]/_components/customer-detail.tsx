@@ -17,6 +17,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { CUSTOMER_TYPE_LABELS } from "@/lib/validators/customer";
+import { SALE_STATUS_LABELS } from "@/lib/validators/sale";
+
+/** Link do WhatsApp a partir de um telefone BR (só dígitos, DDI 55). */
+function whatsappHref(phone: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return `https://wa.me/55${digits}`;
+}
+
+/** Idade em anos a partir de uma data date-only (UTC), ou null. */
+function ageFromBirthDate(birthDate: string | Date): number | null {
+  const d = new Date(birthDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getUTCFullYear() - d.getUTCFullYear();
+  const monthDiff = today.getUTCMonth() - d.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getUTCDate() < d.getUTCDate())) age--;
+  return age >= 0 && age < 150 ? age : null;
+}
 
 function formatCpf(cpf: string | null): string {
   if (!cpf || cpf.length !== 11) return cpf ?? "—";
@@ -168,23 +188,53 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
                 <span className="text-muted-foreground">Data de nascimento</span>
                 {/* C4: birthDate é date-only (@db.Date, UTC-meia-noite) — formatar em
                     fuso local mostraria o dia anterior (UTC-3). Usa os componentes UTC. */}
-                <span>{new Date(customer.birthDate).toISOString().slice(0, 10).split("-").reverse().join("/")}</span>
+                <span>
+                  {new Date(customer.birthDate).toISOString().slice(0, 10).split("-").reverse().join("/")}
+                  {(() => {
+                    const age = ageFromBirthDate(customer.birthDate);
+                    return age !== null ? <span className="text-muted-foreground"> ({age} anos)</span> : null;
+                  })()}
+                </span>
               </div>
             )}
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">WhatsApp</span>
-              <span>{formatPhone(customer.phone)}</span>
+              {whatsappHref(customer.phone) ? (
+                <a
+                  href={whatsappHref(customer.phone)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {formatPhone(customer.phone)}
+                </a>
+              ) : (
+                <span>{formatPhone(customer.phone)}</span>
+              )}
             </div>
             {customer.phoneSecondary && (
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Tel. alternativo</span>
-                <span>{formatPhone(customer.phoneSecondary)}</span>
+                {whatsappHref(customer.phoneSecondary) ? (
+                  <a
+                    href={whatsappHref(customer.phoneSecondary)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    {formatPhone(customer.phoneSecondary)}
+                  </a>
+                ) : (
+                  <span>{formatPhone(customer.phoneSecondary)}</span>
+                )}
               </div>
             )}
             {customer.email && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">E-mail</span>
-                <span>{customer.email}</span>
+              <div className="flex justify-between gap-2 min-w-0">
+                <span className="text-muted-foreground shrink-0">E-mail</span>
+                <a href={`mailto:${customer.email}`} className="text-primary hover:underline truncate">
+                  {customer.email}
+                </a>
               </div>
             )}
           </CardContent>
@@ -227,6 +277,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
       <Tabs defaultValue="os">
         <TabsList>
           <TabsTrigger value="os">OS do cliente ({customer.serviceOrderCount})</TabsTrigger>
+          <TabsTrigger value="compras">Compras ({customer.salesCount})</TabsTrigger>
         </TabsList>
         <TabsContent value="os">
           <Card>
@@ -273,6 +324,51 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Nenhuma ordem de servico vinculada.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="compras">
+          <Card>
+            <CardContent className="pt-6">
+              {customer.sales && customer.sales.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-2 pr-4">Numero</th>
+                        <th className="py-2 pr-4">Status</th>
+                        <th className="py-2 pr-4 text-right">Total</th>
+                        <th className="py-2 pr-4">Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customer.sales.map((s: { id: string; number: string; status: string; totalAmount: number; saleDate: string | Date }) => (
+                        <tr key={s.id} className="border-b border-border/50 hover:bg-muted/30">
+                          <td className="py-2 pr-4 font-mono">
+                            <Link href={`/pdv/${s.id}`} className="text-primary hover:underline">
+                              {s.number}
+                            </Link>
+                          </td>
+                          <td className="py-2 pr-4">{SALE_STATUS_LABELS[s.status] ?? s.status}</td>
+                          <td className="py-2 pr-4 text-right font-mono">
+                            {(s.totalAmount / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {format(new Date(s.saleDate), "dd/MM/yyyy", { locale: ptBR })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {customer.salesCount > customer.sales.length && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Mostrando {customer.sales.length} de {customer.salesCount}.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nenhuma compra registrada.</p>
               )}
             </CardContent>
           </Card>
