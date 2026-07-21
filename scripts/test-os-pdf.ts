@@ -27,7 +27,7 @@ async function main() {
           { description: "Mao de obra", quantity: 1, unitPrice: 150, total: 150 },
         ],
       },
-      customer: { name: "Joao da Silva", cpf: "111.444.777-35", phone: "(86) 99999-8888", email: "joao@test.com" },
+      customer: { name: "Joao da Silva", document: "111.444.777-35", documentLabel: "CPF", phone: "(86) 99999-8888", email: "joao@test.com" },
       store: { name: "ARENA TECH", cnpj: "11.222.333/0001-81", phone: "(86) 3000-0000", logoUrl: null },
       technicianName: "Carlos Tecnico",
       termsOfService: "Termo 1\nTermo 2\nTermo 3",

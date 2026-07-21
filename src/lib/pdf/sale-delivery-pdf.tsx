@@ -27,7 +27,8 @@ export interface SaleDeliveryPdfData {
   };
   customer: {
     name: string;
-    cpf: string | null;
+    document: string | null;
+    documentLabel: string | null;
     phone: string | null;
     address: string | null;
   } | null;
@@ -285,8 +286,8 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
             </Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoCellLabel}>CPF</Text>
-            <Text style={styles.infoCellValue}>{customer?.cpf ?? "-"}</Text>
+            <Text style={styles.infoCellLabel}>{customer?.documentLabel ?? "CPF"}</Text>
+            <Text style={styles.infoCellValue}>{customer?.document ?? "-"}</Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoCellLabel}>Telefone</Text>
@@ -410,10 +411,10 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
                 <Text style={{ fontFamily: "Helvetica-Bold" }}>
                   {customer?.name ?? "____________________"}
                 </Text>
-                {customer?.cpf ? (
+                {customer?.document ? (
                   <>
-                    , portador(a) do CPF{" "}
-                    <Text style={{ fontFamily: "Helvetica-Bold" }}>{customer.cpf}</Text>
+                    , portador(a) do {customer.documentLabel ?? "CPF"}{" "}
+                    <Text style={{ fontFamily: "Helvetica-Bold" }}>{customer.document}</Text>
                   </>
                 ) : null}
                 , <Text style={{ fontFamily: "Helvetica-Bold" }}>DECLARO</Text> sob
@@ -522,13 +523,13 @@ export function SaleDeliveryPdfDocument({ sale, customer, store }: SaleDeliveryP
             </View>
             <View style={{ marginTop: 4, alignItems: "center" }}>
               <Text style={styles.signatureName}>{customer?.name ?? "Cliente"}</Text>
-              {customer?.cpf && <Text style={styles.signatureCpf}>CPF: {customer.cpf}</Text>}
+              {customer?.document && <Text style={styles.signatureCpf}>{customer.documentLabel ?? "CPF"}: {customer.document}</Text>}
             </View>
           </>
         ) : (
           <View style={styles.signatureLineWrap}>
             <Text style={styles.signatureName}>{customer?.name ?? "Cliente"}</Text>
-            {customer?.cpf && <Text style={styles.signatureCpf}>CPF: {customer.cpf}</Text>}
+            {customer?.document && <Text style={styles.signatureCpf}>{customer.documentLabel ?? "CPF"}: {customer.document}</Text>}
           </View>
         )}
 

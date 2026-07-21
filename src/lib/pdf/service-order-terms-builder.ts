@@ -7,7 +7,7 @@ import {
 } from "@/lib/pdf/service-order-terms-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withTenant } from "@/server/db";
-import { formatCpf } from "@/lib/utils";
+import { formatCustomerDocument } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 import { valorPorExtenso } from "@/lib/valor-por-extenso";
 
@@ -41,7 +41,7 @@ async function loadCommon(tenantId: string, orderId: string) {
   const customer = await withTenant(tenantId, async (tx) =>
     tx.customer.findUnique({
       where: { id: order.customerId },
-      select: { name: true, cpf: true, phone: true },
+      select: { name: true, type: true, cpf: true, cnpj: true, phone: true },
     }),
   );
 
@@ -59,9 +59,11 @@ async function loadCommon(tenantId: string, orderId: string) {
     deviceModel: order.deviceModel,
     imei: order.imei,
   };
+  const customerDoc = customer ? formatCustomerDocument(customer) : null;
   const customerInfo = {
     name: customer?.name ?? null,
-    cpf: formatCpf(customer?.cpf) || null,
+    documentLabel: customerDoc?.label ?? null,
+    document: customerDoc?.value ?? null,
     phone: customer?.phone ?? null,
   };
 

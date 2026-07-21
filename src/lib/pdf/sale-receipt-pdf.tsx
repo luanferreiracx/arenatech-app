@@ -43,7 +43,8 @@ export interface SaleReceiptPdfData {
   };
   customer: {
     name: string;
-    cpf: string | null;
+    document: string | null;
+    documentLabel: string | null;
     phone: string | null;
   } | null;
   sellerName?: string | null;
@@ -342,10 +343,10 @@ export function SaleReceiptPdfDocument({ sale, customer, sellerName, store }: Sa
                     <Text style={styles.fieldLabel}>Nome</Text>
                     <Text style={styles.fieldValue}>{customer.name}</Text>
                   </View>
-                  {customer.cpf && (
+                  {customer.document && (
                     <View style={styles.field}>
-                      <Text style={styles.fieldLabel}>CPF</Text>
-                      <Text style={styles.fieldValue}>{customer.cpf}</Text>
+                      <Text style={styles.fieldLabel}>{customer.documentLabel ?? "CPF"}</Text>
+                      <Text style={styles.fieldValue}>{customer.document}</Text>
                     </View>
                   )}
                   {customer.phone && (

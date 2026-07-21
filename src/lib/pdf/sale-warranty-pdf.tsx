@@ -16,7 +16,8 @@ export interface SaleWarrantyPdfData {
   };
   customer: {
     name: string;
-    cpf: string | null;
+    document: string | null;
+    documentLabel: string | null;
     phone: string | null;
   } | null;
   store: {
@@ -253,7 +254,7 @@ export function SaleWarrantyPdfDocument({
             {customer ? (
               <>
                 <Text style={styles.infoCardName}>{customer.name}</Text>
-                {customer.cpf && <Text style={styles.infoCardText}>CPF: {customer.cpf}</Text>}
+                {customer.document && <Text style={styles.infoCardText}>{customer.documentLabel ?? "CPF"}: {customer.document}</Text>}
                 {customer.phone && <Text style={styles.infoCardText}>Tel: {customer.phone}</Text>}
               </>
             ) : (
@@ -354,7 +355,7 @@ export function SaleWarrantyPdfDocument({
           <View style={styles.signatureBox}>
             <View style={styles.signatureLine}>
               <Text style={styles.signatureName}>{customer?.name ?? "Cliente"}</Text>
-              {customer?.cpf && <Text style={styles.signatureSub}>CPF: {customer.cpf}</Text>}
+              {customer?.document && <Text style={styles.signatureSub}>{customer.documentLabel ?? "CPF"}: {customer.document}</Text>}
             </View>
           </View>
         </View>

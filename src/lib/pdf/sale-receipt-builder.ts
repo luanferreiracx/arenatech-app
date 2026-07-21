@@ -1,7 +1,7 @@
 import { SaleReceiptPdfDocument, type SaleReceiptPdfData } from "@/lib/pdf/sale-receipt-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withAdmin, withTenant } from "@/server/db";
-import { formatCpf } from "@/lib/utils";
+import { formatCustomerDocument } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/sale";
 
@@ -37,7 +37,7 @@ export async function buildSaleReceiptPdf(
     ? await withTenant(tenantId, async (tx) =>
         tx.customer.findUnique({
           where: { id: sale.customerId! },
-          select: { name: true, cpf: true, phone: true },
+          select: { name: true, type: true, cpf: true, cnpj: true, phone: true },
         }),
       )
     : null;
@@ -182,7 +182,15 @@ export async function buildSaleReceiptPdf(
       })),
     },
     customer: customer
-      ? { name: customer.name, cpf: formatCpf(customer.cpf) || null, phone: customer.phone }
+      ? (() => {
+          const doc = formatCustomerDocument(customer);
+          return {
+            name: customer.name,
+            documentLabel: doc?.label ?? null,
+            document: doc?.value ?? null,
+            phone: customer.phone,
+          };
+        })()
       : null,
     sellerName,
     store: {

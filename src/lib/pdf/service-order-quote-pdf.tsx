@@ -29,7 +29,7 @@ export interface ServiceOrderQuotePdfData {
     deviceModel: string | null;
     imei: string | null;
   };
-  customer: { name: string; cpf: string | null; phone: string | null } | null;
+  customer: { name: string; document: string | null; documentLabel: string | null; phone: string | null } | null;
   quote: {
     reason: string;
     additionalServices: string | null;
@@ -147,7 +147,7 @@ export function ServiceOrderQuotePdfDocument({ store, order, customer, quote, ap
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>DADOS DO CLIENTE</Text>
           <View style={styles.row}><Text style={styles.label}>Cliente:</Text><Text style={styles.value}>{customer?.name ?? "-"}</Text></View>
-          {customer?.cpf ? <View style={styles.row}><Text style={styles.label}>CPF:</Text><Text>{customer.cpf}</Text></View> : null}
+          {customer?.document ? <View style={styles.row}><Text style={styles.label}>{customer.documentLabel ?? "CPF"}:</Text><Text>{customer.document}</Text></View> : null}
           {customer?.phone ? <View style={styles.row}><Text style={styles.label}>Telefone:</Text><Text>{customer.phone}</Text></View> : null}
         </View>
 
@@ -213,7 +213,7 @@ export function ServiceOrderQuotePdfDocument({ store, order, customer, quote, ap
           <View style={styles.approvedBox}>
             <Text style={styles.approvedTitle}>APROVADO</Text>
             <Text style={styles.approvedText}>
-              Eu, {customer?.name ?? "cliente"}{customer?.cpf ? `, portador(a) do CPF ${customer.cpf}` : ""},
+              Eu, {customer?.name ?? "cliente"}{customer?.document ? `, portador(a) do ${customer.documentLabel ?? "CPF"} ${customer.document}` : ""},
               APROVO os servicos adicionais descritos acima e autorizo o prosseguimento
               no novo valor total de {fmt(quote.newTotal)}.
             </Text>

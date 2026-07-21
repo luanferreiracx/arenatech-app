@@ -43,7 +43,8 @@ interface OsHeaderInfo {
 
 interface CustomerInfo {
   name: string | null;
-  cpf: string | null;
+  document: string | null;
+  documentLabel: string | null;
   phone: string | null;
 }
 
@@ -195,7 +196,7 @@ export function ReciboPdfDocument(data: ReciboPdfData) {
         {/* Corpo */}
         <Text style={base.bodyText}>
           Recebi(emos) de <Text style={{ fontFamily: "Helvetica-Bold" }}>{data.customer.name ?? "—"}</Text>,
-          portador(a) do CPF <Text style={{ fontFamily: "Helvetica-Bold" }}>{data.customer.cpf ?? "—"}</Text>,
+          portador(a) do {data.customer.documentLabel ?? "CPF"} <Text style={{ fontFamily: "Helvetica-Bold" }}>{data.customer.document ?? "—"}</Text>,
           a quantia de <Text style={{ fontFamily: "Helvetica-Bold" }}>{fmtBRL(data.valorPago)}</Text> ({data.extenso})
           {data.descontoPagamento > 0
             ? `, com desconto de ${fmtBRL(data.descontoPagamento)} sobre o valor original de ${fmtBRL(data.valorTotal)}`
@@ -326,7 +327,7 @@ function TermDocument({
             value={`${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
           />
           <Field label="Cliente:" value={data.customer.name ?? "—"} />
-          <Field label="CPF:" value={data.customer.cpf ?? "—"} />
+          <Field label={`${data.customer.documentLabel ?? "CPF"}:`} value={data.customer.document ?? "—"} />
           <Field label="Telefone:" value={data.customer.phone ?? "—"} />
         </View>
 
@@ -377,7 +378,7 @@ function TermDocument({
           </View>
           <Text style={base.signatureSub}>
             {data.customer.name ?? "—"}
-            {data.customer.cpf ? `\nCPF: ${data.customer.cpf}` : ""}
+            {data.customer.document ? `\n${data.customer.documentLabel ?? "CPF"}: ${data.customer.document}` : ""}
           </Text>
         </View>
 
