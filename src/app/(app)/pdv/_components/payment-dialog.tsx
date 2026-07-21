@@ -563,9 +563,9 @@ export function PaymentDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="text-center py-4 bg-amber-500/10 rounded-lg my-2 border border-amber-500/40">
+          <div className="text-center py-4 bg-warning/10 rounded-lg my-2 border border-warning/40">
             <div className="text-sm text-muted-foreground">A devolver ao cliente</div>
-            <div className="text-2xl font-bold text-amber-600">
+            <div className="text-2xl font-bold text-warning">
               {formatCurrency(refundDueAmount)}
             </div>
           </div>
@@ -663,13 +663,13 @@ export function PaymentDialog({
             {payments.map((p, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 bg-muted/50 rounded-md p-2.5 border-l-2 border-primary"
+                className="flex items-center gap-2 bg-muted/50 rounded-md p-2.5 border border-primary/20"
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium flex items-center gap-2">
                     {p.label}
                     {p.depixManual && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-600 uppercase font-semibold tracking-wide">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning uppercase font-semibold tracking-wide">
                         Manual
                       </span>
                     )}
@@ -860,7 +860,7 @@ export function PaymentDialog({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Liquido que a loja recebe</span>
-                  <span className="font-semibold text-green-500">
+                  <span className="font-semibold text-success">
                     {formatCurrency(cardPreview.netCents)}
                   </span>
                 </div>
@@ -878,7 +878,7 @@ export function PaymentDialog({
             {showChange && (
               <div>
                 <Label>Troco</Label>
-                <div className="text-lg font-bold text-green-500 bg-muted/50 rounded-md p-2 text-center">
+                <div className="text-lg font-bold text-success bg-muted/50 rounded-md p-2 text-center">
                   {trocoDisplay > 0 ? formatCurrency(trocoDisplay) : "R$ 0,00"}
                 </div>
               </div>
@@ -903,7 +903,7 @@ export function PaymentDialog({
             )}
 
             {noAcquirersForCard ? (
-              <p className="text-xs text-amber-600 dark:text-amber-500">
+              <p className="text-xs text-warning">
                 Nenhuma maquininha cadastrada. Configure uma adquirente em{" "}
                 <Link href="/settings/card-acquirers" className="underline">
                   Cartões e Recebimento
@@ -911,7 +911,7 @@ export function PaymentDialog({
                 para vender no cartão.
               </p>
             ) : cardSelectionIncomplete ? (
-              <p className="text-xs text-amber-600 dark:text-amber-500">
+              <p className="text-xs text-warning">
                 Selecione a adquirente e a bandeira para adicionar o pagamento no cartão.
               </p>
             ) : null}

@@ -39,10 +39,10 @@ import { QUICK_SALE_STATUS_LABELS } from "@/lib/validators/quick-sale";
 import type { QuickSaleStatus } from "@/lib/validators/quick-sale";
 
 const STATUS_COLORS: Record<string, string> = {
-  AWAITING_PAYMENT: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  PAID: "bg-green-500/10 text-green-500 border-green-500/20",
-  CANCELLED: "bg-red-500/10 text-red-500 border-red-500/20",
-  REFUNDED: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+  AWAITING_PAYMENT: "bg-warning/10 text-warning border-warning/20",
+  PAID: "bg-success/10 text-success border-success/20",
+  CANCELLED: "bg-destructive/10 text-destructive border-destructive/20",
+  REFUNDED: "bg-warning/10 text-warning border-warning/20",
 };
 
 function formatCurrency(cents: number): string {
@@ -86,7 +86,7 @@ export default function QuickSalesPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <ShoppingBag className="h-8 w-8 text-blue-500 opacity-60" />
+              <ShoppingBag className="h-8 w-8 text-info opacity-60" />
               <div>
                 <p className="text-xs text-muted-foreground">Total de Vendas</p>
                 <p className="text-2xl font-bold">{stats.total}</p>
@@ -95,7 +95,7 @@ export default function QuickSalesPage() {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <Clock className="h-8 w-8 text-yellow-500 opacity-60" />
+              <Clock className="h-8 w-8 text-warning opacity-60" />
               <div>
                 <p className="text-xs text-muted-foreground">Aguardando</p>
                 <p className="text-2xl font-bold">{stats.awaiting}</p>
@@ -104,7 +104,7 @@ export default function QuickSalesPage() {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle className="h-8 w-8 text-green-500 opacity-60" />
+              <CheckCircle className="h-8 w-8 text-success opacity-60" />
               <div>
                 <p className="text-xs text-muted-foreground">Pagas</p>
                 <p className="text-2xl font-bold">{stats.paid}</p>
@@ -113,7 +113,7 @@ export default function QuickSalesPage() {
           </Card>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <DollarSign className="h-8 w-8 text-purple-500 opacity-60" />
+              <DollarSign className="h-8 w-8 text-primary opacity-60" />
               <div>
                 <p className="text-xs text-muted-foreground">Valor Total Pago</p>
                 <p className="text-xl font-bold">{formatCurrency(stats.totalPaidAmount)}</p>

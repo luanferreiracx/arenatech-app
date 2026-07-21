@@ -27,10 +27,10 @@ import { toast } from "@/lib/toast";
 import { useState } from "react";
 
 const STATUS_COLORS: Record<string, string> = {
-  AWAITING_PAYMENT: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  PAID: "bg-green-500/10 text-green-500 border-green-500/20",
-  CANCELLED: "bg-red-500/10 text-red-500 border-red-500/20",
-  REFUNDED: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+  AWAITING_PAYMENT: "bg-warning/10 text-warning border-warning/20",
+  PAID: "bg-success/10 text-success border-success/20",
+  CANCELLED: "bg-destructive/10 text-destructive border-destructive/20",
+  REFUNDED: "bg-warning/10 text-warning border-warning/20",
 };
 
 function formatCurrency(cents: number): string {
@@ -192,7 +192,7 @@ export default function QuickSaleDetailPage() {
               <span>{formatCurrency((s.quantity as number) * (s.unitPrice as number))}</span>
             </div>
             {(s.discount as number) > 0 && (
-              <div className="flex justify-between text-green-500">
+              <div className="flex justify-between text-success">
                 <span>Desconto</span>
                 <span>- {formatCurrency(s.discount as number)}</span>
               </div>

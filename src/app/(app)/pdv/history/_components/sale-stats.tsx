@@ -16,39 +16,11 @@ export function SaleStats() {
   if (!stats) return null;
 
   const cards = [
-    {
-      label: "Vendas Hoje",
-      value: String(stats.todayCount),
-      icon: ShoppingCart,
-      accent: "bg-primary",
-    },
-    {
-      label: "Faturamento Hoje",
-      value: formatCurrency(stats.todayTotal),
-      icon: DollarSign,
-      accent: "bg-green-500",
-      valueClass: "text-green-500",
-    },
-    {
-      label: "Vendas no Mes",
-      value: String(stats.monthCount),
-      icon: Calendar,
-      accent: "bg-primary",
-    },
-    {
-      label: "Faturamento Mes",
-      value: formatCurrency(stats.monthTotal),
-      icon: TrendingUp,
-      accent: "bg-violet-500",
-      valueClass: "text-violet-500",
-    },
-    {
-      label: "Ticket Medio",
-      value: formatCurrency(stats.monthAvgTicket),
-      icon: BarChart3,
-      accent: "bg-pink-500",
-      valueClass: "text-pink-500",
-    },
+    { label: "Vendas Hoje", value: String(stats.todayCount), icon: ShoppingCart },
+    { label: "Faturamento Hoje", value: formatCurrency(stats.todayTotal), icon: DollarSign },
+    { label: "Vendas no Mes", value: String(stats.monthCount), icon: Calendar },
+    { label: "Faturamento Mes", value: formatCurrency(stats.monthTotal), icon: TrendingUp },
+    { label: "Ticket Medio", value: formatCurrency(stats.monthAvgTicket), icon: BarChart3 },
   ];
 
   return (
@@ -56,11 +28,10 @@ export function SaleStats() {
       {cards.map((card) => {
         const Icon = card.icon;
         return (
-          <Card key={card.label} className="relative overflow-hidden hover:border-primary/20 transition-colors">
-            <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${card.accent}`} />
+          <Card key={card.label} className="hover:border-primary/20 transition-colors">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <div className={`text-lg font-bold truncate tabular-nums ${card.valueClass ?? ""}`}>
+                <div className="text-lg font-bold truncate tabular-nums">
                   {card.value}
                 </div>
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
