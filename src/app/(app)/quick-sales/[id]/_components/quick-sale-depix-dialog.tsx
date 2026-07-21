@@ -185,7 +185,7 @@ export function QuickSaleDepixDialog({
 
         {!taxIdConfirmed ? (
           <div className="space-y-3 py-2">
-            <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm">
+            <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
               Para gerar o PIX e <strong>obrigatorio</strong> informar o CPF/CNPJ
               do pagador (exigencia da Eulen).
             </div>
@@ -212,7 +212,7 @@ export function QuickSaleDepixDialog({
             <p className="text-sm text-muted-foreground">Gerando QR Code...</p>
           </div>
         ) : status === "paid" ? (
-          <div className="py-8 flex flex-col items-center gap-3 text-green-500">
+          <div className="py-8 flex flex-col items-center gap-3 text-success">
             <CheckCircle2 className="h-16 w-16" />
             <p className="text-lg font-semibold">Pagamento confirmado!</p>
             <p className="text-sm text-muted-foreground">Fechando...</p>
@@ -250,8 +250,8 @@ export function QuickSaleDepixDialog({
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
               </span>
               Aguardando confirmacao do pagamento...
             </div>

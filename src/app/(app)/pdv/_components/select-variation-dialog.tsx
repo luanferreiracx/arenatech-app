@@ -83,7 +83,7 @@ export function SelectVariationDialog({
                           v.currentStock <= 0
                             ? "text-destructive font-medium"
                             : v.currentStock < 5
-                              ? "text-yellow-500 font-medium"
+                              ? "text-warning font-medium"
                               : ""
                         }
                       >

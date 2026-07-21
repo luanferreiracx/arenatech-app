@@ -48,26 +48,26 @@ const STATUS_VARIANTS: Record<
 };
 
 const PAYMENT_TAGS: Record<string, { label: string; className: string }> = {
-  pix: { label: "PIX", className: "bg-green-500/12 text-green-400" },
+  pix: { label: "PIX", className: "bg-success/12 text-success" },
   cartao_credito: {
     label: "CRED",
-    className: "bg-blue-500/12 text-blue-400",
+    className: "bg-info/12 text-info",
   },
   cartao_debito: {
     label: "DEB",
-    className: "bg-blue-500/12 text-blue-400",
+    className: "bg-info/12 text-info",
   },
   dinheiro: {
     label: "DINH",
-    className: "bg-yellow-500/12 text-yellow-400",
+    className: "bg-warning/12 text-warning",
   },
   misto: {
     label: "MISTO",
-    className: "bg-purple-500/12 text-purple-400",
+    className: "bg-primary/12 text-primary",
   },
   crediario: {
     label: "CRED.",
-    className: "bg-orange-500/12 text-orange-400",
+    className: "bg-warning/12 text-warning",
   },
 };
 
@@ -175,22 +175,22 @@ export function SalesTable() {
             key: "COMPLETED",
             label: "Finalizadas",
             count: stats?.totalCompleted,
-            dotColor: "bg-green-500",
-            countColor: "text-green-500",
+            dotColor: "bg-success",
+            countColor: "text-success",
           },
           {
             key: "CANCELLED",
             label: "Canceladas",
             count: stats?.totalCancelled,
-            dotColor: "bg-red-500",
-            countColor: "text-red-500",
+            dotColor: "bg-destructive",
+            countColor: "text-destructive",
           },
           {
             key: "REFUNDED",
             label: "Estornadas",
             count: stats?.totalRefunded,
-            dotColor: "bg-yellow-500",
-            countColor: "text-yellow-500",
+            dotColor: "bg-warning",
+            countColor: "text-warning",
           },
         ].map((tab) => (
           <button

@@ -154,7 +154,7 @@ export function InfinitepayCheckoutDialog({
             <p className="text-sm text-muted-foreground">Gerando cobranca...</p>
           </div>
         ) : status === "paid" ? (
-          <div className="py-8 flex flex-col items-center gap-3 text-green-500">
+          <div className="py-8 flex flex-col items-center gap-3 text-success">
             <CheckCircle2 className="h-16 w-16" />
             <p className="text-lg font-semibold">Pagamento confirmado!</p>
             <p className="text-sm text-muted-foreground">Fechando...</p>
@@ -196,8 +196,8 @@ export function InfinitepayCheckoutDialog({
 
             <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
               </span>
               Aguardando confirmacao do pagamento...
             </div>

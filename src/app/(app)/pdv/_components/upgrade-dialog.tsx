@@ -297,12 +297,12 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
           </div>
           <div className="flex justify-between text-base font-semibold pt-1 border-t border-border">
             <span>{viraDowngrade ? "Loja devolve" : "Cliente paga"}</span>
-            <span className={viraDowngrade ? "text-orange-600" : "text-primary"}>
+            <span className={viraDowngrade ? "text-warning" : "text-primary"}>
               {formatMoney(viraDowngrade ? valorDevolucao : Math.max(0, saldoAposNovo))}
             </span>
           </div>
           {viraDowngrade && (
-            <div className="flex items-start gap-2 mt-2 p-2 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 rounded text-xs text-orange-900 dark:text-orange-200">
+            <div className="flex items-start gap-2 mt-2 p-2 bg-warning/10 border border-warning rounded text-xs text-warning">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <p>
                 <strong>Atencao:</strong> abatimento maior que o carrinho. Esta venda vira{" "}
@@ -386,7 +386,7 @@ function UpgradeDialogInner({ open, onOpenChange, saleId, upgrades, cartTotal }:
                   <div
                     className={
                       historico.alreadySold
-                        ? "rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-900 dark:text-yellow-200"
+                        ? "rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning"
                         : "rounded border border-primary/30 bg-primary/5 px-2 py-1 text-xs"
                     }
                   >

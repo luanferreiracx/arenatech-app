@@ -438,7 +438,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 {isAdmin && (
                   <Button
                     variant="outline"
-                    className="text-yellow-500 border-yellow-500/30"
+                    className="text-warning border-warning/30"
                     onClick={() => {
                       setRefundReason("");
                       setReturnStock(true);
@@ -456,7 +456,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
       />
 
       {isCompleted && hasDevice && !canPrintReceipt && (
-        <div className="mt-4 rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-sm text-yellow-900 dark:text-yellow-200">
+        <div className="mt-4 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning">
           <strong>Recibo bloqueado:</strong> {receiptBlockReason}. Envie o termo
           para assinatura digital (Autentique) ou confirme a assinatura fisica
           em loja antes de imprimir/enviar o recibo.
@@ -583,7 +583,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               <p className="text-muted-foreground">-</p>
             )}
             {(sale.changeAmount as number) > 0 && (
-              <div className="flex justify-between text-green-500 border-t pt-2">
+              <div className="flex justify-between text-success border-t pt-2">
                 <span>Troco</span>
                 <span className="font-medium">
                   {formatCurrency(sale.changeAmount as number)}
@@ -714,7 +714,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           </CardHeader>
           <CardContent className="text-sm space-y-2">
             {isSigned ? (
-              <div className="flex items-center gap-2 text-green-500">
+              <div className="flex items-center gap-2 text-success">
                 <CheckCircle2 className="h-4 w-4" />
                 <span>
                   {physicalSignature
@@ -725,10 +725,10 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               </div>
             ) : isSignaturePending ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-yellow-500">
+                <div className="flex items-center gap-2 text-warning">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
                   </span>
                   Aguardando assinatura do cliente...
                 </div>
@@ -823,7 +823,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             </Button>
             <Button
               variant="default"
-              className="bg-yellow-600 hover:bg-yellow-700"
+              className="bg-warning hover:bg-warning"
               onClick={handleRefund}
               disabled={refundMutation.isPending}
             >

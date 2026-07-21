@@ -212,7 +212,7 @@ export default function NewQuickSalePage() {
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               {discount > 0 && (
-                <div className="flex justify-between text-green-500">
+                <div className="flex justify-between text-success">
                   <span>Desconto</span>
                   <span>- {formatCurrency(discount)}</span>
                 </div>

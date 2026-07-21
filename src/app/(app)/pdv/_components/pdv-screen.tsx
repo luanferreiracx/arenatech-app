@@ -759,10 +759,10 @@ export function PdvScreen() {
                           className={cn(
                             "text-xs font-semibold px-1.5 py-0.5 rounded",
                             adjustedStock > 3
-                              ? "bg-green-500/15 text-green-500"
+                              ? "bg-success/15 text-success"
                               : adjustedStock > 0
-                                ? "bg-yellow-500/15 text-yellow-500"
-                                : "bg-red-500/15 text-red-500",
+                                ? "bg-warning/15 text-warning"
+                                : "bg-destructive/15 text-destructive",
                           )}
                         >
                           {adjustedStock} un
@@ -1012,11 +1012,11 @@ export function PdvScreen() {
             )}
             {refundDueAmount > 0 ? (
               <>
-                <div className="flex justify-between text-xl font-bold pt-2 border-t-2 border-orange-500/30">
+                <div className="flex justify-between text-xl font-bold pt-2 border-t-2 border-warning/30">
                   <span>A DEVOLVER</span>
-                  <span className="text-orange-600">{formatCurrency(refundDueAmount)}</span>
+                  <span className="text-warning">{formatCurrency(refundDueAmount)}</span>
                 </div>
-                <div className="flex items-center justify-center gap-1.5 mt-1 px-2 py-1 rounded bg-orange-100 dark:bg-orange-950/40 border border-orange-300 dark:border-orange-900/60 text-orange-800 dark:text-orange-200 text-xs font-semibold uppercase tracking-wider">
+                <div className="flex items-center justify-center gap-1.5 mt-1 px-2 py-1 rounded bg-warning/10 border border-warning text-warning text-xs font-semibold uppercase tracking-wider">
                   <ArrowRightLeft className="h-3.5 w-3.5" />
                   Downgrade — loja devolve
                 </div>
@@ -1073,7 +1073,7 @@ export function PdvScreen() {
                   {isOSPayment ? "Receber Pagamento" : "Finalizar Venda"}
                 </Button>
                 {!isOSPayment && blockedNoCustomer && (
-                  <p className="text-xs text-orange-600 text-center px-2 -mt-1">
+                  <p className="text-xs text-warning text-center px-2 -mt-1">
                     Selecione um cliente para vender aparelho.
                   </p>
                 )}
