@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
 import { useCan } from "@/lib/auth/use-capabilities";
-import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
 import { LabelsDialog } from "./labels-dialog";
 import {
@@ -308,8 +307,6 @@ export function ProductsTable() {
 
   return (
     <>
-      <StockStatsCards />
-
       <DataTable
         columns={columns}
         data={(data?.data ?? []) as ProductRow[]}
