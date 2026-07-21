@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { X, Plus, ChevronLeft, Check } from "lucide-react";
+import { methodShowsChange, methodShowsInstallments } from "./payment-method-display";
 import { DepixQrDialog } from "./depix-qr-dialog";
 import { InfinitepayCheckoutDialog } from "./infinitepay-checkout-dialog";
 import { Button } from "@/components/ui/button";
@@ -535,9 +536,12 @@ export function PaymentDialog({
     );
   };
 
-  const showInstallments =
-    selectedMethod === "cartao_credito" || selectedMethod === "crediario";
-  const showChange = selectedMethod === "dinheiro";
+  // Deriva do TIPO/flags da forma, nao de codigos hardcoded (ver
+  // payment-method-display.ts). acceptsInstallments cobre credito+crediario;
+  // type CASH cobre dinheiro (db) e o fallback (fallbackType).
+  const selectedOption = methodOptions.find((m) => m.key === selectedMethod);
+  const showInstallments = methodShowsInstallments(selectedOption);
+  const showChange = methodShowsChange(selectedMethodType);
 
   // Calculate change for display
   const trocoDisplay = (() => {
