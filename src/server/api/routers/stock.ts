@@ -90,6 +90,7 @@ import {
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
 import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
+import { sanitizeProductName } from "@/lib/utils/product-name";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -326,7 +327,7 @@ export const stockRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             sku: input.sku || null,
             barcode: input.barcode || null,
-            name: input.name,
+            name: sanitizeProductName(input.name, resolvedBrand.brandName),
             description: input.description || null,
             brandId: resolvedBrand.brandId,
             brand: resolvedBrand.brandName,
@@ -503,7 +504,7 @@ export const stockRouter = createTRPCRouter({
           data: {
             sku: input.sku || null,
             barcode: input.barcode || null,
-            name: input.name,
+            name: sanitizeProductName(input.name, resolvedBrand.brandName),
             description: input.description || null,
             brandId: resolvedBrand.brandId,
             brand: resolvedBrand.brandName,
@@ -3710,7 +3711,7 @@ export const stockRouter = createTRPCRouter({
             const product = await tx.product.create({
               data: {
                 tenantId: ctx.tenantId,
-                name: line.name,
+                name: sanitizeProductName(line.name, brandName),
                 sku: line.sku || null,
                 barcode: line.barcode || null,
                 brandId,
