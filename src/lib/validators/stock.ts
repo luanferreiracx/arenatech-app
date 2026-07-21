@@ -487,6 +487,10 @@ export const csvImportLineSchema = z
     promotionalPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional(),
     minStock: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
     quantity: z.number().int().min(0).max(MAX_QTY, "Quantidade acima do limite").optional(),
+    // isDevice ("é aparelho") e isSerialized ("controla por IMEI/série") são
+    // flags distintas — ver product-form. Antes o CSV só importava isSerialized
+    // e nunca isDevice.
+    isDevice: z.boolean().optional(),
     isSerialized: z.boolean().optional(),
     description: z.string().optional(),
   })

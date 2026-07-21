@@ -3717,6 +3717,7 @@ export const stockRouter = createTRPCRouter({
                 brandId,
                 brand: brandName,
                 description: line.description || null,
+                isDevice: line.isDevice ?? false,
                 isSerialized: line.isSerialized ?? false,
                 costPrice: new Prisma.Decimal((line.costPrice ?? 0) / 100),
                 salePrice: new Prisma.Decimal((line.salePrice ?? 0) / 100),
