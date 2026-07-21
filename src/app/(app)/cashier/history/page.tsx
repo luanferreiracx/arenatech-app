@@ -1,5 +1,7 @@
 "use client";
 
+import { onActivateKey } from "@/lib/utils/a11y";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Search, Eye } from "lucide-react";
@@ -156,8 +158,12 @@ export default function CashierHistoryPage() {
                     historyQuery.data?.data.map((reg) => (
                       <TableRow
                         key={reg.id}
+                        role="link"
+                        tabIndex={0}
+                        aria-label="Abrir sessao de caixa"
                         className="cursor-pointer hover:bg-accent"
                         onClick={() => router.push(`/cashier/${reg.id}`)}
+                        onKeyDown={onActivateKey(() => router.push(`/cashier/${reg.id}`))}
                       >
                         <TableCell className="text-sm">
                           {formatDateTime(reg.openedAt)}

@@ -1,5 +1,7 @@
 "use client";
 
+import { onActivateKey } from "@/lib/utils/a11y";
+
 import {
   Table,
   TableBody,
@@ -223,8 +225,12 @@ export function TransactionsTable({
                     return (
                       <TableRow
                         key={row.id}
+                        role="link"
+                        tabIndex={0}
+                        aria-label="Abrir transacao"
                         className="cursor-pointer hover:bg-accent/50"
                         onClick={() => onRowClick(row.id)}
+                        onKeyDown={onActivateKey(() => onRowClick(row.id))}
                       >
                         <TableCell className="max-w-[200px] truncate font-medium">
                           {row.description}
