@@ -147,10 +147,50 @@ export const customerRouter = createTRPCRouter({
           // table may not exist yet
         }
 
+        // Compras do cliente no PDV (Sale.customerId). Fecha a "visão 360": a
+        // ficha mostrava só OS, ignorando o histórico de vendas do balcão.
+        // Exclui rascunhos (DRAFT) — não são compras efetivadas.
+        let sales: Array<{
+          id: string;
+          number: string;
+          status: string;
+          totalAmount: number;
+          saleDate: Date;
+        }> = [];
+        let salesCount = 0;
+        try {
+          const saleWhere = {
+            customerId: input.id,
+            deletedAt: null,
+            status: { not: "DRAFT" as const },
+          };
+          salesCount = await tx.sale.count({ where: saleWhere });
+          const rows = await tx.sale.findMany({
+            where: saleWhere,
+            orderBy: { saleDate: "desc" },
+            take: 20,
+            select: {
+              id: true,
+              number: true,
+              status: true,
+              totalAmount: true,
+              saleDate: true,
+            },
+          });
+          sales = rows.map((s) => ({
+            ...s,
+            totalAmount: Math.round(Number(s.totalAmount) * 100), // centavos
+          }));
+        } catch {
+          // table may not exist yet
+        }
+
         return {
           ...customer,
           serviceOrderCount,
           serviceOrders,
+          salesCount,
+          sales,
           viewerIsAdmin: isTenantAdmin(ctx.session, ctx.tenantId),
         };
       });
