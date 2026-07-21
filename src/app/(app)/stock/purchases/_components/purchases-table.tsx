@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { FileText, Send, Check, RefreshCw, Eye } from "lucide-react";
@@ -61,7 +62,7 @@ export function PurchasesTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [confirmPhysicalId, setConfirmPhysicalId] = useState<string | null>(null);
@@ -100,14 +101,12 @@ export function PurchasesTable() {
     }),
   );
 
-  const handleSearchChange = useCallback((value: string) => {
+  // Volta pra primeira pagina ao editar a busca (no evento, nao num effect —
+  // setState sincrono em effect dispara render em cascata).
+  const handleSearchChange = (value: string) => {
     setSearch(value);
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, []);
+    setPage(0);
+  };
 
   const { data, isLoading } = useQuery(
     trpc.stock.listPurchases.queryOptions({

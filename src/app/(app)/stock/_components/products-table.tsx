@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
 import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy } from "lucide-react";
@@ -56,7 +57,7 @@ export function ProductsTable() {
   const canMoveStock = useCan("moveStock");
   const canManageCatalog = useCan("manageCatalog");
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -69,14 +70,12 @@ export function ProductsTable() {
     [rowSelection],
   );
 
-  const handleSearchChange = useCallback((value: string) => {
+  // Volta pra primeira pagina ao editar a busca (no evento, nao num effect —
+  // setState sincrono em effect dispara render em cascata).
+  const handleSearchChange = (value: string) => {
     setSearch(value);
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, []);
+    setPage(0);
+  };
 
   const { data, isLoading } = useQuery(
     trpc.stock.list.queryOptions({
