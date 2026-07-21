@@ -364,7 +364,6 @@ export function CashierDashboard() {
                   <TableHead>Descricao</TableHead>
                   <TableHead>Forma</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-right">Obs</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -404,9 +403,6 @@ export function CashierDashboard() {
                       >
                         {m.nature === "INCOME" ? "+" : "-"}{" "}
                         {formatCents(m.amount)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                        {m.description ?? "-"}
                       </TableCell>
                     </TableRow>
                   ))
