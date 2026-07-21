@@ -42,6 +42,7 @@ import {
 } from "@/lib/services/depix-service";
 import { extractDepixWithdrawReceiptUrl } from "@/lib/depix/receipt-url";
 import { maySettleSaleEffect } from "@/lib/depix/tx-status";
+import { assertCentralCacheHealthyForWithdraw } from "@/server/services/depix-cache-integrity.service";
 
 const ZERO_FEE: DepixFeeConfig = {
   entryFeeFixed: 0,
@@ -1381,6 +1382,13 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
   const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
   const centralId = await getCentralTenantId();
 
+  // CONTENÇÃO (incidente TXW20260719-00001): se o cache do LWK da carteira central
+  // estiver com UTXOs gastos, o saldo lido acima está inflado. Bloqueamos ANTES de
+  // chamar a Eulen — sem isto, o off-ramp é alocado e a tx só quebra no broadcast
+  // (`bad-txns-inputs-missingorspent`), gastando tempo e deixando um payout órfão
+  // no provedor. Fail-open: só bloqueia com corrupção CONFIRMADA (ver o guard).
+  await assertCentralCacheHealthyForWithdraw(args.tenantId, centralId);
+
   // Garante L-BTC pra fee de rede ANTES do transfer (resolve o ovo-e-galinha do
   // 1o saque de um tenant com 0 L-BTC). Best-effort; central é a fonte (skip).
   await ensureLbtcBeforeWithdraw(args.tenantId);
@@ -2455,6 +2463,10 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
   }
   const onchainCents = Math.floor((balance.depixBalance ?? 0) * 100);
   const centralId = await getCentralTenantId();
+
+  // CONTENÇÃO (mesmo motivo do createWithdraw): não envia on-chain contra saldo
+  // inflado por cache com UTXOs gastos. Fail-open — só bloqueia corrupção confirmada.
+  await assertCentralCacheHealthyForWithdraw(args.tenantId, centralId);
 
   // Garante L-BTC pra fee de rede ANTES do envio on-chain (ovo-e-galinha do 1o
   // saque). Best-effort; central é a fonte (skip).

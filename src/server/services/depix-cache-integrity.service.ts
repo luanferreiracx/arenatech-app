@@ -14,6 +14,7 @@
  * checkCentralLbtcFloor). Best-effort: nunca lança; se não der pra checar (LWK ou
  * Esplora indisponível), retorna sem alarme — "não sei" ≠ "está corrompido".
  */
+import { TRPCError } from "@trpc/server";
 import { getUtxos } from "@/lib/services/lwk-service";
 import { DEPIX_ASSET } from "@/server/services/sideswap-swap.service";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
@@ -106,6 +107,51 @@ export async function checkCentralCacheIntegrity(): Promise<CacheIntegrityResult
     });
     return none;
   }
+}
+
+/**
+ * Guard de saque: bloqueia um saque da carteira CENTRAL quando o cache do LWK
+ * está com UTXOs gastos (saldo inflado). Sem isto, o gate de saldo confia no
+ * número inflado, a Eulen aloca o off-ramp e a tx só quebra tarde, no broadcast,
+ * com `bad-txns-inputs-missingorspent` (incidente TXW20260719-00001).
+ *
+ * FAIL-OPEN por design: só bloqueia quando CONFIRMA corrupção (`alert`). Se não
+ * deu pra avaliar (Esplora/LWK indisponível → `assessed: false`), NÃO bloqueia —
+ * "não sei" ≠ "está corrompido", e não queremos travar saque legítimo por uma
+ * Esplora oscilando. O gate de saldo on-chain segue como segunda linha.
+ *
+ * Só se aplica à carteira central (o detector reconcilia os UTXOs dela); para os
+ * demais tenants retorna sem checar.
+ */
+export async function assertCentralCacheHealthyForWithdraw(
+  tenantId: string,
+  centralId: string | null,
+): Promise<void> {
+  if (!centralId || tenantId !== centralId) return;
+
+  const result = await checkCentralCacheIntegrity();
+  if (!result.alert) return;
+
+  const phantomBrl = (result.alert.phantomSats / 1e8).toFixed(2);
+  logger.error(
+    "depix-withdraw: BLOQUEADO — cache do LWK com UTXOs gastos (saldo inflado). Reparar antes de sacar.",
+    {
+      tenant: CENTRAL_TENANT_SLUG,
+      spentCount: result.alert.spentCount,
+      totalCount: result.alert.totalCount,
+      ratio: Number(result.alert.ratio.toFixed(3)),
+      phantomBrl,
+    },
+  );
+  // PRECONDITION_FAILED: não é erro do operador nem falha transitória — é uma
+  // pré-condição da carteira (cache precisa ser reparado). O router propaga como
+  // está (mesmo padrão do gate de 2FA), sem contar contra brute-force.
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      `Saque bloqueado: o saldo on-chain está desatualizado (${result.alert.spentCount} de ${result.alert.totalCount} UTXOs já gastos, ~R$ ${phantomBrl} fantasma). ` +
+      "Repare a carteira (purge de cache + rescan) antes de sacar — sem isso o saque falharia na transmissão.",
+  });
 }
 
 /**
