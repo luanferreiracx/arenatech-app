@@ -8,6 +8,7 @@ import {
   listCustomersSchema,
   normalizeCnpj,
   normalizePhoneDigits,
+  resolveTypedDocuments,
 } from "@/lib/validators/customer";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { Prisma } from "@prisma/client";
@@ -160,9 +161,11 @@ export const customerRouter = createTRPCRouter({
     .input(createCustomerSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        // SPEC RN-4/5: normalize to digits only
-        const cpf = input.cpf ? normalizeCpf(input.cpf) : null;
-        const cnpj = input.cnpj ? normalizeCnpj(input.cnpj) : null;
+        // SPEC RN-4/5 + gate por tipo (ver resolveTypedDocuments): PJ nunca
+        // grava CPF e vice-versa. Sem isso, um doc digitado antes de trocar
+        // PF↔PJ ficava órfão no form e era gravado, podendo falsar o índice
+        // único do doc oposto.
+        const { cpf, cnpj } = resolveTypedDocuments(input.type, input.cpf, input.cnpj);
 
         // SPEC RN-1: check uniqueness among non-deleted (partial unique index)
         if (cpf) {
@@ -242,8 +245,8 @@ export const customerRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
         }
 
-        const cpf = input.cpf ? normalizeCpf(input.cpf) : null;
-        const cnpj = input.cnpj ? normalizeCnpj(input.cnpj) : null;
+        // Gate por tipo (ver create): PJ nunca grava CPF e vice-versa.
+        const { cpf, cnpj } = resolveTypedDocuments(input.type, input.cpf, input.cnpj);
 
         // SPEC RN-1: uniqueness excluding self
         if (cpf) {
