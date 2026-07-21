@@ -143,7 +143,13 @@ export function CustomerForm({ mode, customerId, defaultValues, onSuccess, onCan
           <Label>Tipo</Label>
           <RadioGroup
             value={watchType}
-            onValueChange={(v: string) => form.setValue("type", v as "PF" | "PJ")}
+            onValueChange={(v: string) => {
+              const next = v as "PF" | "PJ";
+              form.setValue("type", next);
+              // Limpa o doc do tipo oposto para não enviar um CPF/CNPJ órfão.
+              if (next === "PF") form.setValue("cnpj", "");
+              else form.setValue("cpf", "");
+            }}
             className="flex gap-4"
           >
             <div className="flex items-center space-x-2">

@@ -7,6 +7,23 @@ export function normalizeCnpj(cnpj: string): string {
   return cnpj.replace(/\D/g, "");
 }
 
+/**
+ * Resolve os documentos (CPF/CNPJ) a gravar conforme o tipo do cliente,
+ * normalizados para só dígitos. Gate por tipo: PJ nunca grava CPF e PF nunca
+ * grava CNPJ, evitando doc órfão quando o usuário troca PF↔PJ com um documento
+ * já digitado no form.
+ */
+export function resolveTypedDocuments(
+  type: "PF" | "PJ",
+  cpf: string | null | undefined,
+  cnpj: string | null | undefined,
+): { cpf: string | null; cnpj: string | null } {
+  return {
+    cpf: type === "PF" && cpf ? normalizeCpf(cpf) : null,
+    cnpj: type === "PJ" && cnpj ? normalizeCnpj(cnpj) : null,
+  };
+}
+
 export function validateCnpj(cnpj: string): boolean {
   const digits = normalizeCnpj(cnpj);
   if (digits.length !== 14) return false;
