@@ -1953,43 +1953,6 @@ export const stockRouter = createTRPCRouter({
   }),
 
   /** Stats for dashboard cards */
-  stats: tenantProcedure.query(async ({ ctx }) => {
-    return ctx.withTenant(async (tx) => {
-      const products = await tx.product.findMany({
-        where: { deletedAt: null, active: true },
-        select: {
-          id: true,
-          currentStock: true,
-          hasVariations: true,
-          isSerialized: true,
-          minStock: true,
-          salePrice: true,
-        },
-      });
-      const stockByProduct = await resolveCurrentStockByProduct(tx, products);
-      const productsWithStock = products.map((p) => ({
-        ...p,
-        currentStock: stockByProduct.get(p.id) ?? 0,
-      }));
-      const totalProducts = productsWithStock.length;
-      const totalItems = productsWithStock.reduce((sum, p) => sum + p.currentStock, 0);
-      const totalSaleValue = productsWithStock.reduce(
-        (sum, p) => sum + p.currentStock * Number(p.salePrice),
-        0,
-      );
-      const lowStockCount = productsWithStock.filter(
-        (p) => p.minStock > 0 && p.currentStock <= p.minStock,
-      ).length;
-
-      return {
-        totalProducts,
-        totalItems,
-        totalSaleValue: Math.round(totalSaleValue * 100),
-        lowStockCount,
-      };
-    });
-  }),
-
   /** Search products for autocomplete (EntitySelector) */
   searchProducts: tenantProcedure
     .input(
