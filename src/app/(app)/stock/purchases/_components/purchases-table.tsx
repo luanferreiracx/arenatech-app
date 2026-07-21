@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
@@ -101,10 +101,12 @@ export function PurchasesTable() {
     }),
   );
 
-  // Volta pra primeira pagina quando o termo debounced muda (nova busca).
-  useEffect(() => {
+  // Volta pra primeira pagina ao editar a busca (no evento, nao num effect —
+  // setState sincrono em effect dispara render em cascata).
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
     setPage(0);
-  }, [debouncedSearch]);
+  };
 
   const { data, isLoading } = useQuery(
     trpc.stock.listPurchases.queryOptions({
@@ -314,7 +316,7 @@ export function PurchasesTable() {
       toolbar={
         <DataTableToolbar
           searchValue={search}
-          onSearchChange={setSearch}
+          onSearchChange={handleSearchChange}
           searchPlaceholder="Buscar por IMEI, marca ou modelo..."
         />
       }

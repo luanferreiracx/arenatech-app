@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
@@ -70,10 +70,12 @@ export function ProductsTable() {
     [rowSelection],
   );
 
-  // Volta pra primeira pagina quando o termo debounced muda (nova busca).
-  useEffect(() => {
+  // Volta pra primeira pagina ao editar a busca (no evento, nao num effect —
+  // setState sincrono em effect dispara render em cascata).
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
     setPage(0);
-  }, [debouncedSearch]);
+  };
 
   const { data, isLoading } = useQuery(
     trpc.stock.list.queryOptions({
@@ -302,7 +304,7 @@ export function ProductsTable() {
         toolbar={
           <DataTableToolbar
             searchValue={search}
-            onSearchChange={setSearch}
+            onSearchChange={handleSearchChange}
             searchPlaceholder="Buscar por nome, SKU ou codigo de barras..."
             actions={
               selectedIds.length > 0 ? (
