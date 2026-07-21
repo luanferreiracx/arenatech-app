@@ -144,7 +144,7 @@ export function ServicesManageTable() {
       accessorKey: "basePrice",
       header: "Preco",
       cell: ({ row }) => (
-        <span className="font-mono text-sm font-medium text-green-600">
+        <span className="font-mono text-sm font-medium text-success">
           {formatCurrency(row.original.basePrice)}
         </span>
       ),
@@ -196,7 +196,7 @@ export function ServicesManageTable() {
             }
           >
             {row.original.active ? (
-              <ToggleRight className="h-4 w-4 text-green-600" />
+              <ToggleRight className="h-4 w-4 text-success" />
             ) : (
               <ToggleLeft className="h-4 w-4 text-muted-foreground" />
             )}

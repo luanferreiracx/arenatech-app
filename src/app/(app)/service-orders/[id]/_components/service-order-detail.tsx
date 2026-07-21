@@ -726,8 +726,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           ENTREGUE (aparelho já entregue → nada a comunicar). Aparece mesmo sem
           telefone cadastrado: o operador pode digitar um no envio. */}
       {!isCancelled && !isRefunded && ["COMPLETED", "PAID", "READY_FOR_PICKUP"].includes(status) && (
-        <div className="rounded-lg border-2 border-blue-500 bg-blue-500/10 p-4 mb-6">
-          <h3 className="font-semibold text-blue-400 flex items-center gap-2">
+        <div className="rounded-lg border-2 border-info bg-info/10 p-4 mb-6">
+          <h3 className="font-semibold text-info flex items-center gap-2">
             <MessageCircle className="h-5 w-5" />Comunicacao
           </h3>
           <div className="flex flex-wrap gap-2 mt-3">
@@ -752,8 +752,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
       {/* Delivery Term — visivel apos pagamento/retirada e mantido apos entrega para auditoria. */}
       {canShowDeliveryTerm && (
-        <div className={`rounded-lg border-2 p-4 mb-6 ${deliveryTermSigned ? "border-success bg-success/10" : "border-emerald-500 bg-emerald-500/10"}`}>
-          <h3 className={`font-semibold flex items-center gap-2 ${deliveryTermSigned ? "text-success" : "text-emerald-400"}`}>
+        <div className={`rounded-lg border-2 p-4 mb-6 ${deliveryTermSigned ? "border-success bg-success/10" : "border-info bg-info/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${deliveryTermSigned ? "text-success" : "text-info"}`}>
             <Truck className="h-5 w-5" />
             Termo de Entrega {deliveryTermSigned ? "- Assinado" : ""}
           </h3>
@@ -808,8 +808,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       {/* Return Term — so se cancelamento em curso (termo enviado ou OS ja cancelada).
           No fluxo normal nao aparece. Paridade com Laravel (mostrado apos `enviarTermoDevolucao`). */}
       {!isRefunded && !isDelivered && (order.returnTermSent || isCancelled || returnTermSigned) && (
-        <div className={`rounded-lg border-2 p-4 mb-6 ${returnTermSigned ? "border-destructive bg-destructive/10" : "border-orange-500 bg-orange-500/10"}`}>
-          <h3 className={`font-semibold flex items-center gap-2 ${returnTermSigned ? "text-destructive" : "text-orange-400"}`}>
+        <div className={`rounded-lg border-2 p-4 mb-6 ${returnTermSigned ? "border-destructive bg-destructive/10" : "border-warning bg-warning/10"}`}>
+          <h3 className={`font-semibold flex items-center gap-2 ${returnTermSigned ? "text-destructive" : "text-warning"}`}>
             <RotateCcw className="h-5 w-5" />
             Termo de Devolucao {returnTermSigned ? "- Assinado (OS Cancelada)" : ""}
           </h3>
@@ -859,8 +859,8 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         const diff = pendingQuote.newTotal - pendingQuote.previousTotal;
         const sent = pendingQuote.sentToCustomer;
         return (
-          <div id="orcamento-pendente" className="rounded-lg border-2 border-purple-500 bg-purple-500/10 p-4 mb-6">
-            <h3 className="font-semibold text-purple-400 flex items-center gap-2 mb-1">
+          <div id="orcamento-pendente" className="rounded-lg border-2 border-primary bg-primary/10 p-4 mb-6">
+            <h3 className="font-semibold text-primary flex items-center gap-2 mb-1">
               <DollarSign className="h-5 w-5" />Alteracao de Orcamento — Aguardando Autorizacao
             </h3>
             <p className="text-xs text-muted-foreground mb-3">
@@ -876,7 +876,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Novo Valor</p>
-                <p className="font-semibold text-purple-400 font-mono">{formatMoney(pendingQuote.newTotal)}</p>
+                <p className="font-semibold text-primary font-mono">{formatMoney(pendingQuote.newTotal)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Diferenca</p>
