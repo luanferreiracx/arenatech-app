@@ -2,10 +2,9 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { useTRPC } from "@/trpc/react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   FileText,
@@ -75,6 +74,7 @@ import { StatusStepper } from "./status-stepper";
 type ServiceOrderDetail = NonNullable<RouterOutputs["serviceOrder"]["getById"]>;
 type PartProduct = RouterOutputs["serviceOrder"]["searchParts"][number];
 import { ConcludeOsDialog } from "./conclude-os-dialog";
+import { useServiceOrderActions } from "./use-service-order-actions";
 import {
   OrderHistoryTimeline,
   OrderPaymentCard,
@@ -96,7 +96,6 @@ function formatMoney(centavos: number): string {
 // ── Main Component ──
 
 export function ServiceOrderDetail({ id }: { id: string }) {
-  const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
@@ -192,150 +191,78 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // Envio do recibo por WhatsApp (escolhe/digita telefone — padrão do sistema).
   const [receiptDialog, setReceiptDialog] = useState(false);
 
-  const invalidateOrder = () => {
-    void queryClient.invalidateQueries({ queryKey: [["serviceOrder"]] });
-  };
 
   // Mutations
-  const updateStatusMut = useMutation(
-    trpc.serviceOrder.updateStatus.mutationOptions({
-      onSuccess: () => { toast.success("Status atualizado!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
+  // Ações (mutations) da OS extraídas para hook dedicado (locality).
+  const {
+    invalidateOrder,
+    updateStatusMut,
+    cancelMut,
+    uncancelMut,
+    refundMut,
+    deleteMut,
+    addItemMut,
+    removeItemMut,
+    registerPaymentMut,
+    createFromOSMut,
+    updateCostsMut,
+    confirmSigMut,
+    sendForSignatureMut,
+    checkSignatureStatusMut,
+    notifyCompletedMut,
+    updateItemMut,
+    cancelQuoteMut,
+    approveQuoteMut,
+    sendTrackingMut,
+    sendToLabMut,
+    receiveFromLabMut,
+    cancelLabMut,
+    notifyDeliveryPersonMut,
+    sendReceiptMut,
+    sendDeliveryTermMut,
+    confirmPhysicalDeliveryTermMut,
+    checkDeliveryTermStatusMut,
+    sendReturnTermMut,
+    confirmPhysicalReturnTermMut,
+    checkReturnTermStatusMut,
+    requestBudgetApprovalMut,
+    updateTechnicalInfoMut,
+    updateTechnicianMut,
+  } = useServiceOrderActions({
+    setAddItemDialog,
+    setCostsEditing,
+    setSignatureDialog,
+    setEditItemId,
+    setTrackingDialog,
+    setSendLabDialog,
+    setNotifyDeliveryDialog,
+    setDeliveryTermDialog,
+    setReturnTermDialog,
+    setTechInfoDialog,
+    setChangeTechDialog,
+    setCheckQuotePending,
+  });
 
-  const cancelMut = useMutation(
-    trpc.serviceOrder.cancel.mutationOptions({
-      onSuccess: () => { toast.success("OS cancelada!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const uncancelMut = useMutation(
-    trpc.serviceOrder.uncancel.mutationOptions({
-      onSuccess: () => { toast.success("OS descancelada!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const refundMut = useMutation(
-    trpc.serviceOrder.refund.mutationOptions({
-      onSuccess: () => { toast.success("OS estornada!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const deleteMut = useMutation(
-    trpc.serviceOrder.delete.mutationOptions({
-      onSuccess: () => { toast.success("OS excluida!"); router.push("/service-orders"); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const addItemMut = useMutation(
-    trpc.serviceOrder.addItem.mutationOptions({
-      onSuccess: () => { toast.success("Item adicionado!"); setAddItemDialog(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const removeItemMut = useMutation(
-    trpc.serviceOrder.removeItem.mutationOptions({
-      onSuccess: () => { toast.success("Item removido!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const registerPaymentMut = useMutation(
-    trpc.serviceOrder.registerPayment.mutationOptions({
-      onSuccess: () => { toast.success("Pagamento registrado!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   // Cria/reusa rascunho de Sale para pagamento da OS e navega pro PDV.
   // Substitui o registerPayment direto da OS (ADR 0042: PDV-OS integration).
   // O retorno tipado pelo tRPC e a Sale completa; extraimos `id`.
-  const createFromOSMut = useMutation(
-    trpc.sale.createFromOS.mutationOptions({
-      onSuccess: (sale) => {
-        if (sale?.id) router.push(`/pdv?saleId=${sale.id}`);
-      },
-      onError: (e: { message: string }) => toast.error(e.message),
-    })
-  );
-
-  const updateCostsMut = useMutation(
-    trpc.serviceOrder.updateCosts.mutationOptions({
-      onSuccess: () => { toast.success("Custos atualizados!"); setCostsEditing(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-
-  const confirmSigMut = useMutation(
-    trpc.serviceOrder.confirmPhysicalSignature.mutationOptions({
-      onSuccess: () => { toast.success("Assinatura confirmada!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-
-  const sendForSignatureMut = useMutation(
-    trpc.serviceOrder.sendForSignature.mutationOptions({
-      onSuccess: () => {
-        toast.success("Link de assinatura enviado por WhatsApp!");
-        setSignatureDialog(false);
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-
-  const checkSignatureStatusMut = useMutation(
-    trpc.serviceOrder.checkSignatureStatus.mutationOptions({
-      onSuccess: (data) => {
-        if (data.signed) {
-          toast.success("Assinatura confirmada!");
-        } else {
-          toast.info(`Assinaturas: ${data.signaturesCompleted}/${data.totalSignatures}`);
-        }
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-
-  const notifyCompletedMut = useMutation(
-    trpc.communication.notifyOsCompleted.mutationOptions({
-      onSuccess: (data) => {
-        if (data.success) toast.success("Notificacao de conclusao enviada por WhatsApp!");
-        else toast.error("Falha ao enviar notificacao");
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
 
-  const updateItemMut = useMutation(
-    trpc.serviceOrder.updateItem.mutationOptions({
-      onSuccess: () => { toast.success("Item atualizado!"); setEditItemId(null); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
 
-  const cancelQuoteMut = useMutation(
-    trpc.serviceOrder.cancelQuote.mutationOptions({
-      onSuccess: () => { toast.success("Alteracao cancelada — itens revertidos."); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const approveQuoteMut = useMutation(
-    trpc.serviceOrder.approveQuoteManually.mutationOptions({
-      onSuccess: () => { toast.success("Orcamento autorizado!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
+
+
+
+
+
 
   // checkQuoteStatus e uma query — disparada sob demanda para saber se o cliente
   // ja respondeu pelo link publico (respondToQuote aplica no servidor). Refaz a
@@ -359,49 +286,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   };
 
   // Sprint 1A mutations
-  const sendTrackingMut = useMutation(
-    trpc.serviceOrder.sendTracking.mutationOptions({
-      onSuccess: () => { toast.success("Link de rastreamento enviado!"); setTrackingDialog(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   // ── Laboratorio Externo ──
-  const sendToLabMut = useMutation(
-    trpc.serviceOrder.sendToLab.mutationOptions({
-      onSuccess: () => { toast.success("Aparelho enviado ao laboratorio."); setSendLabDialog(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-  const receiveFromLabMut = useMutation(
-    trpc.serviceOrder.receiveFromLab.mutationOptions({
-      onSuccess: () => { toast.success("Recebimento confirmado."); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-  const cancelLabMut = useMutation(
-    trpc.serviceOrder.cancelLab.mutationOptions({
-      onSuccess: () => { toast.success("Envio cancelado."); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
-  const notifyDeliveryPersonMut = useMutation(
-    trpc.serviceOrder.notifyDeliveryPerson.mutationOptions({
-      onSuccess: (data: { whatsappSent: boolean }) => {
-        toast.success(data.whatsappSent ? "Entregador notificado." : "Entregador atualizado (WhatsApp indisponivel).");
-        setNotifyDeliveryDialog(false);
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const sendReceiptMut = useMutation(
-    trpc.serviceOrder.sendReceipt.mutationOptions({
-      onSuccess: () => toast.success("Recibo enviado via WhatsApp."),
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   // Lista de entregadores ativos para os dialogs
   const deliveryPersonsQuery = useQuery(
@@ -409,90 +296,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   );
   const deliveryPersons = deliveryPersonsQuery.data ?? [];
 
-  const sendDeliveryTermMut = useMutation(
-    trpc.serviceOrder.sendDeliveryTerm.mutationOptions({
-      onSuccess: (data) => {
-        toast.success("Termo de entrega enviado!");
-        setDeliveryTermDialog(false);
-        if (data.signatureLink) window.open(data.signatureLink, "_blank");
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const confirmPhysicalDeliveryTermMut = useMutation(
-    trpc.serviceOrder.confirmPhysicalDeliveryTerm.mutationOptions({
-      onSuccess: () => { toast.success("Termo de entrega confirmado e OS entregue!"); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const checkDeliveryTermStatusMut = useMutation(
-    trpc.serviceOrder.checkDeliveryTermStatus.mutationOptions({
-      onSuccess: (data) => {
-        if (data.signed) toast.success("Termo de entrega assinado! OS entregue.");
-        else toast.info("Termo de entrega ainda nao foi assinado.");
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const sendReturnTermMut = useMutation(
-    trpc.serviceOrder.sendReturnTerm.mutationOptions({
-      onSuccess: (data) => {
-        toast.success("Termo de devolucao enviado!");
-        setReturnTermDialog(false);
-        if (data.signatureLink) window.open(data.signatureLink, "_blank");
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const confirmPhysicalReturnTermMut = useMutation(
-    trpc.serviceOrder.confirmPhysicalReturnTerm.mutationOptions({
-      onSuccess: () => { toast.success("Termo de devolucao confirmado! OS cancelada."); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const checkReturnTermStatusMut = useMutation(
-    trpc.serviceOrder.checkReturnTermStatus.mutationOptions({
-      onSuccess: (data) => {
-        if (data.signed && data.cancelled) toast.success("Termo assinado e OS cancelada!");
-        else if (data.signed) toast.success("Termo assinado!");
-        else toast.info("Termo de devolucao ainda nao assinado.");
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const requestBudgetApprovalMut = useMutation(
-    trpc.serviceOrder.requestBudgetApproval.mutationOptions({
-      onSuccess: (data: { whatsappSent: boolean }) => {
-        toast.success(data.whatsappSent ? "Orcamento enviado ao cliente por WhatsApp!" : "Orcamento marcado como enviado (WhatsApp indisponivel).");
-        invalidateOrder();
-      },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const updateTechnicalInfoMut = useMutation(
-    trpc.serviceOrder.updateTechnicalInfo.mutationOptions({
-      onSuccess: () => { toast.success("Informacoes tecnicas atualizadas!"); setTechInfoDialog(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
-  const updateTechnicianMut = useMutation(
-    trpc.serviceOrder.updateTechnician.mutationOptions({
-      onSuccess: () => { toast.success("Tecnico atualizado!"); setChangeTechDialog(false); invalidateOrder(); },
-      onError: (e) => toast.error(e.message),
-    })
-  );
 
   // Query for technicians list (for change technician dialog)
   const techniciansQuery = useQuery(
