@@ -5,6 +5,9 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { downloadCsv, centsToBrl } from "@/lib/utils/csv-export";
 import {
   Select,
   SelectContent,
@@ -40,24 +43,69 @@ export default function DrePage() {
 
   const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
 
+  const handleExport = () => {
+    const dre = dreQuery.data;
+    if (!dre) return;
+    const rows = dre.months.map((m) => {
+      const margin = m.revenue > 0 ? ((m.grossProfit / m.revenue) * 100).toFixed(1) : "0.0";
+      return [
+        m.monthName,
+        centsToBrl(m.revenue),
+        centsToBrl(m.partsCost),
+        centsToBrl(m.grossProfit),
+        margin,
+        centsToBrl(m.expenses),
+        centsToBrl(m.netProfit),
+      ];
+    });
+    const totalMargin = dre.totals.revenue > 0
+      ? ((dre.totals.grossProfit / dre.totals.revenue) * 100).toFixed(1)
+      : "0.0";
+    rows.push([
+      "TOTAL",
+      centsToBrl(dre.totals.revenue),
+      centsToBrl(dre.totals.partsCost),
+      centsToBrl(dre.totals.grossProfit),
+      totalMargin,
+      centsToBrl(dre.totals.expenses),
+      centsToBrl(dre.totals.netProfit),
+    ]);
+    downloadCsv(
+      `dre-${year}.csv`,
+      ["Mes", "Receita", "Custo Pecas", "Lucro Bruto", "Margem %", "Despesas", "Lucro Liquido"],
+      rows,
+    );
+  };
+
   return (
     <div>
       <PageHeader
         title="DRE"
         subtitle="Demonstracao de Resultados do Exercicio — consolidado mensal"
         actions={
-          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {years.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={!dreQuery.data}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {years.map((y) => (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         }
       />
 

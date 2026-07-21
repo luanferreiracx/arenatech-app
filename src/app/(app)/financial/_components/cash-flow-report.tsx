@@ -7,6 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/inputs/date-input";
 import { brtDayKey, todayBrtISO } from "@/lib/utils/date-range";
+import { downloadCsv, centsToBrl } from "@/lib/utils/csv-export";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -73,6 +76,27 @@ export function CashFlowReport() {
 
   const data = cashFlowQuery.data;
 
+  const handleExport = () => {
+    if (!data) return;
+    const rows = data.periods.map((period) => [
+      formatPeriodLabel(period.period, groupBy),
+      centsToBrl(period.receivable),
+      centsToBrl(period.payable),
+      centsToBrl(period.balance),
+    ]);
+    rows.push([
+      "TOTAL",
+      centsToBrl(data.summary.totalReceivable),
+      centsToBrl(data.summary.totalPayable),
+      centsToBrl(data.summary.balance),
+    ]);
+    downloadCsv(
+      `fluxo-de-caixa-${dateFrom}-a-${dateTo}.csv`,
+      ["Periodo", "Entradas", "Saidas", "Saldo"],
+      rows,
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Filters */}
@@ -109,6 +133,17 @@ export function CashFlowReport() {
                   <SelectItem value="month">Mes</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={!data || data.periods.length === 0}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Exportar CSV
+              </Button>
             </div>
           </div>
         </CardContent>
