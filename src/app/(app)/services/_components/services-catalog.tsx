@@ -152,7 +152,7 @@ export function ServicesCatalog() {
                   <div className="font-medium text-sm">
                     {s.deviceModel ?? s.name}
                   </div>
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-success">
                     {formatCurrency(s.basePrice)}
                   </div>
                   {s.description && (
@@ -164,7 +164,7 @@ export function ServicesCatalog() {
                     <Button
                       size="sm"
                       variant="default"
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      className="flex-1 bg-success hover:bg-success text-white"
                       onClick={() => handleCopy(s.id)}
                       disabled={copyingId === s.id}
                     >

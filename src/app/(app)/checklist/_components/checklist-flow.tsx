@@ -112,7 +112,7 @@ export function ChecklistFlow() {
   if (step === "select") {
     return (
       <Card className="p-6 max-w-2xl">
-        <div className="bg-primary/10 border-l-4 border-primary p-4 rounded-r mb-6">
+        <div className="bg-primary/10 border border-primary/30 p-4 rounded mb-6">
           <p className="text-sm">
             <strong>Instrucoes:</strong> Preencha os dados do aparelho a ser avaliado.
             Apos enviar, voce sera direcionado para o checklist de inspecao especifico
@@ -314,8 +314,8 @@ export function ChecklistFlow() {
 
         {finalizado && (
           <div className="border-t pt-4">
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-              <p className="font-semibold text-green-400">Laudo Finalizado e Salvo</p>
+            <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+              <p className="font-semibold text-success">Laudo Finalizado e Salvo</p>
               {savedChecklistId && (
                 <p className="text-xs text-muted-foreground mt-1">
                   ID: <code className="font-mono">{savedChecklistId.slice(0, 8)}</code>

@@ -140,7 +140,7 @@ export default function TechnicianReportPage() {
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-green-500">{data.totals.completed}</div>
+              <div className="text-2xl font-bold text-success">{data.totals.completed}</div>
               <div className="text-xs text-muted-foreground uppercase">Concluidas</div>
             </CardContent>
           </Card>
@@ -158,7 +158,7 @@ export default function TechnicianReportPage() {
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-green-500">{formatCents(data.totals.profit)}</div>
+              <div className="text-2xl font-bold text-success">{formatCents(data.totals.profit)}</div>
               <div className="text-xs text-muted-foreground uppercase">Lucro</div>
             </CardContent>
           </Card>
@@ -197,7 +197,7 @@ export default function TechnicianReportPage() {
                       <tr key={item.technicianId} className="border-b hover:bg-muted/30">
                         <td className="p-3">
                           {index < 3 ? (
-                            <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-yellow-500/20 text-yellow-500">
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-warning/20 text-warning">
                               {index + 1}
                             </span>
                           ) : (
@@ -206,14 +206,14 @@ export default function TechnicianReportPage() {
                         </td>
                         <td className="p-3 font-medium">{item.technicianName}</td>
                         <td className="p-3 text-center">{item.totalOs}</td>
-                        <td className="p-3 text-center text-green-500">{item.completed}</td>
-                        <td className="p-3 text-center text-red-500">{item.cancelled}</td>
+                        <td className="p-3 text-center text-success">{item.completed}</td>
+                        <td className="p-3 text-center text-destructive">{item.cancelled}</td>
                         <td className="p-3 text-right">{formatCents(item.serviceValue)}</td>
                         <td className="p-3 text-right">{formatCents(item.partsValue)}</td>
                         <td className="p-3 text-right font-bold">{formatCents(item.totalValue)}</td>
                         <td className="p-3 text-right">{formatCents(item.partsCost)}</td>
                         <td className="p-3 text-right">{formatCents(item.otherCost)}</td>
-                        <td className="p-3 text-right text-green-500 font-bold">{formatCents(item.profit)}</td>
+                        <td className="p-3 text-right text-success font-bold">{formatCents(item.profit)}</td>
                         <td className="p-3 text-right">{formatCents(item.ticketMedio)}</td>
                         <td className="p-3 text-center">
                           {item.avgDays !== null ? `${item.avgDays} dias` : <span className="text-muted-foreground">-</span>}
@@ -232,7 +232,7 @@ export default function TechnicianReportPage() {
                       <td className="p-3 text-right">{formatCents(data.totals.totalValue)}</td>
                       <td className="p-3 text-right">{formatCents(data.totals.partsCost)}</td>
                       <td className="p-3 text-right">{formatCents(data.totals.otherCost)}</td>
-                      <td className="p-3 text-right text-green-500">{formatCents(data.totals.profit)}</td>
+                      <td className="p-3 text-right text-success">{formatCents(data.totals.profit)}</td>
                       <td className="p-3 text-right">{formatCents(data.totals.ticketMedio)}</td>
                       <td className="p-3"></td>
                     </tr>

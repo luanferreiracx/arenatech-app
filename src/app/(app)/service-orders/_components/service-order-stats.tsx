@@ -21,7 +21,7 @@ export function ServiceOrderStats() {
       label: "Abertas",
       value: stats.open,
       icon: ClipboardList,
-      className: "text-blue-500",
+      className: "text-info",
     },
     {
       label: "Em Andamento",

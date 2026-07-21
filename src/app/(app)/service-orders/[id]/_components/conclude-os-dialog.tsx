@@ -108,7 +108,7 @@ function ConcludeOsDialogInner({
               onChange={(e) => setNotify(e.target.checked)}
               className="accent-green-500"
             />
-            <MessageCircle className="h-4 w-4 text-green-500" />
+            <MessageCircle className="h-4 w-4 text-success" />
             Avisar o cliente por WhatsApp (aparelho pronto)
           </label>
 

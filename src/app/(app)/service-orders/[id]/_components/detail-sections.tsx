@@ -114,7 +114,7 @@ export function OrderHistoryTimeline(order: OrderHistoryTimelineProps) {
           <div key={e.id} className="relative">
             <div
               className={`absolute -left-4 top-1 w-3 h-3 rounded-full border-2 bg-card ${
-                e.kind === "signature" ? "border-amber-500" : "border-primary"
+                e.kind === "signature" ? "border-warning" : "border-primary"
               }`}
             />
             <div className="text-sm">
@@ -128,7 +128,7 @@ export function OrderHistoryTimeline(order: OrderHistoryTimelineProps) {
                 <p className="text-xs text-muted-foreground mt-0.5">por {e.author}</p>
               )}
               {e.notes && (
-                <p className="text-xs italic mt-1 px-2 py-1 rounded bg-muted/40 border-l-2 border-primary/40">
+                <p className="text-xs italic mt-1 px-2 py-1 rounded bg-muted/40 border border-primary/30">
                   “{e.notes}”
                 </p>
               )}

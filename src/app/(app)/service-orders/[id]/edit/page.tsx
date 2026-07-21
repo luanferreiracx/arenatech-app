@@ -214,10 +214,10 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
         {/* Aviso de edição restrita — torna explícito o lock (que ja existe por
             campo) para o operador nao achar que "salvou" algo bloqueado. */}
         {(isSigned || isCompleted) && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-            <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4">
+            <Lock className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
             <div className="text-sm">
-              <p className="font-semibold text-amber-600 dark:text-amber-400">
+              <p className="font-semibold text-warning">
                 {isCompleted ? "OS concluída — edição restrita" : "OS assinada pelo cliente — edição restrita"}
               </p>
               <p className="mt-1 text-muted-foreground">
@@ -348,7 +348,7 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
         <div className="rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold mb-4">Checklist de Saida</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Clique para alternar: <Check className="inline h-3 w-3 text-green-500" /> OK, <X className="inline h-3 w-3 text-red-500" /> NOK, <Minus className="inline h-3 w-3 text-gray-400" /> N/A
+            Clique para alternar: <Check className="inline h-3 w-3 text-success" /> OK, <X className="inline h-3 w-3 text-destructive" /> NOK, <Minus className="inline h-3 w-3 text-gray-400" /> N/A
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {CHECKLIST_ITEMS.map(({ key, label }) => {
@@ -359,13 +359,13 @@ function EditForm({ order, onSubmit, onAttachNfse, attachNfsePending, onDetachNf
                   type="button"
                   onClick={() => setExitChecklist((prev) => ({ ...prev, [key]: cycleChecklistValue(prev[key]) }))}
                   className={`flex items-center gap-2 p-2 rounded-md border text-sm transition-colors ${
-                    val === true ? "border-green-300 bg-green-50 dark:bg-green-950" :
-                    val === false ? "border-red-300 bg-red-50 dark:bg-red-950" :
+                    val === true ? "border-success bg-success/10" :
+                    val === false ? "border-destructive bg-destructive/10" :
                     "border-border bg-muted/50"
                   }`}
                 >
-                  {val === true ? <Check className="h-4 w-4 text-green-500" /> :
-                   val === false ? <X className="h-4 w-4 text-red-500" /> :
+                  {val === true ? <Check className="h-4 w-4 text-success" /> :
+                   val === false ? <X className="h-4 w-4 text-destructive" /> :
                    <Minus className="h-4 w-4 text-muted-foreground" />}
                   <span className="truncate">{label}</span>
                 </button>
