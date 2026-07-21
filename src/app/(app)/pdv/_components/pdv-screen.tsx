@@ -204,7 +204,13 @@ export function PdvScreen() {
   const discountAmount = draft?.discountAmount ?? 0;
   const totalAmount = draft?.totalAmount ?? 0;
   const refundDueAmount = (draft as { refundDueAmount?: number } | undefined)?.refundDueAmount ?? 0;
-  const canOpenPayment = isOSPayment ? totalAmount > 0 : items.length > 0;
+  // Venda de aparelho exige cliente selecionado (espelha o guard do servidor).
+  const hasDeviceItem = items.some((it) => it.isDevice);
+  const blockedNoCustomer = !isOSPayment && hasDeviceItem && !customerId;
+  // Gate unico do "pode ir pro pagamento": usado pelo botao Finalizar E pelo
+  // atalho F8. Antes o F8 usava so `items.length > 0` e contornava o bloqueio
+  // de cliente-para-aparelho, abrindo o dialog num estado que o servidor recusa.
+  const canFinalize = isOSPayment ? totalAmount > 0 : items.length > 0 && !blockedNoCustomer;
 
   useEffect(() => {
     if (!draft) return;
@@ -534,7 +540,7 @@ export function PdvScreen() {
       if (e.key === "F8") {
         if (isInput && target !== searchRef.current) return;
         e.preventDefault();
-        if (canOpenPayment) setShowPaymentDialog(true);
+        if (canFinalize) setShowPaymentDialog(true);
       }
       if (e.key === "Escape" && showResults) {
         setShowResults(false);
@@ -543,7 +549,7 @@ export function PdvScreen() {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [canOpenPayment, showResults]);
+  }, [canFinalize, showResults]);
 
   // Close search results on click outside
   useEffect(() => {
@@ -1049,13 +1055,8 @@ export function PdvScreen() {
           )}
 
           {(() => {
-            const hasDeviceItem = items.some((it) => it.isDevice);
-            const blockedNoCustomer = !isOSPayment && hasDeviceItem && !customerId;
-            // Pagamento de OS: habilita finalizar com base no total da OS
-            // (carrinho vazio e esperado — itens vem da OS, read-only).
-            const canFinalize = isOSPayment
-              ? totalAmount > 0
-              : items.length > 0 && !blockedNoCustomer;
+            // hasDeviceItem/blockedNoCustomer/canFinalize vem do topo do
+            // componente (mesma fonte que o atalho F8 usa).
             return (
               <>
                 <Button
