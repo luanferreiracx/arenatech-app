@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { format } from "date-fns";
-import { Check, X, Minus } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Check, X, Minus, AlertTriangle } from "lucide-react";
 import {
   SERVICE_ORDER_STATUS_LABELS,
   WARRANTY_TYPE_LABELS,
@@ -50,6 +52,24 @@ interface OrderHistoryTimelineProps {
   deliveryTermPhysical?: boolean | null;
   returnTermSignedAt?: DateLike | null;
   returnTermPhysical?: boolean | null;
+  estimatedDate?: DateLike | null;
+  status?: string;
+}
+
+/** Status em que a OS já saiu do fluxo de reparo — SLA (prazo) não se aplica. */
+const OS_CONCLUDED_STATUSES = new Set([
+  "COMPLETED",
+  "PAID",
+  "READY_FOR_PICKUP",
+  "DELIVERED",
+  "IN_WARRANTY",
+  "CANCELLED",
+  "REFUNDED",
+]);
+
+/** Tempo relativo humanizado ("há 3 dias") em pt-BR. */
+function relativeTime(date: Date): string {
+  return formatDistanceToNow(date, { locale: ptBR, addSuffix: true });
 }
 
 type TimelineEvent = {
@@ -63,6 +83,13 @@ type TimelineEvent = {
 };
 
 export function OrderHistoryTimeline(order: OrderHistoryTimelineProps) {
+  // Tempo atual lido no cliente após a montagem (Date.now() é impuro no render).
+  // 0 = ainda não montado: sem banner de SLA no primeiro paint.
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    queueMicrotask(() => setNow(Date.now()));
+  }, []);
+
   const events: TimelineEvent[] = [];
 
   for (const h of order.history) {
@@ -105,12 +132,26 @@ export function OrderHistoryTimeline(order: OrderHistoryTimelineProps) {
   }
   events.sort((a, b) => b.date.getTime() - a.date.getTime());
 
+  // SLA: prazo estimado vencido enquanto a OS ainda está em atendimento.
+  const estimated = order.estimatedDate ? new Date(order.estimatedDate) : null;
+  const isConcluded = order.status ? OS_CONCLUDED_STATUSES.has(order.status) : false;
+  const slaOverdue =
+    now > 0 && estimated !== null && !Number.isNaN(estimated.getTime()) && !isConcluded && estimated.getTime() < now;
+
   return (
     <div className={SECTION_CARD}>
       <h3 className={SECTION_TITLE}>Historico</h3>
+      {slaOverdue && estimated && (
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Prazo estimado vencido {relativeTime(estimated)} (previsto para {format(estimated, "dd/MM/yyyy")}).
+          </span>
+        </div>
+      )}
       <div className="relative pl-6 space-y-4">
         <div className="absolute left-2 top-0 bottom-0 w-0.5 bg-border" />
-        {events.map((e) => (
+        {events.map((e, i) => (
           <div key={e.id} className="relative">
             <div
               className={`absolute -left-4 top-1 w-3 h-3 rounded-full border-2 bg-card ${
@@ -118,9 +159,17 @@ export function OrderHistoryTimeline(order: OrderHistoryTimelineProps) {
               }`}
             />
             <div className="text-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{e.label}</span>
-                <span className="text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {e.label}
+                  {/* Evento mais recente = etapa atual: destaca há quanto tempo. */}
+                  {i === 0 && e.kind === "status" && !isConcluded && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      ({relativeTime(e.date)})
+                    </span>
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground shrink-0" title={relativeTime(e.date)}>
                   {format(e.date, "dd/MM/yyyy HH:mm")}
                 </span>
               </div>
