@@ -1,5 +1,7 @@
 "use client";
 
+import { onActivateKey } from "@/lib/utils/a11y";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
@@ -186,8 +188,12 @@ export function PendingTable() {
                 {data.data.map((t) => (
                   <TableRow
                     key={t.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label="Abrir transacao pendente"
                     className="cursor-pointer hover:bg-accent"
                     onClick={() => router.push(`/financial/${t.id}`)}
+                    onKeyDown={onActivateKey(() => router.push(`/financial/${t.id}`))}
                   >
                     <TableCell className="max-w-[200px] truncate">
                       {t.description}

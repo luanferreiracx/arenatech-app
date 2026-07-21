@@ -1,5 +1,7 @@
 "use client";
 
+import { onActivateKey } from "@/lib/utils/a11y";
+
 import { useRouter } from "next/navigation";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -76,8 +78,12 @@ export function OverdueSection({ type }: OverdueSectionProps) {
             {items.map((item) => (
               <TableRow
                 key={item.id}
+                role="link"
+                tabIndex={0}
+                aria-label="Abrir transacao vencida"
                 className="cursor-pointer hover:bg-accent/50"
                 onClick={() => router.push(`/financial/${item.transactionId}`)}
+                onKeyDown={onActivateKey(() => router.push(`/financial/${item.transactionId}`))}
               >
                 <TableCell className="max-w-[200px] truncate">
                   {item.transactionDescription}

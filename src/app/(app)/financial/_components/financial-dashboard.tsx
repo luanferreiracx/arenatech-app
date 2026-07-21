@@ -1,5 +1,7 @@
 "use client";
 
+import { onActivateKey } from "@/lib/utils/a11y";
+
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -104,8 +106,12 @@ function FinancialTabContent({ type }: { type: "RECEIVABLE" | "PAYABLE" }) {
       ) : statsQuery.data ? (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Filtrar por contas pendentes"
             className="cursor-pointer hover:bg-accent/50 transition-colors"
             onClick={() => setFilters((f) => ({ ...f, status: "PENDING", page: 0 }))}
+            onKeyDown={onActivateKey(() => setFilters((f) => ({ ...f, status: "PENDING", page: 0 })))}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -124,8 +130,12 @@ function FinancialTabContent({ type }: { type: "RECEIVABLE" | "PAYABLE" }) {
           </Card>
 
           <Card
+            role="button"
+            tabIndex={0}
+            aria-label="Filtrar por contas vencidas"
             className="cursor-pointer hover:bg-accent/50 transition-colors"
             onClick={() => setFilters((f) => ({ ...f, status: "OVERDUE", page: 0 }))}
+            onKeyDown={onActivateKey(() => setFilters((f) => ({ ...f, status: "OVERDUE", page: 0 })))}
           >
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
