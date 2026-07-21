@@ -35,7 +35,8 @@ export interface ServiceOrderPdfData {
   };
   customer: {
     name: string;
-    cpf: string | null;
+    document: string | null;
+    documentLabel: string | null;
     phone: string | null;
     email: string | null;
   } | null;
@@ -150,8 +151,8 @@ export function ServiceOrderPdfDocument({ order, customer, store, technicianName
                 <Text style={styles.fieldValue}>{customer?.name ?? "-"}</Text>
               </View>
               <View style={styles.field}>
-                <Text style={styles.fieldLabel}>CPF:</Text>
-                <Text style={styles.fieldValue}>{customer?.cpf || "Nao informado"}</Text>
+                <Text style={styles.fieldLabel}>{customer?.documentLabel ?? "CPF"}:</Text>
+                <Text style={styles.fieldValue}>{customer?.document || "Nao informado"}</Text>
               </View>
             </View>
             <View style={styles.col50}>
@@ -306,7 +307,7 @@ export function ServiceOrderPdfDocument({ order, customer, store, technicianName
         <View style={styles.assinatura}>
           <Text style={{ fontFamily: "Helvetica-Bold" }}>ASSINATURA DO CLIENTE</Text>
           <Text>{customer?.name ?? ""}</Text>
-          {customer?.cpf && <Text>CPF: {customer.cpf}</Text>}
+          {customer?.document && <Text>{customer.documentLabel ?? "CPF"}: {customer.document}</Text>}
         </View>
 
         {/* Footer */}

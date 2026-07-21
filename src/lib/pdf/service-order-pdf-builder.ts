@@ -1,7 +1,7 @@
 import { ServiceOrderPdfDocument, type ServiceOrderPdfData } from "@/lib/pdf/service-order-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withAdmin, withTenant } from "@/server/db";
-import { formatCnpj, formatCpf } from "@/lib/utils";
+import { formatCnpj, formatCustomerDocument } from "@/lib/utils";
 
 /**
  * Carrega dados da OS + cliente + tenant + assistance e gera o PDF.
@@ -25,7 +25,7 @@ export async function buildServiceOrderPdf(
   const customer = await withTenant(tenantId, async (tx) =>
     tx.customer.findUnique({
       where: { id: order.customerId },
-      select: { name: true, cpf: true, phone: true, email: true },
+      select: { name: true, type: true, cpf: true, cnpj: true, phone: true, email: true },
     }),
   );
 
@@ -83,7 +83,8 @@ export async function buildServiceOrderPdf(
     customer: customer
       ? {
           name: customer.name,
-          cpf: formatCpf(customer.cpf) || null,
+          documentLabel: formatCustomerDocument(customer)?.label ?? null,
+          document: formatCustomerDocument(customer)?.value ?? null,
           phone: customer.phone,
           email: customer.email,
         }

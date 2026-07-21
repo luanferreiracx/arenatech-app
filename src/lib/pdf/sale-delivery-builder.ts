@@ -1,7 +1,7 @@
 import { SaleDeliveryPdfDocument, type SaleDeliveryPdfData } from "@/lib/pdf/sale-delivery-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withTenant } from "@/server/db";
-import { formatCpf } from "@/lib/utils";
+import { formatCustomerDocument } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 
 /**
@@ -32,7 +32,9 @@ export async function buildSaleDeliveryPdf(
           where: { id: sale.customerId! },
           select: {
             name: true,
+            type: true,
             cpf: true,
+            cnpj: true,
             phone: true,
             street: true,
             streetNumber: true,
@@ -120,7 +122,8 @@ export async function buildSaleDeliveryPdf(
     customer: customer
       ? {
           name: customer.name,
-          cpf: formatCpf(customer.cpf) || null,
+          documentLabel: formatCustomerDocument(customer)?.label ?? null,
+          document: formatCustomerDocument(customer)?.value ?? null,
           phone: customer.phone,
           address: customerAddress,
         }

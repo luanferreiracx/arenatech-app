@@ -1,7 +1,7 @@
 import { SaleWarrantyPdfDocument, type SaleWarrantyPdfData } from "@/lib/pdf/sale-warranty-pdf";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import { withTenant } from "@/server/db";
-import { formatCpf } from "@/lib/utils";
+import { formatCustomerDocument } from "@/lib/utils";
 import { loadTenantHeader, formatDoc } from "@/lib/pdf/tenant-header";
 
 /**
@@ -27,7 +27,7 @@ export async function buildSaleWarrantyPdf(
     ? await withTenant(tenantId, async (tx) =>
         tx.customer.findUnique({
           where: { id: sale.customerId! },
-          select: { name: true, cpf: true, phone: true },
+          select: { name: true, type: true, cpf: true, cnpj: true, phone: true },
         }),
       )
     : null;
@@ -87,7 +87,12 @@ export async function buildSaleWarrantyPdf(
       items,
     },
     customer: customer
-      ? { name: customer.name, cpf: formatCpf(customer.cpf) || null, phone: customer.phone }
+      ? {
+          name: customer.name,
+          documentLabel: formatCustomerDocument(customer)?.label ?? null,
+          document: formatCustomerDocument(customer)?.value ?? null,
+          phone: customer.phone,
+        }
       : null,
     store: {
       name: header.storeName,
