@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/react";
 import { Info } from "lucide-react";
@@ -44,16 +43,19 @@ export function StepDevice({ data, onChange }: Props) {
   );
   const customerOrders = customerOrdersQuery.data ?? [];
 
-  // Quando retorno_servico e seleciona OS original, herda equipamento + prazo.
-  // Limpa quando desmarcar garantia.
-  useEffect(() => {
-    if (!data.isWarranty) return;
-    if (data.warrantyType !== "return") return;
-    if (!data.originalOrderId) return;
-    const original = customerOrders.find((o) => o.id === data.originalOrderId);
-    if (!original) return;
-
-    onChange({
+  // Herda equipamento + prazo da OS original. Chamado NO EVENTO de selecao (nao
+  // num useEffect reativo): o efeito antigo dependia de `customerOrders` mas o
+  // omitia das deps, entao podia disparar tarde e reescrever campos que o
+  // usuario ja tinha editado. Aqui `customerOrders` ja esta carregado (os
+  // selects so ficam habilitados quando ha OS anteriores).
+  const buildInheritedDevicePatch = (
+    originalOrderId: string | null,
+    warrantyType: string | null | undefined,
+  ): Partial<CreateServiceOrderInput> => {
+    if (warrantyType !== "return" || !originalOrderId) return {};
+    const original = customerOrders.find((o) => o.id === originalOrderId);
+    if (!original) return {};
+    return {
       deviceType: original.deviceType ?? null,
       deviceBrand: original.deviceBrand ?? null,
       deviceModel: original.deviceModel ?? null,
@@ -61,9 +63,8 @@ export function StepDevice({ data, onChange }: Props) {
       imei: original.imei ?? null,
       devicePassword: original.devicePassword ?? null,
       warrantyMonths: original.warrantyMonths ?? 3,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.originalOrderId, data.warrantyType, data.isWarranty]);
+    };
+  };
 
   // Em retorno_servico com OS original selecionada, bloqueia campos do equipamento.
   const equipmentLocked =
@@ -104,7 +105,12 @@ export function StepDevice({ data, onChange }: Props) {
               <Label>Tipo de servico a ser realizado *</Label>
               <Select
                 value={data.warrantyType ?? "return"}
-                onValueChange={(v) => onChange({ warrantyType: v })}
+                onValueChange={(v) =>
+                  onChange({
+                    warrantyType: v,
+                    ...buildInheritedDevicePatch(data.originalOrderId ?? null, v),
+                  })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -125,7 +131,12 @@ export function StepDevice({ data, onChange }: Props) {
               </Label>
               <Select
                 value={data.originalOrderId ?? ""}
-                onValueChange={(v) => onChange({ originalOrderId: v || null })}
+                onValueChange={(v) =>
+                  onChange({
+                    originalOrderId: v || null,
+                    ...buildInheritedDevicePatch(v || null, data.warrantyType ?? "return"),
+                  })
+                }
                 disabled={customerOrders.length === 0}
               >
                 <SelectTrigger>
