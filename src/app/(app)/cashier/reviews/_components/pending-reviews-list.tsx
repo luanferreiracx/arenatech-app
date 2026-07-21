@@ -134,7 +134,7 @@ export function PendingReviewsList() {
                   <TableCell className="text-muted-foreground">
                     {formatDateTime(r.openedAt)}
                   </TableCell>
-                  <TableCell className="text-amber-500">
+                  <TableCell className="text-warning">
                     {r.closedAt ? formatDateTime(r.closedAt) : "-"}
                   </TableCell>
                   <TableCell className="text-right font-mono font-semibold">

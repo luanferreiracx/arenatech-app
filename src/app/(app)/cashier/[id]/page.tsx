@@ -200,7 +200,7 @@ export default function CashierDetailPage({
                   <div className="text-sm text-muted-foreground">
                     Total de Vendas
                   </div>
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-success">
                     {formatCents(summary.totalSales)}
                   </div>
                 </div>
@@ -304,7 +304,7 @@ export default function CashierDetailPage({
                         <TableCell
                           className={`text-right font-mono text-sm ${
                             m.nature === "INCOME"
-                              ? "text-green-600"
+                              ? "text-success"
                               : "text-destructive"
                           }`}
                         >
@@ -337,18 +337,18 @@ export default function CashierDetailPage({
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-green-600">
+                    <TableCell className="text-success">
                       (+) Entradas Dinheiro
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {formatCents(summary.totalSalesCash)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-green-600">
+                    <TableCell className="text-success">
                       (+) Suprimentos
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {formatCents(summary.totalDeposits)}
                     </TableCell>
                   </TableRow>
@@ -384,15 +384,15 @@ export default function CashierDetailPage({
             <Card
               className={
                 register.difference != null && register.difference !== 0
-                  ? "border-amber-300"
-                  : "border-green-300"
+                  ? "border-warning/40"
+                  : "border-success/40"
               }
             >
               <CardHeader
                 className={
                   register.difference != null && register.difference !== 0
-                    ? "bg-amber-50"
-                    : "bg-green-50"
+                    ? "bg-warning/10"
+                    : "bg-success/10"
                 }
               >
                 <CardTitle className="text-base">Conferencia</CardTitle>
@@ -426,7 +426,7 @@ export default function CashierDetailPage({
                                 register.difference < 0
                                   ? "text-destructive"
                                   : register.difference > 0
-                                    ? "text-green-600"
+                                    ? "text-success"
                                     : ""
                               }`}
                             >
@@ -438,8 +438,8 @@ export default function CashierDetailPage({
                                 register.difference < 0
                                   ? "text-destructive"
                                   : register.difference > 0
-                                    ? "text-green-600"
-                                    : "text-green-600"
+                                    ? "text-success"
+                                    : "text-success"
                               }`}
                             >
                               {register.difference > 0

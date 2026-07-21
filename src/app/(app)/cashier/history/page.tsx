@@ -196,7 +196,7 @@ export default function CashierHistoryPage() {
                                 reg.difference < 0
                                   ? "text-destructive"
                                   : reg.difference > 0
-                                    ? "text-green-600"
+                                    ? "text-success"
                                     : ""
                               }
                             >

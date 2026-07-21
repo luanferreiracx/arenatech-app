@@ -152,7 +152,7 @@ export default function CloseCashierPage() {
                   <div className="text-sm text-muted-foreground">
                     Total de Vendas
                   </div>
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-success">
                     {formatCents(summary.totalSales)}
                   </div>
                 </div>
@@ -212,18 +212,18 @@ export default function CloseCashierPage() {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-green-600">
+                    <TableCell className="text-success">
                       (+) Entradas Dinheiro
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {formatCents(summary.totalSalesCash)}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-green-600">
+                    <TableCell className="text-success">
                       (+) Suprimentos
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {formatCents(summary.totalDeposits)}
                     </TableCell>
                   </TableRow>
@@ -258,8 +258,8 @@ export default function CloseCashierPage() {
         {/* Right: Verification Form */}
         <div className="space-y-6">
           {/* Cash Verification */}
-          <Card className="border-amber-300">
-            <CardHeader className="bg-amber-50">
+          <Card className="border-warning/40">
+            <CardHeader className="bg-warning/10">
               <CardTitle className="text-base">
                 Conferencia - Dinheiro
               </CardTitle>
@@ -292,10 +292,10 @@ export default function CloseCashierPage() {
                 <div
                   className={`p-3 rounded-md ${
                     difference > 0
-                      ? "bg-green-50 text-green-700"
+                      ? "bg-success/10 text-success"
                       : difference < 0
-                        ? "bg-red-50 text-red-700"
-                        : "bg-green-50 text-green-700"
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-success/10 text-success"
                   }`}
                 >
                   <div className="text-sm">Diferenca Dinheiro</div>
@@ -336,7 +336,7 @@ export default function CloseCashierPage() {
                   return (
                     <div
                       key={method}
-                      className="p-3 rounded-md bg-muted/30 border-l-2 border-primary space-y-2"
+                      className="p-3 rounded-md bg-muted/30 border border-primary/20 space-y-2"
                     >
                       <div className="flex justify-between items-center">
                         <div>
@@ -387,7 +387,7 @@ export default function CloseCashierPage() {
                         )}
 
                         {isVerified && (
-                          <Badge variant="default" className="bg-green-600">
+                          <Badge variant="default" className="bg-success">
                             OK
                           </Badge>
                         )}

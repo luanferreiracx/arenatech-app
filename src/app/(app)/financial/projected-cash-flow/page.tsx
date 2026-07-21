@@ -76,7 +76,7 @@ export default function ProjectedCashFlowPage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase">Total a Receber</p>
-                <p className="text-xl font-bold text-green-500 font-mono mt-1">
+                <p className="text-xl font-bold text-success font-mono mt-1">
                   {formatCents(query.data.summary.totalReceivable)}
                 </p>
               </CardContent>
@@ -84,7 +84,7 @@ export default function ProjectedCashFlowPage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-muted-foreground uppercase">Total a Pagar</p>
-                <p className="text-xl font-bold text-red-500 font-mono mt-1">
+                <p className="text-xl font-bold text-destructive font-mono mt-1">
                   {formatCents(query.data.summary.totalPayable)}
                 </p>
               </CardContent>
@@ -92,7 +92,7 @@ export default function ProjectedCashFlowPage() {
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="pt-4 pb-4">
                 <p className="text-xs text-primary uppercase">Saldo Projetado</p>
-                <p className={`text-xl font-bold font-mono mt-1 ${query.data.summary.projectedBalance >= 0 ? "text-primary" : "text-red-500"}`}>
+                <p className={`text-xl font-bold font-mono mt-1 ${query.data.summary.projectedBalance >= 0 ? "text-primary" : "text-destructive"}`}>
                   {formatCents(query.data.summary.projectedBalance)}
                 </p>
               </CardContent>
@@ -123,16 +123,16 @@ export default function ProjectedCashFlowPage() {
                       query.data.projection.map((p) => (
                         <TableRow key={p.date}>
                           <TableCell>{formatDate(p.date)}</TableCell>
-                          <TableCell className={`text-right font-mono ${p.receivable > 0 ? "text-green-500" : "text-muted-foreground"}`}>
+                          <TableCell className={`text-right font-mono ${p.receivable > 0 ? "text-success" : "text-muted-foreground"}`}>
                             {p.receivable > 0 ? formatCents(p.receivable) : "-"}
                           </TableCell>
-                          <TableCell className={`text-right font-mono ${p.payable > 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                          <TableCell className={`text-right font-mono ${p.payable > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {p.payable > 0 ? formatCents(p.payable) : "-"}
                           </TableCell>
-                          <TableCell className={`text-right font-bold font-mono ${p.dayBalance >= 0 ? "text-green-500" : "text-red-500"}`}>
+                          <TableCell className={`text-right font-bold font-mono ${p.dayBalance >= 0 ? "text-success" : "text-destructive"}`}>
                             {formatCents(p.dayBalance)}
                           </TableCell>
-                          <TableCell className={`text-right font-bold font-mono ${p.cumulativeBalance >= 0 ? "text-primary" : "text-red-500"}`}>
+                          <TableCell className={`text-right font-bold font-mono ${p.cumulativeBalance >= 0 ? "text-primary" : "text-destructive"}`}>
                             {formatCents(p.cumulativeBalance)}
                           </TableCell>
                         </TableRow>

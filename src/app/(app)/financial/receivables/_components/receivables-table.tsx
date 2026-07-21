@@ -58,10 +58,10 @@ export function ReceivablesTable() {
       {/* Stats cards */}
       {data && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Card className="bg-green-600/10 border-green-600/30">
+          <Card className="bg-success/10 border-success/30">
             <CardContent className="pt-6">
               <div className="text-sm text-muted-foreground">Total Recebido</div>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-success">
                 {formatCents(data.totals.totalReceived)}
               </div>
             </CardContent>
@@ -165,7 +165,7 @@ export function ReceivablesTable() {
                     <TableCell className="text-right font-mono">
                       {formatCents(t.totalAmount)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
+                    <TableCell className="text-right font-mono text-success">
                       {formatCents(t.paidAmount)}
                     </TableCell>
                     <TableCell className="text-sm">
