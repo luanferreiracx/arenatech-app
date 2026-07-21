@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
 import { Pencil, Trash2, Eye, AlertTriangle, Package, Copy } from "lucide-react";
@@ -56,7 +57,7 @@ export function ProductsTable() {
   const canMoveStock = useCan("moveStock");
   const canManageCatalog = useCan("manageCatalog");
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -69,14 +70,10 @@ export function ProductsTable() {
     [rowSelection],
   );
 
-  const handleSearchChange = useCallback((value: string) => {
-    setSearch(value);
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, []);
+  // Volta pra primeira pagina quando o termo debounced muda (nova busca).
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch]);
 
   const { data, isLoading } = useQuery(
     trpc.stock.list.queryOptions({
@@ -305,7 +302,7 @@ export function ProductsTable() {
         toolbar={
           <DataTableToolbar
             searchValue={search}
-            onSearchChange={handleSearchChange}
+            onSearchChange={setSearch}
             searchPlaceholder="Buscar por nome, SKU ou codigo de barras..."
             actions={
               selectedIds.length > 0 ? (

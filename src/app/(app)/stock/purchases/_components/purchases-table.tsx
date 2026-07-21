@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { FileText, Send, Check, RefreshCw, Eye } from "lucide-react";
@@ -61,7 +62,7 @@ export function PurchasesTable() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [confirmPhysicalId, setConfirmPhysicalId] = useState<string | null>(null);
@@ -100,14 +101,10 @@ export function PurchasesTable() {
     }),
   );
 
-  const handleSearchChange = useCallback((value: string) => {
-    setSearch(value);
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, []);
+  // Volta pra primeira pagina quando o termo debounced muda (nova busca).
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch]);
 
   const { data, isLoading } = useQuery(
     trpc.stock.listPurchases.queryOptions({
@@ -317,7 +314,7 @@ export function PurchasesTable() {
       toolbar={
         <DataTableToolbar
           searchValue={search}
-          onSearchChange={handleSearchChange}
+          onSearchChange={setSearch}
           searchPlaceholder="Buscar por IMEI, marca ou modelo..."
         />
       }
