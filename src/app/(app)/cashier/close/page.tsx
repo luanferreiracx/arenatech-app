@@ -7,6 +7,7 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -40,6 +41,7 @@ export default function CloseCashierPage() {
   const summaryQuery = useQuery(trpc.cashier.closingSummary.queryOptions());
 
   const [reportedBalance, setReportedBalance] = useState(0);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [notes, setNotes] = useState("");
   const [verifiedMethods, setVerifiedMethods] = useState<Record<string, boolean>>({});
   const [methodAmounts, setMethodAmounts] = useState<Record<string, number>>({});
@@ -96,6 +98,15 @@ export default function CloseCashierPage() {
 
   const { summary, paymentMethodSummary } = summaryQuery.data;
   const difference = reportedBalance - summary.expectedCashBalance;
+
+  const closeConfirmDescription =
+    `Saldo esperado ${formatCents(summary.expectedCashBalance)}, informado ${formatCents(reportedBalance)}` +
+    (difference === 0
+      ? " — sem diferenca."
+      : difference > 0
+        ? ` — sobra de ${formatCents(difference)}.`
+        : ` — falta de ${formatCents(Math.abs(difference))}.`) +
+    " Esta acao fecha a sessao e nao pode ser desfeita.";
 
   const nonCashMethods = Object.entries(paymentMethodSummary).filter(
     ([method]) => method !== "dinheiro",
@@ -424,7 +435,7 @@ export default function CloseCashierPage() {
                 <Button
                   variant="destructive"
                   size="lg"
-                  onClick={handleClose}
+                  onClick={() => setConfirmClose(true)}
                   disabled={closeMutation.isPending}
                 >
                   <Lock className="mr-2 h-4 w-4" />
@@ -441,6 +452,17 @@ export default function CloseCashierPage() {
                   Cancelar
                 </Button>
               </div>
+
+              <ConfirmDialog
+                open={confirmClose}
+                onOpenChange={setConfirmClose}
+                title="Fechar caixa?"
+                description={closeConfirmDescription}
+                confirmLabel="Fechar caixa"
+                variant="destructive"
+                isLoading={closeMutation.isPending}
+                onConfirm={handleClose}
+              />
             </CardContent>
           </Card>
         </div>
