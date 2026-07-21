@@ -19,6 +19,13 @@ import { useCan } from "@/lib/auth/use-capabilities";
 import { StockStatsCards } from "./stock-stats-cards";
 import { AdjustStockDialog } from "./adjust-stock-dialog";
 import { LabelsDialog } from "./labels-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface ProductRow {
   id: string;
@@ -59,6 +66,10 @@ export function ProductsTable() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
   const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [categoryId, setCategoryId] = useState<string>("all");
+  const [lowStock, setLowStock] = useState(false);
+  const [sort, setSort] = useState<"name-asc" | "salePrice-asc" | "salePrice-desc" | "createdAt-desc">("name-asc");
   const [pageSize, setPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string; currentStock: number; hasVariations: boolean } | null>(null);
@@ -77,9 +88,24 @@ export function ProductsTable() {
     setPage(0);
   };
 
+  const { data: categoriesData } = useQuery(
+    trpc.stock.listCategories.queryOptions({}),
+  );
+  const categories = categoriesData?.data ?? [];
+
+  const [sortBy, sortOrder] = sort.split("-") as [
+    "name" | "salePrice" | "createdAt",
+    "asc" | "desc",
+  ];
+
   const { data, isLoading } = useQuery(
     trpc.stock.list.queryOptions({
       search: debouncedSearch || undefined,
+      active: statusFilter === "all" ? undefined : statusFilter === "active",
+      categoryId: categoryId === "all" ? undefined : categoryId,
+      lowStock: lowStock || undefined,
+      sortBy,
+      sortOrder,
       page,
       pageSize,
     }),
@@ -306,6 +332,74 @@ export function ProductsTable() {
             searchValue={search}
             onSearchChange={handleSearchChange}
             searchPlaceholder="Buscar por nome, SKU ou codigo de barras..."
+            filters={
+              <>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => {
+                    setStatusFilter(v as "all" | "active" | "inactive");
+                    setPage(0);
+                  }}
+                >
+                  <SelectTrigger className="h-9 w-[130px]" aria-label="Filtrar por status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Status: todos</SelectItem>
+                    <SelectItem value="active">Ativos</SelectItem>
+                    <SelectItem value="inactive">Inativos</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={categoryId}
+                  onValueChange={(v) => {
+                    setCategoryId(v);
+                    setPage(0);
+                  }}
+                >
+                  <SelectTrigger className="h-9 w-[160px]" aria-label="Filtrar por categoria">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Categoria: todas</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={sort}
+                  onValueChange={(v) => {
+                    setSort(v as "name-asc" | "salePrice-asc" | "salePrice-desc" | "createdAt-desc");
+                    setPage(0);
+                  }}
+                >
+                  <SelectTrigger className="h-9 w-[150px]" aria-label="Ordenar">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name-asc">Nome (A-Z)</SelectItem>
+                    <SelectItem value="salePrice-asc">Menor preco</SelectItem>
+                    <SelectItem value="salePrice-desc">Maior preco</SelectItem>
+                    <SelectItem value="createdAt-desc">Mais recentes</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant={lowStock ? "default" : "outline"}
+                  size="sm"
+                  className="h-9"
+                  aria-pressed={lowStock}
+                  onClick={() => {
+                    setLowStock((v) => !v);
+                    setPage(0);
+                  }}
+                >
+                  Estoque baixo
+                </Button>
+              </>
+            }
             actions={
               selectedIds.length > 0 ? (
                 <>
