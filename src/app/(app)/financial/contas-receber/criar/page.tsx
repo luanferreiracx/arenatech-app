@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { FormSection } from "@/components/domain/forms/form-section";
 import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
+import { todayBrtISO } from "@/lib/utils/date-range";
 import { DateInput } from "@/components/inputs/date-input";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,7 +54,7 @@ export default function CreateReceivablePage() {
       description: "",
       totalAmount: 0,
       numInstallments: 1,
-      emissionDate: new Date().toISOString().split("T")[0]!,
+      emissionDate: todayBrtISO(),
       firstDueDate: "",
       paymentMethod: "dinheiro",
       customerName: "",

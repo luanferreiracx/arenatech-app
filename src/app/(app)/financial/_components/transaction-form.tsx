@@ -23,6 +23,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { SupplierSelect } from "@/components/domain/forms/supplier-select";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 import type { CreateTransactionInput } from "@/lib/validators/financial";
+import { todayBrtISO } from "@/lib/utils/date-range";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -59,7 +60,7 @@ export function TransactionForm() {
       totalAmount: 0,
       paymentMethod: "",
       numInstallments: 1,
-      emissionDate: new Date().toISOString().split("T")[0],
+      emissionDate: todayBrtISO(),
       firstDueDate: "",
       notes: "",
     },

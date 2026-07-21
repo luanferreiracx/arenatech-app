@@ -94,3 +94,12 @@ export function brtDayKey(instant: Date): string {
   const { year, month, day } = brtDateParts(instant);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+/**
+ * Data de HOJE em BRT no formato YYYY-MM-DD — default seguro para inputs de
+ * data. Evita o off-by-one de `new Date().toISOString().split("T")[0]`, que usa
+ * UTC e, à noite no Brasil (UTC-3), já mostra o dia seguinte.
+ */
+export function todayBrtISO(now: Date = new Date()): string {
+  return brtDayKey(now);
+}
