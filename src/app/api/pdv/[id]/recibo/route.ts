@@ -4,6 +4,7 @@ import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant, withAdmin } from "@/server/db";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
+import { formatCustomerDocument } from "@/lib/utils";
 
 /**
  * GET /api/pdv/[id]/recibo
@@ -73,10 +74,14 @@ export async function GET(
       ? await withTenant(tenantId, async (tx) => {
           return tx.customer.findUnique({
             where: { id: sale.customerId! },
-            select: { name: true, cpf: true, phone: true },
+            select: { name: true, type: true, cpf: true, cnpj: true, phone: true },
           });
         })
       : null;
+
+    // Documento fiscal: CPF (PF) ou CNPJ (PJ). O modelo Customer guarda os dois
+    // em campos separados — sem isto o recibo de um cliente PJ nao mostrava documento.
+    const customerDoc = customer ? formatCustomerDocument(customer) : null;
 
     // Fetch seller name
     const seller = await withAdmin(async (tx) => {
@@ -144,15 +149,6 @@ export async function GET(
       cartao_debito: "Cartao de Debito",
       depix: "DEPIX",
       crediario: "Crediario",
-    };
-
-    // Format CPF — sempre escapa quando invalido (cpf so digitos, sem
-    // chance de XSS via campo livre no banco vindo de migracao Laravel).
-    const formatCpf = (cpf: string | null | undefined) => {
-      if (!cpf) return "";
-      const digits = cpf.replace(/\D/g, "");
-      if (digits.length !== 11) return esc(cpf);
-      return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
     };
 
     // Items HTML
@@ -256,7 +252,7 @@ export async function GET(
         ${
           customer
             ? `<div class="field"><span class="field-label">Nome</span><div class="field-value">${esc(customer.name)}</div></div>
-               ${customer.cpf ? `<div class="field"><span class="field-label">CPF</span><div class="field-value">${formatCpf(customer.cpf)}</div></div>` : ""}
+               ${customerDoc ? `<div class="field"><span class="field-label">${customerDoc.label}</span><div class="field-value">${esc(customerDoc.value)}</div></div>` : ""}
                ${customer.phone ? `<div class="field"><span class="field-label">Telefone</span><div class="field-value">${esc(customer.phone)}</div></div>` : ""}`
             : `<div class="field"><div class="field-value" style="color: #999;">Consumidor final</div></div>`
         }
@@ -310,7 +306,7 @@ export async function GET(
       </div>
       <div style="margin-top: 4px;">
         <div style="font-size: 8.5pt; font-weight: bold;">${esc(customer?.name ?? "Cliente")}</div>
-        ${customer?.cpf ? `<div style="font-size: 7pt; color: #888;">CPF: ${formatCpf(customer.cpf)}</div>` : ""}
+        ${customerDoc ? `<div style="font-size: 7pt; color: #888;">${customerDoc.label}: ${esc(customerDoc.value)}</div>` : ""}
         <div style="font-size: 6.5pt; color: #999; margin-top: 1px;">Em ${new Date(sale.signatureSignedAt).toLocaleDateString("pt-BR")} as ${new Date(sale.signatureSignedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
       </div>
     </div>
