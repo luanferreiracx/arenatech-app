@@ -75,7 +75,10 @@ async function seedPlans(): Promise<void> {
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
-const BCRYPT_ROUNDS = 12;
+// Custo do bcrypt do SEED. Prod/dev usam 12; o E2E seta baixo via env
+// (BCRYPT_ROUNDS) para não starvar a CPU do runner com ~126 logins — o
+// verify do app lê o custo do próprio hash, então baixar aqui basta.
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 12;
 
 /**
  * Upsert de usuário por CPF. Desde o ADR 0050, cpf é único PARCIAL no banco e
