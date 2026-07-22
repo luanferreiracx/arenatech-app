@@ -43,14 +43,30 @@ function generateCPF(): string {
 async function ensureCustomerExists(page: Page): Promise<string> {
   const name = `ClienteOS ${Date.now()}`;
   const cpf = generateCPF();
+  // Retry APENAS em falha de rede (TypeError: Failed to fetch), que a suíte
+  // completa sofre quando o runner do CI está com CPU faminta e o app fica
+  // intermitentemente inacessível — sem isto, um hiccup no setup derrubava
+  // ~21 testes de OS de uma vez. Uma resposta (qualquer status) = servidor
+  // alcançável = seguimos; não re-POSTamos (evita CPF duplicado).
   await page.evaluate(async ({ name, cpf }) => {
-    await fetch("/api/trpc/customer.create?batch=1", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        "0": { json: { type: "PF", name, cpf, phone: "86999990001" } },
-      }),
+    const body = JSON.stringify({
+      "0": { json: { type: "PF", name, cpf, phone: "86999990001" } },
     });
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        await fetch("/api/trpc/customer.create?batch=1", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        });
+        return;
+      } catch (err) {
+        lastErr = err;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    throw lastErr;
   }, { name, cpf });
   return name;
 }
