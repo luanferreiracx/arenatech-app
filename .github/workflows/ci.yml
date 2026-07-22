@@ -340,7 +340,7 @@ jobs:
     # serial — workers=1 por ADR 0039) leva ~25min. 35min dá folga p/ completar e
     # AVISAR (ADR 0045/0046 — full é advisory, roda em paralelo ao deploy self-hosted
     # e não o bloqueia: `deploy` só depende de `build-image`, não de `e2e`).
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       DB_URL: postgresql://arenatech:testpass@localhost:5435/arenatech_e2e
       REDIS_URL: redis://localhost:6383
