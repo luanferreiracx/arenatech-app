@@ -254,7 +254,18 @@ export const proxy = auth((req) => {
   //  - super admin: passa livre (visão total).
   //  - arena-tech e demais: a lista `modules` já vem resolvida na sessão
   //    (arena-tech tem todos). Rota sem módulo (painel, settings) passa.
-  if (activeTenant && !session.user.isSuperAdmin) {
+  // O gating de MÓDULO é para navegações de PÁGINA. NÃO gatear rotas de API
+  // (/api/*, incluindo /api/trpc): um redirect 307 → HTML quebra o cliente JSON
+  // (o tRPC recebe "<!DOCTYPE ..." e falha o parse), derrubando TODAS as queries
+  // de qualquer usuário não-superadmin. As procedures tRPC já fazem a autorização
+  // por tenant (tenantProcedure/RLS); a gating de módulo em API não vale o custo
+  // de quebrar o app inteiro. (Incidente: operadores/admins não-superadmin sem
+  // acesso a nenhum dado — só o super admin, isento aqui, funcionava.)
+  if (
+    activeTenant &&
+    !session.user.isSuperAdmin &&
+    !pathname.startsWith("/api/")
+  ) {
     if (!isRouteAllowedForTenant(pathname, activeTenant)) {
       return NextResponse.redirect(selfUrl("/painel?error=modulo-indisponivel"));
     }
