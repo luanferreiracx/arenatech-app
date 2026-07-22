@@ -420,6 +420,9 @@ jobs:
           pnpm tsx prisma/seed.ts
         env:
           DATABASE_URL: ${{ env.DB_URL }}
+          # Custo bcrypt baixo só no seed do E2E: ~126 logins da suíte não
+          # starvam a CPU do runner (verify lê o custo do hash). Prod usa 12.
+          BCRYPT_ROUNDS: "6"
 
       - name: Cache Playwright browser
         uses: actions/cache@v4
