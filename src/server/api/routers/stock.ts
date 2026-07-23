@@ -4249,6 +4249,9 @@ export const stockRouter = createTRPCRouter({
             name: newName,
             description: source.description,
             brand: source.brand,
+            // Copia a FK da marca (não só o texto sombra) — antes a cópia nascia
+            // com brandId nulo, desincronizada da entidade de marca do catálogo.
+            brandId: source.brandId,
             ncm: source.ncm,
             cest: source.cest,
             isSerialized: source.isSerialized,
