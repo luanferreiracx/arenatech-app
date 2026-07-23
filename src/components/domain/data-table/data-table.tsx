@@ -29,6 +29,13 @@ export interface DataTableProps<TData, TValue> {
   onPageSizeChange?: (size: number) => void;
   isLoading?: boolean;
   emptyMessage?: string;
+  /**
+   * Estado vazio rico (ícone + descrição + CTA). Quando fornecido, substitui o
+   * `emptyMessage` de texto simples. O chamador decide qual passar — ex.: um CTA
+   * de "cadastrar" só faz sentido quando não há filtros ativos, não quando uma
+   * busca não retornou nada.
+   */
+  emptyState?: React.ReactNode;
   toolbar?: React.ReactNode;
   /** Habilita seleção de linhas. Requer `getRowId`, `rowSelection` e `onRowSelectionChange`. */
   enableRowSelection?: boolean;
@@ -49,6 +56,7 @@ export function DataTable<TData, TValue>({
   onPageSizeChange,
   isLoading = false,
   emptyMessage = "Nenhum resultado encontrado.",
+  emptyState,
   toolbar,
   enableRowSelection = false,
   rowSelection,
@@ -108,9 +116,16 @@ export function DataTable<TData, TValue>({
                 </TableRow>
               ))
             ) : table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                  {emptyMessage}
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={columns.length}
+                  className={
+                    emptyState
+                      ? "p-0"
+                      : "h-24 text-center text-muted-foreground"
+                  }
+                >
+                  {emptyState ?? emptyMessage}
                 </TableCell>
               </TableRow>
             ) : (

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil, Wrench } from "lucide-react";
 import { format } from "date-fns";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
+import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,6 +212,27 @@ export function ServiceOrdersTable() {
   const isLoading = listQuery.isLoading;
   const data = listQuery.data;
 
+  // CTA de abertura só quando a lista está vazia SEM filtros — com busca/filtro
+  // ativo, "nenhuma encontrada" é o resultado esperado.
+  const hasActiveFilters =
+    search.trim().length > 0 ||
+    statusFilter !== "ALL" ||
+    techFilter !== "ALL" ||
+    dateFrom.length > 0 ||
+    dateTo.length > 0;
+  const emptyState = hasActiveFilters ? undefined : (
+    <EmptyState
+      icon={Wrench}
+      title="Nenhuma ordem de serviço aberta"
+      description="Abra a primeira OS para registrar um atendimento e acompanhar o reparo."
+      action={
+        <Button asChild>
+          <Link href="/service-orders/new">Nova OS</Link>
+        </Button>
+      }
+    />
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -287,6 +309,7 @@ export function ServiceOrdersTable() {
         pageSize={10}
         onPageChange={setPage}
         isLoading={isLoading}
+        emptyState={emptyState}
       />
     </div>
   );
