@@ -51,10 +51,11 @@ test.describe("Estoque-B — Entrada/Baixa de estoque", () => {
     await login(page);
   });
 
-  test("@business T-03 form entrada preenche motivo e submit habilitado", async ({ page }) => {
+  test("@business T-03 form entrada nao exige motivo e submit habilitado", async ({ page }) => {
     await gotoAndWait(page, "/stock/entry");
-    await fillField(page, "reason", "Compra fornecedor E2E");
-    await expect(page.locator("input[name='reason']")).not.toHaveValue("");
+    // O campo Motivo foi removido da entrada (motivo implícito: type=ENTRY +
+    // fornecedor). Confirma que ele não existe mais e o form segue operável.
+    await expect(page.locator("input[name='reason']")).toHaveCount(0);
     await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 10000 });
   });
 
