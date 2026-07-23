@@ -21,6 +21,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { SupplierSelect } from "@/components/domain/forms/supplier-select";
+import { FinancialCategorySelect } from "@/components/domain/forms/financial-category-select";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 import type { CreateTransactionInput } from "@/lib/validators/financial";
 import { todayBrtISO } from "@/lib/utils/date-range";
@@ -154,10 +155,16 @@ export function TransactionForm() {
 
             <div>
               <Label>Categoria</Label>
-              <Input
-                {...register("category")}
-                placeholder="Ex: Servicos, Material, etc."
-                maxLength={100}
+              <Controller
+                name="category"
+                control={control}
+                render={({ field }) => (
+                  <FinancialCategorySelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    transactionType={type}
+                  />
+                )}
               />
             </div>
           </div>
