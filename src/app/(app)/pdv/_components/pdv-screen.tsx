@@ -514,6 +514,21 @@ export function PdvScreen() {
     );
   };
 
+  // Remove o desconto sem reabrir o dialog: zera o valor pelo mesmo caminho.
+  const handleRemoveDiscount = () => {
+    if (!draftId) return;
+    applyDiscountMutation.mutate(
+      { saleId: draftId, discountType: "fixed", discountValue: 0, discountReason: null },
+      {
+        onSuccess: () => {
+          invalidateDraft();
+          toast.success("Desconto removido");
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    );
+  };
+
   // -- New Sale (restart) --
   const [confirmNewSale, setConfirmNewSale] = useState(false);
 
@@ -761,15 +776,24 @@ export function PdvScreen() {
                   Nenhum produto encontrado
                 </div>
               )}
-              {(searchQuery.data as SearchProduct[] | undefined)
-                ?.filter((p) => getAdjustedStock(p) > 0)
-                .map((product) => {
+              {(searchQuery.data as SearchProduct[] | undefined)?.map(
+                (product) => {
                   const adjustedStock = getAdjustedStock(product);
+                  // Sem estoque: mostramos o item desabilitado, com badge, em vez
+                  // de escondê-lo — assim o operador vê que o produto existe (não
+                  // some misteriosamente ao bipar/buscar), mas não consegue vendê-lo.
+                  const outOfStock = adjustedStock <= 0;
                   return (
                     <button
                       key={product.id}
                       type="button"
-                      className="w-full flex items-center justify-between p-3 hover:bg-accent/50 transition-colors border-b border-border last:border-b-0 text-left"
+                      disabled={outOfStock}
+                      className={cn(
+                        "w-full flex items-center justify-between p-3 transition-colors border-b border-border last:border-b-0 text-left",
+                        outOfStock
+                          ? "opacity-60 cursor-not-allowed"
+                          : "hover:bg-accent/50",
+                      )}
                       // onMouseDown só previne o blur do input (mantém o foco/dropdown);
                       // a ação vai no onClick — dispara também via teclado (Enter/Espaço
                       // com o botão focado), tornando o resultado acessível.
@@ -790,32 +814,27 @@ export function PdvScreen() {
                         <span className="text-sm font-semibold text-primary">
                           {formatCurrency(product.salePrice)}
                         </span>
-                        <span
-                          className={cn(
-                            "text-xs font-semibold px-1.5 py-0.5 rounded",
-                            adjustedStock > 3
-                              ? "bg-success/15 text-success"
-                              : adjustedStock > 0
-                                ? "bg-warning/15 text-warning"
-                                : "bg-destructive/15 text-destructive",
-                          )}
-                        >
-                          {adjustedStock} un
-                        </span>
+                        {outOfStock ? (
+                          <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-destructive/15 text-destructive whitespace-nowrap">
+                            Sem estoque
+                          </span>
+                        ) : (
+                          <span
+                            className={cn(
+                              "text-xs font-semibold px-1.5 py-0.5 rounded",
+                              adjustedStock > 3
+                                ? "bg-success/15 text-success"
+                                : "bg-warning/15 text-warning",
+                            )}
+                          >
+                            {adjustedStock} un
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
-                })}
-              {searchQuery.data &&
-                searchQuery.data.length > 0 &&
-                (searchQuery.data as SearchProduct[]).filter(
-                  (p) => getAdjustedStock(p) > 0,
-                ).length === 0 && (
-                  <div className="p-4 text-center text-muted-foreground text-sm">
-                    Nenhum produto encontrado (ou todo estoque ja esta no
-                    carrinho)
-                  </div>
-                )}
+                },
+              )}
             </div>
           )}
         </div>
@@ -998,14 +1017,26 @@ export function PdvScreen() {
                 {isOSPayment ? (
                   <span className="text-xs shrink-0 text-muted-foreground">Da OS</span>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRemoveCustomer}
-                    className="text-xs shrink-0"
-                  >
-                    Trocar
-                  </Button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCustomerDialog(true)}
+                      className="text-xs"
+                    >
+                      Trocar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleRemoveCustomer}
+                      aria-label="Remover cliente da venda"
+                      title="Remover cliente"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 )}
               </div>
             ) : (
@@ -1030,8 +1061,22 @@ export function PdvScreen() {
               <span>{formatCurrency(subtotal)}</span>
             </div>
             {discountAmount > 0 && (
-              <div className="flex justify-between text-sm text-destructive">
-                <span>Desconto</span>
+              <div className="flex justify-between items-center text-sm text-destructive">
+                <span className="flex items-center gap-1.5">
+                  Desconto
+                  {!isOSPayment && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveDiscount}
+                      disabled={applyDiscountMutation.isPending}
+                      aria-label="Remover desconto"
+                      title="Remover desconto"
+                      className="inline-flex items-center justify-center rounded-full p-0.5 text-destructive/70 hover:text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </span>
                 <span>-{formatCurrency(discountAmount)}</span>
               </div>
             )}
