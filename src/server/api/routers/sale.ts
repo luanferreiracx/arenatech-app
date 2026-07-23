@@ -6,6 +6,8 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
+import { resolveTradeInProductName } from "@/lib/utils/trade-in-name";
+import { findOrCreateBrandByName } from "@/server/services/product-brand.service";
 import { reverseSaleCommissions } from "@/server/services/provider-reversal.service";
 import { selectIdsToCover } from "@/server/services/refund-coverage.service";
 import {
@@ -1920,7 +1922,11 @@ export const saleRouter = createTRPCRouter({
           // Precisa de um Product (cria generico "Aparelho seminovo / usado"
           // por brand+model se nao existe — paridade Laravel
           // buscarOuCriarProdutoUpgrade).
-          const productName = [upg.brand, upg.model].filter(Boolean).join(" ") || "Aparelho seminovo";
+          // Nome canônico do trade-in: colapsa a marca repetida ("Apple Apple
+          // iPhone 16" → "iPhone 16") e NÃO reprepende brand — antes o
+          // `[brand, model].join(" ")` acumulava "Apple" e o findFirst nunca
+          // casava o produto do catálogo, criando uma duplicata a cada troca.
+          const productName = resolveTradeInProductName(upg.brand, upg.model);
           let product = await tx.product.findFirst({
             where: {
               // case-insensitive: evita criar produto duplicado so por
@@ -1933,11 +1939,18 @@ export const saleRouter = createTRPCRouter({
             select: { id: true },
           });
           if (!product) {
+            // Resolve a marca como entidade (find-or-create dedup por unaccent),
+            // preenchendo brandId — antes o produto do trade-in nascia com
+            // brandId nulo (marca só no texto sombra), desincronizado do catálogo.
+            const resolvedBrand = upg.brand?.trim()
+              ? await findOrCreateBrandByName(tx, ctx.tenantId, upg.brand.trim())
+              : null;
             product = await tx.product.create({
               data: {
                 tenantId: ctx.tenantId,
                 name: productName,
-                brand: upg.brand,
+                brand: resolvedBrand?.brandName ?? upg.brand,
+                brandId: resolvedBrand?.brandId ?? null,
                 isDevice: true,
                 isSerialized: true,
                 currentStock: 0,
@@ -4056,7 +4069,10 @@ export const saleRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             saleId: input.saleId,
             brand: input.brand ?? null,
-            model: input.model,
+            // Colapsa a marca repetida no modelo ("Apple Apple iPhone 16" →
+            // "iPhone 16") — a avaliação prependia a marca a cada passo. Guarda
+            // o modelo limpo para o produto do trade-in e a exibição.
+            model: resolveTradeInProductName(input.brand, input.model),
             storage: input.storage ?? null,
             color: input.color ?? null,
             imei: input.imei ? input.imei.replace(/\D/g, "") : null,
