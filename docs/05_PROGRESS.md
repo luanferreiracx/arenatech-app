@@ -19,6 +19,39 @@
 
 ---
 
+### 2026-07-23 — 4 melhorias específicas do dono (busca, motivo, duplicar serviço, iPhone duplicado)
+Pedido direto do dono, 4 pontos. Todos no ar; suíte E2E completa verde pós-merge.
+- **#649 busca do PDV insensível a acento:** `contains mode:insensitive` só ignorava
+  case; agora pré-filtra IDs com `unaccent(...) ILIKE unaccent(...)` (extensão já
+  instalada, RLS do withTenant mantém escopo). Validado em banco real (iphone↔íPhone,
+  cartao↔Cartão, não casa termo diferente).
+- **#650 remove campo Motivo da entrada de estoque:** motivo é implícito (type=ENTRY
+  + fornecedor); devolução/perda/ajuste têm telas próprias (exit tem select de motivos,
+  adjust exige). `reason` vira opcional; movimento grava "Entrada de estoque" default.
+- **#651 duplicar serviço:** procedure `catalog.duplicateService` espelha
+  `duplicateProduct`; botão Copy na tabela, abre a cópia p/ editar; tipo marcado " (cópia)".
+- **#652 fix iPhone duplicado (CÓDIGO):** CAUSA RAIZ diagnosticada no prod — não era a
+  marca (1 só "Apple"), era o trade-in criando produto novo a cada troca. O modelo
+  acumulava "Apple Apple Apple iPhone 16" (avaliação prependia a marca) e depois
+  `[brand,model].join(" ")` prependia de novo → findFirst nunca casava o canônico.
+  Fix: `resolveTradeInProductName` (fonte única, reusa sanitizeProductName, TDD 5 casos)
+  aplicado ao gravar SaleUpgrade.model E ao nomear/deduplicar o produto; resolve brandId
+  via findOrCreateBrandByName; duplicateProduct passa a copiar brandId.
+- **#653 fix iPhone duplicado (DADOS):** migração mescla os 19 duplicados (12 modelos)
+  — reaponta 14 sale_items + 34 stock_movements + 20 stock_items + 1 device_purchase ao
+  canônico (o com variações, mais antigo), soft-deleta os extras, limpa 54 sale_upgrades.
+  model poluídos. VALIDADA em dump real de prod ANTES (12→0, 0 órfãos, histórico 100%
+  preservado, idempotente, migrate deploy limpo passa). Aplicada em prod: confirmado 0
+  duplicados, 0 órfãos, 0 poluídos.
+**LIÇÃO (repetida):** melhoria que muda UI/remove campo quebra teste @business que só
+roda no full E2E PÓS-MERGE (não no smoke do PR). #650 removeu o campo motivo → T-03 de
+stock-b quebrou pós-merge; corrigido em #654. Mesmo padrão dos CTAs duplicados da sessão
+anterior. Ao remover/renomear elemento de UI, grep nos specs @business ANTES de mergear.
+**PADRÃO validado:** migração de dados sensível (dinheiro/estoque) → dump real de prod
+p/ banco local, roda statement-a-statement (como migrate deploy), verifica idempotência
++ banco limpo, ANTES de propor. Temp table com ON COMMIT DROP quebra em migrate deploy
+(statement-a-statement) — usar CTE inline autocontida por statement.
+
 ### 2026-07-23 — Melhorias de UX/funcionalidade (PDV, listas) + hotfix de acesso
 **Hotfix crítico (loja parada):** middleware de gating (`proxy.ts`) barrava `/api/trpc/*`
 para não-superadmins (rota não mapeada a módulo → fail-closed → 307 → HTML → batch tRPC
