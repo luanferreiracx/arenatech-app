@@ -75,6 +75,7 @@ type ServiceOrderDetail = NonNullable<RouterOutputs["serviceOrder"]["getById"]>;
 type PartProduct = RouterOutputs["serviceOrder"]["searchParts"][number];
 import { ConcludeOsDialog } from "./conclude-os-dialog";
 import { useServiceOrderActions } from "./use-service-order-actions";
+import { useActiveDialog } from "./use-active-dialog";
 import {
   OrderHistoryTimeline,
   OrderPaymentCard,
@@ -106,18 +107,15 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
   const order: ServiceOrderDetail | undefined = orderQuery.data;
 
-  // Dialogs
-  const [cancelDialog, setCancelDialog] = useState(false);
+  // Dialogs — estado único (só um abre por vez); ver useActiveDialog.
+  const dialog = useActiveDialog();
   const [cancelReason, setCancelReason] = useState("");
   const [cancelForce, setCancelForce] = useState(false);
-  const [uncancelDialog, setUncancelDialog] = useState(false);
   const [uncancelReason, setUncancelReason] = useState("");
-  const [refundDialog, setRefundDialog] = useState(false);
   const [refundReason, setRefundReason] = useState("");
   // Pagamento da OS hoje passa pelo PDV (ADR 0042) — nao ha mais dialog
   // local. `registerPaymentMut` permanece pro caso de garantia/cortesia
   // (valor 0) que e disparado diretamente em um botao.
-  const [addItemDialog, setAddItemDialog] = useState(false);
   const [newItemType, setNewItemType] = useState<"SERVICE" | "PRODUCT">("SERVICE");
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemQty, setNewItemQty] = useState(1);
@@ -158,38 +156,25 @@ export function ServiceOrderDetail({ id }: { id: string }) {
   // Verificacao sob demanda da resposta do cliente ao orcamento (checkQuoteStatus).
   const [checkQuotePending, setCheckQuotePending] = useState(false);
   // Envio do orçamento ao cliente — modal de número (padrão do sistema).
-  const [budgetApprovalDialog, setBudgetApprovalDialog] = useState(false);
   // Edicao inline de item
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [editItemDesc, setEditItemDesc] = useState("");
   const [editItemQty, setEditItemQty] = useState(1);
   const [editItemPrice, setEditItemPrice] = useState(0);
   // New dialogs — Sprint 1A
-  const [signatureDialog, setSignatureDialog] = useState(false);
-  const [trackingDialog, setTrackingDialog] = useState(false);
-  const [deliveryTermDialog, setDeliveryTermDialog] = useState(false);
-  const [returnTermDialog, setReturnTermDialog] = useState(false);
   const [returnTermReason, setReturnTermReason] = useState("Equipamento devolvido ao cliente");
-  const [techInfoDialog, setTechInfoDialog] = useState(false);
   const [techDiagnosed, setTechDiagnosed] = useState("");
   const [techNotes, setTechNotes] = useState("");
-  const [changeTechDialog, setChangeTechDialog] = useState(false);
   const [selectedTechId, setSelectedTechId] = useState("");
   // Laboratorio Externo
-  const [sendLabDialog, setSendLabDialog] = useState(false);
   const [labDeliveryPersonId, setLabDeliveryPersonId] = useState<string>("");
-  const [notifyDeliveryDialog, setNotifyDeliveryDialog] = useState(false);
   const [notifyDeliveryContext, setNotifyDeliveryContext] = useState<"retirada" | "envio" | "generico">("retirada");
   const [notifyDeliveryMessage, setNotifyDeliveryMessage] = useState("");
-  const [deleteDialog, setDeleteDialog] = useState(false);
   // Conclusao da OS: dialogo unico (avancar normal OU pular etapas) que
   // pergunta se avisa o cliente por WhatsApp. `concludeSkipping` muda a copy/nota.
-  const [concludeDialog, setConcludeDialog] = useState(false);
   const [concludeSkipping, setConcludeSkipping] = useState(false);
   // Reenvio manual da notificacao de conclusao (escolhe/digita telefone).
-  const [notifyCompletedDialog, setNotifyCompletedDialog] = useState(false);
   // Envio do recibo por WhatsApp (escolhe/digita telefone — padrão do sistema).
-  const [receiptDialog, setReceiptDialog] = useState(false);
 
 
   // Mutations
@@ -229,17 +214,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
     updateTechnicalInfoMut,
     updateTechnicianMut,
   } = useServiceOrderActions({
-    setAddItemDialog,
+    closeDialog: dialog.close,
     setCostsEditing,
-    setSignatureDialog,
     setEditItemId,
-    setTrackingDialog,
-    setSendLabDialog,
-    setNotifyDeliveryDialog,
-    setDeliveryTermDialog,
-    setReturnTermDialog,
-    setTechInfoDialog,
-    setChangeTechDialog,
     setCheckQuotePending,
   });
 
@@ -426,7 +403,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   variant="outline"
                   size="sm"
                   disabled={sendReceiptMut.isPending}
-                  onClick={() => setReceiptDialog(true)}
+                  onClick={() => dialog.open("receipt")}
                 >
                   <MessageCircle className="mr-2 h-4 w-4" />
                   {order.receiptSent ? "Reenviar Recibo" : "Enviar Recibo"}
@@ -441,23 +418,23 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               </Button>
             )}
             {isCancellableOsStatus(status) && (
-              <Button variant="destructive" size="sm" onClick={() => setCancelDialog(true)}>
+              <Button variant="destructive" size="sm" onClick={() => dialog.open("cancel")}>
                 <Ban className="mr-2 h-4 w-4" />Cancelar
               </Button>
             )}
             {isCancelled && (
-              <Button variant="outline" onClick={() => setUncancelDialog(true)}>
+              <Button variant="outline" onClick={() => dialog.open("uncancel")}>
                 <Undo2 className="mr-2 h-4 w-4" />Descancelar
               </Button>
             )}
             {/* Excluir permanente: admin only, OS cancelada — paridade Laravel show.blade.php:582-590 */}
             {isCancelled && isAdmin && (
-              <Button variant="destructive" size="sm" onClick={() => setDeleteDialog(true)}>
+              <Button variant="destructive" size="sm" onClick={() => dialog.open("delete")}>
                 <Trash2 className="mr-2 h-4 w-4" />Excluir
               </Button>
             )}
             {isRefundableOsStatus(status) && !isRefunded && (
-              <Button variant="destructive" size="sm" onClick={() => setRefundDialog(true)}>
+              <Button variant="destructive" size="sm" onClick={() => dialog.open("refund")}>
                 <Undo2 className="mr-2 h-4 w-4" />Estornar
               </Button>
             )}
@@ -499,7 +476,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 size="sm"
                 variant="outline"
                 disabled={sendForSignatureMut.isPending}
-                onClick={() => setSignatureDialog(true)}
+                onClick={() => dialog.open("signature")}
               >
                 <Send className="mr-1 h-3 w-3" />
                 {order.signatureDocumentId ? "Reenviar para Assinatura" : "Enviar para Assinatura Digital"}
@@ -546,14 +523,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               size="sm"
               variant="outline"
               disabled={notifyCompletedMut.isPending}
-              onClick={() => setNotifyCompletedDialog(true)}
+              onClick={() => dialog.open("notifyCompleted")}
             >
               <MessageCircle className="mr-1 h-3 w-3" />Enviar Conclusao por WhatsApp
             </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setTrackingDialog(true)}
+              onClick={() => dialog.open("tracking")}
             >
               <Navigation className="mr-1 h-3 w-3" />Enviar Rastreamento
             </Button>
@@ -578,7 +555,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setDeliveryTermDialog(true)}
+                onClick={() => dialog.open("deliveryTerm")}
               >
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Entrega
               </Button>
@@ -634,7 +611,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setReturnTermReason("Equipamento devolvido ao cliente"); setReturnTermDialog(true); }}
+                onClick={() => { setReturnTermReason("Equipamento devolvido ao cliente"); dialog.open("returnTerm"); }}
               >
                 <Send className="mr-1 h-3 w-3" />Enviar Termo de Devolucao
               </Button>
@@ -710,7 +687,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               <Button
                 size="sm"
                 disabled={!budgetReason.trim() || requestBudgetApprovalMut.isPending}
-                onClick={() => setBudgetApprovalDialog(true)}
+                onClick={() => dialog.open("budgetApproval")}
               >
                 <MessageCircle className="mr-1 h-3 w-3" />{sent ? "Reenviar ao cliente" : "Enviar para autorizacao"}
               </Button>
@@ -750,7 +727,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           </h3>
           <div className="flex flex-wrap gap-2 mt-3">
             {!order.sentToLab && (
-              <Button size="sm" variant="outline" onClick={() => { setLabDeliveryPersonId(""); setSendLabDialog(true); }}>
+              <Button size="sm" variant="outline" onClick={() => { setLabDeliveryPersonId(""); dialog.open("sendLab"); }}>
                 <Send className="mr-1 h-3 w-3" />Enviar para Laboratorio
               </Button>
             )}
@@ -767,7 +744,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => { setNotifyDeliveryContext("retirada"); setNotifyDeliveryMessage(`Por favor, retirar a OS ${order.number} no laboratorio externo.`); setNotifyDeliveryDialog(true); }}
+                  onClick={() => { setNotifyDeliveryContext("retirada"); setNotifyDeliveryMessage(`Por favor, retirar a OS ${order.number} no laboratorio externo.`); dialog.open("notifyDelivery"); }}
                 >
                   <MessageCircle className="mr-1 h-3 w-3" />Notificar Entregador
                 </Button>
@@ -798,7 +775,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Problema e Diagnostico</h3>
               {!isCancelled && !isRefunded && !["COMPLETED", "PAID", "READY_FOR_PICKUP", "DELIVERED"].includes(status) && (
-                <Button size="sm" variant="ghost" onClick={() => { setTechDiagnosed(order.diagnosedProblem ?? ""); setTechNotes(order.internalNotes ?? ""); setTechInfoDialog(true); }}>
+                <Button size="sm" variant="ghost" onClick={() => { setTechDiagnosed(order.diagnosedProblem ?? ""); setTechNotes(order.internalNotes ?? ""); dialog.open("techInfo"); }}>
                   <Wrench className="h-3 w-3" />
                 </Button>
               )}
@@ -819,7 +796,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-primary uppercase tracking-wider">Itens</h3>
               {canEditItems && (
-                <Button size="sm" variant="outline" onClick={() => { setNewItemDesc(""); setNewItemQty(1); setNewItemPrice(0); setAddItemDialog(true); }}>
+                <Button size="sm" variant="outline" onClick={() => { setNewItemDesc(""); setNewItemQty(1); setNewItemPrice(0); dialog.open("addItem"); }}>
                   <Plus className="mr-1 h-3 w-3" />Adicionar
                 </Button>
               )}
@@ -924,7 +901,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                         <div className="flex flex-wrap gap-2 mt-2">
                           {blocker.key === "signature" && (
                             <>
-                              <Button size="sm" variant="outline" onClick={() => setSignatureDialog(true)} disabled={sendForSignatureMut.isPending}>
+                              <Button size="sm" variant="outline" onClick={() => dialog.open("signature")} disabled={sendForSignatureMut.isPending}>
                                 <Send className="mr-1 h-3 w-3" />Enviar assinatura
                               </Button>
                               <Button size="sm" variant="outline" onClick={() => confirmSigMut.mutate({ orderId: id, type: "entry" })} disabled={confirmSigMut.isPending}>
@@ -947,7 +924,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                           {blocker.key === "delivery-term" && (
                             <>
                               {!order.deliveryTermAutentiqueId && (
-                                <Button size="sm" variant="outline" onClick={() => setDeliveryTermDialog(true)} disabled={sendDeliveryTermMut.isPending}>
+                                <Button size="sm" variant="outline" onClick={() => dialog.open("deliveryTerm")} disabled={sendDeliveryTermMut.isPending}>
                                   <Send className="mr-1 h-3 w-3" />Enviar termo
                                 </Button>
                               )}
@@ -1036,7 +1013,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                         // transicoes seguem diretas.
                         if (s === "COMPLETED") {
                           setConcludeSkipping(false);
-                          setConcludeDialog(true);
+                          dialog.open("conclude");
                         } else {
                           updateStatusMut.mutate({ id, status: s, notes: null });
                         }
@@ -1060,7 +1037,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                       variant="outline"
                       onClick={() => {
                         setConcludeSkipping(true);
-                        setConcludeDialog(true);
+                        dialog.open("conclude");
                       }}
                       disabled={updateStatusMut.isPending}
                     >
@@ -1129,7 +1106,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                         ? `provider:${order.serviceProviderId}`
                         : "",
                   );
-                  setChangeTechDialog(true);
+                  dialog.open("changeTech");
                 }}>
                   <UserCog className="h-3 w-3" />
                 </Button>
@@ -1164,8 +1141,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
       {/* Reenvio manual da notificacao de conclusao (escolhe/digita telefone) */}
       <WhatsAppSendDialog
-        open={notifyCompletedDialog}
-        onOpenChange={setNotifyCompletedDialog}
+        {...dialog.props("notifyCompleted")}
         title="Enviar Conclusao por WhatsApp"
         description="Selecione um numero ou digite outro para avisar que o aparelho esta pronto."
         customerName={order.customer?.name ?? null}
@@ -1175,14 +1151,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         confirmLabel="Enviar"
         onConfirm={async (phone) => {
           await notifyCompletedMut.mutateAsync({ serviceOrderId: id, phone });
-          setNotifyCompletedDialog(false);
+          dialog.close();
         }}
       />
 
       {/* Envio do recibo por WhatsApp (escolhe/digita telefone) */}
       <WhatsAppSendDialog
-        open={receiptDialog}
-        onOpenChange={setReceiptDialog}
+        {...dialog.props("receipt")}
         title="Enviar Recibo por WhatsApp"
         description="Selecione um numero ou digite outro para enviar o recibo da OS."
         customerName={order.customer?.name ?? null}
@@ -1192,14 +1167,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         confirmLabel="Enviar Recibo"
         onConfirm={async (phone) => {
           await sendReceiptMut.mutateAsync({ orderId: id, phone });
-          setReceiptDialog(false);
+          dialog.close();
         }}
       />
 
       {/* Signature WhatsApp Dialog */}
       <WhatsAppSendDialog
-        open={signatureDialog}
-        onOpenChange={setSignatureDialog}
+        {...dialog.props("signature")}
         title={order.signatureDocumentId ? "Reenviar para Assinatura" : "Enviar para Assinatura Digital"}
         description="Selecione um número ou digite outro para receber o link de assinatura."
         customerName={order.customer?.name ?? null}
@@ -1213,9 +1187,10 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       />
 
       {/* Add Item Dialog */}
-      <Dialog open={addItemDialog} onOpenChange={(open) => {
-        setAddItemDialog(open);
-        if (!open) {
+      <Dialog open={dialog.isOpen("addItem")} onOpenChange={(open) => {
+        if (open) dialog.open("addItem");
+        else {
+          dialog.close();
           setNewItemProductId(null);
           setNewItemVariationId(null);
           setNewItemServiceId(null);
@@ -1440,7 +1415,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddItemDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
             <Button
               disabled={!newItemDesc || addItemMut.isPending}
               onClick={() =>
@@ -1465,8 +1440,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
       {/* Conclusao da OS (com opcao de avisar o cliente por WhatsApp) */}
       <ConcludeOsDialog
-        open={concludeDialog}
-        onOpenChange={setConcludeDialog}
+        {...dialog.props("conclude")}
         customerName={order.customer?.name ?? null}
         primaryPhone={order.customer?.phone ?? null}
         secondaryPhone={(order.customer as { phoneSecondary?: string | null })?.phoneSecondary ?? null}
@@ -1481,13 +1455,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               notifyWhatsapp,
               notifyPhone,
             },
-            { onSuccess: () => setConcludeDialog(false) },
+            { onSuccess: () => dialog.close() },
           );
         }}
       />
 
       {/* Cancel Dialog */}
-      <Dialog open={cancelDialog} onOpenChange={setCancelDialog}>
+      <Dialog {...dialog.props("cancel")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar OS</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -1512,7 +1486,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                       variant="outline"
                       onClick={() => {
                         setReturnTermReason(cancelReason || "Equipamento devolvido ao cliente");
-                        setReturnTermDialog(true);
+                        dialog.open("returnTerm");
                       }}
                       disabled={sendReturnTermMut.isPending}
                     >
@@ -1561,7 +1535,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelDialog(false)}>Voltar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
             <Button
               variant="destructive"
               disabled={
@@ -1572,7 +1546,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
               }
               onClick={() => {
                 cancelMut.mutate({ id, reason: cancelReason, force: cancelForce });
-                setCancelDialog(false);
+                dialog.close();
               }}
             >
               Confirmar Cancelamento
@@ -1582,7 +1556,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       {/* Delete Dialog (admin only, OS cancelada) */}
-      <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+      <Dialog {...dialog.props("delete")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Excluir OS permanentemente</DialogTitle></DialogHeader>
           <div className="space-y-3 text-sm">
@@ -1595,11 +1569,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialog(false)}>Voltar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
             <Button
               variant="destructive"
               disabled={deleteMut.isPending}
-              onClick={() => { deleteMut.mutate({ id }); setDeleteDialog(false); }}
+              onClick={() => { deleteMut.mutate({ id }); dialog.close(); }}
             >
               Excluir permanentemente
             </Button>
@@ -1608,31 +1582,31 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       {/* Uncancel Dialog */}
-      <Dialog open={uncancelDialog} onOpenChange={setUncancelDialog}>
+      <Dialog {...dialog.props("uncancel")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Descancelar OS</DialogTitle></DialogHeader>
           <div><Label>Motivo</Label><Textarea value={uncancelReason} onChange={(e) => setUncancelReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setUncancelDialog(false)}>Voltar</Button>
-            <Button disabled={!uncancelReason || uncancelMut.isPending} onClick={() => { uncancelMut.mutate({ id, reason: uncancelReason }); setUncancelDialog(false); }}>Descancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
+            <Button disabled={!uncancelReason || uncancelMut.isPending} onClick={() => { uncancelMut.mutate({ id, reason: uncancelReason }); dialog.close(); }}>Descancelar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Refund Dialog */}
-      <Dialog open={refundDialog} onOpenChange={setRefundDialog}>
+      <Dialog {...dialog.props("refund")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Estornar OS</DialogTitle></DialogHeader>
           <div><Label>Motivo do Estorno (min. 10 caracteres)</Label><Textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRefundDialog(false)}>Voltar</Button>
-            <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => { refundMut.mutate({ id, reason: refundReason }); setRefundDialog(false); }}>Confirmar Estorno</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
+            <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => { refundMut.mutate({ id, reason: refundReason }); dialog.close(); }}>Confirmar Estorno</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Send to Lab Dialog */}
-      <Dialog open={sendLabDialog} onOpenChange={setSendLabDialog}>
+      <Dialog {...dialog.props("sendLab")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Enviar para Laboratorio Externo</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -1662,7 +1636,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSendLabDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
             <Button
               disabled={sendToLabMut.isPending || !labDeliveryPersonId || !notifyDeliveryMessage.trim()}
               onClick={() =>
@@ -1680,7 +1654,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       {/* Notify Delivery Person Dialog */}
-      <Dialog open={notifyDeliveryDialog} onOpenChange={setNotifyDeliveryDialog}>
+      <Dialog {...dialog.props("notifyDelivery")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Notificar Entregador via WhatsApp</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -1705,7 +1679,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNotifyDeliveryDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
             <Button
               disabled={!labDeliveryPersonId || !notifyDeliveryMessage || notifyDeliveryPersonMut.isPending}
               onClick={() =>
@@ -1725,8 +1699,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
 
       {/* Tracking — modal padrão de número (números cadastrados + digitar) */}
       <WhatsAppSendDialog
-        open={trackingDialog}
-        onOpenChange={setTrackingDialog}
+        {...dialog.props("tracking")}
         title="Enviar Rastreamento por WhatsApp"
         description="Selecione um numero ou digite outro para enviar o link de acompanhamento."
         customerName={order.customer?.name ?? null}
@@ -1736,14 +1709,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         confirmLabel="Enviar"
         onConfirm={async (phone) => {
           await sendTrackingMut.mutateAsync({ orderId: id, phone });
-          setTrackingDialog(false);
+          dialog.close();
         }}
       />
 
       {/* Termo de Entrega — modal padrão de número */}
       <WhatsAppSendDialog
-        open={deliveryTermDialog}
-        onOpenChange={setDeliveryTermDialog}
+        {...dialog.props("deliveryTerm")}
         title="Enviar Termo de Entrega"
         description="O termo vai para assinatura digital (Autentique) e é notificado por WhatsApp."
         customerName={order.customer?.name ?? null}
@@ -1753,14 +1725,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         confirmLabel="Enviar Termo"
         onConfirm={async (phone) => {
           await sendDeliveryTermMut.mutateAsync({ orderId: id, phone });
-          setDeliveryTermDialog(false);
+          dialog.close();
         }}
       />
 
       {/* Envio do orçamento ao cliente — modal padrão de número */}
       <WhatsAppSendDialog
-        open={budgetApprovalDialog}
-        onOpenChange={setBudgetApprovalDialog}
+        {...dialog.props("budgetApproval")}
         title="Enviar orcamento ao cliente"
         description="Selecione um numero ou digite outro para enviar o orcamento para autorizacao."
         customerName={order.customer?.name ?? null}
@@ -1775,14 +1746,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             additionalServices: null,
             phone,
           });
-          setBudgetApprovalDialog(false);
+          dialog.close();
         }}
       />
 
       {/* Termo de Devolução — modal padrão de número + motivo (children) */}
       <WhatsAppSendDialog
-        open={returnTermDialog}
-        onOpenChange={setReturnTermDialog}
+        {...dialog.props("returnTerm")}
         title="Enviar Termo de Devolucao"
         description="O termo vai para assinatura digital. Após assinado, a OS é cancelada automaticamente."
         customerName={order.customer?.name ?? null}
@@ -1792,7 +1762,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
         confirmLabel="Enviar Termo"
         onConfirm={async (phone) => {
           await sendReturnTermMut.mutateAsync({ orderId: id, phone, reason: returnTermReason || null });
-          setReturnTermDialog(false);
+          dialog.close();
         }}
       >
         <div>
@@ -1802,7 +1772,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
       </WhatsAppSendDialog>
 
       {/* Technical Info Dialog */}
-      <Dialog open={techInfoDialog} onOpenChange={setTechInfoDialog}>
+      <Dialog {...dialog.props("techInfo")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Informacoes Tecnicas</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -1810,14 +1780,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <div><Label>Observacoes Internas</Label><Textarea value={techNotes} onChange={(e) => setTechNotes(e.target.value)} rows={3} placeholder="Observacoes internas da equipe..." /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTechInfoDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
             <Button disabled={updateTechnicalInfoMut.isPending} onClick={() => updateTechnicalInfoMut.mutate({ orderId: id, diagnosedProblem: techDiagnosed || null, internalNotes: techNotes || null })}>Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Change Technician Dialog */}
-      <Dialog open={changeTechDialog} onOpenChange={setChangeTechDialog}>
+      <Dialog {...dialog.props("changeTech")}>
         <DialogContent>
           <DialogHeader><DialogTitle>Alterar Tecnico Responsavel</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -1836,7 +1806,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setChangeTechDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => dialog.close()}>Cancelar</Button>
             <Button
               disabled={!selectedTechId || updateTechnicianMut.isPending}
               onClick={() => {
