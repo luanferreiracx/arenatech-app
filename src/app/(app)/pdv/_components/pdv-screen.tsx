@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { PaymentDialog } from "./payment-dialog";
 import { DiscountDialog } from "./discount-dialog";
 import { PriceCheckDialog } from "./price-check-dialog";
@@ -222,10 +223,13 @@ export function PdvScreen() {
   }, [draft]);
 
   // -- Search Products --
+  // Debounce: uma requisição por pausa de digitação, não uma por tecla (o input
+  // segue imediato via searchTerm; só a query usa o valor debounced).
+  const debouncedSearch = useDebouncedValue(searchTerm, 250);
   const searchQuery = useQuery(
     trpc.sale.searchProducts.queryOptions(
-      { query: searchTerm, withStock: true },
-      { enabled: searchTerm.length >= 2 },
+      { query: debouncedSearch, withStock: true },
+      { enabled: debouncedSearch.length >= 2 },
     ),
   );
 
@@ -262,6 +266,36 @@ export function PdvScreen() {
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
     setShowResults(e.target.value.length >= 2);
+  };
+
+  // Enter na busca: fluxo de balcão com leitor de código de barras (o scanner
+  // digita os dígitos e envia Enter). Como o scanner dispara em milissegundos,
+  // o resultado debounced ainda não reflete o termo — então buscamos direto
+  // pelo valor cru. Casa exato por barcode/SKU e adiciona; se houver um único
+  // resultado em estoque, também adiciona. Vários sem casamento exato: não faz
+  // nada (evita adicionar o errado).
+  const handleSearchKeyDown = async (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const term = searchTerm.trim();
+    if (term.length < 2) return;
+    const data = await queryClient.fetchQuery(
+      trpc.sale.searchProducts.queryOptions({ query: term, withStock: true }),
+    );
+    const results = (data as SearchProduct[]).filter(
+      (prod) => getAdjustedStock(prod) > 0,
+    );
+    if (results.length === 0) return;
+    const exact = results.find((prod) => prod.barcode === term || prod.sku === term);
+    const chosen = exact ?? (results.length === 1 ? results[0] : null);
+    if (!chosen) return;
+    handleAddProduct(chosen);
+    // Limpa para a próxima leitura (fluxo de bipagem sucessiva).
+    setSearchTerm("");
+    setShowResults(false);
+    searchRef.current?.focus();
   };
 
   const handleAddProduct = (product: SearchProduct) => {
@@ -705,6 +739,7 @@ export function PdvScreen() {
               ref={searchRef}
               value={searchTerm}
               onChange={handleSearchInput}
+              onKeyDown={handleSearchKeyDown}
               onFocus={() => searchTerm.length >= 2 && setShowResults(true)}
               placeholder="Buscar produto por nome, SKU ou codigo de barras..."
               className="pl-10 h-11 text-base"
@@ -735,11 +770,11 @@ export function PdvScreen() {
                       key={product.id}
                       type="button"
                       className="w-full flex items-center justify-between p-3 hover:bg-accent/50 transition-colors border-b border-border last:border-b-0 text-left"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleAddProduct(product);
-                      }}
+                      // onMouseDown só previne o blur do input (mantém o foco/dropdown);
+                      // a ação vai no onClick — dispara também via teclado (Enter/Espaço
+                      // com o botão focado), tornando o resultado acessível.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleAddProduct(product)}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm truncate">
