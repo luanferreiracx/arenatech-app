@@ -2884,19 +2884,29 @@ export const saleRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const term = input.query.trim();
-        const where: Prisma.ProductWhereInput = {
-          active: true,
-          deletedAt: null,
-          OR: [
-            { name: { contains: term, mode: "insensitive" } },
-            { sku: { contains: term, mode: "insensitive" } },
-            { barcode: { contains: term, mode: "insensitive" } },
-          ],
-        };
+        // Busca insensível a ACENTO e case: `contains mode:insensitive` do Prisma
+        // só ignora maiúsculas, então "iphone" não achava "íphone"/"Íphone" e
+        // vice-versa. Pré-filtra os IDs com unaccent (extensão já instalada, mesmo
+        // padrão das migrations de marca/fornecedor); o RLS do withTenant garante
+        // o escopo do tenant. O restante do pipeline (estoque/serialização) segue.
+        const pattern = `%${term}%`;
+        const matched = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM products
+          WHERE active = true
+            AND deleted_at IS NULL
+            AND (
+              unaccent(name) ILIKE unaccent(${pattern})
+              OR unaccent(coalesce(sku, '')) ILIKE unaccent(${pattern})
+              OR unaccent(coalesce(barcode, '')) ILIKE unaccent(${pattern})
+            )
+          ORDER BY name ASC
+          LIMIT 20
+        `;
+        if (matched.length === 0) return [];
+        const matchedIds = matched.map((r) => r.id);
 
         const products = await tx.product.findMany({
-          where,
-          take: 20,
+          where: { id: { in: matchedIds } },
           orderBy: { name: "asc" },
         });
         if (products.length === 0) return [];
