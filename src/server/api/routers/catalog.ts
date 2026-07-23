@@ -354,6 +354,41 @@ export const catalogRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Duplica um serviço (facilita cadastrar variações de um mesmo reparo).
+   * Espelha o `duplicateProduct`: cria uma cópia editável e devolve o novo id
+   * para a UI abrir a edição. Operacional (como criar/editar); marca o tipo com
+   * " (cópia)" para distinguir na lista (o `name` é gerado a partir dele).
+   */
+  duplicateService: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const source = await tx.service.findUnique({ where: { id: input.id } });
+        if (!source || source.deletedAt) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
+        }
+
+        const serviceType = `${source.serviceType ?? "Serviço"} (cópia)`;
+        const deviceModel = source.deviceModel;
+        const name = `${serviceType}${deviceModel ? ` - ${deviceModel}` : ""}`;
+
+        return tx.service.create({
+          data: {
+            tenantId: ctx.tenantId,
+            name,
+            serviceTypeId: source.serviceTypeId,
+            serviceType,
+            deviceModel,
+            description: source.description,
+            basePrice: source.basePrice,
+            estimatedTime: source.estimatedTime,
+            active: source.active,
+          },
+        });
+      });
+    }),
+
   toggleServiceActive: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
