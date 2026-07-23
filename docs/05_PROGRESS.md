@@ -19,6 +19,32 @@
 
 ---
 
+### 2026-07-23 — Melhorias de UX/funcionalidade (PDV, listas) + hotfix de acesso
+**Hotfix crítico (loja parada):** middleware de gating (`proxy.ts`) barrava `/api/trpc/*`
+para não-superadmins (rota não mapeada a módulo → fail-closed → 307 → HTML → batch tRPC
+quebrava com "The string did not match the expected pattern"). #639 passa a **pular `/api/`
+no gate de módulo** (super admin já era isento). Deployado e validado em prod (0 307s).
+**Bloco de melhorias (revisão módulo-a-módulo, foco visual/funcional pós-segurança):**
+- **#640 (busca do PDV):** debounce 250ms (1 req por pausa, não por tecla); Enter/leitor de
+  código de barras (casa exato por barcode/SKU e adiciona; scanner digita+Enter → busca crua
+  imediata pois o debounce ainda não atualizou); resultado do dropdown acionável por teclado
+  (onClick, não só onMouseDown).
+- **#641 (type-safety):** `sale-detail.tsx` trocou `Record<string, any>` por
+  `RouterOutputs["sale"]["getById"]` — removeu ~29 casts. `getById` já serializa Decimals→
+  centavos number. 3 valores de dinheiro recebem `Number()` porque o retorno é union com uma
+  ramificação Decimal (identidade em runtime).
+- **#642 (affordances do carrinho):** produtos sem estoque agora **aparecem** desabilitados
+  com badge "Sem estoque" (antes sumiam da busca); botão [x] remove desconto sem reabrir o
+  dialog; "Trocar" cliente abre o seletor (antes só limpava) + [x] separado remove.
+- **#643 (empty states com CTA):** `DataTable` ganha prop opcional `emptyState` (retrocompat);
+  Clientes/Produtos/OS mostram ícone+descrição+CTA de cadastro **só quando vazio SEM filtros**
+  (com filtro ativo, mantém "nenhum encontrado" — CTA de cadastrar seria confuso).
+**Decisões:** CTA de empty state condicionado a `hasActiveFilters` por tabela; Financeiro
+ficou de fora (já usa EmptyState, sem fluxo "cadastrar primeiro" natural).
+**Próximo:** agrupar a barra de 8 botões do PDV; categoria financeira / forma de pagamento
+como select+criar-inline (evitar duplicata de dado texto-livre); consolidar ~15 booleanos de
+dialog da OS em `activeDialog`/reducer.
+
 ### 2026-07-17 — Incidente do saldo DePix inflado + Esplora self-hosted + P2s de segurança
 **Incidente (dinheiro):** saldo da carteira central exibia R$4.304,44 vs R$131,21 real.
 Diagnóstico confirmado on-chain (skill `diagnose` + `empirical-validation`): o cache do
