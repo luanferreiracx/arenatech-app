@@ -82,7 +82,7 @@ export default function StockEntryPage() {
     <div>
       <PageHeader
         title="Entrada de Estoque"
-        subtitle="Adicione varios produtos de uma vez compartilhando fornecedor e motivo"
+        subtitle="Adicione varios produtos de uma vez compartilhando o fornecedor"
       />
 
       <form
