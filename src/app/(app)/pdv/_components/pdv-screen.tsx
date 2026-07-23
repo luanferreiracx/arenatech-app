@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   RefreshCw,
   ArrowRightLeft,
+  History,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1110,94 +1111,108 @@ export function PdvScreen() {
           </CardContent>
         </Card>
 
-        {/* Actions */}
-        <div className="flex flex-col gap-2 mt-auto">
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2"
-            onClick={() => setShowDiscountDialog(true)}
-          >
-            <Tag className="h-4 w-4" />
-            Desconto
-          </Button>
-
-          {/* Upgrade (aparelho de entrada) nao se aplica a recebimento de OS. */}
+        {/* Actions — agrupadas por função: modificadores, ação principal e
+            secundárias. A hierarquia vem do agrupamento + espaçamento + peso,
+            não de cores novas: o operador acha "Finalizar" de imediato. */}
+        <div className="flex flex-col gap-4 mt-auto">
+          {/* Grupo 1 — modificadores da venda (alteram o carrinho). Omitido no
+              recebimento de OS, que não tem desconto/aparelho de entrada aqui. */}
           {!isOSPayment && (
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                className="justify-start gap-2"
+                onClick={() => setShowDiscountDialog(true)}
+              >
+                <Tag className="h-4 w-4 shrink-0" />
+                <span className="truncate">Desconto</span>
+              </Button>
+              <Button
+                variant="outline"
+                className="justify-start gap-2"
+                disabled={!draft}
+                onClick={() => setShowUpgradeDialog(true)}
+              >
+                <ArrowRightLeft className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  Aparelho{(draft?.upgrades?.length ?? 0) > 0 && ` (${draft?.upgrades?.length})`}
+                </span>
+              </Button>
+            </div>
+          )}
+          {/* No recebimento de OS, só o desconto se aplica. */}
+          {isOSPayment && (
             <Button
               variant="outline"
               className="w-full justify-start gap-2"
-              disabled={!draft}
-              onClick={() => setShowUpgradeDialog(true)}
+              onClick={() => setShowDiscountDialog(true)}
             >
-              <ArrowRightLeft className="h-4 w-4" />
-              Aparelho de Entrada {(draft?.upgrades?.length ?? 0) > 0 && `(${draft?.upgrades?.length})`}
+              <Tag className="h-4 w-4 shrink-0" />
+              <span className="truncate">Desconto</span>
             </Button>
           )}
 
-          {(() => {
-            // hasDeviceItem/blockedNoCustomer/canFinalize vem do topo do
-            // componente (mesma fonte que o atalho F8 usa).
-            return (
-              <>
-                <Button
-                  className="w-full h-12 text-base gap-2"
-                  disabled={!canFinalize}
-                  onClick={() => setShowPaymentDialog(true)}
-                  title={
-                    blockedNoCustomer
-                      ? "Venda de aparelho exige cliente selecionado."
-                      : undefined
-                  }
-                >
-                  <CreditCard className="h-5 w-5" />
-                  {isOSPayment ? "Receber Pagamento" : "Finalizar Venda"}
-                </Button>
-                {!isOSPayment && blockedNoCustomer && (
-                  <p className="text-xs text-warning text-center px-2 -mt-1">
-                    Selecione um cliente para vender aparelho.
-                  </p>
-                )}
-              </>
-            );
-          })()}
-
-          <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <span>
-              <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
-                F2
-              </kbd>{" "}
-              buscar
-            </span>
-            <span>
-              <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
-                F8
-              </kbd>{" "}
-              finalizar
-            </span>
-            <span>
-              <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
-                Esc
-              </kbd>{" "}
-              cancelar
-            </span>
+          {/* Grupo 2 — ação principal + atalhos (os atalhos pertencem a ela). */}
+          <div className="flex flex-col gap-2">
+            <Button
+              className="w-full h-12 text-base gap-2"
+              disabled={!canFinalize}
+              onClick={() => setShowPaymentDialog(true)}
+              title={
+                blockedNoCustomer
+                  ? "Venda de aparelho exige cliente selecionado."
+                  : undefined
+              }
+            >
+              <CreditCard className="h-5 w-5 shrink-0" />
+              {isOSPayment ? "Receber Pagamento" : "Finalizar Venda"}
+            </Button>
+            {!isOSPayment && blockedNoCustomer && (
+              <p className="text-xs text-warning text-center px-2">
+                Selecione um cliente para vender aparelho.
+              </p>
+            )}
+            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+              <span>
+                <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
+                  F2
+                </kbd>{" "}
+                buscar
+              </span>
+              <span>
+                <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
+                  F8
+                </kbd>{" "}
+                finalizar
+              </span>
+              <span>
+                <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono border border-border">
+                  Esc
+                </kbd>{" "}
+                cancelar
+              </span>
+            </div>
           </div>
 
-          <Button
-            variant="outline"
-            className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/10"
-            onClick={handleNewSale}
-          >
-            <RotateCcw className="h-4 w-4" />
-            {isOSPayment ? "Cancelar Recebimento" : "Reiniciar Venda"}
-          </Button>
-
-          <Button
-            variant="ghost"
-            className="w-full"
-            onClick={() => router.push("/pdv/history")}
-          >
-            Historico de Vendas
-          </Button>
+          {/* Grupo 3 — secundárias, atrás de um divisor e com peso menor. */}
+          <div className="flex flex-col gap-1 border-t border-border pt-3">
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={handleNewSale}
+            >
+              <RotateCcw className="h-4 w-4 shrink-0" />
+              {isOSPayment ? "Cancelar Recebimento" : "Reiniciar Venda"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 text-muted-foreground"
+              onClick={() => router.push("/pdv/history")}
+            >
+              <History className="h-4 w-4 shrink-0" />
+              Histórico de Vendas
+            </Button>
+          </div>
         </div>
       </div>
 
