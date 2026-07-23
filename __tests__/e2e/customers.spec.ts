@@ -123,7 +123,9 @@ test.describe("Customers — RBAC", () => {
 
   test("@business T-13 link Novo Cliente existe e aponta para /customers/new", async ({ page }) => {
     await gotoAndWait(page, "/customers");
-    const link = page.locator("a[href='/customers/new']");
+    // Pode haver 2 links para /customers/new: o botão do header e o CTA do
+    // estado vazio (lista sem clientes). Ambos válidos — checamos o primeiro.
+    const link = page.locator("a[href='/customers/new']").first();
     await expect(link).toBeVisible({ timeout: 15000 });
     // Verify href attribute (clicking is unreliable with nextjs-portal overlay in dev)
     await expect(link).toHaveAttribute("href", "/customers/new");
