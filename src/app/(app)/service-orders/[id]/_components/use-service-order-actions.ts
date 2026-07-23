@@ -12,21 +12,15 @@ import { toast } from "@/lib/toast";
  * apenas consome. As mutations que fecham diálogos recebem os setters via `cb`.
  *
  * NOTA (deepening futuro): a interface larga de callbacks reflete o
- * acoplamento das ~15 flags de diálogo. O próximo passo é consolidar o estado
- * de diálogo num único `activeDialog`/reducer e estreitar esta interface.
+ * acoplamento das flags de diálogo. O estado de diálogo agora é um único
+ * `activeDialog` (ver useActiveDialog): as mutations só precisam FECHAR o dialog
+ * ao concluir, então a interface recebe um `closeDialog` em vez de 9 setters.
  */
 export interface ServiceOrderActionCallbacks {
-  setAddItemDialog: (v: boolean) => void;
+  /** Fecha o dialog ativo (chamado no onSuccess das mutations de dialog). */
+  closeDialog: () => void;
   setCostsEditing: (v: boolean) => void;
-  setSignatureDialog: (v: boolean) => void;
   setEditItemId: (v: string | null) => void;
-  setTrackingDialog: (v: boolean) => void;
-  setSendLabDialog: (v: boolean) => void;
-  setNotifyDeliveryDialog: (v: boolean) => void;
-  setDeliveryTermDialog: (v: boolean) => void;
-  setReturnTermDialog: (v: boolean) => void;
-  setTechInfoDialog: (v: boolean) => void;
-  setChangeTechDialog: (v: boolean) => void;
   setCheckQuotePending: (v: boolean) => void;
 }
 
@@ -76,7 +70,7 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
 
   const addItemMut = useMutation(
     trpc.serviceOrder.addItem.mutationOptions({
-      onSuccess: () => { toast.success("Item adicionado!"); cb.setAddItemDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Item adicionado!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
@@ -122,7 +116,7 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
     trpc.serviceOrder.sendForSignature.mutationOptions({
       onSuccess: () => {
         toast.success("Link de assinatura enviado por WhatsApp!");
-        cb.setSignatureDialog(false);
+        cb.closeDialog();
         invalidateOrder();
       },
       onError: (e) => toast.error(e.message),
@@ -176,14 +170,14 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
 
   const sendTrackingMut = useMutation(
     trpc.serviceOrder.sendTracking.mutationOptions({
-      onSuccess: () => { toast.success("Link de rastreamento enviado!"); cb.setTrackingDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Link de rastreamento enviado!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const sendToLabMut = useMutation(
     trpc.serviceOrder.sendToLab.mutationOptions({
-      onSuccess: () => { toast.success("Aparelho enviado ao laboratorio."); cb.setSendLabDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Aparelho enviado ao laboratorio."); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
@@ -206,7 +200,7 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
     trpc.serviceOrder.notifyDeliveryPerson.mutationOptions({
       onSuccess: (data: { whatsappSent: boolean }) => {
         toast.success(data.whatsappSent ? "Entregador notificado." : "Entregador atualizado (WhatsApp indisponivel).");
-        cb.setNotifyDeliveryDialog(false);
+        cb.closeDialog();
         invalidateOrder();
       },
       onError: (e) => toast.error(e.message),
@@ -224,7 +218,7 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
     trpc.serviceOrder.sendDeliveryTerm.mutationOptions({
       onSuccess: (data) => {
         toast.success("Termo de entrega enviado!");
-        cb.setDeliveryTermDialog(false);
+        cb.closeDialog();
         if (data.signatureLink) window.open(data.signatureLink, "_blank");
         invalidateOrder();
       },
@@ -254,7 +248,7 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
     trpc.serviceOrder.sendReturnTerm.mutationOptions({
       onSuccess: (data) => {
         toast.success("Termo de devolucao enviado!");
-        cb.setReturnTermDialog(false);
+        cb.closeDialog();
         if (data.signatureLink) window.open(data.signatureLink, "_blank");
         invalidateOrder();
       },
@@ -293,14 +287,14 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
 
   const updateTechnicalInfoMut = useMutation(
     trpc.serviceOrder.updateTechnicalInfo.mutationOptions({
-      onSuccess: () => { toast.success("Informacoes tecnicas atualizadas!"); cb.setTechInfoDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Informacoes tecnicas atualizadas!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const updateTechnicianMut = useMutation(
     trpc.serviceOrder.updateTechnician.mutationOptions({
-      onSuccess: () => { toast.success("Tecnico atualizado!"); cb.setChangeTechDialog(false); invalidateOrder(); },
+      onSuccess: () => { toast.success("Tecnico atualizado!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
