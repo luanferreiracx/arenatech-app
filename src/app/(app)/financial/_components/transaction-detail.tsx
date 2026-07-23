@@ -27,7 +27,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { FinancialCategorySelect } from "@/components/domain/forms/financial-category-select";
 import {
   Select,
   SelectContent,
@@ -600,11 +599,7 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
             </div>
             <div className="space-y-1">
               <Label>Categoria</Label>
-              <FinancialCategorySelect
-                value={editFields.category}
-                onChange={(category) => setEditFields((f) => ({ ...f, category }))}
-                transactionType={isReceivable ? "RECEIVABLE" : "PAYABLE"}
-              />
+              <Input value={editFields.category} onChange={(e) => setEditFields((f) => ({ ...f, category: e.target.value }))} />
             </div>
             {/* Cliente/fornecedor só editáveis em cadastro manual (Sale/OS herdam do original). */}
             {t.referenceType !== "sale" && t.referenceType !== "service_order" && (
