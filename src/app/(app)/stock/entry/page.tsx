@@ -54,7 +54,6 @@ export default function StockEntryPage() {
     resolver: zodResolver(stockEntryBatchSchema),
     defaultValues: {
       supplierId: null,
-      reason: "",
       items: [emptyItem],
     },
   });
@@ -83,7 +82,7 @@ export default function StockEntryPage() {
     <div>
       <PageHeader
         title="Entrada de Estoque"
-        subtitle="Adicione varios produtos de uma vez compartilhando fornecedor e motivo"
+        subtitle="Adicione varios produtos de uma vez compartilhando o fornecedor"
       />
 
       <form
@@ -96,36 +95,22 @@ export default function StockEntryPage() {
       >
         {/* Header: dados compartilhados pelo lote */}
         <FormSection title="Dados da entrada">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Fornecedor</Label>
-              <EntitySelector<SupplierSearchResult>
-                value={form.watch("supplierId") ?? ""}
-                onChange={(v) => form.setValue("supplierId", v || null)}
-                searchFn={async (search) => {
-                  return queryClient.fetchQuery(
-                    trpc.stock.searchSuppliers.queryOptions({ search }),
-                  ) as Promise<SupplierSearchResult[]>;
-                }}
-                getOptionLabel={(s) =>
-                  `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`
-                }
-                getOptionValue={(s) => s.id}
-                placeholder="Buscar fornecedor..."
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Motivo *</Label>
-              <Input
-                {...form.register("reason")}
-                placeholder="Ex: Compra de fornecedor, devolucao..."
-              />
-              {form.formState.errors.reason && (
-                <p className="text-xs text-destructive">
-                  {form.formState.errors.reason.message}
-                </p>
-              )}
-            </div>
+          <div className="space-y-2 sm:max-w-md">
+            <Label>Fornecedor</Label>
+            <EntitySelector<SupplierSearchResult>
+              value={form.watch("supplierId") ?? ""}
+              onChange={(v) => form.setValue("supplierId", v || null)}
+              searchFn={async (search) => {
+                return queryClient.fetchQuery(
+                  trpc.stock.searchSuppliers.queryOptions({ search }),
+                ) as Promise<SupplierSearchResult[]>;
+              }}
+              getOptionLabel={(s) =>
+                `${s.tradeName || s.name}${(s.cpf || s.cnpj) ? ` — ${s.cpf || s.cnpj}` : ""}`
+              }
+              getOptionValue={(s) => s.id}
+              placeholder="Buscar fornecedor..."
+            />
           </div>
         </FormSection>
 

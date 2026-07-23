@@ -2466,7 +2466,9 @@ export const stockRouter = createTRPCRouter({
               variationId: it.variationId || null,
               type: "ENTRY",
               quantity: it.quantity,
-              reason: input.reason,
+              // Motivo é opcional na entrada (o type=ENTRY já diz o que é). Sem
+              // motivo, grava um rótulo padrão para o histórico não ficar vazio.
+              reason: input.reason?.trim() || "Entrada de estoque",
               referenceId: input.supplierId || null,
               referenceType: input.supplierId ? "supplier" : null,
               userId: ctx.session.user.id,
