@@ -12,6 +12,7 @@ import { DataTable } from "@/components/domain/data-table";
 import { DataTableToolbar } from "@/components/domain/data-table/data-table-toolbar";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
+import { EmptyState } from "@/components/domain/empty-state";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/lib/toast";
@@ -305,6 +306,26 @@ export function ProductsTable() {
     },
   ];
 
+  // CTA de cadastro só quando a lista está vazia SEM filtros — com busca/filtro
+  // ativo, "nenhum encontrado" é o resultado esperado.
+  const hasActiveFilters =
+    debouncedSearch.trim().length > 0 ||
+    statusFilter !== "all" ||
+    categoryId !== "all" ||
+    lowStock;
+  const emptyState = hasActiveFilters ? undefined : (
+    <EmptyState
+      icon={Package}
+      title="Nenhum produto cadastrado"
+      description="Cadastre seu primeiro produto para vendê-lo no PDV e controlar o estoque."
+      action={
+        <Button asChild>
+          <Link href="/stock/new">Cadastrar produto</Link>
+        </Button>
+      }
+    />
+  );
+
   return (
     <>
       <DataTable
@@ -320,6 +341,7 @@ export function ProductsTable() {
         }}
         isLoading={isLoading}
         emptyMessage="Nenhum produto encontrado."
+        emptyState={emptyState}
         enableRowSelection
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}

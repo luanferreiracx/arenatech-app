@@ -8,7 +8,9 @@ import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
 import { DataTableToolbar } from "@/components/domain/data-table/data-table-toolbar";
+import { EmptyState } from "@/components/domain/empty-state";
 import { StatusBadge } from "@/components/domain/status-badge";
+import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -216,6 +218,25 @@ export function CustomersTable() {
     restoreMutation.isPending,
   );
 
+  // CTA de cadastro só quando a lista está vazia SEM filtros — com busca/filtro
+  // ativo, "nenhum encontrado" é o resultado esperado, não um convite a cadastrar.
+  const hasActiveFilters =
+    debouncedSearch.trim().length > 0 ||
+    typeFilter !== "ALL" ||
+    statusFilter !== "ACTIVE";
+  const emptyState = hasActiveFilters ? undefined : (
+    <EmptyState
+      icon={Users}
+      title="Nenhum cliente cadastrado"
+      description="Cadastre o primeiro cliente para começar a registrar vendas e ordens de serviço."
+      action={
+        <Button asChild>
+          <Link href="/customers/new">Cadastrar cliente</Link>
+        </Button>
+      }
+    />
+  );
+
   return (
     <DataTable
       columns={columns}
@@ -230,6 +251,7 @@ export function CustomersTable() {
       }}
       isLoading={isLoading}
       emptyMessage="Nenhum cliente encontrado."
+      emptyState={emptyState}
       toolbar={
         <DataTableToolbar
           searchValue={search}
