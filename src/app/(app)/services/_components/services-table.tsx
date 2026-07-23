@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   Pencil,
@@ -59,6 +60,7 @@ function formatCurrency(centavos: number): string {
 
 export function ServicesManageTable() {
   const trpc = useTRPC();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -125,6 +127,17 @@ export function ServicesManageTable() {
     }),
   );
 
+  const duplicateMutation = useMutation(
+    trpc.catalog.duplicateService.mutationOptions({
+      onSuccess: (created) => {
+        toast.success("Servico duplicado — edite a copia.");
+        invalidate();
+        router.push(`/services/${created.id}/edit`);
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
   const columns: ColumnDef<ServiceRow>[] = [
     {
       accessorKey: "serviceType",
@@ -182,6 +195,17 @@ export function ServicesManageTable() {
             <Link href={`/services/${row.original.id}/edit`}>
               <Pencil className="h-4 w-4" />
             </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={duplicateMutation.isPending}
+            onClick={() => duplicateMutation.mutate({ id: row.original.id })}
+            title="Duplicar"
+            aria-label={`Duplicar servico ${row.original.name}`}
+          >
+            <Copy className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
