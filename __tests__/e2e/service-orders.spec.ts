@@ -152,7 +152,9 @@ test.describe("OS — Listagem", () => {
   test("@business T-01 listagem renderiza titulo e botão Nova OS", async ({ page }) => {
     await gotoAndWait(page, "/service-orders");
     await expect(page.locator("main")).toContainText(/Ordens de Servi[cç]o/i, { timeout: 10000 });
-    const newBtn = page.locator("a[href='/service-orders/new']");
+    // Pode haver 2 links para /service-orders/new: o botão do header e o CTA do
+    // estado vazio (lista sem OS). Ambos válidos — checamos o primeiro.
+    const newBtn = page.locator("a[href='/service-orders/new']").first();
     await expect(newBtn).toBeVisible({ timeout: 10000 });
     await expect(newBtn).toHaveAttribute("href", "/service-orders/new");
   });

@@ -252,7 +252,9 @@ test.describe("Estoque-A — RLS + Navegação", () => {
   test("@business T-19 link novo produto aponta para /stock/new", async ({ page }) => {
     await loginAsAdmin(page); // o link "Novo Produto" na listagem é admin-only
     await gotoAndWait(page, "/stock");
-    const link = page.locator("a[href='/stock/new']");
+    // Pode haver 2 links para /stock/new: o botão do header e o CTA do estado
+    // vazio (lista sem produtos). Ambos válidos — checamos o primeiro.
+    const link = page.locator("a[href='/stock/new']").first();
     await expect(link).toBeVisible({ timeout: 15000 });
     await expect(link).toHaveAttribute("href", "/stock/new");
   });
