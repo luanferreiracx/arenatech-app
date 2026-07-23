@@ -347,7 +347,10 @@ export type StockEntryInput = z.infer<typeof stockEntrySchema>;
  */
 export const stockEntryBatchSchema = z.object({
   supplierId: z.string().uuid().optional().nullable(),
-  reason: z.string().min(1, "Motivo obrigatorio").max(200),
+  // Entrada por compra/reposição tem motivo implícito (o próprio type=ENTRY do
+  // movimento + o fornecedor). Devolução/perda/ajuste têm telas próprias (exit,
+  // adjust) onde o motivo importa e é exigido. Aqui é opcional.
+  reason: z.string().max(200).optional().nullable(),
   items: z
     .array(
       z.object({
