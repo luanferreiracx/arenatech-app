@@ -33,7 +33,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/inputs/date-input";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/whatsapp-recipient-picker";
@@ -43,6 +42,7 @@ import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { LoadingState } from "@/components/domain/loading-state";
 import { SALE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/validators/sale";
+import type { RouterOutputs } from "@/trpc/types";
 import { toast } from "@/lib/toast";
 
 function formatCurrency(cents: number): string {
@@ -75,10 +75,15 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // O tipo de retorno do getById já é serializado (Decimals → centavos number,
+  // via serializeSale). Anotamos com o RouterOutputs para o componente enxergar
+  // a forma honesta e dispensar os casts espalhados.
   const { data: sale, isLoading } = useQuery(
     trpc.sale.getById.queryOptions({ id: saleId }),
-  ) as { data: Record<string, any> | undefined; isLoading: boolean };
+  ) as {
+    data: RouterOutputs["sale"]["getById"] | undefined;
+    isLoading: boolean;
+  };
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showRefundDialog, setShowRefundDialog] = useState(false);
@@ -186,8 +191,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
 
   // Polling do status de assinatura enquanto enviada mas nao assinada.
   const hasPendingSignature =
-    !!(sale as Record<string, unknown> | undefined)?.signatureDocumentId &&
-    !(sale as Record<string, unknown> | undefined)?.signatureSignedAt;
+    !!sale?.signatureDocumentId && !sale?.signatureSignedAt;
   const { data: signatureStatus } = useQuery({
     ...trpc.sale.checkSignatureStatus.queryOptions({ saleId }),
     enabled: hasPendingSignature,
@@ -289,20 +293,17 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   if (isLoading) return <LoadingState />;
   if (!sale) return <div className="text-center py-12 text-muted-foreground">Venda nao encontrada</div>;
 
-  const statusStr = sale.status as string;
+  const statusStr = sale.status;
   const isCompleted = statusStr === "COMPLETED";
   // Abatimento total dos aparelhos recebidos em troca (upgrades), em centavos.
-  const upgradeAbatedCents = ((sale.upgrades ?? []) as Array<{ abatedValue?: number }>).reduce(
-    (sum, u) => sum + (u.abatedValue ?? 0),
+  // abatedValue/total já vêm em centavos (number) do serializeSale; o Number()
+  // é só para satisfazer o union de tipo do retorno (uma das ramificações ainda
+  // declara Decimal), sem efeito em runtime.
+  const upgradeAbatedCents = (sale.upgrades ?? []).reduce(
+    (sum, u) => sum + Number(u.abatedValue ?? 0),
     0,
   );
-  const items = (sale.items ?? []) as Array<{
-    id: string;
-    description: string;
-    quantity: number;
-    unitPrice: number;
-    total: number;
-  }>;
+  const items = sale.items ?? [];
   const paymentDetails = sale.paymentDetails as Array<{
     method: string;
     methodLabel?: string;
@@ -311,25 +312,23 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   }> | null;
 
   const receiptSent = !!sale.receiptSent;
-  const signatureDocumentId = sale.signatureDocumentId as string | null;
-  const signatureUrl = sale.signatureUrl as string | null;
-  const signatureSentAt = sale.signatureSentAt as string | null;
-  const signatureSignedAt = sale.signatureSignedAt as string | null;
+  const signatureDocumentId = sale.signatureDocumentId;
+  const signatureUrl = sale.signatureUrl;
+  const signatureSentAt = sale.signatureSentAt;
+  const signatureSignedAt = sale.signatureSignedAt;
   const physicalSignature = !!sale.physicalSignature;
   const isSigned = !!signatureSignedAt || physicalSignature;
   const isSignaturePending = !!signatureDocumentId && !signatureSignedAt && !physicalSignature;
   // Policy de impressao do recibo (computada pelo backend).
-  const receiptPolicy = (sale as Record<string, unknown>).receiptPolicy as
-    | { canPrint: boolean; pendingReasons: string[]; requiresDeliveryTerm: boolean }
-    | undefined;
+  const receiptPolicy = sale.receiptPolicy;
   const canPrintReceipt = receiptPolicy?.canPrint ?? true;
   const receiptBlockReason = receiptPolicy?.pendingReasons.join("; ") ?? "";
-  const hasUpgrade = !!((sale as Record<string, unknown>).hasUpgrade);
-  const hasDevice = !!((sale as Record<string, unknown>).hasDevice);
+  const hasUpgrade = !!sale.hasUpgrade;
+  const hasDevice = !!sale.hasDevice;
 
   // Telefones cadastrados do cliente, prontos pro picker do dialog WhatsApp.
-  const customerPhone = (sale as Record<string, unknown>).customerPhone as string | null;
-  const customerPhoneSecondary = (sale as Record<string, unknown>).customerPhoneSecondary as string | null;
+  const customerPhone = sale.customerPhone;
+  const customerPhoneSecondary = sale.customerPhoneSecondary;
   const phoneOptions: PhoneOption[] = [
     customerPhone ? { label: "WhatsApp principal", value: customerPhone } : null,
     customerPhoneSecondary ? { label: "Telefone alternativo", value: customerPhoneSecondary } : null,
@@ -346,7 +345,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               </Link>
             </Button>
             <ShoppingCart className="h-5 w-5 text-primary" />
-            <span>Venda {sale.number as string}</span>
+            <span>Venda {sale.number}</span>
             <StatusBadge variant={STATUS_VARIANTS[statusStr] ?? "default"}>
               {SALE_STATUS_LABELS[statusStr] ?? statusStr}
             </StatusBadge>
@@ -475,12 +474,12 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Numero</span>
-              <span className="font-medium">{sale.number as string}</span>
+              <span className="font-medium">{sale.number}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Data</span>
               <span className="flex items-center gap-2">
-                {formatDate(sale.saleDate as string)}
+                {formatDate(sale.saleDate)}
                 {isAdmin && sale.status === "COMPLETED" && (
                   <Button
                     variant="ghost"
@@ -500,7 +499,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Vendedor</span>
               <span className="flex items-center gap-2">
-                {sale.sellerName as string}
+                {sale.sellerName}
                 {canChangeSeller && (
                   <Button
                     variant="ghost"
@@ -520,7 +519,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             {sale.observations && (
               <div>
                 <span className="text-muted-foreground block">Observacoes</span>
-                <span className="text-xs">{sale.observations as string}</span>
+                <span className="text-xs">{sale.observations}</span>
               </div>
             )}
           </CardContent>
@@ -536,7 +535,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <CardContent className="text-sm">
             {sale.customerName ? (
               <div>
-                <p className="font-medium">{sale.customerName as string}</p>
+                <p className="font-medium">{sale.customerName}</p>
                 {sale.customerId && (
                   <Link href={`/customers/${sale.customerId}`} className="text-xs text-primary hover:underline">
                     Ver perfil
@@ -582,11 +581,11 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             ) : (
               <p className="text-muted-foreground">-</p>
             )}
-            {(sale.changeAmount as number) > 0 && (
+            {sale.changeAmount > 0 && (
               <div className="flex justify-between text-success border-t pt-2">
                 <span>Troco</span>
                 <span className="font-medium">
-                  {formatCurrency(sale.changeAmount as number)}
+                  {formatCurrency(sale.changeAmount)}
                 </span>
               </div>
             )}
@@ -622,8 +621,8 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 <tr key={item.id} className="border-b border-border">
                   <td className="px-4 py-3 font-medium">{item.description}</td>
                   <td className="px-4 py-3 text-center">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(item.unitPrice)}</td>
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">{formatCurrency(item.total)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(Number(item.unitPrice))}</td>
+                  <td className="px-4 py-3 text-right font-medium tabular-nums">{formatCurrency(Number(item.total))}</td>
                 </tr>
               ))}
             </tbody>
@@ -639,7 +638,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
         <CardContent className="p-4 space-y-2">
           <div className="flex justify-between text-base font-semibold">
             <span>Total</span>
-            <span>{formatCurrency(sale.subtotal as number)}</span>
+            <span>{formatCurrency(sale.subtotal)}</span>
           </div>
           {upgradeAbatedCents > 0 && (
             <div className="flex justify-between text-sm text-muted-foreground">
@@ -649,35 +648,35 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               <span>-{formatCurrency(upgradeAbatedCents)}</span>
             </div>
           )}
-          {(sale.discountAmount as number) > 0 && (
+          {sale.discountAmount > 0 && (
             <>
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>
                   Desconto
                   {sale.discountType === "percentage" && ` (${sale.discountValue}%)`}
                 </span>
-                <span>-{formatCurrency(sale.discountAmount as number)}</span>
+                <span>-{formatCurrency(sale.discountAmount)}</span>
               </div>
               {sale.discountReason && (
                 <div className="text-xs text-muted-foreground pl-2 break-words">
-                  Motivo: {sale.discountReason as string}
+                  Motivo: {sale.discountReason}
                 </div>
               )}
             </>
           )}
           <div className="flex justify-between text-lg font-bold border-t pt-2">
             <span>A pagar</span>
-            <span className="text-primary">{formatCurrency(sale.totalAmount as number)}</span>
+            <span className="text-primary">{formatCurrency(sale.totalAmount)}</span>
           </div>
-          {(sale.surchargeAmount as number) > 0 && (
+          {sale.surchargeAmount > 0 && (
             <>
               <div className="flex justify-between text-sm text-muted-foreground pt-1">
                 <span>Acrescimo (cartao/parcelamento)</span>
-                <span>+{formatCurrency(sale.surchargeAmount as number)}</span>
+                <span>+{formatCurrency(sale.surchargeAmount)}</span>
               </div>
               <div className="flex justify-between text-sm font-semibold">
                 <span>Total pago pelo cliente</span>
-                <span>{formatCurrency((sale.totalAmount as number) + (sale.surchargeAmount as number))}</span>
+                <span>{formatCurrency((sale.totalAmount) + (sale.surchargeAmount))}</span>
               </div>
             </>
           )}
@@ -692,10 +691,10 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
               {statusStr === "CANCELLED" ? "Cancelamento" : "Estorno"}
             </div>
             <div className="text-sm">
-              <p className="text-muted-foreground">Motivo: {sale.cancellationReason as string}</p>
-              {sale.cancelledByName && (
+              <p className="text-muted-foreground">Motivo: {sale.cancellationReason}</p>
+              {sale.cancelledByName && sale.cancelledAt && (
                 <p className="text-muted-foreground text-xs mt-1">
-                  Por: {sale.cancelledByName as string} em {formatDate(sale.cancelledAt as string)}
+                  Por: {sale.cancelledByName} em {formatDate(sale.cancelledAt)}
                 </p>
               )}
             </div>
@@ -840,7 +839,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             <DialogTitle>Enviar recibo via WhatsApp</DialogTitle>
             <DialogDescription>
               {sale.customerName
-                ? `O recibo sera enviado para ${sale.customerName as string}.`
+                ? `O recibo sera enviado para ${sale.customerName}.`
                 : "Informe um numero para envio do recibo."}
             </DialogDescription>
           </DialogHeader>
@@ -925,7 +924,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Vendedor atual</Label>
-              <p className="text-sm text-muted-foreground">{sale.sellerName as string}</p>
+              <p className="text-sm text-muted-foreground">{sale.sellerName}</p>
             </div>
             <div className="space-y-2">
               <Label>Novo vendedor *</Label>
@@ -935,7 +934,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {sellers
-                    .filter((s) => s.id !== (sale.sellerId as string))
+                    .filter((s) => s.id !== (sale.sellerId))
                     .map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
