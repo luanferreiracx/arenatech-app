@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -45,9 +46,6 @@ const STATUS_COLORS: Record<string, string> = {
   REFUNDED: "bg-warning/10 text-warning border-warning/20",
 };
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export default function QuickSalesPage() {
   const trpc = useTRPC();

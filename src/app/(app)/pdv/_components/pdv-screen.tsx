@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -35,12 +36,6 @@ import { SelectVariationDialog } from "./select-variation-dialog";
 import { CustomerDialog } from "./customer-dialog";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 type DraftSale = {
   id: string;

@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -37,12 +38,6 @@ import { CheckCircle, XCircle } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { REFUND_STATUS_LABELS } from "@/lib/validators/addon";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 function formatDate(date: Date | string): string {
   return new Date(date).toLocaleDateString("pt-BR", {

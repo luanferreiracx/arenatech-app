@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -45,9 +46,6 @@ import { SALE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/validators/sale
 import type { RouterOutputs } from "@/trpc/types";
 import { toast } from "@/lib/toast";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function formatDate(date: string | Date): string {
   return new Date(date).toLocaleDateString("pt-BR", {

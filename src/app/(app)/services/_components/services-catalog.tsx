@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
@@ -17,12 +18,6 @@ import {
 import { toast } from "@/lib/toast";
 import { WhatsAppDialog } from "./whatsapp-dialog";
 
-function formatCurrency(centavos: number): string {
-  return (centavos / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 export function ServicesCatalog() {
   const trpc = useTRPC();

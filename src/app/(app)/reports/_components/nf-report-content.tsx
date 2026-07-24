@@ -1,4 +1,5 @@
 "use client";
+import { formatReaisBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { FileText, CheckCircle, XCircle, DollarSign, ClipboardList, ShoppingCart } from "lucide-react";
@@ -19,9 +20,6 @@ import {
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
 
-function formatCurrency(value: number): string {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function getDefaultDates() {
   const now = new Date();

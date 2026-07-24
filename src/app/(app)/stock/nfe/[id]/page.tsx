@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { use } from "react";
 import Link from "next/link";
@@ -25,9 +26,6 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { EntitySelector } from "@/components/domain/entity-selector";
 import { toast } from "@/lib/toast";
 
-function formatCurrency(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function formatNumber(n: unknown): number {
   if (typeof n === "number") return n;
   if (typeof n === "string") return Number(n);

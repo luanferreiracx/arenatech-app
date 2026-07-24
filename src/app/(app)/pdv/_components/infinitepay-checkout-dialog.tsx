@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useEffect, useRef, useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -23,12 +24,6 @@ interface InfinitepayCheckoutDialogProps {
   onPaid: (info: { captureMethod: string | null }) => void;
 }
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 /**
  * Modal que gera + exibe o checkout InfinitePay para a venda. O cliente

@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
@@ -122,8 +123,6 @@ export default function StockImportPage() {
     importMutation.mutate({ lines: payloadLines });
   }, [parsedLines, importMutation, queryClient, trpc]);
 
-  const formatCurrency = (cents: number) =>
-    (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div>

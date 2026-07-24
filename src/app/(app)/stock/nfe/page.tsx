@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -37,9 +38,6 @@ const STATUS_VARIANT: Record<string, "success" | "warning" | "destructive" | "de
   CANCELLED: "destructive",
 };
 
-function formatCurrency(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function formatDate(d: string | Date) {
   return new Date(d).toLocaleDateString("pt-BR");
 }

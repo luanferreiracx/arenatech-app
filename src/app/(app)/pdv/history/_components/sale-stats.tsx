@@ -1,13 +1,11 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { ShoppingCart, DollarSign, Calendar, TrendingUp, BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export function SaleStats() {
   const trpc = useTRPC();
