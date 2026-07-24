@@ -33,6 +33,7 @@ const segmentLabels: Record<string, string> = {
   movements: "Movimentações",
   purchases: "Compras",
   report: "Relatório",
+  reports: "Relatórios",
   rules: "Regras",
   send: "Enviar",
   templates: "Modelos",
@@ -47,10 +48,52 @@ const segmentLabels: Record<string, string> = {
   "delivery-persons": "Entregadores",
   labs: "Laboratórios",
   "lab-orders": "Ordens de Laboratório",
-  providers: "Fornecedores",
+  providers: "Prestadores",
+
+  // Módulos/rotas que faltavam (caíam no fallback capitalize: "Quick-sales").
+  interests: "Interesses",
+  valuations: "Avaliações",
+  "quick-sales": "Vendas Avulsas",
+  simulator: "Simulador",
+  "my-commission": "Minha Comissão",
+  "iphone-hunter": "Buscar iPhones",
+  "aparelhos-catalogo": "Catálogo de Aparelhos",
+  "depix-wallet": "DePix Wallet",
+  // Financeiro
+  receivables: "Recebimentos",
+  "card-receivables": "Recebíveis de Cartão",
+  pending: "Pendentes",
+  dre: "DRE",
+  "projected-cash-flow": "Fluxo Projetado",
+  categorias: "Categorias",
+  "contas-pagar": "Contas a Pagar",
+  "contas-receber": "Contas a Receber",
+  criar: "Criar",
+  // Estoque
+  entry: "Entrada",
+  exit: "Baixa",
+  import: "Importar CSV",
+  suppliers: "Fornecedores",
+  categories: "Categorias",
+  // Caixa / OS / Fiscal / Config
+  reviews: "Conferências",
+  "technician-report": "Relatório de Técnicos",
+  entrada: "NF-e Entrada",
+  inutilizar: "Inutilizar",
+  nfe: "NF-e",
+  installments: "Taxas do Simulador",
+  security: "Segurança",
+  subscription: "Assinatura",
+  bot: "Assistente",
+  logs: "Logs",
+  assistance: "Assistência",
 };
 
-function getLabel(segment: string): string {
+/** Segmento é um UUID (id de detalhe na rota)? Não vira crumb com o id cru. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function getLabel(segment: string): string {
+  if (UUID_RE.test(segment)) return "Detalhe";
   return segmentLabels[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1);
 }
 
