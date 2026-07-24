@@ -97,7 +97,6 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Ordens de Serviço", href: "/service-orders", icon: ClipboardList, module: "service-orders" },
       { label: "Operação", href: "/operation", icon: Truck, module: "service-orders" },
-      { label: "Comunicação", href: "/communication", icon: MessageSquare, module: "service-orders" },
       { label: "Gestão de Serviços", href: "/services", icon: Wrench, module: "service-orders" },
       { label: "Relatório de Técnicos", href: "/service-orders/technician-report", icon: BarChart3, module: "service-orders" },
     ],
@@ -114,6 +113,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Lista de Clientes", href: "/customers", icon: Users, module: "customers" },
       { label: "Interesses", href: "/interests", icon: Heart, module: "customers" },
+      { label: "Comunicação", href: "/communication", icon: MessageSquare, module: "customers" },
     ],
   },
   {
