@@ -18,3 +18,22 @@ export function formatCentsBRL(cents: number): string {
 export function formatReaisBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+
+/**
+ * Formata um valor em REAIS que pode chegar como `Decimal` (Prisma, tem
+ * `toNumber()`), número, string ou nulo — comum em telas que recebem o Decimal
+ * cru. Null/undefined/NaN viram "-" (valor ausente não vira "R$ 0,00" enganoso).
+ */
+export function formatDecimalBRL(value: unknown): string {
+  if (value == null) return "-";
+  const num =
+    typeof value === "object" && value !== null && "toNumber" in value
+      ? (value as { toNumber: () => number }).toNumber()
+      : Number(value);
+  if (!Number.isFinite(num)) return "-";
+  return num.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+  });
+}

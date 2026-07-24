@@ -1,4 +1,5 @@
 "use client";
+import { formatDecimalBRL as formatCurrency } from "@/lib/format";
 
 import { use } from "react";
 import Link from "next/link";
@@ -24,19 +25,6 @@ import { StockItemsPanel } from "../_components/stock-items-panel";
 import { useCan } from "@/lib/auth/use-capabilities";
 import { useState } from "react";
 
-function formatCurrency(value: unknown): string {
-  let num: number;
-  if (typeof value === "object" && value !== null && "toNumber" in (value as Record<string, unknown>)) {
-    num = (value as { toNumber: () => number }).toNumber();
-  } else {
-    num = Number(value);
-  }
-  return num.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-  });
-}
 
 function formatDate(date: string | Date): string {
   return new Date(date).toLocaleDateString("pt-BR", {

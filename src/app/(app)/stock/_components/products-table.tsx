@@ -1,4 +1,5 @@
 "use client";
+import { formatDecimalBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useMemo } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -42,19 +43,6 @@ interface ProductRow {
   thumbnailUrl: string | null;
 }
 
-function formatCurrency(value: ProductRow["salePrice"]): string {
-  let num: number;
-  if (typeof value === "object" && value !== null && "toNumber" in value) {
-    num = (value as { toNumber: () => number }).toNumber();
-  } else {
-    num = Number(value);
-  }
-  return num.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-  });
-}
 
 export function ProductsTable() {
   const trpc = useTRPC();
