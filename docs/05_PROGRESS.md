@@ -19,6 +19,26 @@
 
 ---
 
+### 2026-07-24 — Batch D (parcial): transversal robustez+polish
+Terceira leva da varredura. Ganhos que elevam o sistema inteiro.
+- **#667 (D2) error boundary no segmento (app):** antes um erro de render derrubava
+  o app INTEIRO (root error.tsx, tela cheia, sidebar+header sumiam). `(app)/error.tsx`
+  renderiza DENTRO do layout — erro inline, shell preservado, "tentar de novo" sem
+  recarregar. Captura no Sentry. **(D3)** Button troca `transition-all` (banido) por
+  transições específicas + `active:scale-[0.98]` + `motion-reduce` → feedback de toque
+  em TODOS os botões. Bônus a11y: `@media (prefers-reduced-motion)` global no globals.css.
+- **#668 (D4) breadcrumb:** mapa de rótulos completado (interests/valuations/quick-sales/
+  simulator/my-commission/etc. caíam no fallback "Quick-sales"); UUID em rota [id] vira
+  "Detalhe" (não expõe o id cru). `getLabel` exportado + unit test.
+**PENDENTE (decisão do dono):** D1 componente `<Money>` — a varredura estimou 10+, mas
+são **47 redefinições** de `formatCurrency` com contratos divergentes (centavos vs reais/
+Decimal). Migrar num sweep cego é risco de bug de 100× em dinheiro; melhor um épico
+próprio com validação visual. Fundação (lib/format central + `<Money>` tabular-nums) +
+migração incremental por-arquivo verificando cada contrato.
+**Batches restantes da varredura:** C (completude: fotos na OS, estorno parcial na UI,
+despesas recorrentes, giro/produtos parados, MRR no superadmin, unique SKU/barcode,
+editar valor/vencimento) · E (dead code: reward→construir UI, Checklist→unificar com OS).
+
 ### 2026-07-24 — Batch B: agilidade de balcão (PDV, ⌘K, CRM, OS)
 Segunda leva da varredura módulo-a-módulo. Foco: atendimento mais rápido. 5 PRs no ar.
 - **#661 (B1/B2/B3) PDV ágil:** quantidade digitável (input + botões; reverte se o
