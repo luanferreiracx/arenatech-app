@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
 import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
+import { logAudit } from "@/server/services/audit-log.service";
 
 export type TenantUserRole = "admin" | "operator";
 
@@ -124,6 +125,8 @@ async function loadMembership(tx: Tx, tenantId: string, userId: string) {
 
 export type CreateTenantUserParams = {
   tenantId: string;
+  /** Ator da operação — grava a trilha persistente (audit_logs) de quem criou. */
+  actorUserId: string;
   name: string;
   cpf: string;
   email?: string | null;
@@ -195,6 +198,22 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
     reusedExistingUser: Boolean(existingUser),
   });
 
+  // Trilha persistente: criar/vincular usuário é operação de ACESSO sensível —
+  // logger é transiente; sem isto não dá pra rastrear quem deu acesso pós-incidente.
+  await logAudit(tx as never, {
+    tenantId: tenant.id,
+    userId: params.actorUserId,
+    action: "created",
+    entity: "tenant_user",
+    entityId: user.id,
+    payload: {
+      role: params.role,
+      isTechnician: params.isTechnician ?? false,
+      isCashier: params.isCashier ?? false,
+      reusedExistingUser: Boolean(existingUser),
+    },
+  });
+
   return {
     user: { id: user.id, name: user.name },
     tenant,
@@ -204,6 +223,8 @@ export async function createTenantUserInTx(tx: Tx, params: CreateTenantUserParam
 
 export type UpdateTenantUserParams = {
   tenantId: string;
+  /** Ator da operação — grava a trilha persistente de quem alterou. */
+  actorUserId: string;
   userId: string;
   name: string;
   email?: string | null;
@@ -235,20 +256,45 @@ export async function updateTenantUserInTx(tx: Tx, params: UpdateTenantUserParam
     },
   });
   logger.info("Tenant user updated", { tenantId: params.tenantId, userId: params.userId, role: params.role });
+
+  // Trilha persistente: mudança de papel/função altera o nível de ACESSO.
+  await logAudit(tx as never, {
+    tenantId: params.tenantId,
+    userId: params.actorUserId,
+    action: "updated",
+    entity: "tenant_user",
+    entityId: params.userId,
+    payload: {
+      roleBefore: membership.role,
+      roleAfter: params.role,
+      isTechnician: params.isTechnician ?? false,
+      isCashier: params.isCashier ?? false,
+    },
+  });
   return { success: true as const };
 }
 
-export async function removeTenantUserInTx(tx: Tx, tenantId: string, userId: string) {
+export async function removeTenantUserInTx(tx: Tx, tenantId: string, userId: string, actorUserId: string) {
   const membership = await loadMembership(tx, tenantId, userId);
   if (membership.role === "admin") {
     await assertTenantHasAnotherAdmin(tx, tenantId, userId);
   }
   await tx.userTenant.delete({ where: { userId_tenantId: { userId, tenantId } } });
   logger.info("Tenant user removed", { tenantId, userId });
+
+  // Trilha persistente: revogar acesso ao tenant.
+  await logAudit(tx as never, {
+    tenantId,
+    userId: actorUserId,
+    action: "removed",
+    entity: "tenant_user",
+    entityId: userId,
+    payload: { role: membership.role },
+  });
   return { success: true as const, user: { id: membership.user.id, name: membership.user.name }, tenant: membership.tenant };
 }
 
-export async function resetTenantUserPasswordInTx(tx: Tx, tenantId: string, userId: string) {
+export async function resetTenantUserPasswordInTx(tx: Tx, tenantId: string, userId: string, actorUserId: string) {
   const membership = await loadMembership(tx, tenantId, userId);
   const tempPassword = generateTempPassword();
   await tx.user.update({
@@ -256,10 +302,20 @@ export async function resetTenantUserPasswordInTx(tx: Tx, tenantId: string, user
     data: { passwordHash: hashPassword(tempPassword), mustChangePassword: true },
   });
   logger.info("Tenant user password reset", { tenantId, userId, role: membership.role });
+
+  // Trilha persistente: operação sensível sobre credencial.
+  await logAudit(tx as never, {
+    tenantId,
+    userId: actorUserId,
+    action: "reset_password",
+    entity: "tenant_user",
+    entityId: userId,
+    payload: { role: membership.role },
+  });
   return { tempPassword, user: { id: membership.user.id, name: membership.user.name }, tenant: membership.tenant };
 }
 
-export async function resetTenantUserTwoFactorInTx(tx: Tx, tenantId: string, userId: string) {
+export async function resetTenantUserTwoFactorInTx(tx: Tx, tenantId: string, userId: string, actorUserId: string) {
   const membership = await loadMembership(tx, tenantId, userId);
   await tx.user.update({
     where: { id: userId },
@@ -275,6 +331,16 @@ export async function resetTenantUserTwoFactorInTx(tx: Tx, tenantId: string, use
     userId,
     role: membership.role,
     wasEnabled: membership.user.twoFactorEnabled,
+  });
+
+  // Trilha persistente: desligar 2FA remove barreira de segurança.
+  await logAudit(tx as never, {
+    tenantId,
+    userId: actorUserId,
+    action: "reset_two_factor",
+    entity: "tenant_user",
+    entityId: userId,
+    payload: { role: membership.role, wasEnabled: membership.user.twoFactorEnabled },
   });
   return { user: { id: membership.user.id, name: membership.user.name }, tenant: membership.tenant };
 }

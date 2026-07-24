@@ -682,6 +682,7 @@ export const settingsRouter = createTRPCRouter({
       return withAdmin((tx) =>
         createTenantUserInTx(tx, {
           tenantId: ctx.tenantId,
+          actorUserId: ctx.session.user.id,
           name: input.name,
           cpf: input.cpf,
           email: input.email,
@@ -699,6 +700,7 @@ export const settingsRouter = createTRPCRouter({
       return withAdmin((tx) =>
         updateTenantUserInTx(tx, {
           tenantId: ctx.tenantId,
+          actorUserId: ctx.session.user.id,
           userId: input.userId,
           name: input.name,
           email: input.email,
@@ -713,19 +715,19 @@ export const settingsRouter = createTRPCRouter({
   removeUser: tenantAdminProcedure
     .input(z.object({ userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return withAdmin((tx) => removeTenantUserInTx(tx, ctx.tenantId, input.userId));
+      return withAdmin((tx) => removeTenantUserInTx(tx, ctx.tenantId, input.userId, ctx.session.user.id));
     }),
 
   resetUserPassword: tenantAdminProcedure
     .input(z.object({ userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return withAdmin((tx) => resetTenantUserPasswordInTx(tx, ctx.tenantId, input.userId));
+      return withAdmin((tx) => resetTenantUserPasswordInTx(tx, ctx.tenantId, input.userId, ctx.session.user.id));
     }),
 
   resetUserTwoFactor: tenantAdminProcedure
     .input(z.object({ userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      return withAdmin((tx) => resetTenantUserTwoFactorInTx(tx, ctx.tenantId, input.userId));
+      return withAdmin((tx) => resetTenantUserTwoFactorInTx(tx, ctx.tenantId, input.userId, ctx.session.user.id));
     }),
 
   // ═══════════════════════════════════════

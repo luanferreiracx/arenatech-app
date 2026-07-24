@@ -14,6 +14,8 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 const suffix = Date.now().toString(36);
+/** Ator das operações (superadmin/admin) — audit_logs.userId não tem FK. */
+const ACTOR = "00000000-0000-0000-0000-0000000000aa";
 let planId: string;
 let tenantId: string;
 const createdUserIds: string[] = [];
@@ -37,6 +39,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.auditLog.deleteMany({ where: { tenantId } });
   await prisma.userTenant.deleteMany({ where: { tenantId } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   await prisma.subscription.deleteMany({ where: { tenantId } });
@@ -49,20 +52,20 @@ describe("maxUsers do plano (=2) enforçado", () => {
   it("cria até o limite e bloqueia o excedente", async () => {
     // 1º usuário — ok (0 < 2).
     const u1 = await prisma.$transaction((tx) =>
-      createTenantUserInTx(tx, { tenantId, name: "User 1", cpf: cpf(1), role: "admin" }),
+      createTenantUserInTx(tx, { tenantId, actorUserId: ACTOR, name: "User 1", cpf: cpf(1), role: "admin" }),
     );
     createdUserIds.push(u1.user.id);
 
     // 2º usuário — ok (1 < 2).
     const u2 = await prisma.$transaction((tx) =>
-      createTenantUserInTx(tx, { tenantId, name: "User 2", cpf: cpf(2), role: "operator" }),
+      createTenantUserInTx(tx, { tenantId, actorUserId: ACTOR, name: "User 2", cpf: cpf(2), role: "operator" }),
     );
     createdUserIds.push(u2.user.id);
 
     // 3º usuário — bloqueado (2 >= 2).
     await expect(
       prisma.$transaction((tx) =>
-        createTenantUserInTx(tx, { tenantId, name: "User 3", cpf: cpf(3), role: "operator" }),
+        createTenantUserInTx(tx, { tenantId, actorUserId: ACTOR, name: "User 3", cpf: cpf(3), role: "operator" }),
       ),
     ).rejects.toThrow(/Limite de 2 usu/i);
 
