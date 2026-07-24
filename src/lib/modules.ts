@@ -235,11 +235,14 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/service-orders", "service-orders"],
   ["/services", "service-orders"],
   ["/operation", "service-orders"],
-  ["/communication", "service-orders"],
 
   // customers
   ["/customers", "customers"],
   ["/interests", "customers"],
+  // Relacionamento (WhatsApp/e-mail) é de CLIENTES, não de assistência — um
+  // tenant de varejo puro (só PDV+clientes) também precisa do canal. service-orders
+  // depende de customers, então tenants de OS seguem com acesso.
+  ["/communication", "customers"],
 
   // tools
   ["/simulator", "tools"],
