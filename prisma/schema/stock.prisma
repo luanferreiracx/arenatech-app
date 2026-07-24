@@ -281,6 +281,10 @@ model StockMovement {
   quantity       Int
   quantityBefore Int?              @map("quantity_before")
   quantityAfter  Int?              @map("quantity_after")
+  // Custo do movimento em CENTAVOS (kardex valorizado). Preenchido nas entradas
+  // com custo informado; permite reconstruir o valor do estoque numa data e o CMV.
+  unitCostCents  Int?              @map("unit_cost_cents")
+  totalCostCents Int?              @map("total_cost_cents")
   reason         String?
   notes          String?           @db.Text
   referenceType  String?           @map("reference_type")

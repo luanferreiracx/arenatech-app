@@ -81,6 +81,7 @@ import {
 import {
   entrySerializedItems,
   entryNonSerialized,
+  applyNonSerializedEntry,
   exitNonSerialized,
   adjustInventory,
   changeItemStatus,
@@ -821,8 +822,15 @@ export const stockRouter = createTRPCRouter({
           tx.stockMovement.count({ where }),
         ]);
 
+        // Custo do kardex é dado gerencial — não vaza para o operador de balcão
+        // (mesma política do costPrice de produto).
+        const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+        const safe = isAdmin
+          ? data
+          : data.map(({ unitCostCents: _u, totalCostCents: _t, ...rest }) => rest);
+
         return {
-          data,
+          data: safe,
           total,
           pageCount: Math.ceil(total / pageSize),
         };
@@ -2341,7 +2349,7 @@ export const stockRouter = createTRPCRouter({
           });
         }
 
-        // Produto com variacoes exige variationId
+        // Produto com variacoes exige variationId (valida ownership antes de mutar)
         if (product.hasVariations) {
           if (!input.variationId) {
             throw new TRPCError({
@@ -2355,30 +2363,16 @@ export const stockRouter = createTRPCRouter({
           if (!variation || variation.productId !== input.productId) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao nao pertence a este produto." });
           }
-          await tx.productVariation.update({
-            where: { id: input.variationId },
-            data: { currentStock: { increment: input.quantity } },
-          });
-        } else {
-          // Produto simples — atualiza current_stock no proprio produto
-          await tx.product.update({
-            where: { id: input.productId },
-            data: { currentStock: { increment: input.quantity } },
-          });
         }
 
-        await tx.stockMovement.create({
-          data: {
-            tenantId: ctx.tenantId,
-            productId: input.productId,
-            variationId: input.variationId || null,
-            type: "ENTRY",
-            quantity: input.quantity,
-            reason: input.reason,
-            referenceId: input.supplierId || null,
-            referenceType: input.supplierId ? "supplier" : null,
-            userId: ctx.session.user.id,
-          },
+        // Fonte única: entrada valorizada (custo médio ponderado + kardex).
+        await applyNonSerializedEntry(tx, ctx.tenantId, ctx.session.user.id, {
+          productId: input.productId,
+          variationId: input.variationId ?? null,
+          quantity: input.quantity,
+          unitCostCents: input.unitCost ?? null,
+          reason: input.reason,
+          supplierId: input.supplierId ?? null,
         });
 
         return { success: true };
@@ -2446,33 +2440,18 @@ export const stockRouter = createTRPCRouter({
           }
         }
 
-        // Aplica entradas + movimentos (atomico — qualquer erro rollback).
+        // Aplica entradas valorizadas + movimentos (atomico — qualquer erro
+        // rollback). Fonte única: applyNonSerializedEntry (custo médio ponderado
+        // + kardex). Itens repetidos do mesmo produto acumulam corretamente
+        // (cada leitura reflete o incremento/custo do item anterior).
         for (const it of input.items) {
-          if (it.variationId) {
-            await tx.productVariation.update({
-              where: { id: it.variationId },
-              data: { currentStock: { increment: it.quantity } },
-            });
-          } else {
-            await tx.product.update({
-              where: { id: it.productId },
-              data: { currentStock: { increment: it.quantity } },
-            });
-          }
-          await tx.stockMovement.create({
-            data: {
-              tenantId: ctx.tenantId,
-              productId: it.productId,
-              variationId: it.variationId || null,
-              type: "ENTRY",
-              quantity: it.quantity,
-              // Motivo é opcional na entrada (o type=ENTRY já diz o que é). Sem
-              // motivo, grava um rótulo padrão para o histórico não ficar vazio.
-              reason: input.reason?.trim() || "Entrada de estoque",
-              referenceId: input.supplierId || null,
-              referenceType: input.supplierId ? "supplier" : null,
-              userId: ctx.session.user.id,
-            },
+          await applyNonSerializedEntry(tx, ctx.tenantId, ctx.session.user.id, {
+            productId: it.productId,
+            variationId: it.variationId ?? null,
+            quantity: it.quantity,
+            unitCostCents: it.unitCost ?? null,
+            reason: input.reason,
+            supplierId: input.supplierId ?? null,
           });
         }
 

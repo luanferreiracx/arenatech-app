@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client"
 import { TRPCError } from "@trpc/server"
 import { isValidTransition } from "@/lib/validators/stock-item"
 import { isValidLuhn } from "@/lib/validators/imei"
+import { weightedAverageCostCents } from "@/lib/stock/weighted-average"
 
 export type StockSourceProduct = {
   id: string
@@ -171,6 +172,83 @@ export async function entrySerializedItems(
 /**
  * Entry of non-serialized product (increments currentStock + creates StockMovement).
  */
+/**
+ * Entrada de estoque não-serializada (produto simples OU variação), VALORIZADA.
+ * Fonte ÚNICA de stockEntry, stockEntryBatch e entryQuantity — garante a mesma
+ * semântica de custo médio ponderado móvel e de kardex (quantityBefore/After +
+ * unitCostCents/totalCostCents) em todos os caminhos.
+ *
+ * Quando `unitCostCents` > 0 (custo informado), atualiza o custo do produto/
+ * variação para a média ponderada móvel. Custo 0/ausente = operador não informou
+ * → NÃO mexe no custo (o formulário manda 0 por padrão; ponderar por 0 zeraria a
+ * média silenciosamente). Serializados têm custo exato por StockItem (outro fluxo).
+ */
+export async function applyNonSerializedEntry(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  userId: string,
+  params: {
+    productId: string
+    variationId?: string | null
+    quantity: number
+    unitCostCents?: number | null
+    reason?: string | null
+    supplierId?: string | null
+    invoiceNumber?: string | null
+  }
+): Promise<void> {
+  const { productId, variationId, quantity } = params
+  const entryUnitCents =
+    params.unitCostCents != null && params.unitCostCents > 0 ? params.unitCostCents : null
+
+  let before: number
+  if (variationId) {
+    const variation = await tx.productVariation.findUniqueOrThrow({ where: { id: variationId } })
+    before = variation.currentStock
+    const data: Prisma.ProductVariationUpdateInput = { currentStock: { increment: quantity } }
+    if (entryUnitCents != null) {
+      const currentCostCents =
+        variation.costPrice != null ? Math.round(Number(variation.costPrice) * 100) : null
+      const newCostCents = weightedAverageCostCents(before, currentCostCents, quantity, entryUnitCents)
+      data.costPrice = new Prisma.Decimal(newCostCents).div(100)
+    }
+    await tx.productVariation.update({ where: { id: variationId }, data })
+  } else {
+    const product = await tx.product.findUniqueOrThrow({ where: { id: productId } })
+    before = product.currentStock
+    const data: Prisma.ProductUpdateInput = { currentStock: { increment: quantity } }
+    if (entryUnitCents != null) {
+      const currentCostCents =
+        product.costPrice != null ? Math.round(Number(product.costPrice) * 100) : null
+      const newCostCents = weightedAverageCostCents(before, currentCostCents, quantity, entryUnitCents)
+      data.costPrice = new Prisma.Decimal(newCostCents).div(100)
+    }
+    await tx.product.update({ where: { id: productId }, data })
+  }
+
+  await tx.stockMovement.create({
+    data: {
+      tenantId,
+      productId,
+      variationId: variationId || null,
+      type: "ENTRY",
+      quantity,
+      quantityBefore: before,
+      quantityAfter: before + quantity,
+      unitCostCents: entryUnitCents,
+      totalCostCents: entryUnitCents != null ? entryUnitCents * quantity : null,
+      reason: params.reason?.trim() || "Entrada de estoque",
+      referenceType: params.supplierId ? "supplier" : null,
+      referenceId: params.supplierId || null,
+      userId,
+    },
+  })
+}
+
+/**
+ * @deprecated Use `applyNonSerializedEntry`. Mantido como wrapper fino para os
+ * callers legados (entryQuantity) — produto simples, sem custo informado.
+ */
 export async function entryNonSerialized(
   tx: PrismaClient,
   tenantId: string,
@@ -183,28 +261,7 @@ export async function entryNonSerialized(
     invoiceNumber?: string | null
   }
 ): Promise<void> {
-  const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } })
-  const before = product.currentStock
-
-  await tx.product.update({
-    where: { id: params.productId },
-    data: { currentStock: { increment: params.quantity } },
-  })
-
-  await tx.stockMovement.create({
-    data: {
-      tenantId,
-      productId: params.productId,
-      type: "ENTRY",
-      quantity: params.quantity,
-      quantityBefore: before,
-      quantityAfter: before + params.quantity,
-      reason: params.reason,
-      referenceType: params.supplierId ? "supplier" : null,
-      referenceId: params.supplierId || null,
-      userId,
-    },
-  })
+  await applyNonSerializedEntry(tx as unknown as Prisma.TransactionClient, tenantId, userId, params)
 }
 
 /**
