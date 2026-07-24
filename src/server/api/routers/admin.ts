@@ -8,6 +8,7 @@ import { tenantFinancialInit } from "@/server/services/tenant-financial-init.ser
 import { assertTenantUserQuota, DEFAULT_MAX_USERS as DEFAULT_TENANT_MAX_USERS } from "@/server/services/tenant-user.service";
 import { resolveTenantPlan } from "@/server/services/tenant-plan.service";
 import { logAudit } from "@/server/services/audit-log.service";
+import { aggregateSubscriptionMetrics } from "@/lib/subscription-metrics";
 import { modulesFromPlanFeatures, withModuleDependencies, isModuleKey } from "@/lib/modules";
 
 /**
@@ -330,14 +331,37 @@ export const adminRouter = createTRPCRouter({
 
   dashboard: adminProcedure.query(async ({ ctx }) => {
     return ctx.withAdmin(async (tx) => {
-      const [tenantCount, userCount, pendingPreRegs, activePlans] = await Promise.all([
-        tx.tenant.count(),
-        tx.user.count(),
-        tx.preRegistration.count({ where: { status: "PENDING" } }),
-        tx.plan.count({ where: { status: "ACTIVE" } }),
-      ]);
+      const now = new Date();
+      const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-      return { tenantCount, userCount, pendingPreRegs, activePlans };
+      const [tenantCount, userCount, pendingPreRegs, activePlans, subAgg, expiringSoon] =
+        await Promise.all([
+          tx.tenant.count(),
+          tx.user.count(),
+          tx.preRegistration.count({ where: { status: "PENDING" } }),
+          tx.plan.count({ where: { status: "ACTIVE" } }),
+          // Agrega assinaturas por (status, ciclo) — base do MRR e da saúde da receita.
+          tx.subscription.groupBy({
+            by: ["status", "billingCycle"],
+            _count: { _all: true },
+            _sum: { amountCents: true },
+          }),
+          // Assinaturas ativas vencendo nos próximos 7 dias (janela de cobrança).
+          tx.subscription.count({
+            where: { status: "ACTIVE", currentPeriodEnd: { gte: now, lte: in7Days } },
+          }),
+        ]);
+
+      const metrics = aggregateSubscriptionMetrics(subAgg);
+
+      return {
+        tenantCount,
+        userCount,
+        pendingPreRegs,
+        activePlans,
+        ...metrics,
+        expiringSoon,
+      };
     });
   }),
 
