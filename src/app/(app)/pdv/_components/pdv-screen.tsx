@@ -18,6 +18,7 @@ import {
   ArrowRightLeft,
   History,
   Loader2,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,6 +113,8 @@ export function PdvScreen() {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showResults, setShowResults] = useState(false);
+  // Índice destacado no dropdown de busca (navegação por ↑/↓ + Enter). -1 = nenhum.
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
@@ -233,6 +236,22 @@ export function PdvScreen() {
       { enabled: debouncedSearch.length >= 2 },
     ),
   );
+  const searchResults = (searchQuery.data as SearchProduct[] | undefined) ?? [];
+
+  // Status do próprio caixa — o operador vê "aberto/fechado" ANTES de finalizar
+  // em dinheiro (antes só descobria "caixa fechado" no último clique, perdendo a
+  // venda montada). Só relevante numa venda de balcão (não no recebimento de OS).
+  const cashierStatusQuery = useQuery(
+    trpc.cashier.statusCheck.queryOptions(undefined, { enabled: !isOSPayment }),
+  );
+
+  // Mantém a opção destacada visível ao navegar por teclado (dropdown rola).
+  useEffect(() => {
+    if (highlightedIndex < 0) return;
+    document
+      .getElementById(`pdv-opt-${highlightedIndex}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [highlightedIndex]);
 
   // -- Mutations --
   const addItemMutation = useMutation(trpc.sale.addItem.mutationOptions());
@@ -267,6 +286,8 @@ export function PdvScreen() {
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
     setShowResults(e.target.value.length >= 2);
+    // Novo termo digitado → zera o destaque do dropdown.
+    setHighlightedIndex(-1);
   };
 
   // Enter na busca: fluxo de balcão com leitor de código de barras (o scanner
@@ -278,8 +299,41 @@ export function PdvScreen() {
   const handleSearchKeyDown = async (
     e: React.KeyboardEvent<HTMLInputElement>,
   ) => {
+    // Navegação por teclado no dropdown (sem forçar o mouse). ↑/↓ movem o
+    // destaque entre os resultados já carregados; Enter adiciona o destacado.
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (searchResults.length === 0) return;
+      e.preventDefault();
+      setShowResults(true);
+      setHighlightedIndex((prev) => {
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        const next = prev + delta;
+        if (next < 0) return searchResults.length - 1;
+        if (next >= searchResults.length) return 0;
+        return next;
+      });
+      return;
+    }
+    if (e.key === "Escape") {
+      setShowResults(false);
+      setHighlightedIndex(-1);
+      return;
+    }
     if (e.key !== "Enter") return;
     e.preventDefault();
+
+    // Se há um item destacado no dropdown, Enter adiciona ele.
+    const highlighted = highlightedIndex >= 0 ? searchResults[highlightedIndex] : null;
+    if (highlighted) {
+      handleAddProduct(highlighted);
+      setHighlightedIndex(-1);
+      return;
+    }
+
+    // Sem destaque: fluxo do leitor de código de barras. O scanner digita os
+    // dígitos e envia Enter em milissegundos, antes do debounce atualizar, então
+    // buscamos direto pelo valor cru. Casa exato por barcode/SKU e adiciona; um
+    // único resultado em estoque também adiciona. Vários ambíguos: não faz nada.
     const term = searchTerm.trim();
     if (term.length < 2) return;
     const data = await queryClient.fetchQuery(
@@ -409,13 +463,22 @@ export function PdvScreen() {
     );
   };
 
-  const handleUpdateQuantity = (itemId: string, quantity: number) => {
+  const handleUpdateQuantity = (
+    itemId: string,
+    quantity: number,
+    onError?: () => void,
+  ) => {
     if (!draftId || quantity < 1) return;
     updateItemMutation.mutate(
       { saleId: draftId, itemId, quantity },
       {
         onSuccess: () => invalidateDraft(),
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          // Ex.: quantidade digitada acima do estoque — reverte o input para o
+          // valor válido atual (o servidor é a fonte da verdade).
+          onError?.();
+        },
       },
     );
   };
@@ -721,6 +784,24 @@ export function PdvScreen() {
             {isOSPayment ? "PDV - Recebimento de OS" : "PDV - Ponto de Venda"}
           </h1>
           <div className="flex items-center gap-3">
+            {!isOSPayment && cashierStatusQuery.data && (
+              cashierStatusQuery.data.isOpen ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-success/15 px-2.5 py-1.5 text-xs font-semibold text-success">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Caixa aberto
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => router.push("/cashier")}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-warning/15 px-2.5 py-1.5 text-xs font-semibold text-warning transition-colors hover:bg-warning/25"
+                  title="Abrir o caixa antes de vender em dinheiro"
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  Caixa fechado — abrir
+                </button>
+              )
+            )}
             {!isOSPayment && (
               <Button
                 variant="outline"
@@ -761,12 +842,23 @@ export function PdvScreen() {
               className="pl-10 h-11 text-base"
               autoComplete="off"
               autoFocus
+              role="combobox"
+              aria-expanded={showResults}
+              aria-controls="pdv-search-listbox"
+              aria-activedescendant={
+                highlightedIndex >= 0 ? `pdv-opt-${highlightedIndex}` : undefined
+              }
             />
           </div>
 
           {/* Search results dropdown */}
           {showResults && (
-            <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-card border border-border rounded-md shadow-lg max-h-72 overflow-y-auto">
+            <div
+              id="pdv-search-listbox"
+              role="listbox"
+              aria-label="Resultados da busca"
+              className="absolute top-full left-0 right-0 z-50 mt-1 bg-card border border-border rounded-md shadow-lg max-h-72 overflow-y-auto"
+            >
               {searchQuery.isLoading && (
                 <div className="p-4 text-center text-muted-foreground text-sm">
                   Buscando...
@@ -777,28 +869,35 @@ export function PdvScreen() {
                   Nenhum produto encontrado
                 </div>
               )}
-              {(searchQuery.data as SearchProduct[] | undefined)?.map(
-                (product) => {
+              {searchResults.map(
+                (product, index) => {
                   const adjustedStock = getAdjustedStock(product);
                   // Sem estoque: mostramos o item desabilitado, com badge, em vez
                   // de escondê-lo — assim o operador vê que o produto existe (não
                   // some misteriosamente ao bipar/buscar), mas não consegue vendê-lo.
                   const outOfStock = adjustedStock <= 0;
+                  const isHighlighted = index === highlightedIndex;
                   return (
                     <button
                       key={product.id}
+                      id={`pdv-opt-${index}`}
+                      role="option"
+                      aria-selected={isHighlighted}
                       type="button"
                       disabled={outOfStock}
                       className={cn(
                         "w-full flex items-center justify-between p-3 transition-colors border-b border-border last:border-b-0 text-left",
                         outOfStock
                           ? "opacity-60 cursor-not-allowed"
-                          : "hover:bg-accent/50",
+                          : isHighlighted
+                            ? "bg-accent"
+                            : "hover:bg-accent/50",
                       )}
                       // onMouseDown só previne o blur do input (mantém o foco/dropdown);
                       // a ação vai no onClick — dispara também via teclado (Enter/Espaço
                       // com o botão focado), tornando o resultado acessível.
                       onMouseDown={(e) => e.preventDefault()}
+                      onMouseEnter={() => setHighlightedIndex(index)}
                       onClick={() => handleAddProduct(product)}
                     >
                       <div className="flex-1 min-w-0">
@@ -930,9 +1029,38 @@ export function PdvScreen() {
                           >
                             -
                           </Button>
-                          <span className="w-8 text-center text-sm font-medium">
-                            {item.quantity}
-                          </span>
+                          <input
+                            // Quantidade digitável (vender 12un = digitar 12, não
+                            // 11 cliques). Não-controlado + key na quantidade: re-
+                            // sincroniza quando muda via +/-; commit no Enter/blur.
+                            key={item.quantity}
+                            type="number"
+                            min={1}
+                            inputMode="numeric"
+                            defaultValue={item.quantity}
+                            aria-label={`Quantidade de ${item.description}`}
+                            className="w-12 h-7 rounded-md border border-input bg-background text-center text-sm font-medium tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const el = e.currentTarget;
+                              const n = Math.floor(Number(el.value));
+                              if (!Number.isFinite(n) || n < 1) {
+                                el.value = String(item.quantity);
+                                return;
+                              }
+                              if (n !== item.quantity) {
+                                handleUpdateQuantity(item.id, n, () => {
+                                  el.value = String(item.quantity);
+                                });
+                              }
+                            }}
+                          />
                           <Button
                             variant="outline"
                             size="icon"
