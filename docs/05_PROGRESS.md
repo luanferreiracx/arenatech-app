@@ -19,6 +19,27 @@
 
 ---
 
+### 2026-07-24 — Batch C: SKU/barcode únicos por tenant (#678)
+Retomada do backlog da varredura. Item C "unique de SKU/barcode": o código só
+validava dedup no createProduct — updateProduct/duplicateProduct/import podiam
+colar SKU/barcode de outro produto.
+- **Serviço `assertSkuBarcodeAvailable`** (fonte única, mensagem amigável, teste unit
+  5 casos) usado em create (substitui inline), update (excludeProductId) e duplicate.
+- **Migração:** índice UNIQUE PARCIAL por tenant em products.sku e products.barcode
+  (padrão do stock_items_tenant_imei_unique).
+- **Pré-limpeza (dump real):** sku=0 dups; barcode=4 códigos repetidos em produtos
+  DIFERENTES (erro de digitação, não mesclar) → mantém 1 por código (mais vendas,
+  desempate antigo), zera 5 barcodes dos demais (produto intacto, re-lê depois).
+- **product_variations.sku: 651 dups** (SKUs auto-gerados que colidem — problema
+  SISTÊMICO) → FORA deste PR, investigação separada. PRÓXIMO candidato.
+- **Validado:** migrate deploy limpo OK; dump real (barcode 4→0, 783 produtos
+  preservados); unique BLOQUEIA (unique_violation); idempotente. Aplicado em prod:
+  confirmado migration=1, 0 barcode dup, 2 índices criados. Full E2E verde.
+**Backlog Batch C restante:** fotos do aparelho na OS (feature ~8-10h, infra de upload
+de produto reusável 95%), giro/produtos parados (relatório ~2-3h, reusa infra de tabs),
+despesas recorrentes. **Batch E (dead code):** reward→UI, Checklist→unificar OS, stock/
+report órfão, NF-e entrada. **Aberto:** 651 SKUs de variação duplicados.
+
 ### 2026-07-24 — D1 CONCLUÍDO: formatter de dinheiro centralizado
 Épico incremental do `<Money>` finalizado (após a fundação #670). Cada arquivo
 migrado foi classificado por CONTRATO antes (dividia por 100 = centavos; senão =
