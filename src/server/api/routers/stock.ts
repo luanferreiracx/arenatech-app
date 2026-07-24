@@ -91,6 +91,7 @@ import {
 import { getAvailableQuantity } from "@/server/services/product.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
 import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
+import { assertSkuBarcodeAvailable } from "@/server/services/product-sku-barcode.service";
 import { sanitizeProductName } from "@/lib/utils/product-name";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
@@ -271,31 +272,8 @@ export const stockRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        // Dedup SKU/barcode antes de criar (mesma logica do importCsv).
-        if (input.sku?.trim()) {
-          const dup = await tx.product.findFirst({
-            where: { sku: input.sku.trim(), deletedAt: null },
-            select: { id: true, name: true },
-          });
-          if (dup) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `SKU "${input.sku}" ja usado pelo produto "${dup.name}".`,
-            });
-          }
-        }
-        if (input.barcode?.trim()) {
-          const dup = await tx.product.findFirst({
-            where: { barcode: input.barcode.trim(), deletedAt: null },
-            select: { id: true, name: true },
-          });
-          if (dup) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `Barcode "${input.barcode}" ja usado pelo produto "${dup.name}".`,
-            });
-          }
-        }
+        // Dedup SKU/barcode antes de criar (fonte única compartilhada).
+        await assertSkuBarcodeAvailable(tx, { sku: input.sku, barcode: input.barcode });
 
         // Cria categoria nova inline se solicitado (paridade Laravel nova_categoria)
         let inlineCategoryId: string | null = null;
@@ -496,6 +474,14 @@ export const stockRouter = createTRPCRouter({
         }
         const primaryCategoryId =
           inlineCategoryId || input.categoryIds?.[0] || input.categoryId || existing.categoryId;
+
+        // Dedup SKU/barcode na edição — antes o update ia direto e podia colar o
+        // SKU/barcode de outro produto. Isenta o próprio produto (excludeProductId).
+        await assertSkuBarcodeAvailable(tx, {
+          sku: input.sku,
+          barcode: input.barcode,
+          excludeProductId: input.id,
+        });
 
         // Marca: mesma resolução do create (entidade selecionada/criada/legado).
         const resolvedBrand = await resolveBrandId(tx, ctx.tenantId, input);
@@ -4215,6 +4201,9 @@ export const stockRouter = createTRPCRouter({
           },
         });
         if (!source) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Se o usuário informou um SKU para a cópia, ele precisa estar livre.
+        await assertSkuBarcodeAvailable(tx, { sku: input.newSku });
 
         const newName = input.newName || `${source.name} (copia)`;
 
