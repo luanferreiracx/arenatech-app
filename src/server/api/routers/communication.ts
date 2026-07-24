@@ -9,8 +9,7 @@ import {
   createTemplateSchema,
   updateTemplateSchema,
 } from "@/lib/validators/communication";
-import { sendTextMessage, sendTemplateMessage } from "@/lib/services/whatsapp-service";
-import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
+import { sendTextWithFallback, type WhatsAppLogContext } from "@/lib/whatsapp/send-with-fallback";
 import { sendEmail } from "@/lib/services/email-service";
 import { logger } from "@/lib/logger";
 import { withTenant } from "@/server/db";
@@ -46,21 +45,36 @@ async function isRecipientUnsubscribed(
  * Helper: despacha mensagem por canal e retorna resultado normalizado.
  * Chamado FORA de qualquer tx (HTTP/SMTP pode demorar varios segundos).
  * Aplica o gate LGPD (opt-out) antes de chamar o provedor.
+ *
+ * WhatsApp: usa `sendTextWithFallback` (contexto `contato_loja`), não texto cru.
+ * O texto cru só entrega DENTRO da janela de 24h da Meta; um contato frio (o caso
+ * mais comum de outreach avulso) era rejeitado e virava FAILED sem o operador
+ * entender por quê. Fora da janela, cai no template aprovado `padrao`.
  */
-async function dispatchMessage(
-  tenantId: string,
-  channel: string,
-  recipientPhone: string | null,
-  recipientEmail: string | null,
-  subject: string | null,
-  body: string,
-): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+async function dispatchMessage(opts: {
+  tenantId: string;
+  channel: string;
+  recipientPhone: string | null;
+  recipientEmail: string | null;
+  recipientName: string | null;
+  subject: string | null;
+  body: string;
+  log?: WhatsAppLogContext;
+}): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+  const { tenantId, channel, recipientPhone, recipientEmail, recipientName, subject, body, log } = opts;
   if (await isRecipientUnsubscribed(tenantId, { phone: recipientPhone, email: recipientEmail })) {
     return { success: false, error: "Cliente optou por nao receber comunicacoes (unsubscribe)." };
   }
   try {
     if (channel === "WHATSAPP" && recipientPhone) {
-      const r = await sendTextMessage(recipientPhone, body);
+      const r = await sendTextWithFallback({
+        phone: recipientPhone,
+        freeText: body,
+        contexto: "contato_loja",
+        // Params do template `padrao` fora da janela: [nome, assunto].
+        params: [recipientName?.trim() || "Cliente", subject?.trim() || "seu atendimento"],
+        log,
+      });
       return { success: r.success, providerMessageId: r.messageId, error: r.error };
     }
     if (channel === "EMAIL" && recipientEmail) {
@@ -161,14 +175,16 @@ export const communicationRouter = createTRPCRouter({
       );
 
       // Envio fora da tx (HTTP/SMTP pode levar varios segundos).
-      const result = await dispatchMessage(
-        ctx.tenantId,
-        input.channel,
-        input.channel === "WHATSAPP" ? input.recipientPhone ?? null : null,
-        input.channel === "EMAIL" ? input.recipientEmail ?? null : null,
-        input.subject ?? null,
-        input.body,
-      );
+      const result = await dispatchMessage({
+        tenantId: ctx.tenantId,
+        channel: input.channel,
+        recipientPhone: input.channel === "WHATSAPP" ? input.recipientPhone ?? null : null,
+        recipientEmail: input.channel === "EMAIL" ? input.recipientEmail ?? null : null,
+        recipientName: input.recipientName ?? null,
+        subject: input.subject ?? null,
+        body: input.body,
+        log: { tenantId: ctx.tenantId, originType: "communication", originId: message.id },
+      });
 
       // tx2: aplicar resultado.
       await ctx.withTenant(async (tx) => {
@@ -234,14 +250,16 @@ export const communicationRouter = createTRPCRouter({
         return { customer, message };
       });
 
-      const result = await dispatchMessage(
-        ctx.tenantId,
-        input.channel,
-        input.channel === "WHATSAPP" ? prep.customer.phone : null,
-        input.channel === "EMAIL" ? prep.customer.email : null,
-        input.subject ?? null,
-        input.body,
-      );
+      const result = await dispatchMessage({
+        tenantId: ctx.tenantId,
+        channel: input.channel,
+        recipientPhone: input.channel === "WHATSAPP" ? prep.customer.phone : null,
+        recipientEmail: input.channel === "EMAIL" ? prep.customer.email : null,
+        recipientName: prep.customer.name,
+        subject: input.subject ?? null,
+        body: input.body,
+        log: { tenantId: ctx.tenantId, originType: "communication", originId: prep.message.id },
+      });
 
       await ctx.withTenant(async (tx) => {
         await tx.message.update({
@@ -273,14 +291,16 @@ export const communicationRouter = createTRPCRouter({
         return m;
       });
 
-      const result = await dispatchMessage(
-        ctx.tenantId,
-        message.channel,
-        message.recipientPhone,
-        message.recipientEmail,
-        message.subject,
-        message.body,
-      );
+      const result = await dispatchMessage({
+        tenantId: ctx.tenantId,
+        channel: message.channel,
+        recipientPhone: message.recipientPhone,
+        recipientEmail: message.recipientEmail,
+        recipientName: message.recipientName,
+        subject: message.subject,
+        body: message.body,
+        log: { tenantId: ctx.tenantId, originType: "communication", originId: message.id },
+      });
 
       await ctx.withTenant(async (tx) => {
         await tx.message.update({
