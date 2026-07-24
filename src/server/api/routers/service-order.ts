@@ -3104,6 +3104,64 @@ export const serviceOrderRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Histórico de OS de um MESMO aparelho (por IMEI ou nº de série), excluindo a
+   * OS atual. Padrão de assistência técnica: reincidência de defeito e disputa de
+   * garantia dependem de ver "outras OS deste aparelho". Casa por imei OU serial
+   * (o detalhe passa o que a OS tem). Ordena da mais recente.
+   */
+  getDeviceHistoryByImei: tenantProcedure
+    .input(
+      z
+        .object({
+          imei: z.string().trim().min(1).max(30).optional(),
+          serialNumber: z.string().trim().min(1).max(60).optional(),
+          excludeOrderId: z.string().uuid().optional(),
+        })
+        .refine((v) => !!v.imei || !!v.serialNumber, {
+          message: "Informe imei ou serial",
+        }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const or: Prisma.ServiceOrderWhereInput[] = [];
+        if (input.imei) or.push({ imei: input.imei });
+        if (input.serialNumber) or.push({ serialNumber: input.serialNumber });
+
+        const orders = await tx.serviceOrder.findMany({
+          where: {
+            deletedAt: null,
+            OR: or,
+            ...(input.excludeOrderId ? { id: { not: input.excludeOrderId } } : {}),
+          },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            deviceBrand: true,
+            deviceModel: true,
+            reportedProblem: true,
+            entryDate: true,
+            deliveredDate: true,
+            warrantyMonths: true,
+          },
+          orderBy: { entryDate: "desc" },
+          take: 20,
+        });
+
+        return orders.map((o) => ({
+          id: o.id,
+          number: o.number,
+          status: o.status,
+          device: [o.deviceBrand, o.deviceModel].filter(Boolean).join(" ") || null,
+          reportedProblem: o.reportedProblem,
+          entryDate: o.entryDate,
+          deliveredDate: o.deliveredDate,
+          warrantyMonths: o.warrantyMonths,
+        }));
+      });
+    }),
+
   // ── 2. SEARCH PARTS (stock products) ──
   searchParts: tenantProcedure
     .input(searchPartsSchema)
