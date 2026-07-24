@@ -21,6 +21,7 @@ let ctx: any, tenantId: string, adminId: string;
 let productId: string, cardMethodId: string, acquirerId: string, brandId: string;
 const saleIds: string[] = [];
 const depixTxIds: string[] = [];
+const extraProductIds: string[] = [];
 
 function caller() {
   return createCallerFactory(appRouter)(ctx);
@@ -68,7 +69,7 @@ afterAll(async () => {
   await prisma.acquirer.deleteMany({ where: { id: acquirerId } });
   await prisma.paymentMethod.deleteMany({ where: { id: cardMethodId } });
   await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
-  await prisma.product.deleteMany({ where: { id: productId } });
+  await prisma.product.deleteMany({ where: { id: { in: [productId, ...extraProductIds] } } });
   await prisma.$disconnect();
 });
 
@@ -105,6 +106,52 @@ describe("Auditoria PDV — M2/A2/M1 (ao vivo)", () => {
     });
     expect(withdrawals).toHaveLength(1);
     expect(withdrawals[0]!.paymentMethod).toBeNull(); // cartão: adquirente estorna, não a gaveta
+  });
+
+  it("C2: estorno PARCIAL (itemIds subset) → PARTIALLY_REFUNDED, só o item estornado", async () => {
+    const c = caller();
+    // Segundo produto para termos 2 SaleItems distintos.
+    const product2 = await prisma.product.create({
+      data: { tenantId, name: `${MARK}-produto2`, salePrice: 100, costPrice: 50, currentStock: 100, active: true },
+    });
+    extraProductIds.push(product2.id);
+
+    const draft = await c.sale.createDraft();
+    saleIds.push(draft.id);
+    await c.sale.addItem({ saleId: draft.id, productId, quantity: 1, unitPrice: 10000 }); // R$100
+    await c.sale.addItem({ saleId: draft.id, productId: product2.id, quantity: 1, unitPrice: 10000 }); // R$100
+    await c.sale.finalize({ saleId: draft.id, payments: [{ method: "dinheiro", amount: 20000 }] });
+
+    const itemsBefore = await prisma.saleItem.findMany({
+      where: { saleId: draft.id }, orderBy: { createdAt: "asc" },
+    });
+    expect(itemsBefore).toHaveLength(2);
+    const refundItem = itemsBefore.find((i) => i.productId === productId)!;
+    const keptItem = itemsBefore.find((i) => i.productId === product2.id)!;
+
+    await c.sale.refund({ saleId: draft.id, reason: "estorno parcial C2", itemIds: [refundItem.id] });
+
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(sale.status).toBe("PARTIALLY_REFUNDED");
+    expect(Number(sale.totalAmount)).toBe(100); // R$200 - R$100 estornado
+
+    // Item estornado zera; o mantido permanece.
+    const refunded = await prisma.saleItem.findUniqueOrThrow({ where: { id: refundItem.id } });
+    const kept = await prisma.saleItem.findUniqueOrThrow({ where: { id: keptItem.id } });
+    expect(Number(refunded.total)).toBe(0);
+    expect(Number(kept.total)).toBe(100);
+
+    const audit = await prisma.saleAudit.findFirst({
+      where: { saleId: draft.id, action: "partial_refund" },
+    });
+    expect(audit).not.toBeNull();
+
+    // Saída de caixa só do valor parcial (R$100), não do total.
+    const withdrawals = await prisma.cashMovement.findMany({
+      where: { referenceId: draft.id, type: "WITHDRAWAL", nature: "OUTCOME" },
+    });
+    expect(withdrawals).toHaveLength(1);
+    expect(Number(withdrawals[0]!.amount)).toBe(100);
   });
 
   it("A2: finalize rejeita valor de pagamento acima do teto sanitário", async () => {

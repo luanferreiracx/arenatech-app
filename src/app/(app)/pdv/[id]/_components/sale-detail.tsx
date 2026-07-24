@@ -94,6 +94,9 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
   const [cancelReason, setCancelReason] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [returnStock, setReturnStock] = useState(true);
+  // Estorno parcial: ids dos SaleItems a estornar. Default = todos (estorno total).
+  // Subset → o backend marca isPartial e estorna só os selecionados.
+  const [refundItemIds, setRefundItemIds] = useState<Set<string>>(new Set());
   const [receiptPhone, setReceiptPhone] = useState("");
   const [signaturePhone, setSignaturePhone] = useState("");
   const [newSellerId, setNewSellerId] = useState("");
@@ -275,11 +278,22 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
       toast.error("Informe o motivo do estorno");
       return;
     }
+    if (refundItemIds.size === 0) {
+      toast.error("Selecione ao menos um item para estornar");
+      return;
+    }
+    // Todos os itens selecionados → estorno TOTAL (omite itemIds). Subset → PARCIAL.
+    const isPartial = refundItemIds.size < items.length;
     refundMutation.mutate(
-      { saleId, reason: refundReason, returnStock },
+      {
+        saleId,
+        reason: refundReason,
+        returnStock,
+        ...(isPartial ? { itemIds: [...refundItemIds] } : {}),
+      },
       {
         onSuccess: () => {
-          toast.success("Venda estornada");
+          toast.success(isPartial ? "Itens estornados" : "Venda estornada");
           invalidate();
           setShowRefundDialog(false);
         },
@@ -439,6 +453,7 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
                     onClick={() => {
                       setRefundReason("");
                       setReturnStock(true);
+                      setRefundItemIds(new Set(items.map((it) => it.id)));
                       setShowRefundDialog(true);
                     }}
                   >
@@ -796,6 +811,45 @@ export function SaleDetail({ saleId }: SaleDetailProps) {
             <DialogDescription>Os valores serao revertidos</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {items.length > 1 && (
+              <div className="space-y-2">
+                <Label>Itens a estornar</Label>
+                <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+                  {items.map((it) => {
+                    const checked = refundItemIds.has(it.id);
+                    return (
+                      <label
+                        key={it.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-accent/40"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) =>
+                            setRefundItemIds((prev) => {
+                              const next = new Set(prev);
+                              if (v) next.add(it.id);
+                              else next.delete(it.id);
+                              return next;
+                            })
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {it.quantity}× {it.description}
+                        </span>
+                        <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                          {formatCurrency(Number(it.total))}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {refundItemIds.size === items.length
+                    ? "Estorno total (todos os itens)."
+                    : `Estorno parcial: ${refundItemIds.size} de ${items.length} itens.`}
+                </p>
+              </div>
+            )}
             <div>
               <Label>Motivo do estorno</Label>
               <Textarea
