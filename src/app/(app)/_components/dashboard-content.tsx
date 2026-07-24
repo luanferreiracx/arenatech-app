@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 import { useSearchParams } from "next/navigation";
 import { toast } from "@/lib/toast";
 import {
@@ -53,9 +54,6 @@ function statusToBadgeVariant(status: string): "default" | "secondary" | "destru
   }
 }
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function formatDate(date: Date | string): string {
   return new Date(date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });

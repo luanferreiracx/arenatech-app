@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 import { FileText, CheckCircle, XCircle, Clock, Eye } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -19,9 +20,6 @@ import {
   INVOICE_STATUS_VARIANT,
 } from "@/lib/validators/fiscal";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export function FiscalDashboard() {
   const trpc = useTRPC();
