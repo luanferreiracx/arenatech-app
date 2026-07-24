@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { Money } from "@/components/domain/money";
 import {
   Plus,
   Copy,
@@ -32,9 +33,6 @@ import { toast } from "@/lib/toast";
 import { STORAGE_OPTIONS, BATTERY_HEALTH_OPTIONS } from "@/lib/validators/valuation";
 import { cn } from "@/lib/utils";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 type ValuationRow = {
   id: string;
@@ -96,7 +94,7 @@ function PriceCell({
         className="group relative w-full rounded-md px-2 py-2 text-center font-mono text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
         onClick={() => onEdit({ id: row.id, modelo, armazenamento, saudeBateria, valor: row.valor, validadeDias: row.validadeDias })}
       >
-        {formatCurrency(row.valor)}
+        <Money cents={row.valor} />
         <Pencil className="absolute right-1.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-50" />
       </button>
     );
