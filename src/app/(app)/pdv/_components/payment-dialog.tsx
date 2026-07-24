@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -30,12 +31,6 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/lib/toast";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 interface PaymentEntry {
   method: string;            // code curto (dinheiro/pix/...) para back-compat

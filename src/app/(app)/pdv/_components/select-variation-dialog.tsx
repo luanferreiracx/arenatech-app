@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,12 +19,6 @@ interface SelectVariationDialogProps {
   onSelect: (variation: { id: string; salePrice: number; label: string }) => void;
 }
 
-function formatCurrency(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 /**
  * Modal de selecao de variacao para produtos com `has_variations=true`.
