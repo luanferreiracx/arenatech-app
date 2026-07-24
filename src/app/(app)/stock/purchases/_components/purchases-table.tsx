@@ -1,4 +1,5 @@
 "use client";
+import { formatDecimalBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -35,20 +36,6 @@ interface PurchaseRow {
   autentiqueDocumentId: string | null;
 }
 
-function formatCurrency(value: PurchaseRow["purchasePrice"] | null): string {
-  if (value == null) return "-";
-  let num: number;
-  if (typeof value === "object" && value !== null && "toNumber" in value) {
-    num = (value as { toNumber: () => number }).toNumber();
-  } else {
-    num = Number(value);
-  }
-  return num.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-  });
-}
 
 function formatDate(date: string | Date): string {
   return new Date(date).toLocaleDateString("pt-BR", {

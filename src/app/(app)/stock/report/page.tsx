@@ -1,4 +1,5 @@
 "use client";
+import { formatDecimalBRL as formatCurrency } from "@/lib/format";
 
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
@@ -17,14 +18,6 @@ import {
 } from "@/components/ui/table";
 import { Package, Boxes, DollarSign, AlertTriangle, XCircle } from "lucide-react";
 
-function formatCurrency(value: unknown): string {
-  const num = Number(value);
-  return num.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-  });
-}
 
 export default function StockReportPage() {
   const trpc = useTRPC();
