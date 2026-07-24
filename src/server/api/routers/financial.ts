@@ -8,6 +8,7 @@ import { writeCashMovement, refundNeedsOpenCashSession } from "@/server/services
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { startOfMonthBrt, endOfMonthBrt } from "@/lib/utils/date-range";
 import { resolveSupplierId } from "@/server/services/financial-supplier.service";
+import { resolveCategoryId } from "@/server/services/financial-category.service";
 import { generateInstallments } from "@/server/services/installment-generator.service";
 
 // RBAC helper: operador só vê/cria RECEIVABLE (F8, ADR 0032). Admin do tenant
@@ -295,13 +296,20 @@ export const financialRouter = createTRPCRouter({
             ? await resolveSupplierId(tx, ctx.tenantId, input)
             : { supplierId: null, supplierName: null };
 
+        // Categoria: texto (sombra) + FK linkada por lookup de nome+tipo. Antes o
+        // categoryId ficava sempre null (FK morta) e nada era categorizável nos
+        // relatórios/DRE por categoria.
+        const categoryName = input.category?.trim() || null;
+        const categoryId = await resolveCategoryId(tx, ctx.tenantId, categoryName, input.type);
+
         const transaction = await tx.financialTransaction.create({
           data: {
             tenantId: ctx.tenantId,
             type: input.type,
             status: "PENDING",
             description: input.description,
-            category: input.category ?? null,
+            category: categoryName,
+            categoryId,
             supplierId: resolvedSupplier.supplierId,
             supplier: resolvedSupplier.supplierName,
             customerName: input.customerName ?? null,
@@ -393,11 +401,16 @@ export const financialRouter = createTRPCRouter({
           ? null
           : await resolveSupplierId(tx, ctx.tenantId, input);
 
+        // Categoria: mantém texto (sombra) + re-resolve a FK pelo nome/tipo.
+        const categoryName = input.category?.trim() || null;
+        const categoryId = await resolveCategoryId(tx, ctx.tenantId, categoryName, existing.type);
+
         await tx.financialTransaction.update({
           where: { id: input.id },
           data: {
             description: input.description,
-            category: input.category ?? null,
+            category: categoryName,
+            categoryId,
             // Em tx vinculada, mantem cliente/fornecedor existente.
             supplierId: resolvedSupplier ? resolvedSupplier.supplierId : undefined,
             supplier: resolvedSupplier ? resolvedSupplier.supplierName : undefined,
