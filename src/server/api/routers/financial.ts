@@ -405,6 +405,76 @@ export const financialRouter = createTRPCRouter({
         const categoryName = input.category?.trim() || null;
         const categoryId = await resolveCategoryId(tx, ctx.tenantId, categoryName, existing.type);
 
+        // Correção de VALOR/VENCIMENTO/PARCELAS (opcional). Só numa conta PENDENTE
+        // sem nenhum pagamento — senão o regime de caixa (installment_payments) já
+        // registrou entrada/saída e mexer no valor corromperia o ledger. Regenera
+        // as parcelas. Não permitido em tx vinculada a venda/OS (o valor vem de lá).
+        const wantsValueEdit =
+          input.totalAmount !== undefined ||
+          input.firstDueDate !== undefined ||
+          input.numInstallments !== undefined;
+        let valueData: {
+          totalAmount?: Prisma.Decimal;
+          dueDate?: Date;
+          installmentsTotal?: number;
+        } = {};
+        if (wantsValueEdit) {
+          if (isLinkedToSource) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Transacao vinculada a venda/OS — o valor vem do registro original.",
+            });
+          }
+          if (existing.status !== "PENDING" || Number(existing.paidAmount) > 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Só uma conta pendente sem pagamento pode ter valor/vencimento editados. Estorne os pagamentos primeiro.",
+            });
+          }
+          const paymentCount = await tx.installmentPayment.count({ where: { transactionId: existing.id } });
+          if (paymentCount > 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Conta com pagamento registrado — não é possível editar o valor.",
+            });
+          }
+
+          const newTotalCents = input.totalAmount ?? decimalToCents(existing.totalAmount);
+          const newNum = input.numInstallments ?? existing.installmentsTotal;
+          const firstInst = await tx.installment.findFirst({
+            where: { transactionId: existing.id },
+            orderBy: { number: "asc" },
+            select: { dueDate: true },
+          });
+          const firstDue = input.firstDueDate
+            ? new Date(input.firstDueDate)
+            : (firstInst?.dueDate ?? addMonthsSafe(existing.emissionDate ?? new Date(), 1));
+
+          const installments = generateInstallments(newTotalCents, newNum, firstDue);
+          const lastDue = installments[installments.length - 1]!.dueDate;
+
+          // Regenera as parcelas (a conta é PENDING pura — nenhuma paga).
+          await tx.installment.deleteMany({ where: { transactionId: existing.id } });
+          for (const parcela of installments) {
+            await tx.installment.create({
+              data: {
+                tenantId: ctx.tenantId,
+                transactionId: existing.id,
+                number: parcela.number,
+                amount: centsToPrismaDecimal(parcela.amountCents),
+                dueDate: parcela.dueDate,
+                paidAmount: new Prisma.Decimal(0),
+                status: "PENDING",
+              },
+            });
+          }
+          valueData = {
+            totalAmount: centsToPrismaDecimal(newTotalCents),
+            dueDate: lastDue,
+            installmentsTotal: newNum,
+          };
+        }
+
         await tx.financialTransaction.update({
           where: { id: input.id },
           data: {
@@ -416,6 +486,7 @@ export const financialRouter = createTRPCRouter({
             supplier: resolvedSupplier ? resolvedSupplier.supplierName : undefined,
             customerName: isLinkedToSource ? undefined : (input.customerName ?? null),
             notes: input.notes ?? null,
+            ...valueData,
           },
         });
 
