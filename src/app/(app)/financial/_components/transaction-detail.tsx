@@ -89,7 +89,7 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
   const [showReverseDialog, setShowReverseDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editFields, setEditFields] = useState({ description: "", category: "", supplier: "", customerName: "", notes: "" });
+  const [editFields, setEditFields] = useState({ description: "", category: "", supplier: "", customerName: "", notes: "", totalAmount: 0, firstDueDate: "", numInstallments: 1 });
   const [selectedInstallment, setSelectedInstallment] = useState<{
     id: string;
     number: number;
@@ -182,6 +182,9 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
       supplier: d.supplier ?? "",
       customerName: d.customerName ?? "",
       notes: d.notes ?? "",
+      totalAmount: d.totalAmount ?? 0,
+      firstDueDate: (d.installments?.[0]?.dueDate ?? d.dueDate ?? "").toString().slice(0, 10),
+      numInstallments: d.installments?.length ?? 1,
     });
     setShowEditDialog(true);
   }
@@ -620,6 +623,46 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                 </div>
               )
             )}
+            {/* Valor/vencimento/parcelas: só numa conta PENDENTE sem pagamento e não
+                vinculada a venda/OS (o server revalida). Corrige erro de digitação
+                sem cancelar+recriar. */}
+            {t.status === "PENDING" &&
+              Number(t.paidAmount ?? 0) === 0 &&
+              t.referenceType !== "sale" &&
+              t.referenceType !== "service_order" && (
+                <div className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
+                  <div className="col-span-2 text-xs font-medium text-muted-foreground">
+                    Corrigir valor / vencimento (conta pendente)
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Valor total</Label>
+                    <MoneyInput
+                      value={editFields.totalAmount}
+                      onChange={(v) => setEditFields((f) => ({ ...f, totalAmount: v }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Parcelas</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={36}
+                      value={editFields.numInstallments}
+                      onChange={(e) =>
+                        setEditFields((f) => ({ ...f, numInstallments: Number(e.target.value) }))
+                      }
+                    />
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <Label>Primeiro vencimento</Label>
+                    <Input
+                      type="date"
+                      value={editFields.firstDueDate}
+                      onChange={(e) => setEditFields((f) => ({ ...f, firstDueDate: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
             <div className="space-y-1">
               <Label>Observações</Label>
               <Textarea rows={3} value={editFields.notes} onChange={(e) => setEditFields((f) => ({ ...f, notes: e.target.value }))} />
@@ -631,6 +674,8 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
               disabled={editFields.description.trim().length < 1 || updateMutation.isPending}
               onClick={() => {
                 const isLinked = t.referenceType === "sale" || t.referenceType === "service_order";
+                const canEditValue =
+                  t.status === "PENDING" && Number(t.paidAmount ?? 0) === 0 && !isLinked;
                 updateMutation.mutate({
                   id: transactionId,
                   description: editFields.description.trim(),
@@ -640,6 +685,11 @@ export function TransactionDetail({ transactionId }: TransactionDetailProps) {
                     supplier: editFields.supplier.trim() || null,
                     customerName: editFields.customerName.trim() || null,
                   }),
+                  ...(canEditValue ? {
+                    totalAmount: editFields.totalAmount,
+                    firstDueDate: editFields.firstDueDate || undefined,
+                    numInstallments: editFields.numInstallments,
+                  } : {}),
                 });
               }}
             >

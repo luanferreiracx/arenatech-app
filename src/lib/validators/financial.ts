@@ -83,6 +83,12 @@ export const updateTransactionSchema = z.object({
   supplier: z.string().max(200).optional().nullable(),
   customerName: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  // Correção de valor/vencimento/parcelas — só enquanto a conta está PENDENTE sem
+  // pagamento (o server valida). Regenera as parcelas. Evita cancelar+recriar por
+  // um erro de digitação (ex.: R$1.500 em vez de R$150).
+  totalAmount: z.number().int().min(1).max(MAX_CENTS, "Valor acima do limite permitido").optional(), // centavos
+  firstDueDate: z.string().optional(),
+  numInstallments: z.number().int().min(1).max(36).optional(),
 });
 
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
