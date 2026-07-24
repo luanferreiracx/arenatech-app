@@ -19,6 +19,20 @@
 
 ---
 
+### 2026-07-24 — D1 passo 1 (fundação Money) + C8 (MRR superadmin)
+- **#670 (D1, passo 1/N) fundação `<Money>`:** decisão do dono = épico incremental.
+  `lib/format.ts` (formatCentsBRL + formatReaisBRL — nomeadas p/ matar o bug de 100×
+  do formatCurrency ambíguo) + `components/domain/money.tsx` (`<Money cents>` com
+  tabular-nums + prop sign). Migrados 3 arquivos CENTAVOS (dashboard/valuations/fiscal)
+  verificando contrato; valuations adota `<Money>`. Unit test trava centavos vs reais.
+  **RESTAM ~43 arquivos** — migrar em PRs pequenos por-área, verificando cada contrato
+  (ex.: `provider-detail` usa REAIS). Fundação pronta.
+- **#671 (C8) observabilidade de negócio no superadmin:** `admin.dashboard` só dava
+  tenant/user/preRegs/planos; a receita (Subscription) existia mas não era agregada.
+  `aggregateSubscriptionMetrics` (pura): MRR (mensal cheio, anual /12, só ATIVAS) +
+  contagem por status; + vencendo-em-7-dias. 4 cards novos no dashboard admin. Unit test.
+  MRR formatado inline por ora (migra no épico D1).
+
 ### 2026-07-24 — Batch D (parcial): transversal robustez+polish
 Terceira leva da varredura. Ganhos que elevam o sistema inteiro.
 - **#667 (D2) error boundary no segmento (app):** antes um erro de render derrubava
