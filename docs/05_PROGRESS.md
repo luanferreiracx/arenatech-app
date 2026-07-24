@@ -19,6 +19,20 @@
 
 ---
 
+### 2026-07-24 — Batch C: completude (estorno parcial, editar valor de conta)
+Mais itens do batch C (apos #671 MRR). Ambos com trava de dinheiro + teste de integracao.
+- **#676 (C2) estorno PARCIAL na UI:** o backend ja aceitava `itemIds` (subset dos
+  SaleItems -> PARTIALLY_REFUNDED), mas o dialog so fazia estorno total. Agora lista os
+  itens com checkbox (default todos = total; subset = parcial). Teste: venda 2 itens,
+  estorna 1 -> PARTIALLY_REFUNDED, item zerado, saida de caixa so do parcial.
+- **#677 (C5) editar valor/vencimento/parcelas de conta pendente:** `update` so editava
+  descricao/categoria. Agora corrige totalAmount/firstDueDate/numInstallments — MAS so
+  em conta PENDING sem pagamento (paidAmount 0 + 0 installment_payments) e nao-vinculada
+  a venda/OS; regenera as parcelas. Evita cancelar+recriar por erro de digitacao.
+**Batch C restante:** fotos do aparelho na OS (C1, precisa MinIO presigned — maior),
+despesas recorrentes (C6), giro/produtos parados (C7), unique SKU/barcode (C4). Batch E
+(reward/checklist) pendente.
+
 ### 2026-07-24 — D1 CONCLUÍDO: formatter de dinheiro centralizado
 Épico incremental do `<Money>` finalizado (após a fundação #670). Cada arquivo
 migrado foi classificado por CONTRATO antes (dividia por 100 = centavos; senão =
