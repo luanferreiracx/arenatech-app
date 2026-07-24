@@ -12,6 +12,7 @@ import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { todayBrtISO } from "@/lib/utils/date-range";
 import { DateInput } from "@/components/inputs/date-input";
+import { FinancialCategorySelect } from "@/components/domain/forms/financial-category-select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -37,6 +38,7 @@ interface FormValues {
   firstDueDate: string;
   paymentMethod: string;
   customerName: string;
+  category: string;
   notes: string;
 }
 
@@ -58,6 +60,7 @@ export default function CreateReceivablePage() {
       firstDueDate: "",
       paymentMethod: "dinheiro",
       customerName: "",
+      category: "",
       notes: "",
     },
   });
@@ -93,6 +96,7 @@ export default function CreateReceivablePage() {
       firstDueDate: data.firstDueDate || undefined,
       paymentMethod: data.paymentMethod || undefined,
       customerName: data.customerName || undefined,
+      category: data.category || undefined,
       notes: data.notes || undefined,
     });
   }
@@ -126,6 +130,23 @@ export default function CreateReceivablePage() {
                     <FormLabel>Descrição *</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="Ex: Venda manual" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoria</FormLabel>
+                    <FormControl>
+                      <FinancialCategorySelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        transactionType="RECEIVABLE"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

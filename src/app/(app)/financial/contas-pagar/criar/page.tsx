@@ -13,6 +13,7 @@ import { MoneyInput } from "@/components/inputs/money-input";
 import { todayBrtISO } from "@/lib/utils/date-range";
 import { DateInput } from "@/components/inputs/date-input";
 import { SupplierSelect } from "@/components/domain/forms/supplier-select";
+import { FinancialCategorySelect } from "@/components/domain/forms/financial-category-select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -37,6 +38,7 @@ interface FormValues {
   firstDueDate: string;
   paymentMethod: string;
   supplierId: string | null;
+  category: string;
   notes: string;
 }
 
@@ -58,6 +60,7 @@ export default function CreatePayablePage() {
       firstDueDate: "",
       paymentMethod: "dinheiro",
       supplierId: null,
+      category: "",
       notes: "",
     },
   });
@@ -92,6 +95,7 @@ export default function CreatePayablePage() {
       firstDueDate: data.firstDueDate || undefined,
       paymentMethod: data.paymentMethod || undefined,
       supplierId: data.supplierId || undefined,
+      category: data.category || undefined,
       notes: data.notes || undefined,
     });
   }
@@ -125,6 +129,23 @@ export default function CreatePayablePage() {
                     <FormLabel>Descrição *</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="Ex: Aluguel maio" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoria</FormLabel>
+                    <FormControl>
+                      <FinancialCategorySelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        transactionType="PAYABLE"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
