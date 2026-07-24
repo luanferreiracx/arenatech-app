@@ -19,6 +19,34 @@
 
 ---
 
+### 2026-07-24 — Batch B: agilidade de balcão (PDV, ⌘K, CRM, OS)
+Segunda leva da varredura módulo-a-módulo. Foco: atendimento mais rápido. 5 PRs no ar.
+- **#661 (B1/B2/B3) PDV ágil:** quantidade digitável (input + botões; reverte se o
+  servidor rejeitar); navegação por teclado na busca (↑/↓/Enter/Esc + ARIA
+  combobox/listbox/option); chip de status do caixa no header (via cashier.statusCheck,
+  link p/ abrir) — o operador não descobre mais "caixa fechado" só ao finalizar.
+- **#662 (B4) command palette busca entidades:** ⌘K deixa de só navegar — novo
+  `search.global` resolve cliente (nome+CPF/telefone por dígitos), OS (número/modelo)
+  e produto (nome/SKU/barcode), com deep-link. Truque cmdk: `value` embute o termo LIVE
+  p/ o filtro sempre manter os resultados do servidor. (Busca interna sem unaccent ainda.)
+- **#663 (B7) Comunicação → módulo Clientes:** era gateada por `service-orders` (grupo
+  Assistência) → varejo puro perdia o canal. Regateada p/ `customers` (rota + menu);
+  service-orders depende de customers, então tenants de OS seguem com acesso.
+- **#664 (B5) enviar WhatsApp in-app ao cliente da lista:** botão de mensagem por linha
+  abre dialog global (ciente da janela de 24h). DECISÃO DO DONO: conversa é no Chatwoot;
+  o app envia templates. Por isso **wa.me foi CORTADO** (B8 revertido — abre WhatsApp
+  pessoal fora do sistema). ACHADO: `isWithin24hWindow` é STUB (sempre fora da janela)
+  → hoje todo outbound do app vai como template aprovado; o dialog deixa isso explícito.
+- **#665 (B6) histórico do aparelho por IMEI na OS:** `getDeviceHistoryByImei` (por
+  imei OU serial, exclui a atual) + painel "Histórico deste aparelho" no detalhe —
+  reincidência de defeito / garantia. Antes a busca filtrava por imei mas não havia
+  visão por-aparelho na OS.
+**LIÇÃO (dono):** relacionamento com cliente é via Chatwoot; NÃO adicionar links wa.me
+pessoais na UI. Ver memória `comunicacao-cliente-chatwoot`.
+**Pendências abertas:** busca interna do ⌘K sem unaccent (consistente com #649, futuro);
+`isWithin24hWindow` stub — quando o tracking real (webhook Cloud API) existir, o dialog
+de mensagem já entrega texto livre dentro da janela sem mudança de UI.
+
 ### 2026-07-24 — Varredura módulo-a-módulo + batch A (correções silenciosas)
 Varredura completa do sistema (7 auditores em paralelo, 1 por cluster: PDV/Vendas/
 Caixa, OS/Assistência, Estoque/Catálogo, Financeiro, CRM/Comunicação, Plataforma/
