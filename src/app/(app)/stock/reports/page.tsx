@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -19,12 +20,6 @@ import { VendasProdutoTab } from "./_components/vendas-produto-tab";
 import { VendasVendedorTab } from "./_components/vendas-vendedor-tab";
 import { UpgradesTab } from "./_components/upgrades-tab";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 const PDF_TYPE_MAP: Record<string, string> = {
   posicao: "posicao-estoque",

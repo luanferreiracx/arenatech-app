@@ -1,4 +1,5 @@
 "use client";
+import { formatReaisBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useRef } from "react";
 import { Calculator, Printer, FileDown, Copy, Eraser, MessageCircle } from "lucide-react";
@@ -20,9 +21,6 @@ import {
 import { toast } from "@/lib/toast";
 import type { SimulationResult } from "@/lib/validators/simulator";
 
-function formatCurrency(value: number): string {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 /** Monta a mensagem WhatsApp formatada (paridade Laravel gerarMensagemSimulacao). */
 function buildWhatsAppMessage(r: SimulationResult): string {

@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
@@ -36,9 +37,6 @@ import { WhatsappRecipientPicker, type PhoneOption } from "@/components/domain/w
 import { toast } from "@/lib/toast";
 import { deviceConditionLabels } from "@/lib/validators/stock";
 
-function formatCurrency(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function formatDate(d: string | Date | null | undefined) {
   if (!d) return "-";
   return new Date(d).toLocaleString("pt-BR", {

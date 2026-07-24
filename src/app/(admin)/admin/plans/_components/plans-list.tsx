@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { Plus, Edit, Trash2, CreditCard } from "lucide-react";
@@ -25,9 +26,6 @@ import {
   type ModuleKey,
 } from "@/lib/modules";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export function PlansList() {
   const trpc = useTRPC();

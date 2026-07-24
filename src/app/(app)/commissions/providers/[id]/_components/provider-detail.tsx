@@ -1,4 +1,5 @@
 "use client";
+import { formatReaisBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -28,9 +29,6 @@ import {
   COMMISSION_SOURCE_LABELS,
 } from "@/lib/validators/provider-commission";
 
-function formatCurrency(value: number): string {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 const formatDate = formatBrDate;
 

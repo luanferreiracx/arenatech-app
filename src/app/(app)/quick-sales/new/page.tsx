@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -68,8 +69,6 @@ export default function NewQuickSalePage() {
   const subtotal = qty * unitPrice;
   const total = Math.max(0, subtotal - discount);
 
-  const formatCurrency = (cents: number) =>
-    (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="space-y-6">

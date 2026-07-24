@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,9 +21,6 @@ import {
   INVOICE_STATUS_VARIANT,
 } from "@/lib/validators/fiscal";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();

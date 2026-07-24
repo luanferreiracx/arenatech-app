@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -33,9 +34,6 @@ const STATUS_COLORS: Record<string, string> = {
   REFUNDED: "bg-warning/10 text-warning border-warning/20",
 };
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export default function QuickSaleDetailPage() {
   const { id } = useParams<{ id: string }>();

@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { Plus, Package } from "lucide-react";
@@ -20,9 +21,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { createLabOrderSchema, type CreateLabOrderInput, LAB_ORDER_STATUS_LABELS, LAB_ORDER_STATUS_VARIANT } from "@/lib/validators/operation";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 export function LabOrdersTab() {
   const trpc = useTRPC();

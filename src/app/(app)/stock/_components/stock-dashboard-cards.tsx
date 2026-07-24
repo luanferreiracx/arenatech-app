@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import {
   Package, Boxes, DollarSign, AlertTriangle, ShoppingCart, ArrowDownToLine,
@@ -11,12 +12,6 @@ import {
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 export function StockDashboardCards() {
   const trpc = useTRPC();

@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
@@ -51,12 +52,6 @@ interface ServiceRow {
   active: boolean;
 }
 
-function formatCurrency(centavos: number): string {
-  return (centavos / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 export function ServicesManageTable() {
   const trpc = useTRPC();

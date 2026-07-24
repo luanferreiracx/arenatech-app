@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -42,9 +43,6 @@ interface FormValues {
   notes: string;
 }
 
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
-}
 
 export default function CreatePayablePage() {
   const router = useRouter();

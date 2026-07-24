@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import Link from "next/link";
 import { Bell, AlertTriangle, Clock, Package } from "lucide-react";
@@ -11,9 +12,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 /**
  * Sino de notificações com contador (auditoria visual 2026-07-12): antes o Bell

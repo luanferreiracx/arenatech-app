@@ -1,18 +1,12 @@
 import { StatusBadge } from "@/components/domain/status-badge";
+import { formatCentsBRL, formatReaisBRL } from "@/lib/format";
 
-export function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+/** Reexporta o formatter central (centavos) — os tabs de relatório importam daqui. */
+export const formatCurrency = formatCentsBRL;
 
+/** Formata Decimal/desconhecido (já em reais) via o central. */
 export function formatCurrencyFromDecimal(value: unknown): string {
-  const num = Number(value);
-  return num.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
+  return formatReaisBRL(Number(value));
 }
 
 export function formatDate(date: Date | string): string {

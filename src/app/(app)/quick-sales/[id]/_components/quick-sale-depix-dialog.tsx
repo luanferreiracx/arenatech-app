@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useEffect, useRef, useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -33,12 +34,6 @@ interface Props {
   onPaid: () => void;
 }
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 /**
  * Dialog para gerar/exibir QR PIX DePix de uma venda avulsa.

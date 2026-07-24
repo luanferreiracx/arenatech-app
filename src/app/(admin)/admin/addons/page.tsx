@@ -1,4 +1,5 @@
 "use client";
+import { formatCentsBRL as formatCurrency } from "@/lib/format";
 
 import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
@@ -31,12 +32,6 @@ import {
 import { Plus, Pencil, Trash2, Power } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-function formatCurrency(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 interface AddonForm {
   name: string;
