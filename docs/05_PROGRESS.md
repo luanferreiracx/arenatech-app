@@ -19,6 +19,24 @@
 
 ---
 
+### 2026-07-24 — D1 CONCLUÍDO: formatter de dinheiro centralizado
+Épico incremental do `<Money>` finalizado (após a fundação #670). Cada arquivo
+migrado foi classificado por CONTRATO antes (dividia por 100 = centavos; senão =
+reais; Decimal = helper próprio), import aliasado preservando os call sites → refactor
+puro, zero mudança de comportamento.
+- **#673 (passo 2, 28 arquivos):** PDV inteiro + admin + financeiro + fiscal + quick-
+  sales + stock (nfe/purchases/reports/import/dashboard) + services + notifications-bell
+  → `formatCentsBRL`; provider-detail/my-commission/nf-report/simulator/receipt →
+  `formatReaisBRL`; `report-helpers.formatCurrency` passou a **reexportar** o central
+  (cobre os 7 tabs de relatório sem tocá-los).
+- **#674 (passo 3, 4 arquivos):** novo `formatDecimalBRL` (null/NaN→"-") p/ os que
+  recebem Decimal cru (products-table, stock/[id], purchases-table, stock/report).
+- **RESULTADO:** 0 redefinições reais de `formatCurrency` na UI do app. Ficam só 2
+  INTENCIONAIS (formato próprio): `lib/pdf/tenant-header` (PDF) e `catalog-product-card`
+  (catálogo público). `lib/format` = fonte única (formatCentsBRL/ReaisBRL/DecimalBRL) +
+  `<Money>` (tabular-nums, adotado em valuations; adoção ampla p/ alinhamento é polish
+  futuro opcional).
+
 ### 2026-07-24 — D1 passo 1 (fundação Money) + C8 (MRR superadmin)
 - **#670 (D1, passo 1/N) fundação `<Money>`:** decisão do dono = épico incremental.
   `lib/format.ts` (formatCentsBRL + formatReaisBRL — nomeadas p/ matar o bug de 100×
