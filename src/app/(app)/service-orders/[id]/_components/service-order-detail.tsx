@@ -86,6 +86,7 @@ import {
   OrderEntryChecklistCard,
   OrderDeviceInfoCard,
 } from "./detail-sections";
+import { DeviceHistoryPanel } from "./device-history-panel";
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
@@ -769,6 +770,12 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <OrderCustomerCard customer={order.customer} />
 
           <OrderEquipmentCard {...order} />
+
+          <DeviceHistoryPanel
+            orderId={order.id}
+            imei={order.imei}
+            serialNumber={order.serialNumber}
+          />
 
           {/* Problem & Diagnostics */}
           <div className="rounded-lg border border-border p-4">
