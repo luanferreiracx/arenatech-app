@@ -254,6 +254,10 @@ export const TEMPLATE_CONTEXTS: Record<string, keyof typeof APPROVED_TEMPLATES> 
   // Contato de lead (interesse) em lote. O lead quase nunca falou com a loja →
   // sempre fora da janela 24h → cai no template `padrao` ([nome, assunto]).
   lead_contato: "padrao",
+  // Mensagem avulsa da loja para o cliente (módulo Comunicação). Dentro da janela
+  // 24h vai o texto livre digitado; fora dela, cai no `padrao` ([nome, assunto]) —
+  // o texto cru seria rejeitado pela Meta fora da janela.
+  contato_loja: "padrao",
 };
 
 /**
@@ -276,4 +280,5 @@ export const CONTEXT_SUBJECT: Record<string, string> = {
   tecnico_nova_os: "uma nova ordem de serviço atribuída a você",
   entregador_solicitacao: "uma solicitação de coleta/entrega",
   lead_contato: "seu interesse",
+  contato_loja: "seu atendimento",
 };
