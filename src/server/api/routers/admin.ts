@@ -889,6 +889,22 @@ export const adminRouter = createTRPCRouter({
           reusedExistingUser: Boolean(existingUser),
         });
 
+        // Trilha persistente: criar/vincular usuário é operação de ACESSO sensível.
+        await logAudit(tx as never, {
+          tenantId: tenant.id,
+          userId: ctx.session.user.id,
+          action: "created",
+          entity: "tenant_user",
+          entityId: user.id,
+          payload: {
+            role: input.role,
+            isTechnician: input.isTechnician ?? false,
+            isCashier: input.isCashier ?? false,
+            reusedExistingUser: Boolean(existingUser),
+            bySuperAdmin: true,
+          },
+        });
+
         return {
           user: {
             id: user.id,
@@ -966,6 +982,22 @@ export const adminRouter = createTRPCRouter({
           byAdmin: ctx.session.user.id,
         });
 
+        // Trilha persistente: mudança de papel/função altera o nível de ACESSO.
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: "updated",
+          entity: "tenant_user",
+          entityId: input.userId,
+          payload: {
+            roleBefore: membership.role,
+            roleAfter: input.role,
+            isTechnician: input.isTechnician ?? false,
+            isCashier: input.isCashier ?? false,
+            bySuperAdmin: true,
+          },
+        });
+
         return { success: true };
       });
     }),
@@ -1017,6 +1049,16 @@ export const adminRouter = createTRPCRouter({
           tenantId: input.tenantId,
           userId: input.userId,
           byAdmin: ctx.session.user.id,
+        });
+
+        // Trilha persistente: revogar acesso ao tenant.
+        await logAudit(tx as never, {
+          tenantId: input.tenantId,
+          userId: ctx.session.user.id,
+          action: "removed",
+          entity: "tenant_user",
+          entityId: input.userId,
+          payload: { role: membership.role, bySuperAdmin: true },
         });
 
         return { success: true };
