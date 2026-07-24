@@ -1960,6 +1960,79 @@ export const stockRouter = createTRPCRouter({
     });
   }),
 
+  /**
+   * Produtos PARADOS: com estoque efetivo > 0 e SEM venda concluída há N dias
+   * (default 60). Capital imobilizado (estoque × custo) é a dor nº1 de gestão de
+   * estoque. Custo/valor imobilizado só para admin (dado gerencial); para não-admin
+   * ordena por dias-parado (não vaza custo pela ordenação).
+   */
+  stagnantProductsReport: tenantProcedure
+    .input(z.object({ days: z.number().int().min(1).max(365).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 60;
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
+
+      return ctx.withTenant(async (tx) => {
+        const products = await tx.product.findMany({
+          where: { deletedAt: null, active: true },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            costPrice: true,
+            currentStock: true,
+            isSerialized: true,
+            hasVariations: true,
+          },
+        });
+        const stockByProduct = await resolveCurrentStockByProduct(tx, products);
+        const inStock = products.filter((p) => (stockByProduct.get(p.id) ?? 0) > 0);
+        if (inStock.length === 0) return { days, rows: [] };
+
+        // Última venda concluída por produto (join sale — RLS já escopa por tenant).
+        const lastSaleRows = await tx.$queryRaw<Array<{ productId: string; lastSale: Date | null }>>(
+          Prisma.sql`
+            SELECT si.product_id AS "productId", MAX(s.sale_date) AS "lastSale"
+            FROM sale_items si
+            JOIN sales s ON s.id = si.sale_id AND s.status = 'COMPLETED' AND s.deleted_at IS NULL
+            WHERE si.product_id::text IN (${Prisma.join(inStock.map((p) => p.id))})
+            GROUP BY si.product_id
+          `,
+        );
+        const lastSaleById = new Map(lastSaleRows.map((r) => [r.productId, r.lastSale]));
+
+        const rows = inStock
+          .map((p) => {
+            const stock = stockByProduct.get(p.id) ?? 0;
+            const lastSale = lastSaleById.get(p.id) ?? null;
+            const costCents = Math.round(Number(p.costPrice) * 100);
+            const immobilizedCents = stock * costCents;
+            return {
+              id: p.id,
+              name: p.name,
+              sku: p.sku,
+              currentStock: stock,
+              lastSaleAt: lastSale,
+              daysStagnant: lastSale
+                ? Math.floor((cutoff.getTime() + days * 86400000 - lastSale.getTime()) / 86400000)
+                : null,
+              costPriceCents: isAdmin ? costCents : null,
+              immobilizedValueCents: isAdmin ? immobilizedCents : null,
+              _sort: isAdmin ? immobilizedCents : (lastSale ? lastSale.getTime() : 0),
+            };
+          })
+          // Parado = nunca vendido OU última venda antes do corte.
+          .filter((r) => r.lastSaleAt === null || r.lastSaleAt < cutoff)
+          // Admin: maior capital imobilizado primeiro. Não-admin: mais parado primeiro.
+          .sort((a, b) => (isAdmin ? b._sort - a._sort : a._sort - b._sort))
+          .slice(0, 200)
+          .map(({ _sort, ...rest }) => rest);
+
+        return { days, rows };
+      });
+    }),
+
   /** Stats for dashboard cards */
   /** Search products for autocomplete (EntitySelector) */
   searchProducts: tenantProcedure

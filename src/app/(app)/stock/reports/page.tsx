@@ -19,6 +19,7 @@ import { VendasPeriodoTab } from "./_components/vendas-periodo-tab";
 import { VendasProdutoTab } from "./_components/vendas-produto-tab";
 import { VendasVendedorTab } from "./_components/vendas-vendedor-tab";
 import { UpgradesTab } from "./_components/upgrades-tab";
+import { ProdutosParadosTab } from "./_components/produtos-parados-tab";
 
 
 const PDF_TYPE_MAP: Record<string, string> = {
@@ -150,6 +151,7 @@ export default function StockReportsPage() {
           <TabsTrigger value="vendas-produto">Vendas/Produto</TabsTrigger>
           <TabsTrigger value="vendas-vendedor">Vendas/Vendedor</TabsTrigger>
           <TabsTrigger value="upgrades">Upgrades</TabsTrigger>
+          <TabsTrigger value="parados">Produtos Parados</TabsTrigger>
         </TabsList>
 
         <TabsContent value="posicao">
@@ -175,6 +177,9 @@ export default function StockReportsPage() {
         </TabsContent>
         <TabsContent value="upgrades">
           <UpgradesTab dateFrom={dateFrom} dateTo={dateTo} />
+        </TabsContent>
+        <TabsContent value="parados">
+          <ProdutosParadosTab />
         </TabsContent>
       </Tabs>
     </div>
