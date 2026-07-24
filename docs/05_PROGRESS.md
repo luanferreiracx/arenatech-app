@@ -19,6 +19,53 @@
 
 ---
 
+### 2026-07-24 — Varredura módulo-a-módulo + batch A (correções silenciosas)
+Varredura completa do sistema (7 auditores em paralelo, 1 por cluster: PDV/Vendas/
+Caixa, OS/Assistência, Estoque/Catálogo, Financeiro, CRM/Comunicação, Plataforma/
+Fiscal, e transversal UX/mobile). Cada um verificou contra o CÓDIGO ATUAL (vários
+achados de auditorias antigas já estavam feitos — ex.: consolidação de dialogs da OS
+via `useActiveDialog`, saneamento mobile #566-#569). Mapa consolidado por natureza do
+ganho (A=correções silenciosas, B=agilidade de balcão, C=completude, D=transversal,
+E=dead code). Decisões do dono: fidelidade(reward)→construir UI; Checklist→unificar
+com OS; custo de estoque→média ponderada; começar pela batch A.
+**Batch A — o sistema parava de estar "quietamente errado" (todos no ar):**
+- **#656 (A4) WhatsApp avulso usa fallback de 24h:** `communication.dispatchMessage`
+  mandava texto cru (`sendTextMessage`), que a Meta só entrega DENTRO da janela 24h →
+  contato frio virava FAILED sem explicação. Agora usa `sendTextWithFallback` (novo
+  contexto `contato_loja`→template `padrao` fora da janela). dispatchMessage vira
+  objeto de opções; thread de recipientName + log de auditoria nos 3 call sites.
+- **#657 (A3) categoria financeira ligada à FK:** `categoryId` (+relation+índice) era
+  schema MORTO (0 escritas) — `create`/`update` só gravavam o texto-sombra `category`,
+  e as telas oficiais de criar conta não tinham campo categoria → quase nada
+  categorizável em relatórios/DRE. `resolveCategoryId` (lookup por nome+tipo, NÃO cria
+  — criação segue admin-gated); telas de criar a pagar/receber ganham `FinancialCategorySelect`;
+  migration de backfill (único UPDATE idempotente). Validado matching acento/case/
+  escopo-por-tipo em banco real.
+- **#658 (A2+C3) custo médio ponderado + kardex valorizado:** o `unitCost` digitado na
+  Entrada de Estoque era ACEITO pelo validator mas DESCARTADO pelo backend (0 refs) →
+  `costPrice` nunca mudava, margem/DRE descolavam a cada reposição. `weightedAverageCostCents`
+  (pura, centavos), `applyNonSerializedEntry` (fonte única de stockEntry/Batch/
+  entryQuantity, produto OU variação). unitCost 0/ausente NÃO mexe no custo (form manda
+  0 por padrão). StockMovement ganha unit_cost_cents/total_cost_cents (migration);
+  listMovements strippa custo p/ não-admin.
+- **#659 (A6) trilha de auditoria na gestão de equipe:** criar/atualizar/remover/reset
+  de usuário só emitia `logger.info` (transiente) — sem rastro de quem deu/revogou
+  ACESSO. `logAudit` centralizado nos serviços `*InTx` (thread actorUserId) cobre o
+  self-service; admin.ts (inline) ganha nos 3 de create/update/remove (reset já tinha).
+- **A1/A5 (fiscal: inutilizar mock, alerta de certificado A1) FORA DE ESCOPO** por
+  decisão do dono — não trabalhar com a API Nuvem Fiscal por ora.
+**Padrão validado (repetido):** toda migration validada com `migrate deploy` num banco
+LIMPO do zero + matching funcional com dados representativos ANTES de propor. Dinheiro/
+correção silenciosa → teste de integração de regressão em banco real.
+**Backlog restante da varredura (priorizado, próximas batches):** B=agilidade (PDV
+quantidade digitável/teclado/status-do-caixa, ⌘K busca de cliente/OS/produto, envio de
+WhatsApp com cliente+template, histórico por IMEI na OS, wa.me na lista de clientes);
+C=completude (fotos do aparelho na OS, estorno parcial na UI, despesas recorrentes, giro/
+produtos parados, MRR no superadmin, unique de SKU/barcode, editar valor/vencimento de
+transação); D=transversal (componente `<Money>` c/ tabular-nums, error boundary no
+segmento (app), Button sem transition-all+active:scale, breadcrumb); E=dead code
+(reward→construir UI mínima, Checklist→unificar com OS, stock/report órfão, NF-e entrada).
+
 ### 2026-07-23 — 4 melhorias específicas do dono (busca, motivo, duplicar serviço, iPhone duplicado)
 Pedido direto do dono, 4 pontos. Todos no ar; suíte E2E completa verde pós-merge.
 - **#649 busca do PDV insensível a acento:** `contains mode:insensitive` só ignorava
