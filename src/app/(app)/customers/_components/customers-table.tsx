@@ -3,7 +3,11 @@
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Eye, Pencil, RotateCcw } from "lucide-react";
+import { Eye, Pencil, RotateCcw, MessageSquare } from "lucide-react";
+import {
+  CustomerMessageDialog,
+  type MessageDialogCustomer,
+} from "./customer-message-dialog";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataTable } from "@/components/domain/data-table";
@@ -56,6 +60,7 @@ function buildColumns(
   isAdmin: boolean,
   onRestore: (id: string) => void,
   isRestorePending: boolean,
+  onMessage: (customer: CustomerRow) => void,
 ): ColumnDef<CustomerRow>[] {
   return [
   {
@@ -121,6 +126,18 @@ function buildColumns(
     header: "",
     cell: ({ row }) => (
       <div className="flex items-center gap-1">
+        {row.original.phone && !row.original.deletedAt && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-success hover:text-success"
+            onClick={() => onMessage(row.original)}
+            aria-label={`Enviar WhatsApp para ${row.original.name}`}
+            title="Enviar WhatsApp (in-app)"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -170,6 +187,8 @@ export function CustomersTable() {
   const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
+  // Dialog global de mensagem (um só, fora da tabela) controlado por estado.
+  const [messageCustomer, setMessageCustomer] = useState<MessageDialogCustomer | null>(null);
 
   // Flag admin para mostrar toggle inativos + botao Restaurar
   const viewerQuery = useQuery(trpc.customer.viewerInfo.queryOptions());
@@ -216,6 +235,8 @@ export function CustomersTable() {
     isAdmin,
     (id) => restoreMutation.mutate({ id }),
     restoreMutation.isPending,
+    (customer) =>
+      setMessageCustomer({ id: customer.id, name: customer.name, phone: customer.phone }),
   );
 
   // CTA de cadastro só quando a lista está vazia SEM filtros — com busca/filtro
@@ -238,6 +259,7 @@ export function CustomersTable() {
   );
 
   return (
+    <>
     <DataTable
       columns={columns}
       data={rows}
@@ -297,5 +319,14 @@ export function CustomersTable() {
         />
       }
     />
+    <CustomerMessageDialog
+      key={messageCustomer?.id}
+      customer={messageCustomer}
+      open={messageCustomer !== null}
+      onOpenChange={(open) => {
+        if (!open) setMessageCustomer(null);
+      }}
+    />
+    </>
   );
 }

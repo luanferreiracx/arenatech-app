@@ -10,8 +10,8 @@ import {
   updateTemplateSchema,
 } from "@/lib/validators/communication";
 import { sendTextWithFallback, type WhatsAppLogContext } from "@/lib/whatsapp/send-with-fallback";
+import { isWithin24hWindow } from "@/lib/whatsapp/conversation-window";
 import { sendEmail } from "@/lib/services/email-service";
-import { logger } from "@/lib/logger";
 import { withTenant } from "@/server/db";
 
 /**
@@ -148,6 +148,32 @@ export const communicationRouter = createTRPCRouter({
         }
         return message;
       });
+    }),
+
+  /**
+   * Status da janela de conversa de 24h (WhatsApp Cloud API) de um cliente.
+   * Fora da janela, a Meta só entrega template aprovado (não texto livre) — a UI
+   * usa isto para avisar o operador ANTES de compor. `hasPhone`/`unsubscribed`
+   * também informam por que o envio pode ser bloqueado.
+   */
+  conversationWindowStatus: tenantProcedure
+    .input(z.object({ customerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const customer = await ctx.withTenant((tx) =>
+        tx.customer.findUnique({
+          where: { id: input.customerId },
+          select: { phone: true, unsubscribed: true },
+        }),
+      );
+      if (!customer) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Cliente nao encontrado" });
+      }
+      const withinWindow = customer.phone ? await isWithin24hWindow(customer.phone) : false;
+      return {
+        hasPhone: !!customer.phone,
+        unsubscribed: customer.unsubscribed,
+        withinWindow,
+      };
     }),
 
   /** Send a message — HTTP/SMTP fora da tx (gap Co1). */
