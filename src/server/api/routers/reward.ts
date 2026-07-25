@@ -127,9 +127,14 @@ export const rewardRouter = createTRPCRouter({
       id: z.string().uuid(),
       name: z.string().min(1).max(200).optional(),
       description: z.string().max(1000).optional().nullable(),
+      publicationType: z.string().max(50).optional().nullable(),
       startDate: z.string().optional().nullable(),
       endDate: z.string().optional().nullable(),
       validityDays: z.number().int().min(1).max(365).optional(),
+      rewardType: z.enum(["DISCOUNT_PERCENTAGE", "DISCOUNT_FIXED", "CASHBACK", "GIFT"]).optional(),
+      value: z.number().int().min(0).optional(), // centavos
+      percentage: z.number().min(0).max(100).optional(),
+      maxCap: z.number().int().min(0).optional().nullable(), // centavos
       active: z.boolean().optional(),
       participantLimit: z.number().int().min(1).optional().nullable(),
       rewardLimit: z.number().int().min(1).optional().nullable(),
@@ -139,9 +144,14 @@ export const rewardRouter = createTRPCRouter({
         const data: Record<string, unknown> = {}
         if (input.name !== undefined) data.name = input.name
         if (input.description !== undefined) data.description = input.description
+        if (input.publicationType !== undefined) data.publicationType = input.publicationType
         if (input.startDate !== undefined) data.startDate = input.startDate ? new Date(input.startDate) : null
         if (input.endDate !== undefined) data.endDate = input.endDate ? new Date(input.endDate) : null
         if (input.validityDays !== undefined) data.validityDays = input.validityDays
+        if (input.rewardType !== undefined) data.rewardType = input.rewardType
+        if (input.value !== undefined) data.value = centsToPrisma(input.value)
+        if (input.percentage !== undefined) data.percentage = new Prisma.Decimal(input.percentage)
+        if (input.maxCap !== undefined) data.maxCap = input.maxCap != null ? centsToPrisma(input.maxCap) : null
         if (input.active !== undefined) data.active = input.active
         if (input.participantLimit !== undefined) data.participantLimit = input.participantLimit
         if (input.rewardLimit !== undefined) data.rewardLimit = input.rewardLimit

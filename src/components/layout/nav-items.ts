@@ -113,6 +113,7 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Lista de Clientes", href: "/customers", icon: Users, module: "customers" },
       { label: "Interesses", href: "/interests", icon: Heart, module: "customers" },
+      { label: "Fidelidade", href: "/fidelidade", icon: Star, module: "customers" },
       { label: "Comunicação", href: "/communication", icon: MessageSquare, module: "customers" },
     ],
   },
