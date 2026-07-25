@@ -20,6 +20,7 @@ import {
   History,
   Loader2,
   Wallet,
+  Gift,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import { UpgradeDialog } from "./upgrade-dialog";
 import { SelectStockItemDialog } from "./select-stock-item-dialog";
 import { SelectVariationDialog } from "./select-variation-dialog";
 import { CustomerDialog } from "./customer-dialog";
+import { RewardRedeemDialog } from "./reward-redeem-dialog";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 
 
@@ -111,6 +113,7 @@ export function PdvScreen() {
   // Índice destacado no dropdown de busca (navegação por ↑/↓ + Enter). -1 = nenhum.
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
+  const [showRewardDialog, setShowRewardDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -1261,6 +1264,17 @@ export function PdvScreen() {
                   Aparelho{(draft?.upgrades?.length ?? 0) > 0 && ` (${draft?.upgrades?.length})`}
                 </span>
               </Button>
+              {/* Fidelidade: só com cliente selecionado (a recompensa é dele). */}
+              <Button
+                variant="outline"
+                className="col-span-2 justify-start gap-2"
+                disabled={!draft || !customerId}
+                onClick={() => setShowRewardDialog(true)}
+                title={!customerId ? "Selecione o cliente para resgatar recompensa" : undefined}
+              >
+                <Gift className="h-4 w-4 shrink-0" />
+                <span className="truncate">Resgatar recompensa</span>
+              </Button>
             </div>
           )}
           {/* No recebimento de OS, só o desconto se aplica. */}
@@ -1359,6 +1373,18 @@ export function PdvScreen() {
         isPending={applyDiscountMutation.isPending}
         subtotalCents={subtotal}
       />
+
+      {/* -- Resgate de recompensa de fidelidade -- */}
+      {draftId && (
+        <RewardRedeemDialog
+          open={showRewardDialog}
+          onOpenChange={setShowRewardDialog}
+          saleId={draftId}
+          customerId={customerId}
+          hasManualDiscount={discountAmount > 0}
+          onApplied={invalidateDraft}
+        />
+      )}
 
       {/* -- Price Check Dialog -- */}
       <PriceCheckDialog

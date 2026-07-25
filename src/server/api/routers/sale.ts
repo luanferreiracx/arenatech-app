@@ -940,6 +940,122 @@ export const saleRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Resgata uma recompensa de fidelidade APROVADA do cliente na venda em rascunho:
+   * consome a recompensa (CAS APPROVED→USED, vinculada à venda) e grava o desconto
+   * resultante como o desconto da venda.
+   *
+   * Decisões (dono):
+   * - A recompensa SUBSTITUI o desconto manual (a Sale tem um único slot de
+   *   desconto). A UI avisa antes.
+   * - Estornar a venda DEVOLVE a recompensa (ver `revertSaleRewards` no refund).
+   *
+   * Só desconto (%/R$) altera valor; GIFT é registrado como usado sem abater nada
+   * (o brinde é entregue fisicamente).
+   */
+  applyRewardDiscount: tenantProcedure
+    .input(z.object({ saleId: z.string().uuid(), actionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const sale = await tx.sale.findUnique({
+          where: { id: input.saleId },
+          include: { items: true },
+        });
+        if (!sale || sale.status !== "DRAFT") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Venda nao encontrada ou nao esta em rascunho",
+          });
+        }
+        if (!sale.customerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Selecione o cliente antes de resgatar uma recompensa.",
+          });
+        }
+
+        const action = await tx.rewardAction.findUnique({
+          where: { id: input.actionId },
+          include: { campaign: { select: { maxCap: true } } },
+        });
+        if (!action || action.customerId !== sale.customerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Recompensa nao pertence ao cliente desta venda.",
+          });
+        }
+        if (action.status !== "APPROVED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa nao disponivel" });
+        }
+        if (action.expiresAt && action.expiresAt < new Date()) {
+          await tx.rewardAction.updateMany({
+            where: { id: input.actionId, status: "APPROVED" },
+            data: { status: "EXPIRED" },
+          });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Recompensa expirada" });
+        }
+
+        const subtotalCents = sale.isOSPayment
+          ? decimalToCents(sale.subtotal)
+          : sale.items.reduce((sum, item) => sum + decimalToCents(item.total), 0);
+        if (subtotalCents <= 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Adicione itens antes de resgatar." });
+        }
+
+        // Desconto efetivo da recompensa (em centavos), com cap da campanha.
+        const percentage = Number(action.percentage);
+        const valueCents = decimalToCents(action.value);
+        let discountCents = 0;
+        if (action.rewardType === "DISCOUNT_PERCENTAGE") {
+          discountCents = Math.round((subtotalCents * percentage) / 100);
+          const capCents = action.campaign?.maxCap ? decimalToCents(action.campaign.maxCap) : 0;
+          if (capCents > 0 && discountCents > capCents) discountCents = capCents;
+        } else if (action.rewardType === "DISCOUNT_FIXED" || action.rewardType === "CASHBACK") {
+          discountCents = valueCents;
+        }
+        // Nunca descontar mais que o subtotal (não gera venda negativa).
+        if (discountCents > subtotalCents) discountCents = subtotalCents;
+
+        // CAS: claim APPROVED→USED antes de aplicar o desconto. Dois resgates
+        // concorrentes da MESMA recompensa — só um vence (o outro aborta), então o
+        // desconto não é aplicado duas vezes.
+        const claimed = await tx.rewardAction.updateMany({
+          where: { id: input.actionId, status: "APPROVED" },
+          data: {
+            status: "USED",
+            usedAt: new Date(),
+            usedInSaleId: input.saleId,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Recompensa ja utilizada em outro pedido.",
+          });
+        }
+
+        // GIFT não abate valor — só fica registrado como usado nesta venda.
+        if (discountCents > 0) {
+          await tx.sale.update({
+            where: { id: input.saleId },
+            data: {
+              // Grava como desconto FIXO em centavos (o valor já foi resolvido
+              // acima; guardar "percentage" faria o recalculateSale recalcular
+              // sobre um subtotal futuro diferente e mudar o desconto sozinho).
+              discountType: "fixed",
+              discountValue: new Prisma.Decimal(discountCents),
+              discountAmount: centsToPrisma(discountCents),
+              discountReason: "Recompensa de fidelidade",
+              subtotal: centsToPrisma(subtotalCents),
+            },
+          });
+        }
+
+        const recalculated = await recalculateSale(tx, input.saleId, ctx.tenantId);
+        return { ...recalculated, discountCents, rewardType: action.rewardType };
+      });
+    }),
+
   // ═══════════════════════════════════════
   // FINALIZE (ATOMIC)
   // ═══════════════════════════════════════
@@ -2546,6 +2662,24 @@ export const saleRouter = createTRPCRouter({
             cumulativeRefundedFraction: Math.min(1, cumulativeRefundedLbc / totalLbc),
             registeredById: ctx.session.user.id,
           });
+        }
+
+        // Fidelidade: estorno TOTAL devolve a recompensa usada nesta venda
+        // (USED→APPROVED) — o cliente não perde o benefício numa devolução. No
+        // estorno PARCIAL a venda continua ativa com o desconto, então mantemos a
+        // recompensa consumida. CAS por status: só reverte o que está USED (não
+        // "revive" recompensa já reaproveitada noutro pedido).
+        if (!isPartial) {
+          const reverted = await tx.rewardAction.updateMany({
+            where: { usedInSaleId: sale.id, status: "USED" },
+            data: { status: "APPROVED", usedAt: null, usedInSaleId: null, usedInOsId: null },
+          });
+          if (reverted.count > 0) {
+            logger.info("Reward devolvida no estorno da venda", {
+              saleId: sale.id,
+              rewardsReverted: reverted.count,
+            });
+          }
         }
 
         logger.info("Sale refunded", {
