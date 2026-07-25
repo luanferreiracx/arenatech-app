@@ -151,31 +151,32 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 
 ## Backlog — achados reais ainda NÃO corrigidos
 
+> **Atualização (mesma data):** os 3 P1 de maior risco do backlog foram
+> corrigidos na PR #700 — API-key pós-suspensão, gating de módulo no tRPC e o
+> cron de caixa que fabricava saldo contado. Ficam riscados abaixo, com o
+> registro do que mudou.
+
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
 
 ### Segurança / monetização
 
-1. **API-key de parceiro sobrevive à suspensão do tenant** (P1) —
-   `validatePartnerApiKey` checa só `revokedAt`, nunca `Tenant.status` nem
-   `apiAccessEnabled`. Tenant suspenso/cancelado continua sacando via
-   `POST /api/v1/partner/depix/withdrawals` (dinheiro irreversível). O toggle do
-   painel não tem efeito sobre o tráfego REST.
-2. **Gating de módulo não existe no tRPC** (P1) — o gate por plano vive só no
-   proxy e **pula `/api/*`** (decisão documentada após um incidente: o redirect
-   307 quebrava o cliente JSON). Tenant wallet-only chama `stock.*`, `sale.*`,
-   `financial.*` direto pela API. Não é cross-tenant (RLS segura), é bypass de
-   **monetização** — o plano vira preferência de UI.
+1. ~~**API-key de parceiro sobrevive à suspensão do tenant**~~ — ✅ **CORRIGIDO
+   (PR #700).** A validação virou fail-closed (exige `ACTIVE` +
+   `apiAccessEnabled`) e suspender/cancelar o tenant passa a revogar as keys.
+2. ~~**Gating de módulo não existe no tRPC**~~ — ✅ **CORRIGIDO (PR #700).**
+   `tenantProcedure` resolve o módulo pelo namespace do path e recusa com
+   FORBIDDEN — erro tRPC em JSON, nunca redirect, então não reintroduz o
+   incidente do 307. Cobre as ~310 procedures numa checagem central.
 3. **Fiscal/communication/operation sem `isTenantAdmin`** (P2) — qualquer membro
    autoriza/cancela NF-e, dispara WhatsApp para telefone arbitrário, reverte
    opt-out de LGPD e gera PAYABLE no laboratório.
 
 ### Dinheiro
 
-4. **`autoCloseAbandonedSessions` fabrica saldo contado** (P1) — grava
-   `declaredBalance = calculatedBalance, difference = 0` (o anti-padrão que o
-   `forceClose` já corrigiu) e **sem CAS**: pode sobrescrever um fechamento
-   manual concorrente. Divergência real de gaveta vira "R$ 0,00 conferido".
+4. ~~**`autoCloseAbandonedSessions` fabrica saldo contado**~~ — ✅ **CORRIGIDO
+   na PR #700.** `declaredBalance`/`difference` ficam NULL e o update virou CAS
+   em `closedAt: null`.
 5. **`payInstallment`/`reverseInstallment` sem `lockOpenCashSessionOrThrow`**
    (P1) — escrevem na gaveta sem travar a sessão; o `cashier.close` pode fechar
    no meio. O helper já existe e é usado 4× no mesmo módulo.
