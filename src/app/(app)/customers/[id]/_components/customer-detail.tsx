@@ -10,6 +10,7 @@ import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/domain/page-header";
 import { StatusBadge } from "@/components/domain/status-badge";
+import { CustomerRewardPanel } from "./customer-reward-panel";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -278,6 +279,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
         <TabsList>
           <TabsTrigger value="os">OS do cliente ({customer.serviceOrderCount})</TabsTrigger>
           <TabsTrigger value="compras">Compras ({customer.salesCount})</TabsTrigger>
+          <TabsTrigger value="fidelidade">Fidelidade</TabsTrigger>
         </TabsList>
         <TabsContent value="os">
           <Card>
@@ -372,6 +374,9 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="fidelidade">
+          <CustomerRewardPanel customerId={customer.id} />
         </TabsContent>
       </Tabs>
     </div>
