@@ -19,6 +19,25 @@
 
 ---
 
+### 2026-07-25 — Batch E: fidelidade fatias 2-3 (#687 fila, #688 saldo)
+- **#687 (fatia 2) fila de aprovação:** `/fidelidade` vira abas Submissões|Campanhas.
+  `RewardActionsQueue`: filtro por status, tabela (cliente+telefone, campanha,
+  recompensa, data) e Aprovar/Rejeitar nos PENDENTES (aprovar via ConfirmDialog —
+  credita cashback; rejeitar exige motivo). `listActions` passou a resolver nome/
+  telefone do cliente (RewardAction não tem relação Prisma p/ Customer → 2º lote,
+  sem N+1). Backend já tinha CAS PENDING→APPROVED + crédito — faltava só a UI.
+- **#688 (fatia 3) saldo na ficha do cliente:** nova aba "Fidelidade" com cards
+  Disponível/Reservado/Total (`<Money cents>`), recompensas disponíveis (com validade)
+  e extrato dos movimentos. `getBalance`/`getAvailableRewards` existiam e não
+  apareciam em lugar nenhum.
+- Testes: aprovar cashback credita saldo + 2ª aprovação bloqueada pelo CAS; rejeitar
+  não credita; saldo zero não quebra; saldo/extrato em CENTAVOS.
+**RESTA da fidelidade:** fatia 4 — **resgate no PDV** (aplicar cashback/desconto na
+venda; usa `lockBalance`/`useAction`). TOCA DINHEIRO → sessão dedicada, com teste de
+concorrência (lock/unlock) e verificação de que o desconto não duplica.
+**RESTA do batch E:** unificar Checklist com a OS (templates por-dispositivo do
+Checklist na inspeção de entrada — refactor do intake da OS).
+
 ### 2026-07-25 — Batch E: fidelidade (reward) — fatia 1 (#685)
 Decisão do dono: CONSTRUIR a UI de fidelidade (o reward eram 846 linhas + cron
 rodando, 0 UI). Fatia 1: gestão de campanhas.
