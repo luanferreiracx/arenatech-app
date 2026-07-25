@@ -89,6 +89,7 @@ import {
   resolveCurrentStockByProduct,
 } from "@/server/services/stock-item.service";
 import { getAvailableQuantity } from "@/server/services/product.service";
+import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
 import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
 import { assertSkuBarcodeAvailable } from "@/server/services/product-sku-barcode.service";
@@ -1200,7 +1201,8 @@ export const stockRouter = createTRPCRouter({
               });
             }
 
-            await tx.financialTransaction.create({
+            const purchasePaidAt = new Date();
+            const purchaseFt = await tx.financialTransaction.create({
               data: {
                 tenantId: ctx.tenantId,
                 type: "PAYABLE",
@@ -1213,13 +1215,25 @@ export const stockRouter = createTRPCRouter({
                 totalAmount: new Prisma.Decimal(totalCents).div(100),
                 paidAmount: new Prisma.Decimal(totalCents).div(100),
                 installmentsTotal: 1,
-                dueDate: new Date(),
-                emissionDate: new Date(),
-                paidAt: new Date(),
+                dueDate: purchasePaidAt,
+                emissionDate: purchasePaidAt,
+                paidAt: purchasePaidAt,
                 referenceType: "device_purchase",
                 referenceId: purchase.id,
                 createdByUserId: ctx.session.user.id,
               },
+            });
+
+            // A linha de DESPESA do DRE lê SÓ do ledger `installment_payments`.
+            // Sem isto a compra de aparelho à vista some do DRE (medido em prod:
+            // R$342k em 62 compras, 24% da despesa do ano) — auditoria 2026-07-25.
+            await recordCashPaidTransaction(tx, {
+              tenantId: ctx.tenantId,
+              transactionId: purchaseFt.id,
+              amountCents: totalCents,
+              paidAt: purchasePaidAt,
+              paymentMethod: method.code ?? method.type.toLowerCase(),
+              createdByUserId: ctx.session.user.id,
             });
 
             // Cash OUTCOME quando dinheiro ou PIX (saida fisica do caixa).
