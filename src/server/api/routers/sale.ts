@@ -2289,6 +2289,26 @@ export const saleRouter = createTRPCRouter({
           0,
         );
 
+        // CLAIM dos itens ANTES de qualquer efeito (auditoria 2026-07-25).
+        // O filtro `total > 0` acima roda sobre o snapshot lido no início da
+        // transação: sob READ COMMITTED, dois estornos parciais simultâneos das
+        // MESMAS linhas leem ambos `total > 0` e passam. E o CAS de status lá
+        // embaixo não os separa, porque para o parcial ele aceita
+        // PARTIALLY_REFUNDED como estado de ENTRADA e de SAÍDA.
+        // Resultado: estoque devolvido em dobro e DUAS saídas de caixa.
+        // Zerar as linhas aqui (com guarda `total > 0`) é o claim atômico: o
+        // perdedor vê count != esperado e aborta antes de tocar estoque/caixa.
+        const claimed = await tx.saleItem.updateMany({
+          where: { id: { in: itemsToRefund.map((i) => i.id) }, total: { gt: 0 } },
+          data: { total: centsToPrisma(0), discount: centsToPrisma(0) },
+        });
+        if (claimed.count !== itemsToRefund.length) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Estes itens ja foram estornados por outra operacao. Atualize e tente novamente.",
+          });
+        }
+
         // Exige caixa aberto: o estorno gera uma saida (WITHDRAWAL) na gaveta.
         // Sem caixa aberto a saida nao era registrada (gaveta sub-reportada) —
         // agora bloqueia, em paridade com o finalize (que exige caixa pra
@@ -2592,12 +2612,8 @@ export const saleRouter = createTRPCRouter({
           if (r.count !== 1) {
             throw new TRPCError({ code: "CONFLICT", message: "Venda ja estornada por outra operacao." });
           }
-          // Marca itens estornados (paridade Laravel `estornado`): zera total
-          // e desconto desse item. Mantem o registro para auditoria.
-          await tx.saleItem.updateMany({
-            where: { id: { in: itemsToRefund.map((i) => i.id) } },
-            data: { total: centsToPrisma(0), discount: centsToPrisma(0) },
-          });
+          // (os itens já foram zerados pelo CLAIM no topo — paridade Laravel
+          // `estornado`: o registro fica para auditoria com total/desconto 0)
         } else {
           const r = await tx.sale.updateMany({
             where: { id: input.saleId, status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] } },

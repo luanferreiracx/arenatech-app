@@ -4452,6 +4452,33 @@ export const stockRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // ADR 0053: operador (membro do tenant) dá entrada por quantidade — dia a dia.
       return ctx.withTenant(async (tx) => {
+        // Guard de REGIME de estoque (auditoria 2026-07-25). O saldo tem 3
+        // regimes (resolveCurrentStockByProduct): serializado = COUNT(StockItem),
+        // com variações = SUM(variação), simples = product.currentStock. Sem este
+        // guard a entrada escrevia em `product.currentStock` para QUALQUER
+        // produto, criando saldo FANTASMA — gravado no banco e no kardex, e
+        // invisível em toda a UI (que lê o saldo derivado). As irmãs stockEntry,
+        // stockEntryBatch, stockExit, adjustStock e adjustInventory já barram.
+        const product = await tx.product.findFirst({
+          where: { id: input.productId, deletedAt: null },
+          select: { isSerialized: true, hasVariations: true },
+        });
+        if (!product) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
+        }
+        if (product.isSerialized) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto serializado: registre a entrada pelo fluxo de Compra de Aparelhos (StockItem).",
+          });
+        }
+        if (product.hasVariations) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Produto com variacoes: registre a entrada pela tela de Entrada de Estoque, escolhendo a variacao.",
+          });
+        }
+
         await entryNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
           productId: input.productId,
           quantity: input.quantity,
