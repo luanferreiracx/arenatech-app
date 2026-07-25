@@ -5,6 +5,7 @@ import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
+import { recordInstallmentPayment } from "@/server/services/installment-ledger.service";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
 import { buildServiceOrderQuotePdf } from "@/lib/pdf/service-order-quote-builder";
@@ -181,19 +182,35 @@ async function settleOsPaymentRecords(
       },
     });
 
-    await tx.installment.create({
+    const osPaidAt = new Date();
+    const osInstallment = await tx.installment.create({
       data: {
         tenantId: args.tenantId,
         transactionId: receivable.id,
         number: 1,
         amount: amtDec,
-        dueDate: new Date(),
+        dueDate: osPaidAt,
         paidAmount: instantPay ? amtDec : new Prisma.Decimal(0),
-        paidAt: instantPay ? new Date() : null,
+        paidAt: instantPay ? osPaidAt : null,
         paymentMethod: instantPay ? args.paymentMethod : null,
         status: instantPay ? "PAID" : "PENDING",
       },
+      select: { id: true },
     });
+
+    // Parcela que JÁ NASCE PAGA precisa da linha no ledger — `stats.paidMonth`
+    // e o DRE leem só de `installment_payments` (auditoria 2026-07-25).
+    if (instantPay) {
+      await recordInstallmentPayment(tx, {
+        tenantId: args.tenantId,
+        installmentId: osInstallment.id,
+        transactionId: receivable.id,
+        amountCents: args.paidCents,
+        paymentMethod: args.paymentMethod,
+        paidAt: osPaidAt,
+        createdByUserId: args.userId,
+      });
+    }
   }
 
   await createOsServiceProviderPayable(tx, args.tenantId, args.order, args.paidCents, args.userId);
@@ -1536,6 +1553,30 @@ export const serviceOrderRouter = createTRPCRouter({
           });
           if (osReceivables.length > 0) {
             const osReceivableIds = osReceivables.map((t) => t.id);
+            // Lança o ESTORNO no ledger (linha negativa) ANTES de cancelar as
+            // parcelas: `stats.paidMonth` e o DRE somam `installment_payments`,
+            // então sem a contrapartida a OS estornada seguiria contando como
+            // recebida no mês (auditoria 2026-07-25).
+            const paidInstallments = await tx.installment.findMany({
+              where: {
+                transactionId: { in: osReceivableIds },
+                status: { not: "CANCELLED" },
+                paidAmount: { gt: 0 },
+              },
+              select: { id: true, transactionId: true, paidAmount: true, paymentMethod: true },
+            });
+            for (const inst of paidInstallments) {
+              await recordInstallmentPayment(tx, {
+                tenantId: ctx.tenantId,
+                installmentId: inst.id,
+                transactionId: inst.transactionId,
+                amountCents: -decimalToCents(inst.paidAmount),
+                paymentMethod: inst.paymentMethod,
+                paidAt: new Date(),
+                kind: "reversal",
+                createdByUserId: ctx.session.user.id,
+              });
+            }
             // Cancela TODAS as parcelas não-canceladas (inclusive PAID): a OS
             // foi integralmente estornada, o recebível deixa de existir.
             await tx.installment.updateMany({

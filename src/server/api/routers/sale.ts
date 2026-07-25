@@ -5,6 +5,7 @@ import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
+import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { resolveTradeInProductName } from "@/lib/utils/trade-in-name";
 import { findOrCreateBrandByName } from "@/server/services/product-brand.service";
@@ -1796,7 +1797,8 @@ export const saleRouter = createTRPCRouter({
               });
               await tx.installment.createMany({ data: installments });
             } else {
-              await tx.financialTransaction.create({
+              const cashPaidAt = new Date();
+              const cashFt = await tx.financialTransaction.create({
                 data: {
                   tenantId: ctx.tenantId,
                   type: "RECEIVABLE",
@@ -1805,14 +1807,25 @@ export const saleRouter = createTRPCRouter({
                   category: "venda",
                   totalAmount: centsToPrisma(spec.amountCents),
                   paidAmount: centsToPrisma(spec.amountCents),
-                  dueDate: new Date(),
-                  paidAt: new Date(),
+                  dueDate: cashPaidAt,
+                  paidAt: cashPaidAt,
                   paymentMethod: spec.paymentMethod,
                   saleId: sale.id,
                   referenceId: sale.id,
                   referenceType: "SALE",
                   customerId: input.customerId ?? null,
                 },
+              });
+              // Recebimento à vista precisa da parcela + linha no ledger:
+              // `stats.paidMonth` e o DRE leem só de `installment_payments`
+              // (auditoria 2026-07-25).
+              await recordCashPaidTransaction(tx, {
+                tenantId: ctx.tenantId,
+                transactionId: cashFt.id,
+                amountCents: spec.amountCents,
+                paidAt: cashPaidAt,
+                paymentMethod: spec.paymentMethod,
+                createdByUserId: ctx.session.user.id,
               });
             }
           }
