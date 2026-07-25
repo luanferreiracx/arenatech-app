@@ -5,6 +5,7 @@ import { createTRPCRouter, tenantProcedure, publicProcedure } from "@/server/api
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
+import { applyOsCancellation } from "@/server/services/os-cancellation.service";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
 import { buildServiceOrderQuotePdf } from "@/lib/pdf/service-order-quote-builder";
@@ -1144,69 +1145,16 @@ export const serviceOrderRouter = createTRPCRouter({
           forced = true;
         }
 
-        // F6 (auditoria OS 2026-07-10): CAS no status ANTES de liberar estoque.
-        // `releaseAllOsItems` usa `increment` (não idempotente) — dois cancels
-        // concorrentes liberavam o estoque em DOBRO. Reivindicamos a transição
-        // OPEN→CANCELLED atomicamente; quem perde o CAS aborta sem liberar nada.
-        const cancelCas = await tx.serviceOrder.updateMany({
-          where: { id: input.id, status: order.status },
-          data: { status: "CANCELLED", cancellationReason: input.reason },
-        });
-        if (cancelCas.count !== 1) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "A OS mudou de status durante o cancelamento. Recarregue e tente novamente.",
-          });
-        }
-
-        // Release all reserved product stock
-        const releasedCount = await releaseAllOsItems(tx, ctx.tenantId, ctx.session.user.id, input.id);
-
-        // Cancela receivables pendentes vinculados a OS (FT + installments).
-        // Sem isso, mesmo apos cancelar a OS, parcelas pendentes ficavam
-        // vencendo eternamente — quebrava dashboard de contas a receber.
-        const pendingTransactions = await tx.financialTransaction.findMany({
-          where: {
-            serviceOrderId: input.id,
-            status: { notIn: ["CANCELLED", "PAID"] },
-          },
-          select: { id: true },
-        });
-        for (const t of pendingTransactions) {
-          await tx.installment.updateMany({
-            where: { transactionId: t.id, status: { in: ["PENDING", "OVERDUE"] } },
-            data: { status: "CANCELLED" },
-          });
-          await tx.financialTransaction.update({
-            where: { id: t.id },
-            data: {
-              status: "CANCELLED",
-              cancelledAt: new Date(),
-              cancelledByUserId: ctx.session.user.id,
-              cancelReason: `OS cancelada: ${input.reason}`,
-            },
-          });
-        }
-
-        // (status/cancellationReason já gravados pelo CAS acima)
-
-        const noteParts: string[] = [];
-        if (forced) noteParts.push("[FORCADO SEM TERMO DE DEVOLUCAO]");
-        noteParts.push(input.reason);
-        if (releasedCount > 0) noteParts.push(`(${releasedCount} item(ns) de estoque liberado(s))`);
-        if (pendingTransactions.length > 0) {
-          noteParts.push(`(${pendingTransactions.length} recebivel(is) cancelado(s))`);
-        }
-
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.id,
-            userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: "CANCELLED",
-            notes: noteParts.join(" "),
-          },
+        // Ponto único de cancelamento (F6 + auditoria 2026-07-25): CAS no status
+        // ANTES de liberar estoque (`releaseAllOsItems` usa `increment`, que não
+        // é idempotente), depois estoque e recebíveis pendentes.
+        await applyOsCancellation(tx, {
+          tenantId: ctx.tenantId,
+          orderId: input.id,
+          userId: ctx.session.user.id,
+          currentStatus: order.status,
+          reason: input.reason,
+          historyPrefix: forced ? "[FORCADO SEM TERMO DE DEVOLUCAO]" : null,
         });
 
         return { success: true };
@@ -2088,8 +2036,8 @@ export const serviceOrderRouter = createTRPCRouter({
           data.returnTermSigned = true;
           data.returnTermPhysical = true;
           data.returnTermSignedAt = new Date();
-          data.status = "CANCELLED";
-          data.cancellationReason = input.reason ?? "Equipamento devolvido ao cliente";
+          // O cancelamento em si sai do `applyOsCancellation` abaixo (libera
+          // estoque + cancela recebiveis + CAS) — auditoria 2026-07-25.
           note = "Assinatura fisica do termo de devolucao confirmada — OS cancelada";
         }
 
@@ -2105,6 +2053,16 @@ export const serviceOrderRouter = createTRPCRouter({
             notes: note,
           },
         });
+
+        if (input.type === "return") {
+          await applyOsCancellation(tx, {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            userId: ctx.session.user.id,
+            currentStatus: order.status,
+            reason: input.reason ?? "Equipamento devolvido ao cliente",
+          });
+        }
 
         return { success: true };
       });
@@ -3741,8 +3699,6 @@ export const serviceOrderRouter = createTRPCRouter({
             returnTermSigned: true,
             returnTermPhysical: true,
             returnTermSignedAt: new Date(),
-            status: "CANCELLED",
-            cancellationReason: reason,
           },
         });
 
@@ -3757,15 +3713,15 @@ export const serviceOrderRouter = createTRPCRouter({
           },
         });
 
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: "CANCELLED",
-            notes: `OS cancelada - ${reason}`,
-          },
+        // Confirmar o termo CANCELA a OS — e cancelar é liberar estoque +
+        // cancelar recebiveis + CAS, não só gravar o status (auditoria
+        // 2026-07-25). Delega ao ponto único de cancelamento.
+        await applyOsCancellation(tx, {
+          tenantId: ctx.tenantId,
+          orderId: input.orderId,
+          userId: ctx.session.user.id,
+          currentStatus: order.status,
+          reason,
         });
 
         return { success: true };
@@ -3807,12 +3763,19 @@ export const serviceOrderRouter = createTRPCRouter({
       const reason = prep.order.cancellationReason ?? "Equipamento devolvido ao cliente";
 
       await ctx.withTenant(async (tx) => {
+        // Re-lê o status DENTRO da transação: `prep.order` foi carregado antes
+        // da chamada HTTP à Autentique e pode estar obsoleto.
+        const fresh = await tx.serviceOrder.findUnique({
+          where: { id: input.orderId },
+          select: { status: true },
+        });
+        if (!fresh) throw new TRPCError({ code: "NOT_FOUND" });
+
         await tx.serviceOrder.update({
           where: { id: input.orderId },
           data: {
             returnTermSigned: true,
             returnTermSignedAt: new Date(),
-            status: "CANCELLED",
           },
         });
 
@@ -3821,21 +3784,19 @@ export const serviceOrderRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             orderId: input.orderId,
             userId: ctx.session.user.id,
-            previousStatus: prep.order.status,
-            newStatus: prep.order.status,
+            previousStatus: fresh.status,
+            newStatus: fresh.status,
             notes: "Termo de devolucao assinado digitalmente pelo cliente",
           },
         });
 
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: prep.order.status,
-            newStatus: "CANCELLED",
-            notes: `OS cancelada - ${reason}`,
-          },
+        // Cancela de verdade (estoque + recebiveis + CAS) — auditoria 2026-07-25.
+        await applyOsCancellation(tx, {
+          tenantId: ctx.tenantId,
+          orderId: input.orderId,
+          userId: ctx.session.user.id,
+          currentStatus: fresh.status,
+          reason,
         });
       });
 
