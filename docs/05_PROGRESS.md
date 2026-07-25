@@ -19,6 +19,23 @@
 
 ---
 
+### 2026-07-25 — Batch E: fidelidade (reward) — fatia 1 (#685)
+Decisão do dono: CONSTRUIR a UI de fidelidade (o reward eram 846 linhas + cron
+rodando, 0 UI). Fatia 1: gestão de campanhas.
+- Página `/fidelidade` (grupo Clientes, módulo `customers`; rota mapeada) + nav
+  "Fidelidade". `RewardCampaignsManager`: lista + criar/editar/toggle (tipo
+  desconto%/R$/cashback/brinde, publicação story/reel/post, valor, submissões).
+- FIX backend: `updateCampaign` só persistia name/desc/datas/validade/limites —
+  editar tipo/valor/%/teto/publicação era no-op. Agora persiste tudo.
+- Integration test (cria/lista/edita value+tipo/toggle).
+**PRÓXIMAS FATIAS do reward (batch E):** (2) fila de aprovação das submissões
+(`RewardAction`: PENDING→approve/reject; listActions/approveAction/rejectAction/
+useAction já existem no router), (3) saldo do cliente na ficha (`getBalance`/
+`getAvailableRewards`), (4) resgate no PDV (aplicar cashback/desconto na venda).
+DINHEIRO nas fatias 3-4 (cashback = saldo) → testar com cuidado.
+**Batch E restante:** unificar Checklist com a OS (templates por-dispositivo do
+Checklist na inspeção de entrada da OS — refactor do intake).
+
 ### 2026-07-25 — Batch C: contas recorrentes (#683) — BATCH C COMPLETO
 - **#683 (C6) despesas/receitas recorrentes:** fecha o gargalo de re-digitar contas
   fixas (aluguel/salário/internet). Modelo `RecurringExpense` (template mensal, RLS
