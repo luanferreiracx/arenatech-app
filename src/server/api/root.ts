@@ -38,6 +38,7 @@ import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
 import { noKycRouter } from "@/server/api/routers/no-kyc";
 import { receivingRouter } from "@/server/api/routers/receiving";
 import { searchRouter } from "@/server/api/routers/search";
+import { recurringExpenseRouter } from "@/server/api/routers/recurring-expense";
 
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
@@ -78,6 +79,7 @@ export const appRouter = createTRPCRouter({
   receiving: receivingRouter,
   valuation: valuationRouter,
   search: searchRouter,
+  recurringExpense: recurringExpenseRouter,
 });
 
 export type AppRouter = typeof appRouter;
