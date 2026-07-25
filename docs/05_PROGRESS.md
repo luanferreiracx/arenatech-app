@@ -19,6 +19,22 @@
 
 ---
 
+### 2026-07-25 — Batch C: contas recorrentes (#683) — BATCH C COMPLETO
+- **#683 (C6) despesas/receitas recorrentes:** fecha o gargalo de re-digitar contas
+  fixas (aluguel/salário/internet). Modelo `RecurringExpense` (template mensal, RLS
+  por tenant) + `generateDueRecurringExpenses` (gera a FinancialTransaction do mês;
+  CAS em `lastGeneratedPeriod` = idempotente; per-template tx; cross-tenant withAdmin)
+  + cron `/api/cron/generate-recurring-expenses` (CRON_SECRET+withCronLock) + tRPC
+  `recurringExpense` (CRUD admin) + UI `/financial/recorrentes` (tabela + criar/editar
+  + toggle + "Gerar contas devidas"). Migration com RLS validada do zero.
+  **PENDENTE OPERACIONAL:** instalar o cron no VPS (diário 05:00 BRT) — a rota existe
+  mas o agendamento não (ver memória `cron-generate-recurring-expenses`).
+**BATCH C COMPLETO:** C1 fotos-OS(#681) · C2 estorno-parcial(#676) · C4 SKU-único(#678)
+· C5 editar-valor(#677) · C6 recorrentes(#683) · C7 parados(#680) · C8 MRR(#671).
+**Resta a batch E** (decisões do dono): fidelidade/reward UI (REAVALIAR: construir vs
+remover — 846 linhas mortas + cron; confirmar se loyalty será usada) + unificar
+Checklist com a OS (usar os templates por-dispositivo do Checklist na inspeção da OS).
+
 ### 2026-07-24 — Batch C: fotos do aparelho na OS (#681) + produtos parados (#680)
 - **#680 (C7) produtos parados / capital imobilizado:** nova aba em /stock/reports —
   produtos com estoque efetivo > 0 e sem venda há N dias (30/60/90/180), ordenados
