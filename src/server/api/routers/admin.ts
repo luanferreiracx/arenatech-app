@@ -662,6 +662,15 @@ export const adminRouter = createTRPCRouter({
           data: { status: "SUSPENDED" },
         });
 
+        // Defesa em profundidade (auditoria 2026-07-25): `validatePartnerApiKey`
+        // já recusa tenant não-ACTIVE, mas revogar aqui garante que reativar o
+        // tenant depois NÃO ressuscite silenciosamente uma key antiga — e deixa
+        // a revogação explícita na trilha de auditoria.
+        await tx.partnerApiKey.updateMany({
+          where: { tenantId: input.tenantId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+
         await logAudit(tx as never, {
           tenantId: input.tenantId,
           userId: ctx.session.user.id,
@@ -1513,6 +1522,14 @@ export const adminRouter = createTRPCRouter({
             data: { status: "CANCELLED", cancelReason: "Tenant cancelado" },
           });
         }
+
+        // Revoga as API-keys de parceiro junto com o tenant (auditoria
+        // 2026-07-25): sem isto, a key continuava sacando DePix depois do
+        // cancelamento — dinheiro on-chain, irreversível.
+        await tx.partnerApiKey.updateMany({
+          where: { tenantId: input.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
 
         await logAudit(tx as never, {
           tenantId: input.id,

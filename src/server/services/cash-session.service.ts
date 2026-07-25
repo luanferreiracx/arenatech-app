@@ -286,17 +286,36 @@ export async function autoCloseAbandonedSessions(
     const calculatedBalance = calculatedCents / 100
     const hoursOpen = Math.round((Date.now() - session.openedAt.getTime()) / (1000 * 60 * 60))
 
-    await tx.cashSession.update({
-      where: { id: session.id },
+    // Auditoria 2026-07-25 — dois defeitos que a correção CX-forceClose-B3
+    // (PR #513) resolveu no `forceClose` mas nunca chegou aqui:
+    //
+    // 1. NÃO fabricar o saldo contado. Gravar `declaredBalance =
+    //    calculatedBalance, difference = 0` faz a sessão fechada pelo cron
+    //    NUNCA aparecer como divergente (pendingReviews e periodStats somam
+    //    difference = 0). O gerente confere um caixa vendo "diferença R$ 0,00"
+    //    que ninguém contou — uma falta real de gaveta some do relatório.
+    //    NULL é honesto: ninguém contou o físico, então não há contado nem
+    //    divergência até a conferência real.
+    //
+    // 2. CAS em `closedAt: null`. Era `update` cego: o cron lia a sessão aberta
+    //    e, se o operador fechasse manualmente no intervalo, o cron
+    //    SOBRESCREVIA o fechamento real (declaredBalance/difference/closeType e
+    //    o próprio closedAt do operador) com os valores fabricados.
+    const claim = await tx.cashSession.updateMany({
+      where: { id: session.id, closedAt: null },
       data: {
         calculatedBalance: new Prisma.Decimal(calculatedBalance),
-        declaredBalance: new Prisma.Decimal(calculatedBalance),
-        difference: new Prisma.Decimal(0),
+        declaredBalance: null,
+        difference: null,
         closeType: "AUTOMATIC",
         closedAt: new Date(),
+        closingNote: `Fechamento automatico (sessao aberta ha ${hoursOpen}h, sem conferencia fisica)`,
         verified: false,
       },
     })
+    // Perdeu a corrida: o operador fechou manualmente no intervalo. O
+    // fechamento dele vale — segue para a próxima sessão sem sobrescrever.
+    if (claim.count !== 1) continue
 
     closedSessions.push({ id: session.id, userId: session.userId, hoursOpen })
   }

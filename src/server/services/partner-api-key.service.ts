@@ -89,13 +89,37 @@ export async function validatePartnerApiKey(
   if (!m) return null;
   const prefix = m[1]!;
 
-  const row = await withAdmin(async (tx) =>
-    tx.partnerApiKey.findUnique({
+  // Auditoria 2026-07-25: antes a key resolvia o tenant e NADA mais era
+  // checado. Tenant SUSPENDED/CANCELLED (inadimplente, ou desligado pelo
+  // superadmin) seguia sacando DePix — dinheiro on-chain, irreversível —
+  // porque `revokedAt` continuava nulo. E `apiAccessEnabled` só era consultado
+  // no router tRPC de GESTÃO da key, nunca nesta borda REST: desligar o toggle
+  // no painel não cortava o tráfego existente.
+  // (PartnerApiKey não tem relação Prisma com Tenant — busca explícita.)
+  const found = await withAdmin(async (tx) => {
+    const key = await tx.partnerApiKey.findUnique({
       where: { keyPrefix: prefix },
       select: { id: true, tenantId: true, keyHash: true, scopes: true, revokedAt: true },
-    }),
-  );
-  if (!row || row.revokedAt) return null;
+    });
+    if (!key) return null;
+    const tenant = await tx.tenant.findUnique({
+      where: { id: key.tenantId },
+      select: { status: true, apiAccessEnabled: true },
+    });
+    return { key, tenant };
+  });
+  if (!found?.key || found.key.revokedAt) return null;
+  const row = found.key;
+  // Fail-closed: só tenant ATIVO e com acesso à API explicitamente ligado.
+  if (found.tenant?.status !== "ACTIVE" || found.tenant.apiAccessEnabled !== true) {
+    logger.warn("Partner API: key valida recusada (tenant inelegivel)", {
+      tenantId: row.tenantId,
+      keyPrefix: prefix,
+      tenantStatus: found.tenant?.status ?? null,
+      apiAccessEnabled: found.tenant?.apiAccessEnabled ?? null,
+    });
+    return null;
+  }
   // bcrypt.compareSync é constante-time o suficiente p/ o hash; o prefix só
   // localiza — o segredo verdadeiro é provado pelo hash da key completa.
   if (!compareSync(presentedKey.trim(), row.keyHash)) return null;
