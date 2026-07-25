@@ -211,11 +211,25 @@ export const rewardRouter = createTRPCRouter({
           tx.rewardAction.count({ where }),
         ])
 
+        // Nome/telefone do cliente: RewardAction não tem relação Prisma p/ Customer
+        // (só o FK escalar), então resolvemos num 2º lote (1 query, sem N+1). A fila
+        // de aprovação precisa identificar QUEM submeteu.
+        const customerIds = [...new Set(data.map((a) => a.customerId))]
+        const customers = customerIds.length
+          ? await tx.customer.findMany({
+              where: { id: { in: customerIds } },
+              select: { id: true, name: true, phone: true },
+            })
+          : []
+        const customerById = new Map(customers.map((c) => [c.id, c]))
+
         return {
           data: data.map((a) => ({
             ...a,
             value: decimalToCents(a.value),
             percentage: Number(a.percentage),
+            customerName: customerById.get(a.customerId)?.name ?? null,
+            customerPhone: customerById.get(a.customerId)?.phone ?? null,
           })),
           total,
           pageCount: Math.ceil(total / pageSize),
