@@ -19,6 +19,53 @@
 
 ---
 
+### 2026-07-25 — AUDITORIA GERAL (módulo a módulo, 4 rodadas) — 4 P0 corrigidos
+Varredura do sistema inteiro (skills audit-fullstack/backend/frontend/security).
+Regra da rodada: **todo bug de dinheiro/estoque provado por teste que FALHA antes
+do fix**; impacto medido contra o banco de **produção** (read-only; backfill
+validado em transação com ROLLBACK). Relatório completo + backlog dos ~24 achados
+não corrigidos: `docs/AUDITORIA_GERAL_2026-07-25.md`.
+**NF-e import ficou FORA por decisão do dono** (aguarda escolha da API).
+
+- **#694 — peça na OS NUNCA funcionou (drift de enum).** `schema.prisma` declara
+  `StockMovementType.RESERVE/RELEASE` desde o fluxo "peça na OS", mas nenhuma
+  migration os adicionou ao banco. Prova: 235 itens de OS em prod, **100%
+  SERVICE, zero PRODUCT**; zero movimentos RESERVE. A UI oferece "Produto/Peça"
+  em 2 lugares e falhava sempre (rollback → sem corrupção). Varri os 58 enums:
+  era o único drift real.
+- **#694 — termo de devolução gravava CANCELLED sem cancelar nada.** 4 caminhos
+  escreviam o status e só o `cancel` liberava estoque / cancelava recebível /
+  tinha CAS / tinha RBAC. Peça reservada sumia do inventário, parcela seguia
+  vencendo, e **operador comum cancelava OS PAGA** sem estorno. Fix estrutural:
+  `applyOsCancellation` como ponto único (o `cancel` agora delega).
+- **#696 — `stock.entryQuantity` sem guard de regime.** Aceitava serializado /
+  com-variações e escrevia em `product.currentStock` → saldo FANTASMA (no banco
+  e no kardex, invisível na UI, que lê o saldo derivado) + `costPrice` do pai
+  corrompido. As 5 irmãs já barravam.
+- **#696 — estorno parcial duplicava caixa e estoque.** O CAS aceitava
+  `PARTIALLY_REFUNDED` como entrada E saída, e o filtro `total > 0` lia snapshot
+  → duplo-clique passava os dois. Agora o claim das linhas vem ANTES dos efeitos.
+- **#697 — IDOR no Talison (LGPD).** `consultar_status_os`/`verificar_garantia`
+  descartavam o filtro de dono quando vinha `numero_os` (que é SEQUENCIAL) →
+  qualquer contato lia a OS de qualquer cliente pelo WhatsApp. `buscar_cliente`
+  com CPF virava oráculo CPF→nome. Posse passa a ancorar sempre. Fechado também
+  o prompt-injection pelo `contactName` (perfil do WhatsApp entrava cru no
+  system prompt, fora do bloco delimitado do ADR 0055).
+- **#698 — DRE subestimava a despesa em R$ 342.130,00.** A linha de despesa lê
+  SÓ de `installment_payments`, mas lançamento à vista (compra de aparelho,
+  venda, OS em dinheiro) nascia PAID sem parcela e sem ledger. Medido em prod:
+  DRE mostrava R$ 1.107.499,99 quando o real era R$ 1.449.629,99 (**24% de
+  despesa invisível → lucro inflado**); +R$ 266.952,33 de receita fora do
+  "recebido no mês". `installment-ledger.service` vira ponto único + backfill
+  idempotente (dry-run em prod: 486+486 linhas, zero divergência).
+
+**LIÇÕES:** (1) `schema.prisma` ≠ banco — comparar enums/colunas contra produção
+vale como auditoria própria; o CI não pega porque roda `migrate deploy` num
+banco limpo, que reproduz o mesmo drift. (2) "0 registros de um tipo em produção"
+é sinal forte de funcionalidade quebrada, não de desuso. (3) Teste de integração
+NÃO roda em paralelo no mesmo Postgres local (confirmado de novo — usar
+`--no-file-parallelism`).
+
 ### 2026-07-25 — FIDELIDADE COMPLETA: resgate no PDV + estorno devolve (#690)
 Fatia 4 (final) do épico. DINHEIRO → construído em TDD (RED→GREEN, um comportamento
 por vez), com as 3 decisões do dono aplicadas.
