@@ -3,6 +3,34 @@ enum TransactionType {
   RECEIVABLE
 }
 
+/// Modelo de despesa/receita RECORRENTE (mensal). Um template — o cron gera a
+/// FinancialTransaction PENDENTE de cada mês a partir dele. Evita re-digitar
+/// contas fixas (aluguel, salário, internet). `lastGeneratedPeriod` (YYYY-MM)
+/// garante idempotência (uma geração por mês por template).
+model RecurringExpense {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  type                TransactionType @default(PAYABLE)
+  description         String
+  amountCents         Int             @map("amount_cents")
+  category            String?
+  categoryId          String?         @map("category_id") @db.Uuid
+  supplier            String?
+  supplierId          String?         @map("supplier_id") @db.Uuid
+  /// Dia do mês do vencimento (1–28, para não escorregar em meses curtos).
+  dayOfMonth          Int             @map("day_of_month")
+  active              Boolean         @default(true)
+  /// YYYY-MM do último mês já gerado (idempotência do cron).
+  lastGeneratedPeriod String?         @map("last_generated_period")
+  notes               String?
+  createdByUserId     String?         @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  @@index([tenantId, active])
+  @@map("recurring_expenses")
+}
+
 enum TransactionStatus {
   PENDING
   PAID
