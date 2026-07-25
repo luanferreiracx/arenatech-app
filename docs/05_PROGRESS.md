@@ -40,10 +40,28 @@ por vez), com as 3 decisões do dono aplicadas.
   não-dinheiro sai fora da gaveta, comportamento M2 pré-existente confirmado).
 **ÉPICO DE FIDELIDADE COMPLETO** (#685 campanhas · #687 fila · #688 saldo · #690
 resgate+estorno): de 846 linhas mortas a produto usável ponta-a-ponta.
-**RESTA do batch E:** unificar Checklist com a OS (templates por-dispositivo do
-Checklist na inspeção de entrada — refactor do intake da OS).
 **LIÇÃO (repetida):** testes de integração NÃO rodam em paralelo no mesmo DB local
 (caixa/draft compartilhados dão falso-negativo) — rodar sequencial ao validar.
+
+### 2026-07-25 — Checklist: "unificar com a OS" REVISADO (não fazer)
+A varredura sugeriu "unificar os 2 sistemas de checklist" e o dono havia aprovado.
+Ao reler o CÓDIGO antes de executar, a premissa se mostrou **errada** — os dois têm
+PROPÓSITOS DIFERENTES:
+- **Checklist da OS** (`CHECKLIST_ITEMS`, 15 checkboxes sim/não em
+  `ServiceOrder.entryChecklist`): estado do aparelho **na entrada do REPARO** —
+  rápido no balcão, serve de defesa ("vocês arranharam meu aparelho").
+- **Módulo `/checklist`** (6 templates por dispositivo: smartphone/notebook/console/
+  switch/smartwatch/airpods, campos radio com graus + acessórios + **Valor
+  Oferecido**, tabela `checklists`): **"avaliação técnica de aparelhos para COMPRA"**
+  — precifica seminovo/trade-in. Não é a mesma pergunta.
+Forçar o template de compra (17 campos obrigatórios, "IMEI confere com a nota?") no
+intake da OS deixaria o atendimento MAIS LENTO — o oposto do objetivo da varredura.
+**DECISÃO DO DONO (2026-07-25): NÃO unificar; Checklist fica de lado por ora.**
+O problema REAL do módulo (confirmado no código, se um dia valer atacar) não é
+duplicação e sim ser um **beco sem saída**: o laudo é salvo e desaparece (sem tela de
+listagem), `searchByImei` é código morto, e `serviceOrderId`/`purchaseId` saem sempre
+null (o wizard nunca os preenche). O caminho seria dar SAÍDA ao laudo (listagem +
+busca por IMEI + vincular à compra/OS), não unificar.
 
 ### 2026-07-25 — Batch E: fidelidade fatias 2-3 (#687 fila, #688 saldo)
 - **#687 (fatia 2) fila de aprovação:** `/fidelidade` vira abas Submissões|Campanhas.
@@ -61,8 +79,8 @@ Checklist na inspeção de entrada — refactor do intake da OS).
 **RESTA da fidelidade:** fatia 4 — **resgate no PDV** (aplicar cashback/desconto na
 venda; usa `lockBalance`/`useAction`). TOCA DINHEIRO → sessão dedicada, com teste de
 concorrência (lock/unlock) e verificação de que o desconto não duplica.
-**RESTA do batch E:** unificar Checklist com a OS (templates por-dispositivo do
-Checklist na inspeção de entrada — refactor do intake da OS).
+**RESTA do batch E:** unificar Checklist com a OS — ⚠️ REVISADO/CANCELADO em
+2026-07-25 (propósitos diferentes; ver a entrada "Checklist REVISADO" no topo).
 
 ### 2026-07-25 — Batch E: fidelidade (reward) — fatia 1 (#685)
 Decisão do dono: CONSTRUIR a UI de fidelidade (o reward eram 846 linhas + cron
@@ -78,8 +96,8 @@ rodando, 0 UI). Fatia 1: gestão de campanhas.
 useAction já existem no router), (3) saldo do cliente na ficha (`getBalance`/
 `getAvailableRewards`), (4) resgate no PDV (aplicar cashback/desconto na venda).
 DINHEIRO nas fatias 3-4 (cashback = saldo) → testar com cuidado.
-**Batch E restante:** unificar Checklist com a OS (templates por-dispositivo do
-Checklist na inspeção de entrada da OS — refactor do intake).
+**Batch E restante:** unificar Checklist com a OS — ⚠️ REVISADO/CANCELADO em
+2026-07-25 (ver a entrada "Checklist REVISADO" no topo).
 
 ### 2026-07-25 — Batch C: contas recorrentes (#683) — BATCH C COMPLETO
 - **#683 (C6) despesas/receitas recorrentes:** fecha o gargalo de re-digitar contas
