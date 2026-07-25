@@ -7,6 +7,14 @@ import { logger } from "@/lib/logger";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { CENTRAL_TENANT_SLUG } from "@/lib/tenants/central-tenant";
+import {
+  ALWAYS_ON_MODULES,
+  MODULE_LABELS,
+  TOTAL_ACCESS_TENANT_SLUG,
+  isModuleKey,
+  withModuleDependencies,
+  type ModuleKey,
+} from "@/lib/modules";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -57,7 +65,7 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
  * This ensures that even if the proxy matcher changes or a cookie is forged,
  * the backend rejects unauthorized tenant access.
  */
-export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
+export const tenantProcedure = t.procedure.use(async ({ ctx, next, path }) => {
   if (!ctx.session?.user) {
     logger.warn("tenantProcedure: unauthenticated request");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
@@ -77,6 +85,8 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: "FORBIDDEN", message: "No access to this tenant" });
   }
 
+  assertModuleAllowed(ctx.session, ctx.tenantId, path);
+
   return next({
     ctx: {
       session: ctx.session,
@@ -85,6 +95,102 @@ export const tenantProcedure = t.procedure.use(async ({ ctx, next }) => {
     },
   });
 });
+
+/**
+ * Gating de MÓDULO na borda tRPC (auditoria 2026-07-25).
+ *
+ * O gate por plano vivia SÓ no proxy e, por decisão documentada, **pula
+ * `/api/*`**: um redirect 307 → HTML quebrava o cliente JSON (o tRPC recebia
+ * "<!DOCTYPE" e derrubava TODAS as queries). A conclusão de que "tenantProcedure
+ * já autoriza" confundiu duas coisas diferentes: `tenantProcedure` + RLS
+ * garantem ISOLAMENTO (o dado é do tenant certo), não GATING DE PLANO. Um tenant
+ * wallet-only chamava `stock.*`, `sale.*`, `financial.*` direto pela API — o
+ * plano virava preferência de UI.
+ *
+ * Aqui a resposta é um `FORBIDDEN` tRPC normal (JSON), nunca um redirect — não
+ * reintroduz o incidente. `settings` é sempre-on e o tenant de acesso total
+ * (arena-tech) passa, espelhando `allowedModulesForTenant`.
+ */
+/**
+ * Router tRPC → módulo comercializável. Só entram os routers que representam
+ * funcionalidade de plano; os ausentes (auth, twoFactor, dashboard, search,
+ * admin/superadmin, os depix* de wallet, settings) passam livres — ou porque
+ * são sempre-on por design, ou porque têm gate próprio (adminProcedure,
+ * centralTenantProcedure).
+ *
+ * Espelha `MODULE_ROUTE_PREFIXES` do gating de rota; se um router novo nascer
+ * dentro de um módulo pago, some aqui.
+ */
+const ROUTER_MODULE: Record<string, ModuleKey> = {
+  sale: "pdv",
+  quickSale: "depix-ops",
+  stock: "stock",
+  catalog: "stock",
+  nfeImport: "stock",
+  cashier: "cashier",
+  financial: "financial",
+  receiving: "financial",
+  recurringExpense: "financial",
+  serviceOrder: "service-orders",
+  operation: "service-orders",
+  communication: "service-orders",
+  customer: "customers",
+  interest: "customers",
+  reward: "customers",
+  valuation: "tools",
+  simulator: "tools",
+  checklist: "tools",
+  imei: "tools",
+  fiscal: "fiscal",
+  providerCommission: "commissions",
+  partnerApiKey: "partner-api",
+};
+
+/**
+ * Gating de MÓDULO na borda tRPC (auditoria 2026-07-25).
+ *
+ * O gate por plano vivia SÓ no proxy e, por decisão documentada, **pula
+ * `/api/*`**: um redirect 307 → HTML quebrava o cliente JSON (o tRPC recebia
+ * "<!DOCTYPE" e derrubava TODAS as queries de qualquer não-superadmin). A
+ * conclusão de que "tenantProcedure já autoriza" confundiu duas coisas:
+ * `tenantProcedure` + RLS garantem ISOLAMENTO (o dado é do tenant certo), não
+ * GATING DE PLANO. Um tenant wallet-only chamava `stock.*`, `sale.*`,
+ * `financial.*` direto pela API — o plano virava preferência de UI.
+ *
+ * Aqui a recusa é um `FORBIDDEN` tRPC normal (JSON), nunca um redirect — não
+ * reintroduz o incidente. Aplicado uma vez em `tenantProcedure`, cobre as ~310
+ * procedures sem tocar em cada uma.
+ */
+function assertModuleAllowed(
+  session: NonNullable<Context["session"]>,
+  tenantId: string,
+  path: string,
+): void {
+  const routerName = path.split(".")[0] ?? "";
+  const required = ROUTER_MODULE[routerName];
+  if (!required) return; // router sem módulo comercializável → passa
+
+  const tenant = session.availableTenants?.find((t) => t.id === tenantId);
+  // Dependências: quem tem `pdv` tem `cashier`/`financial` implicitamente —
+  // mesma expansão que o gating de rota aplica.
+  const granted = new Set(withModuleDependencies((tenant?.modules ?? []).filter(isModuleKey)));
+  const allowed =
+    tenant?.slug === TOTAL_ACCESS_TENANT_SLUG ||
+    ALWAYS_ON_MODULES.includes(required) ||
+    granted.has(required);
+  if (allowed) return;
+
+  logger.warn("tenantProcedure: modulo fora do plano do tenant", {
+    userId: session.user.id,
+    tenantId,
+    path,
+    required,
+  });
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: `Modulo "${MODULE_LABELS[required] ?? required}" nao esta incluso no plano deste tenant.`,
+  });
+}
 
 /**
  * Tenant admin procedure — requer role administrativo no tenant ativo.
