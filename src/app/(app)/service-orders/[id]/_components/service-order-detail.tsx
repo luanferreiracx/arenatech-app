@@ -87,6 +87,7 @@ import {
   OrderDeviceInfoCard,
 } from "./detail-sections";
 import { DeviceHistoryPanel } from "./device-history-panel";
+import { ServiceOrderPhotoManager } from "./service-order-photo-manager";
 
 function formatMoney(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", {
@@ -776,6 +777,14 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             imei={order.imei}
             serialNumber={order.serialNumber}
           />
+
+          {/* Fotos do aparelho (estado na entrada/saída) */}
+          <div className="rounded-lg border border-border p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-primary">
+              Fotos do aparelho
+            </h3>
+            <ServiceOrderPhotoManager orderId={order.id} />
+          </div>
 
           {/* Problem & Diagnostics */}
           <div className="rounded-lg border border-border p-4">
