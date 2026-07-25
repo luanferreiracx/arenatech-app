@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/domain/page-header";
-import { RewardCampaignsManager } from "./_components/reward-campaigns-manager";
+import { FidelidadeTabs } from "./_components/fidelidade-tabs";
 
 export default function FidelidadePage() {
   return (
@@ -8,7 +8,7 @@ export default function FidelidadePage() {
         title="Fidelidade"
         subtitle="Campanhas de recompensa — o cliente publica (story/reel/post) e ganha desconto, cashback ou brinde"
       />
-      <RewardCampaignsManager />
+      <FidelidadeTabs />
     </div>
   );
 }
