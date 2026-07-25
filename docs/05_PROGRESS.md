@@ -19,6 +19,32 @@
 
 ---
 
+### 2026-07-25 — FIDELIDADE COMPLETA: resgate no PDV + estorno devolve (#690)
+Fatia 4 (final) do épico. DINHEIRO → construído em TDD (RED→GREEN, um comportamento
+por vez), com as 3 decisões do dono aplicadas.
+- **`sale.applyRewardDiscount`** (nova): consome a recompensa APROVADA (CAS
+  APPROVED→USED vinculando à venda) e grava o desconto. Desconto % resolve contra o
+  subtotal COM o cap da campanha e é gravado como FIXO em centavos — guardar
+  "percentage" faria o `recalculateSale` mudar o desconto sozinho quando o carrinho
+  mudasse. Clamp: nunca desconta mais que o subtotal. Valida recompensa-pertence-ao-
+  cliente-da-venda + APPROVED + expiração + DRAFT com itens. GIFT registra sem abater.
+  DECISÃO: recompensa SUBSTITUI o desconto manual (a Sale tem 1 slot) — UI avisa.
+- **BUG CORRIGIDO no `sale.refund`:** o estorno não sabia de fidelidade — a recompensa
+  ficava USED pra sempre e o cliente PERDIA o benefício. Agora estorno TOTAL reverte
+  (USED→APPROVED, limpa usedAt/usedInSaleId) com CAS por status (não revive
+  recompensa reaproveitada). Parcial mantém consumida (venda segue ativa c/ desconto).
+- **UI:** botão "Resgatar recompensa" no PDV (só com cliente) + dialog das disponíveis.
+- **3 testes de dinheiro:** abate o total consumindo a recompensa · resgatar a MESMA 2x
+  é bloqueado (não desconta em dobro) · estorno devolve a recompensa E a GAVETA
+  devolve só o pago em dinheiro (R$85 de venda R$100 c/ R$15 de recompensa — a parcela
+  não-dinheiro sai fora da gaveta, comportamento M2 pré-existente confirmado).
+**ÉPICO DE FIDELIDADE COMPLETO** (#685 campanhas · #687 fila · #688 saldo · #690
+resgate+estorno): de 846 linhas mortas a produto usável ponta-a-ponta.
+**RESTA do batch E:** unificar Checklist com a OS (templates por-dispositivo do
+Checklist na inspeção de entrada — refactor do intake da OS).
+**LIÇÃO (repetida):** testes de integração NÃO rodam em paralelo no mesmo DB local
+(caixa/draft compartilhados dão falso-negativo) — rodar sequencial ao validar.
+
 ### 2026-07-25 — Batch E: fidelidade fatias 2-3 (#687 fila, #688 saldo)
 - **#687 (fatia 2) fila de aprovação:** `/fidelidade` vira abas Submissões|Campanhas.
   `RewardActionsQueue`: filtro por status, tabela (cliente+telefone, campanha,
