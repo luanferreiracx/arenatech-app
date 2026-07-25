@@ -19,6 +19,30 @@
 
 ---
 
+### 2026-07-25 — Backlog da auditoria: os 3 P1 de maior risco (#700)
+Sequência da varredura geral. Mesma regra: cada bug provado por teste que FALHA
+antes do fix.
+- **API-key de parceiro sobrevivia à suspensão/cancelamento do tenant.**
+  `validatePartnerApiKey` checava só `revokedAt` — tenant SUSPENDED/CANCELLED
+  seguia SACANDO DePix (dinheiro on-chain, irreversível), e `apiAccessEnabled`
+  só era lido no router de GESTÃO da key, nunca na borda REST (desligar o toggle
+  no painel não cortava nada). Agora fail-closed + revogação ao suspender.
+- **Gating de módulo não existia no tRPC.** O gate vivia só no proxy, que pula
+  `/api/*` por decisão documentada (o 307→HTML derrubava o cliente JSON). A
+  premissa "tenantProcedure já autoriza" confundia ISOLAMENTO (RLS) com GATING
+  DE PLANO: tenant wallet-only chamava `stock.*`/`sale.*`/`financial.*` direto
+  pela API — bypass de monetização. Agora `tenantProcedure` resolve o módulo
+  pelo path e recusa com FORBIDDEN em JSON (nunca redirect). O teste cobre os
+  DOIS lados — inclusive que o tenant COM o módulo segue funcionando, que é a
+  regressão do incidente antigo.
+- **Cron de fechamento de caixa fabricava saldo contado** (`declaredBalance =
+  calculatedBalance, difference = 0`) → falta real de gaveta sumia de
+  pendingReviews/periodStats; e era `update` cego, atropelando fechamento manual
+  concorrente. Agora NULL + CAS, espelhando o CX-forceClose-B3 (#513) que nunca
+  chegou ao cron.
+**LIÇÃO:** correção aplicada num caminho (forceClose) não se propaga sozinha aos
+irmãos (cron) — ao fechar um bug de padrão, varrer quem mais faz a mesma coisa.
+
 ### 2026-07-25 — AUDITORIA GERAL (módulo a módulo, 4 rodadas) — 4 P0 corrigidos
 Varredura do sistema inteiro (skills audit-fullstack/backend/frontend/security).
 Regra da rodada: **todo bug de dinheiro/estoque provado por teste que FALHA antes
