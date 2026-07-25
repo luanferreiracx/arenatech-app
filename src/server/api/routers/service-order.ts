@@ -59,6 +59,7 @@ import {
 import { technicianReportSchema } from "@/lib/validators/subscription";
 import { sendCloudText } from "@/lib/services/whatsapp-cloud-service";
 import { statusAfterQuote, lastRealOriginWhere } from "@/lib/services/quote-status";
+import { deleteEntityImage } from "@/lib/product-image-service";
 import { endOfDayBrt, startOfDayBrt } from "@/lib/utils/date-range";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
@@ -3160,6 +3161,94 @@ export const serviceOrderRouter = createTRPCRouter({
           warrantyMonths: o.warrantyMonths,
         }));
       });
+    }),
+
+  // ── FOTOS DO APARELHO (reuso da infra de imagem do catálogo) ──
+  // Qualquer membro do tenant pode gerir (o técnico/operador manuseia o aparelho).
+
+  /** Lista as fotos (documents type="photo") de uma OS. */
+  listPhotos: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const photos = await tx.serviceOrderDocument.findMany({
+          where: { orderId: input.orderId, type: "photo" },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            url: true,
+            thumbUrl: true,
+            mediumUrl: true,
+            name: true,
+            createdAt: true,
+          },
+        });
+        return photos;
+      });
+    }),
+
+  /** Registra uma foto já enviada ao storage (via /api/service-orders/upload). */
+  addPhoto: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        url: z.string().url().max(2000),
+        thumbUrl: z.string().url().max(2000).optional().nullable(),
+        mediumUrl: z.string().url().max(2000).optional().nullable(),
+        provider: z.string().max(30).optional().nullable(),
+        providerPublicId: z.string().max(300).optional().nullable(),
+        name: z.string().max(200).optional().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const order = await tx.serviceOrder.findFirst({
+          where: { id: input.orderId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!order) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
+        }
+        const count = await tx.serviceOrderDocument.count({
+          where: { orderId: input.orderId, type: "photo" },
+        });
+        if (count >= 12) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Maximo de 12 fotos por OS" });
+        }
+        return tx.serviceOrderDocument.create({
+          data: {
+            tenantId: ctx.tenantId,
+            orderId: input.orderId,
+            type: "photo",
+            name: input.name ?? "Foto do aparelho",
+            url: input.url,
+            thumbUrl: input.thumbUrl ?? null,
+            mediumUrl: input.mediumUrl ?? null,
+            provider: input.provider ?? null,
+            providerPublicId: input.providerPublicId ?? null,
+            mimeType: "image/webp",
+          },
+          select: { id: true },
+        });
+      });
+    }),
+
+  /** Remove uma foto da OS (apaga do storage best-effort). */
+  deletePhoto: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const doc = await ctx.withTenant(async (tx) => {
+        const d = await tx.serviceOrderDocument.findFirst({
+          where: { id: input.id, type: "photo" },
+          select: { id: true, url: true, provider: true, providerPublicId: true },
+        });
+        if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "Foto nao encontrada" });
+        await tx.serviceOrderDocument.delete({ where: { id: d.id } });
+        return d;
+      });
+      // Apaga do storage FORA da tx (best-effort — nunca derruba a remoção do registro).
+      await deleteEntityImage({ url: doc.url, provider: doc.provider, providerPublicId: doc.providerPublicId });
+      return { success: true };
     }),
 
   // ── 2. SEARCH PARTS (stock products) ──

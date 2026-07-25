@@ -62,14 +62,34 @@ export async function uploadProductImage(
   fileBuffer: Buffer,
   mimeType: string
 ): Promise<ProductPhotoUrls> {
+  return uploadEntityImage(tenantId, "products", productId, photoId, fileBuffer, mimeType)
+}
+
+/**
+ * Upload genérico de imagem por ENTIDADE (produto, ordem de serviço, etc.).
+ * Mesma infra (Cloudinary/MinIO + 3 versões thumb/medium/original) usada pelo
+ * catálogo — só muda a pasta (`tenants/{tenantId}/{kind}/{entityId}`). Reusado
+ * pelas fotos do aparelho na OS (kind="service-orders").
+ */
+export async function uploadEntityImage(
+  tenantId: string,
+  kind: string,
+  entityId: string,
+  photoId: string,
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<ProductPhotoUrls> {
   validateImage(fileBuffer, mimeType)
+  const relPath = `tenants/${tenantId}/${kind}/${entityId}`
 
   if (getProductImagesProvider() === "cloudinary") {
-    return uploadProductImageToCloudinary(tenantId, productId, photoId, fileBuffer)
+    return uploadImageToCloudinary(relPath, photoId, fileBuffer, { tenantId, kind, entityId })
   }
-
-  return uploadProductImageToMinio(tenantId, productId, photoId, fileBuffer)
+  return uploadImageToMinio(relPath, photoId, fileBuffer, { tenantId, kind, entityId })
 }
+
+/** Alias explícito para remoção genérica (a implementação já é por url/provider). */
+export const deleteEntityImage = deleteProductImage
 
 /** Upload de imagem de variacao usando o provider configurado. */
 export async function uploadVariationImage(
@@ -149,20 +169,19 @@ function getProductImagesProvider(): "cloudinary" | "minio" {
   return process.env.PRODUCT_IMAGES_PROVIDER === "minio" ? "minio" : "cloudinary"
 }
 
-async function uploadProductImageToCloudinary(
-  tenantId: string,
-  productId: string,
+async function uploadImageToCloudinary(
+  relPath: string,
   photoId: string,
-  fileBuffer: Buffer
+  fileBuffer: Buffer,
+  logCtx: Record<string, string>
 ): Promise<ProductPhotoUrls> {
   configureCloudinary()
-  const folder = getCloudinaryFolder(`tenants/${tenantId}/products/${productId}`)
+  const folder = getCloudinaryFolder(relPath)
   const result = await uploadBufferToCloudinary(fileBuffer, folder, photoId)
   const baseOptions = { secure: true, resource_type: "image" as const }
 
-  logger.info("Product image uploaded to Cloudinary", {
-    tenantId,
-    productId,
+  logger.info("Entity image uploaded to Cloudinary", {
+    ...logCtx,
     photoId,
     publicId: result.public_id,
   })
@@ -295,13 +314,13 @@ function toCloudinaryMetadata(result: UploadApiResponse): ProductImageMetadata {
   }
 }
 
-async function uploadProductImageToMinio(
-  tenantId: string,
-  productId: string,
+async function uploadImageToMinio(
+  relPath: string,
   photoId: string,
-  fileBuffer: Buffer
+  fileBuffer: Buffer,
+  logCtx: Record<string, string>
 ): Promise<ProductPhotoUrls> {
-  const basePath = `tenants/${tenantId}/products/${productId}`
+  const basePath = relPath
   const urls: Record<string, string> = {}
 
   const sharp = (await import("sharp")).default
@@ -317,7 +336,7 @@ async function uploadProductImageToMinio(
     urls[version.suffix] = getMinioUrl(key)
   }
 
-  logger.info("Product image uploaded to MinIO", { tenantId, productId, photoId })
+  logger.info("Entity image uploaded to MinIO", { ...logCtx, photoId })
 
   return {
     url: urls["original"]!,

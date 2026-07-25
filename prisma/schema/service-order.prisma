@@ -226,6 +226,12 @@ model ServiceOrderDocument {
   type            String
   name            String
   url             String
+  // Fotos do aparelho (reuso da infra de imagem do catálogo): versões
+  // thumb/medium + provider/publicId p/ exibir na galeria e apagar do storage.
+  thumbUrl        String?  @map("thumb_url")
+  mediumUrl       String?  @map("medium_url")
+  provider        String?
+  providerPublicId String? @map("provider_public_id")
   mimeType        String?  @map("mime_type")
   size            Int?
   createdAt       DateTime @default(now()) @map("created_at")
