@@ -239,6 +239,8 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   // customers
   ["/customers", "customers"],
   ["/interests", "customers"],
+  // Fidelidade (reward): programa de relacionamento — pertence a clientes.
+  ["/fidelidade", "customers"],
   // Relacionamento (WhatsApp/e-mail) é de CLIENTES, não de assistência — um
   // tenant de varejo puro (só PDV+clientes) também precisa do canal. service-orders
   // depende de customers, então tenants de OS seguem com acesso.
