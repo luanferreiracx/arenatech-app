@@ -43,15 +43,25 @@ export const consultarStatusOs: TalisonTool<typeof osLookupSchema> = {
     "Retorna o status traduzido. Nunca invente status — só use o retorno desta tool.",
   schema: osLookupSchema,
   async execute(args, ctx) {
+    // IDOR (auditoria 2026-07-25): o número da OS é sequencial e fácil de
+    // adivinhar. Antes, informar `numero_os` DESCARTAVA o filtro de dono —
+    // qualquer contato no WhatsApp lia a OS de qualquer outro cliente
+    // (aparelho, status, valor). A posse passa a ser obrigatória SEMPRE; o
+    // número vira filtro adicional, nunca chave alternativa.
+    const ownerId = ctx.conversation.customerId;
+    if (!ownerId) {
+      return {
+        ok: false as const,
+        reason:
+          "Não consegui identificar o cadastro deste contato. Peça o CPF para localizar o cadastro ou transfira pra um atendente.",
+      };
+    }
     return ctx.withTenant(async (tx) => {
       const order = await tx.serviceOrder.findFirst({
         where: {
           tenantId: ctx.tenantId,
-          ...(args.numero_os
-            ? { number: args.numero_os.trim() }
-            : ctx.conversation.customerId
-              ? { customerId: ctx.conversation.customerId }
-              : { number: "__none__" }),
+          customerId: ownerId,
+          ...(args.numero_os ? { number: args.numero_os.trim() } : {}),
         },
         orderBy: { entryDate: "desc" },
         select: {
@@ -106,15 +116,25 @@ export const verificarGarantia: TalisonTool<typeof osLookupSchema> = {
     "entrega + meses de garantia da OS. Nunca estime garantia de memória.",
   schema: osLookupSchema,
   async execute(args, ctx) {
+    // IDOR (auditoria 2026-07-25): o número da OS é sequencial e fácil de
+    // adivinhar. Antes, informar `numero_os` DESCARTAVA o filtro de dono —
+    // qualquer contato no WhatsApp lia a OS de qualquer outro cliente
+    // (aparelho, status, valor). A posse passa a ser obrigatória SEMPRE; o
+    // número vira filtro adicional, nunca chave alternativa.
+    const ownerId = ctx.conversation.customerId;
+    if (!ownerId) {
+      return {
+        ok: false as const,
+        reason:
+          "Não consegui identificar o cadastro deste contato. Peça o CPF para localizar o cadastro ou transfira pra um atendente.",
+      };
+    }
     return ctx.withTenant(async (tx) => {
       const order = await tx.serviceOrder.findFirst({
         where: {
           tenantId: ctx.tenantId,
-          ...(args.numero_os
-            ? { number: args.numero_os.trim() }
-            : ctx.conversation.customerId
-              ? { customerId: ctx.conversation.customerId }
-              : { number: "__none__" }),
+          customerId: ownerId,
+          ...(args.numero_os ? { number: args.numero_os.trim() } : {}),
         },
         orderBy: { entryDate: "desc" },
         select: {

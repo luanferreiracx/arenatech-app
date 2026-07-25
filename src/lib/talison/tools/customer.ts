@@ -24,17 +24,19 @@ export const buscarCliente: TalisonTool<typeof buscarClienteSchema> = {
   async execute(args, ctx) {
     return ctx.withTenant(async (tx) => {
       const last9 = ctx.conversation.contactPhone.slice(-9);
+      // IDOR (auditoria 2026-07-25): com `cpf` presente, a busca IGNORAVA o
+      // telefone do contato e casava qualquer CPF do tenant, devolvendo o nome
+      // do titular — um oráculo CPF→nome por canal público, com o argumento
+      // controlado pelo texto do cliente. O telefone do contato passa a ancorar
+      // SEMPRE; o CPF é filtro adicional (AND), nunca chave alternativa.
       const customer = await tx.customer.findFirst({
         where: {
           tenantId: ctx.tenantId,
-          ...(args.cpf
-            ? { cpf: args.cpf.replace(/\D/g, "") }
-            : {
-                OR: [
-                  { phone: { contains: last9 } },
-                  { phoneSecondary: { contains: last9 } },
-                ],
-              }),
+          OR: [
+            { phone: { contains: last9 } },
+            { phoneSecondary: { contains: last9 } },
+          ],
+          ...(args.cpf ? { cpf: args.cpf.replace(/\D/g, "") } : {}),
         },
         select: { id: true, name: true },
       });
