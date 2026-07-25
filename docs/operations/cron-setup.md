@@ -1,80 +1,91 @@
 # Cron Jobs — Setup e Operação
 
-## Jobs do sistema
+## Jobs INSTALADOS na VPS (verificado 2026-07-25)
 
-| Job | Endpoint | Frequência | Propósito | Idempotente | ADR |
-|-----|----------|-----------|-----------|-------------|-----|
-| Auto-fechar caixas abandonados | POST /api/cron/close-abandoned-cash-sessions | A cada 1h | Fecha CashSessions abertas há mais de 18h | ✓ | ADR 0029 |
+Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,timer}`),
+`enabled` (sobrevivem a reboot). Confirmar com `systemctl list-timers | grep arenatech`.
+
+| Unit (`arenatech-…`) | Endpoint (`/api/cron/…`) | OnCalendar | Propósito |
+|---|---|---|---|
+| `close-abandoned-cash-sessions` | idem | 03:00 | Fecha CashSessions abertas há +18h |
+| `expire-rewards` | idem | 03:00 | Expira recompensas de fidelidade vencidas |
+| `mark-overdue` | idem | 03:00 | Marca contas/parcelas vencidas |
+| `expire-subscriptions` | idem | 04:00 | ACTIVE→PAST_DUE→SUSPENDED (pós-carência) |
+| `generate-recurring-expenses` | idem | 05:00 | Gera as contas do mês dos templates recorrentes |
+| `process-deposit-repayments` | idem | a cada 5min | Quitação de adiantamentos DePix |
+| `process-pending-talison` | idem | a cada 10min | Fila do bot Talison |
+| `reconcile-depix` | `reconcile-depix-transactions` | a cada 10min | Reconcilia tx DePix |
+| `release-stale-reservations` | idem | a cada 10min | Libera StockItem RESERVED preso |
+| `reconcile-eulen-extract` | idem | hora:07 | Reconcilia extrato Eulen |
+| `resolve-stale-conversations` | idem | hora cheia | Encerra conversas paradas |
+
+**Ordem 03:00 → 05:00 é intencional:** `mark-overdue` roda antes de
+`generate-recurring-expenses` (a conta nova nasce PENDING, não é marcada vencida no
+mesmo dia).
 
 ---
 
 ## Autenticação
 
-Todos os endpoints de cron usam header `Authorization: Bearer <CRON_SECRET>`.
+Todos os endpoints usam `Authorization: Bearer <CRON_SECRET>`.
 
-- `CRON_SECRET` é definido em `.env.local` (dev) e variáveis de ambiente do container (prod)
-- Gerar secret: `openssl rand -hex 32`
-- Sem o header correto: resposta 401
+- Em prod o secret vem de **`/home/deployer/arenatech-app/.env.production`**
+  (carregado via `EnvironmentFile` no unit) — **não** de `/opt/arenatech/.env.cron`
+  (esse caminho nunca existiu; o doc antigo estava errado).
+- Dev: `.env.local`. Gerar: `openssl rand -hex 32`. Sem header: **401**.
 
 ---
 
-## Opção 1: systemd timer (recomendada para VPS)
-
-### Service
+## Padrão do unit (copiar ao adicionar um cron novo)
 
 ```ini
-# /etc/systemd/system/arenatech-cron-cash-close.service
+# /etc/systemd/system/arenatech-<job>.service
 [Unit]
-Description=Arena Tech - Auto-close abandoned cash sessions
+Description=<o que o job faz>
 After=network.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/opt/arenatech/.env.cron
-ExecStart=/usr/bin/curl -s -X POST \
-  -H "Authorization: Bearer ${CRON_SECRET}" \
-  http://127.0.0.1:3001/api/cron/close-abandoned-cash-sessions
-TimeoutSec=30
+EnvironmentFile=/home/deployer/arenatech-app/.env.production
+ExecStart=/bin/bash -c 'curl -fsS -m 60 -X POST http://127.0.0.1:3001/api/cron/<job> -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json"'
 ```
 
-### Timer
-
 ```ini
-# /etc/systemd/system/arenatech-cron-cash-close.timer
+# /etc/systemd/system/arenatech-<job>.timer
 [Unit]
-Description=Run Arena Tech cash close every hour
+Description=Dispara <job> diariamente as HH:MM BRT
 
 [Timer]
-OnCalendar=*:00:00
+OnCalendar=05:00
+AccuracySec=1m
+# Persistent: se o VPS ficou fora no horario, roda assim que voltar (exige job
+# IDEMPOTENTE — todos os nossos são).
 Persistent=true
 
 [Install]
 WantedBy=timers.target
 ```
 
-### Env file
+`/bin/bash -c` é necessário para o `$CRON_SECRET` ser expandido (o `ExecStart` do
+systemd não expande `${VAR}` de EnvironmentFile dentro de argumentos aspeados).
+
+### Instalar e VALIDAR (não confie no enable — teste de verdade)
 
 ```bash
-# /opt/arenatech/.env.cron
-CRON_SECRET=<valor gerado com openssl rand -hex 32>
+systemctl daemon-reload
+systemctl enable --now arenatech-<job>.timer
+
+# 1) roda o service na mão e confirma o corpo da resposta
+systemctl start arenatech-<job>.service
+journalctl -u arenatech-<job>.service -n 12 --no-pager
+
+# 2) confirma que ficou agendado + enabled
+systemctl list-timers --all | grep <job>
+systemctl is-enabled arenatech-<job>.timer
 ```
 
-### Comandos
-
-```bash
-# Instalar e ativar
-sudo systemctl daemon-reload
-sudo systemctl enable arenatech-cron-cash-close.timer
-sudo systemctl start arenatech-cron-cash-close.timer
-
-# Verificar status
-systemctl status arenatech-cron-cash-close.timer
-systemctl list-timers | grep arenatech
-
-# Executar manualmente (teste)
-sudo systemctl start arenatech-cron-cash-close.service
-journalctl -u arenatech-cron-cash-close.service -n 20
-```
+Sinal de sucesso no journal: a linha do `bash[...]` com o JSON de resposta (ex.:
+`{"generated":0}`) e `Deactivated successfully` — sem `curl (22)` nem `401`.
 
 ---
 
