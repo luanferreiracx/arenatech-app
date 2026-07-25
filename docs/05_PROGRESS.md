@@ -19,6 +19,30 @@
 
 ---
 
+### 2026-07-24 — Batch C: fotos do aparelho na OS (#681) + produtos parados (#680)
+- **#680 (C7) produtos parados / capital imobilizado:** nova aba em /stock/reports —
+  produtos com estoque efetivo > 0 e sem venda há N dias (30/60/90/180), ordenados
+  por estoque×custo. Estoque efetivo via resolveCurrentStockByProduct; última venda
+  via SQL (RLS por tenant). Custo só admin; não-admin ordena por dias-parado.
+- **#681 (C1) fotos do aparelho na OS — REUSANDO a galeria do catálogo (decisão do
+  dono: não reinventar):**
+  - `uploadEntityImage` generaliza `uploadProductImage` (mesma infra Cloudinary/MinIO
+    + 3 versões; só muda a pasta `tenants/{id}/{kind}/{entityId}`). Produto delega →
+    preservado. `deleteEntityImage` = alias.
+  - `<PhotoGallery>` (novo, components/domain): grid+drag-drop+delete EXTRAÍDO do
+    ProductPhotoManager, que foi REFATORADO para usá-lo (dedup real). OS usa a MESMA
+    galeria (sem "principal", máx 12).
+  - `service_order_documents` + thumb_url/medium_url/provider/provider_public_id
+    (migration nullable). `/api/service-orders/upload` (membro do tenant, não admin —
+    o técnico manuseia) + serviceOrder.listPhotos/addPhoto/deletePhoto (type="photo").
+  - Card "Fotos do aparelho" no detalhe da OS. Integration test.
+**PADRÃO reusável:** para adicionar galeria de fotos a QUALQUER entidade: (1) tabela
+com url/thumb_url/medium_url/provider/provider_public_id, (2) rota /api/<ent>/upload
+chamando uploadEntityImage(kind), (3) tRPC list/add/delete, (4) manager que passa os
+endpoints/mutations ao `<PhotoGallery>`. Zero código de upload/grid duplicado.
+**Batch C essencialmente completo:** C1 fotos✓ C2 estorno-parcial(#676)✓ C4 SKU-único
+(#678)✓ C5 editar-valor(#677)✓ C7 parados✓ C8 MRR(#671)✓. Resta C6 despesas recorrentes.
+
 ### 2026-07-24 — Batch C: SKU/barcode únicos por tenant (#678)
 Retomada do backlog da varredura. Item C "unique de SKU/barcode": o código só
 validava dedup no createProduct — updateProduct/duplicateProduct/import podiam
