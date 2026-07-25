@@ -15,7 +15,21 @@ interface KeyRow {
 
 const store = new Map<string, KeyRow>(); // por keyPrefix
 
+/**
+ * Estado do tenant dono da key. `validatePartnerApiKey` passou a exigir tenant
+ * ACTIVE + apiAccessEnabled (auditoria 2026-07-25): antes, key de tenant
+ * suspenso/cancelado seguia sacando DePix. Default = elegível, para os casos
+ * deste arquivo continuarem exercitando só a lógica de hash/revogação.
+ */
+const tenantState = new Map<string, { status: string; apiAccessEnabled: boolean }>();
+const eligibleTenant = { status: "ACTIVE", apiAccessEnabled: true };
+
 const tx = {
+  tenant: {
+    findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+      return tenantState.get(where.id) ?? eligibleTenant;
+    }),
+  },
   partnerApiKey: {
     create: vi.fn(async ({ data, select: _s }: { data: Omit<KeyRow, "id" | "revokedAt">; select?: unknown }) => {
       const row: KeyRow = { ...data, id: `id-${data.keyPrefix}`, revokedAt: null };
@@ -60,6 +74,7 @@ const OTHER = "22222222-2222-2222-2222-222222222222";
 
 beforeEach(() => {
   store.clear();
+  tenantState.clear();
   vi.clearAllMocks();
 });
 
@@ -115,5 +130,18 @@ describe("partner-api-key service", () => {
     });
     const v = await validatePartnerApiKey(issued.plaintextKey);
     expect(v!.scopes).toEqual(["depix:deposit"]);
+  });
+
+  it("tenant SUSPENDED invalida a key (auditoria 2026-07-25)", async () => {
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:withdraw"], createdById: "u1" });
+    expect(await validatePartnerApiKey(issued.plaintextKey)).not.toBeNull();
+    tenantState.set(TENANT, { status: "SUSPENDED", apiAccessEnabled: true });
+    expect(await validatePartnerApiKey(issued.plaintextKey)).toBeNull();
+  });
+
+  it("apiAccessEnabled=false invalida a key mesmo com tenant ACTIVE", async () => {
+    const issued = await issuePartnerApiKey({ tenantId: TENANT, name: "x", scopes: ["depix:withdraw"], createdById: "u1" });
+    tenantState.set(TENANT, { status: "ACTIVE", apiAccessEnabled: false });
+    expect(await validatePartnerApiKey(issued.plaintextKey)).toBeNull();
   });
 });

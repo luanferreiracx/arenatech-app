@@ -87,8 +87,8 @@ describe("autoCloseAbandonedSessions — não fabrica saldo contado, e não atro
     const originalFindMany = prisma.cashSession.findMany.bind(prisma.cashSession);
     const spy = vi
       .spyOn(prisma.cashSession, "findMany")
-      .mockImplementationOnce(async (args: any) => {
-        const rows = await originalFindMany(args);
+      .mockImplementationOnce(((async (args: unknown) => {
+        const rows = await originalFindMany(args as never);
         // ...operador fecha AGORA, depois de o cron já ter lido:
         await prisma.cashSession.update({
           where: { id },
@@ -100,8 +100,8 @@ describe("autoCloseAbandonedSessions — não fabrica saldo contado, e não atro
             closedAt: manualClosedAt,
           },
         });
-        return rows as never;
-      });
+        return rows;
+      }) as unknown) as typeof prisma.cashSession.findMany);
 
     try {
       await autoCloseAbandonedSessions(prisma as never, 18);
