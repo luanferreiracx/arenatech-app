@@ -38,6 +38,45 @@ function centsToPrisma(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents / 100);
 }
 
+/**
+ * Documento fiscal ATIVO já emitido para a mesma origem (venda/OS).
+ *
+ * Auditoria 2026-07-25: `createFromSale`/`createFromServiceOrder` iam direto pro
+ * `invoice.create`, sem checar nota preexistente — e não há unique no schema
+ * (só índice não-único em `[tenantId, referenceId]`). O CAS de `authorize`
+ * protege a MESMA invoice contra duplo-clique, mas não impede DUAS invoices
+ * distintas da mesma venda: dois cliques em "Emitir NF-e" (a tela não recarrega
+ * sozinha) geravam dois DRAFTs, ambos autorizáveis → duas NF-e válidas na SEFAZ
+ * para uma venda só. Corrigir isso depois exige cancelamento na SEFAZ (janela de
+ * 24h) e mexe na apuração.
+ *
+ * CANCELLED/REJECTED não contam: reemitir depois de cancelar é o fluxo normal.
+ */
+async function assertNoActiveInvoiceFor(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  referenceType: "SALE" | "SERVICE_ORDER",
+  referenceId: string,
+): Promise<void> {
+  const existing = await tx.invoice.findFirst({
+    where: {
+      tenantId,
+      referenceType,
+      referenceId,
+      status: { notIn: ["CANCELLED", "REJECTED"] },
+    },
+    select: { id: true, number: true, status: true },
+  });
+  if (existing) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: existing.number
+        ? `Ja existe documento fiscal (${existing.number}) para este registro. Cancele-o antes de emitir outro.`
+        : "Ja existe um documento fiscal em andamento para este registro. Atualize a tela.",
+    });
+  }
+}
+
 export const fiscalRouter = createTRPCRouter({
   /** List invoices with filters */
   list: tenantProcedure
@@ -178,6 +217,8 @@ export const fiscalRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Venda nao encontrada ou nao finalizada" });
         }
 
+        await assertNoActiveInvoiceFor(tx, ctx.tenantId, "SALE", sale.id);
+
         // Fetch customer for recipient info
         let recipientName = "Consumidor Final";
         let recipientCpfCnpj = "";
@@ -231,6 +272,8 @@ export const fiscalRouter = createTRPCRouter({
         if (!so) {
           throw new TRPCError({ code: "NOT_FOUND", message: "OS nao encontrada" });
         }
+
+        await assertNoActiveInvoiceFor(tx, ctx.tenantId, "SERVICE_ORDER", so.id);
 
         // Fetch customer
         let recipientName = "Cliente";
