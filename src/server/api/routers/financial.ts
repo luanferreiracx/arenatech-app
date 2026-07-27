@@ -10,7 +10,7 @@ import {
   lockOpenCashSessionOrThrow,
 } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
-import { startOfMonthBrt, endOfMonthBrt } from "@/lib/utils/date-range";
+import { startOfMonthBrt, endOfMonthBrt, startOfDayBrt, endOfDayBrt, brtDayKey } from "@/lib/utils/date-range";
 import { resolveSupplierId } from "@/server/services/financial-supplier.service";
 import { resolveCategoryId } from "@/server/services/financial-category.service";
 import { generateInstallments } from "@/server/services/installment-generator.service";
@@ -951,9 +951,14 @@ export const financialRouter = createTRPCRouter({
     .input(cashFlowSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const dateFrom = new Date(input.dateFrom);
-        const dateTo = new Date(input.dateTo);
-        dateTo.setHours(23, 59, 59, 999);
+        // Janela em BRT (auditoria 2026-07-27). `new Date("YYYY-MM-DD")` parseia
+        // como meia-noite UTC, mas `setHours` opera em horário LOCAL: no fuso
+        // do Brasil (UTC-3) o fim da janela virava ~03:00 UTC do dia alvo,
+        // CORTANDO quase todo o último dia do período. Um pagamento feito hoje
+        // não aparecia num relatório que ia "até hoje".
+        // Os helpers BRT já existiam e são a fonte única do fuso no projeto.
+        const dateFrom = startOfDayBrt(input.dateFrom);
+        const dateTo = endOfDayBrt(input.dateTo);
 
         // Get all installments in range (both paid and pending)
         const installments = await tx.installment.findMany({
@@ -1044,7 +1049,9 @@ export const financialRouter = createTRPCRouter({
         const grouped: Record<string, Bucket> = {};
 
         const formatKey = (date: Date): string => {
-          if (groupBy === "day") return date.toISOString().split("T")[0]!;
+          // Dia em BRT: `toISOString()` é UTC, então um pagamento às 23h de
+          // Brasília (02h UTC do dia seguinte) caía no dia errado do relatório.
+          if (groupBy === "day") return brtDayKey(date);
           if (groupBy === "week") {
             const d = new Date(date);
             d.setDate(d.getDate() - d.getDay());
@@ -1073,18 +1080,7 @@ export const financialRouter = createTRPCRouter({
           const remainingCents = Math.max(0, totalCents - paidCents);
           const isReceivable = inst.transaction.type === "RECEIVABLE";
 
-          // Realizado (caiu no caixa) — chave por paidAt.
-          if (isPaid && paidCents > 0 && inst.paidAt) {
-            const keyR = formatKey(inst.paidAt);
-            if (!grouped[keyR]) grouped[keyR] = emptyBucket();
-            if (isReceivable) {
-              grouped[keyR]!.realizedReceivable += paidCents;
-              grouped[keyR]!.receivable += paidCents;
-            } else {
-              grouped[keyR]!.realizedPayable += paidCents;
-              grouped[keyR]!.payable += paidCents;
-            }
-          }
+          // (o REALIZADO saiu daqui — agora vem do ledger, logo abaixo do laço)
 
           // Projetado (vai vencer) — chave por dueDate. Se ja totalmente
           // pago, remainingCents=0 e nao entra.
@@ -1098,6 +1094,51 @@ export const financialRouter = createTRPCRouter({
               grouped[keyP]!.projectedPayable += remainingCents;
               grouped[keyP]!.payable += remainingCents;
             }
+          }
+        }
+
+        // REALIZADO vem do LEDGER `installment_payments` (auditoria 2026-07-25).
+        // Antes era `installment.paidAt` + `paidAmount` acumulado — o mesmo
+        // regime de caixa errado que o FIN-B2 já tinha corrigido no `stats` e no
+        // DRE, mas que ficou aqui, o terceiro consumidor. Uma parcela paga R$50
+        // em janeiro e R$50 em fevereiro tem `paidAt` = fevereiro, então os R$100
+        // inteiros caíam em fevereiro e janeiro ficava zerado — o "Fluxo de
+        // Caixa" divergia do `stats`/DRE para o MESMO dinheiro.
+        // O ledger tem uma linha por evento, com data própria; estorno entra
+        // negativo, então a soma já é o líquido do período.
+        const cfLedger = await tx.installmentPayment.findMany({
+          where: { paidAt: { gte: dateFrom, lte: dateTo } },
+          select: {
+            amountCents: true,
+            paidAt: true,
+            // InstallmentPayment só tem relação com Installment — a transação
+            // vem por ela.
+            installment: {
+              select: {
+                transaction: { select: { type: true, saleId: true, paymentMethod: true } },
+              },
+            },
+          },
+        });
+        for (const pay of cfLedger) {
+          const ft = pay.installment.transaction;
+          // Mesmo skip do cartão legado (D1): o dinheiro do cartão entra pelo
+          // CardReceivable, que é a fonte única — evita contar duas vezes.
+          if (
+            ft.saleId &&
+            isCardPaymentMethod(ft.paymentMethod) &&
+            cfCardSaleIds.has(ft.saleId)
+          ) {
+            continue;
+          }
+          const keyR = formatKey(pay.paidAt);
+          if (!grouped[keyR]) grouped[keyR] = emptyBucket();
+          if (ft.type === "RECEIVABLE") {
+            grouped[keyR]!.realizedReceivable += pay.amountCents;
+            grouped[keyR]!.receivable += pay.amountCents;
+          } else {
+            grouped[keyR]!.realizedPayable += pay.amountCents;
+            grouped[keyR]!.payable += pay.amountCents;
           }
         }
 

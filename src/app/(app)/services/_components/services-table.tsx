@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/lib/toast";
 import { BulkActionDialog, type BulkAction } from "./bulk-action-dialog";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 interface ServiceRow {
   id: string;
@@ -64,6 +65,9 @@ export function ServicesManageTable() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("");
   const [deviceModelFilter, setDeviceModelFilter] = useState<string>("");
+  // Reajustar/excluir EM MASSA é ação de admin no servidor (auditoria
+  // 2026-07-25). Esconder aqui evita o operador clicar e tomar FORBIDDEN.
+  const isAdmin = useIsTenantAdmin();
   const [bulkAction, setBulkAction] = useState<{
     action: BulkAction;
     serviceType: string;
@@ -323,6 +327,8 @@ export function ServicesManageTable() {
                 <DropdownMenuSeparator />
                 {serviceTypeFilter && (
                   <>
+                    {isAdmin && (
+                      <>
                     <DropdownMenuItem
                       onClick={() =>
                         setBulkAction({ action: "adjust-up", serviceType: serviceTypeFilter })
@@ -339,6 +345,8 @@ export function ServicesManageTable() {
                       <TrendingDown className="mr-2 h-4 w-4" />
                       Diminuir valores ({serviceTypeFilter})
                     </DropdownMenuItem>
+                      </>
+                    )}
                     <DropdownMenuItem
                       onClick={() =>
                         setBulkAction({ action: "duplicate", serviceType: serviceTypeFilter })
@@ -355,16 +363,20 @@ export function ServicesManageTable() {
                       <Type className="mr-2 h-4 w-4" />
                       Renomear tipo ({serviceTypeFilter})
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={() =>
-                        setBulkAction({ action: "delete-type", serviceType: serviceTypeFilter })
-                      }
-                    >
-                      <Trash className="mr-2 h-4 w-4" />
-                      Excluir tipo ({serviceTypeFilter})
-                    </DropdownMenuItem>
+                    {isAdmin && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() =>
+                            setBulkAction({ action: "delete-type", serviceType: serviceTypeFilter })
+                          }
+                        >
+                          <Trash className="mr-2 h-4 w-4" />
+                          Excluir tipo ({serviceTypeFilter})
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </>
                 )}
                 {!serviceTypeFilter && (
