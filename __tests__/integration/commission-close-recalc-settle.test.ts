@@ -13,6 +13,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "comm-c2-test";
@@ -92,7 +93,7 @@ describe("Auditoria Comissão/Recebimento — C2/R1/A1 (ao vivo)", () => {
   });
 
   it("A1: operador NÃO concilia recebível (settle virou admin)", async () => {
-    const session = await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: 0 } });
+    const session = await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
     cleanup.sessions.push(session.id);
     cleanup.acquirerId = (await prisma.acquirer.create({ data: { tenantId, name: `${MARK}-acq`, active: true } })).id;
     cleanup.brandId = (await prisma.cardBrand.create({ data: { tenantId, name: `${MARK}-visa`, active: true } })).id;

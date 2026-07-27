@@ -13,6 +13,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession, closeTestCashSessions } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 
@@ -55,10 +56,8 @@ beforeAll(async () => {
   }
 
   // Caixa aberto (finalize exige p/ pagamento em dinheiro). Aberto = closedAt null.
-  await prisma.cashSession.deleteMany({ where: { userId: admin.id, closedAt: null } });
-  await prisma.cashSession.create({
-    data: { tenantId, userId: admin.id, initialBalance: 0 },
-  });
+  await closeTestCashSessions(prisma, { tenantId, userId: admin.id });
+  await openTestCashSession(prisma, { tenantId, userId: admin.id, initialBalance: 0 });
 });
 
 afterAll(async () => {
@@ -75,7 +74,7 @@ afterAll(async () => {
   await prisma.cardBrand.deleteMany({ where: { id: brandId } });
   await prisma.acquirer.deleteMany({ where: { id: acquirerId } });
   await prisma.paymentMethod.deleteMany({ where: { id: cardMethodId } });
-  await prisma.cashSession.deleteMany({ where: { userId: ctx.session.user.id, closedAt: null } });
+  await closeTestCashSessions(prisma, { tenantId: ctx.tenantId, userId: ctx.session.user.id });
   await prisma.product.deleteMany({ where: { id: productId } });
   await prisma.$disconnect();
 });

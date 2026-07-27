@@ -11,6 +11,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { closeTestCashSessions } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "os-audit-A";
@@ -126,7 +127,7 @@ describe("Auditoria OS — PR A (F1/F4/F8)", () => {
   it("R1: estorno de OS paga DIRETO em dinheiro exige caixa aberto (não infla a gaveta)", async () => {
     // OS paga direto (sem Sale no PDV) em dinheiro: o estorno gera saída na gaveta.
     // Sem caixa aberto, a saída era pulada e a gaveta ficava inflada. Agora bloqueia.
-    await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+    await closeTestCashSessions(prisma, { tenantId, userId: adminId });
     const order = await prisma.serviceOrder.create({
       data: {
         tenantId, number: `${MARK}-r1-${Date.now()}`, customerId, createdById: adminId,
@@ -145,7 +146,7 @@ describe("Auditoria OS — PR A (F1/F4/F8)", () => {
   });
 
   it("R1: estorno de OS paga DIRETO em PIX NÃO exige caixa (não bate na gaveta)", async () => {
-    await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+    await closeTestCashSessions(prisma, { tenantId, userId: adminId });
     const order = await prisma.serviceOrder.create({
       data: {
         tenantId, number: `${MARK}-r1pix-${Date.now()}`, customerId, createdById: adminId,

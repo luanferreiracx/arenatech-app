@@ -13,6 +13,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "fin-authz-test";
@@ -69,7 +70,7 @@ describe("Auditoria Financeiro/Caixa — segregação (ao vivo)", () => {
     ).rejects.toThrow(/contas a pagar/i);
 
     // Recebível: operador pode (precisa caixa aberto pra gravar o movimento).
-    const s = await prisma.cashSession.create({ data: { tenantId, userId: operatorId, initialBalance: 0 } });
+    const s = await openTestCashSession(prisma, { tenantId, userId: operatorId, initialBalance: 0 });
     sessionIds.push(s.id);
     const receivable = await makeTx("RECEIVABLE", 3000);
     await expect(
@@ -88,7 +89,7 @@ describe("Auditoria Financeiro/Caixa — segregação (ao vivo)", () => {
     await expect(call(operatorCtx).cashier.openCashiers()).rejects.toThrow(/gerente/i);
 
     // Caixa do ADMIN; operador tenta abrir o detalhe → FORBIDDEN.
-    const adminSession = await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: 0 } });
+    const adminSession = await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
     sessionIds.push(adminSession.id);
     await expect(
       call(operatorCtx).cashier.byId({ id: adminSession.id }),
@@ -103,7 +104,7 @@ describe("Auditoria Financeiro/Caixa — segregação (ao vivo)", () => {
     await prisma.cashSession.updateMany({
       where: { userId: operatorId, closedAt: null }, data: { closedAt: new Date() },
     });
-    const opSession = await prisma.cashSession.create({ data: { tenantId, userId: operatorId, initialBalance: 0 } });
+    const opSession = await openTestCashSession(prisma, { tenantId, userId: operatorId, initialBalance: 0 });
     sessionIds.push(opSession.id);
 
     // Gerente faz ajuste apontando a sessão do operador.

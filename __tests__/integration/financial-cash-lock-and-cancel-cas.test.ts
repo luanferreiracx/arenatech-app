@@ -22,6 +22,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "fin-lock-cas";
@@ -73,9 +74,7 @@ async function abreCaixa() {
     where: { userId: adminId, closedAt: null },
     data: { closedAt: new Date() },
   });
-  const s = await prisma.cashSession.create({
-    data: { tenantId, userId: adminId, initialBalance: 0 },
-  });
+  const s = await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
   sessionIds.push(s.id);
   return s;
 }

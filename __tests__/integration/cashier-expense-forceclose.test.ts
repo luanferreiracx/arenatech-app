@@ -12,6 +12,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "cx-expense-test";
@@ -64,7 +65,7 @@ describe("Auditoria Financeira — CX-B1 + forceClose (ao vivo)", () => {
       where: { tenantId, userId: adminId, closedAt: null },
       data: { closedAt: new Date(), closeType: "MANUAL", calculatedBalance: new Prisma.Decimal(0) },
     });
-    const other = await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: new Prisma.Decimal(50) } });
+    const other = await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: new Prisma.Decimal(50) });
     sessionIds.push(other.id);
 
     await call(adminCtx).cashier.forceClose({ sessionId: other.id, reason: "operador sumiu" });

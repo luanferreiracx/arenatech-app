@@ -11,6 +11,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "i3i5-test";
@@ -60,7 +61,7 @@ describe("Auditoria Estoque — I3/I5 (ao vivo)", () => {
   });
 
   it("I5: cancelar compra paga à vista cancela a FT PAID e devolve o dinheiro ao caixa", async () => {
-    const session = await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: 0 } });
+    const session = await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
     cleanup.sessions.push(session.id);
     const purchase = await prisma.devicePurchase.create({ data: { tenantId, productId, purchasePrice: 600, imei: null, serial: `${MARK}-i5` } });
     cleanup.purchases.push(purchase.id);
