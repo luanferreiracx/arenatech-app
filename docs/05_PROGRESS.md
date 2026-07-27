@@ -19,6 +19,32 @@
 
 ---
 
+### 2026-07-27 — Pipeline de deploy destravado (#707, #708) + guardião de drift (#706)
+As correções #702/#703 estavam na main mas NUNCA foram ao ar: o job "Build &
+push Docker image" morria sempre, aparecendo como `cancelled`.
+**"cancelled" no GitHub Actions é TIMEOUT** — o job não diz "timed out". Errei
+3 diagnósticos antes de medir: (1) concorrência entre merges — falso, o
+`cancel-in-progress` exclui a main; (2) `gh run rerun` reaproveita run id —
+falso; (3) falta o plugin buildx — parcial (faltava no root, mas o usuário
+`deployer` do runner já tinha o binário).
+**Causa raiz:** `docker/setup-buildx-action` cria um builder `docker-container`
+NOVO a cada run, que nasce SEM cache. O Dockerfile depende de
+`--mount=type=cache` (pnpm store, `.next/cache`), que vive DENTRO do builder —
+`cache-from/to` externo (gha ou local) não cobre esses mounts. Builder novo =
+`next build` do zero toda vez.
+**Medido rodando o build à mão na VPS:** `next build` = 631s a frio + 59s
+exportando camadas; 6 cores com load ~5-6 (compartilhada com gunicorn/mysqld/
+dockerd) ⇒ build cold ~16min, contra `timeout-minutes: 12`.
+**Fix (#708):** `driver: docker` no setup-buildx (usa o daemon da VPS, cache
+persiste entre deploys) + timeout 12→25min. Build passou a levar **10m44s** e o
+deploy 28s. Instalado também o pacote `docker-buildx` na VPS (autorizado).
+**#706 guardião de drift de enum:** compara TODOS os enums de `schema.prisma`
+com `pg_enum` e lista o que falta migrar — a rede para a classe de bug que gerou
+o P0 do `StockMovementType` (Prisma Client é gerado do SCHEMA, e o CI roda
+`migrate deploy` em banco limpo, então nenhum dos dois pegava o drift).
+**Verificado em produção:** app HTTP 200, índice `invoices_active_per_reference_key`
+ativo, 0 erros pós-deploy.
+
 ### 2026-07-26 — Backlog da auditoria: comissão (#702) e fiscal (#703)
 Construído em TDD (RED→GREEN, um comportamento por vez, skill `tdd`).
 - **#702 comissão paga 2× na mesma OS.** Prestador SELLER que é o `vendorId` de
