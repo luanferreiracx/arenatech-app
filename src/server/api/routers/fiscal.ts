@@ -715,16 +715,26 @@ export const fiscalRouter = createTRPCRouter({
         justification: input.justification,
       });
 
-      // In production, this would call Nuvem Fiscal API
-      // For now, log and return success (mock)
-      return {
-        success: true,
-        model: input.model,
-        series: input.series,
-        startNumber: input.startNumber,
-        endNumber: input.endNumber,
-        quantity: input.endNumber - input.startNumber + 1,
-      };
+      // Auditoria 2026-07-25 (decisão do dono 2026-07-27): esta procedure era um
+      // MOCK que retornava `{ success: true }` — validava a faixa, escrevia um
+      // log e não fazia mais nada. Nem gravava no banco, nem chamava a Nuvem
+      // Fiscal.
+      //
+      // Pior que não existir: "inutilizar" é a declaração à SEFAZ de que uma
+      // faixa de numeração NÃO será usada. O contador via a confirmação e
+      // considerava resolvido; a SEFAZ nunca recebeu nada, e a lacuna só
+      // aparecia na fiscalização, meses depois.
+      //
+      // Note o contraste: a EMISSÃO também é mock, mas `getConfig()` em
+      // `fiscal-service.ts` bloqueia em produção. Aqui não havia esse gate.
+      //
+      // Falha explicitamente até existir a implementação real (a UI também
+      // deixou de expor o botão).
+      throw new TRPCError({
+        code: "NOT_IMPLEMENTED",
+        message:
+          "Inutilizacao de numeracao ainda nao esta implementada — o envio a SEFAZ nao acontece. Faca a inutilizacao pelo portal da SEFAZ e registre o protocolo.",
+      });
     }),
 
   /** Create NF-e de entrada (avulsa) */

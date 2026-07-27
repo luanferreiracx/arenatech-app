@@ -7,6 +7,7 @@ import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { applyOsCancellation } from "@/server/services/os-cancellation.service";
 import { recordInstallmentPayment } from "@/server/services/installment-ledger.service";
+import { assertNoActiveInvoiceBlockingRefund } from "@/server/services/fiscal-guard.service";
 import { createDocumentWithLink, getDocumentStatus, formatWhatsApp, extractShortlinkToken } from "@/lib/services/autentique-service";
 import { buildServiceOrderPdf } from "@/lib/pdf/service-order-pdf-builder";
 import { buildServiceOrderQuotePdf } from "@/lib/pdf/service-order-quote-builder";
@@ -1319,6 +1320,15 @@ export const serviceOrderRouter = createTRPCRouter({
             message: "Apenas OS pagas (paga, aguardando retirada ou entregue) podem ser estornadas.",
           });
         }
+
+        // Guard fiscal ANTES de qualquer efeito — mesma razão do estorno de
+        // venda: estornar deixando a nota viva declara faturamento inexistente.
+        await assertNoActiveInvoiceBlockingRefund(tx, {
+          tenantId: ctx.tenantId,
+          referenceType: "SERVICE_ORDER",
+          referenceId: order.id,
+          label: "OS",
+        });
 
         // Exige caixa aberto quando o estorno vai gerar saida na gaveta (OS paga
         // via PDV → venda vinculada). Sem caixa aberto a saida nao era registrada

@@ -28,6 +28,12 @@ beforeAll(async () => {
     session: { user: { id: adminId, isSuperAdmin: false }, activeTenantId: tenantId, availableTenants: [{ id: tenantId, slug: "arena-tech", role: "admin" }] },
     tenantId, withTenant: (fn: any) => withTenant(tenantId, fn),
   };
+  // O serial `${MARK}-DUP` e FIXO. Uma rodada anterior que morreu no meio (ou
+  // que rodou em paralelo e perdeu a corrida) deixa o item vivo no banco e a
+  // primeira insercao desta suite passa a bater no unique — o teste falha por
+  // residuo, nao por regressao. Limpa antes de comecar.
+  await prisma.stockItem.deleteMany({ where: { tenantId, serialNumber: `${MARK}-DUP` } });
+
   productId = (await prisma.product.create({
     data: { tenantId, name: `${MARK}-produto`, salePrice: 1000, costPrice: 600, currentStock: 0, isSerialized: true, isDevice: true, hasVariations: false, active: true },
   })).id;

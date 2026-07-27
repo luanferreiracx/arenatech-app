@@ -53,6 +53,20 @@ describe("higiene de caixa nos testes de integração", () => {
     expect(infratores).toEqual([]);
   });
 
+  it("a suíte de integração roda em SÉRIE (--no-file-parallelism)", () => {
+    // Medido em 2026-07-27: a suíte inteira em paralelo dá 15 falhas em 11
+    // arquivos; em série, 0. Os arquivos compartilham tenant (`arena-tech`),
+    // usuário (`Admin Arena`) e o caixa aberto dele — dois processos rodando ao
+    // mesmo tempo fecham/abrem a sessão um do outro, e o perdedor quebra com
+    // FK de `sale_items` ou com a unique de caixa. O helper de caixa resolve a
+    // colisão DENTRO de um processo; não tem como resolver ENTRE processos.
+    //
+    // Custo de rodar em série: ~38s a suíte toda. Barato perto de caçar falha
+    // fantasma. Se um dia cada arquivo tiver seu próprio tenant, isto pode cair.
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    expect(pkg.scripts["test:integration"]).toContain("--no-file-parallelism");
+  });
+
   it("ninguém APAGA sessão aberta de outro teste (feche, não apague)", () => {
     // `deleteMany` filtrando `closedAt: null` alcança sessões de OUTROS
     // arquivos, que podem ter movimentos → viola a FK e derruba o beforeAll.
