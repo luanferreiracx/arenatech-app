@@ -157,8 +157,9 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > misto não-determinístico), **#703** (NF-e duplicada), **#711** (lock de caixa
 > no `payInstallment`/`reverseInstallment` · CAS no `financial.cancel` · saldo de
 > cashback não-negativo) e **#714** (reajuste/exclusão em massa só-admin com teto
-> · caps de campanha com CAS · `cashFlow` pelo ledger e em BRT). Ficam riscados
-> abaixo, com o registro do que mudou. Restam ~12 achados.
+> · caps de campanha com CAS · `cashFlow` pelo ledger e em BRT) e **#717**
+> (fidelidade só-admin · diálogos destrutivos da OS com feedback). Ficam
+> riscados abaixo, com o registro do que mudou. Restam ~8 achados.
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -229,21 +230,28 @@ rodada por serem decisão do dono ou por escopo.
     menu para não-admin. O `deleteByType` (que tinha a regra invertida em
     relação ao `deleteService`) também ganhou o gate.
 
-16. **`reward` sem `isTenantAdmin`** (P1) — `updateCampaign` muda valor/percentual
-    da campanha (vira desconto real no PDV); `expireOverdue` exposto como
-    procedure duplica o cron.
-17. **Tipo de serviço é texto livre** (P1) — as 5 operações "por tipo" casam por
-    igualdade exata: "Troca de Tela" ≠ "troca de tela". Reajuste em massa não
-    pega as linhas com outra caixa. Mesma armadilha do Asus/ASUS já resolvida no
-    estoque com `findOrCreateBrandByName`.
+16. ~~**`reward` sem `isTenantAdmin`**~~ — ✅ **CORRIGIDO (PR #717).**
+    `createCampaign`/`updateCampaign`/`toggleCampaign`/`rejectAction` e o
+    `expireOverdue` viraram admin, com os controles escondidos/desabilitados na
+    UI. `createAction` fica SEM gate de propósito: cria PENDING e só o
+    `approveAction` (admin) credita — é segregação de função, com teste
+    garantindo que o operador ainda registra a submissão.
 
-### Frontend
+17. **Tipo de serviço é texto livre** (P1 — DEFERIDO com medição) — as 5
+    operações "por tipo" casam por igualdade exata de string, então "Troca de
+    Tela" ≠ "troca de tela". **Produção tem 0 tipos divergindo por caixa/espaço**
+    (verificado em 2026-07-27): o bug é latente, não ativo. A correção completa
+    (FK `serviceTypeId` + resolver espelhando `findOrCreateBrandByName` + trocar
+    o input livre por select-com-criar-inline) é fatia maior, com mexida de UI.
 
-18. **Diálogos destrutivos de OS fecham antes do `isPending`** (P0 de UX) —
-    `mutate()` + `dialog.close()` no mesmo tick anula o guard de duplo-submit em
-    estorno/cancelamento/exclusão. Sem feedback, o operador clica de novo.
-19. **"Salvar custos" da OS sem `disabled`** (P1) — custo é base de comissão e
-    margem; duplo-clique polui a auditoria.
+18. ~~**Diálogos destrutivos de OS fecham antes do `isPending`**~~ — ✅
+    **CORRIGIDO (PR #717).** O `closeDialog()` foi para o `onSuccess` (padrão
+    que o hook já usava) e cada botão mostra o estado. Atingia estorno,
+    cancelamento, descancelamento e exclusão permanente.
+
+19. ~~**"Salvar custos" da OS sem `disabled`**~~ — ✅ **CORRIGIDO (PR #717).**
+    Guard + rótulo de progresso.
+
 20. **Badge "Caixa aberto" nunca invalidado** (P1) — o PDV mostra caixa aberto
     depois de fechado em outra aba; a venda monta e falha no último clique —
     exatamente o cenário que o recurso existe para evitar.
