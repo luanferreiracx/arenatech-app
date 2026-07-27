@@ -97,6 +97,12 @@ export const rewardRouter = createTRPCRouter({
       rules: z.record(z.string(), z.unknown()).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: define/altera o VALOR da recompensa, que vira
+      // desconto real no PDV. `approveAction`/`cancelAction` já exigiam admin;
+      // a gestão da campanha ficou de fora.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para gerenciar campanhas de fidelidade" })
+      }
       return ctx.withTenant(async (tx) => {
         const campaign = await tx.rewardCampaign.create({
           data: {
@@ -140,6 +146,12 @@ export const rewardRouter = createTRPCRouter({
       rewardLimit: z.number().int().min(1).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: define/altera o VALOR da recompensa, que vira
+      // desconto real no PDV. `approveAction`/`cancelAction` já exigiam admin;
+      // a gestão da campanha ficou de fora.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para gerenciar campanhas de fidelidade" })
+      }
       return ctx.withTenant(async (tx) => {
         const data: Record<string, unknown> = {}
         if (input.name !== undefined) data.name = input.name
@@ -165,6 +177,12 @@ export const rewardRouter = createTRPCRouter({
   toggleCampaign: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: define/altera o VALOR da recompensa, que vira
+      // desconto real no PDV. `approveAction`/`cancelAction` já exigiam admin;
+      // a gestão da campanha ficou de fora.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para gerenciar campanhas de fidelidade" })
+      }
       return ctx.withTenant(async (tx) => {
         const campaign = await tx.rewardCampaign.findUnique({ where: { id: input.id } })
         if (!campaign) throw new TRPCError({ code: "NOT_FOUND" })
@@ -468,6 +486,11 @@ export const rewardRouter = createTRPCRouter({
       reason: z.string().min(1).max(500),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Contraparte de `approveAction`, que já exigia admin: rejeitar a
+      // submissão de um cliente é decisão de gestão (auditoria 2026-07-25).
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para rejeitar submissoes" })
+      }
       return ctx.withTenant(async (tx) => {
         const action = await tx.rewardAction.findUnique({ where: { id: input.actionId } })
         if (!action || action.status !== "PENDING") {
@@ -819,6 +842,14 @@ export const rewardRouter = createTRPCRouter({
 
   /** Expire overdue rewards (cron job) */
   expireOverdue: tenantProcedure.mutation(async ({ ctx }) => {
+    // Auditoria 2026-07-25: expira em massa as recompensas APROVADAS do tenant
+    // inteiro. O disparo automático é o cron `/api/cron/expire-rewards`
+    // (CRON_SECRET + withCronLock); esta procedure é o gatilho MANUAL e estava
+    // aberta a qualquer usuário autenticado. Mantida (útil para forçar a
+    // expiração fora da janela do cron), mas restrita a admin.
+    if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para expirar recompensas" })
+    }
     return ctx.withTenant(async (tx) => {
       const now = new Date()
       const expired = await tx.rewardAction.updateMany({

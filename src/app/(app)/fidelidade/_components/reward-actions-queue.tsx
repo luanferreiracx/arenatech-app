@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { Check, X, Inbox } from "lucide-react";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 type ActionStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED" | "USED";
 type RewardType = "DISCOUNT_PERCENTAGE" | "DISCOUNT_FIXED" | "CASHBACK" | "GIFT";
@@ -71,6 +72,8 @@ type ActionRow = {
  * crédito do cashback — faltava a UI.
  */
 export function RewardActionsQueue() {
+  // Aprovar/rejeitar submissão é decisão de gestão (admin no servidor).
+  const isAdmin = useIsTenantAdmin();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<ActionStatus>("PENDING");
@@ -193,6 +196,7 @@ export function RewardActionsQueue() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={!isAdmin}
                           className="h-8 text-success hover:text-success"
                           onClick={() => setApproveTarget(a)}
                         >
@@ -202,6 +206,7 @@ export function RewardActionsQueue() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={!isAdmin}
                           className="h-8 text-destructive hover:text-destructive"
                           onClick={() => { setRejectTarget(a); setRejectReason(""); }}
                         >
