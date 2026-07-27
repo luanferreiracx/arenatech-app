@@ -154,10 +154,11 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > **Atualização:** o backlog vem sendo atacado por ordem de risco. Já fechados:
 > **#700** (API-key pós-suspensão · gating de módulo no tRPC · cron de caixa
 > fabricando saldo), **#702** (comissão dupla em OS intermediada · balde de modo
-> misto não-determinístico), **#703** (NF-e duplicada) e **#711** (lock de caixa
+> misto não-determinístico), **#703** (NF-e duplicada), **#711** (lock de caixa
 > no `payInstallment`/`reverseInstallment` · CAS no `financial.cancel` · saldo de
-> cashback não-negativo). Ficam riscados abaixo, com o registro do que mudou.
-> Restam ~15 achados.
+> cashback não-negativo) e **#714** (reajuste/exclusão em massa só-admin com teto
+> · caps de campanha com CAS · `cashFlow` pelo ledger e em BRT). Ficam riscados
+> abaixo, com o registro do que mudou. Restam ~12 achados.
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -186,9 +187,13 @@ rodada por serem decisão do dono ou por escopo.
 6. ~~**`financial.cancel` sem CAS**~~ — ✅ **CORRIGIDO (PR #711).** CAS
    ancorado em `status` E `paidAmount`, o que cobre também o pagamento PARCIAL
    (`PARTIALLY_PAID`) que o guard de `status === "PAID"` não pegava.
-7. **`cashFlow` usa `installment.paidAt`** (P2) — terceiro consumidor que o
-   FIN-B2 não migrou para o ledger; diverge de `stats`/DRE no pagamento
-   multi-mês.
+7. ~~**`cashFlow` usa `installment.paidAt`**~~ — ✅ **CORRIGIDO (PR #714).**
+   Passou a ler do ledger `installment_payments`, como `stats` e o DRE. Ao
+   corrigir apareceu um 2º bug na mesma função: a janela e o agrupamento por dia
+   ignoravam o fuso (UTC em vez de BRT). Medido em produção: **359 pagamentos,
+   R$ 1.428.511,25** (21% do total) feitos após 21h BRT eram reportados no DIA
+   SEGUINTE. Agora usa `startOfDayBrt`/`endOfDayBrt`/`brtDayKey`.
+
 8. ~~**Comissão duplicada em OS intermediada**~~ — ✅ **CORRIGIDO (PR #702).**
    O filtro de participação passou a excluir também o `vendorId`, espelhando o
    guard que as vendas já tinham. Decisão do dono: quem vendeu ganha pela
@@ -215,11 +220,15 @@ rodada por serem decisão do dono ou por escopo.
     CAS repetindo a condição no `where` + CHECK no banco. A fidelidade legada
     (2 saldos negativos vindos da migração do Laravel, módulo nunca usado) foi
     zerada com autorização do dono antes de aplicar a constraint.
-14. **Caps de campanha são TOCTOU** (P1) — `rewardLimit`/`maxActive` burláveis
-    por claims concorrentes; `totalParticipants` conta claims, não clientes.
-15. **`bulkAdjustPrice` sem admin e sem teto** (P0 no papel, P1 na prática) —
-    operador reajusta o catálogo de serviços inteiro sem limite e sem
-    `logAudit`. O irmão `bulkAdjustPrices` tem os dois guards.
+14. ~~**Caps de campanha são TOCTOU**~~ — ✅ **CORRIGIDO (PR #714).** O limite
+    passou a ser repetido no `where` do update: o Postgres reavalia depois do
+    row lock e o claim perdedor aborta.
+
+15. ~~**`bulkAdjustPrice` sem admin e sem teto**~~ — ✅ **CORRIGIDO (PR #714).**
+    `isTenantAdmin` + teto de R$ 100.000 + `logAudit`, e os itens escondidos no
+    menu para não-admin. O `deleteByType` (que tinha a regra invertida em
+    relação ao `deleteService`) também ganhou o gate.
+
 16. **`reward` sem `isTenantAdmin`** (P1) — `updateCampaign` muda valor/percentual
     da campanha (vira desconto real no PDV); `expireOverdue` exposto como
     procedure duplica o cron.
