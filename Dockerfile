@@ -31,6 +31,12 @@ COPY . .
 
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 ENV NEXT_TELEMETRY_DISABLED=1
+# Typecheck e lint JA rodaram no CI antes desta imagem existir (o job
+# `build-image` tem `needs: [lint, typecheck, test]`), em runners rapidos. Sem
+# esta flag, o `next build` refazia o typecheck aqui dentro, na VPS: 9,4min
+# medidos de duplicacao pura — o que estourava o timeout e travava o deploy.
+# Ver a justificativa completa em next.config.ts.
+ENV DOCKER_BUILD_SKIP_CHECKS=1
 
 RUN pnpm prisma generate
 
