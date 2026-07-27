@@ -409,6 +409,13 @@ export const catalogRouter = createTRPCRouter({
   bulkAdjustPrice: tenantProcedure
     .input(bulkAdjustSchema)
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: reajustar TODOS os serviços de um tipo é ação de
+      // admin — o preço do serviço é a base da OS e da comissão do prestador, e
+      // vai no orçamento enviado ao cliente. A irmã `bulkAdjustPrices` já
+      // exigia admin; esta era `tenantProcedure` pura.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para reajustar precos em massa" });
+      }
       return ctx.withTenant(async (tx) => {
         const services = await tx.service.findMany({
           where: {
@@ -434,6 +441,19 @@ export const catalogRouter = createTRPCRouter({
           count++;
         }
 
+        // Trilha: reajuste em massa mexe no preço de N serviços de uma vez.
+        // Sem isto não havia como saber quem reajustou o quê (o catalog era o
+        // único router que mexia em preço sem `logAudit`).
+        const { logAudit } = await import("@/server/services/audit-log.service");
+        await logAudit(tx as never, {
+          tenantId: ctx.tenantId,
+          userId: ctx.session.user.id,
+          action: "bulk_adjust_price",
+          entity: "service",
+          entityId: input.serviceType,
+          payload: { serviceType: input.serviceType, adjustmentCents: input.adjustmentCents, updated: count },
+        });
+
         return { updated: count };
       });
     }),
@@ -442,6 +462,11 @@ export const catalogRouter = createTRPCRouter({
   deleteByType: tenantProcedure
     .input(z.object({ serviceType: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: a regra estava INVERTIDA — apagar UM serviço
+      // (`deleteService`) exigia admin, apagar N de uma vez não exigia nada.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para excluir servicos em massa" });
+      }
       return ctx.withTenant(async (tx) => {
         const result = await tx.service.updateMany({
           where: {

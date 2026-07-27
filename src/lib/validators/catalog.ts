@@ -36,7 +36,16 @@ export type ListServicesInput = z.infer<typeof listServicesSchema>;
 
 export const bulkAdjustSchema = z.object({
   serviceType: z.string().min(1),
-  adjustmentCents: z.number().int(), // positive = increase, negative = decrease
+  // Teto sanitário de R$ 100.000 por reajuste (auditoria 2026-07-25). Antes era
+  // `z.number().int()` sem limite: um dedo errado (ou um zero a mais) reajustava
+  // TODOS os serviços do tipo em qualquer valor. O preço do serviço é a base da
+  // OS e da comissão do prestador, e vai no orçamento enviado ao cliente.
+  // A irmã `bulkAdjustPrices` (percentual) já tinha `.min(-100).max(1000)`.
+  adjustmentCents: z
+    .number()
+    .int()
+    .min(-10_000_000, "Reajuste fora do limite permitido (R$ 100.000)")
+    .max(10_000_000, "Reajuste fora do limite permitido (R$ 100.000)"), // positive = increase, negative = decrease
 });
 
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;

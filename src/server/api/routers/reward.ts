@@ -348,14 +348,34 @@ export const rewardRouter = createTRPCRouter({
           value = decimalToCents(campaign.value)
           percentage = Number(campaign.percentage)
 
-          // Increment counters
-          await tx.rewardCampaign.update({
-            where: { id: input.campaignId },
+          // Increment counters — com CAS (auditoria 2026-07-25).
+          // Os gates de `participantLimit`/`rewardLimit` lá em cima rodam sobre
+          // um SNAPSHOT: sob READ COMMITTED, N claims concorrentes leem o mesmo
+          // contador, todos passam e todos incrementam (rewardLimit=100 com 99
+          // gerados vira 99+N). Repetir o limite no `where` faz o Postgres
+          // reavaliar o predicado depois do row lock — o perdedor vê count 0.
+          // Os limites vêm da campanha lida acima, então são constantes aqui.
+          const claimed = await tx.rewardCampaign.updateMany({
+            where: {
+              id: input.campaignId,
+              ...(campaign.rewardLimit
+                ? { totalRewardsGenerated: { lt: campaign.rewardLimit } }
+                : {}),
+              ...(campaign.participantLimit
+                ? { totalParticipants: { lt: campaign.participantLimit } }
+                : {}),
+            },
             data: {
               totalParticipants: { increment: 1 },
               totalRewardsGenerated: { increment: 1 },
             },
           })
+          if (claimed.count !== 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "A campanha atingiu o limite de recompensas enquanto a solicitacao era processada.",
+            })
+          }
         }
 
         const expiresAt = new Date()
