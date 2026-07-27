@@ -292,8 +292,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Usa o builder `default` (o docker-daemon da própria VPS) em vez de criar
+      # um `docker-container` novo a cada run. O builder efêmero nasce SEM cache
+      # de camadas — e como o Dockerfile depende de `--mount=type=cache` (pnpm
+      # store e .next/cache), perder o cache do builder significa refazer o
+      # `next build` inteiro do zero. Medido na VPS: `next build` sozinho leva
+      # 631s a frio. Com o `default` (cache já em 3.8GB) o build reaproveita as
+      # camadas entre deploys.
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -323,26 +332,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Cache LOCAL no runner self-hosted (auditoria 2026-07-27).
-          # `type=gha` é cache REMOTO (serviço HTTP do GitHub): num runner
-          # self-hosted cada camada sobe/desce pela rede, o que deixou o build
-          # lento e o cache local vazio (`docker buildx du` = 0B). Com o build a
-          # frio, o job passou a estourar o `timeout-minutes: 12` — o GitHub
-          # reporta timeout como "cancelled", o que mascarou a causa (parecia
-          # conflito de fila entre merges).
-          # `type=local` guarda as camadas no disco da própria VPS (63G livres),
-          # onde o build já roda. mode=max preserva as camadas intermediárias.
-          cache-from: type=local,src=/opt/github-runner/buildx-cache
-          cache-to: type=local,dest=/opt/github-runner/buildx-cache-new,mode=max
+          # Sem `cache-from/to` externo: com o driver `docker` o cache de
+          # camadas é o do próprio daemon da VPS, que PERSISTE entre runs.
+          # `type=gha` (o valor anterior) é cache REMOTO por HTTP — num runner
+          # self-hosted cada camada sobe/desce pela rede, e o driver
+          # `docker-container` ainda por cima nascia vazio a cada deploy.
           provenance: false
-
-      # O buildx não sobrescreve o diretório de cache no lugar: escreve no
-      # `-new` e trocamos aqui. Sem isto o cache cresce sem limite.
-      - name: Rotaciona o cache do buildx
-        if: always()
-        run: |
-          rm -rf /opt/github-runner/buildx-cache
-          mv /opt/github-runner/buildx-cache-new /opt/github-runner/buildx-cache 2>/dev/null || true
 
   # ============================================================
   # E2E — escopo adaptativo. OBJETIVO: ninguem espera o full.
