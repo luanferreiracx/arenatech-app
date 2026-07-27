@@ -338,6 +338,37 @@ export const updateProviderRulesSchema = z
       }
     }
 
+    // Auditoria 2026-07-25: UM MODO POR BALDE.
+    // `computeBucketCommission` lê valueType/base da PRIMEIRA regra do balde
+    // (`sorted[0]`) e aplica ao balde inteiro — o comentário do motor afirmava
+    // que "o validador garante um modo por balde", mas a checagem abaixo pula
+    // as regras FIXED_PER_UNIT e só olha contiguidade de faixas PERCENT.
+    // Com R$/unidade e %/lucro no mesmo balde (ambas rangeMin 0), o comparador
+    // empata e a ordem vira a do `findMany` — heap do Postgres, instável após
+    // UPDATE. O admin achava que as duas somavam; o motor aplicava só uma, e a
+    // MESMA apuração podia mudar sozinha entre dois cálculos.
+    const modeByBucket = new Map<string, { valueType: string; base: string }>();
+    for (const rule of data.rules) {
+      if (rule._delete) continue;
+      const key = `${rule.category}|${rule.scope}|${rule.source}`;
+      const seen = modeByBucket.get(key);
+      const label = `${COMMISSION_CATEGORY_LABELS[rule.category] ?? rule.category} (${COMMISSION_SCOPE_LABELS[rule.scope] ?? rule.scope} / ${COMMISSION_SOURCE_LABELS[rule.source] ?? rule.source})`;
+      if (!seen) {
+        modeByBucket.set(key, { valueType: rule.valueType, base: rule.base });
+        continue;
+      }
+      if (seen.valueType !== rule.valueType) {
+        addIssue(
+          `${label}: as regras deste grupo precisam usar o mesmo tipo de valor (ou todas em %, ou todas em R$ por unidade). Separe em categorias/escopos diferentes.`,
+        );
+      }
+      if (seen.base !== rule.base) {
+        addIssue(
+          `${label}: as regras deste grupo precisam usar a mesma base de cálculo (lucro ou total líquido).`,
+        );
+      }
+    }
+
     // Faixas progressivas: agrupa por (categoria, escopo, origem); regras fixas nao
     // participam da checagem de contiguidade (nao tem faixa).
     const buckets = new Map<string, Array<{ rangeMin: number; rangeMax: number | null | undefined }>>();

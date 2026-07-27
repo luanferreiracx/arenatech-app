@@ -856,7 +856,17 @@ async function recomputeProviderApuracao(
 ): Promise<{ id: string; grossCommission: number; netAmount: number }> {
   const provider = await tx.provider.findUnique({
     where: { id: providerId },
-    include: { contracts: { orderBy: { startDate: "desc" }, include: { rules: true } } },
+    include: {
+      contracts: {
+        orderBy: { startDate: "desc" },
+        // Ordem ESTÁVEL das regras (auditoria 2026-07-25): o motor lê o modo
+        // do balde de `sorted[0]` e o sort por rangeMin empata quando duas
+        // regras têm o mesmo piso. Sem `orderBy`, a ordem era a do heap do
+        // Postgres — instável após UPDATE/VACUUM — e a MESMA apuração podia
+        // mudar sozinha entre dois cálculos.
+        include: { rules: { orderBy: [{ rangeMin: "asc" }, { id: "asc" }] } },
+      },
+    },
   });
   if (!provider) throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
 
