@@ -19,6 +19,33 @@
 
 ---
 
+### 2026-07-26 — Backlog da auditoria: comissão (#702) e fiscal (#703)
+Construído em TDD (RED→GREEN, um comportamento por vez, skill `tdd`).
+- **#702 comissão paga 2× na mesma OS.** Prestador SELLER que é o `vendorId` de
+  uma OS executada por OUTRO técnico gerava `intermediacao_at`/OWN E
+  `servico_at_loja`/STORE — baldes diferentes, as duas somavam. As VENDAS já
+  tinham o guard (`sellerId: { not: userId }`); a participação em OS ficou de
+  fora. DECISÃO DO DONO: quem vendeu ganha pela intermediação, não pela
+  participação.
+- **#702 balde de modo misto não-determinístico.** O motor lê `valueType`/`base`
+  de `sorted[0]`; o validador pulava as regras FIXED_PER_UNIT e só checava
+  contiguidade de faixas PERCENT. Com R$/un + %/lucro no mesmo balde (ambas
+  rangeMin 0) o comparador empata e a ordem virava a do `findMany` — que não
+  tinha `orderBy`. Heap do Postgres: a MESMA apuração podia mudar sozinha entre
+  o valor que o admin conferiu e o que o `closeApuracao` virou PAYABLE. Agora o
+  validador rejeita modo/base divergentes e as consultas ordenam por
+  (rangeMin, id). Produção tinha 0 contratos mistos.
+- **#703 NF-e duplicada.** `createFromSale`/`createFromServiceOrder` criavam a
+  nota sem checar preexistente, e só havia índice NÃO-único. O CAS de `authorize`
+  protege a MESMA invoice, não duas invoices da mesma venda → duplo-clique =
+  duas NF-e válidas na SEFAZ. Guard na procedure + índice ÚNICO PARCIAL no banco
+  (CANCELLED/REJECTED de fora: reemitir após cancelar é o fluxo normal).
+**LIÇÃO:** o Prisma não expressa índice parcial no schema — documentei o índice
+em `fiscal.prisma` para não parecer drift na próxima varredura (foi esse tipo de
+divergência schema-vs-banco que gerou o P0 do enum).
+**AINDA ABERTO no fiscal (decisão de produto):** venda estornada mantém NF-e
+ativa — bloquear o estorno, cancelar na SEFAZ, ou só sinalizar na UI?
+
 ### 2026-07-25 — Backlog da auditoria: os 3 P1 de maior risco (#700)
 Sequência da varredura geral. Mesma regra: cada bug provado por teste que FALHA
 antes do fix.

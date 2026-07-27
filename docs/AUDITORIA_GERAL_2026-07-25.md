@@ -151,10 +151,11 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 
 ## Backlog — achados reais ainda NÃO corrigidos
 
-> **Atualização (mesma data):** os 3 P1 de maior risco do backlog foram
-> corrigidos na PR #700 — API-key pós-suspensão, gating de módulo no tRPC e o
-> cron de caixa que fabricava saldo contado. Ficam riscados abaixo, com o
-> registro do que mudou.
+> **Atualização:** o backlog vem sendo atacado por ordem de risco. Já fechados:
+> **#700** (API-key pós-suspensão · gating de módulo no tRPC · cron de caixa
+> fabricando saldo), **#702** (comissão dupla em OS intermediada · balde de modo
+> misto não-determinístico) e **#703** (NF-e duplicada). Ficam riscados abaixo,
+> com o registro do que mudou. Restam ~18 achados.
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -185,17 +186,21 @@ rodada por serem decisão do dono ou por escopo.
 7. **`cashFlow` usa `installment.paidAt`** (P2) — terceiro consumidor que o
    FIN-B2 não migrou para o ledger; diverge de `stats`/DRE no pagamento
    multi-mês.
-8. **Comissão duplicada em OS intermediada** (P1) — o filtro de participação
-   exclui o técnico mas não o `vendorId`; prestador com regra de intermediação
-   **e** de participação comissiona duas vezes a mesma OS.
-9. **Modo do balde de comissão não-determinístico** (P1) — `sorted[0]` define
-   `valueType`/`base` do balde e o `findMany` das regras **não tem `orderBy`**;
-   a mesma apuração pode mudar entre dois `calculate`.
+8. ~~**Comissão duplicada em OS intermediada**~~ — ✅ **CORRIGIDO (PR #702).**
+   O filtro de participação passou a excluir também o `vendorId`, espelhando o
+   guard que as vendas já tinham. Decisão do dono: quem vendeu ganha pela
+   intermediação e não entra como participação.
+9. ~~**Modo do balde de comissão não-determinístico**~~ — ✅ **CORRIGIDO
+   (PR #702).** O validador rejeita `valueType`/`base` divergentes no mesmo
+   balde e as consultas ordenam por `(rangeMin, id)`. Produção tinha 0 contratos
+   mistos — a validação nova não quebrou nenhum existente.
 
 ### Fiscal
 
-10. **NF-e duplicada para a mesma venda** (P1) — sem guard de nota ativa por
-    `referenceId` e sem unique; duplo-clique gera duas notas válidas na SEFAZ.
+10. ~~**NF-e duplicada para a mesma venda**~~ — ✅ **CORRIGIDO (PR #703).**
+    Guard `assertNoActiveInvoiceFor` nas duas procedures + índice único PARCIAL
+    no banco (CANCELLED/REJECTED de fora, porque reemitir após cancelar é o
+    fluxo normal).
 11. **Venda estornada mantém NF-e ativa** (P1) — os dois lados são
     independentes; imposto sobre receita inexistente.
 12. **`inutilizar` retorna `{success: true}` sem fazer nada** (P1) — mock sem o
