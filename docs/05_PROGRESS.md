@@ -47,6 +47,29 @@ cada 3 execuções completas (arquivos compartilham o mesmo Postgres e agregaç�
 globais). Não roda no CI. Tornei o CX-B2 determinístico (reusava sessão de caixa
 alheia), mas a fragilidade estrutural continua.
 
+### 2026-07-27 — Fidelidade só-admin + diálogos da OS com feedback (#717)
+- **Fidelidade:** `createCampaign`/`updateCampaign`/`toggleCampaign`/
+  `rejectAction`/`expireOverdue` viraram admin. O valor da campanha vira
+  desconto REAL no PDV (`createAction` copia value/percentage → `applyRewardDiscount`
+  abate na venda): operador com `updateCampaign({value, percentage:100})`
+  transformava a campanha em 100% de desconto. `rejectAction` era a contraparte
+  do `approveAction`, que já era admin. UI escondida/desabilitada para não-admin.
+  **`createAction` fica SEM gate de propósito** — cria PENDING e só o
+  `approveAction` (admin) credita. É segregação de função; há teste garantindo
+  que o operador ainda registra a submissão.
+- **OS:** `onClick={() => { mut.mutate(); dialog.close(); }}` fechava o diálogo
+  no MESMO tick, então o `disabled={isPending}` nunca renderizava — o operador
+  via o diálogo sumir sem sinal e, em rede lenta, reabria e clicava de novo.
+  Atingia estorno, cancelamento, descancelamento e exclusão permanente. Agora o
+  `closeDialog()` vai no `onSuccess` (padrão que o hook já usava em
+  `addItemMut`) + rótulo de progresso. "Salvar custos" (único botão de dinheiro
+  da OS sem `disabled`) ganhou guard.
+**DEFERIDO com medição:** tipo de serviço como texto livre — produção tem **0**
+tipos divergindo por caixa/espaço, então o bug é latente. A correção completa
+(FK + resolver + select-com-criar-inline) é fatia maior e não era proporcional
+na frente dos itens acima.
+**Restam ~8 itens no backlog.**
+
 ### 2026-07-27 — Suíte estável (#713) + catálogo/fidelidade/fluxo de caixa (#714, #715)
 - **#713 falha intermitente da suíte ELIMINADA.** A suíte falhava em ~60% das
   execuções, sempre num teste DIFERENTE — parecia flaky, era determinístico.
