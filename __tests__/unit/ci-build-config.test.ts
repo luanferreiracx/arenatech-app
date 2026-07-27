@@ -56,6 +56,19 @@ describe("config do build da imagem — não regredir o builder", () => {
     expect(Number(m![1])).toBeGreaterThanOrEqual(20);
   });
 
+  it("build-image depende de typecheck (o Dockerfile pula a checagem confiando nisso)", () => {
+    // O Dockerfile define DOCKER_BUILD_SKIP_CHECKS=1 para o `next build` não
+    // refazer o typecheck dentro do container (9,4min medidos na VPS). Isso só
+    // é seguro porque `tsc --noEmit` já rodou como PRÉ-REQUISITO deste job.
+    // Se alguém tirar `typecheck` do `needs`, a imagem passa a poder ser
+    // buildada com erro de tipo — e aí o skip vira um buraco.
+    const job = buildImageJob();
+    expect(job).toMatch(/needs:\s*\[[^\]]*typecheck[^\]]*\]/);
+
+    const dockerfile = readFileSync(join(process.cwd(), "Dockerfile"), "utf8");
+    expect(dockerfile).toMatch(/DOCKER_BUILD_SKIP_CHECKS=1/);
+  });
+
   it("push na main não se auto-cancela (cada merge precisa deployar)", () => {
     // Foi a primeira hipótese errada do incidente: "os merges se cancelam".
     // Mantém explícito que a main está fora do cancel-in-progress.

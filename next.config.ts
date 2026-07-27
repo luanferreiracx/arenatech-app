@@ -93,8 +93,29 @@ function buildCsp(): string {
     .join("; ");
 }
 
+/**
+ * Dentro do build da IMAGEM, pular a checagem de tipos/lint do `next build`.
+ *
+ * O job `build-image` do CI tem `needs: [lint, typecheck, test]` — quando a
+ * imagem começa a buildar, `tsc --noEmit` e o ESLint JÁ passaram, em runners
+ * github-hosted rápidos (~1min cada). O `next build` refazia o typecheck
+ * DENTRO do container, na VPS: medido em **9,4 minutos** de duplicação pura,
+ * que estourava o `timeout-minutes` do job e travava o deploy.
+ *
+ * Só vale quando a flag está ligada (o Dockerfile a define). `next build`
+ * local/manual segue com verificação completa — não afrouxa nada fora do CI.
+ */
+const skipChecksInImageBuild = process.env.DOCKER_BUILD_SKIP_CHECKS === "1";
+
 const nextConfig: NextConfig = {
   output: "standalone",
+
+  ...(skipChecksInImageBuild
+    ? {
+        typescript: { ignoreBuildErrors: true },
+        eslint: { ignoreDuringBuilds: true },
+      }
+    : {}),
 
   images: {
     remotePatterns: [
