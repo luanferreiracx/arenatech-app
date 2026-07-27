@@ -101,12 +101,18 @@ describe("Auditoria Financeira — bugs de dinheiro (ao vivo)", () => {
   });
 
   it("CX-B2: close recalcula esperado por método no servidor (operador não esconde divergência)", async () => {
-    // Garante caixa aberto (reusa se já houver um aberto do admin).
-    const existing = await prisma.cashSession.findFirst({
+    // Caixa aberto LIMPO. Antes reusava a sessão aberta do admin, se houvesse —
+    // mas esta asserção depende do esperado por método ser exatamente R$100 de
+    // pix, e uma sessão herdada de outro teste podia trazer movimentos próprios,
+    // fazendo o teste falhar de forma intermitente conforme a ordem da suíte
+    // (os testes de integração compartilham o mesmo Postgres local). Fecha o que
+    // estiver aberto — o índice único só permite um caixa aberto por usuário —
+    // e abre um novo, garantindo estado conhecido.
+    await prisma.cashSession.updateMany({
       where: { tenantId, userId: adminId, closedAt: null },
-      select: { id: true },
+      data: { closedAt: new Date() },
     });
-    const session = existing ?? (await call(adminCtx).cashier.open({ initialBalance: 0 }));
+    const session = await call(adminCtx).cashier.open({ initialBalance: 0 });
     await prisma.cashMovement.create({
       data: {
         tenantId, cashSessionId: session.id, type: "SALE" as any, nature: "INCOME" as any,

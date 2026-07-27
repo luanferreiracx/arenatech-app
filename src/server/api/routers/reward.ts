@@ -690,13 +690,28 @@ export const rewardRouter = createTRPCRouter({
             message: `Saldo insuficiente: disponivel R$ ${(availableCents / 100).toFixed(2)}`,
           })
         }
-        await tx.rewardBalance.update({
-          where: { id: balance.id },
+        // CAS (auditoria 2026-07-25): o `availableCents` acima veio de um
+        // snapshot. Sob READ COMMITTED, dois lockBalance concorrentes de R$100
+        // sobre um saldo de R$100 liam ambos "100 >= 100", passavam o gate e o
+        // `decrement` (atômico no SQL, mas sem reavaliar a condição) deixava o
+        // saldo em -100. Repetir a condição no `where` faz o Postgres
+        // reavaliá-la após o row lock: o perdedor vê count 0 e aborta.
+        const claimed = await tx.rewardBalance.updateMany({
+          where: {
+            id: balance.id,
+            availableBalance: { gte: new Prisma.Decimal(input.amountCents).div(100) },
+          },
           data: {
             availableBalance: { decrement: input.amountCents / 100 },
             lockedBalance: { increment: input.amountCents / 100 },
           },
         })
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "O saldo de cashback mudou durante a operacao. Atualize e tente novamente.",
+          })
+        }
         const mov = await tx.rewardMovement.create({
           data: {
             tenantId: ctx.tenantId,
@@ -735,13 +750,25 @@ export const rewardRouter = createTRPCRouter({
         if (toUnlock === 0) {
           return { unlocked: 0 }
         }
-        await tx.rewardBalance.update({
-          where: { id: balance.id },
+        // CAS (auditoria 2026-07-25): mesmo padrão do lockBalance. O clamp
+        // `Math.min` usa um snapshot — dois unlock de R$100 sobre R$100
+        // reservados passavam os dois e deixavam `lockedBalance = -100`.
+        const claimed = await tx.rewardBalance.updateMany({
+          where: {
+            id: balance.id,
+            lockedBalance: { gte: new Prisma.Decimal(toUnlock).div(100) },
+          },
           data: {
             availableBalance: { increment: toUnlock / 100 },
             lockedBalance: { decrement: toUnlock / 100 },
           },
         })
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A reserva de cashback mudou durante a operacao. Atualize e tente novamente.",
+          })
+        }
         await tx.rewardMovement.create({
           data: {
             tenantId: ctx.tenantId,

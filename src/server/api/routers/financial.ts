@@ -4,7 +4,11 @@ import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { logAudit } from "@/server/services/audit-log.service";
-import { writeCashMovement, refundNeedsOpenCashSession } from "@/server/services/cash-session.service";
+import {
+  writeCashMovement,
+  refundNeedsOpenCashSession,
+  lockOpenCashSessionOrThrow,
+} from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { startOfMonthBrt, endOfMonthBrt } from "@/lib/utils/date-range";
 import { resolveSupplierId } from "@/server/services/financial-supplier.service";
@@ -532,10 +536,28 @@ export const financialRouter = createTRPCRouter({
           data: { status: "CANCELLED" },
         });
 
-        await tx.financialTransaction.update({
-          where: { id: input.id },
+        // CAS otimista (auditoria 2026-07-25): status E `paidAmount` foram
+        // lidos no início da transação. Sob READ COMMITTED, um `payInstallment`
+        // concorrente podia baixar uma parcela e commitar entre a leitura e
+        // esta escrita — o `updateMany` acima não tocaria a parcela (já PAID,
+        // fora do filtro) e este update forçava a conta para CANCELLED assim
+        // mesmo. Resultado: conta CANCELLED com `paidAmount > 0`, parcela PAID,
+        // linha no ledger e dinheiro na gaveta — recebido numa conta que "não
+        // existe".
+        // Ancorar nos DOIS campos cobre também o pagamento PARCIAL, que o guard
+        // de `status === "PAID"` lá em cima não pega (vira PARTIALLY_PAID).
+        // Mesmo padrão que `payInstallment` já usa no `where` da parcela.
+        const cas = await tx.financialTransaction.updateMany({
+          where: { id: input.id, status: existing.status, paidAmount: existing.paidAmount },
           data: { status: "CANCELLED" },
         });
+        if (cas.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "A conta mudou de status durante o cancelamento (pagamento concorrente?). Atualize a tela e confira antes de cancelar.",
+          });
+        }
 
         return { success: true };
       });
@@ -646,6 +668,14 @@ export const financialRouter = createTRPCRouter({
         });
 
         if (openSession) {
+          // Auditoria 2026-07-25: trava a sessão ANTES de escrever na gaveta.
+          // Sem o lock, o `cashier.close` podia fechar a sessão entre este
+          // `findFirst` e o `writeCashMovement`: o fechamento recalcula os
+          // movimentos e NÃO via este, então o dinheiro físico ficava fora do
+          // `expectedCash` — e reaparecia como divergência fantasma na
+          // conferência. Os 4 escritores de `cashier.ts` já usavam este helper.
+          await lockOpenCashSessionOrThrow(tx, openSession.id);
+
           const isReceivable = installment.transaction.type === "RECEIVABLE";
 
           await writeCashMovement(tx, {
@@ -794,6 +824,12 @@ export const financialRouter = createTRPCRouter({
         const openSession = reverseOpenSession;
 
         if (openSession && reversedAmount > 0) {
+          // Auditoria 2026-07-25: trava a sessão ANTES de escrever na gaveta.
+          // A janela aqui é larga — a sessão foi lida no guard early, bem antes
+          // deste ponto. Sem o lock, o `cashier.close` podia fechar no meio e o
+          // estorno cairia numa sessão já fechada, fora do `expectedCash`.
+          await lockOpenCashSessionOrThrow(tx, openSession.id);
+
           const isReceivable = installment.transaction.type === "RECEIVABLE";
 
           await writeCashMovement(tx, {
