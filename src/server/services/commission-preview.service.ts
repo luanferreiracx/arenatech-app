@@ -252,6 +252,14 @@ export async function collectProviderEvents(
           paymentDate: { gte: periodStart, lte: periodEnd },
           deletedAt: null,
           technicianId: { not: provider.userId },
+          // Auditoria 2026-07-25: sem este filtro, a OS que o prestador
+          // INTERMEDIOU (vendorId = ele) e outro técnico executou gerava DOIS
+          // eventos — `intermediacao_at`/OWN e `servico_at_loja`/STORE — em
+          // baldes diferentes, somando duas comissões pela MESMA OS.
+          // Decisão do dono: quem vendeu ganha pela intermediação e não entra
+          // também como participação. Espelha o guard que as VENDAS já tinham
+          // (`sellerId: { not: provider.userId }`).
+          vendorId: { not: provider.userId },
         },
         include: { items: true },
       });
@@ -259,6 +267,8 @@ export async function collectProviderEvents(
       for (const so of storeOrders) {
         // Guard extra: technicianId nao-nulo (executor definido) e != prestador.
         if (!so.technicianId || so.technicianId === provider.userId) continue;
+        // Espelha o filtro acima na memória (defesa contra vendorId nulo).
+        if (so.vendorId && so.vendorId === provider.userId) continue;
 
         const serviceAmount = decimalToNumber(so.serviceAmount);
         const costsTotal = decimalToNumber(so.partsCost) + decimalToNumber(so.otherCost);
@@ -320,7 +330,17 @@ export async function computeCommissionPreview(
 ): Promise<CommissionPreview> {
   const provider = await tx.provider.findUnique({
     where: { id: providerId },
-    include: { contracts: { orderBy: { startDate: "desc" }, include: { rules: true } } },
+    include: {
+      contracts: {
+        orderBy: { startDate: "desc" },
+        // Ordem ESTÁVEL das regras (auditoria 2026-07-25): o motor lê o modo
+        // do balde de `sorted[0]` e o sort por rangeMin empata quando duas
+        // regras têm o mesmo piso. Sem `orderBy`, a ordem era a do heap do
+        // Postgres — instável após UPDATE/VACUUM — e a MESMA apuração podia
+        // mudar sozinha entre dois cálculos.
+        include: { rules: { orderBy: [{ rangeMin: "asc" }, { id: "asc" }] } },
+      },
+    },
   });
   if (!provider) return { grossCommission: 0, lines: [], subtotals: {} };
 
