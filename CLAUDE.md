@@ -206,6 +206,35 @@ A skill global `writing` vale para clareza, concisão, voz ativa, documentação
 - O pre-push local (husky) faz só typecheck + unit (validação rápida). O E2E é autoritativo no CI.
 - **NUNCA** use `git push --force` ou `--force-with-lease` (denylist).
 
+#### Build da imagem: NÃO troque o builder (incidente 2026-07-27)
+
+O job `build-image` usa **`driver: docker`** no `setup-buildx-action` e **não**
+tem `cache-from/to` externo. Isso é deliberado — não "otimize" de volta:
+
+- `setup-buildx-action` sem `driver` cria um builder **`docker-container` novo a
+  cada run**, que nasce **sem cache**. O Dockerfile depende de
+  `--mount=type=cache` (pnpm store e `.next/cache`), que vive **dentro** do
+  builder. Builder novo ⇒ `next build` do zero toda vez.
+- `cache-from/to: type=gha` é cache **remoto** (HTTP). Em runner **self-hosted**
+  cada camada trafega pela rede e **não** cobre os `--mount=type=cache`.
+- Com `driver: docker` o cache é o do daemon da própria VPS e **persiste entre
+  deploys**. O workflow é single-platform, então a limitação do driver (sem
+  multi-arch) não se aplica. Se um dia precisar de multi-arch, aí sim troque —
+  e suba o timeout junto.
+
+Números medidos na VPS (6 cores, load ~5-6, compartilhada com gunicorn/mysqld):
+`next build` = **631s a frio** + ~59s exportando camadas. Com cache, o job
+inteiro fica em **~10-11min**; por isso `timeout-minutes: 25` (era 12, e o job
+morria).
+
+**Sintoma para reconhecer:** job de build aparecendo como **`cancelled`** no
+GitHub Actions. O Actions reporta **timeout como "cancelled"** — não diz "timed
+out". Antes de suspeitar de fila/concorrência, compare `started_at` vs
+`completed_at` com o `timeout-minutes`. (`cancel-in-progress` é
+`github.ref != 'refs/heads/main'`: push na main **nunca** se auto-cancela.)
+
+Guardado por `__tests__/unit/ci-build-config.test.ts`.
+
 ### Pull Requests (obrigatório pra entrar na main)
 
 - Toda mudança entra na `main` **via PR** (`gh pr create`). É como o deploy é acionado.
