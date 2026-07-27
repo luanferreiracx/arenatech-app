@@ -58,6 +58,9 @@ export default function CloseCashierPage() {
           toast.warning(`Caixa fechado. Falta de ${diffFormatted}.`);
         }
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+        // O badge "Caixa aberto" do PDV lê `statusCheck` — sem invalidar aqui, ele
+        // segue verde depois de fechar o caixa (auditoria 2026-07-25).
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.statusCheck.queryKey() });
         router.push("/cashier");
       },
       onError: (error) => {
