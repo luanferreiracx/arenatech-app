@@ -29,7 +29,6 @@ import {
   Building2,
   ArrowDownToLine,
   ArrowUpFromLine,
-  Ban,
   Download,
   MessageSquare,
   Undo2,
@@ -157,7 +156,6 @@ export const appNavGroups: NavGroup[] = [
     items: [
       { label: "Fiscal", href: "/fiscal", icon: FileText, module: "fiscal" },
       { label: "NF-e Entrada", href: "/fiscal/entrada", icon: Download, module: "fiscal" },
-      { label: "Inutilizar", href: "/fiscal/inutilizar", icon: Ban, module: "fiscal" },
       { label: "Relatório NF", href: "/reports", icon: BarChart3, module: "fiscal" },
     ],
   },

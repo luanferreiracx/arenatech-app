@@ -243,10 +243,7 @@ export const operationRouter = createTRPCRouter({
     .input(updateLabOrderStatusSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const order = await tx.labOrder.findUnique({
-          where: { id: input.id },
-          include: { lab: { select: { name: true } } },
-        });
+        const order = await tx.labOrder.findUnique({ where: { id: input.id } });
         if (!order) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Envio nao encontrado" });
         }
@@ -262,61 +259,26 @@ export const operationRouter = createTRPCRouter({
         if (input.status === "RETURNED") data.returnedAt = new Date();
         if (input.finalCost != null) data.finalCost = centsToPrisma(input.finalCost);
 
-        // Gerar PAYABLE quando lab devolve com finalCost > 0 e ainda não há PAYABLE
-        const shouldGeneratePayable =
-          (input.status === "RETURNED" || input.status === "COMPLETED") &&
-          input.finalCost != null &&
-          input.finalCost > 0 &&
-          !order.payableTransactionId;
-
-        if (shouldGeneratePayable) {
-          const labName = order.lab?.name ?? "Laboratório externo";
-          const description = `Servico lab ${labName}${order.serviceOrderId ? ` — OS ${order.serviceOrderId.slice(0, 8)}` : ""}`;
-          const ft = await tx.financialTransaction.create({
-            data: {
-              tenantId: ctx.tenantId,
-              type: "PAYABLE",
-              status: "PENDING",
-              description,
-              supplier: labName,
-              totalAmount: centsToPrisma(input.finalCost!),
-              paidAmount: 0,
-              installmentsTotal: 1,
-              dueDate: new Date(),
-              emissionDate: new Date(),
-              referenceType: "lab_order",
-              referenceId: order.id,
-              createdByUserId: ctx.session.user.id,
-            },
-          });
-          await tx.installment.create({
-            data: {
-              tenantId: ctx.tenantId,
-              transactionId: ft.id,
-              number: 1,
-              amount: centsToPrisma(input.finalCost!),
-              dueDate: new Date(),
-              status: "PENDING",
-            },
-          });
-          // R3 (auditoria OS): a checagem !order.payableTransactionId era
-          // read-then-create — duas chamadas RETURNED/COMPLETED concorrentes
-          // liam null e criavam PAYABLE em DOBRO. CAS: só uma seta o vínculo
-          // (guard payableTransactionId IS NULL); a perdedora aborta (rollback
-          // do ft/installment que ela criou). O vencedor já gerou o PAYABLE.
-          const payableClaim = await tx.labOrder.updateMany({
-            where: { id: input.id, payableTransactionId: null },
-            data: { payableTransactionId: ft.id },
-          });
-          if (payableClaim.count !== 1) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "O PAYABLE deste envio de laboratório já foi gerado por outra operação.",
-            });
-          }
-          // payableTransactionId já persistido pelo CAS — não repetir no update abaixo.
-        }
-
+        // Auditoria 2026-07-25 (decisão do dono 2026-07-27): este endpoint criava
+        // um FinancialTransaction PAYABLE + Installment quando o lab devolvia com
+        // `finalCost`. Foi removido.
+        //
+        // O envio ao laboratório existe para SABER ONDE O APARELHO ESTÁ e para
+        // avisar o entregador — não é um documento financeiro. O custo do
+        // laboratório entra nos CUSTOS DA OS, que é onde a margem é calculada.
+        // Do jeito antigo o mesmo custo podia aparecer duas vezes (uma conta a
+        // pagar aqui, outra linha nos custos da OS) e o DRE contava em dobro.
+        //
+        // Também era caminho morto: a tela de envios nunca manda `finalCost`, só
+        // o status — então a conta a pagar só nasceria por chamada direta à API.
+        // Em produção não existe nenhum envio de laboratório (0 linhas), logo não
+        // há histórico a migrar.
+        //
+        // `LabOrder.payableTransactionId` continua no schema, sempre null: se um
+        // dia o laboratório virar fornecedor com conta a pagar de verdade, o
+        // vínculo já existe. Quem reintroduzir a geração precisa do CAS de volta
+        // (`updateMany` com guard `payableTransactionId: null`) — sem ele, duas
+        // chamadas concorrentes criam o PAYABLE em dobro.
         await tx.labOrder.update({ where: { id: input.id }, data });
 
         // Quando lab termina, marcar a OS relacionada (se houver) com labReceived=true
@@ -327,7 +289,7 @@ export const operationRouter = createTRPCRouter({
           });
         }
 
-        return { success: true, payableGenerated: shouldGeneratePayable };
+        return { success: true };
       });
     }),
 
