@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CreditCard, Loader2, Undo2 } from "lucide-react";
+import { MoneyInput } from "@/components/inputs/money-input";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -450,16 +451,20 @@ export function CardReceivablesClient() {
                   </div>
                   <div className="col-span-2">
                     <Label className="text-[10px] uppercase text-muted-foreground">Recebido</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={(real / 100).toFixed(2)}
-                      onChange={(e) =>
-                        setSettledInputs((prev) => ({
-                          ...prev,
-                          [r.id]: Math.round((parseFloat(e.target.value) || 0) * 100),
-                        }))
+                    {/*
+                      Auditoria 2026-07-25: era um `Input type=number` controlado
+                      por `(real / 100).toFixed(2)` com onChange convertendo de
+                      volta para centavos — round-trip a cada tecla. Digitar
+                      "1249.87" era impossível: ao teclar "1" o campo virava
+                      "1.00" e o cursor pulava. Este é o valor que a maquininha
+                      realmente depositou; errar aqui gera diferença fantasma no
+                      DRE. `MoneyInput` acumula os dígitos crus e só formata na
+                      saída — é o padrão usado em todo o resto do sistema.
+                    */}
+                    <MoneyInput
+                      value={real}
+                      onChange={(cents) =>
+                        setSettledInputs((prev) => ({ ...prev, [r.id]: cents }))
                       }
                     />
                   </div>

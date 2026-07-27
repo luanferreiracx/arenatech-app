@@ -105,6 +105,9 @@ export function CashierDashboard() {
         setOpeningBalance(0);
         setOpeningNotes("");
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+        // O badge "Caixa aberto" do PDV lê `statusCheck` — sem invalidar aqui, ele
+        // segue verde depois de fechar o caixa (auditoria 2026-07-25).
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.statusCheck.queryKey() });
       },
       onError: (error) => {
         toast.error(error.message);
@@ -120,6 +123,9 @@ export function CashierDashboard() {
         setWithdrawalAmount(0);
         setWithdrawalDescription("");
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+        // O badge "Caixa aberto" do PDV lê `statusCheck` — sem invalidar aqui, ele
+        // segue verde depois de fechar o caixa (auditoria 2026-07-25).
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.statusCheck.queryKey() });
       },
       onError: (error) => {
         toast.error(error.message);
@@ -135,6 +141,9 @@ export function CashierDashboard() {
         setDepositAmount(0);
         setDepositDescription("");
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+        // O badge "Caixa aberto" do PDV lê `statusCheck` — sem invalidar aqui, ele
+        // segue verde depois de fechar o caixa (auditoria 2026-07-25).
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.statusCheck.queryKey() });
       },
       onError: (error) => {
         toast.error(error.message);
@@ -151,6 +160,9 @@ export function CashierDashboard() {
         setExpenseMethod("dinheiro");
         setExpenseDescription("");
         queryClient.invalidateQueries({ queryKey: trpc.cashier.current.queryKey() });
+        // O badge "Caixa aberto" do PDV lê `statusCheck` — sem invalidar aqui, ele
+        // segue verde depois de fechar o caixa (auditoria 2026-07-25).
+        queryClient.invalidateQueries({ queryKey: trpc.cashier.statusCheck.queryKey() });
       },
       onError: (error) => {
         toast.error(error.message);

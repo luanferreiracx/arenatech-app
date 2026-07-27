@@ -239,8 +239,19 @@ export function PdvScreen() {
   // Status do próprio caixa — o operador vê "aberto/fechado" ANTES de finalizar
   // em dinheiro (antes só descobria "caixa fechado" no último clique, perdendo a
   // venda montada). Só relevante numa venda de balcão (não no recebimento de OS).
+  // Auditoria 2026-07-25: a query era montada UMA vez e nunca revalidada — nem
+  // por intervalo, nem por invalidação. O operador fica nesta tela o dia
+  // inteiro; se o caixa for fechado em outra aba (ou por outro usuário), o
+  // badge seguia verde com dado morto e a venda só falhava no último clique —
+  // exatamente o que o recurso existe para evitar. Revalida por intervalo e ao
+  // voltar o foco, então o badge se autocorrige.
   const cashierStatusQuery = useQuery(
-    trpc.cashier.statusCheck.queryOptions(undefined, { enabled: !isOSPayment }),
+    trpc.cashier.statusCheck.queryOptions(undefined, {
+      enabled: !isOSPayment,
+      refetchInterval: 60_000,
+      refetchOnWindowFocus: true,
+      staleTime: 30_000,
+    }),
   );
 
   // Mantém a opção destacada visível ao navegar por teclado (dropdown rola).
