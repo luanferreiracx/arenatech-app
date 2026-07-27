@@ -14,6 +14,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession, closeTestCashSessions } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "pdv-recon-test";
@@ -46,8 +47,8 @@ beforeAll(async () => {
   await prisma.acquirerRate.create({
     data: { tenantId, acquirerId, cardBrandId: brandId, kind: "CREDIT", installments: 1, feePercent: 3, feeFixed: 0, settlementDays: 1, active: true },
   });
-  await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
-  await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: 0 } });
+  await closeTestCashSessions(prisma, { tenantId, userId: adminId });
+  await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
 });
 
 afterAll(async () => {
@@ -68,7 +69,7 @@ afterAll(async () => {
   await prisma.cardBrand.deleteMany({ where: { id: brandId } });
   await prisma.acquirer.deleteMany({ where: { id: acquirerId } });
   await prisma.paymentMethod.deleteMany({ where: { id: cardMethodId } });
-  await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+  await closeTestCashSessions(prisma, { tenantId, userId: adminId });
   await prisma.product.deleteMany({ where: { id: { in: [productId, ...extraProductIds] } } });
   await prisma.$disconnect();
 });

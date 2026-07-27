@@ -12,6 +12,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "ledger-test";
@@ -53,7 +54,7 @@ describe("Auditoria Financeira — FIN-B2 ledger (ao vivo)", () => {
     // estorno exige caixa aberto (P3) — garante um
     const openSession = await prisma.cashSession.findFirst({ where: { tenantId, userId: adminId, closedAt: null }, select: { id: true } });
     if (!openSession) {
-      await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: new Prisma.Decimal(0) } });
+      await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: new Prisma.Decimal(0) });
     }
     const { ftId, instId } = await makeReceivable();
     // paga integral (R$100) → instalment vira PAID (permite estorno)

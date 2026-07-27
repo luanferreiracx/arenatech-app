@@ -14,6 +14,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession, closeTestCashSessions } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "fin-concurrency-test";
@@ -41,8 +42,8 @@ async function makeReceivableInstallment(amountCents: number) {
 async function openCash(initialCents: number) {
   const open = await prisma.cashSession.findMany({ where: { userId: adminId, closedAt: null }, select: { id: true } });
   for (const s of open) await prisma.cashMovement.deleteMany({ where: { cashSessionId: s.id } });
-  await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
-  return prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: initialCents / 100 } });
+  await closeTestCashSessions(prisma, { tenantId, userId: adminId });
+  return openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: initialCents / 100 });
 }
 
 beforeAll(async () => {

@@ -15,6 +15,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createCallerFactory } from "@/server/api/trpc";
 import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
+import { openTestCashSession, closeTestCashSessions } from "../helpers/cash-session";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = `rwpdv-${Date.now().toString(36)}`;
@@ -39,8 +40,8 @@ beforeAll(async () => {
   productId = (await prisma.product.create({
     data: { tenantId, name: `${MARK}-produto`, salePrice: 100, costPrice: 50, currentStock: 100, active: true },
   })).id;
-  await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
-  await prisma.cashSession.create({ data: { tenantId, userId: adminId, initialBalance: 0 } });
+  await closeTestCashSessions(prisma, { tenantId, userId: adminId });
+  await openTestCashSession(prisma, { tenantId, userId: adminId, initialBalance: 0 });
 });
 
 afterAll(async () => {
@@ -60,7 +61,7 @@ afterAll(async () => {
   await prisma.rewardAction.deleteMany({ where: { id: { in: actionIds } } });
   const open = await prisma.cashSession.findMany({ where: { userId: adminId, closedAt: null }, select: { id: true } });
   for (const s of open) await prisma.cashMovement.deleteMany({ where: { cashSessionId: s.id } });
-  await prisma.cashSession.deleteMany({ where: { userId: adminId, closedAt: null } });
+  await closeTestCashSessions(prisma, { tenantId, userId: adminId });
   await prisma.product.deleteMany({ where: { id: productId } });
   await prisma.customer.deleteMany({ where: { id: customerId } });
   await prisma.$disconnect();
