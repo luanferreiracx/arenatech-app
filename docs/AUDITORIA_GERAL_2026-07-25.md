@@ -154,8 +154,10 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > **Atualização:** o backlog vem sendo atacado por ordem de risco. Já fechados:
 > **#700** (API-key pós-suspensão · gating de módulo no tRPC · cron de caixa
 > fabricando saldo), **#702** (comissão dupla em OS intermediada · balde de modo
-> misto não-determinístico) e **#703** (NF-e duplicada). Ficam riscados abaixo,
-> com o registro do que mudou. Restam ~18 achados.
+> misto não-determinístico), **#703** (NF-e duplicada) e **#711** (lock de caixa
+> no `payInstallment`/`reverseInstallment` · CAS no `financial.cancel` · saldo de
+> cashback não-negativo). Ficam riscados abaixo, com o registro do que mudou.
+> Restam ~15 achados.
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -178,11 +180,12 @@ rodada por serem decisão do dono ou por escopo.
 4. ~~**`autoCloseAbandonedSessions` fabrica saldo contado**~~ — ✅ **CORRIGIDO
    na PR #700.** `declaredBalance`/`difference` ficam NULL e o update virou CAS
    em `closedAt: null`.
-5. **`payInstallment`/`reverseInstallment` sem `lockOpenCashSessionOrThrow`**
-   (P1) — escrevem na gaveta sem travar a sessão; o `cashier.close` pode fechar
-   no meio. O helper já existe e é usado 4× no mesmo módulo.
-6. **`financial.cancel` sem CAS** (P2) — cancela FT enquanto uma parcela é paga
-   em paralelo → conta CANCELLED com `paidAmount > 0` e dinheiro na gaveta.
+5. ~~**`payInstallment`/`reverseInstallment` sem `lockOpenCashSessionOrThrow`**~~
+   — ✅ **CORRIGIDO (PR #711).** Os dois passaram a travar a sessão antes de
+   escrever, como os 4 escritores de `cashier.ts` já faziam.
+6. ~~**`financial.cancel` sem CAS**~~ — ✅ **CORRIGIDO (PR #711).** CAS
+   ancorado em `status` E `paidAmount`, o que cobre também o pagamento PARCIAL
+   (`PARTIALLY_PAID`) que o guard de `status === "PAID"` não pegava.
 7. **`cashFlow` usa `installment.paidAt`** (P2) — terceiro consumidor que o
    FIN-B2 não migrou para o ledger; diverge de `stats`/DRE no pagamento
    multi-mês.
@@ -208,8 +211,10 @@ rodada por serem decisão do dono ou por escopo.
 
 ### Fidelidade / catálogo
 
-13. **`lockBalance`/`unlockBalance` sem CAS** (P1) — saldo de cashback pode ficar
-    negativo; sem CHECK constraint como rede.
+13. ~~**`lockBalance`/`unlockBalance` sem CAS**~~ — ✅ **CORRIGIDO (PR #711).**
+    CAS repetindo a condição no `where` + CHECK no banco. A fidelidade legada
+    (2 saldos negativos vindos da migração do Laravel, módulo nunca usado) foi
+    zerada com autorização do dono antes de aplicar a constraint.
 14. **Caps de campanha são TOCTOU** (P1) — `rewardLimit`/`maxActive` burláveis
     por claims concorrentes; `totalParticipants` conta claims, não clientes.
 15. **`bulkAdjustPrice` sem admin e sem teto** (P0 no papel, P1 na prática) —

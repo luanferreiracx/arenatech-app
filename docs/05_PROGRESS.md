@@ -19,6 +19,34 @@
 
 ---
 
+### 2026-07-27 — Backlog: lock de caixa, CAS no cancelamento e cashback (#711)
+Itens 5, 6 e 13 do backlog. Cada um provado por teste que FALHA antes do fix.
+- **`payInstallment`/`reverseInstallment` sem lock de caixa.** Entre o
+  `findFirst` da sessão aberta e o `writeCashMovement`, o `cashier.close` podia
+  fechar o caixa — o fechamento recalcula os movimentos e NÃO via este, então o
+  dinheiro ficava fora do `expectedCash` e virava divergência fantasma. Os 4
+  escritores de `cashier.ts` já usavam o helper; esses dois ficaram de fora.
+- **`financial.cancel` sem CAS.** Pagamento concorrente commitando entre a
+  leitura e a escrita deixava conta CANCELLED com `paidAmount > 0`. O CAS ancora
+  em `status` E `paidAmount` — cobre também o pagamento PARCIAL
+  (`PARTIALLY_PAID`), que o guard de `status === "PAID"` não pegava.
+- **`lockBalance`/`unlockBalance` sem CAS.** Dois locks de R$100 sobre R$100
+  passavam os dois → `availableBalance = -100`. CAS + CHECK no banco.
+  **Legado zerado com autorização do dono:** os 2 saldos negativos em produção
+  (-55/-60) NÃO eram do bug — mesmo `updated_at`, movimentos somando -115: era
+  dívida da migração do Laravel num módulo nunca usado (0 campanhas, 22 ações
+  todas terminais). Dry-run em prod (BEGIN…ROLLBACK) antes da migration.
+**Verificado pós-deploy:** 0 saldos, 0 negativos, 2 CHECKs ativas, app HTTP 200.
+**LIÇÕES DE TESTE (2):** (1) o primeiro teste do CAS de saldo PASSAVA sem o fix —
+a CHECK do banco já barrava; só virou prova ao asserir a MENSAGEM de negócio.
+Teste que passa nos dois cenários dá falsa confiança. (2) Corridas se reproduzem
+de forma determinística com uma 2ª conexão segurando o row lock (`FOR UPDATE`),
+em vez de depender de timing.
+**FLAKINESS PRÉ-EXISTENTE:** a suíte de integração tem ~1 falha intermitente a
+cada 3 execuções completas (arquivos compartilham o mesmo Postgres e agregações
+globais). Não roda no CI. Tornei o CX-B2 determinístico (reusava sessão de caixa
+alheia), mas a fragilidade estrutural continua.
+
 ### 2026-07-27 — Pipeline de deploy destravado (#707, #708) + guardião de drift (#706)
 As correções #702/#703 estavam na main mas NUNCA foram ao ar: o job "Build &
 push Docker image" morria sempre, aparecendo como `cancelled`.
