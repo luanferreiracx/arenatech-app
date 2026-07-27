@@ -57,6 +57,13 @@ model Invoice {
 
   @@index([tenantId, type, status])
   @@index([tenantId, referenceId])
+  /// NOTA: existe também um índice ÚNICO PARCIAL criado por SQL puro
+  /// (migration 20260726000000_invoice_unique_active_per_reference):
+  ///   UNIQUE (tenant_id, reference_type, reference_id)
+  ///   WHERE reference_id IS NOT NULL AND status NOT IN ('CANCELLED','REJECTED')
+  /// Garante UMA nota ativa por venda/OS. O Prisma não expressa índice parcial
+  /// no schema — por isso vive só na migration. NÃO remover sem remover o guard
+  /// `assertNoActiveInvoiceFor` no router fiscal.
   @@index([tenantId, number])
   @@index([tenantId, accessKey])
   @@map("invoices")
