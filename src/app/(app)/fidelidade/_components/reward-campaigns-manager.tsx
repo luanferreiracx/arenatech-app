@@ -24,6 +24,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Plus, Pencil, Star } from "lucide-react";
+import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
 type RewardType = "DISCOUNT_PERCENTAGE" | "DISCOUNT_FIXED" | "CASHBACK" | "GIFT";
 
@@ -71,6 +72,10 @@ const emptyForm = {
 };
 
 export function RewardCampaignsManager() {
+  // Criar/editar/ligar campanha define o VALOR da recompensa, que vira desconto
+  // real no PDV — é ação de admin no servidor (auditoria 2026-07-25). Esconder
+  // aqui evita o operador clicar e tomar FORBIDDEN.
+  const isAdmin = useIsTenantAdmin();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
@@ -138,12 +143,14 @@ export function RewardCampaignsManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nova campanha
-        </Button>
-      </div>
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Button onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nova campanha
+          </Button>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <EmptyState
@@ -184,14 +191,17 @@ export function RewardCampaignsManager() {
                   <TableCell className="text-center">
                     <Switch
                       checked={c.active}
+                      disabled={!isAdmin}
                       onCheckedChange={() => toggleMut.mutate({ id: c.id })}
                       aria-label={`${c.active ? "Desativar" : "Ativar"} ${c.name}`}
                     />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)} aria-label="Editar">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    {isAdmin && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)} aria-label="Editar">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

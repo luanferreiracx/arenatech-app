@@ -1089,7 +1089,13 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                   <div><Label className="text-xs">Custo de Pecas</Label><MoneyInput value={partsCostEdit} onChange={setPartsCostEdit} /></div>
                   <div><Label className="text-xs">Outros Custos</Label><MoneyInput value={otherCostEdit} onChange={setOtherCostEdit} /></div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => updateCostsMut.mutate({ id, partsCost: partsCostEdit, otherCost: otherCostEdit })}>Salvar</Button>
+                    <Button
+                      size="sm"
+                      disabled={updateCostsMut.isPending}
+                      onClick={() => updateCostsMut.mutate({ id, partsCost: partsCostEdit, otherCost: otherCostEdit })}
+                    >
+                      {updateCostsMut.isPending ? "Salvando..." : "Salvar"}
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => setCostsEditing(false)}>Cancelar</Button>
                   </div>
                 </div>
@@ -1560,12 +1566,11 @@ export function ServiceOrderDetail({ id }: { id: string }) {
                 (isSigned && !returnTermSigned && !cancelForce) ||
                 cancelMut.isPending
               }
-              onClick={() => {
-                cancelMut.mutate({ id, reason: cancelReason, force: cancelForce });
-                dialog.close();
-              }}
+              onClick={() =>
+                cancelMut.mutate({ id, reason: cancelReason, force: cancelForce })
+              }
             >
-              Confirmar Cancelamento
+              {cancelMut.isPending ? "Cancelando..." : "Confirmar Cancelamento"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1589,9 +1594,9 @@ export function ServiceOrderDetail({ id }: { id: string }) {
             <Button
               variant="destructive"
               disabled={deleteMut.isPending}
-              onClick={() => { deleteMut.mutate({ id }); dialog.close(); }}
+              onClick={() => deleteMut.mutate({ id })}
             >
-              Excluir permanentemente
+              {deleteMut.isPending ? "Excluindo..." : "Excluir permanentemente"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1604,7 +1609,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div><Label>Motivo</Label><Textarea value={uncancelReason} onChange={(e) => setUncancelReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
-            <Button disabled={!uncancelReason || uncancelMut.isPending} onClick={() => { uncancelMut.mutate({ id, reason: uncancelReason }); dialog.close(); }}>Descancelar</Button>
+            <Button disabled={!uncancelReason || uncancelMut.isPending} onClick={() => uncancelMut.mutate({ id, reason: uncancelReason })}>{uncancelMut.isPending ? "Descancelando..." : "Descancelar"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1616,7 +1621,7 @@ export function ServiceOrderDetail({ id }: { id: string }) {
           <div><Label>Motivo do Estorno (min. 10 caracteres)</Label><Textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} rows={3} /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => dialog.close()}>Voltar</Button>
-            <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => { refundMut.mutate({ id, reason: refundReason }); dialog.close(); }}>Confirmar Estorno</Button>
+            <Button variant="destructive" disabled={refundReason.length < 10 || refundMut.isPending} onClick={() => refundMut.mutate({ id, reason: refundReason })}>{refundMut.isPending ? "Estornando..." : "Confirmar Estorno"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -42,21 +42,21 @@ export function useServiceOrderActions(cb: ServiceOrderActionCallbacks) {
 
   const cancelMut = useMutation(
     trpc.serviceOrder.cancel.mutationOptions({
-      onSuccess: () => { toast.success("OS cancelada!"); invalidateOrder(); },
+      onSuccess: () => { toast.success("OS cancelada!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const uncancelMut = useMutation(
     trpc.serviceOrder.uncancel.mutationOptions({
-      onSuccess: () => { toast.success("OS descancelada!"); invalidateOrder(); },
+      onSuccess: () => { toast.success("OS descancelada!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
 
   const refundMut = useMutation(
     trpc.serviceOrder.refund.mutationOptions({
-      onSuccess: () => { toast.success("OS estornada!"); invalidateOrder(); },
+      onSuccess: () => { toast.success("OS estornada!"); cb.closeDialog(); invalidateOrder(); },
       onError: (e) => toast.error(e.message),
     })
   );
