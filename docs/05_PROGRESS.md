@@ -47,6 +47,38 @@ cada 3 execuções completas (arquivos compartilham o mesmo Postgres e agregaç�
 globais). Não roda no CI. Tornei o CX-B2 determinístico (reusava sessão de caixa
 alheia), mas a fragilidade estrutural continua.
 
+### 2026-07-27 — Suíte estável (#713) + catálogo/fidelidade/fluxo de caixa (#714, #715)
+- **#713 falha intermitente da suíte ELIMINADA.** A suíte falhava em ~60% das
+  execuções, sempre num teste DIFERENTE — parecia flaky, era determinístico.
+  Causa: `cash_sessions_one_open_per_user UNIQUE (tenant_id,user_id) WHERE
+  closed_at IS NULL` (um caixa aberto por usuário). 18 arquivos abriam caixa
+  para os MESMOS usuários semeados e só 4 fechavam o anterior; e
+  `cashSession.deleteMany({closedAt:null})` apagava sessão alheia, violando a FK
+  dos movimentos → o `beforeAll` morria e o arquivo virava "skipped" (não
+  "failed"), escondendo o problema. Fix: helper `openTestCashSession` (FECHA
+  antes de abrir, sem apagar) em 17 arquivos. Medido: 3 falhas/5 → **0 em 13
+  execuções consecutivas**. Guardião no CI nomeia o arquivo se o padrão voltar.
+- **#714 catálogo:** `bulkAdjustPrice` era `tenantProcedure` sem teto e sem
+  `logAudit` — operador reajustava TODOS os serviços de um tipo em qualquer
+  valor. `deleteByType` tinha a regra INVERTIDA (apagar 1 exigia admin, apagar N
+  não). Agora admin + teto R$100k + auditoria + itens escondidos na UI.
+- **#714 fidelidade:** caps de campanha eram TOCTOU (`count` + `throw`, depois
+  `increment` cego) → N claims concorrentes furavam o teto. Agora CAS.
+- **#714 fluxo de caixa:** usava `installment.paidAt` (3º consumidor que o
+  FIN-B2 não migrou). Ao corrigir, apareceu 2º bug na mesma função: janela e
+  agrupamento em UTC. **MEDIDO EM PROD: 359 pagamentos (21%), R$1.428.511,25,
+  feitos após 21h BRT eram reportados no DIA SEGUINTE.** O DRE já usava
+  `AT TIME ZONE 'America/Sao_Paulo'`; o cashFlow não.
+- **#715 build 25min→7m16s.** O deploy da #714 estourou o timeout. Medindo o
+  log: `Finished TypeScript in 9.4min` — o `next build` refazia `tsc` DENTRO do
+  container, sendo que o job `build-image` tem `needs: [lint,typecheck,test]` e
+  os dois já passaram em runner rápido. `DOCKER_BUILD_SKIP_CHECKS=1` só no
+  Dockerfile. O guardião trava a premissa: se tirarem `typecheck` do `needs`, o
+  teste falha.
+**LIÇÃO (repetida, agora com 2 casos):** `cancelled` no GitHub Actions é
+TIMEOUT. Medir o log ANTES de mexer no `timeout-minutes` — as duas vezes a causa
+real era outra (builder efêmero na #708, typecheck duplicado na #715).
+
 ### 2026-07-27 — Pipeline de deploy destravado (#707, #708) + guardião de drift (#706)
 As correções #702/#703 estavam na main mas NUNCA foram ao ar: o job "Build &
 push Docker image" morria sempre, aparecendo como `cancelled`.
