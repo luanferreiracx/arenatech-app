@@ -158,8 +158,16 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > no `payInstallment`/`reverseInstallment` · CAS no `financial.cancel` · saldo de
 > cashback não-negativo) e **#714** (reajuste/exclusão em massa só-admin com teto
 > · caps de campanha com CAS · `cashFlow` pelo ledger e em BRT) e **#717**
-> (fidelidade só-admin · diálogos destrutivos da OS com feedback). Ficam
-> riscados abaixo, com o registro do que mudou. Restam ~8 achados.
+> (fidelidade só-admin · diálogos destrutivos da OS com feedback), **#719**
+> (desfazer documento fiscal e reverter opt-out só-admin · rate-limit no envio),
+> **#720** (badge de caixa se autocorrige · input de liquidação) e **#721**
+> (retenção de `webhook_events` · secrets nos templates). Ficam riscados abaixo,
+> com o registro do que mudou.
+>
+> **Restam 5 achados** — e 3 deles são decisão do dono, não trabalho pendente:
+> venda estornada mantendo NF-e ativa (11), `inutilizar` mock (12), tipo de
+> serviço texto livre (17, deferido com medição) e o PAYABLE do lab order (25).
+> O único puramente técnico é o 24 (`z.string()` sem `.max()`).
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -173,11 +181,13 @@ rodada por serem decisão do dono ou por escopo.
    `tenantProcedure` resolve o módulo pelo namespace do path e recusa com
    FORBIDDEN — erro tRPC em JSON, nunca redirect, então não reintroduz o
    incidente do 307. Cobre as ~310 procedures numa checagem central.
-3. **Fiscal/communication/operation sem `isTenantAdmin`** (P2) — qualquer membro
-   autoriza/cancela NF-e, dispara WhatsApp para telefone arbitrário, reverte
-   opt-out de LGPD e gera PAYABLE no laboratório.
-
-### Dinheiro
+3. ~~**Fiscal/communication/operation sem `isTenantAdmin`**~~ — ✅ **CORRIGIDO
+   (PR #719).** Viraram admin: `fiscal.cancel`, `fiscal.correctionLetter` e
+   `communication.resubscribeCustomer` (reverter opt-out de LGPD). **Decisão do
+   dono:** EMITIR NF-e (`authorize`) continua livre — é rotina de balcão, e
+   desfazer, que é o estrago maior, agora é só-admin. `unsubscribeCustomer`
+   (registrar o opt-out) também segue livre: é o operador atendendo o cliente.
+   `operation.updateLabOrderStatus` **não** foi gateado — ver o item 20.
 
 4. ~~**`autoCloseAbandonedSessions` fabrica saldo contado**~~ — ✅ **CORRIGIDO
    na PR #700.** `declaredBalance`/`difference` ficam NULL e o update virou CAS
@@ -252,21 +262,36 @@ rodada por serem decisão do dono ou por escopo.
 19. ~~**"Salvar custos" da OS sem `disabled`**~~ — ✅ **CORRIGIDO (PR #717).**
     Guard + rótulo de progresso.
 
-20. **Badge "Caixa aberto" nunca invalidado** (P1) — o PDV mostra caixa aberto
-    depois de fechado em outra aba; a venda monta e falha no último clique —
-    exatamente o cenário que o recurso existe para evitar.
-21. **Input de liquidação de recebível re-formata a cada tecla** (P2) — único
-    campo de dinheiro que não usa o `MoneyInput`.
+20. ~~**Badge "Caixa aberto" nunca invalidado**~~ — ✅ **CORRIGIDO (PR #720).**
+    A query era montada uma vez e nunca revalidada — o PDV mostrava caixa aberto
+    depois de fechado em outra aba e a venda só falhava no último clique, com o
+    carrinho montado. Agora revalida por intervalo (60s) + ao focar, e as telas
+    de caixa invalidam `statusCheck` ao abrir/fechar.
 
-### Higiene
+21. ~~**Input de liquidação de recebível re-formata a cada tecla**~~ — ✅
+    **CORRIGIDO (PR #720).** Passou a usar o `MoneyInput`, que acumula os
+    dígitos crus e só formata na saída (era o único campo de dinheiro fora dele).
 
-22. **`webhook_events` sem retenção** (P2) — payload JSON de todo webhook,
-    indefinidamente, em tabela de escrita quente.
-23. **Secrets de webhook fora dos templates de deploy** (P2) — 5 envs ausentes de
-    `.env.example`/runbook; fail-closed (503), então vira indisponibilidade
-    silenciosa num redeploy limpo.
+22. ~~**`webhook_events` sem retenção**~~ — ✅ **CORRIGIDO (PR #721).** Cron
+    `/api/cron/purge-webhook-events` apaga o que passa de 90 dias, em lotes.
+    Medido antes: 21.517 linhas / 43 MB em 2 meses. ⚠️ **Pendente instalar o
+    timer no VPS.**
+
+23. ~~**Secrets de webhook fora dos templates de deploy**~~ — ✅ **CORRIGIDO
+    (PR #721).** Os 5 ausentes entraram no `.env.example`. Vale registrar a
+    natureza: o código é fail-closed, então a falta não era brecha — era
+    indisponibilidade silenciosa num redeploy limpo.
+
 24. **165 de 850 `z.string()` sem `.max()`** (P2) — campos de busca que alimentam
     `contains`.
+
+25. **`updateLabOrderStatus` cria PAYABLE fora do propósito** (NOVO — 2026-07-27,
+    achado durante a correção do item 3) — o dono esclareceu que o envio ao
+    laboratório existe **só para saber onde o aparelho está e avisar o
+    entregador**, e que o custo vai nos **custos da OS**. Criar uma despesa a
+    pagar ali duplica o caminho de custo realmente usado e faz um passo de
+    rastreio gerar registro financeiro. Não é bug de execução — é incoerência de
+    desenho. Decisão futura do dono; nada foi alterado.
 
 ---
 

@@ -47,6 +47,38 @@ cada 3 execuções completas (arquivos compartilham o mesmo Postgres e agregaç�
 globais). Não roda no CI. Tornei o CX-B2 determinístico (reusava sessão de caixa
 alheia), mas a fragilidade estrutural continua.
 
+### 2026-07-27 — Fecha o backlog da auditoria (#719, #720, #721)
+- **#719 fiscal/communication:** os routers `fiscal`, `communication` e
+  `operation` tinham ZERO `isTenantAdmin`. Viraram admin: `fiscal.cancel`,
+  `fiscal.correctionLetter` e `communication.resubscribeCustomer` (reverter
+  opt-out de LGPD). **DECISÃO DO DONO:** EMITIR NF-e segue livre (rotina de
+  balcão; desfazer, que é o estrago maior, virou só-admin), e registrar o
+  opt-out também (o operador atende o pedido do cliente).
+  **Rate-limit no `send`** (60/h por usuário): aceitava telefone ARBITRÁRIO e o
+  gate de opt-out casa contra a base de CLIENTES — número não cadastrado nunca
+  casava. Risco de BAN do número na Meta, que é recurso compartilhado.
+  Usou `enforceRateLimit` no handler, não `.use()` (o `.use()` reseta o tipo do
+  ctx — motivo já documentado em `depix-transaction.ts`).
+- **#720 frontend:** badge "Caixa aberto" do PDV era montado uma vez e nunca
+  revalidado — mostrava verde depois do caixa fechar em outra aba e a venda só
+  falhava no último clique, com o carrinho montado (exatamente o que o recurso
+  existia para evitar, segundo o próprio comentário do código). Agora
+  `refetchInterval` + foco + invalidação nas telas de caixa.
+  Input de liquidação de recebível era `type=number` com round-trip a cada
+  tecla (digitar "1249.87" era impossível); passou a usar o `MoneyInput` — era o
+  único campo de dinheiro do sistema fora dele.
+- **#721 higiene:** `webhook_events` sem retenção (medido: 21.517 linhas / 43 MB
+  em 2 meses) → cron de purga >90 dias em lotes. ⚠️ PENDENTE instalar o timer no
+  VPS. E os 5 secrets de webhook ausentes dos templates entraram no
+  `.env.example` — o código é fail-closed, então a falta não era brecha e sim
+  indisponibilidade silenciosa num redeploy limpo.
+**ACHADO NOVO (item 25):** `updateLabOrderStatus` cria PAYABLE, mas o dono
+esclareceu que o envio ao lab existe só para rastrear o aparelho e avisar o
+entregador — o custo vai nos custos da OS. Duplica o caminho de custo real;
+incoerência de DESENHO, não bug. Não mexi.
+**BACKLOG: restam 5 itens**, e 4 são decisão do dono (11, 12, 17, 25). O único
+puramente técnico é o 24 (`z.string()` sem `.max()`).
+
 ### 2026-07-27 — Fidelidade só-admin + diálogos da OS com feedback (#717)
 - **Fidelidade:** `createCampaign`/`updateCampaign`/`toggleCampaign`/
   `rejectAction`/`expireOverdue` viraram admin. O valor da campanha vira
