@@ -26,6 +26,7 @@ import {
 import { sendEmail } from "@/lib/services/email-service";
 import { startOfMonthBrt } from "@/lib/utils/date-range";
 import { logger } from "@/lib/logger";
+import { isTenantAdmin } from "@/lib/auth/roles";
 
 // ── Helpers ──
 
@@ -446,6 +447,12 @@ export const fiscalRouter = createTRPCRouter({
   cancel: tenantProcedure
     .input(cancelInvoiceSchema)
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: cancelar uma NF-e já autorizada desfaz um documento
+      // fiscal na SEFAZ (janela de 24h) e mexe na apuração. Emitir é rotina de
+      // balcão; DESFAZER é decisão de gestão.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para cancelar documento fiscal" });
+      }
       const prep = await ctx.withTenant(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },
@@ -489,6 +496,10 @@ export const fiscalRouter = createTRPCRouter({
   correctionLetter: tenantProcedure
     .input(correctionLetterSchema)
     .mutation(async ({ ctx, input }) => {
+      // Carta de correção altera oficialmente um documento fiscal já emitido.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para emitir carta de correcao" });
+      }
       const prep = await ctx.withTenant(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: input.invoiceId, deletedAt: null },

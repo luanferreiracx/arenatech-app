@@ -13,6 +13,11 @@ import { sendTextWithFallback, type WhatsAppLogContext } from "@/lib/whatsapp/se
 import { isWithin24hWindow } from "@/lib/whatsapp/conversation-window";
 import { sendEmail } from "@/lib/services/email-service";
 import { withTenant } from "@/server/db";
+import { isTenantAdmin } from "@/lib/auth/roles";
+import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
+
+/** Teto de envio por usuário — ver a justificativa no handler de `send`. */
+const rlSend = enforceRateLimit({ limit: 60, windowMs: 60 * 60 * 1000 });
 
 /**
  * LGPD (opt-out): o destinatário casa com um cliente que optou por NÃO receber
@@ -180,6 +185,15 @@ export const communicationRouter = createTRPCRouter({
   send: tenantProcedure
     .input(sendMessageSchema)
     .mutation(async ({ ctx, input }) => {
+      // Rate limit por usuário (auditoria 2026-07-25): o `send` aceita telefone
+      // ARBITRÁRIO e o gate de opt-out (`isRecipientUnsubscribed`) casa contra a
+      // base de CLIENTES — número não cadastrado nunca casa, então passa. Sem
+      // teto, um loop dispara para números quaisquer pelo WhatsApp Business da
+      // loja e arrisca o BAN do número na Meta, que é recurso COMPARTILHADO:
+      // derruba o atendimento real junto. 60/hora cobre com folga o balcão.
+      // Chamado no início do handler (não via `.use`) para preservar o ctx
+      // refinado — mesmo padrão de `depix-transaction.ts`.
+      await rlSend(ctx, "communication.send");
       // tx1: cria Message PENDING.
       const message = await ctx.withTenant(async (tx) =>
         tx.message.create({
@@ -524,6 +538,12 @@ export const communicationRouter = createTRPCRouter({
   resubscribeCustomer: tenantProcedure
     .input(z.object({ customerId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Auditoria 2026-07-25: REVERTER um opt-out é decisão de gestão (LGPD) — o
+      // cliente pediu para não receber. Registrar o opt-out (`unsubscribeCustomer`)
+      // segue livre: é o operador atendendo o pedido do cliente.
+      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para reativar o envio a este contato" });
+      }
       return ctx.withTenant(async (tx) => {
         return tx.customer.update({
           where: { id: input.customerId },
