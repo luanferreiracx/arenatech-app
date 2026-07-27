@@ -278,7 +278,11 @@ jobs:
     needs: [lint, typecheck, test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: self-hosted
-    timeout-minutes: 12
+    # 12min era justo demais: os últimos builds BEM-SUCEDIDOS levaram 9m08s e
+    # 8m13s. Sem cache local, o build a frio passa disso e o job morre por
+    # timeout. Com o cache local o build volta a ser rápido; a folga aqui evita
+    # que uma variação de carga da VPS derrube o deploy de novo.
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: write
@@ -319,9 +323,26 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Cache LOCAL no runner self-hosted (auditoria 2026-07-27).
+          # `type=gha` é cache REMOTO (serviço HTTP do GitHub): num runner
+          # self-hosted cada camada sobe/desce pela rede, o que deixou o build
+          # lento e o cache local vazio (`docker buildx du` = 0B). Com o build a
+          # frio, o job passou a estourar o `timeout-minutes: 12` — o GitHub
+          # reporta timeout como "cancelled", o que mascarou a causa (parecia
+          # conflito de fila entre merges).
+          # `type=local` guarda as camadas no disco da própria VPS (63G livres),
+          # onde o build já roda. mode=max preserva as camadas intermediárias.
+          cache-from: type=local,src=/opt/github-runner/buildx-cache
+          cache-to: type=local,dest=/opt/github-runner/buildx-cache-new,mode=max
           provenance: false
+
+      # O buildx não sobrescreve o diretório de cache no lugar: escreve no
+      # `-new` e trocamos aqui. Sem isto o cache cresce sem limite.
+      - name: Rotaciona o cache do buildx
+        if: always()
+        run: |
+          rm -rf /opt/github-runner/buildx-cache
+          mv /opt/github-runner/buildx-cache-new /opt/github-runner/buildx-cache 2>/dev/null || true
 
   # ============================================================
   # E2E — escopo adaptativo. OBJETIVO: ninguem espera o full.
