@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client"
 import { TRPCError } from "@trpc/server"
 
 /**
- * Impede estornar/cancelar uma venda ou OS que ainda tem documento fiscal VIVO.
+ * Impede DESFAZER uma venda ou OS que ainda tem documento fiscal VIVO.
  *
  * Auditoria 2026-07-25 (decisão do dono 2026-07-27: BLOQUEAR): os dois lados
  * eram independentes — `sale.ts` e `service-order.ts` não mencionavam `invoice`
@@ -20,16 +20,24 @@ import { TRPCError } from "@trpc/server"
  * dentro da janela de 24h; fora dela falha e vira carta de correção ou nota de
  * devolução) e apenas sinalizar na UI (depende de alguém olhar).
  *
+ * "Desfazer" tem duas formas, e AS DUAS precisam do guard:
+ *  - ESTORNO (#723): venda/OS já paga, reverte o dinheiro.
+ *  - CANCELAMENTO (item 26): OS ainda não paga. `createFromServiceOrder` aceita
+ *    OS em QUALQUER status, então dá para emitir a nota antes do pagamento e
+ *    cancelar a OS depois — mesmo buraco, por outra porta.
+ *
  * CANCELLED/REJECTED não contam — nota já desfeita não impede nada.
  */
-export async function assertNoActiveInvoiceBlockingRefund(
+export async function assertNoActiveInvoiceBlockingUndo(
   tx: Prisma.TransactionClient,
   args: {
     tenantId: string
     referenceType: "SALE" | "SERVICE_ORDER"
     referenceId: string
-    /** Rótulo usado na mensagem ("venda" | "OS"). */
+    /** Rótulo do registro na mensagem ("venda" | "OS"). */
     label: string
+    /** O que o operador está tentando fazer, para a mensagem. */
+    operacao: "estornar" | "cancelar"
   },
 ): Promise<void> {
   const nota = await tx.invoice.findFirst({
@@ -46,7 +54,7 @@ export async function assertNoActiveInvoiceBlockingRefund(
   throw new TRPCError({
     code: "BAD_REQUEST",
     message: nota.number
-      ? `Esta ${args.label} tem a nota fiscal ${nota.number} ativa. Cancele a nota antes de estornar — senao o faturamento declarado inclui uma ${args.label} que deixou de existir.`
-      : `Esta ${args.label} tem um documento fiscal em andamento. Cancele-o antes de estornar.`,
+      ? `Esta ${args.label} tem a nota fiscal ${nota.number} ativa. Cancele a nota antes de ${args.operacao} — senao o faturamento declarado inclui uma ${args.label} que deixou de existir.`
+      : `Esta ${args.label} tem um documento fiscal em andamento. Cancele-o antes de ${args.operacao}.`,
   })
 }

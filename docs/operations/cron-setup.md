@@ -1,6 +1,6 @@
 # Cron Jobs — Setup e Operação
 
-## Jobs INSTALADOS na VPS (verificado 2026-07-25)
+## Jobs INSTALADOS na VPS (verificado 2026-07-28)
 
 Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,timer}`),
 `enabled` (sobrevivem a reboot). Confirmar com `systemctl list-timers | grep arenatech`.
@@ -11,7 +11,7 @@ Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,time
 | `expire-rewards` | idem | 03:00 | Expira recompensas de fidelidade vencidas |
 | `mark-overdue` | idem | 03:00 | Marca contas/parcelas vencidas |
 | `expire-subscriptions` | idem | 04:00 | ACTIVE→PAST_DUE→SUSPENDED (pós-carência) |
-| `purge-webhook-events` | idem | 04:30 | Apaga eventos de webhook com +90 dias (retenção) |
+| `purge-webhook-events` | idem | 04:30 | Apaga eventos de webhook com +90 dias (retenção) — `-m 300` no curl |
 | `generate-recurring-expenses` | idem | 05:00 | Gera as contas do mês dos templates recorrentes |
 | `process-deposit-repayments` | idem | a cada 5min | Quitação de adiantamentos DePix |
 | `process-pending-talison` | idem | a cada 10min | Fila do bot Talison |
@@ -23,6 +23,18 @@ Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,time
 **Ordem 03:00 → 05:00 é intencional:** `mark-overdue` roda antes de
 `generate-recurring-expenses` (a conta nova nasce PENDING, não é marcada vencida no
 mesmo dia).
+
+> **Esta tabela não se verifica sozinha.** Em 2026-07-28 o
+> `purge-webhook-events` estava listado aqui como instalado e **não existia na
+> VPS** — a rota foi criada no #721, o unit nunca. Foram 3 dias com a retenção
+> em papel e a tabela crescendo. Antes de confiar na linha, rode:
+>
+> ```bash
+> systemctl list-timers --all | grep arenatech   # devem ser 12
+> ```
+>
+> `purge-webhook-events` usa `-m 300` em vez dos 60s dos demais: a purga apaga
+> em lotes de 5000 e a primeira execução limpa o acumulado histórico.
 
 ---
 
