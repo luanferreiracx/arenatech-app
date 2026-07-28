@@ -1584,6 +1584,42 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       ? { encryptedSeed: wallet!.encryptedSeed, passphrase: args.passphrase }
       : {}),
   });
+  // INDETERMINADO != FALHOU (incidente TXW20260727-00002). Se a resposta do LWK
+  // se perdeu (timeout/queda), a tx pode ter sido transmitida. Marcar FAILED aqui
+  // foi o que mandou o operador refazer um saque que JA tinha saido — ele pagou o
+  // destinatario duas vezes e so recuperou porque a pessoa devolveu por boa-fe.
+  //
+  // Entao: mantemos em PROCESSING (a reserva de saldo CONTINUA valendo, o que
+  // impede um segundo saque gastar o mesmo dinheiro) e dizemos ao operador para
+  // NAO refazer. A conciliacao resolve depois, contra a chave de idempotencia.
+  //
+  // NAO retente o transfer aqui: o LWK grava o registro de idempotencia DEPOIS do
+  // broadcast e nao segura o lock durante ele — uma segunda chamada na janela de
+  // voo passa pela checagem e transmite DE NOVO (gasto em dobro).
+  if (!sweep.success && sweep.indeterminate) {
+    logger.error("createWithdraw: envio INDETERMINADO — conciliar antes de refazer", {
+      tenantId: args.tenantId,
+      txId: created.id,
+      idempotencyKey: created.id,
+    });
+    await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: created.id },
+        data: {
+          status: "PROCESSING",
+          errorMessage:
+            "Envio nao confirmado (sem resposta do LWK). Pode ter sido transmitido — conciliar antes de refazer.",
+        },
+      }),
+    );
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "Nao foi possivel confirmar o envio deste saque. Ele pode ter sido transmitido — " +
+        "NAO refaca. O saque ficara em processamento ate ser conciliado.",
+    });
+  }
+
   if (!sweep.success || !sweep.txid) {
     logger.error("createWithdraw: LWK transfer falhou", {
       tenantId: args.tenantId,
