@@ -385,13 +385,14 @@ paths:
       parameters:
         - name: Idempotency-Key
           in: header
-          required: false
+          required: true
           schema:
             type: string
             format: uuid
           description: >-
-            UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado,
-            sem duplicar.
+            UUID por intenção. OBRIGATÓRIO: saque é irreversível, e sem esta chave uma reentrega da
+            mesma requisição (retry automático do seu cliente HTTP) criaria um SEGUNDO saque.
+            Repetir com a mesma chave devolve o mesmo resultado.
       requestBody:
         required: true
         content:
@@ -406,7 +407,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PartnerWithdrawResult'
         '400':
-          description: Corpo JSON inválido ou cap diário de saque excedido.
+          description: Idempotency-Key ausente, corpo JSON inválido ou cap diário de saque excedido.
           content:
             application/json:
               schema:

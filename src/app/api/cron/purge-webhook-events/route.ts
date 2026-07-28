@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
   try {
     const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
     let deleted = 0
+    let deletedDepix = 0
 
     // Lock pelo mesmo motivo dos demais crons: duas execuções sobrepostas
     // apenas duplicariam trabalho, mas o lock mantém o padrão e o log honesto.
@@ -64,6 +65,28 @@ export async function POST(request: NextRequest) {
         }
         return total
       })
+
+      // `depix_webhook_events` e a tabela IRMA: guarda o payload completo dos
+      // webhooks da Eulen (chave PIX, CPF do pagador, valores) e ficou de fora da
+      // purga original — 730 linhas desde 2026-05-23 em producao, nenhuma apagada.
+      // Cresce devagar (nao e risco de disco), mas e retencao de dado pessoal sem
+      // prazo, que e o motivo pelo qual a purga existe.
+      deletedDepix = await withAdmin(async (tx) => {
+        let total = 0
+        for (;;) {
+          const batch = await tx.$executeRaw`
+            DELETE FROM depix_webhook_events
+            WHERE id IN (
+              SELECT id FROM depix_webhook_events
+              WHERE created_at < ${cutoff}
+              LIMIT 5000
+            )
+          `
+          total += batch
+          if (batch < 5000) break
+        }
+        return total
+      })
     })
 
     if (!ran) {
@@ -71,8 +94,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true })
     }
 
-    logger.info("[cron-purge-webhooks] Concluído", { deleted, retentionDays: RETENTION_DAYS })
-    return NextResponse.json({ deleted, retentionDays: RETENTION_DAYS })
+    logger.info("[cron-purge-webhooks] Concluído", { deleted, deletedDepix, retentionDays: RETENTION_DAYS })
+    return NextResponse.json({ deleted, deletedDepix, retentionDays: RETENTION_DAYS })
   } catch (error) {
     logger.error("[cron-purge-webhooks] Falhou", {
       error: error instanceof Error ? error.message : String(error),

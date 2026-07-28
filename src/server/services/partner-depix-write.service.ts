@@ -121,6 +121,23 @@ export async function partnerCreateWithdraw(args: {
   input: PartnerWithdrawInput;
   idempotencyKey?: string | null;
 }): Promise<PartnerWithdrawResult> {
+  // Idempotency-Key OBRIGATÓRIA no saque. Saque é irreversível: sem ela, um
+  // cliente HTTP com retry automático (axios-retry, timeout+retry) cria um SEGUNDO
+  // saque quando a resposta se perde no caminho. Não é hipótese — foi assim que o
+  // TXW20260727-00002 virou pagamento em dobro, com a diferença de que ali quem
+  // retentou foi um humano; uma máquina retenta em milissegundos.
+  //
+  // Exigimos aqui, junto do dinheiro, e não só na borda REST: qualquer caller
+  // futuro herda a proteção. O `@@unique([tenantId, idempotencyKey])` é o backstop.
+  if (!args.idempotencyKey?.trim()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Header Idempotency-Key é obrigatório em saques (UUID por intenção). " +
+        "Sem ele, uma reentrega da mesma requisição criaria um segundo saque.",
+    });
+  }
+
   await assertCustodialForApiWithdraw(args.tenantId);
   // Cap próprio da API (defesa extra; o cap do painel continua valendo no service).
   await assertApiDailyCap(args.tenantId, args.input.amountCents);

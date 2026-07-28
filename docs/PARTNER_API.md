@@ -94,10 +94,23 @@ Cada key carrega um conjunto de **escopos** — peça só o que a integração p
 **Valores monetários** são sempre **inteiros em centavos** (`amountCents: 2500` =
 R$ 25,00). Nunca usamos float para dinheiro.
 
-**Idempotência** — os endpoints de escrita (`POST`) aceitam o header
+**Idempotência** — os endpoints de escrita (`POST`) usam o header
 `Idempotency-Key: <uuid>`. Repetir a mesma chamada com a mesma chave **não duplica**
 a operação: você recebe o resultado da primeira. Gere um UUID por intenção (ex.: por
 pedido) e reenvie-o em retries de rede.
+
+> [!IMPORTANT]
+> No **saque** (`POST /depix/withdrawals`) o header é **obrigatório** — sem ele a API
+> responde `400`. Saque é irreversível: se a resposta se perder no caminho (timeout) e
+> o seu cliente HTTP retentar sozinho, sem a chave isso vira um **segundo saque**.
+> Com a chave, o retry devolve o resultado do primeiro. No depósito o header é
+> opcional, mas recomendado.
+
+**Reenvio seguro** — trate timeout e erro de rede como **desfecho desconhecido**, não
+como falha: a operação pode ter sido concluída e só a resposta ter se perdido. Retente
+com a **mesma** `Idempotency-Key`, ou consulte
+[`GET /depix/transactions/:id`](#get-depixtransactionsid). Nunca refaça um saque com
+uma chave nova por presumir que o primeiro falhou.
 
 **Rate limit** — por API-key, por minuto (ver tabela de escopos). Ao estourar, a API
 responde `429`; respeite o backoff e reduza a cadência.
@@ -180,7 +193,7 @@ Acompanhe a confirmação por [webhook](#webhooks) ou polling — o `status` vir
 ### POST /depix/withdrawals
 
 Saque via **PIX** (off-ramp Eulen). **Escopo:** `depix:withdraw`.
-Aceita `Idempotency-Key`.
+**Exige** `Idempotency-Key` (sem o header: `400`) — ver [Idempotência](#convenções).
 
 > [!NOTE]
 > **Só PIX pela API.** O saque **on-chain** (envio Liquid direto) **não** é exposto

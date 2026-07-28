@@ -89,10 +89,34 @@ describe("partnerCreateDeposit", () => {
 });
 
 describe("partnerCreateWithdraw", () => {
+  it("EXIGE Idempotency-Key: sem ela, um retry do parceiro pagaria duas vezes", async () => {
+    // Saque é irreversível. Sem chave de idempotência, qualquer cliente HTTP com
+    // retry automático (axios-retry, timeout+retry) cria um SEGUNDO saque quando a
+    // resposta se perde. Não é hipótese: foi exatamente assim que o
+    // TXW20260727-00002 virou pagamento em dobro — só que ali o retry foi humano.
+    // Uma máquina retenta em milissegundos.
+    await expect(
+      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput }),
+    ).rejects.toThrow(/Idempotency-Key/i);
+    expect(createWithdraw).not.toHaveBeenCalled();
+  });
+
+  it("aceita quando a Idempotency-Key vem preenchida", async () => {
+    createWithdraw.mockResolvedValue({
+      id: "tx-9", number: "TXW-9", status: "PENDING", netAmountCents: 5000, withdrawTxId: null,
+    });
+    const r = await partnerCreateWithdraw({
+      tenantId: TENANT, keyPrefix: "k", input: pixInput,
+      idempotencyKey: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    });
+    expect(r.number).toBe("TXW-9");
+    expect(createWithdraw).toHaveBeenCalledOnce();
+  });
+
   it("BLOQUEIA saque em carteira non-custodial (exige passphrase humana)", async () => {
     walletFindUnique.mockResolvedValue({ custodyModel: "non_custodial" });
     await expect(
-      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput }),
+      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1" }),
     ).rejects.toThrow(/non-custodial/i);
     expect(createWithdraw).not.toHaveBeenCalled();
   });
@@ -101,16 +125,14 @@ describe("partnerCreateWithdraw", () => {
     // Já usou R$9.999 nas 24h; default do cap API = R$10.000. +R$50 estoura.
     txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 999900 } });
     await expect(
-      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput }),
+      partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1" }),
     ).rejects.toThrow(/cap diário de saque via api/i);
     expect(createWithdraw).not.toHaveBeenCalled();
   });
 
   it("pix: chama createWithdraw (sem 2FA) e retorna", async () => {
     createWithdraw.mockResolvedValue({ id: "txw-2", number: "TXW-2", status: "PROCESSING", netAmountCents: 5000, withdrawTxId: null });
-    const res = await partnerCreateWithdraw({
-      tenantId: TENANT, keyPrefix: "k", input: pixInput,
-    });
+    const res = await partnerCreateWithdraw({ tenantId: TENANT, keyPrefix: "k", input: pixInput, idempotencyKey: "idem-1" });
     expect(createWithdraw).toHaveBeenCalled();
     // Nao passa twoFactorCode (parceiro nao tem 2FA).
     expect(createWithdraw.mock.calls[0]![0]).not.toHaveProperty("twoFactorCode");
