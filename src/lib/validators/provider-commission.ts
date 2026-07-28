@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA } from "./limits";
 
 // ── Enums ──
 
@@ -208,7 +209,7 @@ export const listProvidersSchema = z.object({
   active: z.boolean().optional(),
   profile: providerProfileEnum.optional(),
   bondType: providerBondTypeEnum.optional(),
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
 });
 export type ListProvidersInput = z.infer<typeof listProvidersSchema>;
 
@@ -216,8 +217,8 @@ export type ListProvidersInput = z.infer<typeof listProvidersSchema>;
 
 export const createContractSchema = z.object({
   providerId: z.string().uuid(),
-  startDate: z.string().min(1, "Data inicio obrigatoria"),
-  endDate: z.string().optional().nullable(),
+  startDate: z.string().max(MAX_DATA).min(1, "Data inicio obrigatoria"),
+  endDate: z.string().max(MAX_DATA).optional().nullable(),
   allowanceCap: z.number().min(0).optional().nullable(),
   dailyMeal: z.number().min(0).optional().nullable(),
   dailyTransport: z.number().min(0).optional().nullable(),
@@ -228,8 +229,8 @@ export type CreateContractInput = z.infer<typeof createContractSchema>;
 
 export const updateContractSchema = z.object({
   contractId: z.string().uuid(),
-  startDate: z.string().min(1, "Data inicio obrigatoria"),
-  endDate: z.string().optional().nullable(),
+  startDate: z.string().max(MAX_DATA).min(1, "Data inicio obrigatoria"),
+  endDate: z.string().max(MAX_DATA).optional().nullable(),
   allowanceCap: z.number().min(0).optional().nullable(),
   dailyMeal: z.number().min(0).optional().nullable(),
   dailyTransport: z.number().min(0).optional().nullable(),
@@ -429,7 +430,7 @@ export type CloseApuracaoInput = z.infer<typeof closeApuracaoSchema>;
 
 export const createReversalSchema = z.object({
   providerId: z.string().uuid(),
-  factDate: z.string().min(1, "Data obrigatoria"),
+  factDate: z.string().max(MAX_DATA).min(1, "Data obrigatoria"),
   type: reversalTypeEnum,
   amount: z.number().min(0.01, "Valor deve ser maior que zero"),
   description: z.string().max(300).optional().nullable(),
@@ -448,7 +449,7 @@ export type DeleteReversalInput = z.infer<typeof deleteReversalSchema>;
 
 export const toggleUncoveredDaySchema = z.object({
   providerId: z.string().uuid(),
-  day: z.string().min(1, "Data obrigatoria"),
+  day: z.string().max(MAX_DATA).min(1, "Data obrigatoria"),
   reason: z.string().max(200).optional().nullable(),
 });
 export type ToggleUncoveredDayInput = z.infer<typeof toggleUncoveredDaySchema>;

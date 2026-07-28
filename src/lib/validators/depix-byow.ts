@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { looksLikeLiquidAddress } from "@/lib/validators/depix-onchain";
+import { MAX_SENHA } from "./limits";
 
 /**
  * Allowlist de carteiras BYOW (self-custody) do DePix. Cadastrar um endereço é
@@ -25,7 +26,7 @@ export const startAddByowWalletSchema = z.object({
   address: byowAddress,
   label: z.string().trim().min(1, "Informe um apelido").max(60),
   isThirdParty: z.boolean().default(false),
-  password: z.string().min(1, "Informe sua senha"),
+  password: z.string().max(MAX_SENHA).min(1, "Informe sua senha"),
   twoFactorCode: z.string().trim().min(1, "Informe o codigo 2FA").max(20),
 });
 export type StartAddByowWalletInput = z.infer<typeof startAddByowWalletSchema>;
@@ -35,8 +36,8 @@ export const confirmAddByowWalletSchema = z.object({
   address: byowAddress,
   label: z.string().trim().min(1).max(60),
   isThirdParty: z.boolean().default(false),
-  emailCode: z.string().trim().min(1, "Informe o codigo do email"),
-  whatsappCode: z.string().trim().min(1, "Informe o codigo do WhatsApp"),
+  emailCode: z.string().max(MAX_SENHA).trim().min(1, "Informe o codigo do email"),
+  whatsappCode: z.string().max(MAX_SENHA).trim().min(1, "Informe o codigo do WhatsApp"),
 });
 export type ConfirmAddByowWalletInput = z.infer<typeof confirmAddByowWalletSchema>;
 

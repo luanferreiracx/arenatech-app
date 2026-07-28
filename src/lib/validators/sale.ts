@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA } from "./limits";
 
 // A2 (auditoria PDV 2026-07-10): teto sanitário para campos de valor em centavos.
 // R$ 1.000.000,00 está muito acima de qualquer venda real de PDV e muito abaixo
@@ -41,7 +42,7 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 
 export const paymentDetailSchema = z.object({
   /** Codigo da forma de pagamento (ex: "dinheiro", "pix", "cartao_credito"). */
-  method: z.string().min(1, "Forma de pagamento obrigatoria"),
+  method: z.string().max(MAX_LINHA).min(1, "Forma de pagamento obrigatoria"),
   /** Id da PaymentMethod (opcional — quando informado, calcula taxas/politica). */
   paymentMethodId: z.string().uuid().optional().nullable(),
   /**
@@ -74,7 +75,7 @@ export const paymentDetailSchema = z.object({
    * paymentDetails JSON para o webhook localizar a venda quando o pagamento
    * confirma. Sem esse campo, vendas pagas via DePix ficam orfas eternamente.
    */
-  depixTransactionId: z.string().optional().nullable(),
+  depixTransactionId: z.string().max(MAX_LINHA).optional().nullable(),
 });
 
 export type PaymentDetail = z.infer<typeof paymentDetailSchema>;
@@ -179,11 +180,11 @@ export type RefundSaleInput = z.infer<typeof refundSaleSchema>;
 // ── List Sales ──
 
 export const listSalesSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   status: saleStatusEnum.optional(),
   sellerId: z.string().uuid().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["saleDate", "totalAmount", "subtotal", "number", "createdAt"]).optional(),
@@ -237,7 +238,7 @@ export const checkSaleSignatureStatusSchema = z.object({
 // ── Search Products (for PDV) ──
 
 export const searchProductsSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().max(MAX_BUSCA).min(1),
   withStock: z.boolean().optional(),
 });
 
@@ -279,7 +280,7 @@ export type RemoveSaleUpgradeInput = z.infer<typeof removeSaleUpgradeSchema>;
 
 export const checkSalePixStatusSchema = z.object({
   saleId: z.string().uuid(),
-  transactionId: z.string().min(1),
+  transactionId: z.string().max(MAX_LINHA).min(1),
   walletTransactionId: z.string().uuid().optional().nullable(),
 });
 export type CheckSalePixStatusInput = z.infer<typeof checkSalePixStatusSchema>;
@@ -296,7 +297,7 @@ export type LinkSaleCustomerInput = z.infer<typeof linkSaleCustomerSchema>;
 
 export const updateSaleDateSchema = z.object({
   saleId: z.string().uuid(),
-  saleDate: z.string(), // ISO
+  saleDate: z.string().max(MAX_DATA), // ISO
   reason: z.string().min(1).max(500),
 });
 export type UpdateSaleDateInput = z.infer<typeof updateSaleDateSchema>;

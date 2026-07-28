@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { MAX_DATA } from "./limits";
 
 // ── NF Report ──
 
 export const nfReportSchema = z.object({
-  dateFrom: z.string().min(1, "Data inicio obrigatoria"),
-  dateTo: z.string().min(1, "Data fim obrigatoria"),
+  dateFrom: z.string().max(MAX_DATA).min(1, "Data inicio obrigatoria"),
+  dateTo: z.string().max(MAX_DATA).min(1, "Data fim obrigatoria"),
   nfStatus: z.enum(["all", "with_nf", "without_nf"]).optional(),
 });
 export type NfReportInput = z.infer<typeof nfReportSchema>;

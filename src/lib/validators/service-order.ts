@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA, MAX_TEXTO } from "./limits";
 
 // ── Enums ──
 
@@ -347,7 +348,7 @@ export const createItemSchema = z.object({
   serviceId: z.string().uuid().optional().nullable(),
   productId: z.string().uuid().optional().nullable(),
   variationId: z.string().uuid().optional().nullable(),
-  description: z.string().min(1, "Descricao obrigatoria"),
+  description: z.string().max(MAX_TEXTO).min(1, "Descricao obrigatoria"),
   quantity: z.number().int().min(1, "Quantidade minima 1"),
   unitPrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
   costPrice: z.number().int().min(0).optional(), // centavos
@@ -368,7 +369,7 @@ export const createServiceOrderSchema = z.object({
   accessories: z.string().max(2000).optional().nullable(),
 
   // Step 3: Problem + Checklist
-  reportedProblem: z.string().min(1, "Problema relatado obrigatorio"),
+  reportedProblem: z.string().max(MAX_TEXTO).min(1, "Problema relatado obrigatorio"),
   entryChecklist: checklistSchema.optional(),
   deviceInfo: deviceInfoSchema.optional(),
 
@@ -380,11 +381,11 @@ export const createServiceOrderSchema = z.object({
   vendorId: z.string().uuid().optional().nullable(),
   serviceProviderId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
-  warrantyType: z.string().optional().nullable(),
+  warrantyType: z.string().max(MAX_LINHA).optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
   originalOrderId: z.string().uuid().optional().nullable(),
   customerNotes: z.string().max(2000).optional().nullable(),
-  estimatedDate: z.string().optional().nullable(), // ISO date string
+  estimatedDate: z.string().max(MAX_DATA).optional().nullable(), // ISO date string
 }).superRefine((data, ctx) => {
   // Garantia retorno_servico: precisa OS original pra herdar prazo
   // (paridade Laravel logica `tipo_garantia=retorno_servico` em
@@ -428,7 +429,7 @@ export const updateServiceOrderSchema = z.object({
   imei: z.string().max(50).optional().nullable(),
   devicePassword: z.string().max(50).optional().nullable(),
   accessories: z.string().max(2000).optional().nullable(),
-  reportedProblem: z.string().min(1).optional(),
+  reportedProblem: z.string().max(MAX_TEXTO).min(1).optional(),
   diagnosedProblem: z.string().max(2000).optional().nullable(),
   internalNotes: z.string().max(5000).optional().nullable(),
   customerNotes: z.string().max(2000).optional().nullable(),
@@ -439,9 +440,9 @@ export const updateServiceOrderSchema = z.object({
   // pode ser TROCADO (nunca removido) pela procedure dedicada `updateTechnician`.
   vendorId: z.string().uuid().optional().nullable(),
   isWarranty: z.boolean().optional(),
-  warrantyType: z.string().optional().nullable(),
+  warrantyType: z.string().max(MAX_LINHA).optional().nullable(),
   warrantyMonths: z.number().int().min(0).max(120).optional(),
-  estimatedDate: z.string().optional().nullable(),
+  estimatedDate: z.string().max(MAX_DATA).optional().nullable(),
   nfseIssued: z.boolean().optional(),
   nfseNumber: z.string().max(40).optional().nullable(),
 });
@@ -476,7 +477,7 @@ export const addItemSchema = z.object({
   serviceId: z.string().uuid().optional().nullable(),
   productId: z.string().uuid().optional().nullable(),
   variationId: z.string().uuid().optional().nullable(),
-  description: z.string().min(1, "Descricao obrigatoria"),
+  description: z.string().max(MAX_TEXTO).min(1, "Descricao obrigatoria"),
   quantity: z.number().int().min(1),
   unitPrice: z.number().int().min(0), // centavos
   costPrice: z.number().int().min(0).optional(), // centavos
@@ -487,7 +488,7 @@ export type AddItemInput = z.infer<typeof addItemSchema>;
 /** Update item */
 export const updateItemSchema = z.object({
   id: z.string().uuid(),
-  description: z.string().min(1).optional(),
+  description: z.string().max(MAX_TEXTO).min(1).optional(),
   quantity: z.number().int().min(1).optional(),
   unitPrice: z.number().int().min(0).optional(), // centavos
   costPrice: z.number().int().min(0).optional(), // centavos
@@ -558,13 +559,13 @@ export const STATUS_GROUPS: Record<ServiceOrderStatusGroup, ServiceOrderStatus[]
 };
 
 export const listServiceOrdersSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   status: serviceOrderStatusEnum.optional(),
   // Filtro agrupado (paridade Laravel) — alternativo a `status` exato.
   statusGroup: serviceOrderStatusGroupEnum.optional(),
   technicianId: z.string().uuid().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["number", "entryDate", "totalAmount", "status", "customerName"]).optional(),
@@ -591,7 +592,7 @@ export type RequestBudgetApprovalInput = z.infer<typeof requestBudgetApprovalSch
 
 /** Approve/reject quote (public page) */
 export const respondQuoteSchema = z.object({
-  link: z.string().min(1),
+  link: z.string().max(MAX_LINHA).min(1),
   action: z.enum(["approve", "reject"]),
   customerNotes: z.string().max(500).optional().nullable(),
 });
@@ -662,7 +663,7 @@ export const cancelLabSchema = z.object({
 
 /** Search parts/products from stock */
 export const searchPartsSchema = z.object({
-  query: z.string().optional(),
+  query: z.string().max(MAX_BUSCA).optional(),
   limit: z.number().int().min(1).max(50).optional(),
 });
 

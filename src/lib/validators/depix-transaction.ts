@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DEPIX_LIMITS } from "@/lib/services/depix-transaction-fee";
 import { isValidTaxId as isValidTaxIdMod11 } from "@/lib/utils/tax-id";
+import { MAX_DATA } from "./limits";
 
 /** Status labels pra UI. */
 export const DEPIX_TX_STATUS_LABELS: Record<string, string> = {
@@ -147,8 +148,8 @@ export const listTransactionsSchema = z.object({
     .optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
 });
 export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>;
 

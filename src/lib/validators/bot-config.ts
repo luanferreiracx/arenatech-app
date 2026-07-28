@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_LINHA } from "./limits";
 
 /** Cap do texto das instruções (ADR 0055). Entra no prompt de TODA conversa. */
 export const BOT_INSTRUCTIONS_MAX_CHARS = 4000;
@@ -146,7 +147,7 @@ const hhmmField = z
  */
 export const updateBotScheduleSchema = z
   .object({
-    timezone: z.string().refine(isValidTimeZone, "Fuso horário inválido."),
+    timezone: z.string().max(MAX_LINHA).refine(isValidTimeZone, "Fuso horário inválido."),
     start: hhmmField,
     end: hhmmField,
     openWeekdays: z.array(z.number().int().min(0).max(6)).max(7),

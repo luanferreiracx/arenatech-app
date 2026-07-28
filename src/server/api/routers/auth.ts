@@ -16,6 +16,7 @@ import { escapeHtml } from "@/lib/utils/html";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { generateResetToken, hashResetToken } from "@/lib/auth/reset-token";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
+import { MAX_SENHA } from "@/lib/validators/limits";
 
 /**
  * Fluxo de reset de senha (gera+grava token, envia email). Isolado pra ser
@@ -135,7 +136,7 @@ export const authRouter = createTRPCRouter({
     .input(
       z.object({
         token: z.string().uuid(),
-        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+        newPassword: z.string().max(MAX_SENHA).min(6, "A senha deve ter pelo menos 6 caracteres"),
       }),
     )
     .mutation(async ({ input }) => {
@@ -199,9 +200,9 @@ export const authRouter = createTRPCRouter({
   changePassword: protectedProcedure
     .input(
       z.object({
-        currentPassword: z.string().min(1, "Informe a senha atual"),
+        currentPassword: z.string().max(MAX_SENHA).min(1, "Informe a senha atual"),
         // Tamanho/complexidade ficam na POLITICA do tenant (D4) — aqui so nao-vazio.
-        newPassword: z.string().min(1, "Informe a nova senha"),
+        newPassword: z.string().max(MAX_SENHA).min(1, "Informe a nova senha"),
       }),
     )
     .mutation(async ({ ctx, input }) => {

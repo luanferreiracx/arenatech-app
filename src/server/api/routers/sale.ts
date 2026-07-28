@@ -61,6 +61,7 @@ import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { startOfTodayBrt, startOfMonthBrt } from "@/lib/utils/date-range";
+import { MAX_LINHA } from "@/lib/validators/limits";
 
 // ── Helpers ──
 
@@ -3900,7 +3901,7 @@ export const saleRouter = createTRPCRouter({
   cancelPix: tenantProcedure
     .input(z.object({
       saleId: z.string().uuid(),
-      transactionId: z.string().min(1),
+      transactionId: z.string().max(MAX_LINHA).min(1),
     }))
     .mutation(async ({ ctx, input }) => {
       // Wallet-only: cancelamento local da transacao PENDING. PixPay nao e mais

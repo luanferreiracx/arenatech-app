@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA } from "./limits";
 
 // ── Enums ──
 
@@ -103,9 +104,9 @@ export type CorrectionLetterInput = z.infer<typeof correctionLetterSchema>;
 export const listInvoicesSchema = z.object({
   type: invoiceTypeEnum.optional(),
   status: invoiceStatusEnum.optional(),
-  search: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["createdAt", "number", "totalAmount"]).optional(),

@@ -23,6 +23,7 @@ import {
   findOrCreateServiceTypeByName,
   slugifyServiceType,
 } from "@/server/services/service-type.service";
+import { MAX_BUSCA, MAX_LINHA, MAX_NOME } from "@/lib/validators/limits";
 
 function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
   return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
@@ -188,7 +189,7 @@ export const catalogRouter = createTRPCRouter({
     .input(
       z.object({
         serviceTypeId: z.string().uuid().optional(),
-        deviceModel: z.string().optional(),
+        deviceModel: z.string().max(MAX_NOME).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -846,7 +847,7 @@ export const catalogRouter = createTRPCRouter({
       categoryId: z.string().uuid().optional(),
       available: z.boolean().optional(),
       featured: z.boolean().optional(),
-      search: z.string().optional(),
+      search: z.string().max(MAX_BUSCA).optional(),
       page: z.number().int().min(0).optional(),
       // O admin de catálogo lista todos os aparelhos de uma vez (pede 200). Teto
       // generoso pra acomodar o pedido com folga e não rejeitar a query inteira.
@@ -896,7 +897,7 @@ export const catalogRouter = createTRPCRouter({
       description: z.string().max(2000).optional().nullable(),
       price: z.number().min(0).optional().nullable(),
       promotionalPrice: z.number().min(0).optional().nullable(),
-      imageUrl: z.string().optional().nullable(),
+      imageUrl: z.string().max(MAX_LINHA).optional().nullable(),
       imageProvider: z.enum(["cloudinary", "minio", "external"]).optional().nullable(),
       imageProviderPublicId: z.string().max(500).optional().nullable(),
       available: z.boolean().optional(),
@@ -938,7 +939,7 @@ export const catalogRouter = createTRPCRouter({
       description: z.string().max(2000).optional().nullable(),
       price: z.number().min(0).optional().nullable(),
       promotionalPrice: z.number().min(0).optional().nullable(),
-      imageUrl: z.string().optional().nullable(),
+      imageUrl: z.string().max(MAX_LINHA).optional().nullable(),
       imageProvider: z.enum(["cloudinary", "minio", "external"]).optional().nullable(),
       imageProviderPublicId: z.string().max(500).optional().nullable(),
       available: z.boolean().optional(),

@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
 import { parseNfeXml, validateAccessKey, allocateCosts } from "@/server/services/nfe-import.service"
 import { logger } from "@/lib/logger"
+import { MAX_BUSCA, MAX_DATA, MAX_XML } from "@/lib/validators/limits";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0
@@ -23,10 +24,10 @@ export const nfeImportRouter = createTRPCRouter({
   /** List imported NF-e with filters */
   list: tenantProcedure
     .input(z.object({
-      search: z.string().optional(),
+      search: z.string().max(MAX_BUSCA).optional(),
       status: z.enum(["PENDING", "PROCESSING", "PROCESSED", "ERROR", "CANCELLED"]).optional(),
-      dateFrom: z.string().optional(),
-      dateTo: z.string().optional(),
+      dateFrom: z.string().max(MAX_DATA).optional(),
+      dateTo: z.string().max(MAX_DATA).optional(),
       page: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     }))
@@ -92,7 +93,7 @@ export const nfeImportRouter = createTRPCRouter({
   /** Upload and process NF-e XML */
   processXml: tenantProcedure
     .input(z.object({
-      xmlContent: z.string().min(100, "XML invalido"),
+      xmlContent: z.string().max(MAX_XML).min(100, "XML invalido"),
       confirmMismatch: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -558,7 +559,7 @@ export const nfeImportRouter = createTRPCRouter({
   /** Search products for linking (with variation support) */
   searchProducts: tenantProcedure
     .input(z.object({
-      query: z.string().min(1),
+      query: z.string().max(MAX_BUSCA).min(1),
       limit: z.number().int().min(1).max(50).optional(),
     }))
     .query(async ({ ctx, input }) => {

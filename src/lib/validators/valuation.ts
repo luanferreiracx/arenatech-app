@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_LINHA, MAX_NOME } from "./limits";
 
 // ── Create Valuation ──
 
@@ -26,8 +27,8 @@ export type UpdateValuationInput = z.infer<typeof updateValuationSchema>;
 // ── List Valuations ──
 
 export const listValuationsSchema = z.object({
-  modelo: z.string().optional(),
-  armazenamento: z.string().optional(),
+  modelo: z.string().max(MAX_NOME).optional(),
+  armazenamento: z.string().max(MAX_LINHA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   // A tela de Avaliacoes e uma matriz completa por modelo (sem paginacao na UI):
@@ -41,7 +42,7 @@ export type ListValuationsInput = z.infer<typeof listValuationsSchema>;
 // ── Bulk Adjust (percentage) ──
 
 export const bulkAdjustSchema = z.object({
-  modelo: z.string().min(1, "Modelo obrigatorio"),
+  modelo: z.string().max(MAX_NOME).min(1, "Modelo obrigatorio"),
   adjustPercent: z.number().min(-100).max(1000), // percentage adjustment
 });
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;
@@ -49,7 +50,7 @@ export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;
 // ── Bulk Adjust Fixed (R$ amount, like Laravel) ──
 
 export const bulkAdjustFixedSchema = z.object({
-  modelo: z.string().min(1, "Modelo obrigatorio"),
+  modelo: z.string().max(MAX_NOME).min(1, "Modelo obrigatorio"),
   adjustAmount: z.number().int(), // centavos (positive = increase, negative = decrease)
 });
 export type BulkAdjustFixedInput = z.infer<typeof bulkAdjustFixedSchema>;
@@ -57,23 +58,23 @@ export type BulkAdjustFixedInput = z.infer<typeof bulkAdjustFixedSchema>;
 // ── Duplicate Model ──
 
 export const duplicateModelSchema = z.object({
-  sourceModelo: z.string().min(1, "Modelo de origem obrigatorio"),
-  targetModelo: z.string().min(1, "Modelo de destino obrigatorio"),
+  sourceModelo: z.string().max(MAX_NOME).min(1, "Modelo de origem obrigatorio"),
+  targetModelo: z.string().max(MAX_NOME).min(1, "Modelo de destino obrigatorio"),
 });
 export type DuplicateModelInput = z.infer<typeof duplicateModelSchema>;
 
 // ── Delete all valuations of a model ──
 
 export const deleteModelSchema = z.object({
-  modelo: z.string().min(1, "Modelo obrigatorio"),
+  modelo: z.string().max(MAX_NOME).min(1, "Modelo obrigatorio"),
 });
 export type DeleteModelInput = z.infer<typeof deleteModelSchema>;
 
 // ── Send WhatsApp ──
 
 export const sendValuationWhatsAppSchema = z.object({
-  phone: z.string().min(10, "Telefone obrigatorio"),
-  modelo: z.string().min(1, "Modelo obrigatorio"),
+  phone: z.string().max(MAX_LINHA).min(10, "Telefone obrigatorio"),
+  modelo: z.string().max(MAX_NOME).min(1, "Modelo obrigatorio"),
   customerName: z.string().max(255).optional(),
 });
 export type SendValuationWhatsAppInput = z.infer<typeof sendValuationWhatsAppSchema>;

@@ -32,6 +32,7 @@ import {
   computeCommissionPreview,
 } from "@/server/services/commission-preview.service";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
+import { MAX_DATA } from "@/lib/validators/limits";
 
 // ── Helpers ──
 
@@ -582,7 +583,7 @@ export const providerCommissionRouter = createTRPCRouter({
    *  Bloqueado se a apuracao do mes ja estiver fechada. */
   toggleMyUncoveredDay: tenantProcedure
     .input(z.object({
-      day: z.string().min(1, "Data obrigatoria"),
+      day: z.string().max(MAX_DATA).min(1, "Data obrigatoria"),
       reason: z.string().max(200).optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {

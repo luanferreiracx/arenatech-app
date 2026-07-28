@@ -14,10 +14,14 @@ import { LoadingState } from "@/components/domain/loading-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MAX_TEXTO_LONGO } from "@/lib/validators/limits";
 
 const assistanceSchema = z.object({
-  termsOfService: z.string().optional(),
-  warrantyPolicy: z.string().optional(),
+  // Mesmo teto do servidor (auditoria item 24): sem isto o usuario so descobre
+  // que passou do limite DEPOIS de enviar, com erro de API em vez de mensagem
+  // no campo. O servidor continua sendo quem decide — isto e feedback.
+  termsOfService: z.string().max(MAX_TEXTO_LONGO).optional(),
+  warrantyPolicy: z.string().max(MAX_TEXTO_LONGO).optional(),
   installmentsNoInterest: z.number().int().min(1).max(24),
   pixDiscount: z.number().min(0).max(100),
 });

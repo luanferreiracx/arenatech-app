@@ -42,6 +42,7 @@ import {
   DEFAULT_BOT_TIMEZONE,
   DEFAULT_BOT_OPEN_WEEKDAYS,
 } from "@/lib/validators/bot-config";
+import { MAX_PFX_BASE64, MAX_SENHA, MAX_TEXTO_LONGO } from "@/lib/validators/limits";
 
 export const settingsRouter = createTRPCRouter({
   // ═══════════════════════════════════════
@@ -1101,8 +1102,8 @@ export const settingsRouter = createTRPCRouter({
       state: z.string().max(2).nullable().optional(),
       zipCode: z.string().max(10).nullable().optional(),
       businessHours: z.string().max(200).nullable().optional(),
-      termsOfService: z.string().optional(),
-      warrantyPolicy: z.string().optional(),
+      termsOfService: z.string().max(MAX_TEXTO_LONGO).optional(),
+      warrantyPolicy: z.string().max(MAX_TEXTO_LONGO).optional(),
       // Paridade Laravel `configuracoes_assistencia.parcelas_sem_juros` / `desconto_pix`.
       // Usados nos orcamentos de servico via WhatsApp.
       installmentsNoInterest: z.number().int().min(1).max(24).optional(),
@@ -1187,8 +1188,8 @@ export const settingsRouter = createTRPCRouter({
   /** Upload encrypted .pfx certificate (Owner only) */
   updateFiscalCertificate: tenantProcedure
     .input(z.object({
-      pfxBase64: z.string().min(1, "Certificado obrigatório"),
-      password: z.string().min(1, "Senha do certificado obrigatória"),
+      pfxBase64: z.string().max(MAX_PFX_BASE64).min(1, "Certificado obrigatório"),
+      password: z.string().max(MAX_SENHA).min(1, "Senha do certificado obrigatória"),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {

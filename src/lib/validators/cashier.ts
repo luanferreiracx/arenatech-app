@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_DATA } from "./limits";
 
 // A4 (auditoria fin 2026-07-10): teto sanitário em centavos (R$ 1M) — fecha
 // overflow de saldo/gaveta por input adulterado. Mesmo padrão do PDV/financeiro.
@@ -97,8 +98,8 @@ export const depositSchema = z.object({
 export const cashSessionHistorySchema = z.object({
   page: z.number().int().min(0).default(0),
   pageSize: z.number().int().min(1).max(100).default(10),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
 });
 
 /** Review a pending cash session (conferencia) */

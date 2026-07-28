@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA } from "./limits";
 
 // ── Enums ──
 
@@ -52,9 +53,9 @@ export type UpdateQuickSaleInput = z.infer<typeof updateQuickSaleSchema>;
 
 export const listQuickSalesSchema = z.object({
   status: quickSaleStatusEnum.optional(),
-  search: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -75,7 +76,7 @@ export type GenerateQuickSalePixInput = z.infer<typeof generateQuickSalePixSchem
 
 export const checkQuickSalePixStatusSchema = z.object({
   id: z.string().uuid(),
-  transactionId: z.string().min(1),
+  transactionId: z.string().max(MAX_LINHA).min(1),
   walletTransactionId: z.string().uuid().optional().nullable(),
 });
 

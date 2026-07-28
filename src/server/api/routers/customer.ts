@@ -12,6 +12,7 @@ import {
 } from "@/lib/validators/customer";
 import { normalizeCpf } from "@/lib/validators/cpf";
 import { Prisma } from "@prisma/client";
+import { MAX_LINHA } from "@/lib/validators/limits";
 
 /**
  * Traduz a violação do índice único parcial de CPF/CNPJ (P2002) — que fecha a
@@ -426,8 +427,8 @@ export const customerRouter = createTRPCRouter({
   checkDuplicate: tenantProcedure
     .input(
       z.object({
-        cpf: z.string().optional(),
-        cnpj: z.string().optional(),
+        cpf: z.string().max(MAX_LINHA).optional(),
+        cnpj: z.string().max(MAX_LINHA).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {

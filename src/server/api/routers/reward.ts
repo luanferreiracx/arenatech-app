@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
 import { isTenantAdmin } from "@/lib/auth/roles"
 import { logger } from "@/lib/logger"
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA } from "@/lib/validators/limits";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0
@@ -28,7 +29,7 @@ export const rewardRouter = createTRPCRouter({
   listCampaigns: tenantProcedure
     .input(z.object({
       status: z.enum(["active", "scheduled", "ended", "disabled"]).optional(),
-      publicationType: z.string().optional(),
+      publicationType: z.string().max(MAX_LINHA).optional(),
       page: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     }))
@@ -85,8 +86,8 @@ export const rewardRouter = createTRPCRouter({
       name: z.string().min(1).max(200),
       description: z.string().max(1000).optional().nullable(),
       publicationType: z.string().max(50).optional().nullable(),
-      startDate: z.string().optional().nullable(),
-      endDate: z.string().optional().nullable(),
+      startDate: z.string().max(MAX_DATA).optional().nullable(),
+      endDate: z.string().max(MAX_DATA).optional().nullable(),
       validityDays: z.number().int().min(1).max(365).optional(),
       rewardType: z.enum(["DISCOUNT_PERCENTAGE", "DISCOUNT_FIXED", "CASHBACK", "GIFT"]),
       value: z.number().int().min(0).optional(), // centavos
@@ -134,8 +135,8 @@ export const rewardRouter = createTRPCRouter({
       name: z.string().min(1).max(200).optional(),
       description: z.string().max(1000).optional().nullable(),
       publicationType: z.string().max(50).optional().nullable(),
-      startDate: z.string().optional().nullable(),
-      endDate: z.string().optional().nullable(),
+      startDate: z.string().max(MAX_DATA).optional().nullable(),
+      endDate: z.string().max(MAX_DATA).optional().nullable(),
       validityDays: z.number().int().min(1).max(365).optional(),
       rewardType: z.enum(["DISCOUNT_PERCENTAGE", "DISCOUNT_FIXED", "CASHBACK", "GIFT"]).optional(),
       value: z.number().int().min(0).optional(), // centavos
@@ -204,7 +205,7 @@ export const rewardRouter = createTRPCRouter({
       status: z.enum(["PENDING", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED", "USED"]).optional(),
       customerId: z.string().uuid().optional(),
       campaignId: z.string().uuid().optional(),
-      search: z.string().optional(),
+      search: z.string().max(MAX_BUSCA).optional(),
       page: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     }))

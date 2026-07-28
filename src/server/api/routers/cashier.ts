@@ -17,6 +17,7 @@ import {
   cashRegisterHistorySchema,
   reviewCashRegisterSchema,
 } from "@/lib/validators/cashier";
+import { MAX_DATA, MAX_LINHA } from "@/lib/validators/limits";
 
 /**
  * Helper: convert Decimal fields to number (centavos stored as Decimal(10,2),
@@ -653,7 +654,7 @@ export const cashierRouter = createTRPCRouter({
   expense: tenantProcedure
     .input(z.object({
       amount: z.number().int().min(1).max(100_000_000),
-      paymentMethod: z.string().min(1),
+      paymentMethod: z.string().max(MAX_LINHA).min(1),
       description: z.string().min(3).max(500),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -870,8 +871,8 @@ export const cashierRouter = createTRPCRouter({
   periodStats: tenantProcedure
     .input(
       z.object({
-        from: z.string(), // ISO date
-        to: z.string(),   // ISO date
+        from: z.string().max(MAX_DATA), // ISO date
+        to: z.string().max(MAX_DATA),   // ISO date
         userId: z.string().uuid().optional(),
       }),
     )

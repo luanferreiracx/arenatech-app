@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_SENHA } from "./limits";
 
 /**
  * Swap DePix → L-USDt (Fase 2). O usuário informa quanto de DePix vender.
@@ -14,7 +15,7 @@ export type SwapPreviewInput = z.infer<typeof swapPreviewSchema>;
 export const swapExecuteSchema = z.object({
   amountReais: z.number().positive().max(1_000_000),
   /** Passphrase da carteira non-custodial (ADR 0051) — assina o PSET. */
-  walletPassphrase: z.string().min(1, "Passphrase obrigatória"),
+  walletPassphrase: z.string().max(MAX_SENHA).min(1, "Passphrase obrigatória"),
   /** Step-up 2FA: swap move ativo on-chain de forma irreversível. */
   twoFactorCode: z.string().min(6).max(8),
   /**

@@ -171,7 +171,9 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > **#725**, fechando o achado 26 (cancelamento de OS com nota viva) que a
 > correção do 11 revelou.
 >
-> **Resta 1 achado:** o 24 (`z.string()` sem `.max()` em 165 de 850 campos).
+> Em 2026-07-28 entrou o **#726**, fechando o item 24 (tetos de tamanho).
+>
+> **Backlog zerado.** Os 26 achados estão corrigidos ou decididos.
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -298,8 +300,32 @@ rodada por serem decisão do dono ou por escopo.
     natureza: o código é fail-closed, então a falta não era brecha — era
     indisponibilidade silenciosa num redeploy limpo.
 
-24. **165 de 850 `z.string()` sem `.max()`** (P2) — campos de busca que alimentam
-    `contains`.
+24. ~~**165 de 850 `z.string()` sem `.max()`**~~ — ✅ **CORRIGIDO (PR #726).**
+    A medição de 2026-07-28 corrigiu **as duas metades** do achado original.
+
+    **A busca não era o risco.** `contains` com 1.000.000 de caracteres roda em
+    **37ms** e devolve 0 linhas — o Postgres descarta pelo comprimento antes de
+    comparar. `dateFrom`/`dateTo` viram `Invalid Date`, que o Prisma rejeita.
+
+    **O risco era o texto que PERSISTE.** 505 das 542 colunas de texto do schema
+    são `TEXT` puro (o Postgres aceita 1GB por valor). Medido: `customers.notes`
+    engoliu **20 MB numa requisição, em 185ms**, gravados e lidos de volta. Um
+    operador com sessão válida enche o disco sem estourar guard nenhum; o backup
+    cresce junto e nada nos logs denuncia, porque não é o dado que é hostil, é o
+    tamanho.
+
+    O número também estava subestimado: são **196** campos de texto livre sem
+    teto (os 685 `z.string()` sem `.max()` incluem 440 `.uuid()`, já limitados).
+    Entre eles, três que a contagem bruta não destacava: `pfxBase64`
+    (certificado A1 → `Buffer` + parser ASN.1 + criptografia), `xmlContent`
+    (importação de NF-e) e `walletPassphrase`.
+
+    Entregue: `src/lib/validators/limits.ts` com tetos nomeados por categoria,
+    196 campos cobertos, teto client-side alinhado em `settings/assistance` e
+    guardião de regressão (`validators-have-size-caps`) que falha o build com
+    arquivo e linha. Tetos conferidos contra os dados reais de produção — o
+    maior texto vivo é `terms_of_service` com 2.222 chars, dentro do
+    `MAX_TEXTO_LONGO` de 20.000.
 
 25. ~~**`updateLabOrderStatus` cria PAYABLE fora do propósito**~~ — ✅
     **CORRIGIDO (PR #723).** O dono esclareceu que o envio ao laboratório existe
