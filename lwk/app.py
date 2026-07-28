@@ -220,11 +220,32 @@ def _load_json(path, default):
 
 # ── Carteira ──────────────────────────────────────────────────────────────────
 
+class WatchOnlyWalletError(Exception):
+    """Carteira watch-only: tem descriptor mas nao tem a seed pra assinar."""
+
+
 def load_or_create_wallet(tenant_id):
     """Carrega (ou cria) a carteira do tenant. Cada tenant tem mnemonic proprio
     no seu subdiretorio. Idempotente: se ja existe, so carrega."""
     p = WalletPaths(tenant_id)
     network = get_network()
+
+    # Carteira WATCH-ONLY: descriptor presente, seed ausente. Acontece quando o
+    # tenant e um espelho de outra carteira (o `Loja NO-KYC` espelha a central:
+    # mesmo descriptor, sem mnemonic) — ele ve saldo e depositos, nao assina.
+    #
+    # Sem esta guarda o fluxo caia no ramo de criacao e SOBRESCREVIA o
+    # descriptor.txt com uma carteira nova e aleatoria: o vinculo com a carteira
+    # espelhada morria em silencio e o tenant passava a apontar pra uma carteira
+    # vazia, parando de enxergar os proprios depositos. Recusar alto e o certo —
+    # falta a seed, e nao se inventa carteira nova por cima de um descriptor que
+    # ja existe.
+    if os.path.exists(p.descriptor) and not os.path.exists(p.mnemonic):
+        raise WatchOnlyWalletError(
+            f"tenant {tenant_id}: carteira watch-only (descriptor sem seed) — "
+            "nao da pra assinar e nao vamos sobrescrever o descriptor"
+        )
+
     if os.path.exists(p.descriptor) and os.path.exists(p.mnemonic):
         with open(p.descriptor) as f:
             descriptor_str = f.read().strip()
@@ -795,7 +816,13 @@ def wallet_create(tenant_id):
         return bad
     try:
         with wallet_lock(tenant_id):
-            wollet, _, descriptor_str, _ = load_or_create_wallet(tenant_id)
+            try:
+                wollet, _, descriptor_str, _ = load_or_create_wallet(tenant_id)
+            except WatchOnlyWalletError:
+                # Erro de NEGOCIO, nao falha interna: a carteira existe, so nao e
+                # nossa pra assinar. 400 explicito para o chamador distinguir
+                # "carteira espelho" de "o LWK quebrou".
+                return fail("watch_only_wallet", 400)
             master_address = str(wollet.address(0).address())
         logger.info(f"Wallet provisionada/carregada para tenant {tenant_id}")
         return jsonify({

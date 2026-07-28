@@ -1,10 +1,16 @@
-version: "3.9"
-
 services:
   lwk-wallet:
     image: lwk-depix-wallet:latest
+    # Publica SO no loopback. Este servico assina transacoes de dinheiro e a API
+    # inteira e protegida por uma unica API key; `"5000:5000"` (como estava aqui)
+    # liga em 0.0.0.0 e o deixa alcancavel por qualquer host que fale com a
+    # maquina. O `127.0.0.1:` mantem os exemplos de curl do README funcionando no
+    # dev sem expor nada na rede.
+    #
+    # Em PRODUCAO nem isso: o compose da VPS usa `expose`, e so o container da
+    # app o alcanca pela rede interna (LWK_API_URL=http://arenatech-lwk-wallet:5000).
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - lwk_wallet_data:/app/wallet_data
     environment:
