@@ -2945,6 +2945,64 @@ export async function checkTransactionStatus(tenantId: string, transactionId: st
  * reusando toda a logica de reconciliacao (poll do provedor, transicao de
  * status, side-effects). Cross-tenant (withAdmin). Idempotente.
  */
+/**
+ * Descobre se saques INDETERMINADOS chegaram a virar transacao on-chain.
+ *
+ * Um saque cai aqui quando o `lwk.transfer` nao respondeu (timeout/queda): pode
+ * ter sido transmitido ou nao. Guardamos ele em PROCESSING sem `withdrawTxId` —
+ * nunca FAILED, porque "falhou" faz o operador refazer e pagar duas vezes
+ * (TXW20260727-00002).
+ *
+ * A consulta e READ-ONLY (`GET /idempotency/<key>`), com a chave = id da tx. NAO
+ * reenviamos o transfer: o LWK grava a idempotencia so DEPOIS do broadcast e nao
+ * segura o lock durante ele, entao um retry na janela de voo transmite de novo.
+ *
+ * Nao encontrar o registro NAO vira FAILED — continua indeterminado e tenta na
+ * proxima rodada. Fechar como falha sem prova e o erro que este codigo existe
+ * pra evitar.
+ */
+export async function resolveIndeterminateWithdrawals(): Promise<{
+  checked: number;
+  resolved: number;
+}> {
+  const candidates = await withAdmin(async (tx) =>
+    tx.tenantDepixTransaction.findMany({
+      where: {
+        kind: "WITHDRAW",
+        status: "PROCESSING",
+        withdrawTxId: null,
+        pixpayDepixId: { not: null },
+      },
+      select: { id: true, tenantId: true, number: true },
+      take: 50,
+    }),
+  );
+
+  let resolved = 0;
+  for (const row of candidates) {
+    const lookup = await lwk.getTransferByIdempotencyKey(row.tenantId, row.id);
+    if (lookup.unavailable || !lookup.found || !lookup.txid) continue;
+
+    await withTenant(row.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.update({
+        where: { id: row.id },
+        data: {
+          withdrawTxId: lookup.txid,
+          errorMessage: null,
+        },
+      }),
+    );
+    resolved += 1;
+    logger.warn("Saque indeterminado resolvido: a transacao TINHA sido transmitida", {
+      txId: row.id,
+      number: row.number,
+      withdrawTxId: lookup.txid,
+    });
+  }
+
+  return { checked: candidates.length, resolved };
+}
+
 export async function reconcileStaleDepixTransactions(opts?: {
   olderThanMinutes?: number;
   limit?: number;

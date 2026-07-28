@@ -725,6 +725,7 @@ def index():
             "POST /wallet/{tenant_id}/address/new   body: {user, index?}",
             "POST /wallet/{tenant_id}/transfer      body: {recipients:[{to,amount}], fee_rate?, asset_id?}  header: Idempotency-Key",
             "GET  /wallet/{tenant_id}/transactions  ?limit=20",
+            "GET  /wallet/{tenant_id}/idempotency/{key}  (read-only: a chave virou tx?)",
             "POST /webhook/test",
         ]
     })
@@ -1418,6 +1419,40 @@ def transfer(tenant_id):
 
     logger.info(f"[{tenant_id}] Transacao enviada: txid={txid} | fee={fee_sat} sat | accepted={accepted}")
     return jsonify(result)
+
+
+@app.route("/wallet/<tenant_id>/idempotency/<idem_key>", methods=["GET"])
+def idempotency_lookup(tenant_id, idem_key):
+    """Consulta READ-ONLY do registro de uma Idempotency-Key de transfer.
+
+    Existe por causa do TXW20260727-00002: o transfer foi transmitido, mas a
+    RESPOSTA se perdeu num timeout e o app gravou o saque como FAILED. O operador
+    refez o pagamento por fora e pagou o destinatario duas vezes.
+
+    O app precisa de um jeito de perguntar "essa chave chegou a virar transacao?"
+    SEM risco de transmitir de novo. Reenviar o POST /transfer nao serve: o
+    registro de idempotencia so e gravado DEPOIS do broadcast e o state_lock nao
+    cobre o build/sign/broadcast — um retry dentro da janela de voo passa pela
+    checagem e transmite outra vez (gasto em dobro). Este GET nunca assina nem
+    transmite nada.
+
+    404 = nenhum registro. Isso NAO prova que nao transmitiu: pode ser que o
+    broadcast tenha ocorrido e o processo morrido antes de gravar. Quem consome
+    trata 404 como "ainda indeterminado", nunca como "falhou".
+    """
+    err = auth_required()
+    if err:
+        return err
+    bad = _require_tenant(tenant_id)
+    if bad:
+        return bad
+    p = WalletPaths(tenant_id)
+    with state_lock(tenant_id):
+        store = _load_idempotency(p)
+        record = store.get(idem_key)
+    if record is None:
+        return jsonify({"found": False, "tenant_id": tenant_id}), 404
+    return jsonify({"found": True, **record})
 
 
 @app.route("/wallet/<tenant_id>/transactions", methods=["GET"])

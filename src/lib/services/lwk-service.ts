@@ -367,6 +367,56 @@ export async function transfer(
   }
 }
 
+export interface LwkIdempotencyLookup {
+  /** true = o LWK tem registro dessa chave (a tx FOI transmitida). */
+  found: boolean;
+  txid?: string;
+  accepted?: boolean;
+  /** true = nao deu pra consultar (LWK fora). "Nao sei" != "nao existe". */
+  unavailable?: boolean;
+}
+
+/**
+ * Pergunta ao LWK se uma Idempotency-Key de transfer virou transacao — READ-ONLY.
+ *
+ * Usado pra resolver saque INDETERMINADO (ver `indeterminate` em
+ * LwkTransferResult): quando a resposta do transfer se perde, esta e a forma
+ * SEGURA de descobrir se o dinheiro saiu. Reenviar o POST /transfer nao serve —
+ * o LWK grava a idempotencia depois do broadcast e nao segura o lock durante
+ * ele, entao um retry na janela de voo transmite de novo (gasto em dobro).
+ *
+ * `found: false` NAO prova que nao transmitiu (o processo pode ter morrido entre
+ * o broadcast e a gravacao). Trate como "ainda indeterminado".
+ */
+export async function getTransferByIdempotencyKey(
+  tenantId: string,
+  idempotencyKey: string,
+): Promise<LwkIdempotencyLookup> {
+  const { config, error: cfgErr } = safeGetConfig();
+  if (cfgErr || !config) return { found: false, unavailable: true };
+  try {
+    const { ok, status, body } = await lwkFetch(
+      config,
+      "GET",
+      `/wallet/${tenantId}/idempotency/${encodeURIComponent(idempotencyKey)}`,
+      {},
+    );
+    if (status === 404) return { found: false };
+    if (!ok) return { found: false, unavailable: true };
+    return {
+      found: Boolean(body.found),
+      txid: body.txid as string | undefined,
+      accepted: body.accepted as boolean | undefined,
+    };
+  } catch (error) {
+    logger.error("LWK idempotency lookup erro", {
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { found: false, unavailable: true };
+  }
+}
+
 export interface LwkAddressResult {
   success: boolean;
   address?: string;
