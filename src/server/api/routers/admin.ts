@@ -513,9 +513,17 @@ export const adminRouter = createTRPCRouter({
             action: "tenant.withdraw_caps.update",
             entity: "tenant",
             entityId: input.id,
+            // So o que REALMENTE veio na requisicao. Registrar `null` para um
+            // campo ausente diria "o superadmin limpou este teto" quando ele nem
+            // foi tocado — num log cujo proposito e responder "quem mexeu e pra
+            // quanto", isso e registro falso. `null` aqui significa "limpou".
             payload: {
-              depixWithdrawDailyCapCents: input.depixWithdrawDailyCapCents ?? null,
-              partnerApiWithdrawDailyCapCents: input.partnerApiWithdrawDailyCapCents ?? null,
+              ...(input.depixWithdrawDailyCapCents !== undefined
+                ? { depixWithdrawDailyCapCents: input.depixWithdrawDailyCapCents }
+                : {}),
+              ...(input.partnerApiWithdrawDailyCapCents !== undefined
+                ? { partnerApiWithdrawDailyCapCents: input.partnerApiWithdrawDailyCapCents }
+                : {}),
             },
           });
         }
