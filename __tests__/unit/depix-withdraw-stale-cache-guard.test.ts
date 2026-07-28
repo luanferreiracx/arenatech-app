@@ -7,7 +7,14 @@
  * Invariantes cobertas:
  *  - tenant não-central: no-op (o detector só cobre a carteira central);
  *  - corrupção CONFIRMADA (ratio + contagem acima do limiar): bloqueia (throw);
- *  - não-avaliável (Esplora/LWK fora): FAIL-OPEN — não bloqueia saque legítimo.
+ *  - ESPLORA fora (outspend não responde): FAIL-OPEN — não bloqueia saque legítimo;
+ *  - CARTEIRA ilegível (o LWK não lista os UTXOs): BLOQUEIA.
+ *
+ * A distinção entre os dois últimos é o ponto. "Não sei" continua não sendo
+ * "está corrompido" quando quem falhou foi a Esplora — travar saque por
+ * oscilação de terceiro seria pior que o risco. Mas quando o próprio LWK não
+ * abre a carteira, o saldo que passou pelo gate veio desse mesmo cache: aí não
+ * dá pra apostar num saque irreversível.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
@@ -96,11 +103,19 @@ describe("assertCentralCacheHealthyForWithdraw", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("FAIL-OPEN: LWK indisponível (getUtxos falha) não bloqueia saque legítimo", async () => {
+  it("BLOQUEIA quando o LWK não lista os UTXOs da central (carteira ilegível)", async () => {
+    // Mudança deliberada de política. Antes isto era fail-open, no mesmo balde
+    // de "Esplora oscilou". Mas getUtxos falhando é a CARTEIRA não abrindo — e o
+    // saldo que passou pelo gate saiu do mesmo cache. Autorizar um saque
+    // irreversível em cima de um número que não dá pra conferir é o risco maior.
+    //
+    // Na prática é defesa em profundidade: `getBalance` roda antes e já barra
+    // quando a carteira não responde. Isto cobre a janela estreita em que o
+    // /balance responde do cache (sync=false) mas o /utxos falha.
     getUtxos.mockResolvedValue({ success: false, error: "LWK fora" });
     await expect(
       assertCentralCacheHealthyForWithdraw(CENTRAL, CENTRAL),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow(TRPCError);
   });
 
   it("FAIL-OPEN: Esplora derruba as checagens (outspend null) não bloqueia", async () => {

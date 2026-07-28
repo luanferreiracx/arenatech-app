@@ -66,6 +66,16 @@ export interface CacheIntegrityResult {
   alert: SpentUtxoAlert | null;
   /** true se a lista de UTXOs foi truncada pelo teto (checagem parcial). */
   truncated: boolean;
+  /**
+   * true = o próprio LWK não devolveu os UTXOs da carteira central.
+   *
+   * Distinto de `assessed: false` genérico: aqui a falha é NA CARTEIRA, não na
+   * Esplora. Quando o cache corrompe (`UpdateOnDifferentStatus`), /utxos e
+   * /balance respondem `internal_error` — e o saldo que passou pelo gate de saque
+   * veio desse mesmo cache quebrado. Sacar nesse estado aloca off-ramp na Eulen e
+   * morre no broadcast (incidente TXW20260727-00002).
+   */
+  walletUnreadable: boolean;
 }
 
 /**
@@ -73,15 +83,25 @@ export interface CacheIntegrityResult {
  * Retorna um alerta quando há corrupção material. Não lança.
  */
 export async function checkCentralCacheIntegrity(): Promise<CacheIntegrityResult> {
-  const none: CacheIntegrityResult = { assessed: false, alert: null, truncated: false };
+  const none: CacheIntegrityResult = {
+    assessed: false,
+    alert: null,
+    truncated: false,
+    walletUnreadable: false,
+  };
   try {
     const centralId = await getCentralTenantId();
     if (!centralId) return none;
 
     const utxosRes = await getUtxos(centralId, { assetId: DEPIX_ASSET });
-    if (!utxosRes.success) return none;
+    // O LWK não conseguiu listar os UTXOs da central. Não é "Esplora oscilando":
+    // é a carteira que não abre. Sinalizamos separado pro guard de saque poder
+    // bloquear sem transformar toda instabilidade de Esplora em bloqueio.
+    if (!utxosRes.success) return { ...none, walletUnreadable: true };
     const utxos = utxosRes.utxos;
-    if (utxos.length === 0) return { assessed: true, alert: null, truncated: false };
+    if (utxos.length === 0) {
+      return { assessed: true, alert: null, truncated: false, walletUnreadable: false };
+    }
 
     const truncated = utxos.length > MAX_OUTPOINTS_PER_RUN;
     const toCheck = utxos.slice(0, MAX_OUTPOINTS_PER_RUN);
@@ -100,7 +120,7 @@ export async function checkCentralCacheIntegrity(): Promise<CacheIntegrityResult
     if (annotated.length < Math.min(toCheck.length, 4)) return none;
 
     const alert = evaluateSpentUtxoRatio(annotated);
-    return { assessed: true, alert, truncated };
+    return { assessed: true, alert, truncated, walletUnreadable: false };
   } catch (err) {
     logger.warn("cache-integrity: falha ao avaliar (best-effort)", {
       err: err instanceof Error ? err.message : String(err),
@@ -130,6 +150,31 @@ export async function assertCentralCacheHealthyForWithdraw(
   if (!centralId || tenantId !== centralId) return;
 
   const result = await checkCentralCacheIntegrity();
+
+  // Carteira ilegível: o LWK não lista os UTXOs da central. Bloqueia o saque —
+  // o número que passou pelo gate de saldo veio do MESMO cache que não abre, e
+  // saque é irreversível.
+  //
+  // ESCOPO REAL desta guarda (não confundir com o TXW20260727-00002): `getBalance`
+  // roda ANTES daqui e já barra com SERVICE_UNAVAILABLE quando a carteira não
+  // responde. Então isto só dispara na janela estreita em que o /balance responde
+  // (cache lido com sync=false) mas o /utxos falha — ou seja, o saldo exibido pode
+  // ser lixo e não temos como conferir. É defesa em profundidade, não a correção
+  // daquele incidente: lá o /balance funcionou, o transfer FOI transmitido e só a
+  // resposta se perdeu (ver PR #728).
+  if (result.walletUnreadable) {
+    logger.error(
+      "depix-withdraw: BLOQUEADO — LWK nao consegue ler os UTXOs da carteira central (cache possivelmente corrompido).",
+      { tenant: CENTRAL_TENANT_SLUG },
+    );
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "Saque bloqueado: nao foi possivel ler a carteira central (cache indisponivel). " +
+        "Repare a carteira (purge de cache + rescan) antes de sacar — sem isso o saque falharia na transmissao.",
+    });
+  }
+
   if (!result.alert) return;
 
   const phantomBrl = (result.alert.phantomSats / 1e8).toFixed(2);
@@ -164,6 +209,15 @@ export async function checkCentralCacheIntegrityAndAlert(): Promise<void> {
     logger.warn("cache-integrity: carteira central com muitos UTXOs — checagem parcial", {
       max: MAX_OUTPOINTS_PER_RUN,
     });
+  }
+  // Carteira ilegível é incidente, não ruído: em 2026-07-27 o LWK ficou ~7h
+  // respondendo internal_error sem ninguém notar, porque só o auto-reparo (que
+  // morria antes de reparar) enxergava a falha. Alerta explícito → Sentry.
+  if (result.walletUnreadable) {
+    logger.error(
+      "cache-integrity: LWK NAO CONSEGUE LER A CARTEIRA CENTRAL — saldo indisponivel e saque bloqueado. Reparar (purge cache + rescan).",
+      { tenant: CENTRAL_TENANT_SLUG },
+    );
   }
   if (result.alert) {
     logger.error(
