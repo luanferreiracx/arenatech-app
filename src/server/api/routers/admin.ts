@@ -66,6 +66,8 @@ import {
 import { hashPassword } from "@/lib/password";
 import { logger } from "@/lib/logger";
 import { randomBytes } from "node:crypto";
+import { DAILY_WITHDRAW_CAP_CENTS } from "@/server/services/depix-transaction.service";
+import { PARTNER_DAILY_WITHDRAW_CAP_CENTS } from "@/server/services/partner-depix-write.service";
 
 // ── Helpers ──
 
@@ -456,6 +458,12 @@ export const adminRouter = createTRPCRouter({
           ...tenant,
           userCount: tenant.users.length,
           maxUsers: plan?.maxUsers ?? DEFAULT_TENANT_MAX_USERS,
+          // Defaults efetivos do ambiente, pra UI mostrar o que vale quando o
+          // campo esta vazio — em vez de repetir o numero no texto e derivar.
+          withdrawCapDefaults: {
+            panelCents: DAILY_WITHDRAW_CAP_CENTS,
+            partnerApiCents: PARTNER_DAILY_WITHDRAW_CAP_CENTS,
+          },
         };
       });
     }),
@@ -482,8 +490,35 @@ export const adminRouter = createTRPCRouter({
             ...(input.apiAccessEnabled !== undefined
               ? { apiAccessEnabled: input.apiAccessEnabled }
               : {}),
+            // Tetos de saque: `undefined` = campo nao veio (nao mexe);
+            // `null` = superadmin limpou o campo -> volta pro default do ambiente.
+            ...(input.depixWithdrawDailyCapCents !== undefined
+              ? { depixWithdrawDailyCapCents: input.depixWithdrawDailyCapCents }
+              : {}),
+            ...(input.partnerApiWithdrawDailyCapCents !== undefined
+              ? { partnerApiWithdrawDailyCapCents: input.partnerApiWithdrawDailyCapCents }
+              : {}),
           },
         });
+
+        // Mexer em teto de saque e mudanca de postura de risco: fica no audit log
+        // com o valor, pra dar pra responder "quem subiu, quando e pra quanto".
+        if (
+          input.depixWithdrawDailyCapCents !== undefined ||
+          input.partnerApiWithdrawDailyCapCents !== undefined
+        ) {
+          await logAudit(tx as never, {
+            tenantId: input.id,
+            userId: ctx.session.user.id,
+            action: "tenant.withdraw_caps.update",
+            entity: "tenant",
+            entityId: input.id,
+            payload: {
+              depixWithdrawDailyCapCents: input.depixWithdrawDailyCapCents ?? null,
+              partnerApiWithdrawDailyCapCents: input.partnerApiWithdrawDailyCapCents ?? null,
+            },
+          });
+        }
         return { success: true };
       });
     }),

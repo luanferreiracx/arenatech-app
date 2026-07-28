@@ -15,13 +15,24 @@ import {
   createDeposit,
   createWithdraw,
 } from "@/server/services/depix-transaction.service";
+import { resolveDailyCapCents } from "@/lib/depix/daily-cap";
 import type { PartnerDepositInput, PartnerWithdrawInput } from "@/lib/partner-api/write-schemas";
 import type { PartnerDepositResult, PartnerWithdrawResult } from "@/lib/partner-api/openapi-schemas";
 
 export type { PartnerDepositResult, PartnerWithdrawResult };
 
-/** Cap diário ESPECÍFICO da API de parceiros (defesa extra; soma à do painel). */
-const PARTNER_DAILY_WITHDRAW_CAP_CENTS = Number(
+/**
+ * Cap diário ESPECÍFICO da API de parceiros (defesa extra; soma à do painel).
+ *
+ * FALLBACK: o superadmin pode definir um teto por tenant
+ * (`Tenant.partnerApiWithdrawDailyCapCents`) — assim um parceiro de volume alto
+ * sobe sozinho, sem subir o teto de todo mundo.
+ *
+ * Vale separado do teto do painel porque o caminho é outro: aqui quem saca é uma
+ * MÁQUINA, sem 2FA. Este número é o limite de estrago se uma API-key vazar; e
+ * para a carteira central (isenta do teto do painel) é o ÚNICO limite diário.
+ */
+export const PARTNER_DAILY_WITHDRAW_CAP_CENTS = Number(
   process.env.PARTNER_DEPIX_WITHDRAW_DAILY_CAP_CENTS ?? "1000000", // R$ 10.000/24h default
 );
 
@@ -106,8 +117,18 @@ async function assertApiDailyCap(tenantId: string, nextGrossCents: number): Prom
     }),
   );
   const used = agg._sum.grossAmountCents ?? 0;
-  if (used + nextGrossCents > PARTNER_DAILY_WITHDRAW_CAP_CENTS) {
-    const remaining = Math.max(0, PARTNER_DAILY_WITHDRAW_CAP_CENTS - used) / 100;
+  const tenantRow = await withAdmin((tx) =>
+    tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { partnerApiWithdrawDailyCapCents: true },
+    }),
+  );
+  const capCents = resolveDailyCapCents(
+    tenantRow?.partnerApiWithdrawDailyCapCents,
+    PARTNER_DAILY_WITHDRAW_CAP_CENTS,
+  );
+  if (used + nextGrossCents > capCents) {
+    const remaining = Math.max(0, capCents - used) / 100;
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `Cap diário de saque via API atingido. Restante hoje: R$ ${remaining.toFixed(2)}.`,
