@@ -6,7 +6,7 @@ import { isTenantAdmin } from "@/lib/auth/roles";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
 import { withAdmin } from "@/server/db";
 import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
-import { assertNoActiveInvoiceBlockingRefund } from "@/server/services/fiscal-guard.service";
+import { assertNoActiveInvoiceBlockingUndo } from "@/server/services/fiscal-guard.service";
 import { createOsServiceProviderPayable } from "@/server/services/os-service-provider-payable.service";
 import { resolveTradeInProductName } from "@/lib/utils/trade-in-name";
 import { findOrCreateBrandByName } from "@/server/services/product-brand.service";
@@ -2271,11 +2271,12 @@ export const saleRouter = createTRPCRouter({
 
         // Guard fiscal ANTES de qualquer efeito: estornar deixando a NF-e viva
         // faz a loja declarar faturamento de uma venda que deixou de existir.
-        await assertNoActiveInvoiceBlockingRefund(tx, {
+        await assertNoActiveInvoiceBlockingUndo(tx, {
           tenantId: ctx.tenantId,
           referenceType: "SALE",
           referenceId: sale.id,
           label: "venda",
+          operacao: "estornar",
         });
 
         // Vendas de pagamento de OS (isOSPayment) nao tem items proprios — o

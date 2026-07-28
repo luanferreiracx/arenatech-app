@@ -53,10 +53,20 @@ Os quatro achados que dependiam de decisão do dono. Restou só o item 24
 - **Decisão de desenho:** `duplicateService` mantém o serviço no MESMO tipo — o
   "(cópia)" foi para o modelo do aparelho. Manter no tipo evitaria a incoerência
   de a sombra dizer "X (cópia)" com a FK apontando para X.
-- **Aberto (item 26):** `createFromServiceOrder` aceita OS em qualquer status,
-  então dá para emitir nota de OS não paga e depois **cancelá-la** — mesmo
-  buraco fiscal do item 11, por outro caminho. Fora do escopo da decisão do dono
-  (que foi sobre estorno).
+- **#725 — cancelamento de OS com nota viva (item 26).** Fechado no dia
+  seguinte: `createFromServiceOrder` aceita OS em qualquer status, então dava
+  para emitir a nota de uma OS não paga e cancelá-la depois — mesmo buraco
+  fiscal do 11, por outra porta. O guard virou
+  `assertNoActiveInvoiceBlockingUndo` (verbo da operação na mensagem) e entrou
+  no `applyOsCancellation`, ponto único das **quatro** entradas de cancelamento.
+  Teste cobre a porta principal (`cancel`) e a lateral
+  (`confirmPhysicalReturnTerm`) — as duas falham sem o fix.
+- **Pendência operacional fechada:** o timer systemd do `purge-webhook-events`
+  estava listado em `docs/operations/cron-setup.md` como instalado e **não
+  existia na VPS** (a rota nasceu no #721, o unit nunca). Instalado, validado na
+  mão (`{"deleted":0,"retentionDays":90}` — nada passou dos 90 dias ainda, o
+  evento mais antigo é de 27/05) e agendado 04:30 BRT. São 12 timers agora. O
+  doc ganhou o aviso de que aquela tabela não se verifica sozinha.
 
 ### 2026-07-27 — Backlog: lock de caixa, CAS no cancelamento e cashback (#711)
 Itens 5, 6 e 13 do backlog. Cada um provado por teste que FALHA antes do fix.

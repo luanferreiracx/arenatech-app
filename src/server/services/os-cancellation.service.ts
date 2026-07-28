@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client"
 import { TRPCError } from "@trpc/server"
 import { isCancellableOsStatus, isRefundableOsStatus } from "@/lib/validators/service-order"
 import { releaseAllOsItems } from "./os-stock.service"
+import { assertNoActiveInvoiceBlockingUndo } from "./fiscal-guard.service"
 
 /**
  * Cancelamento de OS — ponto ÚNICO de verdade.
@@ -62,6 +63,21 @@ export async function applyOsCancellation(
         : "Nao e possivel cancelar uma OS concluida, finalizada ou ja cancelada.",
     })
   }
+
+  // Guard fiscal ANTES do CAS e de qualquer efeito (auditoria item 26).
+  // `createFromServiceOrder` aceita OS em QUALQUER status, entao da para emitir
+  // a nota de uma OS ainda nao paga e cancela-la depois — a nota fica viva na
+  // SEFAZ e o relatorio fiscal segue contando. Mesmo buraco que o #723 fechou no
+  // estorno, por outra porta. Fica aqui, no ponto unico, para valer nas quatro
+  // entradas de cancelamento (cancel, confirmPhysicalSignature type=return,
+  // confirmPhysicalReturnTerm e checkReturnTermStatus).
+  await assertNoActiveInvoiceBlockingUndo(tx, {
+    tenantId: args.tenantId,
+    referenceType: "SERVICE_ORDER",
+    referenceId: args.orderId,
+    label: "OS",
+    operacao: "cancelar",
+  })
 
   // CAS ancorado no status lido: serializa cancelamentos concorrentes.
   const cas = await tx.serviceOrder.updateMany({

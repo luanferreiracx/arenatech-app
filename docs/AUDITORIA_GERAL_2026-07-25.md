@@ -167,7 +167,9 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > Em 2026-07-27 o dono decidiu os quatro achados que dependiam dele e as
 > correções entraram: **#723** (estorno barrado com NF-e viva · `inutilizar`
 > falha explicitamente · lab order não gera conta a pagar) e **#724** (tipo de
-> serviço vira entidade, com backfill e select na UI).
+> serviço vira entidade, com backfill e select na UI). Em 2026-07-28 entrou o
+> **#725**, fechando o achado 26 (cancelamento de OS com nota viva) que a
+> correção do 11 revelou.
 >
 > **Resta 1 achado:** o 24 (`z.string()` sem `.max()` em 165 de 850 campos).
 
@@ -307,14 +309,19 @@ rodada por serem decisão do dono ou por escopo.
     migrar (0 envios em produção). `LabOrder.payableTransactionId` fica no
     schema, sempre null, com a nota de que reintroduzir exige o CAS de volta.
 
-26. **NF-e de OS não paga sobrevive ao cancelamento da OS** (NOVO — 2026-07-27,
-    achado durante a correção do item 11) — `createFromServiceOrder` aceita OS em
-    **qualquer** status, então dá para emitir nota de uma OS ainda não paga e
-    depois **cancelá-la** (caminho diferente do estorno, que já está bloqueado).
-    Mesma consequência fiscal do item 11: a nota fica viva na SEFAZ e o relatório
-    segue contando. Duas saídas possíveis: estender o guard ao cancelamento, ou
-    exigir OS paga para emitir. Não entrou no #723 porque a decisão do dono foi
-    sobre estorno.
+26. ~~**NF-e de OS não paga sobrevive ao cancelamento da OS**~~ — ✅
+    **CORRIGIDO (PR #725).** `createFromServiceOrder` aceita OS em qualquer
+    status, então dava para emitir a nota de uma OS não paga e depois cancelá-la
+    — caminho diferente do estorno (bloqueado no #723) e com a mesma
+    consequência fiscal. O guard do #723 foi generalizado
+    (`assertNoActiveInvoiceBlockingUndo`, com o verbo da operação na mensagem) e
+    entrou no `applyOsCancellation`, que é o ponto único por onde passam as
+    **quatro** portas de cancelamento (`cancel`, `confirmPhysicalSignature`
+    type=return, `confirmPhysicalReturnTerm`, `checkReturnTermStatus`). Teste
+    cobre a porta principal e a lateral.
+
+    Lado da venda verificado e já fechado: `sale.cancel` só aceita `DRAFT` e
+    `createFromSale` exige `COMPLETED` — uma venda cancelável nunca tem nota.
 
 ---
 
