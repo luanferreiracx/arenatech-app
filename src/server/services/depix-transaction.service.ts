@@ -100,8 +100,6 @@ export const DAILY_WITHDRAW_CAP_CENTS = Number(
   process.env.DEPIX_WITHDRAW_DAILY_CAP_CENTS ?? "2500000",
 );
 
-
-
 /** Sanitiza mensagem de erro pra exibir ao client: remove hostnames, IPs,
  *  stack traces e qualquer string suspeita de detalhe interno. Mantem
  *  mensagens curtas PT-BR (codigos LWK ja traduzidos). */
