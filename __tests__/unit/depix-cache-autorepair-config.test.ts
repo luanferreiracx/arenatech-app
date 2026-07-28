@@ -89,6 +89,22 @@ describe("auto-reparo do cache LWK", () => {
   });
 });
 
+describe("exposição de rede do LWK", () => {
+  it("não publica a porta em 0.0.0.0", () => {
+    // O LWK assina transações de dinheiro e a API inteira é protegida por uma
+    // única API key. `"5000:5000"` liga em todas as interfaces — qualquer host
+    // que alcance a máquina alcança a carteira. Loopback no dev; em produção o
+    // compose da VPS usa `expose` (nem no host aparece).
+    const portLines = compose
+      .split("\n")
+      .filter((l) => /^\s*-\s*"?\d+:\d+"?\s*$/.test(l));
+    expect(
+      portLines,
+      `porta publicada em todas as interfaces: ${portLines.join(", ")}`,
+    ).toHaveLength(0);
+  });
+});
+
 describe("fonte on-chain do LWK", () => {
   it("mantém a waterfalls como padrão do compose (ADR 0059)", () => {
     // O `.env` da VPS tinha derivado pra liquid.network, que dava timeout
