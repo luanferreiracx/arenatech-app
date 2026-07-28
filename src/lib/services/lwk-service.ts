@@ -239,6 +239,21 @@ export interface LwkTransferResult {
   broadcastVia?: string;
   /** True se o LWK identificou que e replay da mesma Idempotency-Key. */
   idempotentReplay?: boolean;
+  /**
+   * True quando NAO sabemos se a transacao foi transmitida.
+   *
+   * Timeout/queda de conexao NAO significa que o saque falhou: o LWK pode ter
+   * construido, assinado e transmitido a tx e so a RESPOSTA ter se perdido. Foi
+   * exatamente isso no TXW20260727-00002 — o app marcou FAILED, mandou o
+   * operador tentar de novo, e o dinheiro tinha saido (tx
+   * 422f166881bb9efce7701b25d742f724abe031d4f29b051d84f829c4fc5008ca,
+   * confirmada no bloco 3991619). O operador pagou o destinatario duas vezes.
+   *
+   * Quem consome ISTO nao pode tratar como falha definitiva: o saque fica em
+   * aberto (reserva mantida) ate ser reconciliado contra a chave de
+   * idempotencia / on-chain.
+   */
+  indeterminate?: boolean;
   error?: string;
 }
 
@@ -336,11 +351,19 @@ export async function transfer(
       idempotentReplay: resp.idempotent_replay as boolean | undefined,
     };
   } catch (error) {
-    logger.error("LWK transfer erro", {
+    // AMBIGUO — nao sabemos se transmitiu. Ver `indeterminate` no tipo.
+    // Distinto do ramo `!ok` acima: la o LWK RESPONDEU um erro, entao a tx
+    // comprovadamente nao foi ao ar. Aqui a resposta se perdeu.
+    logger.error("LWK transfer INDETERMINADO (resposta perdida)", {
       tenantId,
+      idempotencyKey: opts.idempotencyKey,
       error: error instanceof Error ? error.message : String(error),
     });
-    return { success: false, error: "LWK indisponivel" };
+    return {
+      success: false,
+      indeterminate: true,
+      error: "Nao foi possivel confirmar o envio (sem resposta do LWK)",
+    };
   }
 }
 
