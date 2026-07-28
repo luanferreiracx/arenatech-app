@@ -2,8 +2,20 @@ import { z } from "zod";
 
 // ── Service schemas ──
 
+/**
+ * Tipo de servico: a UI manda o ID da entidade (`serviceTypeId`) ou o nome de um
+ * tipo novo (`newServiceTypeName`, criacao inline). `serviceType` texto so
+ * sobrevive como fallback para chamadas antigas — o resolver trata os tres.
+ * Espelha o cadastro de marca do produto. Auditoria 2026-07-25, item 17.
+ */
+const serviceTypeSelection = {
+  serviceTypeId: z.string().uuid().nullish(),
+  newServiceTypeName: z.string().min(2, "Nome do tipo muito curto").max(100).nullish(),
+  serviceType: z.string().max(255).nullish(),
+};
+
 export const createServiceSchema = z.object({
-  serviceType: z.string().min(1, "Tipo de servico obrigatorio").max(255),
+  ...serviceTypeSelection,
   deviceModel: z.string().min(1, "Modelo do aparelho obrigatorio").max(255),
   description: z.string().max(2000).optional(),
   basePrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
@@ -14,7 +26,7 @@ export type CreateServiceInput = z.infer<typeof createServiceSchema>;
 
 export const updateServiceSchema = z.object({
   id: z.string().uuid(),
-  serviceType: z.string().min(1, "Tipo de servico obrigatorio").max(255),
+  ...serviceTypeSelection,
   deviceModel: z.string().min(1, "Modelo do aparelho obrigatorio").max(255),
   description: z.string().max(2000).optional(),
   basePrice: z.number().int().min(0, "Preco deve ser positivo"), // centavos
@@ -25,7 +37,7 @@ export type UpdateServiceInput = z.infer<typeof updateServiceSchema>;
 
 export const listServicesSchema = z.object({
   search: z.string().optional(),
-  serviceType: z.string().optional(),
+  serviceTypeId: z.string().uuid().optional(),
   deviceModel: z.string().optional(),
   active: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
@@ -35,7 +47,7 @@ export const listServicesSchema = z.object({
 export type ListServicesInput = z.infer<typeof listServicesSchema>;
 
 export const bulkAdjustSchema = z.object({
-  serviceType: z.string().min(1),
+  serviceTypeId: z.string().uuid(),
   // Teto sanitário de R$ 100.000 por reajuste (auditoria 2026-07-25). Antes era
   // `z.number().int()` sem limite: um dedo errado (ou um zero a mais) reajustava
   // TODOS os serviços do tipo em qualquer valor. O preço do serviço é a base da
@@ -49,20 +61,6 @@ export const bulkAdjustSchema = z.object({
 });
 
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;
-
-export const renameTypeSchema = z.object({
-  oldName: z.string().min(1),
-  newName: z.string().min(1).max(255),
-});
-
-export type RenameTypeInput = z.infer<typeof renameTypeSchema>;
-
-export const duplicateTypeSchema = z.object({
-  sourceType: z.string().min(1),
-  newType: z.string().min(1).max(255),
-});
-
-export type DuplicateTypeInput = z.infer<typeof duplicateTypeSchema>;
 
 export const sendServiceWhatsAppSchema = z.object({
   serviceId: z.string().uuid(),

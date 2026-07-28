@@ -19,6 +19,45 @@
 
 ---
 
+### 2026-07-27 — Auditoria fechada: guard fiscal, lab order e tipo de serviço (#723, #724)
+Os quatro achados que dependiam de decisão do dono. Restou só o item 24
+(`z.string()` sem `.max()`) e o 26, aberto durante a correção do 11.
+
+- **#723 — estorno com NF-e viva (item 11).** `sale.refund` e
+  `serviceOrder.refund` não mencionavam `invoice` uma única vez: estornar
+  deixava a nota `AUTHORIZED` na SEFAZ e o relatório fiscal (que só ignora
+  `CANCELLED`) seguia contando — a loja declarava faturamento de uma venda que
+  deixou de existir. Decisão: BLOQUEAR.
+  `assertNoActiveInvoiceBlockingRefund` roda antes de qualquer efeito.
+- **#723 — `inutilizar` (item 12).** Era mock que retornava `{success: true}`
+  sem falar com a SEFAZ. Pior que não existir: o operador via a confirmação e
+  dava o assunto por resolvido; a lacuna de numeração só aparecia na
+  fiscalização. Agora falha explícito, o link saiu do menu e a tela manda usar o
+  portal da SEFAZ.
+- **#723 — PAYABLE do lab order (item 25).** Dono esclareceu: o envio ao
+  laboratório serve para saber onde o aparelho está e avisar o entregador; o
+  custo vai nos custos da OS. Removida a criação de conta a pagar (caminho morto
+  — a tela nunca manda `finalCost` — e 0 envios em produção).
+- **#723 — suíte de integração em série.** Em paralelo dava 15 falhas em 11
+  arquivos (tenant, usuário e caixa aberto são compartilhados entre arquivos);
+  em série, 0 em 4 rodadas. Guardião no teste de higiene de caixa.
+- **#724 — tipo de serviço vira entidade (item 17).** As 5 operações "por tipo"
+  casavam por igualdade exata de string. **Descoberta na implementação:** a
+  entidade `ServiceType` e a FK `services.service_type_id` existiam desde
+  2026-05-16 e estavam 100% mortas (0 linhas em prod, 6 procedures FK-based que
+  a UI nunca chamou) — duas implementações paralelas, com a UI na errada.
+  Entregue: resolver find-or-create por slug canônico (espelha
+  `findOrCreateBrandByName`, revive tipo apagado), backfill (dry-run em
+  produção: 105 serviços → 14 tipos, 0 órfãos, 0 divergência), procedures por
+  nome removidas, input livre virou select-com-criar-inline.
+- **Decisão de desenho:** `duplicateService` mantém o serviço no MESMO tipo — o
+  "(cópia)" foi para o modelo do aparelho. Manter no tipo evitaria a incoerência
+  de a sombra dizer "X (cópia)" com a FK apontando para X.
+- **Aberto (item 26):** `createFromServiceOrder` aceita OS em qualquer status,
+  então dá para emitir nota de OS não paga e depois **cancelá-la** — mesmo
+  buraco fiscal do item 11, por outro caminho. Fora do escopo da decisão do dono
+  (que foi sobre estorno).
+
 ### 2026-07-27 — Backlog: lock de caixa, CAS no cancelamento e cashback (#711)
 Itens 5, 6 e 13 do backlog. Cada um provado por teste que FALHA antes do fix.
 - **`payInstallment`/`reverseInstallment` sem lock de caixa.** Entre o

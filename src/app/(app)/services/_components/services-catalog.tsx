@@ -22,7 +22,7 @@ import { WhatsAppDialog } from "./whatsapp-dialog";
 export function ServicesCatalog() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [serviceType, setServiceType] = useState<string>("");
+  const [serviceTypeId, setServiceTypeId] = useState<string>("");
   const [deviceModel, setDeviceModel] = useState<string>("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -39,13 +39,13 @@ export function ServicesCatalog() {
 
   const { data: deviceModels } = useQuery(
     trpc.catalog.listDeviceModels.queryOptions(
-      serviceType ? { serviceType } : undefined,
+      serviceTypeId ? { serviceTypeId } : undefined,
     ),
   );
 
   const { data: grouped, isLoading } = useQuery(
     trpc.catalog.listServicesGrouped.queryOptions({
-      serviceType: serviceType || undefined,
+      serviceTypeId: serviceTypeId || undefined,
       deviceModel: deviceModel || undefined,
     }),
   );
@@ -80,15 +80,15 @@ export function ServicesCatalog() {
     <div className="space-y-6">
       {/* Filters + Admin button */}
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={serviceType} onValueChange={(v) => { setServiceType(v === "__all__" ? "" : v); setDeviceModel(""); }}>
+        <Select value={serviceTypeId} onValueChange={(v) => { setServiceTypeId(v === "__all__" ? "" : v); setDeviceModel(""); }}>
           <SelectTrigger className="w-[220px]">
             <SelectValue placeholder="Tipo de Servico" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">Todos os tipos</SelectItem>
             {serviceTypes?.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t}
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
               </SelectItem>
             ))}
           </SelectContent>

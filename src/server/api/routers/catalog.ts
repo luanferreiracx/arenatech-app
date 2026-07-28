@@ -8,8 +8,6 @@ import {
   updateServiceSchema,
   listServicesSchema,
   bulkAdjustSchema,
-  renameTypeSchema,
-  duplicateTypeSchema,
   sendServiceWhatsAppSchema,
   createServiceObservationSchema,
   updateServiceObservationSchema,
@@ -20,6 +18,11 @@ import { sendPdfWithFallback } from "@/lib/whatsapp/send-with-fallback";
 import { createSignedPayloadToken } from "@/lib/whatsapp/signed-payload-token";
 import type { ServiceQuotePdfData } from "@/lib/pdf/service-quote-pdf";
 import { logger } from "@/lib/logger";
+import {
+  resolveServiceTypeId,
+  findOrCreateServiceTypeByName,
+  slugifyServiceType,
+} from "@/server/services/service-type.service";
 
 function serviceToCents(s: { basePrice: Prisma.Decimal | null }) {
   return s.basePrice ? Math.round(Number(s.basePrice) * 100) : 0;
@@ -141,8 +144,8 @@ export const catalogRouter = createTRPCRouter({
           where.active = input.active;
         }
 
-        if (input.serviceType) {
-          where.serviceType = input.serviceType;
+        if (input.serviceTypeId) {
+          where.serviceTypeId = input.serviceTypeId;
         }
 
         if (input.deviceModel) {
@@ -184,7 +187,7 @@ export const catalogRouter = createTRPCRouter({
   listServicesGrouped: tenantProcedure
     .input(
       z.object({
-        serviceType: z.string().optional(),
+        serviceTypeId: z.string().uuid().optional(),
         deviceModel: z.string().optional(),
       }),
     )
@@ -195,8 +198,8 @@ export const catalogRouter = createTRPCRouter({
           active: true,
         };
 
-        if (input.serviceType) {
-          where.serviceType = input.serviceType;
+        if (input.serviceTypeId) {
+          where.serviceTypeId = input.serviceTypeId;
         }
 
         if (input.deviceModel) {
@@ -234,30 +237,36 @@ export const catalogRouter = createTRPCRouter({
       });
     }),
 
-  /** Distinct service types for filter dropdowns */
+  /**
+   * Tipos de servico do tenant (para selects e filtros).
+   *
+   * Auditoria 2026-07-25 (item 17): antes era um `distinct` sobre o TEXTO
+   * `services.service_type` — "Troca de Tela" e "troca de tela" viravam duas
+   * opcoes no mesmo dropdown, com o mesmo nome aos olhos de quem le. Agora sai
+   * da entidade `service_types`, que dedup por slug canonico.
+   */
   listServiceTypes: tenantProcedure.query(async ({ ctx }) => {
     return ctx.withTenant(async (tx) => {
-      const result = await tx.service.findMany({
-        where: { deletedAt: null, serviceType: { not: null } },
-        select: { serviceType: true },
-        distinct: ["serviceType"],
-        orderBy: { serviceType: "asc" },
+      const tipos = await tx.serviceType.findMany({
+        where: { deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       });
-      return result.map((r) => r.serviceType).filter(Boolean) as string[];
+      return tipos;
     });
   }),
 
   /** Distinct device models for filter dropdowns */
   listDeviceModels: tenantProcedure
-    .input(z.object({ serviceType: z.string().optional() }).optional())
+    .input(z.object({ serviceTypeId: z.string().uuid().optional() }).optional())
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const where: Prisma.ServiceWhereInput = {
           deletedAt: null,
           deviceModel: { not: null },
         };
-        if (input?.serviceType) {
-          where.serviceType = input.serviceType;
+        if (input?.serviceTypeId) {
+          where.serviceTypeId = input.serviceTypeId;
         }
         const result = await tx.service.findMany({
           where,
@@ -290,12 +299,17 @@ export const catalogRouter = createTRPCRouter({
     .input(createServiceSchema)
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const name = `${input.serviceType} - ${input.deviceModel}`;
+        const { serviceTypeId, serviceTypeName } = await resolveServiceTypeId(tx, ctx.tenantId, input);
+        if (!serviceTypeId || !serviceTypeName) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um tipo de servico ou informe um nome novo" });
+        }
+        const name = `${serviceTypeName} - ${input.deviceModel}`;
         return tx.service.create({
           data: {
             tenantId: ctx.tenantId,
             name,
-            serviceType: input.serviceType,
+            serviceTypeId,
+            serviceType: serviceTypeName,
             deviceModel: input.deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
@@ -314,12 +328,17 @@ export const catalogRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
 
-        const name = `${input.serviceType} - ${input.deviceModel}`;
+        const { serviceTypeId, serviceTypeName } = await resolveServiceTypeId(tx, ctx.tenantId, input);
+        if (!serviceTypeId || !serviceTypeName) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um tipo de servico ou informe um nome novo" });
+        }
+        const name = `${serviceTypeName} - ${input.deviceModel}`;
         return tx.service.update({
           where: { id: input.id },
           data: {
             name,
-            serviceType: input.serviceType,
+            serviceTypeId,
+            serviceType: serviceTypeName,
             deviceModel: input.deviceModel,
             description: input.description || null,
             basePrice: new Prisma.Decimal(input.basePrice).div(100),
@@ -357,8 +376,14 @@ export const catalogRouter = createTRPCRouter({
   /**
    * Duplica um serviço (facilita cadastrar variações de um mesmo reparo).
    * Espelha o `duplicateProduct`: cria uma cópia editável e devolve o novo id
-   * para a UI abrir a edição. Operacional (como criar/editar); marca o tipo com
-   * " (cópia)" para distinguir na lista (o `name` é gerado a partir dele).
+   * para a UI abrir a edição. Operacional (como criar/editar).
+   *
+   * A cópia FICA NO MESMO TIPO — duplicar um serviço não inventa um tipo novo.
+   * Antes o "(cópia)" ia no `serviceType`, o que agora seria incoerente: a
+   * coluna-sombra diria "Troca de Tela (cópia)" enquanto a FK apontaria para
+   * "Troca de Tela", e a lista mostraria um tipo que não existe na entidade.
+   * O marcador foi para o modelo do aparelho, que é texto livre de verdade e é
+   * justamente o campo que o operador vai trocar na cópia.
    */
   duplicateService: tenantProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -369,9 +394,9 @@ export const catalogRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Servico nao encontrado" });
         }
 
-        const serviceType = `${source.serviceType ?? "Serviço"} (cópia)`;
-        const deviceModel = source.deviceModel;
-        const name = `${serviceType}${deviceModel ? ` - ${deviceModel}` : ""}`;
+        const serviceType = source.serviceType ?? "Serviço";
+        const deviceModel = `${source.deviceModel ?? "Aparelho"} (cópia)`;
+        const name = `${serviceType} - ${deviceModel}`;
 
         return tx.service.create({
           data: {
@@ -419,7 +444,7 @@ export const catalogRouter = createTRPCRouter({
       return ctx.withTenant(async (tx) => {
         const services = await tx.service.findMany({
           where: {
-            serviceType: input.serviceType,
+            serviceTypeId: input.serviceTypeId,
             deletedAt: null,
           },
         });
@@ -450,99 +475,11 @@ export const catalogRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           action: "bulk_adjust_price",
           entity: "service",
-          entityId: input.serviceType,
-          payload: { serviceType: input.serviceType, adjustmentCents: input.adjustmentCents, updated: count },
+          entityId: input.serviceTypeId,
+          payload: { serviceTypeId: input.serviceTypeId, adjustmentCents: input.adjustmentCents, updated: count },
         });
 
         return { updated: count };
-      });
-    }),
-
-  /** Delete all services of a given type (soft delete) */
-  deleteByType: tenantProcedure
-    .input(z.object({ serviceType: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      // Auditoria 2026-07-25: a regra estava INVERTIDA — apagar UM serviço
-      // (`deleteService`) exigia admin, apagar N de uma vez não exigia nada.
-      if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao para excluir servicos em massa" });
-      }
-      return ctx.withTenant(async (tx) => {
-        const result = await tx.service.updateMany({
-          where: {
-            serviceType: input.serviceType,
-            deletedAt: null,
-          },
-          data: { deletedAt: new Date() },
-        });
-
-        return { deleted: result.count };
-      });
-    }),
-
-  /** Rename a service type across all services */
-  renameType: tenantProcedure
-    .input(renameTypeSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const services = await tx.service.findMany({
-          where: {
-            serviceType: input.oldName,
-            deletedAt: null,
-          },
-        });
-
-        if (services.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de servico nao encontrado" });
-        }
-
-        for (const s of services) {
-          const newName = `${input.newName} - ${s.deviceModel ?? ""}`.trim();
-          await tx.service.update({
-            where: { id: s.id },
-            data: {
-              serviceType: input.newName,
-              name: newName,
-            },
-          });
-        }
-
-        return { updated: services.length };
-      });
-    }),
-
-  /** Duplicate all services of a type with a new type name */
-  duplicateType: tenantProcedure
-    .input(duplicateTypeSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const services = await tx.service.findMany({
-          where: {
-            serviceType: input.sourceType,
-            deletedAt: null,
-          },
-        });
-
-        if (services.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de servico nao encontrado" });
-        }
-
-        for (const s of services) {
-          const newName = `${input.newType} - ${s.deviceModel ?? ""}`.trim();
-          await tx.service.create({
-            data: {
-              tenantId: ctx.tenantId,
-              name: newName,
-              serviceType: input.newType,
-              deviceModel: s.deviceModel,
-              description: s.description,
-              basePrice: s.basePrice,
-              estimatedTime: s.estimatedTime,
-            },
-          });
-        }
-
-        return { created: services.length };
       });
     }),
 
@@ -739,15 +676,15 @@ export const catalogRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        const slug = input.name
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
-        return tx.serviceType.create({
-          data: { tenantId: ctx.tenantId, name: input.name, slug },
-        });
+        // find-or-create: "Troca de Tela" e "troca de tela" sao o MESMO tipo.
+        // Reaproveita a entidade (revivendo-a se estiver apagada) em vez de
+        // estourar a unique (tenant_id, slug) com um erro cru do Postgres.
+        const { serviceTypeId, serviceTypeName } = await findOrCreateServiceTypeByName(
+          tx,
+          ctx.tenantId,
+          input.name,
+        );
+        return { id: serviceTypeId, name: serviceTypeName };
       });
     }),
 
@@ -758,16 +695,48 @@ export const catalogRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        const slug = input.newName
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
-        return tx.serviceType.update({
+        const slug = slugifyServiceType(input.newName);
+        const colisao = await tx.serviceType.findFirst({
+          where: { tenantId: ctx.tenantId, slug, id: { not: input.id }, deletedAt: null },
+          select: { name: true },
+        });
+        if (colisao) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Ja existe o tipo "${colisao.name}". Renomeie para outro nome ou use o tipo existente.`,
+          });
+        }
+        const tipo = await tx.serviceType.findFirst({
+          where: { id: input.id, deletedAt: null },
+          select: { id: true },
+        });
+        if (!tipo) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de servico nao encontrado" });
+        }
+
+        const atualizado = await tx.serviceType.update({
           where: { id: input.id },
           data: { name: input.newName, slug },
         });
+
+        // A coluna-sombra `Service.serviceType` e o `Service.name` (montado a
+        // partir do tipo) precisam acompanhar — senao a lista continua exibindo
+        // o nome velho enquanto o filtro ja usa o novo.
+        const servicos = await tx.service.findMany({
+          where: { serviceTypeId: input.id, deletedAt: null },
+          select: { id: true, deviceModel: true },
+        });
+        for (const s of servicos) {
+          await tx.service.update({
+            where: { id: s.id },
+            data: {
+              serviceType: input.newName,
+              name: `${input.newName}${s.deviceModel ? ` - ${s.deviceModel}` : ""}`,
+            },
+          });
+        }
+
+        return { type: atualizado, updated: servicos.length };
       });
     }),
 
@@ -778,12 +747,17 @@ export const catalogRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
       }
       return ctx.withTenant(async (tx) => {
-        const slug = input.newName
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
+        const slug = slugifyServiceType(input.newName);
+        const colisao = await tx.serviceType.findFirst({
+          where: { tenantId: ctx.tenantId, slug, deletedAt: null },
+          select: { name: true },
+        });
+        if (colisao) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Ja existe o tipo "${colisao.name}". Escolha outro nome para a copia.`,
+          });
+        }
 
         const newType = await tx.serviceType.create({
           data: { tenantId: ctx.tenantId, name: input.newName, slug },

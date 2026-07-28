@@ -164,10 +164,12 @@ As 5 procedures irmãs já tinham o guard; essa era a única sem.
 > (retenção de `webhook_events` · secrets nos templates). Ficam riscados abaixo,
 > com o registro do que mudou.
 >
-> **Restam 5 achados** — e 3 deles são decisão do dono, não trabalho pendente:
-> venda estornada mantendo NF-e ativa (11), `inutilizar` mock (12), tipo de
-> serviço texto livre (17, deferido com medição) e o PAYABLE do lab order (25).
-> O único puramente técnico é o 24 (`z.string()` sem `.max()`).
+> Em 2026-07-27 o dono decidiu os quatro achados que dependiam dele e as
+> correções entraram: **#723** (estorno barrado com NF-e viva · `inutilizar`
+> falha explicitamente · lab order não gera conta a pagar) e **#724** (tipo de
+> serviço vira entidade, com backfill e select na UI).
+>
+> **Resta 1 achado:** o 24 (`z.string()` sem `.max()` em 165 de 850 campos).
 
 Ordenados por risco. Todos verificados no código; nenhum foi corrigido nesta
 rodada por serem decisão do dono ou por escopo.
@@ -220,10 +222,16 @@ rodada por serem decisão do dono ou por escopo.
     Guard `assertNoActiveInvoiceFor` nas duas procedures + índice único PARCIAL
     no banco (CANCELLED/REJECTED de fora, porque reemitir após cancelar é o
     fluxo normal).
-11. **Venda estornada mantém NF-e ativa** (P1) — os dois lados são
-    independentes; imposto sobre receita inexistente.
-12. **`inutilizar` retorna `{success: true}` sem fazer nada** (P1) — mock sem o
-    gate de produção que a emissão tem.
+11. ~~**Venda estornada mantém NF-e ativa**~~ — ✅ **CORRIGIDO (PR #723).**
+    Decisão do dono: BLOQUEAR. `assertNoActiveInvoiceBlockingRefund` roda antes
+    de qualquer efeito nos estornos de venda e de OS — o operador tem que
+    cancelar a nota primeiro (fluxo que já existe e é só-admin). Fica aberto o
+    caminho irmão: `createFromServiceOrder` aceita OS em qualquer status, então
+    uma OS não paga pode ter nota e depois ser **cancelada** (item 26).
+12. ~~**`inutilizar` retorna `{success: true}` sem fazer nada**~~ — ✅
+    **CORRIGIDO (PR #723).** Agora falha com `NOT_IMPLEMENTED`; o link saiu do
+    menu e a tela manda fazer pelo portal da SEFAZ. A rota continua de pé para
+    quem tinha o link salvo.
 
 ### Fidelidade / catálogo
 
@@ -247,12 +255,18 @@ rodada por serem decisão do dono ou por escopo.
     `approveAction` (admin) credita — é segregação de função, com teste
     garantindo que o operador ainda registra a submissão.
 
-17. **Tipo de serviço é texto livre** (P1 — DEFERIDO com medição) — as 5
-    operações "por tipo" casam por igualdade exata de string, então "Troca de
-    Tela" ≠ "troca de tela". **Produção tem 0 tipos divergindo por caixa/espaço**
-    (verificado em 2026-07-27): o bug é latente, não ativo. A correção completa
-    (FK `serviceTypeId` + resolver espelhando `findOrCreateBrandByName` + trocar
-    o input livre por select-com-criar-inline) é fatia maior, com mexida de UI.
+17. ~~**Tipo de serviço é texto livre**~~ — ✅ **CORRIGIDO (PR #724).** As 5
+    operações "por tipo" casavam por igualdade exata de string ("Troca de Tela"
+    ≠ "troca de tela"). Produção tinha **0 tipos divergindo** (medido em
+    2026-07-27), então o bug era latente — o primeiro operador que digitasse a
+    mesma coisa com outra caixa o ativaria. O dono pediu a correção completa.
+    Descoberta durante a implementação: a entidade `ServiceType` e a FK
+    `services.service_type_id` **existiam desde 2026-05-16 e estavam 100%
+    mortas** (0 linhas em produção, 6 procedures FK-based que a UI nunca
+    chamou) — havia duas implementações paralelas e a UI usava a errada.
+    Entregue: resolver find-or-create por slug canônico, backfill (105 serviços
+    → 14 tipos, 0 órfãos, dry-run validado em produção), as procedures por nome
+    removidas e o input livre virou select-com-criar-inline.
 
 18. ~~**Diálogos destrutivos de OS fecham antes do `isPending`**~~ — ✅
     **CORRIGIDO (PR #717).** O `closeDialog()` foi para o `onSuccess` (padrão
@@ -285,13 +299,22 @@ rodada por serem decisão do dono ou por escopo.
 24. **165 de 850 `z.string()` sem `.max()`** (P2) — campos de busca que alimentam
     `contains`.
 
-25. **`updateLabOrderStatus` cria PAYABLE fora do propósito** (NOVO — 2026-07-27,
-    achado durante a correção do item 3) — o dono esclareceu que o envio ao
-    laboratório existe **só para saber onde o aparelho está e avisar o
-    entregador**, e que o custo vai nos **custos da OS**. Criar uma despesa a
-    pagar ali duplica o caminho de custo realmente usado e faz um passo de
-    rastreio gerar registro financeiro. Não é bug de execução — é incoerência de
-    desenho. Decisão futura do dono; nada foi alterado.
+25. ~~**`updateLabOrderStatus` cria PAYABLE fora do propósito**~~ — ✅
+    **CORRIGIDO (PR #723).** O dono esclareceu que o envio ao laboratório existe
+    **só para saber onde o aparelho está e avisar o entregador**, e que o custo
+    vai nos **custos da OS**. A criação do PAYABLE + parcela saiu. Era caminho
+    morto na prática (a tela nunca manda `finalCost`) e não havia histórico a
+    migrar (0 envios em produção). `LabOrder.payableTransactionId` fica no
+    schema, sempre null, com a nota de que reintroduzir exige o CAS de volta.
+
+26. **NF-e de OS não paga sobrevive ao cancelamento da OS** (NOVO — 2026-07-27,
+    achado durante a correção do item 11) — `createFromServiceOrder` aceita OS em
+    **qualquer** status, então dá para emitir nota de uma OS ainda não paga e
+    depois **cancelá-la** (caminho diferente do estorno, que já está bloqueado).
+    Mesma consequência fiscal do item 11: a nota fica viva na SEFAZ e o relatório
+    segue contando. Duas saídas possíveis: estender o guard ao cancelamento, ou
+    exigir OS paga para emitir. Não entrou no #723 porque a decisão do dono foi
+    sobre estorno.
 
 ---
 

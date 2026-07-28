@@ -63,14 +63,15 @@ export function ServicesManageTable() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("");
+  const [serviceTypeIdFilter, setServiceTypeIdFilter] = useState<string>("");
   const [deviceModelFilter, setDeviceModelFilter] = useState<string>("");
   // Reajustar/excluir EM MASSA é ação de admin no servidor (auditoria
   // 2026-07-25). Esconder aqui evita o operador clicar e tomar FORBIDDEN.
   const isAdmin = useIsTenantAdmin();
   const [bulkAction, setBulkAction] = useState<{
     action: BulkAction;
-    serviceType: string;
+    serviceTypeId: string;
+    serviceTypeName: string;
   } | null>(null);
 
   const handleSearchChange = useCallback((value: string) => {
@@ -88,14 +89,14 @@ export function ServicesManageTable() {
 
   const { data: deviceModels } = useQuery(
     trpc.catalog.listDeviceModels.queryOptions(
-      serviceTypeFilter ? { serviceType: serviceTypeFilter } : undefined,
+      serviceTypeIdFilter ? { serviceTypeId: serviceTypeIdFilter } : undefined,
     ),
   );
 
   const { data, isLoading } = useQuery(
     trpc.catalog.listServices.queryOptions({
       search: debouncedSearch || undefined,
-      serviceType: serviceTypeFilter || undefined,
+      serviceTypeId: serviceTypeIdFilter || undefined,
       deviceModel: deviceModelFilter || undefined,
       page,
       pageSize,
@@ -238,8 +239,8 @@ export function ServicesManageTable() {
     },
   ];
 
-  // Get distinct types for bulk actions dropdown
-  const distinctTypes = serviceTypes ?? [];
+  const tipos = serviceTypes ?? [];
+  const tipoSelecionado = tipos.find((t) => t.id === serviceTypeIdFilter) ?? null;
 
   return (
     <>
@@ -267,9 +268,9 @@ export function ServicesManageTable() {
             </div>
 
             <Select
-              value={serviceTypeFilter}
+              value={serviceTypeIdFilter}
               onValueChange={(v) => {
-                setServiceTypeFilter(v === "__all__" ? "" : v);
+                setServiceTypeIdFilter(v === "__all__" ? "" : v);
                 setDeviceModelFilter("");
                 setPage(0);
               }}
@@ -280,8 +281,8 @@ export function ServicesManageTable() {
               <SelectContent>
                 <SelectItem value="__all__">Todos os tipos</SelectItem>
                 {serviceTypes?.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -310,58 +311,64 @@ export function ServicesManageTable() {
             {/* Bulk actions dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={distinctTypes.length === 0}>
+                <Button variant="outline" size="sm" disabled={tipos.length === 0}>
                   Acoes em Massa
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                {distinctTypes.map((type) => (
-                  <DropdownMenu key={type}>
-                    <DropdownMenuTrigger asChild>
-                      <DropdownMenuItem className="cursor-pointer font-medium">
-                        {type}
-                      </DropdownMenuItem>
-                    </DropdownMenuTrigger>
-                  </DropdownMenu>
-                ))}
-                <DropdownMenuSeparator />
-                {serviceTypeFilter && (
+                {tipoSelecionado && (
                   <>
                     {isAdmin && (
                       <>
                     <DropdownMenuItem
                       onClick={() =>
-                        setBulkAction({ action: "adjust-up", serviceType: serviceTypeFilter })
+                        setBulkAction({
+                          action: "adjust-up",
+                          serviceTypeId: serviceTypeIdFilter,
+                          serviceTypeName: tipoSelecionado?.name ?? "",
+                        })
                       }
                     >
                       <TrendingUp className="mr-2 h-4 w-4" />
-                      Aumentar valores ({serviceTypeFilter})
+                      Aumentar valores ({tipoSelecionado?.name})
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() =>
-                        setBulkAction({ action: "adjust-down", serviceType: serviceTypeFilter })
+                        setBulkAction({
+                          action: "adjust-down",
+                          serviceTypeId: serviceTypeIdFilter,
+                          serviceTypeName: tipoSelecionado?.name ?? "",
+                        })
                       }
                     >
                       <TrendingDown className="mr-2 h-4 w-4" />
-                      Diminuir valores ({serviceTypeFilter})
+                      Diminuir valores ({tipoSelecionado?.name})
                     </DropdownMenuItem>
                       </>
                     )}
                     <DropdownMenuItem
                       onClick={() =>
-                        setBulkAction({ action: "duplicate", serviceType: serviceTypeFilter })
+                        setBulkAction({
+                          action: "duplicate",
+                          serviceTypeId: serviceTypeIdFilter,
+                          serviceTypeName: tipoSelecionado?.name ?? "",
+                        })
                       }
                     >
                       <Copy className="mr-2 h-4 w-4" />
-                      Duplicar tipo ({serviceTypeFilter})
+                      Duplicar tipo ({tipoSelecionado?.name})
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() =>
-                        setBulkAction({ action: "rename", serviceType: serviceTypeFilter })
+                        setBulkAction({
+                          action: "rename",
+                          serviceTypeId: serviceTypeIdFilter,
+                          serviceTypeName: tipoSelecionado?.name ?? "",
+                        })
                       }
                     >
                       <Type className="mr-2 h-4 w-4" />
-                      Renomear tipo ({serviceTypeFilter})
+                      Renomear tipo ({tipoSelecionado?.name})
                     </DropdownMenuItem>
                     {isAdmin && (
                       <>
@@ -369,17 +376,21 @@ export function ServicesManageTable() {
                         <DropdownMenuItem
                           className="text-destructive"
                           onClick={() =>
-                            setBulkAction({ action: "delete-type", serviceType: serviceTypeFilter })
+                            setBulkAction({
+                          action: "delete-type",
+                          serviceTypeId: serviceTypeIdFilter,
+                          serviceTypeName: tipoSelecionado?.name ?? "",
+                        })
                           }
                         >
                           <Trash className="mr-2 h-4 w-4" />
-                          Excluir tipo ({serviceTypeFilter})
+                          Excluir tipo ({tipoSelecionado?.name})
                         </DropdownMenuItem>
                       </>
                     )}
                   </>
                 )}
-                {!serviceTypeFilter && (
+                {!tipoSelecionado && (
                   <DropdownMenuItem disabled>
                     Selecione um tipo para acoes em massa
                   </DropdownMenuItem>
