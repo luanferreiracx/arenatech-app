@@ -16,6 +16,7 @@ import {
 import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
 import { logger } from "@/lib/logger";
 import * as lwk from "@/lib/services/lwk-service";
+import { MAX_SENHA } from "@/lib/validators/limits";
 
 // Rate-limit das acoes sensiveis de custodia (ADR 0051): expor/derivar a seed e
 // trocar passphrase. 5/15min por usuario — defesa contra brute-force da senha
@@ -41,7 +42,7 @@ function canManageWallet(ctx: {
 
 const revealMnemonicSchema = z.object({
   // Custodial: senha de login. Non-custodial: ignorado (usa passphrase).
-  password: z.string().optional(),
+  password: z.string().max(MAX_SENHA).optional(),
   // Non-custodial: passphrase da carteira. Custodial: ignorado.
   passphrase: z.string().max(256).optional(),
 });

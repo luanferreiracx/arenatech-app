@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { imeiSchema } from "./imei"
+import { MAX_BUSCA, MAX_DATA } from "./limits";
 
 // I1 (auditoria estoque 2026-07-10): identificador obrigatório para item
 // serializado — IMEI (dígitos) ou número de série (não-vazio).
@@ -30,7 +31,7 @@ export const createStockItemSchema = z.object({
   costPrice: z.number().int().min(0), // centavos
   suggestedSalePrice: z.number().int().min(0).optional().nullable(), // centavos
   invoiceNumber: z.string().max(50).optional().nullable(),
-  entryDate: z.string().optional(), // ISO date string
+  entryDate: z.string().max(MAX_DATA).optional(), // ISO date string
   notes: z.string().max(2000).optional().nullable(),
 }).superRefine((data, ctx) => {
   // I1 (auditoria estoque 2026-07-10, regra do dono): aparelho serializado SEMPRE
@@ -124,9 +125,9 @@ export const listStockItemsSchema = z.object({
   status: stockItemStatusEnum.optional(),
   condition: stockItemConditionEnum.optional(),
   supplierId: z.string().uuid().optional(),
-  search: z.string().optional(), // IMEI, serial, barcode
+  search: z.string().max(MAX_BUSCA).optional(), // IMEI, serial, barcode
   /** Busca por nome/marca do produto (paridade Laravel `buscarItensDisponiveis`). */
-  productSearch: z.string().optional(),
+  productSearch: z.string().max(MAX_BUSCA).optional(),
   /** Atalho para status=AVAILABLE — util para PDV listar disponiveis. */
   availableOnly: z.boolean().optional(),
   page: z.number().int().min(0).optional(),

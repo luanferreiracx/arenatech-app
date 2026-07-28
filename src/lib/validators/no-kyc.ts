@@ -6,6 +6,7 @@
  * aguardando aprovação do superadmin. Sem CPF/CNPJ.
  */
 import { z } from "zod";
+import { MAX_SENHA } from "./limits";
 
 /** Senha do auto-cadastro: mínimo 8, com ao menos uma letra e um dígito. */
 const passwordSchema = z
@@ -31,7 +32,7 @@ export const startNoKycRegistrationSchema = z
     email: z.string().email("E-mail inválido").max(200),
     phone: phoneSchema,
     password: passwordSchema,
-    confirmPassword: z.string(),
+    confirmPassword: z.string().max(MAX_SENHA),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "As senhas não coincidem",

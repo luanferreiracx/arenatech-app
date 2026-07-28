@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA, MAX_NOME, MAX_TEXTO } from "./limits";
 
 // A2 (auditoria estoque 2026-07-10): teto sanitário. Preços em centavos: R$1M.
 // Quantidades: 10 milhões de unidades. Fecha overflow/envenenamento de
@@ -103,7 +104,7 @@ export const updateProductSchema = createProductSchema.extend({
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
 export const listProductsSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   active: z.boolean().optional(),
   lowStock: z.boolean().optional(),
   categoryId: z.string().uuid().optional(),
@@ -135,8 +136,8 @@ export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
 export const listMovementsSchema = z.object({
   productId: z.string().uuid().optional(),
   type: z.enum(["ENTRY", "EXIT", "ADJUSTMENT", "RESERVE", "RELEASE"]).optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -187,7 +188,7 @@ export const createDevicePurchaseSchema = z.object({
   paymentMethodId: z.string().uuid().optional().nullable(),
   // Quando paymentMode = "payable"
   payableInstallments: z.number().int().min(1).max(36).optional(),
-  payableFirstDueDate: z.string().optional(),
+  payableFirstDueDate: z.string().max(MAX_DATA).optional(),
 }).superRefine((data, ctx) => {
   // Paridade Laravel: cliente_id required_if tipo_vendedor=cliente, idem fornecedor.
   if (data.sellerType === "customer" && !data.customerId) {
@@ -254,10 +255,10 @@ export const createDevicePurchaseSchema = z.object({
 export type CreateDevicePurchaseInput = z.infer<typeof createDevicePurchaseSchema>;
 
 export const listDevicePurchasesSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   condition: z.enum(["NEW", "SEMI_NEW", "USED", "DISPLAY", "REFURBISHED", "DEFECTIVE"]).optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -294,7 +295,7 @@ export const updateSupplierSchema = createSupplierSchema.extend({
 export type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>;
 
 export const listSuppliersSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   active: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
@@ -320,7 +321,7 @@ export const updateCategorySchema = createCategorySchema.extend({
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
 export const listCategoriesSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -421,8 +422,8 @@ export type BulkAdjustStockInput = z.infer<typeof bulkAdjustStockSchema>;
 // ── Report schemas ──
 
 export const reportDateRangeSchema = z.object({
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
 });
 
 export type ReportDateRangeInput = z.infer<typeof reportDateRangeSchema>;
@@ -478,11 +479,11 @@ export type UpgradesInput = z.infer<typeof upgradesSchema>;
 
 export const csvImportLineSchema = z
   .object({
-    name: z.string().min(1, "Nome obrigatorio"),
-    sku: z.string().optional(),
-    barcode: z.string().optional(),
-    brand: z.string().optional(),
-    category: z.string().optional(),
+    name: z.string().max(MAX_NOME).min(1, "Nome obrigatorio"),
+    sku: z.string().max(MAX_LINHA).optional(),
+    barcode: z.string().max(MAX_LINHA).optional(),
+    brand: z.string().max(MAX_NOME).optional(),
+    category: z.string().max(MAX_NOME).optional(),
     // Valores em CENTAVOS. int() bloqueia float que gera Decimal fracionario
     // (ex: 1500.5 cents -> 15.005 reais -> arredonda inconsistente).
     costPrice: z.number().int().min(0).max(MAX_PRICE_CENTS, "Valor acima do limite").optional(),
@@ -495,7 +496,7 @@ export const csvImportLineSchema = z
     // e nunca isDevice.
     isDevice: z.boolean().optional(),
     isSerialized: z.boolean().optional(),
-    description: z.string().optional(),
+    description: z.string().max(MAX_TEXTO).optional(),
   })
   // Produto NAO-serializado precisa de preco de venda > 0 (vende pelo proprio
   // preco). Serializado pode entrar com 0: o preco real vem por unidade (na

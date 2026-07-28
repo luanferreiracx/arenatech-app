@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server"
 import { Prisma } from "@prisma/client"
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
 import { startOfMonthBrt } from "@/lib/utils/date-range"
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA } from "@/lib/validators/limits";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0
@@ -19,11 +20,11 @@ export const checklistRouter = createTRPCRouter({
   /** List checklists with filters */
   list: tenantProcedure
     .input(z.object({
-      search: z.string().optional(),
-      deviceType: z.string().optional(),
+      search: z.string().max(MAX_BUSCA).optional(),
+      deviceType: z.string().max(MAX_LINHA).optional(),
       customerId: z.string().uuid().optional(),
-      dateFrom: z.string().optional(),
-      dateTo: z.string().optional(),
+      dateFrom: z.string().max(MAX_DATA).optional(),
+      dateTo: z.string().max(MAX_DATA).optional(),
       page: z.number().int().min(0).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
     }))
@@ -87,7 +88,7 @@ export const checklistRouter = createTRPCRouter({
   /** Create a new checklist evaluation */
   create: tenantProcedure
     .input(z.object({
-      deviceType: z.string().min(1),
+      deviceType: z.string().max(MAX_LINHA).min(1),
       brand: z.string().max(100).optional().nullable(),
       model: z.string().max(100).optional().nullable(),
       imei: z.string().max(50).optional().nullable(),

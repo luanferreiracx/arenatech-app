@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_DATA } from "./limits";
 
 // ── Enums ──
 
@@ -120,8 +121,8 @@ export const CARD_RECEIVABLE_STATUS_LABELS: Record<CardReceivableStatus, string>
 export const listCardReceivablesSchema = z.object({
   status: cardReceivableStatusEnum.default("PENDING"),
   acquirerId: z.string().uuid().optional(),
-  dateFrom: z.string().optional(), // ISO date (expectedSettlementDate)
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(), // ISO date (expectedSettlementDate)
+  dateTo: z.string().max(MAX_DATA).optional(),
   /** Só recebíveis liquidados com diferença ≠ 0 (relatório de divergências). */
   onlyDivergent: z.boolean().optional(),
   page: z.number().int().min(0).default(0),
@@ -142,7 +143,7 @@ export const settleCardReceivablesSchema = z.object({
     .min(1)
     .max(200),
   /** Data em que o dinheiro caiu (ISO). Default = agora. */
-  settledDate: z.string().optional(),
+  settledDate: z.string().max(MAX_DATA).optional(),
   /** Conta onde caiu. Default = a conta de depósito da adquirente. */
   accountId: z.string().uuid().optional().nullable(),
   note: z.string().max(500).optional(),

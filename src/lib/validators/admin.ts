@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
 import { MODULE_KEYS } from "@/lib/modules";
+import { MAX_BUSCA } from "./limits";
 
 // ── Enums ──
 
@@ -136,7 +137,7 @@ export type RejectPreRegistrationInput = z.infer<typeof rejectPreRegistrationSch
 
 export const listPreRegistrationsSchema = z.object({
   status: preRegistrationStatusEnum.optional(),
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -146,7 +147,7 @@ export type ListPreRegistrationsInput = z.infer<typeof listPreRegistrationsSchem
 
 export const listTenantsSchema = z.object({
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "CANCELLED"]).optional(),
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });

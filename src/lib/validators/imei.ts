@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA } from "./limits";
 
 // ── IMEI Validation (Luhn algorithm) ──
 
@@ -72,7 +73,7 @@ export type ValidateNfeInput = z.infer<typeof validateNfeSchema>;
 // ── List Queries ──
 
 export const listImeiQueriesSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });

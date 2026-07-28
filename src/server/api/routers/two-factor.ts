@@ -19,6 +19,7 @@ import {
 import { consumeCode, issueVerificationCode, verifyCode } from "@/server/services/verification.service";
 import { verifyUserTwoFactor } from "@/lib/auth/two-factor-verify";
 import { rateLimit } from "@/lib/rate-limit";
+import { MAX_SENHA } from "@/lib/validators/limits";
 
 const totpCodeSchema = z
   .string()
@@ -220,10 +221,10 @@ export const twoFactorRouter = createTRPCRouter({
   confirmDisable: protectedProcedure
     .input(
       z.object({
-        password: z.string().min(1),
+        password: z.string().max(MAX_SENHA).min(1),
         totpCode: totpCodeSchema,
-        emailCode: z.string().trim().min(1),
-        whatsappCode: z.string().trim().min(1),
+        emailCode: z.string().max(MAX_SENHA).trim().min(1),
+        whatsappCode: z.string().max(MAX_SENHA).trim().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {

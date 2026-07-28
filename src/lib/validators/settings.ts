@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidCpf } from "@/lib/utils/tax-id";
+import { MAX_BUSCA, MAX_LINHA, MAX_SENHA } from "./limits";
 
 // ── General settings ──
 
@@ -118,8 +119,8 @@ export type UpdateIntegrationInput = z.infer<typeof updateIntegrationSchema>;
 // ── Users (tenant members) ──
 
 export const listUsersSchema = z.object({
-  search: z.string().optional(),
-  role: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  role: z.string().max(MAX_LINHA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -174,11 +175,11 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Senha atual obrigatoria"),
+    currentPassword: z.string().max(MAX_SENHA).min(1, "Senha atual obrigatoria"),
     // Tamanho/complexidade ficam na POLITICA do tenant (D4), aplicada no servidor
     // — aqui so exigimos nao-vazio, pra mensagem unica e consistente.
-    newPassword: z.string().min(1, "Informe a nova senha"),
-    confirmPassword: z.string().min(1, "Confirme a nova senha"),
+    newPassword: z.string().max(MAX_SENHA).min(1, "Informe a nova senha"),
+    confirmPassword: z.string().max(MAX_SENHA).min(1, "Confirme a nova senha"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
     message: "Senhas nao conferem",

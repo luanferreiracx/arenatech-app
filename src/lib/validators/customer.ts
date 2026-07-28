@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeCpf, validateCpf } from "@/lib/validators/cpf";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA, MAX_TEXTO } from "./limits";
 
 // ── CNPJ validation (SPEC RN-3, RN-5) ──
 
@@ -93,10 +94,10 @@ export const createCustomerSchema = z
   .object({
     type: customerTypeSchema,
     name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(255),
-    cpf: z.string().optional(),
-    cnpj: z.string().optional(),
+    cpf: z.string().max(MAX_LINHA).optional(),
+    cnpj: z.string().max(MAX_LINHA).optional(),
     tradeName: z.string().max(255).optional(),
-    birthDate: z.string().optional(),
+    birthDate: z.string().max(MAX_DATA).optional(),
     phone: z.string().min(10, "Telefone deve ter ao menos 10 dígitos").max(20),
     phoneSecondary: z.string().max(20).optional(),
     email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
@@ -107,7 +108,7 @@ export const createCustomerSchema = z
     neighborhood: z.string().max(100).optional(),
     city: z.string().max(100).optional(),
     state: z.string().length(2, "UF deve ter 2 caracteres").optional().or(z.literal("")),
-    notes: z.string().optional(),
+    notes: z.string().max(MAX_TEXTO).optional(),
   })
   .superRefine((data, ctx) => {
     // SPEC RN-2: PF must have CPF, PJ must have CNPJ
@@ -166,10 +167,10 @@ export const updateCustomerSchema = z
     id: z.string().uuid(),
     type: customerTypeSchema,
     name: z.string().min(2, "Nome deve ter ao menos 2 caracteres").max(255),
-    cpf: z.string().optional(),
-    cnpj: z.string().optional(),
+    cpf: z.string().max(MAX_LINHA).optional(),
+    cnpj: z.string().max(MAX_LINHA).optional(),
     tradeName: z.string().max(255).optional(),
-    birthDate: z.string().optional(),
+    birthDate: z.string().max(MAX_DATA).optional(),
     phone: z.string().min(10, "Telefone deve ter ao menos 10 dígitos").max(20),
     phoneSecondary: z.string().max(20).optional(),
     email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
@@ -180,7 +181,7 @@ export const updateCustomerSchema = z
     neighborhood: z.string().max(100).optional(),
     city: z.string().max(100).optional(),
     state: z.string().length(2, "UF deve ter 2 caracteres").optional().or(z.literal("")),
-    notes: z.string().optional(),
+    notes: z.string().max(MAX_TEXTO).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === "PF") {
@@ -233,7 +234,7 @@ export type UpdateCustomerInput = z.input<typeof updateCustomerSchema>;
 // ── List customers (SPEC 4.1) ──
 
 export const listCustomersSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   type: z.enum(["PF", "PJ", "ALL"]).optional(),
   includeDeleted: z.boolean().optional(),
   // Pagina APENAS inativos (deletedAt IS NOT NULL) — usado pela aba "Inativos".
@@ -283,7 +284,7 @@ export const createInterestSchema = z.object({
   email: z.string().email("E-mail inválido").max(255).optional().or(z.literal("")),
   type: interestTypeEnum,
   desiredModel: z.string().min(1, "Modelo desejado é obrigatório").max(200),
-  notes: z.string().optional(),
+  notes: z.string().max(MAX_TEXTO).optional(),
 });
 
 export type CreateInterestInput = z.infer<typeof createInterestSchema>;
@@ -296,7 +297,7 @@ export const updateInterestStatusSchema = z.object({
 export type UpdateInterestStatusInput = z.infer<typeof updateInterestStatusSchema>;
 
 export const listInterestsSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   status: interestStatusEnum.optional(),
   type: interestTypeEnum.optional(),
   page: z.number().int().min(0).optional(),
@@ -310,7 +311,7 @@ export type ListInterestsInput = z.infer<typeof listInterestsSchema>;
 export const addInteractionSchema = z.object({
   interestId: z.string().uuid(),
   type: interactionTypeEnum,
-  description: z.string().min(1, "Descrição é obrigatória"),
+  description: z.string().max(MAX_TEXTO).min(1, "Descrição é obrigatória"),
 });
 
 export type AddInteractionInput = z.infer<typeof addInteractionSchema>;
@@ -319,7 +320,7 @@ export type AddInteractionInput = z.infer<typeof addInteractionSchema>;
 
 export const sendBatchSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(5, "Máximo 5 destinatários por envio"),
-  message: z.string().min(10, "Mensagem é obrigatória (mínimo 10 caracteres)"),
+  message: z.string().max(MAX_TEXTO).min(10, "Mensagem é obrigatória (mínimo 10 caracteres)"),
 });
 
 export type SendBatchInput = z.infer<typeof sendBatchSchema>;

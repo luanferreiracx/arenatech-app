@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_NOME, MAX_TEXTO_LONGO } from "./limits";
 
 // ── Service schemas ──
 
@@ -36,9 +37,9 @@ export const updateServiceSchema = z.object({
 export type UpdateServiceInput = z.infer<typeof updateServiceSchema>;
 
 export const listServicesSchema = z.object({
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   serviceTypeId: z.string().uuid().optional(),
-  deviceModel: z.string().optional(),
+  deviceModel: z.string().max(MAX_NOME).optional(),
   active: z.boolean().optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
@@ -74,7 +75,7 @@ export type SendServiceWhatsAppInput = z.infer<typeof sendServiceWhatsAppSchema>
 
 export const createServiceObservationSchema = z.object({
   title: z.string().min(1, "Titulo obrigatorio").max(100),
-  observation: z.string().min(1, "Observacao obrigatoria"),
+  observation: z.string().max(MAX_TEXTO_LONGO).min(1, "Observacao obrigatoria"),
   serviceTypes: z.array(z.string()).optional().nullable(),
   deviceModels: z.array(z.string()).optional().nullable(),
 });
@@ -87,7 +88,7 @@ export type UpdateServiceObservationInput = z.infer<typeof updateServiceObservat
 
 export const listServiceObservationsSchema = z.object({
   active: z.boolean().optional(),
-  serviceType: z.string().optional(),
-  deviceModel: z.string().optional(),
+  serviceType: z.string().max(MAX_NOME).optional(),
+  deviceModel: z.string().max(MAX_NOME).optional(),
 });
 export type ListServiceObservationsInput = z.infer<typeof listServiceObservationsSchema>;

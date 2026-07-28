@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidCpf, isValidCnpj } from "@/lib/utils/tax-id";
+import { MAX_DATA, MAX_LINHA } from "./limits";
 
 // ── Subscription (billing manual — Fase 2) ──
 
@@ -127,11 +128,11 @@ export type CancelRefundInput = z.infer<typeof cancelRefundSchema>;
 // ── WhatsApp Log schemas ──
 
 export const listWhatsappLogsSchema = z.object({
-  phone: z.string().optional(),
+  phone: z.string().max(MAX_LINHA).optional(),
   status: z.enum(["SENT", "FAILED", "OUTSIDE_WINDOW"]).optional(),
   type: z.enum(["TEXT", "TEMPLATE", "MEDIA"]).optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -141,10 +142,10 @@ export type ListWhatsappLogsInput = z.infer<typeof listWhatsappLogsSchema>;
 
 export const listAuditLogsSchema = z.object({
   userId: z.string().uuid().optional(),
-  action: z.string().optional(),
-  entity: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  action: z.string().max(MAX_LINHA).optional(),
+  entity: z.string().max(MAX_LINHA).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -232,8 +233,8 @@ export type CreateTenantInput = z.infer<typeof createTenantSchema>;
 // ── Technician Report schemas ──
 
 export const technicianReportSchema = z.object({
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   // Filtro de responsável é exclusivo: técnico interno (user) OU prestador externo.
   technicianId: z.string().uuid().optional(),
   serviceProviderId: z.string().uuid().optional(),

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_LINHA } from "./limits";
 
 // Email opcional que aceita string vazia. `z.string().email()` rejeita "" (o
 // default comum de inputs vazios), o que travava o submit em silencio — era o
@@ -72,13 +73,13 @@ export const createExternalLabSchema = z.object({
   phone: z.string().max(20).optional().nullable(),
   email: optionalEmail,
   address: z.object({
-    street: z.string().optional(),
-    number: z.string().optional(),
-    complement: z.string().optional(),
-    neighborhood: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    zipCode: z.string().optional(),
+    street: z.string().max(MAX_LINHA).optional(),
+    number: z.string().max(MAX_LINHA).optional(),
+    complement: z.string().max(MAX_LINHA).optional(),
+    neighborhood: z.string().max(MAX_LINHA).optional(),
+    city: z.string().max(MAX_LINHA).optional(),
+    state: z.string().max(MAX_LINHA).optional(),
+    zipCode: z.string().max(MAX_LINHA).optional(),
   }).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 });
@@ -91,13 +92,13 @@ export const updateExternalLabSchema = z.object({
   phone: z.string().max(20).optional().nullable(),
   email: optionalEmail,
   address: z.object({
-    street: z.string().optional(),
-    number: z.string().optional(),
-    complement: z.string().optional(),
-    neighborhood: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    zipCode: z.string().optional(),
+    street: z.string().max(MAX_LINHA).optional(),
+    number: z.string().max(MAX_LINHA).optional(),
+    complement: z.string().max(MAX_LINHA).optional(),
+    neighborhood: z.string().max(MAX_LINHA).optional(),
+    city: z.string().max(MAX_LINHA).optional(),
+    state: z.string().max(MAX_LINHA).optional(),
+    zipCode: z.string().max(MAX_LINHA).optional(),
   }).optional().nullable(),
   active: z.boolean().optional(),
   notes: z.string().max(1000).optional().nullable(),
@@ -159,13 +160,13 @@ export type UpdateServiceProviderInput = z.infer<typeof updateServiceProviderSch
 
 export const listDeliveryPersonsSchema = z.object({
   active: z.boolean().optional(),
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
 });
 export type ListDeliveryPersonsInput = z.infer<typeof listDeliveryPersonsSchema>;
 
 export const listExternalLabsSchema = z.object({
   active: z.boolean().optional(),
-  search: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
 });
 export type ListExternalLabsInput = z.infer<typeof listExternalLabsSchema>;
 
@@ -179,7 +180,7 @@ export type ListLabOrdersInput = z.infer<typeof listLabOrdersSchema>;
 
 export const listServiceProvidersSchema = z.object({
   active: z.boolean().optional(),
-  search: z.string().optional(),
-  type: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  type: z.string().max(MAX_LINHA).optional(),
 });
 export type ListServiceProvidersInput = z.infer<typeof listServiceProvidersSchema>;

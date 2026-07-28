@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BUSCA, MAX_DATA, MAX_LINHA } from "./limits";
 
 // A4 (auditoria fin 2026-07-10): teto sanitário para valores em centavos. R$ 1M
 // está acima de qualquer lançamento real e abaixo do limite de precisão de
@@ -64,9 +65,9 @@ export const createTransactionSchema = z.object({
   /** Number of installments (1-60) */
   numInstallments: z.number().int().min(1).max(60),
   /** Emission date (ISO string) */
-  emissionDate: z.string().min(1, "Data de emissao e obrigatoria"),
+  emissionDate: z.string().max(MAX_DATA).min(1, "Data de emissao e obrigatoria"),
   /** First due date (ISO string) - defaults to 30 days after emission */
-  firstDueDate: z.string().optional().nullable(),
+  firstDueDate: z.string().max(MAX_DATA).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
 });
 
@@ -87,7 +88,7 @@ export const updateTransactionSchema = z.object({
   // pagamento (o server valida). Regenera as parcelas. Evita cancelar+recriar por
   // um erro de digitação (ex.: R$1.500 em vez de R$150).
   totalAmount: z.number().int().min(1).max(MAX_CENTS, "Valor acima do limite permitido").optional(), // centavos
-  firstDueDate: z.string().optional(),
+  firstDueDate: z.string().max(MAX_DATA).optional(),
   numInstallments: z.number().int().min(1).max(36).optional(),
 });
 
@@ -98,9 +99,9 @@ export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
 export const listTransactionsSchema = z.object({
   type: transactionTypeEnum,
   status: transactionStatusEnum.optional(),
-  search: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   sortBy: z.enum(["createdAt", "dueDate", "totalAmount", "description"]).optional(),
@@ -136,8 +137,8 @@ export type ReverseInstallmentInput = z.infer<typeof reverseInstallmentSchema>;
 
 export const cashFlowSchema = z
   .object({
-    dateFrom: z.string().min(1, "Data inicial e obrigatoria"),
-    dateTo: z.string().min(1, "Data final e obrigatoria"),
+    dateFrom: z.string().max(MAX_DATA).min(1, "Data inicial e obrigatoria"),
+    dateTo: z.string().max(MAX_DATA).min(1, "Data final e obrigatoria"),
     groupBy: z.enum(["day", "week", "month"]).optional(),
   })
   // G3 (auditoria financeira 2026-07-11): sem cap de janela, um range enorme
@@ -182,10 +183,10 @@ export type ProjectedCashFlowInput = z.infer<typeof projectedCashFlowSchema>;
 // ── Receivables (dedicated view) ──
 
 export const listReceivablesSchema = z.object({
-  search: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
-  paymentMethod: z.string().optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
+  paymentMethod: z.string().max(MAX_LINHA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });
@@ -195,8 +196,8 @@ export type ListReceivablesInput = z.infer<typeof listReceivablesSchema>;
 // ── Pending payments ──
 
 export const listPendingSchema = z.object({
-  status: z.string().optional(),
-  search: z.string().optional(),
+  status: z.string().max(MAX_LINHA).optional(),
+  search: z.string().max(MAX_BUSCA).optional(),
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 });

@@ -78,6 +78,7 @@ import {
   isManualStatusChangeAllowed,
   PURCHASE_REVERSIBLE_STATUSES,
 } from "@/lib/validators/stock-item";
+import { MAX_BUSCA, MAX_DATA } from "@/lib/validators/limits";
 import {
   entrySerializedItems,
   entryNonSerialized,
@@ -1603,7 +1604,7 @@ export const stockRouter = createTRPCRouter({
   updatePurchaseDate: tenantProcedure
     .input(z.object({
       id: z.string().uuid(),
-      purchaseDate: z.string(),
+      purchaseDate: z.string().max(MAX_DATA),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!can(ctx.session, ctx.tenantId, "changePurchaseDate")) {
@@ -2038,7 +2039,7 @@ export const stockRouter = createTRPCRouter({
   searchProducts: tenantProcedure
     .input(
       z.object({
-        search: z.string().min(1),
+        search: z.string().max(MAX_BUSCA).min(1),
         // Telas que so operam saldo por quantidade (baixa, ajuste por quantidade)
         // passam true: serializados nao tem saldo agregado e sao recusados pelo
         // servidor — esconde-los da busca evita o erro tardio e a confusao.

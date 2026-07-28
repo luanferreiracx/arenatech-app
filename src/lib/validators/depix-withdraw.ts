@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidTaxId } from "@/lib/utils/tax-id";
+import { MAX_DATA, MAX_LINHA, MAX_NOME } from "./limits";
 
 // ── Enums ──
 
@@ -65,10 +66,10 @@ export type UpdateWithdrawInput = z.infer<typeof updateWithdrawSchema>;
 
 export const listWithdrawalsSchema = z.object({
   status: depixWithdrawStatusEnum.optional(),
-  pixKey: z.string().optional(),
-  recipientName: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  pixKey: z.string().max(MAX_LINHA).optional(),
+  recipientName: z.string().max(MAX_NOME).optional(),
+  dateFrom: z.string().max(MAX_DATA).optional(),
+  dateTo: z.string().max(MAX_DATA).optional(),
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(1).max(100).optional(),
 });
