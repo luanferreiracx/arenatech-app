@@ -52,17 +52,28 @@ arbitrário) e por isso foi removido da API.
 1. **Superadmin liga o acesso:** `/admin/tenants → [tenant] → API externa = ON`.
 2. **Admin do tenant emite a key:** `/settings/partner-api → Nova chave`, escolhe os
    **escopos** (princípio do menor privilégio):
-   - `depix:read` — saldo/extrato (comece só com isto).
-   - `depix:deposit` — gerar cobrança.
+   - `depix:deposit` — gerar cobrança (comece só com isto).
    - `depix:withdraw` — **saca dinheiro**; só conceda com necessidade real.
    O segredo (`at_..._...`) é mostrado **uma vez** — o parceiro guarda.
+
+   > Não existe mais um escopo `depix:read`. Saldo e extrato **não** são expostos na
+   > API (só no painel); o status de uma transação é liberado pela própria key que a
+   > criou. Uma key só com `depix:read` não acessa **nada** — se encontrar alguma
+   > assim, é de antes desta mudança: revogue e emita outra.
 3. **(Opcional) Webhook:** `/settings/partner-api → Webhook`: URL HTTPS do parceiro;
    o secret HMAC é gerado e exibido uma vez. O parceiro valida o `X-Signature`.
-4. **Parceiro testa:** começar por `GET /api/v1/partner/depix/balance` (read-only),
-   depois depósito de valor baixo, conferindo o webhook chegar.
+4. **Parceiro testa:** um depósito de valor baixo e, em seguida,
+   `GET /api/v1/partner/depix/transactions/:id` com o `id` devolvido — conferindo
+   também se o webhook chega.
 
-**Recomendação de go-live:** liberar **só read+deposit** primeiro; habilitar
+**Recomendação de go-live:** liberar **só `depix:deposit`** primeiro; habilitar
 `depix:withdraw` depois de validar a integração.
+
+> [!IMPORTANT]
+> **Saque exige `Idempotency-Key`** (UUID por intenção); sem o header a API responde
+> `400`. Oriente o parceiro a retentar sempre com a **mesma** chave e a tratar
+> timeout como *desfecho desconhecido* — nunca como falha. Refazer um saque com
+> chave nova por presumir que o primeiro falhou é o caminho para pagar duas vezes.
 
 ---
 
