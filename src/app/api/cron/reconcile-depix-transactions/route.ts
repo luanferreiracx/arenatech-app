@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { timingSafeEqualString } from "@/lib/utils/timing-safe";
 import { withCronLock } from "@/server/cron-lock";
-import { reconcileStaleDepixTransactions } from "@/server/services/depix-transaction.service";
+import {
+  reconcileStaleDepixTransactions,
+  resolveIndeterminateWithdrawals,
+} from "@/server/services/depix-transaction.service";
 import { expireStalePaymentLinks } from "@/server/services/payment-link.service";
 import { getEsploraHealth } from "@/lib/services/lwk-service";
 import { evaluateEsploraHealth } from "@/lib/services/esplora-health-alert";
@@ -61,6 +64,10 @@ export async function POST(request: NextRequest) {
   try {
     const results: Awaited<ReturnType<typeof reconcileStaleDepixTransactions>>[] = [];
     let expiredLinks = 0;
+    let indeterminate: Awaited<ReturnType<typeof resolveIndeterminateWithdrawals>> = {
+      checked: 0,
+      resolved: 0,
+    };
     // Lock por job: evita duas instancias consultando/transicionando a mesma tx.
     const ran = await withCronLock("reconcile-depix-transactions", async () => {
       results.push(await reconcileStaleDepixTransactions());
@@ -73,11 +80,16 @@ export async function POST(request: NextRequest) {
       // ...e pra detectar cache do LWK com UTXOs gastos (saldo inflado — guard de
       // recorrência do incidente 2026-07). Best-effort: nunca lança.
       await checkCentralCacheIntegrityAndAlert();
+      // ...e pra descobrir se saques INDETERMINADOS (resposta do LWK perdida no
+      // timeout) chegaram a ser transmitidos — consulta read-only da chave de
+      // idempotência. Sem isto o operador fica sem saber se o dinheiro saiu, que
+      // foi o que gerou o pagamento em dobro no TXW20260727-00002.
+      indeterminate = await resolveIndeterminateWithdrawals();
     });
     const result = results[0];
     if (!ran || !result) return NextResponse.json({ skipped: "locked" });
-    logger.info("[cron-reconcile-depix] processed", { ...result, expiredLinks });
-    return NextResponse.json({ success: true, ...result, expiredLinks });
+    logger.info("[cron-reconcile-depix] processed", { ...result, expiredLinks, indeterminate });
+    return NextResponse.json({ success: true, ...result, expiredLinks, indeterminate });
   } catch (err) {
     logger.error("[cron-reconcile-depix] failed", {
       err: err instanceof Error ? err.message : String(err),
