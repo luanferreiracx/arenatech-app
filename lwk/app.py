@@ -105,6 +105,22 @@ ESPLORA_URLS = [u for u in [ESPLORA_URL.rstrip("/") if ESPLORA_URL else None,
 # dedup preservando ordem
 ESPLORA_URLS = list(dict.fromkeys(ESPLORA_URLS))
 
+# ESPLORA_URL e PREPENDADO — setar essa env REBAIXA a primaria documentada acima.
+# Foi assim que o .env da VPS colocou liquid.network na frente do waterfalls e a
+# sincronizacao passou a dar timeout constante, corrompendo o cache da carteira
+# central (saldo inflado + "internal error", 2026-07-27/28). A deriva era
+# silenciosa: nada no boot dizia qual fonte estava valendo. Agora diz.
+PRIMARY_ESPLORA = "https://waterfalls.liquidwebwallet.org/liquid/api"
+if ESPLORA_URLS and ESPLORA_URLS[0] != PRIMARY_ESPLORA:
+    logger.warning(
+        "ESPLORA_URL=%s esta na FRENTE da primaria recomendada (%s). "
+        "Isso rebaixa a fonte que a ADR 0059 define como primaria e ja causou "
+        "corrupcao de cache. Remova a env pra usar o padrao do compose.",
+        ESPLORA_URLS[0], PRIMARY_ESPLORA,
+    )
+else:
+    logger.info("Esplora primaria: %s", ESPLORA_URLS[0] if ESPLORA_URLS else "<nenhuma>")
+
 # ── Saúde da Esplora (observabilidade) ─────────────────────────────────────────
 # As Esploras publicas ja quebraram 2x (liquid.network=502, esplora.blockstream=
 # DNS morto). O /health e liveness puro e nao detecta isso — so descobriamos pelo
