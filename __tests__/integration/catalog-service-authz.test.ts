@@ -14,6 +14,11 @@
  *
  * `deleteByType` tinha a lógica INVERTIDA em relação ao `deleteService`:
  * apagar UM serviço exigia admin; apagar N de uma vez, não.
+ *
+ * 2026-07-27 (item 17): as operações por tipo passaram a ser identificadas pelo
+ * ID da entidade `ServiceType`, não pelo texto. Os guards testados aqui são os
+ * mesmos — mudou só como o tipo é endereçado. `deleteByType` virou
+ * `deleteServiceType`.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 vi.mock("@/server/auth", () => ({ auth: async () => null }));
@@ -26,7 +31,7 @@ import { withTenant } from "@/server/db";
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const MARK = "catalog-authz";
 const TIPO = `${MARK}-tipo`;
-let tenantId: string, adminId: string, operatorId: string;
+let tenantId: string, adminId: string, operatorId: string, tipoId: string;
 const serviceIds: string[] = [];
 
 function mkCtx(userId: string, role: "admin" | "operator") {
@@ -49,19 +54,36 @@ beforeAll(async () => {
   tenantId = tenant.id;
   adminId = admin.id;
   operatorId = operator.id;
+  tipoId = (
+    await prisma.serviceType.upsert({
+      where: { tenantId_slug: { tenantId, slug: TIPO } },
+      update: { deletedAt: null },
+      create: { tenantId, name: TIPO, slug: TIPO },
+      select: { id: true },
+    })
+  ).id;
 });
 
 afterAll(async () => {
-  await prisma.service.deleteMany({ where: { tenantId, serviceType: TIPO } });
+  await prisma.service.deleteMany({ where: { tenantId, serviceTypeId: tipoId } });
+  await prisma.serviceType.deleteMany({ where: { tenantId, slug: TIPO } });
   await prisma.$disconnect();
 });
 
 /** Dois serviços do mesmo tipo, a R$100 cada. */
 async function semeiaServicos() {
-  await prisma.service.deleteMany({ where: { tenantId, serviceType: TIPO } });
+  await prisma.service.deleteMany({ where: { tenantId, serviceTypeId: tipoId } });
+  await prisma.serviceType.updateMany({ where: { id: tipoId }, data: { deletedAt: null } });
   for (const n of ["A", "B"]) {
     const s = await prisma.service.create({
-      data: { tenantId, name: `${MARK}-${n}`, serviceType: TIPO, basePrice: 100, active: true },
+      data: {
+        tenantId,
+        name: `${MARK}-${n}`,
+        serviceTypeId: tipoId,
+        serviceType: TIPO,
+        basePrice: 100,
+        active: true,
+      },
     });
     serviceIds.push(s.id);
   }
@@ -69,7 +91,7 @@ async function semeiaServicos() {
 
 async function precos() {
   const lista = await prisma.service.findMany({
-    where: { tenantId, serviceType: TIPO },
+    where: { tenantId, serviceTypeId: tipoId, deletedAt: null },
     orderBy: { name: "asc" },
   });
   return lista.map((s) => Number(s.basePrice));
@@ -81,7 +103,7 @@ describe("catálogo de serviços — reajuste e exclusão em massa são de admin
 
     await expect(
       call(mkCtx(operatorId, "operator")).catalog.bulkAdjustPrice({
-        serviceType: TIPO,
+        serviceTypeId: tipoId,
         adjustmentCents: 5000,
       }),
     ).rejects.toThrow(/permiss/i);
@@ -93,7 +115,7 @@ describe("catálogo de serviços — reajuste e exclusão em massa são de admin
     await semeiaServicos();
 
     const r = await call(mkCtx(adminId, "admin")).catalog.bulkAdjustPrice({
-      serviceType: TIPO,
+      serviceTypeId: tipoId,
       adjustmentCents: 5000, // +R$50
     });
 
@@ -106,7 +128,7 @@ describe("catálogo de serviços — reajuste e exclusão em massa são de admin
 
     await expect(
       call(mkCtx(adminId, "admin")).catalog.bulkAdjustPrice({
-        serviceType: TIPO,
+        serviceTypeId: tipoId,
         adjustmentCents: 100_000_000, // R$ 1.000.000
       }),
     ).rejects.toThrow();
@@ -118,7 +140,7 @@ describe("catálogo de serviços — reajuste e exclusão em massa são de admin
     await semeiaServicos();
 
     await expect(
-      call(mkCtx(operatorId, "operator")).catalog.deleteByType({ serviceType: TIPO }),
+      call(mkCtx(operatorId, "operator")).catalog.deleteServiceType({ id: tipoId }),
     ).rejects.toThrow(/permiss/i);
 
     expect((await precos()).length).toBe(2);

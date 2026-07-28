@@ -20,8 +20,14 @@ import { Loader2 } from "lucide-react";
 
 export type BulkAction = "adjust-up" | "adjust-down" | "duplicate" | "rename" | "delete-type";
 
+/**
+ * A acao em massa carrega o ID do tipo (nao o nome). Auditoria 2026-07-25, item
+ * 17: enquanto era o nome, "Troca de Tela" e "troca de tela" eram alvos
+ * diferentes e o reajuste pegava so metade dos servicos. O nome vem junto
+ * apenas para o texto do dialogo.
+ */
 interface BulkActionDialogProps {
-  action: { action: BulkAction; serviceType: string } | null;
+  action: { action: BulkAction; serviceTypeId: string; serviceTypeName: string } | null;
   onClose: () => void;
 }
 
@@ -46,9 +52,9 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
   );
 
   const deleteByType = useMutation(
-    trpc.catalog.deleteByType.mutationOptions({
-      onSuccess: (data) => {
-        toast.success(`${data.deleted} servico(s) excluidos!`);
+    trpc.catalog.deleteServiceType.mutationOptions({
+      onSuccess: () => {
+        toast.success("Tipo e servicos excluidos!");
         invalidate();
         handleClose();
       },
@@ -57,9 +63,9 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
   );
 
   const duplicateType = useMutation(
-    trpc.catalog.duplicateType.mutationOptions({
+    trpc.catalog.duplicateServiceType.mutationOptions({
       onSuccess: (data) => {
-        toast.success(`${data.created} servico(s) duplicados!`);
+        toast.success(`${data.copiedCount} servico(s) duplicados!`);
         invalidate();
         handleClose();
       },
@@ -68,7 +74,7 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
   );
 
   const renameType = useMutation(
-    trpc.catalog.renameType.mutationOptions({
+    trpc.catalog.renameServiceType.mutationOptions({
       onSuccess: (data) => {
         toast.success(`${data.updated} servico(s) renomeados!`);
         invalidate();
@@ -94,7 +100,7 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
           return;
         }
         bulkAdjust.mutate({
-          serviceType: action.serviceType,
+          serviceTypeId: action.serviceTypeId,
           adjustmentCents: adjustValue,
         });
         break;
@@ -104,7 +110,7 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
           return;
         }
         bulkAdjust.mutate({
-          serviceType: action.serviceType,
+          serviceTypeId: action.serviceTypeId,
           adjustmentCents: -adjustValue,
         });
         break;
@@ -114,8 +120,8 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
           return;
         }
         duplicateType.mutate({
-          sourceType: action.serviceType,
-          newType: newName.trim(),
+          sourceId: action.serviceTypeId,
+          newName: newName.trim(),
         });
         break;
       case "rename":
@@ -124,12 +130,12 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
           return;
         }
         renameType.mutate({
-          oldName: action.serviceType,
+          id: action.serviceTypeId,
           newName: newName.trim(),
         });
         break;
       case "delete-type":
-        deleteByType.mutate({ serviceType: action.serviceType });
+        deleteByType.mutate({ id: action.serviceTypeId });
         break;
     }
   }
@@ -151,11 +157,11 @@ export function BulkActionDialog({ action, onClose }: BulkActionDialogProps) {
   };
 
   const descriptions: Record<BulkAction, string> = {
-    "adjust-up": `Aumentar o valor de todos os servicos do tipo "${action.serviceType}".`,
-    "adjust-down": `Diminuir o valor de todos os servicos do tipo "${action.serviceType}".`,
-    duplicate: `Duplicar todos os servicos do tipo "${action.serviceType}" com um novo nome.`,
-    rename: `Renomear o tipo "${action.serviceType}" para um novo nome.`,
-    "delete-type": `Tem certeza que deseja excluir TODOS os servicos do tipo "${action.serviceType}"? Esta acao nao pode ser desfeita.`,
+    "adjust-up": `Aumentar o valor de todos os servicos do tipo "${action.serviceTypeName}".`,
+    "adjust-down": `Diminuir o valor de todos os servicos do tipo "${action.serviceTypeName}".`,
+    duplicate: `Duplicar todos os servicos do tipo "${action.serviceTypeName}" com um novo nome.`,
+    rename: `Renomear o tipo "${action.serviceTypeName}" para um novo nome.`,
+    "delete-type": `Tem certeza que deseja excluir TODOS os servicos do tipo "${action.serviceTypeName}"? Esta acao nao pode ser desfeita.`,
   };
 
   return (

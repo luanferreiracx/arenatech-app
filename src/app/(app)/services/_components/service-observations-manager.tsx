@@ -144,7 +144,14 @@ export function ServiceObservationsManager() {
   const listQuery = useQuery(trpc.catalog.listServiceObservations.queryOptions({}));
   const list = (listQuery.data ?? []) as ServiceObservation[];
 
-  const { data: serviceTypeOptions } = useQuery(trpc.catalog.listServiceTypes.queryOptions());
+  // A observacao guarda os NOMES dos tipos num JSON (escopo de aplicacao), e
+  // casa por nome contra `service.serviceType`. Isso agora e seguro: a
+  // coluna-sombra e sempre a grafia canonica da entidade (o resolver e o
+  // backfill mantem as duas em sincronia). O que mudou e a origem das opcoes —
+  // vem da entidade, nao de um `distinct` do texto, entao nao aparecem mais
+  // duas opcoes com o mesmo nome. Auditoria 2026-07-25, item 17.
+  const { data: serviceTypeEntities } = useQuery(trpc.catalog.listServiceTypes.queryOptions());
+  const serviceTypeOptions = serviceTypeEntities?.map((t) => t.name);
   const { data: deviceModelOptions } = useQuery(trpc.catalog.listDeviceModels.queryOptions(undefined));
 
   const invalidate = () =>
