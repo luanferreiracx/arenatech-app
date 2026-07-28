@@ -6,6 +6,22 @@
 **Origem:** dono pediu "disponibilizar a API para acesso externo (parceiros)" e
 perguntou se o sistema está robusto o suficiente para iniciar.
 
+> [!WARNING]
+> **Adendo 2026-07-28 (auditoria).** O escopo entregue é MENOR que o desenhado
+> abaixo, e por um tempo nem isso funcionou. Ao ler este ADR, considere:
+>
+> - **Não existem** `GET /depix/balance` nem o extrato paginado, e o escopo
+>   `depix:read` foi removido. A API se limita a **criar depósito**, **sacar** e
+>   **consultar o status** do que ela mesma criou. Saldo/extrato são só no painel.
+> - **A API ficou inalcançável para cliente-máquina** desde a entrega até 28/07:
+>   `/api/v1/partner/*` não estava nas rotas públicas do proxy (redirecionava pro
+>   `/login`) e o host publicado aqui levava 301. Corrigido na #732 — e o "Aceito e
+>   IMPLEMENTADO" acima é o alerta: entregue ≠ verificado de fora.
+> - **`Idempotency-Key` passou a ser obrigatória no saque** (era opcional).
+>
+> Fonte de verdade do contrato: `docs/openapi/partner-api.yaml` (gerado do Zod,
+> travado por CI) e `docs/PARTNER_API.md`.
+
 ---
 
 ## Veredito de prontidão
