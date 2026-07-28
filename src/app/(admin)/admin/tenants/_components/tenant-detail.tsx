@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Copy, KeyRound, Loader2, Pencil, Plus, ShieldOff, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/inputs/money-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -57,6 +58,7 @@ import {
   type TenantStatus,
 } from "@/lib/validators/admin";
 import { StatusBadge } from "@/components/domain/status-badge";
+import { formatCentsBRL } from "@/lib/format";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -129,7 +131,15 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   // Subscription).
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
-    values: tenant ? { id: tenant.id, name: tenant.name, apiAccessEnabled: tenant.apiAccessEnabled } : undefined,
+    values: tenant
+      ? {
+          id: tenant.id,
+          name: tenant.name,
+          apiAccessEnabled: tenant.apiAccessEnabled,
+          depixWithdrawDailyCapCents: tenant.depixWithdrawDailyCapCents,
+          partnerApiWithdrawDailyCapCents: tenant.partnerApiWithdrawDailyCapCents,
+        }
+      : undefined,
   });
   const createUserForm = useForm<CreateTenantUserInput>({
     resolver: zodResolver(createTenantUserSchema),
@@ -158,9 +168,13 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     },
   });
   const tenantApiAccess = useWatch({ control: tenantForm.control, name: "apiAccessEnabled" });
+  const panelCapCents = useWatch({ control: tenantForm.control, name: "depixWithdrawDailyCapCents" });
+  const apiCapCents = useWatch({ control: tenantForm.control, name: "partnerApiWithdrawDailyCapCents" });
 
   if (tenantQuery.isLoading) return <LoadingState />;
   if (!tenant) return <p className="text-muted-foreground">Tenant nao encontrado</p>;
+
+  const capDefaults = tenant.withdrawCapDefaults;
 
   const invalidateTenant = () =>
     queryClient.invalidateQueries({ queryKey: trpc.admin.getTenant.queryKey({ id: tenantId }) });
@@ -319,6 +333,53 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
               checked={tenantApiAccess === true}
               onCheckedChange={(v) => tenantForm.setValue("apiAccessEnabled", v)}
             />
+          </div>
+          <div className="rounded-md border p-3">
+            <Label>Tetos de saque por 24h</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground break-words">
+              Deixe zerado para usar o padrão do sistema. Vale por tenant — subir aqui
+              não afeta os demais.
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 min-w-0">
+                <Label htmlFor="cap-painel" className="text-xs font-normal">
+                  Painel (com 2FA)
+                </Label>
+                <MoneyInput
+                  id="cap-painel"
+                  value={panelCapCents ?? 0}
+                  onChange={(cents) =>
+                    tenantForm.setValue("depixWithdrawDailyCapCents", cents > 0 ? cents : null)
+                  }
+                />
+                <p className="text-xs text-muted-foreground break-words">
+                  Padrão: {formatCentsBRL(capDefaults.panelCents)}
+                </p>
+              </div>
+              <div className="space-y-1.5 min-w-0">
+                <Label htmlFor="cap-api" className="text-xs font-normal">
+                  API de parceiros (sem 2FA)
+                </Label>
+                <MoneyInput
+                  id="cap-api"
+                  value={apiCapCents ?? 0}
+                  onChange={(cents) =>
+                    tenantForm.setValue(
+                      "partnerApiWithdrawDailyCapCents",
+                      cents > 0 ? cents : null,
+                    )
+                  }
+                />
+                <p className="text-xs text-muted-foreground break-words">
+                  Padrão: {formatCentsBRL(capDefaults.partnerApiCents)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground break-words">
+              Quem saca pela API é uma máquina, sem 2FA — este teto é o limite do
+              estrago se uma API-key vazar. Para a carteira central, que é isenta do
+              teto do painel, ele é o único limite diário.
+            </p>
           </div>
         </FormSection>
         <div className="flex flex-wrap gap-2">

@@ -11,11 +11,14 @@ const createWithdraw = vi.fn();
 const userTenantFindFirst = vi.fn();
 const walletFindUnique = vi.fn();
 const txAggregate = vi.fn();
+const tenantFindUnique = vi.fn();
 
 const adminTx = {
   userTenant: { findFirst: userTenantFindFirst },
   tenantDepixWallet: { findUnique: walletFindUnique },
   tenantDepixTransaction: { aggregate: txAggregate },
+  // Teto por tenant (override do superadmin). `null` = usa o default do ambiente.
+  tenant: { findUnique: tenantFindUnique },
 };
 
 vi.mock("@/server/db", () => ({
@@ -44,7 +47,8 @@ const pixInput = {
 };
 
 beforeEach(() => {
-  for (const m of [createDeposit, createWithdraw, userTenantFindFirst, walletFindUnique, txAggregate]) m.mockReset();
+  for (const m of [createDeposit, createWithdraw, userTenantFindFirst, walletFindUnique, txAggregate, tenantFindUnique]) m.mockReset();
+  tenantFindUnique.mockResolvedValue({ partnerApiWithdrawDailyCapCents: null });
   userTenantFindFirst.mockResolvedValue({ userId: "member-1" });
   walletFindUnique.mockResolvedValue({ custodyModel: "custodial" });
   txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 0 } });
@@ -111,6 +115,20 @@ describe("partnerCreateWithdraw", () => {
     });
     expect(r.number).toBe("TXW-9");
     expect(createWithdraw).toHaveBeenCalledOnce();
+  });
+
+  it("respeita o teto POR TENANT definido pelo superadmin (acima do default)", async () => {
+    // Default da API é R$ 10.000; este tenant tem R$ 200 e já usou R$ 150.
+    tenantFindUnique.mockResolvedValue({ partnerApiWithdrawDailyCapCents: 20_000 });
+    txAggregate.mockResolvedValue({ _sum: { grossAmountCents: 15_000 } });
+    await expect(
+      partnerCreateWithdraw({
+        tenantId: TENANT, keyPrefix: "k",
+        input: { ...pixInput, amountCents: 10_000 },
+        idempotencyKey: "idem-cap",
+      }),
+    ).rejects.toThrow(/Cap diário de saque via API/i);
+    expect(createWithdraw).not.toHaveBeenCalled();
   });
 
   it("BLOQUEIA saque em carteira non-custodial (exige passphrase humana)", async () => {

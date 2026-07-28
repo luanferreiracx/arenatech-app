@@ -18,6 +18,7 @@ import { Prisma, type DepixTransactionSourceType } from "@prisma/client";
 import { withTenant, withAdmin } from "@/server/db";
 import { CENTRAL_TENANT_SLUG } from "@/server/api/trpc";
 import { logger } from "@/lib/logger";
+import { resolveDailyCapCents } from "@/lib/depix/daily-cap";
 import {
   calcDepositSettlement,
   calcDepositSplitFeePercent,
@@ -92,10 +93,14 @@ export async function getCentralTenantId(): Promise<string | null> {
 }
 
 /** Cap diario de saque por tenant (em centavos). Default R$ 25.000.
- *  Defesa em profundidade contra drain via sessao comprometida. */
-const DAILY_WITHDRAW_CAP_CENTS = Number(
+ *  Defesa em profundidade contra drain via sessao comprometida.
+ *  E o FALLBACK: o superadmin pode definir um teto proprio por tenant
+ *  (`Tenant.depixWithdrawDailyCapCents`). */
+export const DAILY_WITHDRAW_CAP_CENTS = Number(
   process.env.DEPIX_WITHDRAW_DAILY_CAP_CENTS ?? "2500000",
 );
+
+
 
 /** Sanitiza mensagem de erro pra exibir ao client: remove hostnames, IPs,
  *  stack traces e qualquer string suspeita de detalhe interno. Mantem
@@ -133,11 +138,19 @@ async function checkDailyWithdrawCap(
     _sum: { grossAmountCents: true },
   });
   const usedCents = agg._sum.grossAmountCents ?? 0;
-  if (usedCents + nextGrossCents > DAILY_WITHDRAW_CAP_CENTS) {
-    const remainingBrl = Math.max(0, DAILY_WITHDRAW_CAP_CENTS - usedCents) / 100;
+  const tenantRow = await tx.tenant.findUnique({
+    where: { id: tenantId },
+    select: { depixWithdrawDailyCapCents: true },
+  });
+  const capCents = resolveDailyCapCents(
+    tenantRow?.depixWithdrawDailyCapCents,
+    DAILY_WITHDRAW_CAP_CENTS,
+  );
+  if (usedCents + nextGrossCents > capCents) {
+    const remainingBrl = Math.max(0, capCents - usedCents) / 100;
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `Cap diario de saque atingido. Restante hoje: R$ ${remainingBrl.toFixed(2)} (limite R$ ${(DAILY_WITHDRAW_CAP_CENTS / 100).toFixed(2)}/24h)`,
+      message: `Cap diario de saque atingido. Restante hoje: R$ ${remainingBrl.toFixed(2)} (limite R$ ${(capCents / 100).toFixed(2)}/24h)`,
     });
   }
 }

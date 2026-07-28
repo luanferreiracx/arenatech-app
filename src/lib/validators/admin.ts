@@ -166,6 +166,17 @@ export const updateTenantSchema = z.object({
   plan: z.string().min(1).max(100).optional().nullable(),
   /** Gate da API externa (ADR 0057): libera o tenant a emitir/usar API-keys. */
   apiAccessEnabled: z.boolean().optional(),
+  /**
+   * Tetos de saque por 24h, em CENTAVOS. `null` = usa o default do ambiente
+   * (painel R$ 25.000; API R$ 10.000). Só o superadmin altera.
+   *
+   * Teto máximo de R$ 10.000.000 por campo: não é limite de negócio, é trava
+   * contra dedo gordo — digitar centavos como se fossem reais (ou um zero a mais)
+   * num campo que governa quanto dinheiro sai por dia deve ser barrado aqui, não
+   * descoberto depois no extrato.
+   */
+  depixWithdrawDailyCapCents: z.number().int().positive().max(1_000_000_000).optional().nullable(),
+  partnerApiWithdrawDailyCapCents: z.number().int().positive().max(1_000_000_000).optional().nullable(),
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
 
