@@ -47,13 +47,17 @@ const COMMON_ERRORS = {
   "503": jsonResponse("PartnerError", "Serviço temporariamente indisponível."),
 };
 
-const IDEMPOTENCY_HEADER = {
-  name: "Idempotency-Key",
-  in: "header",
-  required: false,
-  schema: { type: "string", format: "uuid" },
-  description: "UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado, sem duplicar.",
-};
+function idempotencyHeader(required: boolean) {
+  return {
+    name: "Idempotency-Key",
+    in: "header",
+    required,
+    schema: { type: "string", format: "uuid" },
+    description: required
+      ? "UUID por intenção. OBRIGATÓRIO: saque é irreversível, e sem esta chave uma reentrega da mesma requisição (retry automático do seu cliente HTTP) criaria um SEGUNDO saque. Repetir com a mesma chave devolve o mesmo resultado."
+      : "UUID por intenção. Repetir a mesma chamada com a mesma chave retorna o mesmo resultado, sem duplicar.",
+  };
+}
 
 function op(args: {
   summary: string;
@@ -62,8 +66,13 @@ function op(args: {
   requestBodyId?: string;
   parameters?: unknown[];
   idempotent?: boolean;
+  /** Saque: a chave é exigida (400 sem ela). */
+  idempotentRequired?: boolean;
 }) {
-  const parameters = [...(args.parameters ?? []), ...(args.idempotent ? [IDEMPOTENCY_HEADER] : [])];
+  const parameters = [
+    ...(args.parameters ?? []),
+    ...(args.idempotent ? [idempotencyHeader(args.idempotentRequired ?? false)] : []),
+  ];
   const scopeText = (Array.isArray(args.scope) ? args.scope : [args.scope])
     .map((s) => `\`${s}\``)
     .join(" ou ");
@@ -147,9 +156,10 @@ export function buildOpenApiSpec(serverUrl = "https://app.arenatechpi.com.br") {
           scope: PARTNER_SCOPES.DEPIX_WITHDRAW,
           requestBodyId: "PartnerWithdrawRequest",
           idempotent: true,
+          idempotentRequired: true,
           responses: {
             "201": jsonResponse("PartnerWithdrawResult", "Saque iniciado/concluído."),
-            "400": jsonResponse("PartnerError", "Corpo JSON inválido ou cap diário de saque excedido."),
+            "400": jsonResponse("PartnerError", "Idempotency-Key ausente, corpo JSON inválido ou cap diário de saque excedido."),
             "412": jsonResponse("PartnerError", "Carteira non-custodial (use o painel)."),
             "422": ERR,
           },

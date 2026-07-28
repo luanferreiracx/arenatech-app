@@ -22,45 +22,10 @@ import {
 } from "@/lib/brand-host";
 import { isRouteAllowedForTenant } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isPublicRoute, isLegacyHostDirectServe } from "@/lib/auth/public-routes";
 
-const PUBLIC_ROUTES = new Set(["/login", "/no-access", "/forgot-password", "/reset-password", "/register"]);
-
-function isPublicRoute(pathname: string): boolean {
-  return (
-    PUBLIC_ROUTES.has(pathname) ||
-    // Landing publica (marketing) — servida na raiz por host em pdvdepix.app.
-    pathname === "/landing" ||
-    // Landing institucional Arena Tech (varejo) — servida na raiz por host em
-    // arenatechpi.com.br. Publica, sem auth.
-    pathname === "/arenatech" ||
-    // Documentos legais (Termos, Privacidade, Reembolso, Avisos) — públicos por
-    // exigência dos parceiros de pagamento (KYC) e do consumidor. Sem auth.
-    pathname === "/legal" ||
-    pathname.startsWith("/legal/") ||
-    pathname.startsWith("/api/auth/") ||
-    pathname.startsWith("/api/health") ||
-    pathname.startsWith("/api/cron/") ||
-    // Webhooks externos — autenticacao via HMAC interno, sem cookie.
-    pathname.startsWith("/api/webhooks/") ||
-    // Rotas de midia publica para WhatsApp Cloud API baixar PDFs (HMAC-tokenized).
-    // Meta precisa acessar sem cookies de auth.
-    pathname.startsWith("/api/whatsapp-media/") ||
-    pathname.startsWith("/catalog") ||
-    pathname.startsWith("/os/") ||
-    pathname.startsWith("/quote/") ||
-    pathname.startsWith("/pay/") ||
-    pathname.startsWith("/receipt/") ||
-    pathname.startsWith("/register/") ||
-    // Documentação pública da API de parceiros (Swagger UI + spec OpenAPI).
-    // O contrato é público; não expõe segredo.
-    pathname.startsWith("/docs/partner-api") ||
-    pathname === "/api/v1/partner/openapi.yaml" ||
-    // Endpoints tRPC públicos do onboarding NO-KYC (ADR 0050) — o procedimento
-    // usa publicProcedure, não precisa de sessão. Sem isso o middleware redireciona
-    // a chamada fetch para /login e o cliente recebe HTML em vez de JSON.
-    pathname.startsWith("/api/trpc/noKyc.")
-  );
-}
+// A classificação de rotas mora em @/lib/auth/public-routes (módulo puro), pra
+// poder ser testada sem carregar o NextAuth. Ver proxy-partner-api-routes.test.ts.
 
 function isNoTenantRoute(pathname: string): boolean {
   return (
@@ -98,15 +63,18 @@ export const proxy = auth((req) => {
   };
 
   // 0a. Subdomínio legado: app.arenatechpi.com.br → redireciona para pdvdepix.app.
-  //  EXCEÇÃO: webhooks de provedores externos (ex.: PixPay) chegam por POST e
-  //  NÃO seguem redirects — um 301 mata a entrega da notificação. O PixPay tem
-  //  a URL legada configurada e não conseguimos alterá-la no painel deles, então
-  //  servimos /api/webhooks/* direto no host legado, sem redirecionar. (Bug em
-  //  prod: depósitos DePix pararam de confirmar em 06-09 porque o webhook batia
-  //  neste 301 e morria.)
+  //  EXCEÇÃO (isLegacyHostDirectServe): clientes máquina-a-máquina. Webhooks de
+  //  provedores externos (ex.: PixPay) chegam por POST e NÃO seguem redirects —
+  //  um 301 mata a entrega da notificação. O PixPay tem a URL legada configurada
+  //  e não conseguimos alterá-la no painel deles. (Bug em prod: depósitos DePix
+  //  pararam de confirmar em 06-09 porque o webhook batia neste 301 e morria.)
+  //
+  //  A API de parceiros entra na mesma exceção: o host legado é EXATAMENTE o que
+  //  está publicado em docs/PARTNER_API.md e no `servers:` do OpenAPI, então é
+  //  por ele que o parceiro chega — e levava 301.
   {
     const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    if (isAppSubdomainHost(host) && !pathname.startsWith("/api/webhooks/")) {
+    if (isAppSubdomainHost(host) && !isLegacyHostDirectServe(pathname)) {
       const search = req.nextUrl.search;
       return NextResponse.redirect(
         new URL(pathname + search, "https://pdvdepix.app"),
