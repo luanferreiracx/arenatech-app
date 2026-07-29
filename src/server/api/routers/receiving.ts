@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
+import { instantRange } from "@/lib/utils/date-filter";
 import { createTRPCRouter, tenantProcedure, tenantAdminProcedure } from "@/server/api/trpc";
 import {
   createReceivingAccountSchema,
@@ -405,15 +406,12 @@ export const receivingRouter = createTRPCRouter({
             status: input.status,
             ...(input.acquirerId ? { acquirerId: input.acquirerId } : {}),
           };
+          // FIN-1: a previsão de liquidação herda a HORA da venda (156 de 156
+          // têm hora), então é instante e o filtro ancora no dia BRT. Com o
+          // construtor cru, recebível previsto para depois das 21h caía no dia
+          // seguinte.
           if (input.dateFrom || input.dateTo) {
-            const range: Prisma.DateTimeFilter = {};
-            if (input.dateFrom) range.gte = new Date(input.dateFrom);
-            if (input.dateTo) {
-              const end = new Date(input.dateTo);
-              end.setHours(23, 59, 59, 999);
-              range.lte = end;
-            }
-            where.expectedSettlementDate = range;
+            where.expectedSettlementDate = instantRange(input.dateFrom, input.dateTo);
           }
           // Relatório de divergências: só liquidados com diferença != 0.
           if (input.onlyDivergent) {

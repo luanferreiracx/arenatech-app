@@ -11,6 +11,7 @@ import {
 } from "@/server/services/cash-session.service";
 import { addMonthsSafe } from "@/lib/date/add-months-safe";
 import { startOfMonthBrt, endOfMonthBrt, startOfDayBrt, endOfDayBrt, brtDayKey } from "@/lib/utils/date-range";
+import { instantRange, pureDateRange } from "@/lib/utils/date-filter";
 import { resolveSupplierId } from "@/server/services/financial-supplier.service";
 import { resolveCategoryId } from "@/server/services/financial-category.service";
 import { generateInstallments } from "@/server/services/installment-generator.service";
@@ -204,15 +205,11 @@ export const financialRouter = createTRPCRouter({
           ];
         }
 
+        // FIN-1: `emissionDate` é DATA PURA (o app grava meia-noite UTC — 709 de
+        // 777 em produção estão em 00:00:00). Faixa meio-aberta pelo dia UTC;
+        // aplicar BRT aqui excluiria o próprio dia.
         if (input.dateFrom || input.dateTo) {
-          const emissionDate: Record<string, Date> = {};
-          if (input.dateFrom) emissionDate.gte = new Date(input.dateFrom);
-          if (input.dateTo) {
-            const end = new Date(input.dateTo);
-            end.setHours(23, 59, 59, 999);
-            emissionDate.lte = end;
-          }
-          where.emissionDate = emissionDate;
+          where.emissionDate = pureDateRange(input.dateFrom, input.dateTo);
         }
 
         const [data, total] = await Promise.all([
@@ -1517,15 +1514,11 @@ export const financialRouter = createTRPCRouter({
           ];
         }
 
+        // FIN-1: `paidAt` é INSTANTE (1.360 de 1.716 têm hora). Ancora no dia
+        // BRT — o `setHours` anterior era hora do processo e perdia o que foi
+        // pago depois das 21h.
         if (input.dateFrom || input.dateTo) {
-          const paidAt: Record<string, Date> = {};
-          if (input.dateFrom) paidAt.gte = new Date(input.dateFrom);
-          if (input.dateTo) {
-            const end = new Date(input.dateTo);
-            end.setHours(23, 59, 59, 999);
-            paidAt.lte = end;
-          }
-          where.paidAt = paidAt;
+          where.paidAt = instantRange(input.dateFrom, input.dateTo);
         }
 
         if (input.paymentMethod) {
@@ -1548,8 +1541,7 @@ export const financialRouter = createTRPCRouter({
               ...(input.dateFrom || input.dateTo
                 ? {
                     paidAt: {
-                      ...(input.dateFrom ? { gte: new Date(input.dateFrom) } : {}),
-                      ...(input.dateTo ? { lte: (() => { const e = new Date(input.dateTo); e.setHours(23, 59, 59, 999); return e; })() } : {}),
+                      ...instantRange(input.dateFrom, input.dateTo),
                     },
                   }
                 : {}),
