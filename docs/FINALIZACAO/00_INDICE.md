@@ -25,7 +25,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 0 | Preparo (infra, cópia de produção, harness) | ✅ | — | — | este arquivo |
 | 1 | Caixa | ✅ | ✅ | tem +1 | [01-caixa.md](./01-caixa.md) |
 | 2 | PDV / Vendas | ✅ | ✅ | tem +1 | [02-pdv.md](./02-pdv.md) |
-| 3 | Estoque / Compras / Fornecedores | — | — | tem | — |
+| 3 | Estoque / Compras / Fornecedores | ✅ | ⏳ | tem | [03-estoque.md](./03-estoque.md) |
 | 4 | Ordens de Serviço / Serviços / Operação | — | — | tem | — |
 | 5 | Financeiro | — | — | tem | — |
 | 6 | DePix Wallet / Vendas Avulsas | — | — | **não** | — |

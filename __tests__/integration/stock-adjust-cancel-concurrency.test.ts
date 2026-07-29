@@ -5,7 +5,15 @@
  *     em vez de ambos gravarem o mesmo `before` stale (lost update do ledger).
  * I7: dois cancelPurchase concorrentes na mesma compra → um vence, um CONFLICT,
  *     e o estoque é decrementado UMA vez (não em dobro).
+ *
+ * Nota da finalização (Módulo 3, 2026-07-29): o teste chamava
+ * `stock.adjustInventory`, procedure que nenhuma tela usava e que foi removida
+ * com as outras 11 mortas. O invariante (lock FOR UPDATE + encadeamento do
+ * ledger) mora no SERVIÇO `adjustInventory`, que segue vivo — quem o alcança é
+ * `stock.bulkAdjust`, a procedure que a tela de ajuste em massa chama. O teste
+ * passou a exercitar esse caminho.
  */
+
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 vi.mock("@/server/auth", () => ({ auth: async () => null }));
 import { PrismaClient } from "@prisma/client";
@@ -57,8 +65,14 @@ describe("Auditoria Estoque — concorrência (ao vivo)", () => {
     // Ajusta para 12 e para 20 em paralelo. Com o lock FOR UPDATE, um lê o valor
     // do outro como `before`; sem o lock ambos gravariam before=10 (ledger quebrado).
     await Promise.allSettled([
-      c.stock.adjustInventory({ productId, newQuantity: 12, reason: "ajuste concorrente A" }),
-      c.stock.adjustInventory({ productId, newQuantity: 20, reason: "ajuste concorrente B" }),
+      c.stock.bulkAdjust({
+        items: [{ productId, newQuantity: 12 }],
+        reason: "ajuste concorrente A",
+      }),
+      c.stock.bulkAdjust({
+        items: [{ productId, newQuantity: 20 }],
+        reason: "ajuste concorrente B",
+      }),
     ]);
 
     const movements = await prisma.stockMovement.findMany({

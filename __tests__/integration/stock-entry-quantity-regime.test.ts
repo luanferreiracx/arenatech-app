@@ -1,20 +1,24 @@
 /**
- * Auditoria 2026-07-25 — `stock.entryQuantity` sem guard de REGIME de estoque.
+ * Regime de estoque na ENTRADA — invariante herdada da auditoria 2026-07-25.
+ *
+ * Nota da finalização (Módulo 3, 2026-07-29): o alvo original era
+ * `stock.entryQuantity`, que **nenhuma tela chamava** — a auditoria de 25/07
+ * tratou como P0 e corrigiu sem notar isso. A procedure foi removida com as
+ * outras 11 mortas; o teste passou a exercitar o caminho VIVO da entrada
+ * (`stockEntryBatch`), porque o que precisa continuar valendo é a invariante,
+ * não a procedure.
  *
  * O sistema tem 3 regimes (resolveCurrentStockByProduct):
  *   serializado    → estoque = COUNT(StockItem AVAILABLE)
  *   com variações  → estoque = SUM(ProductVariation.currentStock)
  *   simples        → product.currentStock
  *
- * `stockEntry`, `stockEntryBatch`, `stockExit`, `adjustStock` e `adjustInventory`
- * rejeitam produto serializado e exigem `variationId` quando há variações.
- * `entryQuantity` (stock.ts:4450) é a única que não checa nada: escreve direto em
- * `product.currentStock` via `applyNonSerializedEntry`.
- *
- * Resultado: saldo FANTASMA — gravado no banco e no kardex, invisível em toda a
- * UI (que lê o saldo derivado). No produto com variações ainda sobrescreve o
- * `costPrice` do pai com uma média ponderada calculada sobre um saldo que não é
- * o real, corrompendo o CMV.
+ * A entrada precisa rejeitar produto serializado (o saldo dele é
+ * COUNT(StockItem)) e exigir `variationId` quando o produto tem variações (o
+ * saldo mora na variação). Sem isso o saldo vira FANTASMA: gravado no banco e no
+ * kardex, invisível em toda a UI, que lê o saldo derivado. No produto com
+ * variações ainda sobrescreveria o `costPrice` do pai com média ponderada sobre
+ * um saldo irreal, corrompendo o CMV.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 vi.mock("@/server/auth", () => ({ auth: async () => null }));
@@ -62,10 +66,13 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("stock.entryQuantity — precisa respeitar o regime de estoque", () => {
+describe("entrada de estoque — precisa respeitar o regime do produto", () => {
   it("rejeita entrada por quantidade em produto SERIALIZADO (hoje cria saldo fantasma)", async () => {
     await expect(
-      caller().stock.entryQuantity({ productId: serializedId, quantity: 50, reason: "entrada indevida" }),
+      caller().stock.stockEntryBatch({
+        items: [{ productId: serializedId, quantity: 50, unitCost: 100 }],
+        reason: "entrada indevida",
+      }),
     ).rejects.toThrow();
 
     // O saldo real de serializado é COUNT(StockItem) = 0. currentStock não pode
@@ -78,7 +85,10 @@ describe("stock.entryQuantity — precisa respeitar o regime de estoque", () => 
     const costBefore = (await prisma.product.findUniqueOrThrow({ where: { id: withVariationsId } })).costPrice;
 
     await expect(
-      caller().stock.entryQuantity({ productId: withVariationsId, quantity: 20, reason: "entrada indevida" }),
+      caller().stock.stockEntryBatch({
+        items: [{ productId: withVariationsId, quantity: 20, unitCost: 100 }],
+        reason: "entrada indevida",
+      }),
     ).rejects.toThrow();
 
     const after = await prisma.product.findUniqueOrThrow({ where: { id: withVariationsId } });
