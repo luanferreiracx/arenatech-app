@@ -61,6 +61,23 @@ describe("cashFlow — realizado vem do ledger (regime de caixa por evento)", ()
     const hoje = new Date();
     const ontem = new Date(hoje.getTime() - 24 * 60 * 60 * 1000);
 
+    // O relatório agrega TODOS os recebíveis do tenant no dia — inclusive os que
+    // outros arquivos da suíte pagaram e os que sobraram de execuções
+    // anteriores. Asserir o valor absoluto fazia o teste depender de um banco
+    // virgem: rodar duas vezes seguidas já dava "esperado 5000, recebido 10000".
+    // Mede a linha de base e afere o DELTA que este teste provoca.
+    const janela = {
+      dateFrom: iso(new Date(hoje.getTime() - 3 * 24 * 60 * 60 * 1000)),
+      dateTo: iso(hoje),
+      groupBy: "day" as const,
+    };
+    const antes = await caller().financial.cashFlow(janela);
+    const baseDe = (d: Date) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      antes.periods.find((p: any) => p.period === iso(d))?.realizedReceivable ?? 0;
+    const baseOntem = baseDe(ontem);
+    const baseHoje = baseDe(hoje);
+
     const conta = await caller().financial.create({
       type: "RECEIVABLE",
       description: `${MARK}-conta`,
@@ -90,16 +107,13 @@ describe("cashFlow — realizado vem do ledger (regime de caixa por evento)", ()
       paymentMethod: "dinheiro",
     });
 
-    const fluxo = await caller().financial.cashFlow({
-      dateFrom: iso(new Date(hoje.getTime() - 3 * 24 * 60 * 60 * 1000)),
-      dateTo: iso(hoje),
-      groupBy: "day",
-    });
+    const fluxo = await caller().financial.cashFlow(janela);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const doDia = (d: Date) => fluxo.periods.find((p: any) => p.period === iso(d));
     // R$50 em cada dia — e NÃO R$100 concentrados em hoje.
-    expect(doDia(ontem)?.realizedReceivable).toBe(5000);
-    expect(doDia(hoje)?.realizedReceivable).toBe(5000);
+    expect((doDia(ontem)?.realizedReceivable ?? 0) - baseOntem).toBe(5000);
+    expect((doDia(hoje)?.realizedReceivable ?? 0) - baseHoje).toBe(5000);
   });
 
   it("o total realizado do período bate com a soma do ledger", async () => {

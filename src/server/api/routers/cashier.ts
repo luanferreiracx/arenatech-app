@@ -8,6 +8,8 @@ import {
   signedDepositCents,
   writeCashMovement,
   lockOpenCashSessionOrThrow,
+  paymentMethodAffectsCashDrawer,
+  resolveMethodToken,
 } from "@/server/services/cash-session.service";
 import {
   openCashRegisterSchema,
@@ -17,7 +19,8 @@ import {
   cashRegisterHistorySchema,
   reviewCashRegisterSchema,
 } from "@/lib/validators/cashier";
-import { MAX_DATA, MAX_LINHA } from "@/lib/validators/limits";
+import { MAX_LINHA } from "@/lib/validators/limits";
+import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 
 /**
  * Helper: convert Decimal fields to number (centavos stored as Decimal(10,2),
@@ -381,14 +384,16 @@ export const cashierRouter = createTRPCRouter({
           closedAt: { not: null },
         };
 
+        // CX-5 (finalização 2026-07-29): o filtro misturava dois fusos —
+        // `new Date("2026-07-01")` é meia-noite UTC (21h BRT do dia anterior) e
+        // `setHours(23,59,59)` é hora do processo (UTC em produção, 20h59 BRT).
+        // Resultado: o dia pedido começava 3h cedo e terminava 3h cedo, então
+        // caixa aberto depois das 21h caía no dia seguinte. Mesma correção que o
+        // DRE, o relatório de NF e o fluxo de caixa já receberam.
         if (input.dateFrom || input.dateTo) {
           const openedAt: Record<string, Date> = {};
-          if (input.dateFrom) openedAt.gte = new Date(input.dateFrom);
-          if (input.dateTo) {
-            const end = new Date(input.dateTo);
-            end.setHours(23, 59, 59, 999);
-            openedAt.lte = end;
-          }
+          if (input.dateFrom) openedAt.gte = startOfDayBrt(input.dateFrom);
+          if (input.dateTo) openedAt.lte = endOfDayBrt(input.dateTo);
           where.openedAt = openedAt;
         }
 
@@ -551,18 +556,32 @@ export const cashierRouter = createTRPCRouter({
         const systemBalance = summary.expectedCashBalance;
         const differenceCents = input.reportedBalance - systemBalance;
 
-        await tx.cashSession.update({
-          where: { id: input.cashSessionId },
+        // CX-6 (finalização 2026-07-29): a contagem do gerente ia por cima de
+        // `declaredBalance`, que é o que o OPERADOR declarou no fechamento —
+        // apagava a evidência de "o operador disse X, o gerente achou Y". Agora
+        // vai em campo próprio e o declarado do operador fica intacto.
+        //
+        // O `updateMany` com `verified: false` no where é o CAS: sem ele, duas
+        // conferências concorrentes passavam as duas (o guard acima lê antes de
+        // escrever) e a segunda sobrescrevia a primeira em silêncio.
+        const claim = await tx.cashSession.updateMany({
+          where: { id: input.cashSessionId, verified: false, closedAt: { not: null } },
           data: {
-            declaredBalance: centsToPrismaDecimal(input.reportedBalance),
             calculatedBalance: centsToPrismaDecimal(systemBalance),
-            difference: centsToPrismaDecimal(differenceCents),
+            reviewedBalance: centsToPrismaDecimal(input.reportedBalance),
+            reviewDifference: centsToPrismaDecimal(differenceCents),
             verified: true,
             verifiedAt: new Date(),
             verifiedByUserId: ctx.session.user.id,
             verifiedNote: input.notes ?? null,
           },
         });
+        if (claim.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Este caixa ja foi conferido por outra operacao.",
+          });
+        }
 
         return {
           success: true,
@@ -630,26 +649,6 @@ export const cashierRouter = createTRPCRouter({
     });
   }),
 
-  // ═══════════════════════════════════════
-  // PUBLIC API — Consumed by PDV/OS modules
-  // ═══════════════════════════════════════
-
-  /**
-   * @public-api Consumed by PDV module.
-   * Returns the open session for a given user (or current user if omitted).
-   */
-  getOpenSession: tenantProcedure
-    .input(z.object({ userId: z.string().uuid().optional() }).optional())
-    .query(async ({ ctx, input }) => {
-      const userId = input?.userId ?? ctx.session.user.id;
-      return ctx.withTenant(async (tx) => {
-        return tx.cashSession.findFirst({
-          where: { userId, closedAt: null },
-          select: { id: true, userId: true, openedAt: true, initialBalance: true },
-        });
-      });
-    }),
-
   /** Register expense (despesa avulsa que sai da gaveta) */
   expense: tenantProcedure
     .input(z.object({
@@ -669,11 +668,19 @@ export const cashierRouter = createTRPCRouter({
         // K1: não grava despesa numa sessão fechada em paralelo.
         await lockOpenCashSessionOrThrow(tx, session.id);
 
+        // CX-1 (finalização 2026-07-29): a guarda comparava com o literal
+        // "dinheiro", então despesa em dinheiro lançada pelo id da forma
+        // cadastrada (o que o PDV manda quando a forma não tem `code`) passava
+        // reto. Resolve para o token canônico ANTES de decidir.
+        const resolvedMethod =
+          (await resolveMethodToken(tx, ctx.tenantId, input.paymentMethod, null)).paymentMethod ??
+          input.paymentMethod;
+
         // CX-B1 (auditoria financeira 2026-07-11): despesa em DINHEIRO não podia
         // exceder o saldo da gaveta — sem esta guarda, uma despesa arbitrária
         // dirigia `expectedCashBalance` a NEGATIVO silencioso (o mesmo buraco que
         // o withdrawal já fecha). Valida só quando o método drena a gaveta.
-        if (input.paymentMethod === "dinheiro") {
+        if (paymentMethodAffectsCashDrawer(resolvedMethod)) {
           const movements = await tx.cashMovement.findMany({
             where: { cashSessionId: session.id },
             select: { type: true, amount: true, nature: true, paymentMethod: true, createdAt: true },
@@ -863,96 +870,6 @@ export const cashierRouter = createTRPCRouter({
         return { success: true };
       });
     }),
-
-  /**
-   * Estatisticas agregadas de caixa por periodo. Paridade Laravel
-   * `CaixaService::getEstatisticasPeriodo`.
-   */
-  periodStats: tenantProcedure
-    .input(
-      z.object({
-        from: z.string().max(MAX_DATA), // ISO date
-        to: z.string().max(MAX_DATA),   // ISO date
-        userId: z.string().uuid().optional(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      // A1: operador só vê as próprias estatísticas. Pedir userId de outro
-      // operador — ou o agregado geral (sem userId) — é visão de gerência.
-      const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
-      const askingForOther = input.userId ? input.userId !== ctx.session.user.id : true;
-      if (askingForOther && !isAdmin) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gerente pode ver estatisticas de outros operadores" });
-      }
-      return ctx.withTenant(async (tx) => {
-        const fromDate = new Date(input.from);
-        const toDate = new Date(input.to + "T23:59:59");
-
-        // Agrega movimentos por movement.createdAt no range (antes era por
-        // session.openedAt — pegava sessoes que abriram no dia mas
-        // perdia movimentos de sessoes abertas no dia anterior que
-        // continuaram no range). Sessions count: distintas no range.
-        const movements = await tx.cashMovement.findMany({
-          where: {
-            createdAt: { gte: fromDate, lte: toDate },
-            ...(input.userId ? { session: { userId: input.userId } } : {}),
-          },
-          select: {
-            type: true,
-            amount: true,
-            nature: true,
-            referenceType: true,
-            cashSessionId: true,
-          },
-        });
-
-        const sessionsInRange = await tx.cashSession.findMany({
-          where: {
-            OR: [
-              { openedAt: { gte: fromDate, lte: toDate } },
-              { closedAt: { gte: fromDate, lte: toDate } },
-            ],
-            ...(input.userId ? { userId: input.userId } : {}),
-          },
-          select: { id: true, difference: true },
-        });
-
-        let totalSales = 0;
-        let totalDeposits = 0;
-        let totalWithdrawals = 0;
-        let totalExpenses = 0;
-        let totalReversals = 0;
-        let totalDifference = 0;
-
-        for (const m of movements) {
-          const amt = Number(m.amount);
-          const signed = m.nature === "INCOME" ? amt : -amt;
-          if (m.type === "SALE") totalSales += signed;
-          if (m.type === "DEPOSIT") totalDeposits += signed;
-          if (m.type === "WITHDRAWAL") totalWithdrawals += signed;
-          if (m.type === "EXPENSE") totalExpenses += signed;
-          if (m.referenceType === "reversal" || m.referenceType === "sale_reversal") {
-            totalReversals += signed;
-          }
-        }
-        for (const s of sessionsInRange) {
-          totalDifference += Number(s.difference ?? 0);
-        }
-
-        return {
-          sessionsCount: sessionsInRange.length,
-          movementsCount: movements.length,
-          totalSales: Math.round(totalSales * 100), // centavos
-          totalDeposits: Math.round(totalDeposits * 100),
-          totalWithdrawals: Math.round(totalWithdrawals * 100),
-          totalExpenses: Math.round(totalExpenses * 100),
-          totalReversals: Math.round(totalReversals * 100),
-          totalDifference: Math.round(totalDifference * 100),
-          from: input.from,
-          to: input.to,
-        };
-      });
-    }),
 });
 
 // ── Helpers ──
@@ -1095,6 +1012,8 @@ interface SerializableSession {
   declaredBalance: Prisma.Decimal | null;
   calculatedBalance: Prisma.Decimal | null;
   difference: Prisma.Decimal | null;
+  reviewedBalance: Prisma.Decimal | null;
+  reviewDifference: Prisma.Decimal | null;
   openingNote: string | null;
   closingNote: string | null;
   closeType: string | null;
@@ -1119,6 +1038,9 @@ function serializeSession(r: SerializableSession) {
     closingBalance: r.declaredBalance != null ? decimalToCents(r.declaredBalance) : null,
     expectedBalance: r.calculatedBalance != null ? decimalToCents(r.calculatedBalance) : null,
     difference: r.difference != null ? decimalToCents(r.difference) : null,
+    // Contagem da conferência do gerente — separada da do operador (CX-6).
+    reviewedBalance: r.reviewedBalance != null ? decimalToCents(r.reviewedBalance) : null,
+    reviewDifference: r.reviewDifference != null ? decimalToCents(r.reviewDifference) : null,
     openingNotes: r.openingNote,
     notes: r.closingNote,
     verified: r.verified,

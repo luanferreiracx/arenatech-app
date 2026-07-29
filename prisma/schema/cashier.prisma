@@ -21,8 +21,15 @@ model CashSession {
   userId            String                @map("user_id") @db.Uuid
   initialBalance    Decimal               @default(0) @map("initial_balance") @db.Decimal(10, 2)
   calculatedBalance Decimal?              @map("calculated_balance") @db.Decimal(10, 2)
+  /// Dinheiro contado pelo OPERADOR no fechamento. NULL em fechamento
+  /// automático/forçado — ninguém contou a gaveta física.
   declaredBalance   Decimal?              @map("declared_balance") @db.Decimal(10, 2)
   difference        Decimal?              @db.Decimal(10, 2)
+  /// CX-6: a contagem do GERENTE na conferência vive em campo próprio. Antes
+  /// era gravada por cima de `declaredBalance` e apagava o que o operador
+  /// tinha declarado — sumia a evidência da divergência entre os dois.
+  reviewedBalance   Decimal?              @map("reviewed_balance") @db.Decimal(10, 2)
+  reviewDifference  Decimal?              @map("review_difference") @db.Decimal(10, 2)
   openingNote       String?               @map("opening_note")
   closingNote       String?               @map("closing_note")
   closeType         CashSessionCloseType? @map("close_type")

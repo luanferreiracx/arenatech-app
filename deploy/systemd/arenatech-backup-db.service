@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup diario do Postgres de producao (pg_dump + retencao)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Diferente dos demais units: nao chama endpoint HTTP do app, roda pg_dump
+# direto. Por isso nao precisa de EnvironmentFile/CRON_SECRET.
+ExecStart=/usr/local/bin/arenatech-backup-db.sh
+# O dump de 2026-07-29 levou ~20s (banco de 100 MB). Teto folgado para o banco
+# crescer sem o job comecar a ser morto no meio.
+TimeoutStartSec=1800

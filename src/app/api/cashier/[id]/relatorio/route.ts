@@ -4,6 +4,8 @@ import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant, withAdmin } from "@/server/db";
 import { formatCnpj } from "@/lib/utils";
+import { escapeHtml } from "@/lib/utils/html";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { PAYMENT_METHOD_LABELS } from "@/lib/validators/cashier";
 
 /**
@@ -42,6 +44,21 @@ export async function GET(
       return NextResponse.json({ error: "Caixa nao encontrado" }, { status: 404 });
     }
 
+    // O relatório expõe todos os movimentos, valores e a divergência do caixa.
+    // `cashier.byId` no tRPC já recusava o caixa de um colega para quem não é
+    // gerência; esta rota autenticava só sessão + tenant, então bastava trocar o
+    // id na URL para imprimir a gaveta de qualquer operador da loja. Mesma
+    // classe do furo de RBAC que a rota REST de exportação financeira teve.
+    if (
+      cashSession.userId !== session.user.id &&
+      !isTenantAdmin(session as Parameters<typeof isTenantAdmin>[0], tenantId)
+    ) {
+      return NextResponse.json(
+        { error: "Sem permissao para ver este caixa" },
+        { status: 403 },
+      );
+    }
+
     const [tenant, settings, userInfo] = await Promise.all([
       withAdmin(async (tx) =>
         tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true, cnpj: true } }),
@@ -63,8 +80,9 @@ export async function GET(
     const nomeLoja = settings?.tradeName ?? tenant?.name ?? "Arena Tech";
     const cnpjLoja = formatCnpj(settings?.cnpj ?? tenant?.cnpj ?? "");
 
-    const esc = (s: string | null | undefined) =>
-      (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // `escapeHtml` compartilhado: o `esc` local não escapava aspas, e o
+    // `logoUrl` entra dentro de um atributo — aspa solta ali sai do atributo.
+    const esc = (s: string | null | undefined) => escapeHtml(s ?? "");
 
     const fmt = (v: unknown) => {
       const num = Number(v ?? 0);
@@ -100,6 +118,11 @@ export async function GET(
 
     const initialBalance = Number(cashSession.initialBalance);
     const calculatedBalance = Number(cashSession.calculatedBalance ?? 0);
+    // Fechamento automático (cron) e forçado (gerente) deixam declarado e
+    // divergência NULL de propósito: ninguém contou a gaveta física. Tratar
+    // NULL como zero imprimiria "Declarado R$ 0,00 / Conferencia: OK" num caixa
+    // que nunca foi conferido — o oposto do que o NULL quer dizer.
+    const wasCounted = cashSession.declaredBalance !== null;
     const declaredBalance = Number(cashSession.declaredBalance ?? 0);
     const difference = Number(cashSession.difference ?? 0);
 
@@ -157,8 +180,12 @@ export async function GET(
   .diff-pos { background: #e3f2fd; border: 1px solid #2196f3; }
   .diff-neg { background: #ffebee; border: 1px solid #f44336; }
   .footer { margin-top: 20px; font-size: 7pt; color: #888; text-align: center; }
+  .no-print { display: inline-block; margin-bottom: 14px; padding: 8px 16px; background: #2ec4b6; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+  @media print { .no-print { display: none !important; } thead { display: table-header-group; } tr { page-break-inside: avoid; } }
 </style>
 </head><body>
+  <button class="no-print" onclick="window.print()">Imprimir (Ctrl+P)</button>
+
   <div class="header">
     <table style="width: 100%; border: none;"><tr>
       ${settings?.logoUrl ? `<td style="vertical-align: middle; width: 80px;"><img src="${esc(settings.logoUrl)}" alt="Logo" style="max-height: 45px; max-width: 75px;"></td>` : ""}
@@ -218,17 +245,32 @@ export async function GET(
     <div class="section-title">CONFERENCIA</div>
     <div class="summary-grid">
       <div class="summary-card"><div class="label">Calculado (sistema)</div><div class="value">${fmt(calculatedBalance)}</div></div>
-      <div class="summary-card"><div class="label">Declarado (operador)</div><div class="value">${fmt(declaredBalance)}</div></div>
+      <div class="summary-card"><div class="label">Declarado (operador)</div><div class="value">${wasCounted ? fmt(declaredBalance) : "nao conferido"}</div></div>
       <div class="summary-card">
         <div class="label">Diferenca</div>
-        <div class="value" style="color: ${difference === 0 ? "#2e7d32" : difference > 0 ? "#1976d2" : "#b00"};">
-          ${difference >= 0 ? "+" : ""}${fmt(difference)}
+        <div class="value" style="color: ${!wasCounted ? "#888" : difference === 0 ? "#2e7d32" : difference > 0 ? "#1976d2" : "#b00"};">
+          ${wasCounted ? `${difference >= 0 ? "+" : ""}${fmt(difference)}` : "—"}
         </div>
       </div>
     </div>
-    <div class="diff-box ${difference === 0 ? "diff-zero" : difference > 0 ? "diff-pos" : "diff-neg"}">
-      ${difference === 0 ? "Conferencia: OK (sem diferenca)" : difference > 0 ? "Sobra de caixa" : "Falta de caixa"}
+    <div class="diff-box ${!wasCounted ? "diff-pos" : difference === 0 ? "diff-zero" : difference > 0 ? "diff-pos" : "diff-neg"}">
+      ${
+        !wasCounted
+          ? `Caixa fechado ${cashSession.closeType === "AUTOMATIC" ? "automaticamente" : "pelo gerente"}, sem conferencia fisica — pendente de conferencia.`
+          : difference === 0
+            ? "Conferencia: OK (sem diferenca)"
+            : difference > 0
+              ? "Sobra de caixa"
+              : "Falta de caixa"
+      }
     </div>
+  </div>
+
+  <div class="section" style="page-break-inside: avoid;">
+    <div style="border-top: 1px solid #000; margin: 46px 0 4px 0; width: 60%;"></div>
+    <div style="font-size: 8pt; color: #555;">Conferido por</div>
+    <div style="border-top: 1px solid #000; margin: 34px 0 4px 0; width: 60%;"></div>
+    <div style="font-size: 8pt; color: #555;">Assinatura &nbsp;&nbsp;&nbsp; Data ____/____/______</div>
   </div>
 
   ${
