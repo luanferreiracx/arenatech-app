@@ -110,7 +110,6 @@ export const AUDIT_MODULES: AuditModule[] = [
       { path: "/services/manage" },
       { path: "/services/:id/edit", resolve: firstId("service") },
       { path: "/operation" },
-      { path: "/checklist" },
     ],
   },
   {

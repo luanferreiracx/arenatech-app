@@ -26,7 +26,7 @@ export const MODULE_KEYS = [
   "depix-ops", // Operações DePix wallet-backed: vendas avulsas (/quick-sales)
   "service-orders", // Assistência: OS, serviços, operação, comunicação
   "customers", // Clientes e interesses
-  "tools", // Simulador, avaliação, consultas, checklist
+  "tools", // Simulador, avaliação, consultas
   "pdv", // Vendas / PDV
   "stock", // Estoque e catálogo de aparelhos
   "cashier", // Caixa e conferências
@@ -250,7 +250,6 @@ const ROUTE_MODULE_PREFIXES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/simulator", "tools"],
   ["/valuations", "tools"],
   ["/imei", "tools"],
-  ["/checklist", "tools"],
 
   // pdv
   ["/pdv", "pdv"],

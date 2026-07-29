@@ -26,7 +26,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 1 | Caixa | ✅ | ✅ | tem +1 | [01-caixa.md](./01-caixa.md) |
 | 2 | PDV / Vendas | ✅ | ✅ | tem +1 | [02-pdv.md](./02-pdv.md) |
 | 3 | Estoque / Compras / Fornecedores | ✅ | ✅ | tem +1 | [03-estoque.md](./03-estoque.md) |
-| 4 | Ordens de Serviço / Serviços / Operação | — | — | tem | — |
+| 4 | Ordens de Serviço / Serviços / Operação | ✅ | ⏳ | tem | [04-ordens-de-servico.md](./04-ordens-de-servico.md) |
 | 5 | Financeiro | — | — | tem | — |
 | 6 | DePix Wallet / Vendas Avulsas | — | — | **não** | — |
 | 7 | Fiscal / NF-e | — | — | **não** | — |
@@ -35,7 +35,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 10 | Configurações / Equipe / Auth | — | — | tem | — |
 | 11 | Comunicação / Talison | — | — | **não** | — |
 | 12 | Fidelidade | — | — | **não** | — |
-| 13 | Catálogo / Ferramentas | — | — | **não** | — |
+| 13 | Catálogo / Ferramentas | — | — | **não** | — (módulo `/checklist` removido no M4) |
 | 14 | Painel / Relatórios | — | — | **não** | — |
 | 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
 

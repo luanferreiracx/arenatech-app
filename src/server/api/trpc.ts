@@ -139,7 +139,6 @@ const ROUTER_MODULE: Record<string, ModuleKey> = {
   reward: "customers",
   valuation: "tools",
   simulator: "tools",
-  checklist: "tools",
   imei: "tools",
   fiscal: "fiscal",
   providerCommission: "commissions",
