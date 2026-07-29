@@ -1,7 +1,7 @@
 # Módulo 4 — Ordens de Serviço / Serviços / Operação
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 ## Superfície
 
@@ -89,6 +89,62 @@ Registrado para não ser re-investigado:
 - **Estorno de OS paga em dinheiro** — o furo registrado como "R1" na auditoria de 2026-07-14 (pular a saída de caixa) **já está corrigido**: há guard com `paymentMethodAffectsCashDrawer` + `refundNeedsOpenCashSession`.
 - **37 OS sem contrapartida financeira** — todas anteriores ao corte do Laravel; nenhuma produzida pelo código atual.
 - **"Peça na OS" segue com 0 uso.** O drift de enum foi corrigido em 2026-07-25 e desde então ninguém usou o recurso. Não é defeito — é adoção, e é informação de produto.
+
+## Achados da passada de frontend
+
+Varredura das 10 telas × admin/operador × desktop/mobile = 40 combinações.
+**0 quebradas; 2 de atenção, com um defeito por trás.** As correções
+compartilhadas dos módulos 1–3 (`PageHeader`, breadcrumb, `min-w-0` em grid) já
+tinham limpado o resto deste módulo antes de eu chegar nele — é o retorno de ter
+corrigido na raiz em vez de por tela.
+
+### OS-4 — a faixa de abas empurrava a página no celular (P1, transversal)
+
+`/operation` tem 4 abas (Entregadores, Laboratórios, Envios Lab, Prestadores). O
+`TabsList` do shadcn é `inline-flex w-fit` **sem teto e sem estratégia de
+overflow**: a faixa fica mais larga que a tela (medido **399px numa viewport de
+390**) e empurra a página inteira.
+
+A correção foi no **primitivo**, não na página: `max-w-full` + `overflow-x-auto`
+(preservando o comportamento vertical). **Vale para as 9 telas do app que usam
+abas**, não só a que a varredura pegou.
+
+> **Quarta vez que o mesmo mecanismo aparece** — componente compartilhado sem
+> estratégia de overflow empurrando a página: `PageHeader` (M2), grid de cards e
+> breadcrumb (M3), agora `TabsList`. Corrigir no primitivo tem pago mais que
+> corrigir na tela: este módulo chegou quase limpo por causa disso.
+
+## Reconciliação e verificação de uso
+
+- **Página pública da OS** (`/os/[publicLink]`) medida no celular: **sem
+  estouro**. É a que o cliente abre no telefone, então valia conferir
+  explicitamente.
+- **Regressão nos módulos já fechados** após mexer no primitivo de abas: Caixa,
+  PDV e Estoque revarridos — **0 quebradas, 0 de atenção** nos três.
+
+## Observação de ambiente (não é achado do módulo)
+
+Varreduras seguidas derrubam o login: várias tentativas do mesmo IP em sequência
+esgotam o limitador (que cai para memória local porque o Redis do `.env` aponta
+para uma porta morta no ambiente de auditoria). Passa sozinho depois de ~1
+minuto. O trade-off "lockout × captcha" no login já está registrado como decisão
+do dono desde a auditoria de 2026-07-14; fica para o **Módulo 10**.
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ✅ (correção transversal do M1) |
+| 2. Carregando / disabled | ✅ diálogos destrutivos da OS já corrigidos em #717 |
+| 3. Invalidação após mutação | ✅ |
+| 4. Estado vazio | ✅ |
+| 5. Permissão | ✅ custo/margem admin-only desde #583 |
+| 6. Formatação pt-BR | ✅ |
+| 7. Mobile 390px | ✅ corrigido (OS-4) — 40 combinações limpas + página pública |
+| 8. Acessibilidade | ✅ faixa de abas rolável mantém todas alcançáveis |
+| 9. Reconciliação | ✅ página pública verificada no celular |
+| 10. Console e rede | ✅ 0 erro, 0 4xx/5xx não tratado |
+| 11. Fluxo incompleto | ✅ resolvido no backend (OS-2, OS-3) |
 
 ## Checklist de backend
 
