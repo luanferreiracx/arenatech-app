@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { escapeHtml } from "@/lib/utils/html";
 import { withTenant, withAdmin } from "@/server/db";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { formatCustomerDocument } from "@/lib/utils";
@@ -115,8 +116,8 @@ export async function GET(
         ? formatAddress(settings.address as Record<string, unknown>)
         : "";
 
-    const esc = (s: string | null | undefined) =>
-      (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // `escapeHtml` compartilhado — o `esc` local não escapava aspas.
+    const esc = (s: string | null | undefined) => escapeHtml(s ?? "");
 
     const fmt = (v: number) =>
       "R$ " +
@@ -138,6 +139,8 @@ export async function GET(
     // Payment details
     const paymentDetails = (sale.paymentDetails ?? []) as Array<{
       method: string;
+      /** Nome legível resolvido no finalize (formas cadastradas pelo tenant). */
+      methodLabel?: string;
       amount: number;
       installments?: number;
     }>;
@@ -177,7 +180,12 @@ export async function GET(
       </tr>`;
     }
     for (const p of paymentDetails) {
-      const methodLabel = PAYMENT_LABELS[p.method] ?? p.method;
+      // PDV-3 (finalização 2026-07-29): quando a forma é cadastrada pelo tenant,
+      // o PDV grava o ID dela em `method` — e o recibo caía no fallback `??
+      // p.method`, imprimindo "a6b9e67e-9c9f-…" no lugar de "PIX", num documento
+      // que vai para o cliente. Medidas 61 vendas em produção. O nome resolvido
+      // já é gravado em `methodLabel` no finalize; basta preferi-lo.
+      const methodLabel = PAYMENT_LABELS[p.method] ?? p.methodLabel ?? p.method;
       const amount = p.amount / 100; // cents to reais
       const installments = p.installments ?? 1;
       paymentHtml += `<tr class="pagamento">

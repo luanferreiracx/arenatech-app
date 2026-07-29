@@ -21,7 +21,16 @@ export default async function PublicReceiptPage(props: { params: Promise<{ token
   // um findFirst por publicLink retornaria 0.
   const data = await withAdmin(async (tx) => {
     const sale = await tx.sale.findFirst({
-      where: { publicLink: params.token },
+      // PDV-4 (finalização 2026-07-29): esta página buscava a venda SÓ pelo
+      // token. O procedure irmão `sale.byPublicLink` — que ninguém chama —
+      // restringe a status públicos porque "vazaria rascunho/cancelada via link
+      // enumeravel". A regra nunca chegou à página que as pessoas usam: havia 6
+      // rascunhos servidos como "Recibo de Compra" em produção.
+      where: {
+        publicLink: params.token,
+        status: { in: ["COMPLETED", "REFUNDED", "PARTIALLY_REFUNDED"] },
+        deletedAt: null,
+      },
     });
     if (!sale) return null;
 
@@ -32,7 +41,10 @@ export default async function PublicReceiptPage(props: { params: Promise<{ token
     const customer = sale.customerId
       ? await tx.customer.findUnique({
           where: { id: sale.customerId },
-          select: { name: true, phone: true },
+          // Sem telefone: a página é pública e o link, se vazar, leva junto um
+          // dado pessoal que o recibo não precisa mostrar. O `byPublicLink`
+          // já não devolvia o telefone — aqui era a ponta solta.
+          select: { name: true },
         })
       : null;
 
@@ -93,12 +105,6 @@ export default async function PublicReceiptPage(props: { params: Promise<{ token
                     <span className="text-neutral-500">Nome:</span>
                     <span className="font-medium">{customer.name}</span>
                   </div>
-                  {customer.phone && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-neutral-500">Telefone:</span>
-                      <span>{customer.phone}</span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
