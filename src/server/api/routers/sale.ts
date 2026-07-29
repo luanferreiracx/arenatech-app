@@ -27,7 +27,7 @@ import {
   isSameFinalizeRequest,
 } from "@/server/services/finalize-idempotency.service";
 import { effectiveDiscountCents } from "@/lib/sales/sale-discount";
-import { isDiscountAllowed, discountPercentOf } from "@/lib/sales/discount-cap";
+import { isDiscountAllowed, discountPercentOf, cartDiscountPercent } from "@/lib/sales/discount-cap";
 import {
   PAYMENT_METHOD_LABELS,
   addSaleItemSchema,
@@ -65,7 +65,12 @@ import { getInfinitepayConfig } from "@/lib/services/infinitepay-config";
 import { evaluateSaleReceiptPolicy } from "@/lib/services/sale-receipt-policy";
 import { generatePublicToken } from "@/lib/utils/public-link";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
-import { startOfTodayBrt, startOfMonthBrt } from "@/lib/utils/date-range";
+import {
+  startOfTodayBrt,
+  startOfMonthBrt,
+  startOfDayBrt,
+  endOfDayBrt,
+} from "@/lib/utils/date-range";
 import { MAX_LINHA } from "@/lib/validators/limits";
 
 // ── Helpers ──
@@ -85,6 +90,54 @@ function centsToPrisma(cents: number): Prisma.Decimal {
  * teto). Fonte única usada por applyDiscount e updateItemPrice — assim o operador
  * não contorna o teto do carrinho baixando o preço do item.
  */
+/**
+ * Desconto total do carrinho sobre a TABELA, considerando os overrides de preço
+ * já gravados nos itens mais o desconto de carrinho que se pretende aplicar.
+ *
+ * `override` permite simular uma alteração ainda não gravada (o item que está
+ * sendo editado agora), para o teto decidir sobre o estado final e não sobre o
+ * anterior.
+ */
+async function computeCartDiscountPercent(
+  tx: Prisma.TransactionClient,
+  saleId: string,
+  cartDiscountCents: number,
+  override?: { itemId: string; unitPriceCents: number },
+): Promise<number> {
+  const items = await tx.saleItem.findMany({
+    where: { saleId },
+    select: { id: true, productId: true, variationId: true, unitPrice: true, quantity: true },
+  });
+  if (items.length === 0) return 0;
+
+  const productIds = [...new Set(items.map((i) => i.productId).filter(Boolean))] as string[];
+  const variationIds = [...new Set(items.map((i) => i.variationId).filter(Boolean))] as string[];
+  const [products, variations] = await Promise.all([
+    productIds.length
+      ? tx.product.findMany({ where: { id: { in: productIds } }, select: { id: true, salePrice: true } })
+      : Promise.resolve([]),
+    variationIds.length
+      ? tx.productVariation.findMany({ where: { id: { in: variationIds } }, select: { id: true, salePrice: true } })
+      : Promise.resolve([]),
+  ]);
+  const listByProduct = new Map(products.map((p) => [p.id, decimalToCents(p.salePrice)]));
+  const listByVariation = new Map(variations.map((v) => [v.id, decimalToCents(v.salePrice)]));
+
+  return cartDiscountPercent(
+    items.map((item) => {
+      const variationList = item.variationId ? (listByVariation.get(item.variationId) ?? 0) : 0;
+      const listUnitPriceCents =
+        variationList > 0 ? variationList : (listByProduct.get(item.productId ?? "") ?? 0);
+      const chargedUnitPriceCents =
+        override && override.itemId === item.id
+          ? override.unitPriceCents
+          : decimalToCents(item.unitPrice);
+      return { listUnitPriceCents, chargedUnitPriceCents, quantity: item.quantity };
+    }),
+    cartDiscountCents,
+  );
+}
+
 async function enforceSaleDiscountCap(
   tx: Prisma.TransactionClient,
   ctx: { session: { user: { id: string; isSuperAdmin?: boolean }; availableTenants: Array<{ id: string; role: string }> }; tenantId: string },
@@ -943,11 +996,16 @@ export const saleRouter = createTRPCRouter({
         });
 
         // Teto de desconto: admin é irrestrito; operador limitado ao % do tenant.
-        // Fonte única com o override de preço de item (updateItemPrice).
+        // PDV-1 (finalização 2026-07-29): media contra `subtotalCents`, que já vem
+        // REDUZIDO pelos overrides de preço de item — dava para baixar cada item
+        // até o teto e depois descontar o teto de novo no carrinho (10% + 10% =
+        // 19% real). Agora mede o desconto do carrinho INTEIRO contra a tabela.
         await enforceSaleDiscountCap(
           tx,
           ctx,
-          discountPercentOf(discountAmountCents, subtotalCents),
+          sale.isOSPayment
+            ? discountPercentOf(discountAmountCents, subtotalCents)
+            : await computeCartDiscountPercent(tx, input.saleId, discountAmountCents),
         );
 
         // discountValue armazena: centavos quando fixed; percentual (0-100)
@@ -2809,14 +2867,15 @@ export const saleRouter = createTRPCRouter({
           where.sellerId = input.sellerId;
         }
 
+        // PDV-2 (finalização 2026-07-29): o filtro misturava dois fusos —
+        // `new Date("2026-07-01")` é meia-noite UTC (21h BRT do dia anterior) e
+        // `setHours(23,59,59)` é hora do processo. Venda feita depois das 21h BRT
+        // caía fora do dia filtrado: medidas 8 vendas (R$ 15.406,67) em produção.
+        // Mesma correção que o DRE, o relatório de NF e o caixa já receberam.
         if (input.dateFrom || input.dateTo) {
           const saleDate: Record<string, Date> = {};
-          if (input.dateFrom) saleDate.gte = new Date(input.dateFrom);
-          if (input.dateTo) {
-            const end = new Date(input.dateTo);
-            end.setHours(23, 59, 59, 999);
-            saleDate.lte = end;
-          }
+          if (input.dateFrom) saleDate.gte = startOfDayBrt(input.dateFrom);
+          if (input.dateTo) saleDate.lte = endOfDayBrt(input.dateTo);
           where.saleDate = saleDate;
         }
 
@@ -3365,12 +3424,19 @@ export const saleRouter = createTRPCRouter({
             )
           : 0;
         const listPriceCents = variationPriceCents > 0 ? variationPriceCents : productPriceCents;
-        if (listPriceCents > 0 && input.unitPrice < listPriceCents) {
-          const implicitDiscountCents = listPriceCents - input.unitPrice;
+        // PDV-1: o teto olha o carrinho inteiro (todos os overrides + o desconto
+        // de carrinho já aplicado), não só esta linha. Sem isso, dava para gastar
+        // o teto no carrinho e o teto de novo em cada item.
+        if (listPriceCents > 0) {
           await enforceSaleDiscountCap(
             tx,
             ctx,
-            discountPercentOf(implicitDiscountCents, listPriceCents),
+            await computeCartDiscountPercent(
+              tx,
+              input.saleId,
+              decimalToCents(sale.discountAmount),
+              { itemId: input.itemId, unitPriceCents: input.unitPrice },
+            ),
           );
         }
 
