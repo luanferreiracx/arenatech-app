@@ -9,6 +9,7 @@
  */
 
 import { logger } from "@/lib/logger";
+import { BRAND_NAME } from "@/lib/brand";
 import { htmlToPlainText } from "@/lib/utils/html";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -54,7 +55,7 @@ const HTTP_FORBIDDEN = 403;
  */
 const DEFAULT_EMAIL_FROM = "noreply@pdvdepix.app";
 
-const SENDER_NAME = "Arena Tech";
+const SENDER_NAME = BRAND_NAME;
 
 /**
  * Garante nome visível no remetente: `noreply@dominio` pelado pontua pior nos

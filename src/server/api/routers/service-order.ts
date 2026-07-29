@@ -16,6 +16,7 @@ import { sendPdfWithFallback, sendTextWithFallback } from "@/lib/whatsapp/send-w
 import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { osPaymentShortfallCents } from "@/lib/service-order/payment-reconciliation";
 import { logger } from "@/lib/logger";
+import { BRAND_NAME } from "@/lib/brand";
 import { linkInterestConversionByPhone } from "@/server/services/interest-conversion.service";
 import {
   createServiceOrderSchema,
@@ -1093,7 +1094,7 @@ export const serviceOrderRouter = createTRPCRouter({
           const phone = input.notifyPhone ?? customer?.phone ?? null;
           if (phone) {
             const name = customer?.name ?? "Cliente";
-            const text = `Ola, ${name}!\n\nSua Ordem de Servico ${order.number} foi concluida e ja esta pronta para retirada.\n\nArena Tech`;
+            const text = `Ola, ${name}!\n\nSua Ordem de Servico ${order.number} foi concluida e ja esta pronta para retirada.\n\n${BRAND_NAME}`;
             try {
               await sendTextWithFallback({
                 phone,
@@ -3349,7 +3350,7 @@ export const serviceOrderRouter = createTRPCRouter({
         };
       });
 
-      const freeText = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\nArena Tech`;
+      const freeText = `Ola, ${customerName}!\n\nSua Ordem de Servico ${order.number} foi aberta. Acompanhe o status em tempo real pelo link:\n${trackingUrl}\n\n${BRAND_NAME}`;
       // Template fora da janela 24h — paridade Laravel `os_rastreamento`.
       const result = await sendTextWithFallback({
         phone,

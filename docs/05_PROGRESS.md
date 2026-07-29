@@ -19,6 +19,36 @@
 
 ---
 
+### 2026-07-29 — Um pré-cadastro pendente por e-mail + marca das mensagens vira PDV DEPIX
+
+Fecha duas pontas do dia anterior.
+
+- **Índice único parcial em `pre_registrations`** (migration
+  `20260729130000`): `UNIQUE (owner_email) WHERE status = 'PENDING'`. A tabela
+  não tinha índice nenhum além da primary key, e `startRegistration` é
+  read-then-write — duplo-clique ou retry do navegador criava DUAS linhas
+  PENDING pro mesmo e-mail. A fila de aprovação mostrava o cadastro duas vezes e
+  só uma seguia recebendo os códigos; a outra ficava presa, indistinguível de um
+  cadastro real. O índice serve também à busca por `owner_email`, que antes era
+  seq scan. Parcial de propósito: recadastrar depois de REJECTED é fluxo normal.
+  Na procedure, o P2002 volta pro caminho de reuso — quem perde a corrida
+  converge no registro existente, não toma 500. Guardado por
+  `__tests__/integration/no-kyc-one-pending-per-email.test.ts` (verificado
+  falhando com o índice derrubado).
+- **Marca das mensagens: `PDV DEPIX`** (decisão do dono — o sistema não é mais
+  "Arena Tech" para quem recebe). Constante única em `src/lib/brand.ts`,
+  aplicada em remetente e corpo dos e-mails (código de verificação, reset de
+  senha, NF-e, contato) e nas notificações de OS em texto livre.
+
+Fora do alcance de código, ação do dono:
+- O template WhatsApp `padrao` diz "Aqui é da Arena Tech" — o texto é
+  **aprovado pela Meta**, então mudar o espelho em `templates-catalog.ts` não
+  muda o que é enviado. Exige nova submissão e aprovação da Meta.
+- PDFs (recibo, relatórios, simulador) e mensagens de erro internas seguem com
+  "Arena Tech". Não são e-mail/notificação; e nos recibos o nome que aparece é o
+  `tradeName` da loja, com "Arena Tech" só de fallback — trocar isso é outra
+  decisão.
+
 ### 2026-07-29 — E-mail: código de cadastro não chegava e o reset de senha estava MORTO
 
 Reclamação: pessoa fez o pré-cadastro em 28/07 e o código de verificação nunca

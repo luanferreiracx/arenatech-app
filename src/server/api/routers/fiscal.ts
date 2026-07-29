@@ -24,6 +24,7 @@ import {
   getInvoiceDocumentUrls,
 } from "@/lib/services/fiscal-service";
 import { sendEmail } from "@/lib/services/email-service";
+import { BRAND_NAME } from "@/lib/brand";
 import { startOfMonthBrt } from "@/lib/utils/date-range";
 import { logger } from "@/lib/logger";
 import { isTenantAdmin } from "@/lib/auth/roles";
@@ -864,12 +865,12 @@ export const fiscalRouter = createTRPCRouter({
               <tbody>${itemRows}</tbody>
             </table>
             <p style="margin-top:20px;font-size:12px;color:#999;">
-              Este email foi enviado automaticamente pelo sistema Arena Tech.
+              Este email foi enviado automaticamente pelo sistema ${BRAND_NAME}.
             </p>
           </div>
         `;
 
-      const subject = `${typeLabel} ${numberStr} - Arena Tech`;
+      const subject = `${typeLabel} ${numberStr} - ${BRAND_NAME}`;
       const result = await sendEmail({ to: input.email, subject, html });
 
       if (!result.success) {

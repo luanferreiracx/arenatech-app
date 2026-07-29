@@ -12,6 +12,7 @@ import {
 import { sendTextWithFallback, type WhatsAppLogContext } from "@/lib/whatsapp/send-with-fallback";
 import { isWithin24hWindow } from "@/lib/whatsapp/conversation-window";
 import { sendEmail } from "@/lib/services/email-service";
+import { BRAND_NAME } from "@/lib/brand";
 import { withTenant } from "@/server/db";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { enforceRateLimit } from "@/server/api/middleware/rate-limit";
@@ -85,7 +86,7 @@ async function dispatchMessage(opts: {
     if (channel === "EMAIL" && recipientEmail) {
       const r = await sendEmail({
         to: recipientEmail,
-        subject: subject ?? "Mensagem Arena Tech",
+        subject: subject ?? `Mensagem ${BRAND_NAME}`,
         html: body,
       });
       return { success: r.success, providerMessageId: r.messageId, error: r.error };

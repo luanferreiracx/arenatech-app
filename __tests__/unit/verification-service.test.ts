@@ -152,6 +152,16 @@ describe("issueVerificationCode", () => {
     expect(arg.from).toContain("@pdvdepix.app");
   });
 
+  it("o corpo do código assina PDV DEPIX, não Arena Tech", async () => {
+    sendEmail.mockResolvedValue({ success: true });
+
+    await issueVerificationCode({ target: "a@b.com", channel: "EMAIL" });
+
+    const { html } = sendEmail.mock.calls[0]![0] as { html: string };
+    expect(html).toContain("PDV DEPIX");
+    expect(html).not.toContain("Arena Tech");
+  });
+
   it("reporta sent:false quando o WhatsApp não sai", async () => {
     sendCloudTemplate.mockResolvedValue({ success: false, error: "token invalido" });
 

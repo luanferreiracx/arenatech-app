@@ -57,5 +57,11 @@ model PreRegistration {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  /// NOTA: existe também um índice ÚNICO PARCIAL criado por SQL puro
+  /// (migration 20260729130000_pre_registration_unique_pending_email):
+  ///   UNIQUE (owner_email) WHERE status = 'PENDING'
+  /// Garante UM pré-cadastro pendente por e-mail, fechando a corrida do
+  /// read-then-write em `startRegistration`. O Prisma não expressa índice
+  /// parcial no schema — não remova a migration achando que é resíduo.
   @@map("pre_registrations")
 }

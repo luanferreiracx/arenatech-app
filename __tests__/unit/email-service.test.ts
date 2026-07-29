@@ -102,7 +102,7 @@ describe("sendEmail", () => {
 
     await sendEmail({ to: "a@b.com", subject: "s", html: "<p>x</p>" });
 
-    expect(bodyOf(mockFetch.mock.calls[0]!)["from"]).toBe("Arena Tech <noreply@pdvdepix.app>");
+    expect(bodyOf(mockFetch.mock.calls[0]!)["from"]).toBe("PDV DEPIX <noreply@pdvdepix.app>");
     vi.unstubAllEnvs();
   });
 
@@ -111,7 +111,7 @@ describe("sendEmail", () => {
 
     await sendEmail({ to: "a@b.com", subject: "s", html: "<p>x</p>", from: "noreply@pdvdepix.app" });
 
-    expect(bodyOf(mockFetch.mock.calls[0]!)["from"]).toBe("Arena Tech <noreply@pdvdepix.app>");
+    expect(bodyOf(mockFetch.mock.calls[0]!)["from"]).toBe("PDV DEPIX <noreply@pdvdepix.app>");
   });
 
   it("respeita remetente que já vem com nome", async () => {
