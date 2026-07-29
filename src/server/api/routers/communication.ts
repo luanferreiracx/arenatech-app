@@ -83,7 +83,11 @@ async function dispatchMessage(opts: {
       return { success: r.success, providerMessageId: r.messageId, error: r.error };
     }
     if (channel === "EMAIL" && recipientEmail) {
-      const r = await sendEmail(recipientEmail, subject ?? "Mensagem Arena Tech", body);
+      const r = await sendEmail({
+        to: recipientEmail,
+        subject: subject ?? "Mensagem Arena Tech",
+        html: body,
+      });
       return { success: r.success, providerMessageId: r.messageId, error: r.error };
     }
     return { success: false, error: "Canal ou destinatario invalido" };

@@ -66,6 +66,11 @@ export function RegisterForm() {
         setPhoneMasked(res.phoneMasked);
         setCode("");
         setStep("phone");
+        // O e-mail já foi verificado, então seguimos — mas se o código do
+        // WhatsApp não saiu, é melhor dizer do que deixar a pessoa esperando.
+        if (!res.codeSent) {
+          toast.error("Não conseguimos enviar o código por WhatsApp. Toque em \"Reenviar código\".");
+        }
       },
       onError: (err) => toast.error(err.message),
     }),

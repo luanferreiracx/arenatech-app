@@ -15,6 +15,7 @@ import { logger } from "@/lib/logger";
 import {
   issueVerificationCode,
   verifyCode,
+  type IssueVerificationInput,
 } from "@/server/services/verification.service";
 import {
   startNoKycRegistrationSchema,
@@ -31,6 +32,21 @@ function normalizeEmail(value: string): string {
 
 function normalizePhone(value: string): string {
   return value.replace(/\D/g, "");
+}
+
+/**
+ * Envia o código e falha ALTO se ele não sair. Sem isso o cadastro parava numa
+ * tela pedindo um código que nunca ia chegar, e nem nós nem o usuário
+ * ficávamos sabendo — o envio era disparado e o resultado, descartado.
+ */
+async function issueCodeOrThrow(input: IssueVerificationInput): Promise<void> {
+  const { sent } = await issueVerificationCode(input);
+  if (sent) return;
+  const channelLabel = input.channel === "EMAIL" ? "e-mail" : "WhatsApp";
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: `Não conseguimos enviar o código para seu ${channelLabel} agora. Confira o dado informado e tente de novo em alguns minutos.`,
+  });
 }
 
 /** Mensagem amigável p/ cada motivo de falha de verificação. */
@@ -89,7 +105,7 @@ export const noKycRouter = createTRPCRouter({
         ? await prisma.preRegistration.update({ where: { id: pending.id }, data })
         : await prisma.preRegistration.create({ data });
 
-      await issueVerificationCode({ target: email, channel: "EMAIL", preRegistrationId: pr.id });
+      await issueCodeOrThrow({ target: email, channel: "EMAIL", preRegistrationId: pr.id });
       logger.info("NO-KYC: pré-cadastro iniciado", { id: pr.id });
 
       return { preRegistrationId: pr.id, emailMasked: maskEmail(email) };
@@ -111,11 +127,18 @@ export const noKycRouter = createTRPCRouter({
         where: { id: pr.id },
         data: { emailVerifiedAt: new Date() },
       });
-      // Encadeia a verificação do telefone.
-      await issueVerificationCode({ target: pr.ownerPhone, channel: "WHATSAPP", preRegistrationId: pr.id });
-      logger.info("NO-KYC: e-mail verificado", { id: pr.id });
+      // Encadeia a verificação do telefone. Aqui NÃO lançamos se o envio falhar:
+      // o e-mail já foi verificado e o código já foi queimado, então voltar o
+      // usuário pra etapa anterior o deixaria sem saída. Avança e avisa — ele
+      // resolve com "Reenviar código".
+      const { sent } = await issueVerificationCode({
+        target: pr.ownerPhone,
+        channel: "WHATSAPP",
+        preRegistrationId: pr.id,
+      });
+      logger.info("NO-KYC: e-mail verificado", { id: pr.id, phoneCodeSent: sent });
 
-      return { phoneMasked: maskPhone(pr.ownerPhone) };
+      return { phoneMasked: maskPhone(pr.ownerPhone), codeSent: sent };
     }),
 
   /** Etapa 3: valida o código do telefone → cadastro completo (aguardando aprovação). */
@@ -149,7 +172,7 @@ export const noKycRouter = createTRPCRouter({
     .mutation(async ({ input }) => {
       const pr = await loadPending(input.preRegistrationId);
       const target = input.channel === "EMAIL" ? pr.ownerEmail : pr.ownerPhone;
-      await issueVerificationCode({ target, channel: input.channel, preRegistrationId: pr.id });
+      await issueCodeOrThrow({ target, channel: input.channel, preRegistrationId: pr.id });
       return { sent: true };
     }),
 });
