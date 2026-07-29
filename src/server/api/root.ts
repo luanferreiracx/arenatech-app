@@ -32,7 +32,6 @@ import { partnerApiKeyRouter } from "@/server/api/routers/partner-api-key";
 import { providerCommissionRouter } from "@/server/api/routers/provider-commission";
 import { reportRouter } from "@/server/api/routers/report";
 import { nfeImportRouter } from "@/server/api/routers/nfe-import";
-import { checklistRouter } from "@/server/api/routers/checklist";
 import { rewardRouter } from "@/server/api/routers/reward";
 import { iphoneHunterRouter } from "@/server/api/routers/iphone-hunter";
 import { noKycRouter } from "@/server/api/routers/no-kyc";
@@ -44,7 +43,6 @@ export const appRouter = createTRPCRouter({
   admin: adminRouter,
   noKyc: noKycRouter,
   nfeImport: nfeImportRouter,
-  checklist: checklistRouter,
   reward: rewardRouter,
   depixWithdraw: depixWithdrawRouter,
   depixWallet: depixWalletRouter,

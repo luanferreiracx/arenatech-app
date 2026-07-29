@@ -34,7 +34,6 @@ import {
   respondQuoteSchema,
   attachNfseSchema,
   detachNfseSchema,
-  saveSignaturePadSchema,
   confirmPhysicalSignatureSchema,
   sendToLabSchema,
   receiveFromLabSchema,
@@ -2700,56 +2699,6 @@ export const serviceOrderRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // ── SIGNATURE PAD (assinatura SVG/PNG capturada na tela) ──
-  /**
-   * Salva assinatura SVG/PNG base64 capturada via signature-pad
-   * (alternativa ao Autentique digital). Paridade Laravel
-   * `assinatura_entrada_*` / `assinatura_saida_*`.
-   */
-  saveSignaturePad: tenantProcedure
-    .input(saveSignaturePadSchema)
-    .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const order = await tx.serviceOrder.findUnique({
-          where: { id: input.orderId },
-          select: { status: true },
-        });
-        if (!order) throw new TRPCError({ code: "NOT_FOUND" });
-
-        const fieldName =
-          input.moment === "entry"
-            ? input.signer === "client"
-              ? "entrySignatureClient"
-              : "entrySignatureTechnician"
-            : input.signer === "client"
-              ? "exitSignatureClient"
-              : "exitSignatureTechnician";
-        const tsField = input.moment === "entry" ? "entrySignatureAt" : "exitSignatureAt";
-
-        await tx.serviceOrder.update({
-          where: { id: input.orderId },
-          data: {
-            [fieldName]: input.dataUrl,
-            [tsField]: new Date(),
-          } as never,
-        });
-
-        await tx.serviceOrderHistory.create({
-          data: {
-            tenantId: ctx.tenantId,
-            orderId: input.orderId,
-            userId: ctx.session.user.id,
-            previousStatus: order.status,
-            newStatus: order.status,
-            notes: `Assinatura ${input.moment === "entry" ? "de entrada" : "de saida"} capturada (${input.signer === "client" ? "cliente" : "tecnico"})`,
-          },
-        });
-
-        return { success: true };
-      });
-    }),
-
-  // ── SEND FOR DIGITAL SIGNATURE (Autentique) ──
   sendForSignature: tenantProcedure
     .input(z.object({
       orderId: z.string().uuid(),
@@ -4557,8 +4506,14 @@ async function applyQuoteApproval(
 ): Promise<void> {
   assertOrderAcceptsQuote(order);
   const items = await tx.serviceOrderItem.findMany({ where: { orderId: order.id } });
-  await tx.serviceOrderQuote.update({
-    where: { id: quote.id },
+  // OS-1: o guard de "já foi processado" vive no chamador e é read-then-write.
+  // `respondToQuote` é PÚBLICO — duplo clique do cliente, ou aprovar num
+  // aparelho e rejeitar noutro, passava as duas respostas: dois eventos no
+  // histórico e a chance de o orçamento dizer uma coisa e a OS, outra. Repetir
+  // a condição no `where` é o claim: o Postgres reavalia depois do row lock e
+  // quem perde a corrida aborta.
+  const claim = await tx.serviceOrderQuote.updateMany({
+    where: { id: quote.id, status: "pending" },
     data: {
       status: "approved",
       approvedAt: new Date(),
@@ -4566,6 +4521,12 @@ async function applyQuoteApproval(
       newItemsSnapshot: snapshotItems(items) as unknown as Prisma.InputJsonValue,
     },
   });
+  if (claim.count !== 1) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Este orcamento ja foi processado.",
+    });
+  }
 
   const restoredStatus = await resolveStatusAfterQuote(tx, order.id, "approve");
   await tx.serviceOrder.update({
@@ -4601,10 +4562,17 @@ async function applyQuoteRejection(
   customerNotes: string | null,
 ): Promise<void> {
   assertOrderAcceptsQuote(order);
-  await tx.serviceOrderQuote.update({
-    where: { id: quote.id },
+  // OS-1: mesmo claim da aprovação — ver o comentário lá.
+  const claim = await tx.serviceOrderQuote.updateMany({
+    where: { id: quote.id, status: "pending" },
     data: { status: "rejected", rejectedAt: new Date(), customerNotes },
   });
+  if (claim.count !== 1) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Este orcamento ja foi processado.",
+    });
+  }
 
   const snapshot = (quote.previousItemsSnapshot ?? null) as ItemSnapshot[] | null;
   await revertItemsToSnapshot(
