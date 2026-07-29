@@ -26,7 +26,11 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-9 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none",
+  // `w-fit` sem teto: com 4+ abas a faixa fica mais larga que o celular e empurra
+  // a PÁGINA inteira (medido em /operation: 399px numa viewport de 390). Rolar só
+  // a faixa mantém todas as abas alcançáveis sem mexer no resto da tela. Vale
+  // para as 9 telas com abas, não só a que a varredura pegou.
+  "group/tabs-list inline-flex w-fit max-w-full items-center justify-center overflow-x-auto rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-9 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col group-data-[orientation=vertical]/tabs:overflow-visible data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
