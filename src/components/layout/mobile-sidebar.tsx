@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowLeftRight, KeyRound, LogOut, User, Shield } from "lucide-react";
 import { signOut } from "next-auth/react";
@@ -25,12 +26,18 @@ interface MobileSidebarProps {
   tenantSlug?: string;
   tenantLogoUrl?: string | null;
   allowedModules?: string[];
+  isTenantAdmin?: boolean;
   isSuperAdmin?: boolean;
 }
 
-export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isSuperAdmin }: MobileSidebarProps) {
-  const { isCollapsed, toggle } = useSidebar();
+export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isTenantAdmin, isSuperAdmin }: MobileSidebarProps) {
+  const { isMobileOpen, setMobileOpen } = useSidebar();
   const pathname = usePathname();
+
+  // Navegou: fecha a gaveta. Sem isto ela fica aberta sobre a tela nova.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname, setMobileOpen]);
 
   const initials = userName
     .split(" ")
@@ -39,11 +46,8 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, t
     .join("")
     .toUpperCase();
 
-  // On mobile, isCollapsed === sidebar hidden
-  const open = !isCollapsed;
-
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) toggle(); }}>
+    <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
       <SheetContent side="left" className="w-64 p-0 bg-sidebar border-r border-sidebar-border">
         <SheetHeader className="h-14 px-4 border-b border-sidebar-border flex flex-row items-center justify-between">
           <SheetTitle className="sr-only">Menu de navegacao</SheetTitle>
@@ -54,7 +58,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, t
           {appNavGroups.map((group, gi) => {
             const isFirst = gi === 0;
             const visibleItems = group.items.filter((item) =>
-              isNavItemVisible(item, { tenantSlug, allowedModules }),
+              isNavItemVisible(item, { tenantSlug, allowedModules, isTenantAdmin }),
             );
             if (visibleItems.length === 0) return null;
             return (
@@ -74,7 +78,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, t
                       <Link
                         key={item.href}
                         href={item.href}
-                        onClick={() => toggle()}
+                        onClick={() => setMobileOpen(false)}
                         className={cn(
                           "flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-normal transition-colors",
                           isActive
@@ -103,7 +107,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, t
             <Link
               href="/admin"
               className="flex items-center gap-3 rounded-md px-2 py-2 text-sm text-warning font-medium hover:bg-sidebar-accent transition-colors"
-              onClick={() => toggle()}
+              onClick={() => setMobileOpen(false)}
             >
               <Shield className="w-4 h-4 shrink-0" />
               <span className="truncate">Admin Central</span>
@@ -113,7 +117,7 @@ export function MobileSidebar({ userName, multiTenant, tenantName, tenantSlug, t
             <Link
               href="/select-tenant"
               className="flex items-center gap-3 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-              onClick={() => toggle()}
+              onClick={() => setMobileOpen(false)}
             >
               <ArrowLeftRight className="w-4 h-4 shrink-0" />
               <span className="truncate">Trocar de loja</span>

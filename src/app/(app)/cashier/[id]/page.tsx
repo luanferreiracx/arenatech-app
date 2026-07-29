@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/domain/page-header";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import {
   MOVEMENT_TYPE_LABELS,
   PAYMENT_METHOD_LABELS,
@@ -77,14 +78,24 @@ export default function CashierDetailPage({
     );
   }
 
+  // "Nao encontrado" era a mensagem para tudo, inclusive para o caixa de um
+  // colega — que existe e o servidor recusa com 403. Dizer "nao encontrado" ali
+  // esconde a regra (o detalhe do caixa e do dono ou da gerencia) e faz o
+  // operador achar que o registro sumiu.
   if (detailQuery.isError || !detailQuery.data) {
     return (
       <div>
         <PageHeader title="Relatorio de Fechamento" />
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            Caixa nao encontrado.
-            <div className="mt-4">
+          <CardContent className="py-8">
+            <QueryErrorState
+              error={detailQuery.error}
+              forbiddenTitle="Este caixa nao e seu"
+              forbiddenDescription="O detalhe de um caixa e do operador que o abriu ou da gerencia da loja."
+              notFoundTitle="Caixa nao encontrado"
+              notFoundDescription="O caixa pode ter sido removido ou o link esta errado."
+            />
+            <div className="mt-4 flex justify-center">
               <Button
                 variant="outline"
                 onClick={() => router.push("/cashier/history")}

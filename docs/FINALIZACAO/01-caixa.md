@@ -1,7 +1,7 @@
 # Módulo 1 — Caixa
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 ## Superfície
 
@@ -111,6 +111,98 @@ A fórmula da rota usada errava em três frentes:
 
 `cashflow-uses-ledger.test.ts` falhava de forma determinística ao rodar duas vezes seguidas: afiava o valor **absoluto** do dia, que agrega todos os recebíveis do tenant. Passou a aferir o **delta** que ele mesmo provoca. Verificado com duas execuções seguidas.
 
+## Achados da passada de frontend
+
+Nenhum destes aparece lendo código. Todos vieram do navegador.
+
+### CX-8 — o app inteiro ficava sem clique no desktop (P0)
+
+`mobile-sidebar.tsx` derivava a gaveta lateral de `!isCollapsed` — **o mesmo
+booleano** que controla a sidebar de desktop, com defaults **opostos**: "desktop
+expandido" é o estado normal, "gaveta aberta" não é.
+
+Sem o cookie `arena_sidebar_collapsed` — ou seja, **no primeiro acesso de
+qualquer pessoa** — `isCollapsed` é `false`, então o `Sheet` do Radix abria no
+desktop. E `Sheet` é modal. Medido no navegador a 1440px:
+
+```
+sheetState: "open"   ·   overlayPresent: true
+body pointer-events: none   ·   conteúdo dentro de aria-hidden="true"
+clique no conteúdo principal: BLOQUEADO
+```
+
+Pior: fechar a gaveta chama `toggle()`, que **recolhe a sidebar de desktop**. Para
+expandi-la de volta o usuário chama o mesmo `toggle()` — e a gaveta reabre por
+cima. **Não havia como ter a sidebar expandida e o app clicável ao mesmo tempo.**
+
+Também era falha de acessibilidade: com o conteúdo dentro de `aria-hidden`, leitor
+de tela não enxergava a aplicação.
+
+**Correção.** A gaveta ganhou estado próprio (`isMobileOpen`), efêmero e nascendo
+fechado, e fecha ao navegar. `isCollapsed` volta a significar uma coisa só.
+Verificado nos dois lados: no desktop não existe mais diálogo e o clique passa; no
+mobile a gaveta nasce fechada, abre no hambúrguer e fecha ao navegar.
+
+### CX-9 — "sem permissão" e "vazio" eram a mesma tela (P1)
+
+`/cashier/reviews` como operador: a lista checava `isLoading` e depois assumia que
+`data` vazio era lista vazia. O 403 caía no ramo de vazio e a tela dizia **"Nenhum
+caixa pendente de conferencia"** — o sistema afirmando que estava tudo conferido
+para quem não podia ver nada. O detalhe do caixa fazia o mesmo com "Caixa nao
+encontrado" para o caixa de um colega, que existe.
+
+**Correção.** `QueryErrorState` distingue 403, 404 e falha real, com o texto da
+regra ("a conferência é da gerência: ela existe justamente para que quem fechou o
+caixa não confira o próprio").
+
+### CX-10 — toda query 4xx era repetida 3 vezes (P1, transversal)
+
+O `QueryClient` não configurava `retry`, então o padrão do TanStack valia:
+3 tentativas com backoff — inclusive para 403 e 404, que são **resposta do
+negócio** e não mudam se perguntarmos de novo. Efeito visível: ~7 segundos de
+esqueleto antes de a tela contar a verdade. Foi o que a varredura flagrou em
+`/cashier/close` e `/cashier/reviews`.
+
+Junto: o toast global dizia "Falha ao carregar dados. **Tente novamente**" numa
+negativa de permissão — conselho falso — e todo 4xx virava exceção no Sentry,
+afogando o sinal do que é defeito.
+
+**Correção** na raiz (`src/trpc/react.tsx`): 4xx não repete, não vai para o Sentry
+e tem manchete própria. Vale para o app inteiro, não só para o Caixa.
+
+### CX-11 — o menu não tinha dimensão de papel (P2)
+
+`NavItem` tinha gating por módulo e por slug, e nenhum por papel: telas de
+gerência apareciam para o operador, que clicava e tomava 403. **Correção:**
+`adminOnly` em `NavItem`, honrado por sidebar, gaveta e paleta de comandos; e o
+atalho "Conferencias" do topo da tela de Caixa saiu para não-gerência. Quem
+autoriza segue sendo a procedure — isto é só não oferecer o caminho que dá em
+negativa.
+
+## Reconciliação tela × banco
+
+Recalculei a regra da gaveta em SQL sobre as **339** sessões fechadas e comparei
+com o `calculated_balance` gravado:
+
+| | |
+|---|---|
+| Batem | **321** |
+| Divergem | **18** — todas fechadas entre **2026-05-03 e 2026-07-03** |
+| Divergem depois de 2026-07-03 | **0** |
+
+As 18 são resíduo histórico: guardam o número da regra vigente **antes** da
+unificação em `computeCashDrawerCents`. Desde 03/07 o caminho vivo bate 100%.
+
+> **Decisão pendente do dono:** recalcular essas 18 ou preservá-las. A favor de
+> preservar: é o número contra o qual o operador conferiu a gaveta na época —
+> reescrever o passado apaga o registro do que de fato foi conferido.
+
+## Achado fora deste módulo, registrado para o Módulo 15
+
+O botão "Abrir menu" da área **/admin** chama `toggle()`, que mexe na sidebar de
+desktop — e essa sidebar é `hidden` no mobile. Ou seja: **a área de superadmin não
+tem menu funcional no celular.** Fica para a passada do Módulo 15.
+
 ## Checklist de backend
 
 | Eixo | Situação |
@@ -146,3 +238,27 @@ Testes que **falham antes** da correção:
 - `__tests__/integration/cashier-cash-method-uuid.test.ts` (CX-1, lado caixa)
 - `__tests__/integration/sale-cash-method-uuid.test.ts` (CX-1, lado PDV)
 - `__tests__/integration/cashier-review-keeps-operator-count.test.ts` (CX-6)
+- `__tests__/e2e/cashier-permissions.spec.ts` — **3 dos 4** falham na versão
+  anterior. O quarto (esqueleto na tela de fechar caixa) só exercita o caminho do
+  404 quando o operador não tem caixa aberto; com caixa aberto ele passa nos dois
+  lados. Registrado por honestidade: ele guarda a regressão, não prova o bug.
+
+Varredura de navegador (`pnpm tsx scripts/audit/crawl-module.ts caixa`): **20
+combinações** (5 rotas × admin/operador × desktop/mobile) — 0 quebradas, 0 de
+atenção, 0 redirects inesperados.
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ✅ corrigido (CX-9) |
+| 2. Carregando / disabled | ✅ corrigido (CX-10) |
+| 3. Invalidação após mutação | ✅ já corrigido em auditoria anterior (badge do PDV) |
+| 4. Estado vazio | ✅ separado de erro e de sem-permissão (CX-9) |
+| 5. Permissão | ✅ corrigido (CX-9, CX-11) |
+| 6. Formatação pt-BR | ✅ `MoneyInput` em todo campo de dinheiro |
+| 7. Mobile 390px | ✅ 0 overflow nas 5 telas; gaveta corrigida (CX-8) |
+| 8. Acessibilidade | ✅ `aria-hidden` indevido no conteúdo removido (CX-8) |
+| 9. Reconciliação | ✅ 321/339; 18 legadas, decisão do dono |
+| 10. Console e rede | ✅ 0 erro, 0 4xx/5xx não tratado |
+| 11. Fluxo incompleto | ⚠️ a conferência nunca foi usada (0 de 339) — o fluxo agora está correto e acessível; se seguir sem uso, é decisão de produto |

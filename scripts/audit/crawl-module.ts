@@ -198,7 +198,12 @@ async function visit(
     .catch(() => ({ horizontalOverflow: false, emptyMain: false }));
 
   const screenshot = `${outDir}/${label}.png`;
-  await page.screenshot({ path: screenshot, fullPage: true }).catch(() => undefined);
+  // Viewport, não `fullPage`. Com `fullPage`, o Chromium compõe os elementos
+  // fixos sobre o canvas inteiro: a gaveta lateral do mobile — presente no DOM e
+  // escondida por transform — aparecia por cima do conteúdo em TODA captura de
+  // desktop, e o layout parecia quebrado sem estar. A auditoria quer o que o
+  // usuário vê.
+  await page.screenshot({ path: screenshot }).catch(() => undefined);
 
   page.off("console", onConsole);
   page.off("pageerror", onPageError);

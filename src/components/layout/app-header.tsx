@@ -14,7 +14,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ tenantName }: AppHeaderProps) {
-  const { toggle, isMobile } = useSidebar();
+  const { setMobileOpen, isMobile } = useSidebar();
   const { setOpen: openCommandPalette } = useCommandPalette();
 
   return (
@@ -24,7 +24,7 @@ export function AppHeader({ tenantName }: AppHeaderProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={toggle}
+          onClick={() => setMobileOpen(true)}
           aria-label="Abrir menu"
           className="md:hidden"
         >

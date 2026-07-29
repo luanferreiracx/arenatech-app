@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { LoadingState } from "@/components/domain/loading-state";
 import { EmptyState } from "@/components/domain/empty-state";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { Eye, CheckCircle } from "lucide-react";
 import { useIsTenantAdmin } from "@/lib/auth/use-tenant-admin";
 
@@ -95,6 +96,18 @@ export function PendingReviewsList() {
   };
 
   if (pendingQuery.isLoading) return <LoadingState />;
+
+  // Sem este ramo, o 403 caía no `data.length === 0` abaixo e o operador lia
+  // "Nenhum caixa pendente de conferencia" — ou seja, o sistema afirmava que
+  // estava tudo conferido para quem não podia ver nada.
+  if (pendingQuery.isError) {
+    return (
+      <QueryErrorState
+        error={pendingQuery.error}
+        forbiddenDescription="A conferencia de caixa e da gerencia: ela existe justamente para que quem fechou o caixa nao confira o proprio."
+      />
+    );
+  }
 
   const data = pendingQuery.data?.data ?? [];
 
