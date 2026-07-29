@@ -160,7 +160,9 @@ export default function StockImportPage() {
                 type="file"
                 accept=".csv,.txt,.tsv"
                 onChange={handleFileChange}
-                className="mx-auto"
+                // `input[type=file]` tem largura intrínseca larga: sem teto ele
+                // estoura os 390px do celular.
+                className="mx-auto max-w-full"
               />
             </div>
 
