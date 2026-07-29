@@ -29,7 +29,6 @@ import {
   createCategorySchema,
   updateCategorySchema,
   listCategoriesSchema,
-  stockEntrySchema,
   stockEntryBatchSchema,
   stockExitSchema,
   posicaoEstoqueSchema,
@@ -47,7 +46,6 @@ import {
   listAttributesSchema,
   createAttributeValueSchema,
   updateAttributeValueSchema,
-  createVariationSchema,
   updateVariationSchema,
   listVariationsSchema,
   createPhotoSchema,
@@ -57,7 +55,7 @@ import {
   duplicateProductSchema,
   bulkAdjustStockSchema,
 } from "@/lib/validators/stock";
-import { searchNcm, getNcmByCode } from "@/lib/integrations/brasilapi-ncm";
+import { searchNcm } from "@/lib/integrations/brasilapi-ncm";
 import { suggestNcm } from "@/lib/integrations/ncm-suggest";
 import { lookupCnpj as lookupCnpjApi } from "@/lib/integrations/brasilapi-cnpj";
 import {
@@ -67,9 +65,6 @@ import {
 } from "@/lib/services/autentique-service";
 import { logger } from "@/lib/logger";
 import {
-  createStockItemBatchSchema,
-  stockEntryQuantitySchema,
-  stockAdjustmentSchema,
   changeStockItemStatusSchema,
   disposeStockItemSchema,
   listStockItemsSchema,
@@ -78,18 +73,14 @@ import {
   isManualStatusChangeAllowed,
   PURCHASE_REVERSIBLE_STATUSES,
 } from "@/lib/validators/stock-item";
-import { MAX_BUSCA, MAX_DATA } from "@/lib/validators/limits";
+import { MAX_BUSCA } from "@/lib/validators/limits";
 import {
-  entrySerializedItems,
-  entryNonSerialized,
   applyNonSerializedEntry,
-  exitNonSerialized,
   adjustInventory,
   changeItemStatus,
   disposeStockItem,
   resolveCurrentStockByProduct,
 } from "@/server/services/stock-item.service";
-import { getAvailableQuantity } from "@/server/services/product.service";
 import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
 import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
@@ -97,6 +88,11 @@ import { assertSkuBarcodeAvailable } from "@/server/services/product-sku-barcode
 import { sanitizeProductName } from "@/lib/utils/product-name";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
+// EST-2: todo filtro de data deste router usava `new Date(dateFrom)` (meia-noite
+// UTC = 21h BRT do dia anterior) com `dateTo + "T23:59:59"` (hora do processo).
+// 531 dos 2.757 movimentos de estoque — 19% — foram feitos depois das 21h BRT e
+// caíam no dia seguinte no kardex e nos relatórios por período.
+import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
 import { getAppBaseUrl } from "@/lib/utils/app-url";
 import { saleGoodsRevenueCents } from "@/lib/sales/sale-revenue";
 
@@ -786,14 +782,14 @@ export const stockRouter = createTRPCRouter({
         if (input.dateFrom) {
           where.createdAt = {
             ...(where.createdAt as Prisma.DateTimeFilter ?? {}),
-            gte: new Date(input.dateFrom),
+            gte: startOfDayBrt(input.dateFrom),
           };
         }
 
         if (input.dateTo) {
           where.createdAt = {
             ...(where.createdAt as Prisma.DateTimeFilter ?? {}),
-            lte: new Date(input.dateTo + "T23:59:59"),
+            lte: endOfDayBrt(input.dateTo),
           };
         }
 
@@ -856,14 +852,14 @@ export const stockRouter = createTRPCRouter({
         if (input.dateFrom) {
           where.createdAt = {
             ...(where.createdAt as Prisma.DateTimeFilter ?? {}),
-            gte: new Date(input.dateFrom),
+            gte: startOfDayBrt(input.dateFrom),
           };
         }
 
         if (input.dateTo) {
           where.createdAt = {
             ...(where.createdAt as Prisma.DateTimeFilter ?? {}),
-            lte: new Date(input.dateTo + "T23:59:59"),
+            lte: endOfDayBrt(input.dateTo),
           };
         }
 
@@ -1600,35 +1596,6 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /** Update device purchase date */
-  updatePurchaseDate: tenantProcedure
-    .input(z.object({
-      id: z.string().uuid(),
-      purchaseDate: z.string().max(MAX_DATA),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      if (!can(ctx.session, ctx.tenantId, "changePurchaseDate")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem alterar a data da compra." });
-      }
-      const newDate = new Date(input.purchaseDate);
-      if (Number.isNaN(newDate.getTime())) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Data invalida." });
-      }
-      // Compra nao pode ter data no futuro (corrige auditoria/relatorios).
-      if (newDate.getTime() > Date.now()) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A data da compra nao pode ser no futuro." });
-      }
-      return ctx.withTenant(async (tx) => {
-        const existing = await tx.devicePurchase.findUnique({ where: { id: input.id } });
-        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Compra nao encontrada" });
-        await tx.devicePurchase.update({
-          where: { id: input.id },
-          data: { purchaseDate: newDate },
-        });
-        return { success: true };
-      });
-    }),
-
   // ═══════════════════════════════════════
   // PURCHASE TERM SIGNATURE (paridade Laravel)
   // ═══════════════════════════════════════
@@ -2322,18 +2289,6 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  createBrand: tenantProcedure
-    .input(z.object({ name: z.string().min(1).max(100) }))
-    .mutation(async ({ ctx, input }) => {
-      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar marcas." });
-      }
-      return ctx.withTenant(async (tx) => {
-        // find-or-create deduplicado (não recria "Asus" se já existe "ASUS").
-        return findOrCreateBrandByName(tx, ctx.tenantId, input.name);
-      });
-    }),
-
   createCategory: tenantProcedure
     .input(createCategorySchema)
     .mutation(async ({ ctx, input }) => {
@@ -2401,57 +2356,6 @@ export const stockRouter = createTRPCRouter({
   // ═══════════════════════════════════════
   // STOCK ENTRY / EXIT (dedicated screens)
   // ═══════════════════════════════════════
-
-  stockEntry: tenantProcedure
-    .input(stockEntrySchema)
-    .mutation(async ({ ctx, input }) => {
-      // ADR 0053: operador (membro do tenant) dá entrada no estoque — dia a dia.
-      return ctx.withTenant(async (tx) => {
-        const product = await tx.product.findFirst({
-          where: { id: input.productId, deletedAt: null },
-        });
-        if (!product) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
-        }
-
-        // Serializados nao usam currentStock — entrada via StockItem (compra
-        // de aparelhos / DevicePurchase).
-        if (product.isSerialized) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Produto serializado: registre a entrada pelo fluxo de Compra de Aparelhos (StockItem).",
-          });
-        }
-
-        // Produto com variacoes exige variationId (valida ownership antes de mutar)
-        if (product.hasVariations) {
-          if (!input.variationId) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Selecione uma variacao para registrar a entrada.",
-            });
-          }
-          const variation = await tx.productVariation.findUnique({
-            where: { id: input.variationId },
-          });
-          if (!variation || variation.productId !== input.productId) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Variacao nao pertence a este produto." });
-          }
-        }
-
-        // Fonte única: entrada valorizada (custo médio ponderado + kardex).
-        await applyNonSerializedEntry(tx, ctx.tenantId, ctx.session.user.id, {
-          productId: input.productId,
-          variationId: input.variationId ?? null,
-          quantity: input.quantity,
-          unitCostCents: input.unitCost ?? null,
-          reason: input.reason,
-          supplierId: input.supplierId ?? null,
-        });
-
-        return { success: true };
-      });
-    }),
 
   /**
    * Entrada em LOTE: header (fornecedor + motivo) compartilhado + N itens
@@ -2860,8 +2764,8 @@ export const stockRouter = createTRPCRouter({
         if (input.productId) where.productId = input.productId;
         if (input.dateFrom || input.dateTo) {
           where.createdAt = {};
-          if (input.dateFrom) where.createdAt.gte = new Date(input.dateFrom);
-          if (input.dateTo) where.createdAt.lte = new Date(input.dateTo + "T23:59:59");
+          if (input.dateFrom) where.createdAt.gte = startOfDayBrt(input.dateFrom);
+          if (input.dateTo) where.createdAt.lte = endOfDayBrt(input.dateTo);
         }
 
         const movements = await tx.stockMovement.findMany({
@@ -2902,10 +2806,10 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         // Get sale items from completed sales in period
@@ -3063,10 +2967,10 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         const where: Prisma.SaleWhereInput = {
@@ -3149,10 +3053,10 @@ export const stockRouter = createTRPCRouter({
       const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         const saleItems = await tx.saleItem.findMany({
@@ -3267,10 +3171,10 @@ export const stockRouter = createTRPCRouter({
       const isAdmin = isTenantAdmin(ctx.session, ctx.tenantId);
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         const sales = await tx.sale.findMany({
@@ -3368,10 +3272,10 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         const purchases = await tx.devicePurchase.findMany({
@@ -3418,10 +3322,10 @@ export const stockRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const dateFrom = input.dateFrom
-          ? new Date(input.dateFrom)
+          ? startOfDayBrt(input.dateFrom)
           : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         const dateTo = input.dateTo
-          ? new Date(input.dateTo + "T23:59:59")
+          ? endOfDayBrt(input.dateTo)
           : new Date();
 
         const [sales, entries, exits, purchases] = await Promise.all([
@@ -3564,33 +3468,6 @@ export const stockRouter = createTRPCRouter({
         };
       });
     }),
-
-  /**
-   * Gera CSV-template para importacao (cabecalho + 2 linhas de exemplo).
-   * Paridade Laravel ImportacaoProdutoController::downloadTemplate.
-   * BOM UTF-8 + separador `;` para abertura direta no Excel BR.
-   */
-  getCsvImportTemplate: tenantProcedure.query(() => {
-    const header = [
-      "nome", "sku", "barcode", "marca", "categoria",
-      "preco_custo", "preco_venda", "preco_promocional",
-      "estoque_minimo", "quantidade", "controla_imei", "descricao",
-    ];
-    const sample1 = [
-      "Capa iPhone 15 Pro Silicone Preta", "CAP-IPH15-PRE", "7891234567890", "Apple", "Capas",
-      "25.00", "59.90", "49.90", "5", "20", "false", "Capa silicone com cabo magsafe",
-    ];
-    const sample2 = [
-      "Carregador USB-C 20W Branco", "CAR-USBC-20W", "7899876543210", "Generico", "Carregadores",
-      "15.50", "39.90", "", "10", "50", "false", "",
-    ];
-    const csv = "﻿"
-      + [header, sample1, sample2].map((row) => row.join(";")).join("\n");
-    return {
-      csv,
-      fileName: `template-importacao-produtos-${new Date().toISOString().slice(0, 10)}.csv`,
-    };
-  }),
 
   /** CSV Import - process lines */
   importCsv: tenantProcedure
@@ -3978,38 +3855,6 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  createVariation: tenantProcedure
-    .input(createVariationSchema)
-    .mutation(async ({ ctx, input }) => {
-      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissao" });
-      }
-      return ctx.withTenant(async (tx) => {
-        const variation = await tx.productVariation.create({
-          data: {
-            tenantId: ctx.tenantId,
-            productId: input.productId,
-            sku: input.sku,
-            barcode: input.barcode,
-            costPrice: input.costPrice ? input.costPrice / 100 : null,
-            salePrice: input.salePrice ? input.salePrice / 100 : null,
-            promotionalPrice: input.promotionalPrice ? input.promotionalPrice / 100 : null,
-            minStock: input.minStock ?? 0,
-            active: input.active ?? true,
-            attributeValues: {
-              create: input.attributeValueIds.map((avId) => ({
-                attributeValueId: avId,
-              })),
-            },
-          },
-          include: {
-            attributeValues: { include: { attributeValue: { include: { attribute: true } } } },
-          },
-        });
-        return variation;
-      });
-    }),
-
   updateVariation: tenantProcedure
     .input(updateVariationSchema)
     .mutation(async ({ ctx, input }) => {
@@ -4253,12 +4098,6 @@ export const stockRouter = createTRPCRouter({
     .input(z.object({ text: z.string().max(500) }))
     .query(({ input }) => suggestNcm(input.text)),
 
-  getNcmByCode: tenantProcedure
-    .input(z.object({ code: z.string().length(8) }))
-    .query(async ({ input }) => {
-      return getNcmByCode(input.code);
-    }),
-
   // ═══════════════════════════════════════
   // CNPJ LOOKUP (Estoque-A)
   // ═══════════════════════════════════════
@@ -4424,102 +4263,6 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  getStockItem: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        const item = await tx.stockItem.findUnique({
-          where: { id: input.id },
-          include: {
-            product: true,
-            variation: { include: { attributeValues: { include: { attributeValue: { include: { attribute: true } } } } } },
-            supplier: true,
-          },
-        });
-        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
-        return item;
-      });
-    }),
-
-  /** Entry: serialized items (creates StockItem per IMEI) */
-  entrySerializedItems: tenantProcedure
-    .input(createStockItemBatchSchema)
-    .mutation(async ({ ctx, input }) => {
-      // ADR 0053: operador (membro do tenant) dá entrada de itens serializados — dia a dia.
-      return ctx.withTenant(async (tx) => {
-        return entrySerializedItems(tx as any, ctx.tenantId, ctx.session.user.id, {
-          productId: input.productId,
-          variationId: input.variationId,
-          supplierId: input.supplierId,
-          condition: input.condition,
-          conservationGrade: input.conservationGrade,
-          costPrice: input.costPrice,
-          suggestedSalePrice: input.suggestedSalePrice,
-          invoiceNumber: input.invoiceNumber,
-          items: input.items,
-        });
-      });
-    }),
-
-  /** Entry: non-serialized (quantity-based) */
-  entryQuantity: tenantProcedure
-    .input(stockEntryQuantitySchema)
-    .mutation(async ({ ctx, input }) => {
-      // ADR 0053: operador (membro do tenant) dá entrada por quantidade — dia a dia.
-      return ctx.withTenant(async (tx) => {
-        // Guard de REGIME de estoque (auditoria 2026-07-25). O saldo tem 3
-        // regimes (resolveCurrentStockByProduct): serializado = COUNT(StockItem),
-        // com variações = SUM(variação), simples = product.currentStock. Sem este
-        // guard a entrada escrevia em `product.currentStock` para QUALQUER
-        // produto, criando saldo FANTASMA — gravado no banco e no kardex, e
-        // invisível em toda a UI (que lê o saldo derivado). As irmãs stockEntry,
-        // stockEntryBatch, stockExit, adjustStock e adjustInventory já barram.
-        const product = await tx.product.findFirst({
-          where: { id: input.productId, deletedAt: null },
-          select: { isSerialized: true, hasVariations: true },
-        });
-        if (!product) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Produto nao encontrado" });
-        }
-        if (product.isSerialized) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Produto serializado: registre a entrada pelo fluxo de Compra de Aparelhos (StockItem).",
-          });
-        }
-        if (product.hasVariations) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Produto com variacoes: registre a entrada pela tela de Entrada de Estoque, escolhendo a variacao.",
-          });
-        }
-
-        await entryNonSerialized(tx as any, ctx.tenantId, ctx.session.user.id, {
-          productId: input.productId,
-          quantity: input.quantity,
-          reason: input.reason,
-          supplierId: input.supplierId,
-          invoiceNumber: input.invoiceNumber,
-        });
-        return { success: true };
-      });
-    }),
-
-  /** Inventory adjustment (non-serialized) */
-  adjustInventory: tenantProcedure
-    .input(stockAdjustmentSchema)
-    .mutation(async ({ ctx, input }) => {
-      // ADR 0053: operador (membro do tenant) ajusta inventário — dia a dia.
-      return ctx.withTenant(async (tx) => {
-        await adjustInventory(tx as any, ctx.tenantId, ctx.session.user.id, {
-          productId: input.productId,
-          newQuantity: input.newQuantity,
-          reason: input.reason,
-        });
-        return { success: true };
-      });
-    }),
-
   /** Bulk inventory adjustment — paridade Laravel ajuste-em-massa. */
   bulkAdjust: tenantProcedure
     .input(bulkAdjustStockSchema)
@@ -4613,37 +4356,4 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
-  /** IMEI history (all movements for this IMEI) */
-  getImeiHistory: tenantProcedure
-    .input(z.object({ imei: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        // Find the stock item (including soft-deleted for full history)
-        const item = await tx.stockItem.findFirst({
-          where: { imei: input.imei },
-          include: {
-            product: { select: { name: true, brand: true } },
-            supplier: { select: { name: true } },
-          },
-        });
-        if (!item) return null;
-
-        // Get all movements for this item
-        const movements = await tx.stockMovement.findMany({
-          where: { stockItemId: item.id },
-          orderBy: { createdAt: "desc" },
-        });
-
-        return { item, movements };
-      });
-    }),
-
-  /** Get available quantity (hybrid: currentStock or StockItem count) */
-  getAvailableQuantity: tenantProcedure
-    .input(z.object({ productId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
-        return getAvailableQuantity(tx, ctx.tenantId, input.productId);
-      });
-    }),
 });

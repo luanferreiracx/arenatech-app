@@ -3,6 +3,10 @@ import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant, withAdmin } from "@/server/db";
+import {
+  loadLowStockRows,
+  loadStockPositionRows,
+} from "@/server/services/stock-position.service";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
 import type { DocumentProps } from "@react-pdf/renderer";
 import type { ReactElement } from "react";
@@ -87,21 +91,11 @@ export async function GET(
       case "posicao-estoque": {
         title = "Posicao de Estoque";
         subtitle = undefined;
-        const products = await withTenant(tenantId, async (tx) =>
-          tx.product.findMany({
-            where: { deletedAt: null, active: true },
-            orderBy: { name: "asc" },
-            select: {
-              name: true,
-              sku: true,
-              currentStock: true,
-              minStock: true,
-              costPrice: true,
-              salePrice: true,
-              category: { select: { name: true } },
-            },
-          }),
-        );
+        // EST-1: lia `product.currentStock` cru. Para produto serializado o
+        // saldo é COUNT(StockItem disponível) e para produto com variações é a
+        // soma das variações — o campo do produto não é a fonte da verdade.
+        // Medido em produção: 34 aparelhos e 596 unidades sumiam deste PDF.
+        const products = await withTenant(tenantId, (tx) => loadStockPositionRows(tx));
         columns = [
           { key: "name", label: "Produto", width: 3 },
           { key: "sku", label: "SKU", width: 1 },
@@ -113,7 +107,7 @@ export async function GET(
         rows = products.map((p) => ({
           name: p.name,
           sku: p.sku ?? "-",
-          category: p.category?.name ?? "-",
+          category: p.categoryName ?? "-",
           currentStock: p.currentStock,
           minStock: p.minStock,
           salePrice: fmtDecimal(p.salePrice),
@@ -124,20 +118,10 @@ export async function GET(
       case "estoque-minimo": {
         title = "Produtos Abaixo do Estoque Minimo";
         subtitle = undefined;
-        const products = await withTenant(tenantId, async (tx) => {
-          const list = await tx.product.findMany({
-            where: { deletedAt: null, active: true },
-            orderBy: { name: "asc" },
-            select: {
-              name: true,
-              sku: true,
-              currentStock: true,
-              minStock: true,
-              salePrice: true,
-            },
-          });
-          return list.filter((p) => p.currentStock < p.minStock);
-        });
+        // EST-1, o lado pior: o FILTRO usava o campo cru, então produto cheio
+        // aparecia como em falta e o relatório mandava comprar o que já estava
+        // na prateleira.
+        const products = await withTenant(tenantId, (tx) => loadLowStockRows(tx));
         columns = [
           { key: "name", label: "Produto", width: 3 },
           { key: "sku", label: "SKU", width: 1 },
