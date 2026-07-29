@@ -1,7 +1,7 @@
 # Módulo 3 — Estoque / Compras / Fornecedores
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 ## Superfície
 
@@ -107,6 +107,86 @@ Registrado para não ser re-investigado:
 - **`/api/reports/stock/[type]`** seleciona `costPrice`, mas **não** o emite em nenhuma coluna. Sem vazamento de custo para não-admin.
 - **Picker de produto da OS** (`service-order.ts`) lê `p.currentStock` cru, mas filtra `isSerialized: false` e devolve estoque por variação quando há variações. Correto para o escopo dele.
 - **0 saldos negativos** em produção.
+
+## Achados da passada de frontend
+
+Varredura das **22 telas** × admin/operador × desktop/mobile = 88 combinações.
+0 quebradas; 10 de atenção, com três defeitos distintos por trás.
+
+### EST-4 — a lista de atributos perdia a identidade das linhas (P1)
+
+`/stock/attributes` fazia `attributes.map(attr => <>…</>)`: a `key` estava nas
+`TableRow` de dentro, e o **fragmento que o `map` devolve** saía sem key. O React
+avisa isso no console — e o aviso aparecia nas quatro combinações.
+
+Não é cosmético: a página tem expandir/recolher (`expandedId`) e edição inline
+de valores. Sem identidade estável, o estado preso à posição — a linha aberta, o
+campo em edição — pode saltar para outro atributo quando um é criado ou apagado.
+
+Varri o resto do app pelo mesmo padrão: **era o único caso**.
+
+### EST-5 — a tela de estoque não cabia no celular (P1)
+
+Os cards do painel (`Alertas de Estoque Baixo`, `Top Produtos da Semana`) são
+itens de grid, e item de grid nasce com `min-width: auto` — **não encolhe abaixo
+do conteúdo**. A tabela de dentro (que já rola sozinha) empurrava o card para
+**613px numa viewport de 390**, e a página inteira ganhava scroll horizontal.
+
+`/stock/import` tinha causa própria: `input[type=file]` tem largura intrínseca
+larga e não tinha teto (444px em 390 de tela).
+
+### EST-6 — a trilha de navegação empurrava a página em rota profunda (P1, transversal)
+
+`Estoque › Fornecedores › Detalhe › Editar` não cabe em 390px, e o breadcrumb não
+tinha estratégia de overflow. **Vale para qualquer rota profunda do app no
+celular**, não só o estoque. A trilha passou a rolar sozinha, mantendo todos os
+níveis alcançáveis sem mexer no resto da tela.
+
+> **Terceira vez que o mesmo mecanismo aparece**: um componente compartilhado sem
+> `min-w-0`/estratégia de overflow empurrando a página. Módulo 2: `PageHeader`
+> (`shrink-0` anulando o `flex-wrap`). Aqui: itens de grid e o breadcrumb. Vale
+> tratar como classe, não como caso isolado — está registrado no checklist de
+> frontend.
+
+## Reconciliação tela × banco
+
+O impacto do EST-1 medido pelo que a loja veria:
+
+| | Pelo regime correto | Pelo campo cru (o que o PDF fazia) |
+|---|---|---|
+| Produtos abaixo do mínimo | **132** | **147** |
+
+O relatório de Estoque Mínimo listava **15 produtos a mais** — itens que estão na
+prateleira. A loja compraria o que já tem.
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ✅ (correção transversal do Módulo 1) |
+| 2. Carregando / disabled | ✅ |
+| 3. Invalidação após mutação | ✅ |
+| 4. Estado vazio | ✅ |
+| 5. Permissão | ✅ criar atributo/valor é gerência; a página esconde do operador |
+| 6. Formatação pt-BR | ✅ |
+| 7. Mobile 390px | ✅ corrigido (EST-5, EST-6) — 88 combinações limpas |
+| 8. Acessibilidade | ✅ trilha rolável mantém todos os níveis; sem dependência de cor |
+| 9. Reconciliação | ✅ 132 vs 147 medido |
+| 10. Console e rede | ✅ corrigido (EST-4) |
+| 11. Fluxo incompleto | ✅ resolvido no backend (EST-3) |
+
+## Nota honesta sobre cobertura de teste
+
+O E2E novo cobre **um** dos três achados de frontend: o estouro de largura em
+320px (piso da WCAG 1.4.10), que é independente de dado e **falha sem a
+correção**.
+
+Os outros dois não viraram E2E de propósito. No banco de seed as telas nascem
+vazias — sem produto abaixo do mínimo não há card, sem atributo não há lista — e
+um teste que passa **por falta de conteúdo** não guarda nada. Quem guarda esses
+dois é a **varredura de navegador**, que foi quem os encontrou: ela roda contra a
+cópia de produção e lê o console de todas as telas do módulo. Preferi registrar
+isso a entregar teste decorativo.
 
 ## Checklist de backend
 

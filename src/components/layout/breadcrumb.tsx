@@ -102,8 +102,11 @@ export function AppBreadcrumb({ className }: { className?: string }) {
 
   if (pathname === "/") {
     return (
-      <nav className={cn("flex items-center text-sm", className)} aria-label="Breadcrumb">
-        <span className="text-foreground font-medium flex items-center gap-1">
+      <nav
+        className={cn("flex min-w-0 items-center text-sm", className)}
+        aria-label="Breadcrumb"
+      >
+        <span className="text-foreground font-medium flex min-w-0 items-center gap-1 truncate">
           <Home className="w-3.5 h-3.5" />
           Dashboard
         </span>
@@ -114,8 +117,16 @@ export function AppBreadcrumb({ className }: { className?: string }) {
   const segments = pathname.split("/").filter(Boolean);
 
   return (
-    <nav className={cn("flex items-center text-sm", className)} aria-label="Breadcrumb">
-      <ol className="flex items-center gap-1">
+    // `min-w-0` + rolagem horizontal na trilha: com 4 níveis ("Estoque ›
+    // Fornecedores › Detalhe › Editar") ela não cabe em 390px e, sem estratégia
+    // de overflow, empurrava a PÁGINA inteira. Rolar a faixa mantém todos os
+    // níveis alcançáveis sem mexer no resto da tela. Vale para toda rota
+    // profunda no celular, não só esta.
+    <nav
+      className={cn("flex min-w-0 items-center text-sm", className)}
+      aria-label="Breadcrumb"
+    >
+      <ol className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap">
         <li>
           <Link
             href="/painel"

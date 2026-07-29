@@ -62,7 +62,11 @@ export function StockDashboardCards() {
   return (
     <div className="space-y-6 mb-6">
       {/* Stats cards */}
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+      {/* `min-w-0` nos filhos: item de grid nasce com `min-width: auto` e NÃO
+          encolhe abaixo do conteúdo. Sem isso, a tabela de dentro (que já rola
+          sozinha) empurrava o card para 613px numa viewport de 390 e levava a
+          página inteira para o scroll horizontal. */}
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6 [&>*]:min-w-0">
         {cards.map((card) => (
           <Card key={card.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -80,7 +84,7 @@ export function StockDashboardCards() {
       </div>
 
       {/* Alerts + Top products row */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
         {/* Low stock alerts */}
         {data.lowStockProducts.length > 0 && (
           <Card>

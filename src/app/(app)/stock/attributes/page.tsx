@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
@@ -165,9 +165,13 @@ export default function AttributesPage() {
           </TableHeader>
           <TableBody>
             {attributes?.map((attr) => (
-              <>
+              // A `key` precisa ficar no elemento que o `map` DEVOLVE. Estava nas
+              // linhas de dentro, e o fragmento externo saía sem key: o React
+              // perdia a identidade da linha entre renders e o estado preso à
+              // posição (a linha expandida, o foco, o campo em edição) podia
+              // saltar para outro atributo ao criar ou apagar um.
+              <Fragment key={attr.id}>
                 <TableRow
-                  key={attr.id}
                   className="cursor-pointer"
                   onClick={() => setExpandedId(expandedId === attr.id ? null : attr.id)}
                 >
@@ -218,7 +222,7 @@ export default function AttributesPage() {
                   </TableCell>
                 </TableRow>
                 {expandedId === attr.id && (
-                  <TableRow key={`${attr.id}-values`}>
+                  <TableRow>
                     <TableCell colSpan={6} className="bg-muted/50 p-4">
                       <div className="space-y-3">
                         <h4 className="text-sm font-medium">Valores de &quot;{attr.name}&quot;</h4>
@@ -290,7 +294,7 @@ export default function AttributesPage() {
                     </TableCell>
                   </TableRow>
                 )}
-              </>
+              </Fragment>
             ))}
             {(!attributes || attributes.length === 0) && (
               <TableRow>
