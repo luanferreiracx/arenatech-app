@@ -43,10 +43,10 @@ async function dispatchPasswordReset(user: { id: string; email: string; name: st
   const resetLink = `${getAppBaseUrl()}/reset-password?token=${token}`;
   // Escapa o nome (anti HTML-injection). Link é server-side (token + baseUrl env).
   const safeName = escapeHtml(user.name);
-  await sendEmail(
-    user.email,
-    "Arena Tech - Redefinir senha",
-    `
+  const result = await sendEmail({
+    to: user.email,
+    subject: "Arena Tech - Redefinir senha",
+    html: `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
           <h2 style="color: #2ec4b6;">Arena Tech</h2>
           <p>Ola, ${safeName}!</p>
@@ -62,7 +62,19 @@ async function dispatchPasswordReset(user: { id: string; email: string; name: st
           <p style="font-size: 12px; color: #999;">Arena Tech - Sistema de Gestao</p>
         </div>
         `,
-  );
+  });
+
+  // O usuário nunca sabe se o e-mail saiu (a resposta é uniforme, anti-
+  // enumeração). Se o log dissesse "sent" aqui sem olhar o resultado, uma falha
+  // de envio ficaria invisível — foi o que deixou o reset de senha morto em
+  // produção com o remetente recusado pelo Resend.
+  if (!result.success) {
+    logger.error("forgotPassword: falha ao enviar e-mail de reset", {
+      userId: user.id,
+      error: result.error,
+    });
+    return;
+  }
   logger.info("forgotPassword: reset email sent", { userId: user.id });
 }
 

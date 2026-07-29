@@ -870,7 +870,7 @@ export const fiscalRouter = createTRPCRouter({
         `;
 
       const subject = `${typeLabel} ${numberStr} - Arena Tech`;
-      const result = await sendEmail(input.email, subject, html);
+      const result = await sendEmail({ to: input.email, subject, html });
 
       if (!result.success) {
         logger.error("Failed to send invoice email", {

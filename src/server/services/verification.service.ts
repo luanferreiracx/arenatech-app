@@ -150,11 +150,13 @@ const NOKYC_EMAIL_FROM = process.env.NOKYC_EMAIL_FROM ?? "noreply@pdvdepix.app";
 async function sendByEmail(to: string, code: string): Promise<boolean> {
   const subject = "Seu código de verificação";
   const html = `
+    <p>Olá! Use o código abaixo para confirmar seu e-mail e continuar o cadastro na Arena Tech.</p>
     <p>Seu código de verificação é:</p>
     <p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p>
     <p>Ele expira em ${VERIFICATION_CODE_TTL_MINUTES} minutos. Por segurança, não compartilhe este código.</p>
+    <p>Se você não pediu este código, ignore este e-mail.</p>
   `;
-  const result = await sendEmail(to, subject, html, NOKYC_EMAIL_FROM);
+  const result = await sendEmail({ to, subject, html, from: NOKYC_EMAIL_FROM });
   return result.success;
 }
 

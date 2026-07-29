@@ -19,6 +19,52 @@
 
 ---
 
+### 2026-07-29 — E-mail: código de cadastro não chegava e o reset de senha estava MORTO
+
+Reclamação: pessoa fez o pré-cadastro em 28/07 e o código de verificação nunca
+chegou (nem no spam). Investigação achou **dois** problemas, um deles bem pior
+que o reclamado.
+
+- **Pré-cadastro travado (o reclamado).** `philipperochaa@outlook.com`, PENDING
+  com `email_verified_at` nulo. A Resend reporta esse envio como
+  `delivered` — ou seja, saiu daqui, a Microsoft **aceitou e engoliu**. Sem
+  bypass possível: `approvePreRegistration` exige e-mail e telefone verificados.
+  Causa provável: o e-mail saía **só-HTML, sem parte `text/plain`**, de
+  remetente sem nome visível, num domínio novo (jun/2026) e de volume ínfimo
+  (11 e-mails na vida). O Outlook é o mais rígido nesse combo — e todos os
+  cadastros que passaram até hoje foram Gmail/Proton, nenhum Outlook.
+- **Reset de senha morto há semanas (o achado grave).** `EMAIL_FROM` global
+  apontava para `noreply@arenatechpi.com.br`, **domínio nunca verificado no
+  Resend**. Todo envio pelo default voltava **HTTP 403** — reset de senha, NF-e
+  por e-mail e contato com cliente. Só `pdvdepix.app` está verificado.
+  Confirmado com POST real na API: `"The arenatechpi.com.br domain is not
+  verified"`. Ninguém percebeu porque `dispatchPasswordReset` **descartava o
+  resultado** e logava `"reset email sent"` de qualquer jeito.
+
+Correções:
+- `sendEmail` passa a receber objeto (`SendEmailInput`) e **sempre** manda a
+  parte `text/plain` (derivada do HTML quando o chamador não passa; links viram
+  `texto (url)` pro link de reset não sumir). Ganha `replyTo`, nome visível no
+  remetente e tratamento próprio pro 403 de domínio não verificado.
+- Remetente padrão passa a ser `noreply@pdvdepix.app` (decisão do dono) — o
+  domínio que de fato está verificado. O nome visível (`Arena Tech <...>`) fica
+  no código, não na env: `EMAIL_FROM="Nome <a@b>"` depende de quem lê o arquivo
+  remover as aspas (compose, systemd e shell divergem).
+- Falha de envio parou de ser silenciosa: `startRegistration` e `resendCode`
+  lançam erro em vez de mandar a pessoa pra uma tela esperando um código que
+  nunca vem (o `resendCode` chegava a retornar `sent: true` fixo no código);
+  `verifyEmail` avança mas devolve `codeSent: false` pro form avisar (não dá pra
+  voltar: o e-mail já foi verificado e o código, queimado); `dispatchPasswordReset`
+  loga o desfecho real.
+
+Ação pendente do dono (DNS, fora do código):
+- **DMARC do `pdvdepix.app` está com `aspf=s`.** O Return-Path da Resend é
+  `send.pdvdepix.app`, então alinhamento estrito de SPF **nunca** passa — o
+  DMARC hoje se sustenta só no DKIM. Trocar para `aspf=r` dá dois mecanismos
+  alinhados em vez de um.
+- Se um dia voltar a mandar de `@arenatechpi.com.br`: verificar o domínio no
+  Resend antes (hoje ele não tem sequer registro DMARC).
+
 ### 2026-07-27 — Auditoria fechada: guard fiscal, lab order e tipo de serviço (#723, #724)
 Os quatro achados que dependiam de decisão do dono. Restou só o item 24
 (`z.string()` sem `.max()`) e o 26, aberto durante a correção do 11.

@@ -9,6 +9,9 @@ import { hashVerificationCode, VERIFICATION_MAX_ATTEMPTS } from "@/lib/auth/veri
 const findFirst = vi.fn();
 const update = vi.fn();
 const updateMany = vi.fn();
+const create = vi.fn();
+const sendEmail = vi.fn();
+const sendCloudTemplate = vi.fn();
 
 vi.mock("@/server/db", () => ({
   prisma: {
@@ -16,15 +19,22 @@ vi.mock("@/server/db", () => ({
       findFirst: (...a: unknown[]) => findFirst(...a),
       update: (...a: unknown[]) => update(...a),
       updateMany: (...a: unknown[]) => updateMany(...a),
+      create: (...a: unknown[]) => create(...a),
     },
+    $transaction: (ops: unknown[]) => Promise.all(ops),
   },
 }));
 
-// Serviços de envio não são exercidos por verifyCode, mas o módulo os importa.
-vi.mock("@/lib/services/email-service", () => ({ sendEmail: vi.fn() }));
-vi.mock("@/lib/services/whatsapp-cloud-service", () => ({ sendCloudTemplate: vi.fn() }));
+vi.mock("@/lib/services/email-service", () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
+vi.mock("@/lib/services/whatsapp-cloud-service", () => ({
+  sendCloudTemplate: (...a: unknown[]) => sendCloudTemplate(...a),
+}));
 
-import { consumeCode, verifyCode } from "@/server/services/verification.service";
+import {
+  consumeCode,
+  issueVerificationCode,
+  verifyCode,
+} from "@/server/services/verification.service";
 
 const CODE = "123456";
 
@@ -45,8 +55,12 @@ beforeEach(() => {
   findFirst.mockReset();
   update.mockReset();
   updateMany.mockReset();
+  create.mockReset();
+  sendEmail.mockReset();
+  sendCloudTemplate.mockReset();
   update.mockResolvedValue({});
   updateMany.mockResolvedValue({ count: 1 });
+  create.mockResolvedValue({});
 });
 
 describe("verifyCode", () => {
@@ -109,6 +123,41 @@ describe("verifyCode", () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { attempts: { increment: 1 } } }),
     );
+  });
+});
+
+describe("issueVerificationCode", () => {
+  it("reporta sent:false quando o e-mail não sai — quem chama precisa saber", async () => {
+    sendEmail.mockResolvedValue({ success: false, error: "dominio nao verificado" });
+
+    expect(await issueVerificationCode({ target: "a@b.com", channel: "EMAIL" })).toEqual({
+      sent: false,
+    });
+  });
+
+  it("reporta sent:true quando o e-mail sai", async () => {
+    sendEmail.mockResolvedValue({ success: true, messageId: "msg-1" });
+
+    expect(await issueVerificationCode({ target: "a@b.com", channel: "EMAIL" })).toEqual({
+      sent: true,
+    });
+  });
+
+  it("manda o código do remetente NO-KYC, de domínio verificado no Resend", async () => {
+    sendEmail.mockResolvedValue({ success: true });
+
+    await issueVerificationCode({ target: "a@b.com", channel: "EMAIL" });
+
+    const arg = sendEmail.mock.calls[0]![0] as { from: string };
+    expect(arg.from).toContain("@pdvdepix.app");
+  });
+
+  it("reporta sent:false quando o WhatsApp não sai", async () => {
+    sendCloudTemplate.mockResolvedValue({ success: false, error: "token invalido" });
+
+    expect(await issueVerificationCode({ target: "5586999999999", channel: "WHATSAPP" })).toEqual({
+      sent: false,
+    });
   });
 });
 
