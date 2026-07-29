@@ -9,6 +9,7 @@ import {
   DEFAULT_PASSWORD_POLICY,
 } from "@/server/services/password-policy.service";
 import { sendEmail } from "@/lib/services/email-service";
+import { BRAND_NAME } from "@/lib/brand";
 import { compareSync } from "bcryptjs";
 import { logger } from "@/lib/logger";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
@@ -45,10 +46,10 @@ async function dispatchPasswordReset(user: { id: string; email: string; name: st
   const safeName = escapeHtml(user.name);
   const result = await sendEmail({
     to: user.email,
-    subject: "Arena Tech - Redefinir senha",
+    subject: `${BRAND_NAME} - Redefinir senha`,
     html: `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #2ec4b6;">Arena Tech</h2>
+          <h2 style="color: #2ec4b6;">${BRAND_NAME}</h2>
           <p>Ola, ${safeName}!</p>
           <p>Voce solicitou a redefinicao da sua senha. Clique no botao abaixo para criar uma nova senha:</p>
           <div style="text-align: center; margin: 32px 0;">
@@ -59,7 +60,7 @@ async function dispatchPasswordReset(user: { id: string; email: string; name: st
           </div>
           <p style="font-size: 13px; color: #666;">Este link expira em 1 hora. Se voce nao solicitou a redefinicao, ignore este e-mail.</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-          <p style="font-size: 12px; color: #999;">Arena Tech - Sistema de Gestao</p>
+          <p style="font-size: 12px; color: #999;">${BRAND_NAME} - Sistema de Gestao</p>
         </div>
         `,
   });

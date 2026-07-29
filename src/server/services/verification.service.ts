@@ -15,6 +15,7 @@ import type { VerificationChannel } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/lib/services/email-service";
+import { BRAND_NAME } from "@/lib/brand";
 import { sendCloudTemplate } from "@/lib/services/whatsapp-cloud-service";
 import { APPROVED_TEMPLATES } from "@/lib/whatsapp/templates-catalog";
 import {
@@ -140,17 +141,17 @@ export async function consumeCode(target: string, channel: VerificationChannel):
 }
 
 /**
- * Remetente do e-mail de verificação NO-KYC. O onboarding NO-KYC vive em
- * pdvdepix.app, então o código sai dessa marca (não do EMAIL_FROM global
- * Arena Tech). Configurável via NOKYC_EMAIL_FROM. O domínio precisa estar
- * verificado no Resend. Ver ADR 0050.
+ * Remetente do e-mail de verificação NO-KYC. Configurável via NOKYC_EMAIL_FROM;
+ * o domínio precisa estar verificado no Resend. Ver ADR 0050. Hoje aponta pro
+ * mesmo endereço do EMAIL_FROM global — a separação existe pra poder mandar o
+ * código de outro remetente sem mexer nos demais e-mails.
  */
 const NOKYC_EMAIL_FROM = process.env.NOKYC_EMAIL_FROM ?? "noreply@pdvdepix.app";
 
 async function sendByEmail(to: string, code: string): Promise<boolean> {
   const subject = "Seu código de verificação";
   const html = `
-    <p>Olá! Use o código abaixo para confirmar seu e-mail e continuar o cadastro na Arena Tech.</p>
+    <p>Olá! Use o código abaixo para confirmar seu e-mail e continuar o cadastro no ${BRAND_NAME}.</p>
     <p>Seu código de verificação é:</p>
     <p style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</p>
     <p>Ele expira em ${VERIFICATION_CODE_TTL_MINUTES} minutos. Por segurança, não compartilhe este código.</p>

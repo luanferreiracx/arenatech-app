@@ -7,6 +7,7 @@
  * usuário/tenant só são criados na aprovação.
  */
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@prisma/client";
 import { hashSync } from "bcryptjs";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { rateLimitMiddleware } from "@/server/api/middleware/rate-limit";
@@ -32,6 +33,51 @@ function normalizeEmail(value: string): string {
 
 function normalizePhone(value: string): string {
   return value.replace(/\D/g, "");
+}
+
+/** Dados do pré-cadastro escritos a cada tentativa (senha inclusive). */
+type PendingRegistrationData = {
+  tradeName: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone: string;
+  passwordHash: string;
+  emailVerifiedAt: null;
+  phoneVerifiedAt: null;
+};
+
+/**
+ * Reaproveita o pré-cadastro PENDENTE do mesmo e-mail em vez de acumular
+ * duplicatas — refazer o cadastro é o caminho normal de quem não recebeu o
+ * código, e a pessoa pode até escolher outra senha.
+ *
+ * Entre o SELECT e o INSERT existe janela de corrida; quem fecha é o índice
+ * único parcial (migration 20260729130000). Ao perder a corrida, o P2002 traz
+ * de volta pro caminho de reuso: dois cliques simultâneos viram um cadastro só,
+ * não um 500 na cara de quem só clicou duas vezes.
+ */
+async function createOrReusePending(data: PendingRegistrationData) {
+  const pending = await prisma.preRegistration.findFirst({
+    where: { ownerEmail: data.ownerEmail, status: "PENDING" },
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (pending) return prisma.preRegistration.update({ where: { id: pending.id }, data });
+
+  try {
+    return await prisma.preRegistration.create({ data });
+  } catch (error) {
+    const isDuplicate =
+      error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+    if (!isDuplicate) throw error;
+
+    const winner = await prisma.preRegistration.findFirstOrThrow({
+      where: { ownerEmail: data.ownerEmail, status: "PENDING" },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return prisma.preRegistration.update({ where: { id: winner.id }, data });
+  }
 }
 
 /**
@@ -82,16 +128,8 @@ export const noKycRouter = createTRPCRouter({
         });
       }
 
-      // Reaproveita um pré-cadastro pendente do mesmo e-mail (reenvio do fluxo)
-      // em vez de acumular duplicatas; só se ainda não aprovado/rejeitado.
-      const pending = await prisma.preRegistration.findFirst({
-        where: { ownerEmail: email, status: "PENDING" },
-        select: { id: true },
-        orderBy: { createdAt: "desc" },
-      });
-
       const passwordHash = hashSync(input.password, BCRYPT_ROUNDS);
-      const data = {
+      const pr = await createOrReusePending({
         tradeName: input.tradeName?.trim() || "Loja NO-KYC",
         ownerName: input.ownerName,
         ownerEmail: email,
@@ -99,11 +137,7 @@ export const noKycRouter = createTRPCRouter({
         passwordHash,
         emailVerifiedAt: null,
         phoneVerifiedAt: null,
-      };
-
-      const pr = pending
-        ? await prisma.preRegistration.update({ where: { id: pending.id }, data })
-        : await prisma.preRegistration.create({ data });
+      });
 
       await issueCodeOrThrow({ target: email, channel: "EMAIL", preRegistrationId: pr.id });
       logger.info("NO-KYC: pré-cadastro iniciado", { id: pr.id });
