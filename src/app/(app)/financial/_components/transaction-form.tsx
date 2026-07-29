@@ -47,6 +47,9 @@ interface FormValues {
   notes: string;
 }
 
+/** Sentinela do "sem forma de pagamento": Radix proíbe `value=""` em SelectItem. */
+const SEM_FORMA = "__sem_forma__";
+
 export function TransactionForm() {
   const router = useRouter();
   const trpc = useTRPC();
@@ -237,12 +240,21 @@ export function TransactionForm() {
                 name="paymentMethod"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  // FIN-2: o item "Nenhuma" tinha `value=""`, e o Radix LANÇA
+                  // nesse caso (string vazia é reservada para limpar a seleção).
+                  // O ErrorBoundary engolia a exceção e o campo Forma de
+                  // Pagamento simplesmente não renderizava — em todas as
+                  // combinações de papel e viewport. Sentinela resolve, como a
+                  // tela de recebíveis de cartão já fazia.
+                  <Select
+                    value={field.value || SEM_FORMA}
+                    onValueChange={(v) => field.onChange(v === SEM_FORMA ? "" : v)}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Nenhuma</SelectItem>
+                      <SelectItem value={SEM_FORMA}>Nenhuma</SelectItem>
                       {Object.entries(PAYMENT_METHOD_LABELS).map(([key, label]) => (
                         <SelectItem key={key} value={key}>
                           {label}
