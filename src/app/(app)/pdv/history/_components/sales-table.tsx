@@ -159,7 +159,9 @@ export function SalesTable() {
   return (
     <div className="space-y-4">
       {/* Status Tabs */}
-      <div className="flex gap-1.5 p-1 bg-card border border-border rounded-lg w-fit">
+      {/* `w-fit` sem wrap estourava os 390px do celular: as 4 abas somam mais que
+          a viewport e empurravam a página. Rola só a faixa de abas. */}
+      <div className="flex gap-1.5 p-1 bg-card border border-border rounded-lg w-fit max-w-full overflow-x-auto">
         {[
           {
             key: "",
@@ -367,16 +369,25 @@ export function SalesTable() {
                 sales.map((sale) => {
                   const statusStr = sale.status as string;
                   const paymentDetails = sale.paymentDetails as
-                    | Array<{ method: string }>
+                    | Array<{ method: string; methodLabel?: string }>
                     | null;
-                  const mainMethod =
-                    paymentDetails?.[0]?.method ?? "dinheiro";
+                  const mainLeg = paymentDetails?.[0];
+                  const mainMethod = mainLeg?.method ?? "dinheiro";
                   const paymentKey =
                     paymentDetails && paymentDetails.length > 1
                       ? "misto"
                       : mainMethod;
+                  // PDV-3: quando a loja cadastra a própria forma, `method` é o
+                  // ID dela — e o fallback imprimia os 6 primeiros caracteres do
+                  // UUID ("A6B9E6") como se fosse o nome da forma. O rótulo
+                  // legível já vem gravado em `methodLabel`.
                   const tag = PAYMENT_TAGS[paymentKey] ?? {
-                    label: paymentKey.toUpperCase().slice(0, 6),
+                    label: (paymentDetails && paymentDetails.length > 1
+                      ? "MISTO"
+                      : (mainLeg?.methodLabel ?? paymentKey)
+                    )
+                      .toUpperCase()
+                      .slice(0, 8),
                     className: "bg-muted text-muted-foreground",
                   };
 

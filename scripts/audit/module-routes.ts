@@ -26,15 +26,23 @@ export type AuditModule = {
 };
 
 const firstId =
-  <K extends keyof PrismaClient>(model: K, orderByCreatedAtDesc = true) =>
+  <K extends keyof PrismaClient>(
+    model: K,
+    /**
+     * Filtro extra. Sem ele a varredura pega o registro mais recente, que em
+     * geral é um RASCUNHO deixado pelo próprio login da auditoria — e aí a tela
+     * de detalhe recusa por regra de negócio, não por defeito.
+     */
+    where: Record<string, unknown> = {},
+  ) =>
   async (prisma: PrismaClient, tenantId: string): Promise<string | null> => {
     const delegate = prisma[model] as unknown as {
       findFirst(args: unknown): Promise<{ id: string } | null>;
     };
     const row = await delegate.findFirst({
-      where: { tenantId },
+      where: { tenantId, ...where },
       select: { id: true },
-      ...(orderByCreatedAtDesc ? { orderBy: { createdAt: "desc" } } : {}),
+      orderBy: { createdAt: "desc" },
     });
     return row?.id ?? null;
   };
@@ -57,7 +65,7 @@ export const AUDIT_MODULES: AuditModule[] = [
     routes: [
       { path: "/pdv" },
       { path: "/pdv/history" },
-      { path: "/pdv/:id", resolve: firstId("sale") },
+      { path: "/pdv/:id", resolve: firstId("sale", { status: "COMPLETED", deletedAt: null }) },
     ],
   },
   {

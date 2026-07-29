@@ -1,7 +1,7 @@
 # Módulo 2 — PDV / Vendas
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 ## Superfície
 
@@ -96,6 +96,86 @@ migration preenche os **37** históricos que não o têm (dry-run em produção 
 processo. Venda feita depois das 21h BRT caía fora do dia filtrado: **8 vendas,
 R$ 15.406,67**. Quarto lugar do sistema com o mesmo defeito — DRE, relatório de
 NF, fluxo de caixa e caixa já tinham sido corrigidos.
+
+## Achados da passada de frontend
+
+### PDV-5 — o PDV não cabia na tela do celular (P1)
+
+O cabeçalho (`PDV - Ponto de Venda` + badge de caixa + "Consultar Preço" +
+"Nova Venda") era um `flex` sem `flex-wrap`. A 390px isso empurrava a **página
+inteira** para o scroll horizontal: medido **546px de conteúdo numa viewport de
+390**. Na prática, no celular a tela do PDV aparecia cortada — o botão "Nova
+Venda" saía pela direita, a tabela do carrinho ficava truncada e o total sumia.
+
+O mesmo em `/pdv/history`, pela faixa de abas (`w-fit`, sem wrap).
+
+### PDV-6 — `shrink-0` no PageHeader anulava o `flex-wrap` de dentro (P1, transversal)
+
+O componente compartilhado `PageHeader` embrulha as ações em
+`flex flex-wrap items-center gap-2 **shrink-0**`. O `shrink-0` impede o bloco de
+encolher, então ele cresce até caber tudo numa linha — e o `flex-wrap` de dentro
+**nunca dispara**. Medido no detalhe da venda: o bloco de 7 botões (Recibo,
+Garantia, Entrega, Enviar recibo, Enviar termo, Cancelar, Estornar) ocupava
+**1063px** numa viewport de 390.
+
+É a regra que a skill de React já documenta: `flex-wrap`/`truncate` em filho de
+flex exige `min-w-0` na cadeia de ancestrais. Trocado `shrink-0` por `min-w-0` —
+**vale para toda tela do app que tenha várias ações no cabeçalho**, não só o PDV.
+
+### PDV-3, segunda superfície — o histórico também mostrava pedaço de UUID (P2)
+
+A passada de backend corrigiu o **recibo**. O navegador mostrou o mesmo defeito
+na **tabela do histórico**: a coluna "Pagamento" fazia
+`paymentKey.toUpperCase().slice(0, 6)` no fallback e imprimia `A6B9E6` como se
+fosse o nome da forma. Corrigido para preferir o `methodLabel`; verificado no
+navegador (o badge passou a mostrar `PIX`).
+
+> Vale registrar o método: a leitura de código encontrou **uma** superfície do
+> defeito; o navegador encontrou a **segunda**. É exatamente a lacuna que esta
+> passada existe para cobrir.
+
+## Reconciliação tela × banco
+
+Conferido no navegador contra a mesma consulta no banco:
+
+| Tela | Banco | Bate? |
+|---|---|---|
+| 2457 Finalizadas | 2457 | ✅ |
+| 18 Estornadas | 18 | ✅ |
+| 284 vendas no mês | 284 | ✅ |
+
+**Observação de qualidade de dado (não é defeito do código):** há 9 vendas
+concluídas, não-OS, **sem nenhum item** — todas de fev/mar 2026, ou seja,
+anteriores à migração do Laravel. As 36 restantes sem item são pagamentos de OS,
+que por desenho não têm `sale_items`. Nenhuma foi produzida pelo código atual.
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ✅ (herda a correção transversal do Módulo 1) |
+| 2. Carregando / disabled | ✅ `payment-dialog` tem guard de reentrância — decisão a preservar |
+| 3. Invalidação após mutação | ✅ badge de caixa revalida (corrigido em auditoria anterior) |
+| 4. Estado vazio | ✅ |
+| 5. Permissão | ✅ custo/margem removidos para não-admin no `getById` |
+| 6. Formatação pt-BR | ✅ `MoneyInput` em todo campo de dinheiro |
+| 7. Mobile 390px | ✅ corrigido (PDV-5, PDV-6) — 12 combinações limpas |
+| 8. Acessibilidade | ✅ sem `aria-hidden` indevido; foco preservado |
+| 9. Reconciliação | ✅ 3 de 3 números batem |
+| 10. Console e rede | ✅ 0 erro, 0 4xx/5xx não tratado |
+| 11. Fluxo incompleto | ⚠️ `sale.byPublicLink` segue sem chamador — a página pública agora aplica as mesmas regras; unificar as duas fica como dívida registrada |
+
+## Nota de método — um falso P0 que não virou achado
+
+A primeira varredura acusou `/pdv/[id]` **quebrada** nas 4 combinações, com
+"Venda não encontrada" e o cliente tRPC recebendo HTML (`Unexpected token '<'`).
+Parecia grave. Era **artefato do próprio ambiente**: eu havia apagado
+`.next/dev/types` com o servidor de desenvolvimento no ar, e o Next passou a
+responder 404 em rota de API. Com `.next` limpo e o servidor reiniciado, 0
+quebradas.
+
+Registrado porque a regra vale para o programa inteiro: **achado de varredura é
+hipótese até reproduzir em ambiente limpo.**
 
 ## Checklist de backend
 
