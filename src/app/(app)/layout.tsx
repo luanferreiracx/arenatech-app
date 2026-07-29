@@ -8,6 +8,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { IdleTimeout } from "@/components/layout/idle-timeout";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
+import { isTenantAdmin } from "@/lib/auth/roles";
 import { withTenant } from "@/server/db";
 
 /**
@@ -42,6 +43,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   );
 
   const allowedModules = activeTenant?.modules ?? [];
+  // O menu não tinha dimensão de PAPEL: telas de gerência apareciam para o
+  // operador, que clicava e tomava 403 com meia tela. Quem autoriza segue sendo
+  // a procedure; isto é só não oferecer o caminho que vai dar em negativa.
+  const isTenantAdminUser = isTenantAdmin(session, activeTenant?.id ?? "");
   const tenantLogoUrl = await getTenantLogoUrl(activeTenant?.id);
 
   return (
@@ -57,7 +62,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         activeTenantId: session.activeTenantId,
       }}
     >
-      <CommandPaletteProvider tenantSlug={activeTenant?.slug} allowedModules={allowedModules}>
+      <CommandPaletteProvider
+        tenantSlug={activeTenant?.slug}
+        allowedModules={allowedModules}
+        isTenantAdmin={isTenantAdminUser}
+      >
         {/* Logout por inatividade (opt-in pelo tenant via Config -> Seguranca). */}
         <IdleTimeout />
         <div className="flex min-h-screen">
@@ -69,6 +78,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             tenantSlug={activeTenant?.slug}
             tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
+            isTenantAdmin={isTenantAdminUser}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 
@@ -80,6 +90,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             tenantSlug={activeTenant?.slug}
             tenantLogoUrl={tenantLogoUrl}
             allowedModules={allowedModules}
+            isTenantAdmin={isTenantAdminUser}
             isSuperAdmin={session.user.isSuperAdmin}
           />
 

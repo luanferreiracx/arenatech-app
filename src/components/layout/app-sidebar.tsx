@@ -30,10 +30,11 @@ interface AppSidebarProps {
   tenantSlug?: string;
   tenantLogoUrl?: string | null;
   allowedModules?: string[];
+  isTenantAdmin?: boolean;
   isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isSuperAdmin }: AppSidebarProps) {
+export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tenantLogoUrl, allowedModules, isTenantAdmin, isSuperAdmin }: AppSidebarProps) {
   const { isCollapsed, toggle } = useSidebar();
   const pathname = usePathname();
 
@@ -78,7 +79,7 @@ export function AppSidebar({ userName, multiTenant, tenantName, tenantSlug, tena
           {appNavGroups.map((group, gi) => {
             const isFirst = gi === 0;
             const visibleItems = group.items.filter((item) =>
-              isNavItemVisible(item, { tenantSlug, allowedModules }),
+              isNavItemVisible(item, { tenantSlug, allowedModules, isTenantAdmin }),
             );
             if (visibleItems.length === 0) return null;
             return (

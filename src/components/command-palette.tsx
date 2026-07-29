@@ -41,10 +41,12 @@ export function CommandPaletteProvider({
   children,
   tenantSlug,
   allowedModules,
+  isTenantAdmin,
 }: {
   children: React.ReactNode;
   tenantSlug?: string;
   allowedModules?: string[];
+  isTenantAdmin?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -62,7 +64,13 @@ export function CommandPaletteProvider({
   return (
     <CommandPaletteContext.Provider value={{ open, setOpen }}>
       {children}
-      <CommandPaletteDialog open={open} setOpen={setOpen} tenantSlug={tenantSlug} allowedModules={allowedModules} />
+      <CommandPaletteDialog
+        open={open}
+        setOpen={setOpen}
+        tenantSlug={tenantSlug}
+        allowedModules={allowedModules}
+        isTenantAdmin={isTenantAdmin}
+      />
     </CommandPaletteContext.Provider>
   );
 }
@@ -72,11 +80,13 @@ function CommandPaletteDialog({
   setOpen,
   tenantSlug,
   allowedModules,
+  isTenantAdmin,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   tenantSlug?: string;
   allowedModules?: string[];
+  isTenantAdmin?: boolean;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -220,7 +230,7 @@ function CommandPaletteDialog({
 
         {appNavGroups.map((group, gi) => {
           const visibleItems = group.items.filter((it) =>
-            isNavItemVisible(it, { tenantSlug, allowedModules }),
+            isNavItemVisible(it, { tenantSlug, allowedModules, isTenantAdmin }),
           );
           if (visibleItems.length === 0) return null;
           return (

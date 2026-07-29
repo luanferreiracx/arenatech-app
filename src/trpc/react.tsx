@@ -23,6 +23,16 @@ function getBaseUrl() {
   return `http://localhost:${process.env.PORT ?? 3000}`;
 }
 
+/**
+ * Status HTTP de um erro do tRPC, quando houver. O erro chega como
+ * `TRPCClientError`, que carrega `data.httpStatus`; qualquer outra coisa
+ * (falha de rede, abort) não tem status e é tratada como transitória.
+ */
+function httpStatusOf(error: unknown): number | null {
+  const data = (error as { data?: { httpStatus?: unknown } } | null)?.data;
+  return typeof data?.httpStatus === "number" ? data.httpStatus : null;
+}
+
 export function TRPCReactProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -34,15 +44,26 @@ export function TRPCReactProvider({ children }: { children: React.ReactNode }) {
         // crashar a página inteira). (T5)
         queryCache: new QueryCache({
           onError: (error, query) => {
-            Sentry.captureException(error, {
-              tags: { source: "react-query" },
-              extra: { queryKey: query.queryKey },
-            });
-            toast.error("Falha ao carregar dados. Tente novamente.", {
-              // id estável = colapsa múltiplas falhas simultâneas num só toast.
-              id: "query-error",
-              description: error instanceof Error ? error.message : undefined,
-            });
+            const status = httpStatusOf(error);
+            const isBusinessAnswer = status !== null && status >= 400 && status < 500;
+            // 4xx é resposta esperada do negócio (sem permissão, não existe) —
+            // mandar isso pro Sentry afoga o sinal do que é defeito de verdade.
+            if (!isBusinessAnswer) {
+              Sentry.captureException(error, {
+                tags: { source: "react-query" },
+                extra: { queryKey: query.queryKey },
+              });
+            }
+            toast.error(
+              // "Tente novamente" numa negativa de permissão é conselho falso:
+              // tentar de novo dá o mesmo 403.
+              isBusinessAnswer ? "Nao foi possivel carregar" : "Falha ao carregar dados. Tente novamente.",
+              {
+                // id estável = colapsa múltiplas falhas simultâneas num só toast.
+                id: "query-error",
+                description: error instanceof Error ? error.message : undefined,
+              },
+            );
           },
         }),
         defaultOptions: {
@@ -51,6 +72,17 @@ export function TRPCReactProvider({ children }: { children: React.ReactNode }) {
             // Mantém os dados anteriores enquanto a próxima página/filtro carrega
             // — listas paginadas não piscam pra skeleton a cada interação.
             placeholderData: keepPreviousData,
+            // Erro 4xx é resposta do NEGÓCIO, não falha de rede: "nenhum caixa
+            // aberto" (404) e "sem permissão" (403) não mudam se perguntarmos de
+            // novo. Com o retry padrão (3x com backoff), a tela ficava ~7s em
+            // esqueleto antes de contar a verdade — foi assim que a varredura de
+            // navegador achou /cashier/close e /cashier/reviews parecendo
+            // travados. Retry fica só para o que pode ser transitório.
+            retry: (failureCount, error) => {
+              const status = httpStatusOf(error);
+              if (status !== null && status >= 400 && status < 500) return false;
+              return failureCount < 2;
+            },
           },
         },
       }),

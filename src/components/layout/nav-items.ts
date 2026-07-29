@@ -46,6 +46,13 @@ export interface NavItem {
   /** Quando definido, item só aparece para tenants cujo slug corresponde. */
   requiresTenantSlug?: string;
   /**
+   * Item de gerência: some do menu para operador. O menu não tinha dimensão de
+   * PAPEL nenhuma — telas admin-only apareciam para todo mundo, e o operador que
+   * clicasse tomava 403 com um toast genérico e uma tela pela metade. Isto é
+   * conveniência de navegação; quem autoriza de verdade é a procedure.
+   */
+  adminOnly?: boolean;
+  /**
    * Módulo ao qual o item pertence (gating por plano). Itens sem `module`
    * são sempre exibidos (infra mínima: painel, configurações).
    */
@@ -104,7 +111,7 @@ export const appNavGroups: NavGroup[] = [
     title: "Caixa",
     items: [
       { label: "Caixa", href: "/cashier", icon: Banknote, module: "cashier" },
-      { label: "Conferencias", href: "/cashier/reviews", icon: CheckSquare, module: "cashier" },
+      { label: "Conferencias", href: "/cashier/reviews", icon: CheckSquare, module: "cashier", adminOnly: true },
     ],
   },
   {
@@ -196,13 +203,21 @@ export const appNavItems: NavItem[] = appNavGroups.flatMap((g) => g.items);
  * Regra única compartilhada por sidebar, mobile-sidebar e command-palette:
  * - respeita `requiresTenantSlug` (gating por slug, ex.: iphone-hunter);
  * - respeita `module` (gating por plano): item sem `module` é sempre exibido;
- *   item com `module` só aparece se o módulo está liberado para o tenant.
+ *   item com `module` só aparece se o módulo está liberado para o tenant;
+ * - respeita `adminOnly`: tela de gerência some para operador.
  */
 export function isNavItemVisible(
   item: NavItem,
-  ctx: { tenantSlug?: string | null; allowedModules?: readonly string[] },
+  ctx: {
+    tenantSlug?: string | null;
+    allowedModules?: readonly string[];
+    isTenantAdmin?: boolean;
+  },
 ): boolean {
   if (item.requiresTenantSlug && item.requiresTenantSlug !== ctx.tenantSlug) {
+    return false;
+  }
+  if (item.adminOnly && !ctx.isTenantAdmin) {
     return false;
   }
   if (item.module) {
