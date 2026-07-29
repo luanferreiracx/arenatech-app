@@ -186,15 +186,17 @@ docker exec -i arenatech-postgres-prod psql -U arenatech arenatech \
   < /home/deployer/backups/arenatech_20260508.sql
 ```
 
-### PostgreSQL — backup automatico (crontab)
+### PostgreSQL — backup automatico
 
-```bash
-# Adicionar ao crontab do deployer:
-# crontab -e
-0 3 * * * docker exec arenatech-postgres-prod pg_dump -U arenatech arenatech | gzip > /home/deployer/backups/arenatech_$(date +\%Y\%m\%d).sql.gz
-# Manter ultimos 30 dias:
-0 4 * * * find /home/deployer/backups -name "arenatech_*.sql.gz" -mtime +30 -delete
-```
+Instalado como **systemd timer** (`arenatech-backup-db.timer`, 02:30 BRT), como
+todo o resto. **Ver [operations/backup.md](./operations/backup.md)** para o
+funcionamento, a verificacao e o pull para fora da VPS.
+
+> Esta secao dizia, ate 2026-07-29, para "adicionar ao crontab do deployer" um
+> `pg_dump` diario. **Esse cron nunca foi adicionado** — producao rodou meses sem
+> um unico backup. A instrucao ficou aqui como se fosse configuracao existente.
+> Se voce esta lendo um passo de operacao neste RUNBOOK, **verifique na VPS antes
+> de acreditar**.
 
 ### MinIO — backup de objetos
 

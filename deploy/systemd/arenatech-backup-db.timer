@@ -1,0 +1,15 @@
+[Unit]
+Description=Dispara o backup do banco diariamente as 02:30 BRT
+
+[Timer]
+# 02:30: antes da leva das 03:00 (mark-overdue, expire-rewards, close-abandoned
+# -cash-sessions), para o dump retratar o dia fechado e nao um estado no meio
+# das rotinas noturnas.
+OnCalendar=02:30
+AccuracySec=1m
+# Persistent: se a VPS ficou fora no horario, roda assim que voltar. O job e
+# idempotente (cada execucao gera um arquivo novo e poda os antigos).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

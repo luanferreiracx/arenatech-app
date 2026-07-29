@@ -19,6 +19,7 @@ Todos como **systemd timer** (`/etc/systemd/system/arenatech-<job>.{service,time
 | `release-stale-reservations` | idem | a cada 10min | Libera StockItem RESERVED preso |
 | `reconcile-eulen-extract` | idem | hora:07 | Reconcilia extrato Eulen |
 | `resolve-stale-conversations` | idem | hora cheia | Encerra conversas paradas |
+| `backup-db` | — (roda `pg_dump`, não HTTP) | 02:30 | Backup do banco + retenção de 14 — ver [backup.md](./backup.md) |
 
 **Ordem 03:00 → 05:00 é intencional:** `mark-overdue` roda antes de
 `generate-recurring-expenses` (a conta nova nasce PENDING, não é marcada vencida no
@@ -30,7 +31,7 @@ mesmo dia).
 > em papel e a tabela crescendo. Antes de confiar na linha, rode:
 >
 > ```bash
-> systemctl list-timers --all | grep arenatech   # devem ser 12
+> systemctl list-timers --all | grep arenatech   # devem ser 13
 > ```
 >
 > `purge-webhook-events` usa `-m 300` em vez dos 60s dos demais: a purga apaga

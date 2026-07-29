@@ -73,7 +73,7 @@ no repo.
 
 ## Achados fora de módulo
 
-### P0-INFRA-1 — Produção não tem backup de banco (2026-07-29)
+### P0-INFRA-1 — Produção não tinha backup de banco (2026-07-29) — ✅ metade 1 resolvida
 
 O [RUNBOOK](../RUNBOOK.md) documenta um `pg_dump` noturno em cron
 (`0 3 * * *` → `/home/deployer/backups`). **Esse cron não existe.** Verificado na
@@ -87,9 +87,12 @@ Ou seja: o Postgres de produção — caixa, financeiro, fiscal, saldos DePix �
 `purge-webhook-events`, que a auditoria de 27/07 achou listado como instalado e
 inexistente na VPS: **doc de operação não se verifica sozinho.**
 
-O dump que este programa baixou para a auditoria
-(`/tmp/arena-audit/prod_*.sql.gz`, 11 MB) é hoje a **única** cópia existente — e
-está em `/tmp`, que some no reboot.
+**Corrigido no mesmo dia**, com decisão do dono: `arenatech-backup-db.timer`
+instalado e validado na VPS (02:30 BRT, retenção de 14, piso de tamanho +
+`gzip -t` para não gravar dump truncado). Primeira execução manual: 12 MB, OK.
+Ver [docs/operations/backup.md](../operations/backup.md).
 
-**Pendente de decisão do dono:** instalar o timer de backup na VPS (mudança de
-infra em produção, com `sudo`) e escolher onde o dump fica (VPS + cópia externa).
+**Pendente do dono (metade 2):** o cron de *pull* no PC com WSL2 — a cópia na
+própria VPS protege contra perda de dados, não contra perda do servidor. O
+script e o passo a passo estão no doc de backup; é copiar e colar naquela
+máquina.
