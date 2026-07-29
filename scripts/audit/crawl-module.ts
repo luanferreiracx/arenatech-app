@@ -79,7 +79,7 @@ type RouteFinding = {
   httpStatus: number | null;
   consoleErrors: string[];
   pageErrors: string[];
-  failedRequests: Array<{ url: string; status: number }>;
+  failedRequests: Array<{ url: string; status: number; body?: string }>;
   horizontalOverflow: boolean;
   emptyMain: boolean;
   screenshot: string | null;
@@ -111,12 +111,19 @@ async function login(page: Page, role: RoleKey): Promise<void> {
   await cpfInput.fill(cpf);
   await page.getByLabel("Senha").fill(password);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 30_000 });
+  // O login sai por Server Action + navegação do router. `waitForURL` espera o
+  // evento `load`, que não dispara nessa navegação suave — o wait estourava com
+  // a sessão já criada. Basta observar a URL mudar.
+  await page.waitForFunction(() => !location.pathname.startsWith("/login"), undefined, {
+    timeout: 45_000,
+  });
 
   // Usuário multi-tenant cai em /select-tenant; escolhe o tenant da auditoria.
   if (page.url().includes("/select-tenant")) {
     await page.getByRole("button").first().click();
-    await page.waitForURL((url) => !url.pathname.includes("/select-tenant"), { timeout: 30_000 });
+    await page.waitForFunction(() => !location.pathname.includes("/select-tenant"), undefined, {
+      timeout: 30_000,
+    });
   }
 }
 
@@ -145,7 +152,7 @@ async function visit(
 ): Promise<RouteFinding> {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
-  const failedRequests: Array<{ url: string; status: number }> = [];
+  const failedRequests: Array<{ url: string; status: number; body?: string }> = [];
 
   const onConsole = (msg: { type(): string; text(): string }) => {
     if (msg.type() !== "error") return;
@@ -154,10 +161,26 @@ async function visit(
     consoleErrors.push(text);
   };
   const onPageError = (err: Error) => pageErrors.push(err.message);
-  const onResponse = (res: { status(): number; url(): string }) => {
+  const onResponse = (res: {
+    status(): number;
+    url(): string;
+    text(): Promise<string>;
+  }) => {
     if (res.status() < 400) return;
     if (IGNORED_REQUESTS.some((re) => re.test(res.url()))) return;
-    failedRequests.push({ url: res.url(), status: res.status() });
+    const entry: { url: string; status: number; body?: string } = {
+      url: res.url(),
+      status: res.status(),
+    };
+    failedRequests.push(entry);
+    // Sem o corpo, um 404 de batch tRPC não diz QUAL procedure falhou nem por
+    // quê — foi o que travou a leitura da primeira varredura do PDV.
+    res
+      .text()
+      .then((body) => {
+        entry.body = body.slice(0, 400);
+      })
+      .catch(() => undefined);
   };
 
   page.on("console", onConsole);
@@ -237,6 +260,7 @@ async function runPass(
   viewport: ViewportKey,
   urls: Array<{ route: AuditRoute; url: string | null }>,
   outDir: string,
+  warmup: boolean,
 ): Promise<PassReport> {
   const context: BrowserContext = await browser.newContext({
     viewport: VIEWPORTS[viewport],
@@ -245,6 +269,18 @@ async function runPass(
   });
   const page = await context.newPage();
   await login(page, role);
+
+  // Aquecimento: o dev server compila rota e handler tRPC sob demanda. Na
+  // primeira visita isso vira 404 em batch e `<main>` que não aparece em 20s —
+  // achados fantasmas que custaram meia hora de investigação na primeira
+  // varredura do PDV. Visita tudo uma vez e descarta.
+  if (warmup) {
+    for (const { url } of urls) {
+      if (!url) continue;
+      await page.goto(`${BASE_URL}${url}`, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+      await page.waitForTimeout(400);
+    }
+  }
 
   const routes: RouteFinding[] = [];
   for (const { route, url } of urls) {
@@ -272,7 +308,10 @@ async function runPass(
     console.log(`  [${mark}] ${url}`);
     for (const err of finding.pageErrors) console.log(`         pageerror: ${err}`);
     for (const err of finding.consoleErrors) console.log(`         console:   ${err}`);
-    for (const req of finding.failedRequests) console.log(`         ${req.status}: ${req.url}`);
+    for (const req of finding.failedRequests) {
+      console.log(`         ${req.status}: ${req.url.slice(0, 100)}`);
+      if (req.body) console.log(`           corpo: ${req.body.slice(0, 220)}`);
+    }
     if (finding.emptyMain) console.log("         <main> praticamente vazio");
     if (finding.horizontalOverflow) console.log("         overflow horizontal");
     if (finding.note) console.log(`         nota: ${finding.note}`);
@@ -316,7 +355,7 @@ async function main(): Promise<void> {
     for (const r of roles) {
       for (const v of viewports) {
         console.log(`\n=== ${auditModule.label} · ${r} · ${v} ===`);
-        passes.push(await runPass(browser, r, v, urls, outDir));
+        passes.push(await runPass(browser, r, v, urls, outDir, passes.length === 0));
       }
     }
   } finally {

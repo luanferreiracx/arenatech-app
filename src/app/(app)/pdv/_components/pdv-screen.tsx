@@ -788,11 +788,14 @@ export function PdvScreen() {
       {/* -- Left: Products + Cart -- */}
       <div className="flex flex-col min-h-0">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-bold text-foreground">
+        {/* No celular o título e as 3 ações não cabem em 390px. Sem `flex-wrap`
+            a linha empurrava a página inteira para além da viewport (scroll
+            horizontal em toda a tela do PDV, medido em 546px de largura). */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h1 className="min-w-0 truncate text-xl font-bold text-foreground">
             {isOSPayment ? "PDV - Recebimento de OS" : "PDV - Ponto de Venda"}
           </h1>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             {!isOSPayment && cashierStatusQuery.data && (
               cashierStatusQuery.data.isOpen ? (
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-success/15 px-2.5 py-1.5 text-xs font-semibold text-success">
