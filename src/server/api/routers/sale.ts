@@ -16,6 +16,11 @@ import {
   refundNeedsOpenCashSession,
   writeCashMovement,
 } from "@/server/services/cash-session.service";
+import {
+  canonicalMethodToken,
+  isCashMethodToken,
+  looksLikePaymentMethodId,
+} from "@/lib/payments/cash-method";
 import { installmentBelowMinimum } from "@/lib/receiving-rules";
 import {
   claimDraftSaleForFinalize,
@@ -108,12 +113,38 @@ async function enforceSaleDiscountCap(
  * exigencia de caixa aberto.
  */
 function isCashMethod(method: string): boolean {
-  const norm = method
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .trim()
-    .toLowerCase();
-  return norm === "dinheiro" || norm === "cash" || norm === "money" || norm === "especie";
+  return isCashMethodToken(method);
+}
+
+/**
+ * Token canônico de cada pagamento, alinhado por índice com `payments`.
+ *
+ * O PDV manda `PaymentMethod.code ?? PaymentMethod.id`; quando a forma não tem
+ * `code` (o padrão de tenant novo), o que chega é um UUID, e o UUID não casa
+ * com nenhuma grafia de "dinheiro" — a venda em dinheiro deixava de exigir
+ * caixa aberto e o troco era recusado.
+ *
+ * Resolve só para DECIDIR. O que é persistido em `sale.paymentDetails` segue
+ * sendo o valor que o PDV mandou: quem traduz o id para nome legível é o
+ * `enrichPaymentDetailsLabels`, e mudar o dado gravado quebraria esse contrato.
+ * Uma query por venda, sem N+1.
+ */
+async function resolvePaymentTokens(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  payments: Array<{ method: string }>,
+): Promise<string[]> {
+  const ids = [...new Set(payments.map((p) => p.method).filter(looksLikePaymentMethodId))];
+  if (ids.length === 0) return payments.map((p) => p.method);
+  const rows = await tx.paymentMethod.findMany({
+    where: { id: { in: ids }, tenantId },
+    select: { id: true, code: true, type: true },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return payments.map((p) => {
+    const row = byId.get(p.method);
+    return row ? canonicalMethodToken(row) : p.method;
+  });
 }
 
 function isManualDepixPayment(payment: { depixManual?: boolean }): boolean {
@@ -1206,6 +1237,14 @@ export const saleRouter = createTRPCRouter({
         const refundDueCents = decimalToCents(sale.refundDueAmount);
         const amountDueAfterUpgradeCents = totalCents;
         const payments = input.payments ?? [];
+        // CX-1 (finalização 2026-07-29): o PDV manda `PaymentMethod.code ?? id`,
+        // e a forma "Dinheiro" nasce SEM code no cadastro padrão — então chega um
+        // UUID. `isCashMethod` não resolvia id: a venda em dinheiro não exigia
+        // caixa aberto e o troco era recusado ("não há dinheiro recebido").
+        // Resolve uma vez, aqui, e as decisões de dinheiro passam a olhar o
+        // token certo (o dado gravado segue sendo o que o PDV mandou).
+        const paymentTokens = await resolvePaymentTokens(tx, ctx.tenantId, payments);
+        const isCashPaymentAt = (index: number) => isCashMethod(paymentTokens[index] ?? "");
         const paidCents = payments.reduce((sum, p) => sum + p.amount, 0);
 
         // D6 (quick-wins): regras de recebimento configuradas em Config -> Recebimento,
@@ -1484,7 +1523,7 @@ export const saleRouter = createTRPCRouter({
         // (não há troco de pagamento em cartão/PIX). Sem isto, um overpay em cartão
         // gravaria um changeAmount fantasma (saída de caixa não lastreada).
         const cashPaidCents = payments
-          .filter((p) => isCashMethod(p.method))
+          .filter((_p, i) => isCashPaymentAt(i))
           .reduce((sum, p) => sum + p.amount, 0);
         if (rawChangeCents > cashPaidCents) {
           throw new TRPCError({
@@ -1622,7 +1661,7 @@ export const saleRouter = createTRPCRouter({
 
         // Paridade Laravel PdvService::registrarVenda — entrada/saida em DINHEIRO
         // exige caixa aberto. Sem isso, valor entraria fantasma no financeiro.
-        const hasCashPayment = payments.some((p) => isCashMethod(p.method));
+        const hasCashPayment = payments.some((_p, i) => isCashPaymentAt(i));
         const downgradeInCash = refundDueCents > 0 && input.refundDueMethod === "cash";
         if ((hasCashPayment || downgradeInCash) && !openSession) {
           throw new TRPCError({

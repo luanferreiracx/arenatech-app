@@ -1,6 +1,11 @@
 import type { PrismaClient } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { TRPCError } from "@trpc/server"
+import {
+  affectsCashDrawer,
+  canonicalMethodToken,
+  looksLikePaymentMethodId,
+} from "@/lib/payments/cash-method"
 
 /** Decimal (reais) → centavos inteiros. */
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
@@ -63,21 +68,14 @@ export function signedDepositCents(amountCents: number, nature: string): number 
 }
 
 /**
- * Formas de pagamento que movimentam a GAVETA física de dinheiro. Só estas
- * entram no caixa esperado: dinheiro (venda/sangria/suprimento em espécie) e
- * ajuste_manual (correção deliberada da gaveta pelo gerente). Cartão/PIX/DePix
- * não passam pela gaveta — uma despesa paga no cartão NÃO reduz o dinheiro
- * contado no fechamento.
- */
-const CASH_DRAWER_METHODS = new Set(["dinheiro", "ajuste_manual"])
-
-/**
- * A forma de pagamento movimenta a GAVETA física? Fonte única (CASH_DRAWER_METHODS).
+ * A forma de pagamento movimenta a GAVETA física? Fonte única em
+ * `@/lib/payments/cash-method` — compartilhada com o PDV, que antes tinha a
+ * própria definição de "é dinheiro?" e discordava desta (ver o comentário lá).
  * Usada por guards de estorno para exigir caixa aberto SÓ quando o estorno vai
- * gerar saída em espécie (dinheiro) — PIX/cartão/DePix não passam pela gaveta.
+ * gerar saída em espécie — PIX/cartão/DePix não passam pela gaveta.
  */
 export function paymentMethodAffectsCashDrawer(method: string | null | undefined): boolean {
-  return !!method && CASH_DRAWER_METHODS.has(method)
+  return affectsCashDrawer(method)
 }
 
 export interface CashDrawerMovement {
@@ -107,7 +105,7 @@ export function computeCashDrawerCents(
   let drawer = openingCents
   for (const m of movements) {
     if (m.paymentMethod === null) continue // abertura já contabilizada
-    if (!CASH_DRAWER_METHODS.has(m.paymentMethod)) continue // não é dinheiro
+    if (!affectsCashDrawer(m.paymentMethod)) continue // não é dinheiro
     drawer += m.nature === "OUTCOME" ? -m.amountCents : m.amountCents
   }
   return drawer
@@ -146,11 +144,48 @@ export interface WriteCashMovementInput {
 }
 
 /**
+ * Resolve a forma de pagamento para um token canônico antes de persistir.
+ *
+ * O PDV manda `PaymentMethod.code ?? PaymentMethod.id`, e a forma "Dinheiro"
+ * nasce sem `code` no cadastro padrão — então o que chega é o UUID. Gravar o
+ * UUID cru tem dois custos: a conta da gaveta não reconhece o dinheiro
+ * (`affectsCashDrawer` compara token, não id) e a tela de fechamento mostra
+ * "a6b9e67e-…" como se fosse o nome da forma.
+ *
+ * Resolve o id → `code` do tenant, ou o token derivado do tipo. Forma
+ * inexistente (id inválido) mantém o valor original: normalizar é melhoria de
+ * fidelidade, não motivo para derrubar uma venda.
+ */
+export async function resolveMethodToken(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  method: string | null | undefined,
+  paymentMethodId: string | null | undefined,
+): Promise<{ paymentMethod: string | null; paymentMethodId: string | null }> {
+  const original = method ?? null
+  if (!original || !looksLikePaymentMethodId(original)) {
+    return { paymentMethod: original, paymentMethodId: paymentMethodId ?? null }
+  }
+  const row = await tx.paymentMethod.findFirst({
+    where: { id: original, tenantId },
+    select: { id: true, code: true, type: true },
+  })
+  if (!row) return { paymentMethod: original, paymentMethodId: paymentMethodId ?? null }
+  return {
+    paymentMethod: canonicalMethodToken(row),
+    // O vínculo com a forma cadastrada não pode se perder na normalização — é
+    // ele que liga o movimento à taxa da adquirente nos relatórios.
+    paymentMethodId: paymentMethodId ?? row.id,
+  }
+}
+
+/**
  * Escritor ÚNICO de CashMovement. Antes o shape era remontado à mão em ~14
  * lugares (sale/cashier/financial/stock/service-order/operation/provider-
  * commission), e foi assim que um DEPOSIT ganhou nature OUTCOME por engano
  * (bug do fechamento, #369). Aqui o invariante type↔nature é validado uma vez,
- * e a conversão centavos→Decimal fica num lugar só.
+ * a forma de pagamento é canonizada e a conversão centavos→Decimal fica num
+ * lugar só.
  *
  * @throws {TRPCError} INTERNAL_SERVER_ERROR se o par type/nature for inválido.
  */
@@ -165,6 +200,12 @@ export async function writeCashMovement(
       message: `CashMovement inválido: ${input.type} exige nature=${required}, recebeu ${input.nature}.`,
     })
   }
+  const resolved = await resolveMethodToken(
+    tx,
+    input.tenantId,
+    input.paymentMethod,
+    input.paymentMethodId,
+  )
   return tx.cashMovement.create({
     data: {
       tenantId: input.tenantId,
@@ -172,8 +213,8 @@ export async function writeCashMovement(
       type: input.type,
       nature: input.nature,
       amount: new Prisma.Decimal(input.amountCents).div(100),
-      paymentMethod: input.paymentMethod ?? null,
-      paymentMethodId: input.paymentMethodId ?? null,
+      paymentMethod: resolved.paymentMethod,
+      paymentMethodId: resolved.paymentMethodId,
       description: input.description,
       referenceType: input.referenceType ?? null,
       referenceId: input.referenceId ?? null,

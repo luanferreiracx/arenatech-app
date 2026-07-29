@@ -23,7 +23,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | # | Módulo | Backend | Frontend | E2E | Doc |
 |---|--------|---------|----------|-----|-----|
 | 0 | Preparo (infra, cópia de produção, harness) | ✅ | — | — | este arquivo |
-| 1 | Caixa | ⏳ | — | tem | [01-caixa.md](./01-caixa.md) |
+| 1 | Caixa | ✅ | ⏳ | tem | [01-caixa.md](./01-caixa.md) |
 | 2 | PDV / Vendas | — | — | tem | — |
 | 3 | Estoque / Compras / Fornecedores | — | — | tem | — |
 | 4 | Ordens de Serviço / Serviços / Operação | — | — | tem | — |

@@ -111,7 +111,7 @@ export default function CashierDetailPage({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              onClick={() => window.open(`/api/cashier/report?id=${id}`, "_blank")}
+              onClick={() => window.open(`/api/cashier/${id}/relatorio`, "_blank")}
             >
               <Printer className="mr-2 h-4 w-4" />
               Imprimir PDF
