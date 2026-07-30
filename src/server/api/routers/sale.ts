@@ -1702,12 +1702,16 @@ export const saleRouter = createTRPCRouter({
           }
         }
 
-        // Determine payment method string
+        // Determine payment method string.
+        // FIN-3: usava `payments[0].method` cru, que é o ID quando a loja cadastra
+        // a própria forma — e esse valor vai para `financialTransaction`,
+        // `serviceOrder.paymentMethod` e a coluna "Forma Pgto" da tela financeira,
+        // que imprimia o UUID inteiro. `paymentTokens` já traz o token canônico.
         let paymentMethod: string;
         if (refundDueCents > 0) {
           paymentMethod = `downgrade:${input.refundDueMethod}`;
         } else if (payments.length === 1) {
-          paymentMethod = payments[0]!.method;
+          paymentMethod = paymentTokens[0] ?? payments[0]!.method;
         } else {
           paymentMethod = "misto";
         }

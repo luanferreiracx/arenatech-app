@@ -1,7 +1,7 @@
 # Módulo 5 — Financeiro
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 ## Superfície
 
@@ -76,6 +76,80 @@ Registrado para não ser re-investigado:
 - **`/api/financial/export`** tem `isTenantAdmin` e força `RECEIVABLE` para não-admin (corrigido em #575). Confirmado presente.
 - **DRE e fluxo de caixa** já leem do ledger e já usam BRT (#581, #714). Não foram tocados.
 - **Ledger como ponto único** (`recordCashPaidTransaction` / `recordInstallmentPayment`) segue íntegro.
+
+## Achados da passada de frontend
+
+Varredura das 13 telas × admin/operador × desktop/mobile = 52 combinações.
+
+### FIN-2 — o campo "Forma de Pagamento" não renderizava (P1)
+
+`/financial/new` tinha `<SelectItem value="">Nenhuma</SelectItem>`. O Radix
+**lança exceção** nesse caso — string vazia é reservada para limpar a seleção.
+O `ErrorBoundary` engolia a exceção e o campo simplesmente **não aparecia**, nas
+quatro combinações de papel e viewport.
+
+Ninguém reclamou porque o campo é opcional: quem cria conta a pagar/receber
+manualmente só não conseguia informar a forma. Mas o log do console gritava em
+toda visita — e ninguém lê console em produção.
+
+Corrigido com sentinela (`__sem_forma__`), como a tela de recebíveis de cartão já
+fazia. Varri o app: **era o único caso**.
+
+### FIN-3 — a tela financeira imprimia o id da forma de pagamento (P2)
+
+A coluna "Forma Pgto" das contas a receber mostrava
+`a6b9e67e-9c9f-4e90-8eca-4aa3fc10397a` no lugar de "PIX".
+
+**Terceira superfície do mesmo defeito.** O recibo do cliente foi corrigido no
+Módulo 2 (backend) e a tabela do histórico de vendas no Módulo 2 (frontend) — e
+nenhuma leitura de código desses dois módulos levaria a esta tela. Só o navegador
+levou.
+
+Medido: **53 transações** em produção, todas da forma "PIX" do arena-tech, entre
+23/06 e 28/07. Duas frentes:
+
+- **para frente:** o `finalize` passou a gravar o token canônico em
+  `financialTransaction`/`serviceOrder.paymentMethod` (já tinha os tokens
+  resolvidos em mãos desde o Módulo 2, só não os usava aqui);
+- **para trás:** migration normaliza as 53 (dry-run em produção com `ROLLBACK`,
+  0 restantes).
+
+> Vale a lição de método: um defeito de rótulo apareceu em **três telas
+> diferentes**, em três passadas diferentes. Quando um valor cru vaza para a
+> interface, convém procurar todas as saídas dele de uma vez — foi o que passei a
+> fazer com `grep` de `SelectItem value=""` e do padrão de UUID.
+
+## Reconciliação tela × banco
+
+| Tela (`/financial`) | Banco | |
+|---|---|---|
+| 15 contas pendentes a receber | 15 | ✅ |
+| 164 contas recebidas no mês | — conferido pelo mesmo recorte | ✅ |
+| A Pagar: 141 contas, 135 pagas | 141 / 135 | ✅ |
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ⚠️ o `ErrorBoundary` esconde crash de componente sem avisar o usuário — ver nota |
+| 2. Carregando / disabled | ✅ input de liquidação já usa `MoneyInput` (#720) |
+| 3. Invalidação após mutação | ✅ |
+| 4. Estado vazio | ✅ |
+| 5. Permissão | ✅ operador não vê A Pagar |
+| 6. Formatação pt-BR | ✅ `tabular-nums` nas colunas de valor |
+| 7. Mobile 390px | ✅ 52 combinações limpas (herda as correções de primitivo dos M2–M4) |
+| 8. Acessibilidade | ✅ |
+| 9. Reconciliação | ✅ 3 de 3 |
+| 10. Console e rede | ✅ corrigido (FIN-2) |
+| 11. Fluxo incompleto | ✅ nada pendente |
+
+### Nota para o Módulo 10 — o ErrorBoundary esconde crash de componente
+
+O FIN-2 mostrou que um componente pode lançar, ser capturado pelo
+`ErrorBoundaryHandler` e **desaparecer silenciosamente**: nenhuma mensagem para o
+usuário, nenhum sinal na tela, só console. Isso é uma decisão de arquitetura de
+frontend (fallback por região), não um bug desta tela — vai para a passada do
+Módulo 10, junto com o gating de rotas REST e o trade-off de lockout no login.
 
 ## Checklist de backend
 

@@ -27,7 +27,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 2 | PDV / Vendas | ✅ | ✅ | tem +1 | [02-pdv.md](./02-pdv.md) |
 | 3 | Estoque / Compras / Fornecedores | ✅ | ✅ | tem +1 | [03-estoque.md](./03-estoque.md) |
 | 4 | Ordens de Serviço / Serviços / Operação | ✅ | ✅ | tem +1 | [04-ordens-de-servico.md](./04-ordens-de-servico.md) |
-| 5 | Financeiro | ✅ | ⏳ | tem | [05-financeiro.md](./05-financeiro.md) |
+| 5 | Financeiro | ✅ | ✅ | tem | [05-financeiro.md](./05-financeiro.md) |
 | 6 | DePix Wallet / Vendas Avulsas | — | — | **não** | — |
 | 7 | Fiscal / NF-e | — | — | **não** | — |
 | 8 | Comissões | — | — | **não** | — |
