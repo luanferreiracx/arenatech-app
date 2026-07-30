@@ -63,26 +63,26 @@ export default function NewInterestPage() {
         <FormSection title="Dados do lead">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Nome do cliente *</Label>
-              <Input {...form.register("customerName")} placeholder="Nome completo" />
+              <Label htmlFor="interest-customerName">Nome do cliente *</Label>
+              <Input id="interest-customerName" {...form.register("customerName")} placeholder="Nome completo" />
               {form.formState.errors.customerName && (
                 <p className="text-sm text-destructive">{form.formState.errors.customerName.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label>Telefone *</Label>
-              <Input {...form.register("phone")} placeholder="(00) 00000-0000" />
+              <Label htmlFor="interest-phone">Telefone *</Label>
+              <Input id="interest-phone" {...form.register("phone")} placeholder="(00) 00000-0000" />
               {form.formState.errors.phone && (
                 <p className="text-sm text-destructive">{form.formState.errors.phone.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label>CPF</Label>
-              <Input {...form.register("cpf")} placeholder="000.000.000-00" />
+              <Label htmlFor="interest-cpf">CPF</Label>
+              <Input id="interest-cpf" {...form.register("cpf")} placeholder="000.000.000-00" />
             </div>
             <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input {...form.register("email")} type="email" placeholder="email@exemplo.com" />
+              <Label htmlFor="interest-email">E-mail</Label>
+              <Input id="interest-email" {...form.register("email")} type="email" placeholder="email@exemplo.com" />
             </div>
           </div>
         </FormSection>
@@ -90,12 +90,12 @@ export default function NewInterestPage() {
         <FormSection title="Interesse">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Tipo de interesse *</Label>
+              <Label htmlFor="interest-type">Tipo de interesse *</Label>
               <Select
                 value={form.watch("type")}
                 onValueChange={(v: string) => form.setValue("type", v as CreateInterestInput["type"])}
               >
-                <SelectTrigger>
+                <SelectTrigger id="interest-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -106,16 +106,16 @@ export default function NewInterestPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Modelo desejado *</Label>
-              <Input {...form.register("desiredModel")} placeholder="Ex: iPhone 15 Pro 256GB" />
+              <Label htmlFor="interest-desiredModel">Modelo desejado *</Label>
+              <Input id="interest-desiredModel" {...form.register("desiredModel")} placeholder="Ex: iPhone 15 Pro 256GB" />
               {form.formState.errors.desiredModel && (
                 <p className="text-sm text-destructive">{form.formState.errors.desiredModel.message}</p>
               )}
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Observações</Label>
-            <Textarea {...form.register("notes")} placeholder="Detalhes adicionais..." rows={3} />
+            <Label htmlFor="interest-notes">Observações</Label>
+            <Textarea id="interest-notes" {...form.register("notes")} placeholder="Detalhes adicionais..." rows={3} />
           </div>
         </FormSection>
 

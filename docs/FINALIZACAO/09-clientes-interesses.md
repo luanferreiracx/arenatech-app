@@ -1,7 +1,7 @@
 # Módulo 9 — Clientes / Interesses
 
 **Passada A (backend):** concluída em 2026-07-30.
-**Passada B (frontend):** pendente (7 telas).
+**Passada B (frontend):** concluída em 2026-07-30 (7 telas × 2 papéis × 2 viewports; E2E novo do ciclo de vida do lead).
 
 ## Superfície
 
@@ -133,11 +133,87 @@ caminho de maior alcance.
    têm máscara. Normalizar exigiria decidir o formato de exibição na UI; fora do
    escopo desta passada, e contornado onde importa (comparação em memória).
 
+## Achados da passada de frontend
+
+Esta passada rendeu pouco, e vale dizer por quê: o crawler percorreu **28
+visitas** (7 telas × admin/operador × 1440/390) e voltou com **0 quebradas, 0
+atenção, 0 redirect**. As correções de primitivo dos Módulos 1–4 (`PageHeader`,
+breadcrumb, `TabsList`, política de retry) cobrem estas telas. O que sobrou saiu
+de medição dirigida, não do detector barato.
+
+### CLU-2 — o cadastro de lead era impreenchível por leitor de tela (P2)
+
+Medido no navegador, contando o **nome acessível** de cada controle:
+
+| Tela | Com nome | Sem nome |
+|---|---|---|
+| `/interests/new` | **0** | **7** |
+| `/customers/new` | 11 | 4 |
+
+Todo o módulo de Interesses usa `<Label>Texto</Label>` solto — sem `htmlFor`, sem
+envolver o controle. O `<Label>` do Radix só associa se uma das duas coisas
+existir. Resultado: um leitor de tela anuncia sete "campo de edição" sem dizer o
+que é nenhum. O formulário de cliente, ao lado, faz certo (`htmlFor` em 11 de 15).
+
+Mais uma vez a forma recorrente deste programa, agora em acessibilidade: **duas
+implementações do mesmo formulário, uma correta e a outra não**.
+
+Corrigido nos 9 controles (7 em `/interests/new`, 2 no diálogo de interação).
+Medido depois: 6 de 6 controles reais nomeados — o sétimo é o `<select>` oculto
+que o Radix renderiza para submissão, invisível a leitor de tela.
+
+O E2E novo usa `getByLabel(/Descrição/i)` **de propósito**: se alguém remover o
+`htmlFor`, o teste cai ali.
+
+### CLU-1 — falha de query virava "nenhum registro" em três telas (P3)
+
+`data ?? []` sem checar `isError` na lista de clientes, na lista de interesses e
+no painel de fidelidade — **nenhum arquivo do módulo checava `isError`**. Com
+1.384 clientes no banco, uma query que falha renderizava "nenhum cliente
+cadastrado".
+
+Severidade menor que a do Módulo 8 (lá o 403 era rotina para o operador; aqui a
+falha é de servidor, mais rara), mas é o eixo 1 do checklist: erro tem que ser
+visível. Os três passaram a usar o `QueryErrorState`. No painel de fidelidade o
+403 é plausível de verdade — tenant sem o módulo — e ganhou mensagem própria.
+
+## Hipóteses que a medição derrubou
+
+Três, e todas teriam virado achado se eu tivesse parado na leitura:
+
+1. **"A lista de interesses não tem ação nenhuma."** Minha sonda listou só
+   `["Todos","Todos","Anterior","Próximo"]`. Os checkboxes do Radix são `button`
+   **sem texto**, e eu filtrava texto vazio. Medindo por `[role=checkbox]`:
+   **21** — seleção e envio em lote existem e funcionam.
+2. **"O status do lead não persiste."** O E2E acusava, o banco confirmava que não
+   mudara. Instrumentei o clique de ponta a ponta: HTTP 200, toast, botão
+   desabilita, sobrevive ao reload. O erro era do teste —
+   `waitForLoadState("networkidle")` resolvia **antes de a mutation sair** e o
+   reload cancelava o pedido. Passei a esperar o efeito, não a rede.
+3. **"A guarda de duplicata não cobre como a loja cadastra."** `checkDuplicate` só
+   dispara com CPF/CNPJ; supus que a maioria fosse cadastrada sem documento. Medi:
+   **1.251 dos 1.385 têm CPF** e só 2 nomes se repetem. A guarda cobre o caso real.
+
+## E2E novo — ciclo de vida do lead
+
+`__tests__/e2e/interests.spec.ts`, 4 casos `@business`: cadastrar, registrar
+interação, mudar status e ver o funil. A suíte de clientes já tocava `/interests`,
+mas só navegação.
+
+É o fluxo que está **100% parado em produção** — 75 leads, zero interações. A
+passada de backend explicou o zero de conversões (CL-1). O zero de interações não
+tem explicação técnica: o caminho existe e funciona, como estes testes provam.
+Isso empurra a causa para o lado humano — processo, não software.
+
 ## Verificação
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test:unit   # 2030 verdes
-pnpm test:integration                           # 302 verdes (11 novos)
+pnpm typecheck && pnpm lint && pnpm test:unit          # 2030 verdes
+pnpm test:integration                                  # 302 verdes (11 novos)
+pnpm test:e2e __tests__/e2e/interests.spec.ts          # 4 verdes (novo)
+pnpm test:e2e __tests__/e2e/customers.spec.ts          # 20 verdes
+pnpm test:e2e --grep @smoke                            # 27 verdes
+pnpm tsx scripts/audit/crawl-module.ts clientes        # 0 quebradas · 0 atenção
 ```
 
 **Falha antes do fix, verificada** — restaurei cada condição antiga e os testes

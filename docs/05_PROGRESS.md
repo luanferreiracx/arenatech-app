@@ -19,6 +19,33 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 9: frontend fechado (passada magra, e por bom motivo)
+
+Crawler: 28 visitas, **0 quebradas, 0 atenção, 0 redirect**. As correções de
+primitivo dos Módulos 1-4 cobrem estas telas. O que sobrou saiu de medição
+dirigida:
+
+- **CLU-2 (P2)** — `/interests/new` tinha **7 campos e ZERO com nome acessível**:
+  o módulo inteiro usa `<Label>` solto, sem `htmlFor`. Um leitor de tela anuncia
+  sete "campo de edição" sem dizer o que é nenhum. O formulário de cliente ao lado
+  faz certo (11 de 15). Corrigido nos 9 controles; medido depois, 6 de 6 reais.
+- **CLU-1 (P3)** — `data ?? []` sem `isError` em três telas; nenhum arquivo do
+  módulo checava erro. Com 1.384 clientes, falha de query virava "nenhum cliente
+  cadastrado".
+
+**E2E novo**: 4 casos do ciclo de vida do lead (`interests.spec.ts`). A suíte de
+clientes só tocava `/interests` em navegação.
+
+**Três hipóteses minhas caíram na medição** e estão registradas no doc: a lista de
+interesses "sem ações" (os checkboxes do Radix são `button` sem texto e minha
+sonda filtrava vazio — são 21); o status do lead "não persistindo" (era o teste
+correndo: `waitForLoadState("networkidle")` resolvia antes da mutation sair e o
+reload cancelava); e a guarda de duplicata "não cobrir o caso real" (1.251 dos
+1.385 clientes têm CPF).
+
+Vale o registro de produto: o zero de interações em 75 leads **não tem explicação
+técnica** — o caminho existe e funciona, como o E2E prova. A causa é de processo.
+
 ### 2026-07-30 — Finalização, Módulo 9 (Clientes/Interesses): backend, 2 P1
 
 Produção: 1.384 clientes e **75 interesses, todos WAITING**, criados nos últimos
