@@ -1,6 +1,6 @@
 # Módulo 10 — Configurações / Equipe / Auth
 
-**Passada A (backend):** em andamento — primeira parte concluída em 2026-07-29.
+**Passada A (backend):** concluída — parte 1 em 2026-07-29, parte 2 em 2026-07-30.
 **Passada B (frontend):** pendente (18 telas).
 
 > **Antecipado** na fila (decisão do dono, 2026-07-29): três achados transversais
@@ -41,6 +41,52 @@ ninguém, porque não havia como.
 > Bloqueio por conta de verdade, se um dia virar prioridade, é item próprio:
 > exige coluna no usuário, contagem no login e cuidado no caminho mais sensível
 > do sistema.
+
+### CFG-2 — as rotas REST não tinham gating de plano (P1)
+
+O gate por plano vivia **só na borda tRPC**. As **25 rotas REST autenticadas por
+sessão** (PDFs, CSVs, uploads, SSE) ficavam sem nada: o proxy isenta `/api/*` de
+propósito — um redirect 307 → HTML quebra o cliente JSON, incidente documentado —
+e o `tenantProcedure` não passa por elas.
+
+O efeito era concreto e verificável: um tenant **wallet-only** não conseguia
+chamar `stock.*` pelo tRPC, mas **baixava o PDF de posição de estoque**, o CSV do
+financeiro e o recibo do PDV pela rota REST equivalente. O plano virava
+preferência de UI na metade REST do sistema.
+
+Vale nomear a confusão que sustentava isso: `tenantProcedure` + RLS garantem
+**isolamento** (o dado é do tenant certo), **não gating de plano**. São controles
+diferentes, e o segundo não existia aqui.
+
+**Correção estrutural, não por rota.** A decisão de "este tenant tem este
+módulo?" foi extraída para `src/server/auth/module-gate.ts` e passou a ser
+chamada pelos **dois** lados — a borda tRPC e as rotas REST. Escrever a regra
+duas vezes seria repetir exatamente o padrão que este programa encontrou em três
+módulos: duas implementações, o endurecimento numa e os usuários na outra.
+
+Cobertura aplicada: 25 rotas, por módulo — `cashier` (1), `commissions` (3),
+`financial` (1), `fiscal` (2), `pdv` (4 + SSE), `service-orders` (6),
+`stock` (4), `depix-ops` (1 + SSE), `wallet` (1).
+
+**Guardião**: `__tests__/unit/rest-module-gate.test.ts` varre `src/app/api`,
+exige o gate em toda rota que lê sessão e obriga a **declarar o motivo** de cada
+dispensa (cron por `CRON_SECRET`, webhook por HMAC, parceiro por API-key, mídia
+por token assinado, catálogo público). Verificado a valer: criei uma rota nova sem
+gate e o teste reprovou apontando o nome dela. Ele também falha se uma dispensa
+apontar para rota que não existe mais — dispensa órfã esconde a próxima rota que
+nascer com o mesmo nome.
+
+**Prova de que o gate age**, não só existe: um caso em
+`stock-report-uses-real-balance` chama a rota do PDF com sessão cujo plano não
+traz `stock` e espera **403**.
+
+### CFG-3 — o PDF do simulador não tinha autenticação nenhuma (P2)
+
+`POST /api/simulator/pdf` era aberto: recebia valores no corpo e devolvia HTML
+formatado. **Não lê banco e não expõe dado de tenant** (é um formatador puro, e o
+conteúdo passa por `escapeHtml`), então não havia vazamento — mas era um gerador
+de documento aberto na internet, sem sessão e sem limite. A tela que o usa é
+autenticada; o endpoint passou a exigir o mesmo.
 
 ## Pendências deste módulo para o dono (fim do programa)
 

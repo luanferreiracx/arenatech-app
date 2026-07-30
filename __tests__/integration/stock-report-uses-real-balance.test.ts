@@ -126,4 +126,27 @@ describe("EST-1 — o PDF de estoque usa o saldo real, não o campo cru", () => 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("pdf");
   });
+
+  // CFG-2 (Módulo 10): a rota REST não tinha gate de plano. Um tenant sem o
+  // módulo `stock` não conseguia chamar `stock.*` pelo tRPC, mas baixava este
+  // PDF pela rota equivalente. Prova o gate agindo, não só presente.
+  it("recusa o PDF para tenant cujo plano não inclui o módulo", async () => {
+    const anterior = sessionMock.current;
+    sessionMock.current = {
+      user: { id: "00000000-0000-0000-0000-000000000001", name: "Sem Plano", isSuperAdmin: false },
+      activeTenantId: tenantId,
+      // Mesmo tenant, mas o plano da sessão não traz `stock`. Slug diferente de
+      // `arena-tech` para não cair no bypass de acesso total.
+      availableTenants: [
+        { id: tenantId, slug: "loja-sem-estoque", name: "Sem Estoque", role: "admin", modules: ["wallet"] },
+      ],
+    };
+
+    const [req, ctx] = reportRequest("posicao-estoque");
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("nao esta incluso") });
+
+    sessionMock.current = anterior;
+  });
 });

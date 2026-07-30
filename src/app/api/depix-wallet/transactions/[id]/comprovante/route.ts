@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { auth } from "@/server/auth";
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { withTenant } from "@/server/db";
 import { renderPdfToBuffer } from "@/lib/pdf/render";
@@ -36,6 +37,12 @@ export async function GET(
 
   const tenantId = resolveActiveTenant(session, req.cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) return NextResponse.json({ error: "No active tenant" }, { status: 403 });
+
+  // Gating de plano na borda REST: o proxy isenta `/api/*` e o `tenantProcedure`
+  // não passa por aqui. Sem isto, tenant sem a carteira baixava o comprovante.
+  if (!isModuleAllowedForTenant(session, tenantId, "wallet")) {
+    return NextResponse.json({ error: moduleDeniedMessage("wallet") }, { status: 403 });
+  }
 
   try {
     const tx = await withTenant(tenantId, async (db) =>
