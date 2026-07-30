@@ -131,7 +131,7 @@ Medido: **53 transações** em produção, todas da forma "PIX" do arena-tech, e
 
 | Eixo | Situação |
 |---|---|
-| 1. Erro visível | ⚠️ o `ErrorBoundary` esconde crash de componente sem avisar o usuário — ver nota |
+| 1. Erro visível | ✅ (ver a correção da minha própria nota, abaixo) |
 | 2. Carregando / disabled | ✅ input de liquidação já usa `MoneyInput` (#720) |
 | 3. Invalidação após mutação | ✅ |
 | 4. Estado vazio | ✅ |
@@ -143,13 +143,23 @@ Medido: **53 transações** em produção, todas da forma "PIX" do arena-tech, e
 | 10. Console e rede | ✅ corrigido (FIN-2) |
 | 11. Fluxo incompleto | ✅ nada pendente |
 
-### Nota para o Módulo 10 — o ErrorBoundary esconde crash de componente
+### Correção do que eu afirmei aqui (revisado no Módulo 10, 2026-07-29)
 
-O FIN-2 mostrou que um componente pode lançar, ser capturado pelo
-`ErrorBoundaryHandler` e **desaparecer silenciosamente**: nenhuma mensagem para o
-usuário, nenhum sinal na tela, só console. Isso é uma decisão de arquitetura de
-frontend (fallback por região), não um bug desta tela — vai para a passada do
-Módulo 10, junto com o gating de rotas REST e o trade-off de lockout no login.
+Escrevi acima que o componente "desapareceu silenciosamente" e que o
+`ErrorBoundary` esconde crash sem avisar o usuário. **Afirmei sem verificar.**
+
+O que está provado: o `SelectItem` lançou, o erro foi capturado pelo
+`ErrorBoundaryHandler`, a página continuou com conteúdo e o console registrou.
+O que **não** verifiquei: se o usuário via uma mensagem de erro ou um campo
+faltando. Fui checar no Módulo 10 e o `src/app/(app)/error.tsx` **mostra uma
+mensagem clara e visível** ("Algo deu errado nesta tela", com botões de tentar
+novamente e ir para o painel) — ou seja, a premissa da minha nota estava errada
+como enunciada. As capturas de tela do pré-correção já tinham sido sobrescritas
+pela varredura seguinte, então não é mais possível decidir o caso.
+
+O achado FIN-2 em si continua válido e medido (o `value=""` lança, era o único
+caso no app, foi corrigido). O que caiu foi a generalização que eu pendurei nele.
+**Não virou item do Módulo 10.**
 
 ## Checklist de backend
 

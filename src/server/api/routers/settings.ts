@@ -1335,8 +1335,6 @@ export const settingsRouter = createTRPCRouter({
           requireSpecialChar: false,
           passwordExpirationDays: null,
           sessionTimeoutMinutes: null,
-          maxFailedLoginAttempts: 5,
-          lockoutMinutes: 15,
         }
       );
     });
@@ -1351,8 +1349,6 @@ export const settingsRouter = createTRPCRouter({
       requireSpecialChar: z.boolean().optional(),
       passwordExpirationDays: z.number().int().min(0).max(365).nullable().optional(),
       sessionTimeoutMinutes: z.number().int().min(5).max(1440).nullable().optional(),
-      maxFailedLoginAttempts: z.number().int().min(0).max(20).optional(),
-      lockoutMinutes: z.number().int().min(0).max(1440).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!isTenantAdmin(ctx.session, ctx.tenantId)) {
