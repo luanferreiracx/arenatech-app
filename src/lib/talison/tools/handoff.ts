@@ -9,6 +9,7 @@ import { recordTalisonMetric } from "@/lib/talison/metrics";
 import { sendGroupMessage } from "@/lib/services/whatsapp-service";
 import { logger } from "@/lib/logger";
 import type { TalisonTool } from "@/lib/talison/tools/contract";
+import { normalizePhoneDigits } from "@/lib/validators/customer";
 
 const qualificarLeadSchema = z.object({
   tipo: z
@@ -66,7 +67,9 @@ export const qualificarLead: TalisonTool<typeof qualificarLeadSchema> = {
           tenantId: ctx.tenantId,
           customerId: ctx.conversation.customerId,
           customerName: ctx.conversation.contactName ?? "Contato WhatsApp",
-          phone: ctx.conversation.contactPhone,
+          // CL-1: normaliza como a procedure do painel já fazia. Gravar o
+          // telefone cru do WhatsApp aqui era o que impedia a conversão de casar.
+          phone: normalizePhoneDigits(ctx.conversation.contactPhone),
           type: args.tipo,
           desiredModel,
           notes,
@@ -149,7 +152,9 @@ export const sinalizarLeadQuente: TalisonTool<typeof leadQuenteSchema> = {
           tenantId: ctx.tenantId,
           customerId: ctx.conversation.customerId,
           customerName: leadName,
-          phone: ctx.conversation.contactPhone,
+          // CL-1: normaliza como a procedure do painel já fazia. Gravar o
+          // telefone cru do WhatsApp aqui era o que impedia a conversão de casar.
+          phone: normalizePhoneDigits(ctx.conversation.contactPhone),
           type: "PURCHASE",
           desiredModel,
           notes,

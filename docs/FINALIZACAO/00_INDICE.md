@@ -31,7 +31,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 6 | DePix Wallet / Vendas Avulsas | ✅ | ✅ | **novo** | [06-depix.md](./06-depix.md) |
 | 7 | Fiscal / NF-e | ⏸ adiado | ⏸ | **não** | ver nota abaixo |
 | 8 | Comissões | ✅ | ✅ | **novo** | [08-comissoes.md](./08-comissoes.md) |
-| 9 | Clientes / Interesses | — | — | tem | — |
+| 9 | Clientes / Interesses | ✅ | ⏳ | tem | [09-clientes-interesses.md](./09-clientes-interesses.md) |
 | 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | — | — | **não** | — |
 | 12 | Fidelidade | — | — | **não** | — |

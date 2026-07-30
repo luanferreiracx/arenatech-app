@@ -11,6 +11,7 @@ import {
   isTerminalInterestStatus,
   TERMINAL_INTEREST_STATUSES,
   normalizePhoneDigits,
+  phoneMatchKey,
 } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
 import { sendTextWithFallback } from "@/lib/whatsapp/send-with-fallback";
@@ -327,6 +328,37 @@ export const interestRouter = createTRPCRouter({
         tx.interest.findMany({ where: { id: { in: input.ids } } }),
       );
 
+      // CL-2: o opt-out de LGPD (`Customer.unsubscribed`) era respeitado APENAS em
+      // `communication.sendMessage`. O disparo em MASSA — o de maior risco — não
+      // consultava nada: bastava mandar pelo painel de interesses em vez do de
+      // clientes para furar o descadastro. Sexta vez que este programa acha o mesmo
+      // padrão: duas implementações, o endurecimento numa e os usuários na outra.
+      //
+      // O opt-out é da PESSOA, não do registro: casa por `customerId` quando o
+      // interesse está vinculado e, quando não está (o caso dos 75 de produção),
+      // pelo telefone. Sem isso o descadastro seria contornável só não vinculando.
+      const optOutIds = new Set<string>();
+      const optOutKeys = new Set<string>();
+      {
+        // Busca TODOS os descadastrados do tenant e compara em memória, em vez de
+        // filtrar por telefone no SQL: `customers.phone` é campo de exibição e
+        // guarda máscara em 329 dos 1.384 registros de produção — um `endsWith`
+        // no banco erraria exatamente esses. O conjunto de opt-outs é pequeno por
+        // natureza (é gente que pediu para sair), então trazê-lo inteiro é barato
+        // e não depende do formato gravado.
+        const descadastrados = await ctx.withTenant(async (tx) =>
+          tx.customer.findMany({
+            where: { unsubscribed: true, deletedAt: null },
+            select: { id: true, phone: true },
+          }),
+        );
+        for (const c of descadastrados) {
+          optOutIds.add(c.id);
+          const k = phoneMatchKey(c.phone);
+          if (k) optOutKeys.add(k);
+        }
+      }
+
       let sent = 0;
       let errors = 0;
       let skipped = 0;
@@ -341,6 +373,14 @@ export const interestRouter = createTRPCRouter({
         if (!interest.phone) {
           errors++;
           logger.warn("Interest sem telefone", { interestId: interest.id });
+          continue;
+        }
+        const chave = phoneMatchKey(interest.phone);
+        if ((interest.customerId && optOutIds.has(interest.customerId)) || (chave && optOutKeys.has(chave))) {
+          skipped++;
+          logger.info("Interest de contato descadastrado (LGPD) — pulado", {
+            interestId: interest.id,
+          });
           continue;
         }
         if (interest.lastNotifiedAt && interest.lastNotifiedAt > cooldownFloor) {
