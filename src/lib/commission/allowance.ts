@@ -21,13 +21,36 @@ export function calcAllowance(args: {
   daysInMonth: number;
   uncoveredDays: number;
 }): number {
+  return calcAllowanceBreakdown(args).total;
+}
+
+/**
+ * Mesmo cálculo, devolvendo também **quanto o teto cortou**.
+ *
+ * `ProviderApuracao.capReduction` existe no schema e é exibido na ficha do
+ * prestador, mas nenhum código o escrevia: a tela mostrava "R$ 0,00" mesmo
+ * quando o teto tinha cortado a ajuda de custo, e o prestador não tinha como
+ * saber por que recebeu menos. O corte é decidido aqui, então é aqui que ele é
+ * medido — calcular de novo do outro lado seria a segunda implementação.
+ */
+export function calcAllowanceBreakdown(args: {
+  meal: number;
+  transport: number;
+  cellphone: number;
+  cap: number;
+  daysInMonth: number;
+  uncoveredDays: number;
+}): { total: number; capReduction: number } {
   const { meal, transport, cellphone, cap, daysInMonth, uncoveredDays } = args;
-  if (daysInMonth <= 0) return 0;
+  if (daysInMonth <= 0) return { total: 0, capReduction: 0 };
 
   const effectiveDays = Math.max(0, daysInMonth - Math.max(0, uncoveredDays));
   const proportion = effectiveDays / daysInMonth;
 
   const total = (meal + transport + cellphone) * proportion;
   const limited = cap > 0 ? Math.min(total, cap) : total;
-  return Math.round(limited * 100) / 100;
+  return {
+    total: Math.round(limited * 100) / 100,
+    capReduction: Math.round((total - limited) * 100) / 100,
+  };
 }

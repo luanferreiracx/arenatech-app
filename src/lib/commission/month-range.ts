@@ -19,7 +19,10 @@ const BRT_OFFSET = "-03:00";
  * @param year  ano (ex.: 2026)
  * @param month mes 1-12
  */
-export function monthRange(year: number, month: number): { start: Date; end: Date } {
+export function monthRange(
+  year: number,
+  month: number,
+): { start: Date; end: Date; daysInMonth: number } {
   const mm = String(month).padStart(2, "0");
   // Ultimo dia do mes em BRT: dia 0 do mes seguinte, calculado em UTC (a
   // aritmetica de dia-do-mes independe do fuso; so o horario e ancorado em BRT).
@@ -28,5 +31,11 @@ export function monthRange(year: number, month: number): { start: Date; end: Dat
   return {
     start: new Date(`${year}-${mm}-01T00:00:00.000${BRT_OFFSET}`),
     end: new Date(`${year}-${mm}-${dd}T23:59:59.999${BRT_OFFSET}`),
+    // CM-1: o rateio da ajuda de custo derivava os dias do mes de
+    // `periodEnd.getDate()`, que usa o fuso do PROCESSO. `end` é 23:59:59.999 BRT
+    // do último dia = 02:59 UTC do dia 1º do mês seguinte, então **em produção
+    // (container UTC) isso devolvia 1**, não 28/30/31. Devolver o número junto
+    // com a janela mantém as três derivações do mês na mesma fonte.
+    daysInMonth: lastDay,
   };
 }
