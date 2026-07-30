@@ -29,22 +29,30 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 4 | Ordens de Serviço / Serviços / Operação | ✅ | ✅ | tem +1 | [04-ordens-de-servico.md](./04-ordens-de-servico.md) |
 | 5 | Financeiro | ✅ | ✅ | tem | [05-financeiro.md](./05-financeiro.md) |
 | 6 | DePix Wallet / Vendas Avulsas | ✅ | ✅ | **novo** | [06-depix.md](./06-depix.md) |
-| 7 | Fiscal / NF-e | — | — | **não** | — |
+| 7 | Fiscal / NF-e | ⏸ adiado | ⏸ | **não** | ver nota abaixo |
 | 8 | Comissões | — | — | **não** | — |
 | 9 | Clientes / Interesses | — | — | tem | — |
-| 10 | Configurações / Equipe / Auth | — | — | tem | — |
+| 10 | Configurações / Equipe / Auth | ⏳ | — | tem | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | — | — | **não** | — |
 | 12 | Fidelidade | — | — | **não** | — |
 | 13 | Catálogo / Ferramentas | — | — | **não** | — (módulo `/checklist` removido no M4) |
 | 14 | Painel / Relatórios | — | — | **não** | — |
 | 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
 
-Legenda: ✅ fechado · ⏳ em andamento · — não começou.
+Legenda: ✅ fechado · ⏳ em andamento · ⏸ adiado · — não começou.
+
+**Ordem alterada em 2026-07-29 (decisão do dono):** o Módulo 10
+(Configurações/Equipe/Auth) foi **antecipado** para a frente de Comissões. Três
+achados transversais foram caindo nele ao longo das passadas — o `ErrorBoundary`
+que esconde crash de componente, rotas REST sem gate de módulo e o lockout de
+login por IP — e todos afetam os módulos que ainda faltam. Corrigir na raiz já
+pagou uma vez: as correções de primitivo dos Módulos 2–4 fizeram os Módulos 4, 5
+e 6 chegarem quase limpos na varredura de frontend.
 
 **Fora de escopo** (decisão do dono em 2026-07-29), com o estado declarado para
 ninguém supor que são suportados:
 
-- **NF-e import** — parado, aguardando a decisão de qual API usar. Há achados levantados na auditoria de 25/07 que só valem revisitar depois dessa escolha.
+- **Fiscal / NF-e (módulo 7) e NF-e import** — **adiados em 2026-07-29 por decisão do dono**: a escolha da API fiscal ainda está aberta, e auditar código que vai ser substituído é trabalho jogado fora. Medição que sustenta a decisão: **0 notas emitidas** (`invoices` vazia), **0 importações** (`nfe_imports` vazia) e apenas **1 tenant** com linha de configuração fiscal — o módulo nunca foi usado em produção. Isso também recalibra os dois P0 da auditoria de 2026-07-14 (payload de emissão sem o emitente; certificado digital nunca registrado na emissão): são **latentes, não ativos**, porque nenhuma nota foi emitida. Revisitar quando a API for escolhida.
 - **iphone-hunter** — ferramenta interna, restrita ao tenant `arena-tech`.
 - **Partner API** — sem parceiro ativo. A superfície está de pé e gateada por `apiAccessEnabled`.
 

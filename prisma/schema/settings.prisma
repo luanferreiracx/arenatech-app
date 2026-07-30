@@ -125,9 +125,13 @@ model TenantSecuritySettings {
   passwordExpirationDays    Int?     @map("password_expiration_days")
   // Minutos de inatividade até expirar a sessão (null = sem timeout)
   sessionTimeoutMinutes     Int?     @map("session_timeout_minutes")
-  // Bloqueio após N tentativas falhas (0 = desabilitado)
-  maxFailedLoginAttempts    Int      @default(5) @map("max_failed_login_attempts")
-  lockoutMinutes            Int      @default(15) @map("lockout_minutes")
+  // CFG-1 (finalização 2026-07-29): `maxFailedLoginAttempts` e `lockoutMinutes`
+  // moravam aqui e NÃO tinham consumidor nenhum — o bloqueio real é o rate-limit
+  // por IP (`lib/utils/rate-limit.ts`), com valores fixos, e `User` não tem
+  // coluna de tentativas. Dois campos que pareciam política de bloqueio de conta
+  // e não eram nem configuráveis nem por conta. Removidos por decisão do dono:
+  // controle que parece existir e não faz nada cria confiança falsa. Bloqueio por
+  // conta de verdade, se um dia for prioridade, exige coluna no usuário.
   createdAt                 DateTime @default(now()) @map("created_at")
   updatedAt                 DateTime @updatedAt @map("updated_at")
 
