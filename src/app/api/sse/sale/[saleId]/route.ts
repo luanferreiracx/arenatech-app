@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/server/auth";
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 import { withTenant } from "@/server/db";
 import { subscribeDepixPaid } from "@/lib/sse/depix-notify-fanout";
 
@@ -36,6 +37,14 @@ export async function GET(
   const tenantId = req.cookies.get("x-active-tenant")?.value ?? session.activeTenantId;
   if (!tenantId) {
     return new Response("No active tenant", { status: 403 });
+  }
+
+  // Gating de plano na borda REST: o proxy isenta `/api/*` de propósito e o
+  // `tenantProcedure` não passa por aqui. Sem isto, um tenant sem o módulo
+  // baixava este arquivo pela rota REST mesmo sem conseguir chamar o tRPC.
+  // Este endpoint responde texto puro (SSE), então a recusa acompanha o canal.
+  if (!isModuleAllowedForTenant(session, tenantId, "pdv")) {
+    return new Response(moduleDeniedMessage("pdv"), { status: 403 });
   }
   // Defense-in-depth: o x-active-tenant vem de cookie. Re-valida membership
   // aqui tambem (nao so no proxy) — senao um cookie forjado apontando pra outro

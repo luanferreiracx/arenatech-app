@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/server/auth"
 import { uploadEntityImage } from "@/lib/product-image-service"
 import { randomUUID } from "crypto"
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
 
@@ -20,6 +21,13 @@ export async function POST(request: NextRequest) {
   const tenantId = session.activeTenantId
   if (!tenantId) {
     return NextResponse.json({ error: "Tenant não selecionado" }, { status: 400 })
+  }
+
+  // Gating de plano na borda REST: o proxy isenta `/api/*` de propósito e o
+  // `tenantProcedure` não passa por aqui. Sem isto, um tenant sem o módulo
+  // baixava este arquivo pela rota REST mesmo sem conseguir chamar o tRPC.
+  if (!isModuleAllowedForTenant(session, tenantId, "service-orders")) {
+    return NextResponse.json({ error: moduleDeniedMessage("service-orders") }, { status: 403 });
   }
 
   try {

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/server/auth";
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 import { withTenant } from "@/server/db";
 import { subscribeDepixPaid } from "@/lib/sse/depix-notify-fanout";
 
@@ -27,6 +28,12 @@ export async function GET(
     session.user.isSuperAdmin === true ||
     session.availableTenants.some((t) => t.id === tenantId);
   if (!isMember) return new Response("Forbidden", { status: 403 });
+
+  // Gating de plano na borda REST. Este endpoint responde texto puro (SSE), então
+  // a recusa acompanha o formato do canal.
+  if (!isModuleAllowedForTenant(session, tenantId, "depix-ops")) {
+    return new Response(moduleDeniedMessage("depix-ops"), { status: 403 });
+  }
 
   const owns = await withTenant(tenantId, async (tx) => {
     const q = await tx.quickSale.findUnique({ where: { id }, select: { id: true } });

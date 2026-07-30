@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/server/auth";
 
 /**
  * POST /api/simulator/pdf
@@ -10,6 +11,16 @@ import { NextRequest, NextResponse } from "next/server";
  * The client opens this in a new window and calls window.print().
  */
 export async function POST(req: NextRequest) {
+  // CFG-2: esta rota não tinha autenticação nenhuma — POST aberto que devolve
+  // HTML formatado a partir do body. Não lê banco nem expõe dado de tenant (é um
+  // formatador puro, e o conteúdo passa por `escapeHtml`), então não havia
+  // vazamento; mas era um gerador de documento aberto na internet, sem sessão e
+  // sem limite. A tela que a usa é autenticada; o endpoint passa a exigir o mesmo.
+  const gate = await auth();
+  if (!gate?.user) {
+    return NextResponse.json({ error: "Nao autenticado" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 

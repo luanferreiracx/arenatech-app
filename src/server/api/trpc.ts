@@ -7,14 +7,8 @@ import { logger } from "@/lib/logger";
 import { hasTenantAccess } from "@/lib/auth/active-tenant";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { CENTRAL_TENANT_SLUG } from "@/lib/tenants/central-tenant";
-import {
-  ALWAYS_ON_MODULES,
-  MODULE_LABELS,
-  TOTAL_ACCESS_TENANT_SLUG,
-  isModuleKey,
-  withModuleDependencies,
-  type ModuleKey,
-} from "@/lib/modules";
+import { type ModuleKey } from "@/lib/modules";
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   const session = await auth();
@@ -169,15 +163,10 @@ function assertModuleAllowed(
   const required = ROUTER_MODULE[routerName];
   if (!required) return; // router sem módulo comercializável → passa
 
-  const tenant = session.availableTenants?.find((t) => t.id === tenantId);
-  // Dependências: quem tem `pdv` tem `cashier`/`financial` implicitamente —
-  // mesma expansão que o gating de rota aplica.
-  const granted = new Set(withModuleDependencies((tenant?.modules ?? []).filter(isModuleKey)));
-  const allowed =
-    tenant?.slug === TOTAL_ACCESS_TENANT_SLUG ||
-    ALWAYS_ON_MODULES.includes(required) ||
-    granted.has(required);
-  if (allowed) return;
+  // Decisão compartilhada com as rotas REST (`server/auth/module-gate.ts`) —
+  // duas implementações da mesma regra é o padrão que este programa encontrou em
+  // três módulos.
+  if (isModuleAllowedForTenant(session, tenantId, required)) return;
 
   logger.warn("tenantProcedure: modulo fora do plano do tenant", {
     userId: session.user.id,
@@ -185,10 +174,7 @@ function assertModuleAllowed(
     path,
     required,
   });
-  throw new TRPCError({
-    code: "FORBIDDEN",
-    message: `Modulo "${MODULE_LABELS[required] ?? required}" nao esta incluso no plano deste tenant.`,
-  });
+  throw new TRPCError({ code: "FORBIDDEN", message: moduleDeniedMessage(required) });
 }
 
 /**

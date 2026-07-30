@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/server/auth";
+import { isModuleAllowedForTenant, moduleDeniedMessage } from "@/server/auth/module-gate";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { isTenantAdmin } from "@/lib/auth/roles";
 import { resolveExportTxType } from "@/lib/financial/export-access";
@@ -25,6 +26,13 @@ export async function GET(req: NextRequest) {
   const tenantId = resolveActiveTenant(session, cookies.get("x-active-tenant")?.value)?.id;
   if (!tenantId) {
     return NextResponse.json({ error: "No active tenant" }, { status: 403 });
+  }
+
+  // Gating de plano na borda REST: o proxy isenta `/api/*` de propósito e o
+  // `tenantProcedure` não passa por aqui. Sem isto, um tenant sem o módulo
+  // baixava este arquivo pela rota REST mesmo sem conseguir chamar o tRPC.
+  if (!isModuleAllowedForTenant(session, tenantId, "financial")) {
+    return NextResponse.json({ error: moduleDeniedMessage("financial") }, { status: 403 });
   }
 
   const url = new URL(req.url);
