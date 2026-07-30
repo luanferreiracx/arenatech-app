@@ -19,6 +19,37 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 8 (Comissões): frontend fechado + primeiro E2E
+
+Sete achados, dois deles P1:
+
+- **CMU-6 (P1)** — cadastrar o PRIMEIRO prestador dava **500**. O filtro
+  `notIn: ["__none__"]` sobre uma coluna UUID quebrava quando ainda não havia
+  prestador nenhum: a porta de entrada do módulo falhava exatamente para quem
+  ainda não tinha entrado. Invisível no arena-tech (7 prestadores) e certeiro nos
+  **6 outros tenants de produção, todos com zero**. Achado ao rodar o E2E contra o
+  banco de seed — a cópia de produção mascarava.
+- **CMU-1 (P1)** — `listAvailableUsers` era `tenantProcedure` e devolve nome +
+  **CPF** de todos os usuários do tenant. Uma auditoria anterior fechou o eixo
+  cross-tenant e deixou o de papel aberto.
+- **CMU-2/CMU-3 (P2)** — a lista bloqueada dizia "Nenhum prestador cadastrado"
+  (com botão de cadastrar) enquanto existiam 7, e o formulário de cadastro
+  renderizava inteiro para o operador.
+- **CMU-7 (P2)** — a tela avisava "sem contrato" por `!currentContract`, mas o
+  motor trata contrato SEM REGRAS igual a sem contrato — e `createProvider` já cria
+  um contrato vazio. Todo prestador recém-cadastrado caía no vão: nada
+  comissionado, nada avisado. O E2E do fluxo principal é que expôs.
+- **CMU-5 (P2)** — `/my-commission` ignorava o aviso do motor: o prestador via
+  R$ 0,00 sem explicação. Produção tem um técnico com 60 OS e nenhum contrato.
+- **CMU-4 (P2)** — 615px de conteúdo em tela de 390 (grid de larguras fixas sem
+  breakpoint, barra sem `flex-wrap`, três tabelas sem estratégia horizontal).
+
+**Primeiro E2E do módulo**: 5 casos `@business`, serial (compartilham fixture),
+verificados em banco limpo e em reexecução.
+
+Reconciliação tela × banco exata em três meses. Verificação: 2030 unit, 291
+integração, crawler 0 quebradas · 0 atenção.
+
 ### 2026-07-30 — Finalização, Módulo 8 (Comissões): backend fechado, 4 correções de dinheiro
 
 O módulo tem dinheiro real (R$ 2.661,94 em abril) e um perfil revelador: 9

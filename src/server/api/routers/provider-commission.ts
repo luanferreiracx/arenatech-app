@@ -651,7 +651,12 @@ export const providerCommissionRouter = createTRPCRouter({
   // AVAILABLE USERS (for create provider)
   // ═══════════════════════════════════════
 
-  listAvailableUsers: tenantProcedure
+  // CMU-1: era `tenantProcedure` — devolve nome + CPF de TODOS os usuários do
+  // tenant, e qualquer operador podia chamá-la. Uma auditoria anterior fechou o
+  // vazamento CROSS-TENANT aqui (o comentário abaixo) e deixou o eixo de PAPEL
+  // aberto: o mesmo endurecimento pela metade que este programa vem achando.
+  // Único consumidor é o formulário de novo prestador, que é de admin.
+  listAvailableUsers: tenantAdminProcedure
     .query(async ({ ctx }) => {
       return ctx.withTenant(async (tx) => {
         const existingProviderUserIds = (
@@ -665,7 +670,16 @@ export const providerCommissionRouter = createTRPCRouter({
           return adminTx.user.findMany({
             where: {
               tenants: { some: { tenantId: ctx.tenantId } },
-              id: { notIn: existingProviderUserIds.length > 0 ? existingProviderUserIds : ["__none__"] },
+              // CMU-6: o sentinela era `["__none__"]` quando ainda não havia
+              // prestador — e `users.id` é UUID, então o Postgres recusava o cast
+              // e a procedure devolvia 500. Ou seja: a tela de cadastrar o PRIMEIRO
+              // prestador quebrava em todo tenant que ainda não tinha nenhum, que
+              // é justamente quem precisa dela. Invisível no arena-tech (7
+              // prestadores) e certeiro nos outros 6 tenants de produção.
+              // Lista vazia = nenhum filtro.
+              ...(existingProviderUserIds.length > 0
+                ? { id: { notIn: existingProviderUserIds } }
+                : {}),
             },
             select: { id: true, name: true, cpf: true },
             orderBy: { name: "asc" },

@@ -1,7 +1,7 @@
 # Módulo 8 — Comissões
 
 **Passada A (backend):** concluída em 2026-07-30.
-**Passada B (frontend):** pendente (5 telas, nenhum E2E hoje).
+**Passada B (frontend):** concluída em 2026-07-30 (5 telas × 2 papéis × 2 viewports; primeiro E2E do módulo).
 
 ## Superfície
 
@@ -147,9 +147,133 @@ Medido em produção:
 
 Um técnico com 60 OS aparece com R$ 0,00 e nada na linha diz por quê.
 
-O backend **já entrega o sinal** (`memoryJson` volta no `getDetail`), então a
-correção é de tela: mostrar o aviso e, idealmente, os baldes descartados por
-falta de regra. **Fica para a passada B**, que é onde se decide o que o olho vê.
+O backend **já entregava o sinal** (`memoryJson` volta no `getDetail`); faltava a
+tela usá-lo. **Resolvido na passada B** por CMU-5 (o aviso aparece em
+`/my-commission`, a tela de quem recebe) e CMU-7 (o aviso da ficha passou a cobrir
+também o contrato sem alíquota).
+
+Fica aberto o pedaço menor: os baldes **descartados por falta de regra** seguem
+invisíveis. Mostrá-los exigiria o motor devolver o que descartou — mudança de
+contrato do `memoryJson`, sem incidência medida hoje. Registrado, não feito.
+
+## Achados da passada de frontend
+
+### CMU-6 — cadastrar o PRIMEIRO prestador dava 500 (P1)
+
+`listAvailableUsers` excluía quem já era prestador com
+`id: { notIn: existingProviderUserIds.length > 0 ? existingProviderUserIds : ["__none__"] }`.
+
+`users.id` é **UUID**. Quando ainda não havia nenhum prestador, o sentinela
+`"__none__"` ia para o `notIn`, o Postgres recusava o cast e a procedure devolvia
+**500**. A tela de cadastro ficava presa no esqueleto, sem erro visível.
+
+Ou seja: **a porta de entrada do módulo quebrava exatamente para quem ainda não
+tinha entrado.** Invisível no `arena-tech` (7 prestadores, o `notIn` sempre
+populado) e certeiro em qualquer tenant novo — **6 dos 7 tenants de produção têm
+zero prestadores**.
+
+Achado ao rodar o E2E contra o banco de seed, que também tem zero prestadores. A
+cópia de produção mascarava o defeito; o banco limpo o expôs na primeira tentativa.
+
+**Correção:** lista vazia = nenhum filtro.
+
+### CMU-1 — a lista de usuários com CPF estava aberta a qualquer papel (P1)
+
+`listAvailableUsers` era `tenantProcedure` e devolve `{ id, name, cpf }` de todos
+os usuários do tenant. Qualquer operador podia enumerar o CPF dos colegas.
+
+O comentário na própria procedure conta metade da história: *"SEGURANCA
+(isolamento cross-tenant): so usuarios VINCULADOS ao tenant ativo. Antes listava
+TODOS os usuarios do sistema (incl. CPF) de outros tenants."* Uma auditoria
+anterior fechou o eixo **tenant** e deixou o eixo **papel** aberto — endurecimento
+pela metade, o mesmo padrão do CM-5.
+
+Único consumidor é o formulário de novo prestador, que é de admin. Virou
+`tenantAdminProcedure`.
+
+### CMU-2 — lista bloqueada se disfarçava de lista vazia (P2)
+
+`ProvidersList` fazia `listQuery.data ?? []` e nunca olhava `isError`.
+`listProviders` é admin-only, então para o operador a query dava 403, `data` vinha
+indefinido e a tela afirmava **"Nenhum prestador cadastrado"** — com botão de
+cadastrar — enquanto existiam 7.
+
+Não é ausência de mensagem: é a tela **afirmando um fato falso** sobre o dado.
+Passou a usar o `QueryErrorState` do Módulo 1, que é o que `/cashier/reviews` já
+fazia certo.
+
+### CMU-3 — o cadastro de prestador renderizava inteiro para o operador (P2)
+
+`/commissions/providers/new` mostrava o formulário completo, com o seletor
+listando nome e CPF de todo mundo e um "Cadastrar prestador" que só podia terminar
+em 403. Sem os dados não há formulário a oferecer: agora resolve para o estado
+bloqueado.
+
+### CMU-7 — o aviso de "sem contrato" não cobria contrato sem alíquota (P2)
+
+A tela avisava por `!currentContract`. O motor trata **contrato sem regras**
+exatamente como sem contrato (`!contract || contract.rules.length === 0`) e grava
+`aviso: "Sem contrato vigente"`.
+
+E `createProvider` **já cria um contrato vazio**. Então todo prestador
+recém-cadastrado caía no vão entre as duas condições: o motor não comissionava
+nada e a tela não avisava nada. Descoberto porque o E2E do fluxo principal
+esperava o aviso e não o encontrou — o teste estava certo e a tela errada.
+
+### CMU-5 — o prestador via zeros sem explicação na PRÓPRIA tela (P2)
+
+`/my-commission` ignorava o `memoryJson.aviso` que o motor grava. Um prestador sem
+contrato via R$ 0,00 nos quatro cartões e a memória de cálculo vazia, sem nada
+dizendo por quê. A ficha do **admin** avisava; a de quem **recebe**, não.
+
+Não é hipótese: produção tem um técnico com **60 OS** e nenhum contrato.
+
+### CMU-4 — a ficha empurrava a página no celular (P2)
+
+615px de conteúdo em tela de 390. Três causas, todas do mesmo tipo — construção
+sem estratégia de quebra declarada:
+
+1. o formulário de estorno era `grid-cols-[130px_1fr_120px_1fr_auto]` **sem ponto
+   de quebra** (só as duas colunas fixas e o botão já passam de 390px, e `1fr` tem
+   mínimo automático);
+2. a barra de mês + Calcular/PDF/CSV era `flex` sem `flex-wrap`;
+3. três das quatro tabelas declaravam só `overflow-y` — uma delas não tinha
+   contêiner nenhum. A quarta já fazia certo com `overflow-x-auto`.
+
+Sexta vez que este mecanismo aparece no programa. Medido depois: `scrollWidth`
+390 em tela de 390, zero elementos fora.
+
+> Registro de método: minha primeira sonda apontou as tabelas como culpadas
+> porque o retângulo delas ultrapassa a viewport. Só que elas estavam **dentro de
+> um contêiner que rola** — falso positivo. Passei a descartar todo elemento com
+> ancestral `overflow-x` auto/scroll/hidden, e aí o culpado real apareceu.
+
+## Primeiro E2E do módulo
+
+`__tests__/e2e/commissions.spec.ts`, 5 casos `@business`: o admin cadastra e
+calcula; o operador é bloqueado na lista e no cadastro (sem ver CPF nenhum); o
+prestador abre a própria apuração. Serial de propósito — os cinco compartilham um
+prestador, e em paralelo dois workers tentavam cadastrar o mesmo usuário.
+
+Verificado nos dois estados que o CI vê: banco limpo (exercita o cadastro) e
+reexecução (exercita o reuso).
+
+## Reconciliação tela × banco
+
+Ficha do Rômulo, três meses, contra a cópia de produção:
+
+| Mês | Tela | Banco |
+|---|---|---|
+| abr/2026 | R$ 1.661,94 + R$ 1.000,00 = **R$ 2.661,94** | 1661.94 / 1000.00 / 2661.94 |
+| jun/2026 | R$ 1.391,82 + R$ 1.000,00 = **R$ 2.391,82** | 1391.82 / 1000.00 / 2391.82 |
+| jul/2026 | R$ 519,55 + R$ 1.000,00 = **R$ 1.519,55** | 519.55 / 1000.00 / 1519.55 |
+
+Exato nos três.
+
+> Antes disso eu tinha "achado" que a tela mostrava julho para todos os meses. Era
+> **erro da minha sonda**: o mês é `useState`, não vai para a URL, e eu navegava
+> com `?month=` que a página não lê. Fica a observação de usabilidade, sem virar
+> achado: a seleção de mês não é compartilhável nem sobrevive a um refresh.
 
 ## Decisão pendente do dono
 
@@ -177,6 +301,8 @@ Hoje é a 1, por omissão, e ninguém escolheu. Latente: **0 estornos em produç
 ```bash
 pnpm typecheck && pnpm lint && pnpm test:unit      # 2030 verdes
 pnpm test:integration                              # 291 verdes
+pnpm test:e2e __tests__/e2e/commissions.spec.ts    # 5 verdes (novo)
+pnpm tsx scripts/audit/crawl-module.ts comissoes   # 0 quebradas · 0 atenção
 ```
 
 **Falha antes do fix, verificada** — restaurei as três derivações antigas e os

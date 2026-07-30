@@ -113,18 +113,26 @@ export function MyCommission() {
   const { provider, apuracao, reversals, uncoveredDays } = detailQuery.data;
   const isClosed = apuracao && apuracao.status !== "OPEN";
   const currentMonthValue = `${year}-${String(month).padStart(2, "0")}`;
-  const memoryLinhas =
+  const memoria =
     apuracao?.memoryJson && typeof apuracao.memoryJson === "object"
-      ? ((apuracao.memoryJson as Record<string, unknown>).linhas as Array<Record<string, unknown>> | undefined)
+      ? (apuracao.memoryJson as Record<string, unknown>)
       : undefined;
+  const memoryLinhas = memoria?.linhas as Array<Record<string, unknown>> | undefined;
+  // CMU-5: o motor grava `aviso: "Sem contrato vigente"` e a tela ignorava. Um
+  // prestador sem contrato via R$ 0,00 nos quatro cartões e a memória vazia, sem
+  // nada explicando — e não é hipótese: em produção há um técnico com 60 OS e
+  // nenhum contrato. A ficha do admin já avisa; a de quem RECEBE, não avisava.
+  const aviso = typeof memoria?.aviso === "string" ? memoria.aviso : null;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div />
-        <div className="flex gap-2 items-center">
+        {/* CMU-4: mesma barra de ações do detalhe do admin — sem quebra, ela
+            empurra a página no celular assim que ganha mais um botão. */}
+        <div className="flex flex-wrap gap-2 items-center">
           <Select value={currentMonthValue} onValueChange={handleMonthChange}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-40 max-w-full">
               <SelectValue placeholder="Mes" />
             </SelectTrigger>
             <SelectContent>
@@ -157,6 +165,15 @@ export function MyCommission() {
           )}
         </div>
       </div>
+
+      {aviso && (
+        <Card className="p-4 border-yellow-500/30 bg-yellow-500/5">
+          <p className="text-sm text-yellow-500">
+            {aviso}. Fale com o administrador da loja — sem contrato vigente nao ha
+            aliquota para calcular a sua comissao do periodo.
+          </p>
+        </Card>
+      )}
 
       {/* Summary cards */}
       {apuracao ? (

@@ -146,7 +146,7 @@ function PeriodCommissionPreview({ providerId }: { providerId: string }) {
           </Card>
 
           {data.lines.length > 0 ? (
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
@@ -356,6 +356,12 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
   }
 
   const { provider, currentContract, apuracao, reversals, uncoveredDays } = detailQuery.data;
+  // CMU-7: a tela avisava por `!currentContract`, mas o motor trata "contrato SEM
+  // REGRAS" exatamente como "sem contrato" (`!contract || rules.length === 0`) e
+  // grava `aviso: "Sem contrato vigente"`. E `createProvider` já cria um contrato
+  // vazio — então todo prestador recém-cadastrado caía no vão entre as duas
+  // condições: o motor não comissionava nada e a tela não avisava nada.
+  const semAliquota = !currentContract || currentContract.rules.length === 0;
   const isClosed = apuracao && apuracao.status !== "OPEN";
   const currentMonthValue = `${year}-${String(month).padStart(2, "0")}`;
 
@@ -379,9 +385,13 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
             </p>
           )}
         </div>
-        <div className="flex gap-2 items-center">
+        {/* CMU-4: era `flex gap-2` sem quebra, com um Select de largura fixa e até
+            três botões. A 390px a barra passava 72px da tela e empurrava a página
+            inteira. Mesmo mecanismo já corrigido em PageHeader/breadcrumb/TabsList
+            nos módulos 1-4: linha de ações sem estratégia de quebra. */}
+        <div className="flex flex-wrap gap-2 items-center">
           <Select value={currentMonthValue} onValueChange={handleMonthChange}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-40 max-w-full">
               <SelectValue placeholder="Mes" />
             </SelectTrigger>
             <SelectContent>
@@ -427,12 +437,16 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
       </div>
 
       {/* No contract warning */}
-      {!currentContract && (
+      {semAliquota && (
         <Card className="p-4 border-yellow-500/30 bg-yellow-500/5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-yellow-500">
-            Prestador sem contrato vigente. Cadastre um contrato para habilitar o calculo de comissoes.
+            {currentContract
+              ? "Contrato sem nenhuma aliquota cadastrada. Sem regra nao ha o que comissionar — o calculo do periodo sai zerado."
+              : "Prestador sem contrato vigente. Cadastre um contrato para habilitar o calculo de comissoes."}
           </p>
-          {isAdmin && <ContractRulesEditor providerId={providerId} currentContract={null} />}
+          {isAdmin && (
+            <ContractRulesEditor providerId={providerId} currentContract={currentContract ?? null} />
+          )}
         </Card>
       )}
 
@@ -536,7 +550,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
             Memoria de calculo — {String(month).padStart(2, "0")}/{year}
           </h3>
           {apuracao?.memoryJson && (apuracao.memoryJson as Record<string, unknown>).linhas ? (
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
@@ -581,8 +595,13 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           Estornos do periodo
         </h3>
 
+        {/* CMU-4: o formulário era um grid de 5 colunas com duas larguras FIXAS
+            (130px + 120px) e nenhum ponto de quebra. Só as fixas mais o botão já
+            passam de 390px, e `1fr` tem mínimo automático — o grid não encolhia e
+            empurrava a página inteira (615px de conteúdo em 390 de tela). Empilha
+            no celular e volta a ser linha a partir de sm. */}
         {isAdmin && !isClosed && (
-          <div className="grid grid-cols-[130px_1fr_120px_1fr_auto] gap-2 items-end mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr_120px_1fr_auto] gap-2 items-end mb-4">
             <div>
               <Label className="text-xs">Data</Label>
               <DateInput
@@ -637,6 +656,10 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           </div>
         )}
 
+        {/* CMU-4: as tabelas do módulo têm 6-7 colunas e nenhuma cabe em 390px.
+            Três das quatro declaravam só `overflow-y`, e esta não tinha contêiner
+            nenhum. Uma já fazia certo — agora todas declaram os dois eixos. */}
+        <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b text-muted-foreground">
@@ -680,6 +703,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {/* Uncovered Days */}
