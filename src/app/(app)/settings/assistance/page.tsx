@@ -38,6 +38,9 @@ export default function AssistanceSettingsPage() {
 
   const form = useForm<AssistanceInput>({
     resolver: zodResolver(assistanceSchema),
+    // Se o dado do servidor mudar embaixo (outra pessoa editando), preserva o que
+    // o usuário já digitou em vez de sobrescrever o formulário (CFG-4).
+    resetOptions: { keepDirtyValues: true },
     values: data
       ? {
           termsOfService: data.termsOfService ?? "",

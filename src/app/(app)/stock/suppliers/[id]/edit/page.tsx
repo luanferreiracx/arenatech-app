@@ -39,6 +39,9 @@ export default function EditSupplierPage({ params }: { params: Promise<{ id: str
 
   const form = useForm<UpdateSupplierInput>({
     resolver: zodResolver(updateSupplierSchema),
+    // Se o dado do servidor mudar embaixo (outra pessoa editando), preserva o que
+    // o usuário já digitou em vez de sobrescrever o formulário (CFG-4).
+    resetOptions: { keepDirtyValues: true },
     values: supplierQuery.data
       ? {
           id,

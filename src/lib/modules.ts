@@ -221,6 +221,47 @@ const SETTINGS_TAB_MODULE: ReadonlyArray<readonly [string, ModuleKey | null]> = 
 ];
 
 /**
+ * Abas de Configurações que o OPERADOR pode abrir. Todo o resto de `/settings/*`
+ * é do administrador do tenant.
+ *
+ * A lista é por exclusão de propósito: aba nova nasce restrita ao admin até
+ * alguém declarar o contrário aqui. É o mesmo fail-closed de `isPathAllowed` —
+ * o erro barato é o admin abrir um chamado dizendo "o operador não vê X"; o caro
+ * é o operador achar que configura a taxa de cartão.
+ *
+ * Por que estas duas:
+ * - `security` — 2FA e troca de senha são do próprio usuário, e 2FA é pré-requisito
+ *   para saque DePix. Esta aba NUNCA é gateada (nem por módulo, nem por papel).
+ * - `delivery-persons` — as procedures de entregador (`operation.*DeliveryPerson`)
+ *   são `tenantProcedure` sem check de admin: cadastrar entregador é trabalho de
+ *   operação, e o menu do operador já oferecia a tela.
+ */
+const SETTINGS_OPERATOR_TABS: readonly string[] = [
+  "/settings/security",
+  "/settings/delivery-persons",
+];
+
+/**
+ * True quando a rota de Configurações exige papel de admin no tenant.
+ *
+ * Existe porque o gating de aba era só por MÓDULO: o operador via as 15 abas do
+ * admin, com "Salvar"/"Nova Adquirente" habilitados, para configurações que o
+ * backend recusa. Medido no navegador: operador em `/settings/receiving` preenche
+ * o formulário, clica Salvar e só então recebe 403 "Apenas proprietários podem
+ * alterar configurações de recebimento". O backend estava certo; a tela mentia.
+ *
+ * Consumida nos três lugares que decidem visibilidade — proxy (URL direta),
+ * layout de settings (barra de abas) e menu lateral (`adminOnly`) — para não
+ * repetir a regra em três formas diferentes.
+ */
+export function isAdminOnlySettingsPath(pathname: string): boolean {
+  if (pathname !== "/settings" && !pathname.startsWith("/settings/")) return false;
+  return !SETTINGS_OPERATOR_TABS.some(
+    (tab) => pathname === tab || pathname.startsWith(`${tab}/`),
+  );
+}
+
+/**
  * Mapa de prefixo de rota → módulo. A ordem importa: prefixos mais específicos
  * vêm antes dos genéricos (ex.: `/depix-wallet` antes de qualquer rota financeira).
  * `resolveModuleForPath` casa pelo primeiro prefixo que bate.

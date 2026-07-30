@@ -29,6 +29,9 @@ export default function ReceivingSettingsPage() {
 
   const form = useForm<ReceivingInput>({
     resolver: zodResolver(receivingSchema),
+    // Se o dado do servidor mudar embaixo (outra pessoa editando), preserva o que
+    // o usuário já digitou em vez de sobrescrever o formulário (CFG-4).
+    resetOptions: { keepDirtyValues: true },
     values: data
       ? {
           minInstallmentAmount: data.minInstallmentAmount,

@@ -20,7 +20,7 @@ import {
   getCatalogSubdomainSlug,
   CANONICAL_APP_HOST,
 } from "@/lib/brand-host";
-import { isRouteAllowedForTenant } from "@/lib/modules";
+import { isAdminOnlySettingsPath, isRouteAllowedForTenant } from "@/lib/modules";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
 import { isPublicRoute, isLegacyHostDirectServe } from "@/lib/auth/public-routes";
 
@@ -236,6 +236,13 @@ export const proxy = auth((req) => {
   ) {
     if (!isRouteAllowedForTenant(pathname, activeTenant)) {
       return NextResponse.redirect(selfUrl("/painel?error=modulo-indisponivel"));
+    }
+
+    // 7c. Gating por PAPEL nas abas de Configurações. Sumir do menu não é
+    // autorização: sem isto, o operador chegava por URL direta e via o formulário
+    // de taxa de cartão inteiro, com Salvar habilitado, para levar 403 no submit.
+    if (activeTenant.role !== "admin" && isAdminOnlySettingsPath(pathname)) {
+      return NextResponse.redirect(selfUrl("/painel?error=acesso-restrito"));
     }
   }
 

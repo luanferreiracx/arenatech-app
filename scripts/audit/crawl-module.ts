@@ -254,6 +254,30 @@ async function visit(
   };
 }
 
+/**
+ * Faz UM login e devolve o estado de sessão para reuso entre viewports.
+ *
+ * Antes eram 4 logins por módulo (papel × viewport). Em módulo grande — as 18
+ * telas de configuração — varreduras seguidas esgotavam o limitador de tentativas
+ * do login e o harness passava a se bloquear sozinho, três vezes. O estado fica
+ * em memória, não em disco: nada de cookie de produção sobrando em arquivo.
+ */
+async function captureAuthState(
+  browser: Browser,
+  role: RoleKey,
+): Promise<Awaited<ReturnType<BrowserContext["storageState"]>>> {
+  const context = await browser.newContext({
+    viewport: VIEWPORTS.desktop,
+    locale: "pt-BR",
+    timezoneId: "America/Sao_Paulo",
+  });
+  const page = await context.newPage();
+  await login(page, role);
+  const state = await context.storageState();
+  await context.close();
+  return state;
+}
+
 async function runPass(
   browser: Browser,
   role: RoleKey,
@@ -261,14 +285,15 @@ async function runPass(
   urls: Array<{ route: AuditRoute; url: string | null }>,
   outDir: string,
   warmup: boolean,
+  authState: Awaited<ReturnType<BrowserContext["storageState"]>>,
 ): Promise<PassReport> {
   const context: BrowserContext = await browser.newContext({
     viewport: VIEWPORTS[viewport],
     locale: "pt-BR",
     timezoneId: "America/Sao_Paulo",
+    storageState: authState,
   });
   const page = await context.newPage();
-  await login(page, role);
 
   // Aquecimento: o dev server compila rota e handler tRPC sob demanda. Na
   // primeira visita isso vira 404 em batch e `<main>` que não aparece em 20s —
@@ -353,9 +378,12 @@ async function main(): Promise<void> {
   const passes: PassReport[] = [];
   try {
     for (const r of roles) {
+      const authState = await captureAuthState(browser, r);
       for (const v of viewports) {
         console.log(`\n=== ${auditModule.label} · ${r} · ${v} ===`);
-        passes.push(await runPass(browser, r, v, urls, outDir, passes.length === 0));
+        passes.push(
+          await runPass(browser, r, v, urls, outDir, passes.length === 0, authState),
+        );
       }
     }
   } finally {
