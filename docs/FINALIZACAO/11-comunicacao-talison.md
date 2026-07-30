@@ -128,6 +128,51 @@ Medido a 390px: `scrollWidth` **932 antes, 390 depois**, zero elementos fora.
 > Módulo 2. A regra vale sempre: **medir contra build limpo antes de concluir** —
 > e não escrever no comentário que algo "resolveu" antes de ver o número novo.
 
+## Achados da passada de frontend
+
+### CMN-1 — o painel empurrava 932px numa tela de 390 (P1)
+
+Achado **por acidente e fora do módulo**: o crawler mandou o operador para
+`/settings/bot`, o gate de papel do Módulo 10 o redirecionou para `/painel`, e foi
+lá que o overflow apareceu.
+
+O painel é **a primeira tela que todo usuário abre**. No celular ele tinha
+`scrollWidth` de **932px** — 542 a mais que a tela.
+
+Causa, em três lugares diferentes e sempre a mesma: os cartões são filhos de
+`grid`, e item de grid nasce com `min-width: auto` — não encolhe abaixo do
+conteúdo. Os `truncate` dentro dos cartões (que **existem**, escritos com
+cuidado) nunca disparavam, porque a cadeia de encolhimento quebrava no ancestral.
+É o **truncate ghost**: a classe está lá, sem efeito.
+
+Corrigido com `[&>*]:min-w-0` nos **6 grids** do painel — cobre os cartões de hoje
+e os que vierem. Medido depois: `scrollWidth` 390 em tela de 390, e o crawler do
+módulo Painel voltou com 0 quebradas · 0 atenção · 0 redirect.
+
+Sétima vez que este mecanismo aparece no programa, e a primeira na tela de maior
+tráfego.
+
+> **Registro de método, duas correções minhas no caminho.** Primeiro suspeitei do
+> `Alert` que eu mesmo tinha adicionado no Módulo 10 (o aviso de acesso
+> bloqueado). Medi as duas variantes de URL: **932px nas duas**, com e sem o
+> alerta — não era regressão minha. Depois de corrigir os cartões de alerta,
+> sobrou overflow **só** na variante com `?error=`, e eu quase escrevi que aí sim
+> era o meu componente. Medi de novo: eram "Últimas Vendas" e "Últimas OS", que
+> só aparecem depois que a query resolve — a diferença entre as duas medições era
+> o tempo de espera da sonda, não o alerta.
+
+### CMN-2 — falha de query virava "nenhum template" (P3)
+
+`templates-list.tsx` fazia `data ?? []` sem olhar `isError`, e nenhum arquivo das
+telas de comunicação checava erro. Mesmo eixo já corrigido nos Módulos 8 e 9;
+passou a usar o `QueryErrorState`.
+
+## O que o crawler achou nas telas do módulo
+
+Nada. As três telas de comunicação mais a aba do bot, em admin e operador, 1440 e
+390: **0 quebradas, 0 atenção**. Os 2 redirects são o operador sendo barrado em
+`/settings/bot` — o gate de papel do Módulo 10 funcionando.
+
 ## Verificação
 
 ```bash
