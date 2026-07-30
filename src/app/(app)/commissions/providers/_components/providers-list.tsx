@@ -4,6 +4,7 @@ import { Search, Eye } from "lucide-react";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/domain/data-table";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -24,6 +25,20 @@ export function ProvidersList() {
 
   if (listQuery.isLoading) {
     return <Skeleton className="h-64 w-full" />;
+  }
+
+  // CMU-2: era `listQuery.data ?? []` direto. `listProviders` é admin-only, então
+  // para o operador a query dava 403, `data` vinha indefinido e a tela afirmava
+  // "Nenhum prestador cadastrado" — com botão de cadastrar — enquanto existiam 7.
+  // Vazio e bloqueado não são o mesmo estado.
+  if (listQuery.isError) {
+    return (
+      <QueryErrorState
+        error={listQuery.error}
+        forbiddenTitle="Gestão de prestadores é da administração"
+        forbiddenDescription="Peça a um administrador da loja se precisar consultar contratos ou apurações."
+      />
+    );
   }
 
   const providers = listQuery.data ?? [];

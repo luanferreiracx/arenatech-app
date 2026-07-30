@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import type { CreateProviderInput } from "@/lib/validators/provider-commission";
 
 export function NewProviderForm() {
@@ -64,6 +65,19 @@ export function NewProviderForm() {
 
   if (usersQuery.isLoading) {
     return <Skeleton className="h-64 w-full" />;
+  }
+
+  // CMU-3: o formulário inteiro renderizava para o operador — com o seletor de
+  // usuários listando nome e CPF de todo mundo, e um "Cadastrar prestador" que
+  // só podia terminar em 403. Sem os dados não há formulário a oferecer.
+  if (usersQuery.isError) {
+    return (
+      <QueryErrorState
+        error={usersQuery.error}
+        forbiddenTitle="Cadastro de prestador é da administração"
+        forbiddenDescription="Peça a um administrador da loja para cadastrar o prestador e o contrato."
+      />
+    );
   }
 
   const availableUsers = usersQuery.data ?? [];
