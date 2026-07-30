@@ -19,6 +19,40 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 10 (Configurações/Auth): fechado nos dois lados
+
+Passada de frontend das 19 telas de configuração, como admin **e** como operador,
+em 1440 e 390. Quatro achados novos, todos medidos em navegador real sobre a cópia
+de produção:
+
+- **CFG-6 (P1)** — o gating de aba tinha só a dimensão MÓDULO. Operador e admin
+  abriam as **mesmas 15 abas**, com "Salvar"/"Nova Adquirente" habilitados: o
+  operador preenchia Regras de Venda e só no submit recebia 403. O backend está
+  íntegro (varri as 26 mutations: todas com gate de admin) — a tela é que oferecia.
+  Falsa affordance, não furo de autorização. Produção tem 2 operadores reais, no
+  tenant que vende. Corrigido com `isAdminOnlySettingsPath` (declaração por
+  exclusão, aba nova nasce restrita) consumida pelo proxy, pelo layout e pelo menu.
+- **CFG-7 (P2)** — o aviso de acesso bloqueado **nunca foi visto por ninguém**,
+  inclusive o de plano que já estava em produção: toast disparado em efeito de
+  montagem se perde (o `Toaster` do sonner assina o store depois do efeito). Virou
+  `Alert` no painel — conteúdo, não notificação efêmera.
+- **CFG-5 (P2)** — API de Parceiros mostrava estado **vazio** onde devia mostrar
+  bloqueado, com botões que só podiam falhar.
+- **CFG-4 (P3)** — aviso de input não-controlado → controlado em `/settings/general`.
+
+**Duas coisas que eu afirmei e a medição derrubou** (registradas no doc do módulo):
+a perda de digitação por refetch de foco **não acontece** (o `values` do RHF compara
+com o valor anterior da prop, não com o formulário), e meu primeiro levantamento de
+gating por grep de assinatura apontou "7 writes de dinheiro sem admin" que era
+**falso** — as procedures checam admin no corpo.
+
+Também reescrevi 13 testes `@business` que **passavam por causa do bug** (um deles
+afirmava a falsa affordance; outro terminava numa tautologia). Eles só rodam
+pós-merge — sem varrer, a `main` ficaria vermelha.
+
+Verificação: 2026 unit, 19 E2E de settings, 27 @smoke, crawler 76 visitas com 0
+quebradas e 0 atenção. Próximo: **Módulo 8 — Comissões**.
+
 ### 2026-07-29 — Um pré-cadastro pendente por e-mail + marca das mensagens vira PDV DEPIX
 
 Fecha duas pontas do dia anterior.

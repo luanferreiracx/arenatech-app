@@ -54,6 +54,26 @@ export default function GeneralSettingsPage() {
 
   const form = useForm<UpdateGeneralSettingsInput>({
     resolver: zodResolver(updateGeneralSettingsSchema),
+    // CFG-4 — o que foi MEDIDO: sem `defaultValues`, os campos nascem sem valor
+    // (o `values` abaixo só existe depois da query) e o React avisa "changing an
+    // uncontrolled input to be controlled". Verificado nos dois sentidos: no
+    // código anterior o aviso aparece; com `defaultValues` não aparece.
+    //
+    // `resetOptions` aqui é CINTO, não correção de bug medido. Eu supunha que o
+    // refetch de foco descartava a digitação em curso; fui medir e NÃO acontece —
+    // o `values` do RHF compara com o valor anterior, e refetch que devolve o
+    // mesmo dado não dispara reset. Sobra o caso real de outra pessoa editar a
+    // configuração enquanto esta tela está aberta: aí o reset acontece, e
+    // `keepDirtyValues` preserva o que o usuário tocou.
+    resetOptions: { keepDirtyValues: true },
+    defaultValues: {
+      tradeName: "",
+      legalName: "",
+      cnpj: "",
+      phone: "",
+      email: "",
+      address: { cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "" },
+    },
     values: settings
       ? {
           tradeName: settings.tradeName ?? "",

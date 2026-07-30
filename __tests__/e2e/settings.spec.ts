@@ -81,7 +81,7 @@ test.describe("Settings — Tab Assistência", () => {
 
 test.describe("Settings — Tab Fiscal", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-5 tab Fiscal preenche razão social", async ({ page }) => {
@@ -108,7 +108,7 @@ test.describe("Settings — Tab Fiscal", () => {
 
 test.describe("Settings — Tab Pagamento", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-7 tab Pagamento renderiza conteúdo", async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe("Settings — Tab Pagamento", () => {
 
 test.describe("Settings — Tab Parcelamento", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-9 tab Parcelamento exibe tabela de taxas", async ({ page }) => {
@@ -149,7 +149,7 @@ test.describe("Settings — Tab Parcelamento", () => {
 
 test.describe("Settings — Tab Recebimento", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-11 tab Recebimento tem form com submit", async ({ page }) => {
@@ -161,7 +161,7 @@ test.describe("Settings — Tab Recebimento", () => {
 
 test.describe("Settings — Usuários", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-12 listar usuários exibe tabela", async ({ page }) => {
@@ -172,41 +172,86 @@ test.describe("Settings — Usuários", () => {
     await expect(page.locator("table th, table [role='columnheader']").first()).toBeVisible();
   });
 
-  test("@business S-13 operador não vê ação de cadastro (gestão restrita a admins)", async ({ page }) => {
-    // 52998224725 é operador → vê a lista, mas sem o botão de criar usuário.
+  test("@business S-13 admin vê a ação de cadastro de usuário", async ({ page }) => {
     await gotoAndWait(page, "/settings/users");
     await expect(page.locator("table")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole("button", { name: /Novo usuario|Novo usuário/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Novo usuario|Novo usuário/i })).toHaveCount(1);
   });
 });
 
+/**
+ * CFG-6 — Configurações é área do administrador.
+ *
+ * Estes testes substituem um bloco que afirmava o contrário ("Operator accessing
+ * fiscal — page loads (RBAC check is on mutations, not read)") e terminava em
+ * `expect(typeof hasSubmit).toBe("boolean")`, que passa sempre. O comportamento
+ * que eles descreviam era o achado: medido no navegador, o operador abria as 15
+ * abas do admin, preenchia "Regras de Venda", clicava Salvar e só então recebia
+ * 403. O backend sempre recusou; a tela é que oferecia.
+ */
+const ABAS_SO_DO_ADMIN = [
+  "/settings/general",
+  "/settings/fiscal",
+  "/settings/payment-methods",
+  "/settings/card-acquirers",
+  "/settings/receiving",
+  "/settings/users",
+  "/settings/logs",
+  "/settings/subscription",
+];
+
 test.describe("Settings — RBAC", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await login(page); // 52998224725 = operador
   });
 
-  test("@business S-14 tab Fiscal carrega e form existe", async ({ page }) => {
-    // Operator accessing fiscal — page loads (RBAC check is on mutations, not read)
-    await gotoAndWait(page, "/settings/fiscal");
-    // Verify the page rendered fiscal-related content
-    await expect(page.locator("main")).toContainText(/[Ff]iscal|NF|[Rr]azão/, { timeout: 10000 });
-    // But submit may be blocked by RBAC
-    const submitBtn = page.locator("button[type='submit']");
-    const hasSubmit = await submitBtn.isVisible({ timeout: 3000 }).catch(() => false);
-    expect(typeof hasSubmit).toBe("boolean"); // assertion on the check itself
+  test("@business S-14 operador é barrado nas abas do admin, com aviso visível", async ({ page }) => {
+    for (const aba of ABAS_SO_DO_ADMIN) {
+      await gotoAndWait(page, aba);
+      await expect(page).toHaveURL(/\/painel/, { timeout: 15000 });
+      // Aviso como CONTEÚDO, não toast: o toast disparado na hidratação se perde
+      // (o Toaster do sonner assina o store depois do efeito) — foi por isso que
+      // o aviso de módulo indisponível nunca apareceu para ninguém.
+      await expect(page.locator("main [data-slot='alert']")).toContainText(
+        /restrita ao administrador/i,
+        { timeout: 15000 },
+      );
+    }
   });
 
-  test("@business S-15 tab Pagamento tem conteúdo de formas de pagamento", async ({ page }) => {
-    await gotoAndWait(page, "/settings/payment-methods");
-    await expect(page.locator("main")).toContainText(/[Pp]agamento|[Ff]orma/, { timeout: 10000 });
-    // Specific locator assertion
-    await expect(page.locator("main").locator("button, a, [role='button']").first()).toBeVisible({ timeout: 5000 });
+  test("@business S-15 operador mantém Segurança e Entregadores", async ({ page }) => {
+    // Segurança nunca é gateada (2FA é pré-requisito de saque DePix); entregador
+    // é trabalho de operação — as procedures não exigem admin.
+    await gotoAndWait(page, "/settings/security");
+    await expect(page).toHaveURL(/\/settings\/security/, { timeout: 15000 });
+
+    await gotoAndWait(page, "/settings/delivery-persons");
+    await expect(page).toHaveURL(/\/settings\/delivery-persons/, { timeout: 15000 });
+  });
+
+  test("@business S-18 barra de abas do operador não oferece o que ele não pode abrir", async ({ page }) => {
+    await gotoAndWait(page, "/settings/security");
+    const abas = page.locator("main a[href^='/settings'], nav a[href^='/settings']");
+    const hrefs = await abas.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("href")).filter((h): h is string => !!h),
+    );
+    // Menu que oferece rota que o proxy barra é o mesmo beco, invertido.
+    for (const href of hrefs) {
+      expect(ABAS_SO_DO_ADMIN).not.toContain(href);
+    }
+  });
+
+  test("@business S-19 admin abre as abas de configuração normalmente", async ({ page }) => {
+    await loginAsAdmin(page);
+    await gotoAndWait(page, "/settings/receiving");
+    await expect(page).toHaveURL(/\/settings\/receiving/, { timeout: 15000 });
+    await expect(page.locator("button[type='submit']")).toBeVisible({ timeout: 15000 });
   });
 });
 
 test.describe("Settings — Integrações e Logs", () => {
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    await loginAsAdmin(page);
   });
 
   test("@business S-16 integrações exibe cards ou lista", async ({ page }) => {

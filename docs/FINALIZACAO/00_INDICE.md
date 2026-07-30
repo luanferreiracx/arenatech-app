@@ -32,7 +32,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 7 | Fiscal / NF-e | ⏸ adiado | ⏸ | **não** | ver nota abaixo |
 | 8 | Comissões | — | — | **não** | — |
 | 9 | Clientes / Interesses | — | — | tem | — |
-| 10 | Configurações / Equipe / Auth | ⏳ | — | tem | [10-config-auth.md](./10-config-auth.md) |
+| 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | — | — | **não** | — |
 | 12 | Fidelidade | — | — | **não** | — |
 | 13 | Catálogo / Ferramentas | — | — | **não** | — (módulo `/checklist` removido no M4) |

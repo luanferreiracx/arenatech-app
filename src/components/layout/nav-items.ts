@@ -182,9 +182,14 @@ export const appNavGroups: NavGroup[] = [
       // SETTINGS_TAB_MODULE/resolveModuleForPath): um tenant só-wallet vê
       // Config. Gerais e Segurança, mas não Formas de Pagamento/Simulador/
       // Entregadores — que dependem de pdv/tools/service-orders.
-      { label: "Configurações Gerais", href: "/settings", icon: Settings, module: "settings" },
-      { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "pdv" },
-      { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "tools" },
+      //
+      // `adminOnly` acompanha SETTINGS_OPERATOR_TABS em modules.ts: dessas quatro,
+      // só Entregadores é trabalho de operação (as procedures de entregador não
+      // exigem admin). As outras três o operador via no menu e no submit levava
+      // 403 — e o proxy agora barra a URL direta também.
+      { label: "Configurações Gerais", href: "/settings", icon: Settings, module: "settings", adminOnly: true },
+      { label: "Formas de Pagamento", href: "/settings/payment-methods", icon: CreditCard, module: "pdv", adminOnly: true },
+      { label: "Taxas do Simulador", href: "/settings/installments", icon: Percent, module: "tools", adminOnly: true },
       { label: "Entregadores", href: "/settings/delivery-persons", icon: Truck, module: "service-orders" },
       // Sem `module`: Seguranca (2FA + senha) e disponivel a QUALQUER tenant —
       // tenants wallet/NO-KYC precisam habilitar 2FA pra sacar (sem isso ficavam

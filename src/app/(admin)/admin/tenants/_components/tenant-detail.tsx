@@ -131,6 +131,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   // Subscription).
   const tenantForm = useForm<UpdateTenantInput>({
     resolver: zodResolver(updateTenantSchema),
+    // Se o dado do servidor mudar embaixo (outra pessoa editando), preserva o que
+    // o usuário já digitou em vez de sobrescrever o formulário (CFG-4).
+    resetOptions: { keepDirtyValues: true },
     values: tenant
       ? {
           id: tenant.id,

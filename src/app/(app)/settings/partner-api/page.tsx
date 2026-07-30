@@ -6,8 +6,9 @@ import { useTRPC } from "@/trpc/react";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/domain/page-header";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { LoadingState } from "@/components/domain/loading-state";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,6 +90,23 @@ export default function PartnerApiPage() {
         subtitle="Emita credenciais (API-keys) para suas integrações externas consumirem a API DePix. O segredo é exibido uma única vez — guarde com segurança."
       />
 
+      {/* CFG-5: sem `apiAccessEnabled` o servidor recusa tudo, mas a tela mostrava
+          "Nenhuma chave emitida ainda" (estado VAZIO, não bloqueado) e oferecia
+          "Nova chave" e o formulário de webhook — botões que só podiam falhar. O
+          único sinal do bloqueio era um toast que desaparecia. Mesma classe do
+          achado do Módulo 1, agravada por oferecer ação impossível. */}
+      {keysQuery.isError ? (
+        <Card>
+          <CardContent className="py-8">
+            <QueryErrorState
+              error={keysQuery.error}
+              forbiddenTitle="API de Parceiros não habilitada para esta loja"
+              forbiddenDescription="O acesso à API externa é liberado caso a caso pela Arena Tech. Enquanto não estiver habilitado, não é possível emitir chaves nem configurar webhook."
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" asChild>
           <a href="/docs/partner-api" target="_blank" rel="noopener noreferrer">
@@ -238,6 +256,8 @@ export default function PartnerApiPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </>
+      )}
     </div>
   );
 }

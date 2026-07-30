@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { auth } from "@/server/auth";
 import { resolveActiveTenant } from "@/lib/auth/active-tenant";
-import { resolveModuleForPath } from "@/lib/modules";
+import { isAdminOnlySettingsPath, resolveModuleForPath } from "@/lib/modules";
 import { SettingsTabs, type SettingsTab } from "./_components/settings-tabs";
 
 const ALL_TABS: SettingsTab[] = [
@@ -32,12 +32,20 @@ export default async function SettingsLayout({ children }: { children: React.Rea
     ? resolveActiveTenant(session, cookieStore.get("x-active-tenant")?.value)
     : null;
   const allowedModules = activeTenant?.modules ?? [];
+  const isAdmin = activeTenant?.role === "admin" || session?.user.isSuperAdmin === true;
 
-  // Cada aba é gateada pelo módulo funcional de que depende (resolveModuleForPath
-  // consulta SETTINGS_TAB_MODULE): um tenant só-wallet vê Geral/Equipe/Assinatura/
-  // Logs/Segurança (sempre-on → módulo null), mas não Fiscal, Formas de Pagamento,
-  // Cartões etc. — que não fazem sentido sem os módulos pdv/fiscal/tools/service-orders.
+  // Duas dimensões, e ambas importam:
+  //
+  // MÓDULO — cada aba é gateada pelo módulo funcional de que depende
+  // (resolveModuleForPath consulta SETTINGS_TAB_MODULE): um tenant só-wallet vê
+  // Geral/Equipe/Assinatura/Logs/Segurança (sempre-on → módulo null), mas não
+  // Fiscal, Formas de Pagamento, Cartões etc.
+  //
+  // PAPEL — quase toda aba só o admin do tenant pode alterar, e antes o operador
+  // via as 15 com "Salvar" habilitado para levar 403 no submit. O proxy aplica a
+  // mesma regra na URL direta (passo 7c); aqui é só a barra de abas.
   const tabs = ALL_TABS.filter((tab) => {
+    if (!isAdmin && isAdminOnlySettingsPath(tab.href)) return false;
     const mod = resolveModuleForPath(tab.href);
     return mod === null || allowedModules.includes(mod);
   });

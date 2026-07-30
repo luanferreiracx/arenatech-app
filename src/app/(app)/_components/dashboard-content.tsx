@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { formatCentsBRL as formatCurrency } from "@/lib/format";
 import { useSearchParams } from "next/navigation";
-import { toast } from "@/lib/toast";
 import {
   Users,
   ClipboardList,
@@ -25,6 +24,7 @@ import {
 import { useTRPC } from "@/trpc/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -490,6 +490,16 @@ function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allow
 
 // ── Main Dashboard ──
 
+/**
+ * Motivos de bloqueio que o proxy manda no `?error=`. Mapa em vez de cadeia de
+ * `if` para o próximo motivo entrar sem tocar no render.
+ */
+const BLOCK_REASONS: Record<string, string> = {
+  "modulo-indisponivel": "Esse módulo não está disponível no plano da sua loja.",
+  "acesso-restrito": "Essa configuração é restrita ao administrador da loja.",
+};
+
+
 export function DashboardContent({
   userName,
   tenantSlug,
@@ -503,19 +513,31 @@ export function DashboardContent({
   const { data: stats, isLoading: statsLoading } = useQuery(trpc.dashboard.stats.queryOptions());
   const has = (mod: string) => (allowedModules ?? []).includes(mod);
 
-  // Aviso quando o usuário foi redirecionado para cá por tentar acessar um
-  // módulo não liberado no plano (gating no proxy).
+  // Aviso de por que o usuário caiu aqui: o proxy redireciona para /painel com
+  // `?error=` quando barra uma rota (plano ou papel).
+  //
+  // Isto era um `toast.error` num efeito de montagem, e NUNCA foi visto por
+  // ninguém: medido no navegador, o toast disparado na hidratação se perde — o
+  // Toaster do sonner assina o store depois do efeito rodar, e sonner não repõe
+  // toast perdido para quem assina atrasado. O mesmo toast com 1,2s de atraso
+  // aparece; o imediato não. Aviso de bloqueio precisa ser CONTEÚDO da página,
+  // não notificação efêmera: sobrevive a recarga, é lido por leitor de tela e não
+  // depende de corrida de montagem.
   const searchParams = useSearchParams();
-  useEffect(() => {
-    if (searchParams.get("error") === "modulo-indisponivel") {
-      toast.error("Modulo nao disponivel no seu plano.");
-    }
-  }, [searchParams]);
+  const motivoDoBloqueio = BLOCK_REASONS[searchParams.get("error") ?? ""];
 
   const firstName = userName?.split(" ")[0] ?? userName;
 
   return (
     <div className="space-y-8">
+      {motivoDoBloqueio && (
+        <Alert variant="destructive" role="alert">
+          <AlertTriangle />
+          <AlertTitle>Acesso não liberado</AlertTitle>
+          <AlertDescription>{motivoDoBloqueio}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Cabeçalho — saudação + ação primária. Sem card: é o título da página. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">

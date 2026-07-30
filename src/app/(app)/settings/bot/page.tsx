@@ -35,6 +35,9 @@ export default function BotSettingsPage() {
   // Um só schema para cliente e servidor (paridade de validação anti-injeção).
   const form = useForm<UpdateBotConfigInput>({
     resolver: zodResolver(updateBotConfigSchema),
+    // Se o dado do servidor mudar embaixo (outra pessoa editando), preserva o que
+    // o usuário já digitou em vez de sobrescrever o formulário (CFG-4).
+    resetOptions: { keepDirtyValues: true },
     values: data
       ? { enabled: data.enabled, instructions: data.instructions ?? "" }
       : undefined,
