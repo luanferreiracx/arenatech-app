@@ -19,6 +19,30 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 9 (Clientes/Interesses): backend, 2 P1
+
+Produção: 1.384 clientes e **75 interesses, todos WAITING**, criados nos últimos
+19 dias — o módulo está sendo alimentado (~4 leads/dia) e nada acontece depois.
+
+- **CL-1 (P1)** — a conversão automática de lead **nunca casou um telefone**. O
+  serviço comparava por igualdade exata contra `interest.phone`, e o mesmo número
+  é gravado em três formatos: cliente com 11 dígitos (1.278 dos 1.384), interesse
+  do painel com DDI (13), interesse do bot com o telefone CRU do WhatsApp (12-16).
+  **Nenhum dos 75 interesses tinha 11 dígitos** e 23 nem só-dígitos eram. Prova de
+  impacto: **6 dos 75 leads pertencem a clientes que compraram depois de virar
+  lead** — o funil marcava 0% com pelo menos 8% real. Corrigido com `phoneMatchKey`
+  (últimos 8 dígitos), normalização na escrita do bot e migration de backfill.
+- **CL-2 (P1)** — `interest.sendBatch` (disparo em MASSA) ignorava o opt-out de
+  LGPD, que só era aplicado no envio um-a-um de `communication.sendMessage`.
+  Bastava mandar pelo painel de interesses para furar o descadastro. O opt-out é
+  da pessoa: agora pula por `customerId` e por telefone (os 75 têm customer_id
+  nulo, então sem isso o controle seria contornável).
+
+Íntegro: 0 duplicatas de CPF/CNPJ em 1.384 clientes, `sendBatch` já admin-only com
+cooldown, `take` em todas as listas.
+
+Verificação: 2030 unit, 302 integração (11 novos). Próximo: frontend do Módulo 9.
+
 ### 2026-07-30 — Finalização, Módulo 8 (Comissões): frontend fechado + primeiro E2E
 
 Sete achados, dois deles P1:

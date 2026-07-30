@@ -271,6 +271,32 @@ export function normalizePhoneDigits(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
+/**
+ * Chave de COMPARAÇÃO entre telefones de origens diferentes: os últimos 8
+ * dígitos (o número do assinante, sem DDI, sem DDD e sem a ambiguidade do
+ * nono dígito).
+ *
+ * Existe porque o mesmo telefone chega em três formatos no sistema:
+ *
+ * | Origem                    | Como fica gravado          | Dígitos |
+ * |---------------------------|----------------------------|---------|
+ * | cadastro de cliente       | `(86) 99999-9999`          | 11      |
+ * | interesse pelo painel     | `5586999999999` (se digitou DDI) | 13 |
+ * | interesse pelo bot        | telefone cru do WhatsApp   | 12-16   |
+ *
+ * A conversão automática de lead comparava por **igualdade exata** e por isso
+ * nunca casava: medido em produção, dos 75 interesses abertos, **nenhum** tinha
+ * os 11 dígitos usados por 1.278 dos 1.384 clientes, e 6 deles pertenciam a
+ * clientes que compraram depois de virar lead.
+ *
+ * Retorna string vazia quando não há dígitos suficientes para ser chave
+ * confiável — quem chama deve tratar isso como "não casa com ninguém".
+ */
+export function phoneMatchKey(phone: string | null | undefined): string {
+  const digits = normalizePhoneDigits(phone ?? "");
+  return digits.length >= 8 ? digits.slice(-8) : "";
+}
+
 export const interestTypeEnum = z.enum(["PURCHASE", "SALE", "TRADE", "REPAIR"]);
 export type InterestTypeValue = z.infer<typeof interestTypeEnum>;
 

@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { normalizePhoneDigits } from "@/lib/validators/customer";
+import { phoneMatchKey } from "@/lib/validators/customer";
 import { logger } from "@/lib/logger";
 
 /**
@@ -31,15 +31,24 @@ export async function linkInterestConversionByPhone(
     customerId?: string | null;
   },
 ): Promise<string | null> {
-  const digits = params.phone ? normalizePhoneDigits(params.phone) : "";
-  // Telefone curto demais não é chave confiável — evita falso-positivo.
-  if (digits.length < 8) return null;
+  // CL-1: era igualdade exata contra `interest.phone`, e por isso NUNCA casava.
+  // O mesmo telefone é gravado em formatos diferentes conforme a origem (painel,
+  // bot do WhatsApp, cadastro de cliente). Medido em produção: dos 75 interesses
+  // abertos, nenhum tinha os 11 dígitos usados por 1.278 dos 1.384 clientes — e 6
+  // pertenciam a clientes que compraram ou abriram OS depois de virar lead. O
+  // funil marcava 0% de conversão com pelo menos 8% real.
+  //
+  // A chave são os últimos 8 dígitos (o número do assinante). `endsWith` funciona
+  // porque a coluna é normalizada só-dígitos na escrita e no backfill — sem isso
+  // um telefone mascarado terminaria em "9999" e escaparia de novo.
+  const key = phoneMatchKey(params.phone);
+  if (!key) return null;
 
   try {
     const open = await tx.interest.findFirst({
       where: {
         tenantId: params.tenantId,
-        phone: digits,
+        phone: { endsWith: key },
         status: { in: ["WAITING", "CONTACTED"] },
       },
       orderBy: { createdAt: "asc" }, // o mais antigo primeiro (fila)
