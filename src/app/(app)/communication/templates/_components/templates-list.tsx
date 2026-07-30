@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/domain/empty-state";
 import { ConfirmDialog } from "@/components/domain/confirm-dialog";
 import { toast } from "@/lib/toast";
 import { createTemplateSchema, type CreateTemplateInput, MESSAGE_CHANNEL_LABELS } from "@/lib/validators/communication";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 
 export function TemplatesList() {
   const trpc = useTRPC();
@@ -56,6 +57,12 @@ export function TemplatesList() {
     form.reset({ channel: item.channel as "WHATSAPP" | "EMAIL", name: item.name, slug: item.slug, body: item.body });
     setShowForm(true);
   };
+
+  // CMN-2: era `data ?? []` sem olhar `isError` — falha de query virava "nenhum
+  // template", com botão de criar. Mesmo eixo já corrigido nos Módulos 8 e 9.
+  if (listQuery.isError) {
+    return <QueryErrorState error={listQuery.error} />;
+  }
 
   const templates = listQuery.data ?? [];
 

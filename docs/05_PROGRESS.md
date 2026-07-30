@@ -19,6 +19,31 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 11: frontend + o painel transbordando 542px
+
+Crawler nas 4 telas do módulo (as três de /communication + /settings/bot, que é
+deste módulo por ADR 0055): **0 quebradas, 0 atenção**. Os 2 redirects são o gate
+de papel do Módulo 10 funcionando.
+
+O achado veio do DESTINO do redirect, fora do módulo:
+
+- **CMN-1 (P1)** — o painel, **primeira tela que todo usuário abre**, tinha
+  `scrollWidth` de **932px numa tela de 390**. Os cartões são filhos de `grid`, e
+  item de grid nasce com `min-width: auto`: os `truncate` de dentro deles — que
+  existem, escritos com cuidado — nunca disparavam. Truncate ghost clássico,
+  sétima vez no programa e a primeira na tela de maior tráfego. Corrigido com
+  `[&>*]:min-w-0` nos **6 grids** do painel, cobrindo os cartões de hoje e os que
+  vierem; medido depois em 390, e o crawler do módulo Painel voltou 100% limpo.
+- **CMN-2 (P3)** — `templates-list` fazia `data ?? []` sem `isError`; nenhum
+  arquivo das telas de comunicação checava erro.
+
+**Duas correções minhas de rota no caminho.** Suspeitei do `Alert` que eu mesmo
+tinha adicionado no Módulo 10 e fui medir: 932px com e sem ele — não era regressão
+minha. Depois, ao sobrar overflow só na variante `?error=`, quase escrevi que aí
+sim era o meu componente; eram "Últimas Vendas" e "Últimas OS", que só aparecem
+depois da query resolver — a diferença entre as duas medições era o tempo de
+espera da sonda, não o alerta.
+
 ### 2026-07-30 — Finalização, Módulo 11 (Talison): backend — o custo do bot era invisível
 
 Maior tráfego do sistema, de longe: **2.992 conversas e 42.384 mensagens** desde
