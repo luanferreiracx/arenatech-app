@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { instantRange } from "@/lib/utils/date-filter";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import {
@@ -69,13 +70,13 @@ export const quickSaleRouter = createTRPCRouter({
           ];
         }
 
-        if (input.dateFrom) {
-          where.createdAt = { ...(where.createdAt as object ?? {}), gte: new Date(input.dateFrom) };
-        }
-        if (input.dateTo) {
-          const to = new Date(input.dateTo);
-          to.setHours(23, 59, 59, 999);
-          where.createdAt = { ...(where.createdAt as object ?? {}), lte: to };
+        // DPX-1: `createdAt` é instante; o filtro misturava meia-noite UTC com
+        // `setHours` do processo. Ancora no dia BRT.
+        if (input.dateFrom || input.dateTo) {
+          where.createdAt = {
+            ...(where.createdAt as object ?? {}),
+            ...instantRange(input.dateFrom, input.dateTo),
+          };
         }
 
         const [data, total] = await Promise.all([

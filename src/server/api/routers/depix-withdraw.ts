@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { instantRange } from "@/lib/utils/date-filter";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
 import {
@@ -80,10 +81,13 @@ export const depixWithdrawRouter = createTRPCRouter({
         if (input.status) where.status = input.status;
         if (input.pixKey) where.pixKey = { contains: input.pixKey, mode: "insensitive" };
         if (input.recipientName) where.recipientName = { contains: input.recipientName, mode: "insensitive" };
-        if (input.dateFrom) where.createdAt = { ...(where.createdAt as Record<string, unknown> ?? {}), gte: new Date(input.dateFrom) };
-        if (input.dateTo) {
-          const existing = where.createdAt as Record<string, unknown> ?? {};
-          where.createdAt = { ...existing, lte: new Date(input.dateTo + "T23:59:59.999Z") };
+        // DPX-1: `createdAt` é instante; a faixa ancora no dia BRT. O `T23:59:59Z`
+        // anterior fechava o dia às 20h59 BRT.
+        if (input.dateFrom || input.dateTo) {
+          where.createdAt = {
+            ...((where.createdAt as Record<string, unknown>) ?? {}),
+            ...instantRange(input.dateFrom, input.dateTo),
+          };
         }
 
         const [items, total] = await Promise.all([
