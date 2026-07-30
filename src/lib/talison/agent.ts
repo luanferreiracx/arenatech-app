@@ -11,6 +11,7 @@
  */
 
 import { logger } from "@/lib/logger";
+import { recordTalisonMetric } from "@/lib/talison/metrics";
 import type { LlmMessage, LlmProvider } from "@/lib/talison/types";
 import { buildSystemPrompt, type PromptContext } from "@/lib/talison/prompt";
 import { getTool, getToolDefinitions } from "@/lib/talison/tools/registry";
@@ -98,6 +99,24 @@ async function runTool(
 export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult> {
   const { provider, toolContext, promptContext, history } = args;
   const toolsUsed: string[] = [];
+  // TL-1: soma o consumo das ITERAÇÕES — o custo de uma resposta é o do laço
+  // inteiro, não o da última chamada. Sem isto, um diálogo que gastou 5 rodadas
+  // de tool-call parecia igual a um que respondeu de primeira.
+  let inputTokens = 0;
+  let outputTokens = 0;
+  const emitirConsumo = (iterations: number, degraded: boolean) => {
+    if (inputTokens === 0 && outputTokens === 0) return;
+    recordTalisonMetric("tokens", {
+      conversationId: toolContext.conversation.id,
+      tenantId: toolContext.tenantId,
+      model: provider.name,
+      iterations,
+      toolsUsed: toolsUsed.length,
+      inputTokens,
+      outputTokens,
+      degraded,
+    });
+  };
 
   const messages: LlmMessage[] = [
     { role: "system", content: buildSystemPrompt(promptContext) },
@@ -108,12 +127,15 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
   try {
     for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       const completion = await provider.chat({ messages, tools: toolDefinitions });
+      inputTokens += completion.usage?.inputTokens ?? 0;
+      outputTokens += completion.usage?.outputTokens ?? 0;
 
       // Sem tool calls → resposta final.
       if (completion.toolCalls.length === 0) {
         const reply = completion.text.trim();
         if (!reply) {
           // Modelo não pediu tool nem respondeu — fail-safe.
+          emitirConsumo(iteration, true);
           return { reply: FALLBACK_MESSAGE, iterations: iteration, toolsUsed, degraded: true, suspiciousPrice: false };
         }
         // Guarda anti-alucinação: valor em dinheiro na resposta sem nenhuma tool de
@@ -127,6 +149,7 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
             replyPreview: reply.slice(0, 160),
           });
         }
+        emitirConsumo(iteration, false);
         return { reply, iterations: iteration, toolsUsed, degraded: false, suspiciousPrice };
       }
 
@@ -149,6 +172,7 @@ export async function runTalison(args: TalisonRunArgs): Promise<TalisonRunResult
       conversationId: toolContext.conversation.id,
       toolsUsed,
     });
+    emitirConsumo(MAX_ITERATIONS, true);
     return { reply: FALLBACK_MESSAGE, iterations: MAX_ITERATIONS, toolsUsed, degraded: true, suspiciousPrice: false };
   } catch (error) {
     logger.error("Talison: loop falhou", {

@@ -19,6 +19,27 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 11 (Talison): backend — o custo do bot era invisível
+
+Maior tráfego do sistema, de longe: **2.992 conversas e 42.384 mensagens** desde
+fevereiro, com volume subindo (8,2k em abril → 12,1k em julho). Cada mensagem
+dispara o laço do agente, que gasta até 5 chamadas de LLM.
+
+- **TL-1 (P1 operacional)** — o provedor DeepSeek devolve `usage`
+  (inputTokens/outputTokens), o tipo já previa, e **nenhum código lia**. Não dava
+  para responder "quanto o bot custou este mês?". Corrigido com uma métrica
+  `tokens` na mesma estratégia que o módulo já declara (log estruturado agregável),
+  somando o LAÇO INTEIRO — um diálogo de 5 rodadas custa muito mais que um de 1, e
+  somar só a última faria os dois parecerem iguais.
+
+**É o módulo mais endurecido que o programa encontrou**, e isso ficou registrado
+no doc com o mesmo peso de um achado: laço com teto de 5 e fail-safe em três
+saídas; allowlist de ferramentas em CÓDIGO (não no prompt — a diferença entre um
+controle que injeção contorna e um que não); validação determinística pós-LLM
+(`suspiciousPrice`); só 1 das 13 ferramentas escreve; `buscarCliente` sobe apenas
+`{id, name}` para o modelo; webhook com compare timing-safe e ADR de redação de
+token. Trabalho anterior bem feito — desfazer qualquer um seria caro.
+
 ### 2026-07-30 — Finalização, Módulo 9: frontend fechado (passada magra, e por bom motivo)
 
 Crawler: 28 visitas, **0 quebradas, 0 atenção, 0 redirect**. As correções de
