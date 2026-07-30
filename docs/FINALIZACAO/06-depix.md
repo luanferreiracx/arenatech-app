@@ -1,7 +1,7 @@
 # Módulo 6 — DePix Wallet / Vendas Avulsas / pagamento público
 
 **Passada A (backend):** concluída em 2026-07-29.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-29.
 
 > É o módulo do dinheiro **irreversível**: transação on-chain na Liquid não tem
 > estorno. Também é o que mais auditoria já recebeu (incidentes de cache LWK,
@@ -91,6 +91,55 @@ continuam valendo. Fica como decisão do dono no fim do programa. O ponto de
 método vale mais que o item: **cerca preservada precisa de revalidação
 periódica** — o motivo que a justificava pode ter deixado de existir sem que
 ninguém atualize a nota.
+
+## Passada de frontend
+
+Varredura das 13 telas × admin/operador × desktop/mobile = 52 combinações:
+**0 quebradas, 0 de atenção.** Os 12 "redirects" são os stubs legados de
+`/depix/*`, esperados.
+
+O módulo chegou limpo. Herdou as correções de primitivo dos Módulos 2 a 4
+(`PageHeader`, breadcrumb, grid, `TabsList`) sem precisar de nada novo — quarto
+módulo seguido em que corrigir na raiz poupou trabalho por tela.
+
+### Página pública de pagamento, medida no navegador
+
+É a tela que o cliente final abre no celular, fora de qualquer sessão nossa.
+Verificada em 390px **e** em 320px (piso da WCAG 1.4.10):
+
+| Cenário | Resultado |
+|---|---|
+| Link expirado | HTTP 200, tela de "cobrança indisponível", **0** de overflow |
+| Token inexistente | HTTP **404**, sem vazar nome de comerciante |
+
+### O que este módulo ganhou: o primeiro E2E
+
+Até aqui a carteira DePix — **o dinheiro irreversível do sistema** — não tinha
+**nenhum** teste de fluxo real. Agora tem 4 casos, todos independentes de dado
+(valem no seed e em produção):
+
+1. a carteira abre e cabe em 320px;
+2. as rotas legadas de saque levam para a carteira — se uma delas voltar a
+   renderizar tela própria, é sinal de que o saque ganhou uma **segunda porta**,
+   que é exatamente o padrão que este programa encontrou em três módulos;
+3. token de pagamento inexistente responde 404 sem expor nada;
+4. a página de pagamento cabe em 320px.
+
+## Checklist de frontend
+
+| Eixo | Situação |
+|---|---|
+| 1. Erro visível | ✅ (correção transversal do M1) |
+| 2. Carregando / disabled | ✅ `payment-dialog` com guard de reentrância — decisão a preservar |
+| 3. Invalidação após mutação | ✅ |
+| 4. Estado vazio | ✅ carteira não provisionada cai na tela de setup |
+| 5. Permissão | ✅ saque exige admin + 2FA |
+| 6. Formatação pt-BR | ✅ |
+| 7. Mobile 390px e 320px | ✅ 52 combinações limpas + página pública |
+| 8. Acessibilidade | ✅ |
+| 9. Reconciliação | ✅ invariantes de dinheiro conferidas na passada de backend |
+| 10. Console e rede | ✅ 0 erro |
+| 11. Fluxo incompleto | ⚠️ 5 leituras do túmulo (decisão do dono) |
 
 ## Checklist de backend
 
