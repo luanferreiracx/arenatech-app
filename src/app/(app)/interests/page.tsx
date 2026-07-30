@@ -44,6 +44,7 @@ import {
   type InterestStatusValue,
   type InterestTypeValue,
 } from "@/lib/validators/customer";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 
 export default function InterestsPage() {
   const [search, setSearch] = useState("");
@@ -57,7 +58,7 @@ export default function InterestsPage() {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, isError, error } = useQuery(
     trpc.interest.list.queryOptions({
       search: search || undefined,
       status: statusFilter !== "ALL" ? statusFilter : undefined,
@@ -97,6 +98,7 @@ export default function InterestsPage() {
     }),
   );
 
+  // CLU-1: mesma armadilha da lista de clientes — falha virava "nenhum interesse".
   const interests = data?.data ?? [];
   const stats = data?.stats;
 
@@ -195,7 +197,9 @@ export default function InterestsPage() {
       )}
 
       {/* Table */}
-      {interests.length === 0 && !isLoading ? (
+      {isError ? (
+        <QueryErrorState error={error} />
+      ) : interests.length === 0 && !isLoading ? (
         <EmptyState
           title="Nenhum interesse encontrado"
           description="Cadastre um novo interesse para começar."

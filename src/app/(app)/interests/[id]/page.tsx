@@ -243,12 +243,12 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
                 className="space-y-4"
               >
                 <div className="space-y-2">
-                  <Label>Tipo *</Label>
+                  <Label htmlFor="interest-interaction-type">Tipo *</Label>
                   <Select
                     value={interactionForm.watch("type")}
                     onValueChange={(v: string) => interactionForm.setValue("type", v as AddInteractionInput["type"])}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="interest-interaction-type">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -259,8 +259,8 @@ export default function InterestDetailPage({ params }: { params: Promise<{ id: s
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Descrição *</Label>
-                  <Textarea {...interactionForm.register("description")} rows={3} placeholder="Descreva a interação..." />
+                  <Label htmlFor="interest-interaction-description">Descrição *</Label>
+                  <Textarea id="interest-interaction-description" {...interactionForm.register("description")} rows={3} placeholder="Descreva a interação..." />
                   {interactionForm.formState.errors.description && (
                     <p className="text-sm text-destructive">{interactionForm.formState.errors.description.message}</p>
                   )}

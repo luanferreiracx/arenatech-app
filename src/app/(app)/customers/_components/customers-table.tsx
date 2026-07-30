@@ -10,6 +10,7 @@ import {
 } from "./customer-message-dialog";
 import { useTRPC } from "@/trpc/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 import { DataTable } from "@/components/domain/data-table";
 import { DataTableToolbar } from "@/components/domain/data-table/data-table-toolbar";
 import { EmptyState } from "@/components/domain/empty-state";
@@ -208,7 +209,7 @@ export function CustomersTable() {
 
   const onlyDeleted = isAdmin && statusFilter === "INACTIVE";
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, isError, error } = useQuery(
     trpc.customer.list.queryOptions({
       search: debouncedSearch || undefined,
       type: typeFilter,
@@ -227,6 +228,13 @@ export function CustomersTable() {
       onError: (e: { message: string }) => toast.error(e.message),
     }),
   );
+
+  // CLU-1: `data ?? []` transformava QUALQUER falha da query em "nenhum cliente
+  // cadastrado" — com 1.384 clientes no banco. Vazio e quebrado não são o mesmo
+  // estado, e a lista de clientes é a tela mais usada do sistema.
+  if (isError) {
+    return <QueryErrorState error={error} />;
+  }
 
   // Paginação já filtra server-side (onlyDeleted) — sem filtro client-side.
   const rows = (data?.data ?? []) as CustomerRow[];

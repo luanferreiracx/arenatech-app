@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Star, Gift } from "lucide-react";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 
 const MOVEMENT_LABELS: Record<string, string> = {
   credit: "Crédito",
@@ -28,6 +29,19 @@ export function CustomerRewardPanel({ customerId }: { customerId: string }) {
 
   if (balanceQuery.isLoading) {
     return <Skeleton className="h-40 w-full rounded-lg" />;
+  }
+
+  // CLU-1: o painel de fidelidade some sem avisar quando a query falha — inclusive
+  // no 403 de um tenant sem o módulo. Saldo zerado e "sem recompensas" é o que o
+  // cliente-fiel-de-verdade veria se a leitura quebrasse.
+  if (balanceQuery.isError || rewardsQuery.isError) {
+    return (
+      <QueryErrorState
+        error={balanceQuery.error ?? rewardsQuery.error}
+        forbiddenTitle="Fidelidade não está habilitada para esta loja"
+        forbiddenDescription="Fale com um administrador se o programa de fidelidade deveria estar ativo."
+      />
+    );
   }
 
   const balance = balanceQuery.data;
