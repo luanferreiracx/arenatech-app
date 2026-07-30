@@ -30,7 +30,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 5 | Financeiro | ✅ | ✅ | tem | [05-financeiro.md](./05-financeiro.md) |
 | 6 | DePix Wallet / Vendas Avulsas | ✅ | ✅ | **novo** | [06-depix.md](./06-depix.md) |
 | 7 | Fiscal / NF-e | ⏸ adiado | ⏸ | **não** | ver nota abaixo |
-| 8 | Comissões | — | — | **não** | — |
+| 8 | Comissões | ✅ | ⏳ | **não** | [08-comissoes.md](./08-comissoes.md) |
 | 9 | Clientes / Interesses | — | — | tem | — |
 | 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | — | — | **não** | — |

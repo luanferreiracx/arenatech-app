@@ -19,6 +19,37 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 8 (Comissões): backend fechado, 4 correções de dinheiro
+
+O módulo tem dinheiro real (R$ 2.661,94 em abril) e um perfil revelador: 9
+apurações de abril a julho, **todas OPEN** — `closeApuracao`, o caminho que gera
+o PAYABLE, nunca rodou em produção. E **zero dias não cobertos**, que foi o que
+manteve o achado principal invisível.
+
+- **CM-1 (P1)** — a ajuda de custo zerava o mês inteiro por um dia de falta. Os
+  dias do mês vinham de `periodEnd.getDate()`, que lê no fuso do PROCESSO: no
+  container de produção (UTC, confirmado por `docker exec ... date`) devolvia
+  **1**, não 31. Com zero dias não cobertos a proporção dava 1/1 e o valor saía
+  certo **por acidente**; com um único dia marcado, `effectiveDays` virava 0 e a
+  ajuda (R$ 1.000–1.111/mês) ia a zero. O próprio prestador pode marcar o dia.
+- **CM-5 (P2)** — a guarda de "mês já fechado" existia só no self-service; o
+  caminho do ADMIN não tinha nenhuma. Extraída para um lugar só.
+- **CM-3 (P2)** — `capReduction` era exibido na ficha e nunca gravado: a tela
+  dizia "R$ 0,00 de redução" enquanto o teto cortava a ajuda.
+- **CM-4 (P2)** — recalcular período sem contrato vigente fazia `update: {}` e
+  preservava o valor antigo, que `closeApuracao` selaria num PAYABLE.
+
+`recomputeProviderApuracao` (120 linhas, o motor) vivia privada no router, sem
+teste próprio — os três primeiros defeitos estavam na costura que ninguém testava.
+Foi para `commission-preview.service.ts`, que já era dono da coleta de eventos.
+
+**Pendente do dono (CM-2):** `netAmount = max(0, bruto − estornos + ajuda)` — sem
+carry-forward, estorno maior que o mês evapora. É decisão de negócio; 0 estornos
+em produção hoje.
+
+Verificação: 2030 unit, 291 integração. Cada correção com teste que falha antes.
+Próximo: passada de frontend do Módulo 8 (5 telas, nenhum E2E hoje).
+
 ### 2026-07-30 — Finalização, Módulo 10 (Configurações/Auth): fechado nos dois lados
 
 Passada de frontend das 19 telas de configuração, como admin **e** como operador,

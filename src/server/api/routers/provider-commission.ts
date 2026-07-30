@@ -19,17 +19,11 @@ import {
   previewCommissionByPeriodSchema,
 } from "@/lib/validators/provider-commission";
 import { logger } from "@/lib/logger";
-import {
-  computeCommissionLines,
-  summarizeCommissionLines,
-  toNumericRules,
-} from "@/lib/commission/compute-lines";
 import { monthRange } from "@/lib/commission/month-range";
 import { startOfDayBrt, endOfDayBrt } from "@/lib/utils/date-range";
-import { calcAllowance } from "@/lib/commission/allowance";
 import {
-  collectProviderEvents,
   computeCommissionPreview,
+  recomputeProviderApuracao,
 } from "@/server/services/commission-preview.service";
 import { createProviderApuracaoPayable } from "@/server/services/provider-apuracao-payable.service";
 import { MAX_DATA } from "@/lib/validators/limits";
@@ -39,6 +33,39 @@ import { MAX_DATA } from "@/lib/validators/limits";
 function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
   return Number(v);
+}
+
+/**
+ * Recusa mexer num dia não coberto cujo mês já foi apurado e fechado.
+ *
+ * CM-5: esta guarda existia SÓ no self-service do prestador. O caminho do ADMIN
+ * — o que a loja usa — não tinha nenhuma, então dava para marcar/desmarcar dia
+ * de um mês CLOSED/PAID. A apuração não recalcula (calculate recusa fora de
+ * OPEN), então o valor pago não muda: o que muda é que a justificativa do rateio
+ * passa a discordar do que foi pago. Uma regra, um lugar.
+ *
+ * O ano/mês saem de `getUTC*`: `input.day` chega como "YYYY-MM-DD" e
+ * `new Date(...)` o interpreta como meia-noite UTC. Ler com `getMonth()` usaria
+ * o fuso do PROCESSO e, num processo em BRT, "2026-07-01" cairia em JUNHO — a
+ * guarda consultaria o mês errado. Mesma família do CM-1.
+ */
+async function assertApuracaoAberta(
+  tx: Prisma.TransactionClient,
+  providerId: string,
+  day: Date,
+): Promise<void> {
+  const fechada = await tx.providerApuracao.findFirst({
+    where: {
+      providerId,
+      year: day.getUTCFullYear(),
+      month: day.getUTCMonth() + 1,
+      status: { not: "OPEN" },
+    },
+    select: { id: true },
+  });
+  if (fechada) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao do mes ja fechada." });
+  }
 }
 
 
@@ -553,6 +580,7 @@ export const providerCommissionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const day = new Date(input.day);
+        await assertApuracaoAberta(tx, input.providerId, day);
 
         const existing = await tx.providerUncoveredDay.findFirst({
           where: {
@@ -597,20 +625,7 @@ export const providerCommissionRouter = createTRPCRouter({
         }
 
         const day = new Date(input.day);
-
-        // Nao permite editar dia de mes com apuracao ja fechada.
-        const closed = await tx.providerApuracao.findFirst({
-          where: {
-            providerId: provider.id,
-            year: day.getFullYear(),
-            month: day.getMonth() + 1,
-            status: { not: "OPEN" },
-          },
-          select: { id: true },
-        });
-        if (closed) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Apuracao do mes ja fechada." });
-        }
+        await assertApuracaoAberta(tx, provider.id, day);
 
         const existing = await tx.providerUncoveredDay.findFirst({
           where: { providerId: provider.id, day },
@@ -837,131 +852,3 @@ async function buildProviderDetail(
 // ═══════════════════════════════════════
 // Apuracao (recompute + persist)
 // ═══════════════════════════════════════
-
-/**
- * C2 (auditoria comissão 2026-07-11): computa (ou recomputa) a apuração do mês —
- * coleta eventos, aplica os baldes, soma estornos/ajuda de custo e PERSISTE
- * grossCommission/netAmount/memoryJson. Extraído de `calculate` para ser
- * reutilizado por `closeApuracao`: antes o fechamento selava o `netAmount`
- * gravado pelo ÚLTIMO calculate — se vendas/OS mudaram (nova venda, estorno)
- * desde então, o PAYABLE saía com valor stale (paga a mais/menos, inclui venda
- * estornada). Agora o close recomputa sob o lock antes de gerar o PAYABLE.
- */
-async function recomputeProviderApuracao(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tx: any,
-  tenantId: string,
-  providerId: string,
-  year: number,
-  month: number,
-): Promise<{ id: string; grossCommission: number; netAmount: number }> {
-  const provider = await tx.provider.findUnique({
-    where: { id: providerId },
-    include: {
-      contracts: {
-        orderBy: { startDate: "desc" },
-        // Ordem ESTÁVEL das regras (auditoria 2026-07-25): o motor lê o modo
-        // do balde de `sorted[0]` e o sort por rangeMin empata quando duas
-        // regras têm o mesmo piso. Sem `orderBy`, a ordem era a do heap do
-        // Postgres — instável após UPDATE/VACUUM — e a MESMA apuração podia
-        // mudar sozinha entre dois cálculos.
-        include: { rules: { orderBy: [{ rangeMin: "asc" }, { id: "asc" }] } },
-      },
-    },
-  });
-  if (!provider) throw new TRPCError({ code: "NOT_FOUND", message: "Prestador nao encontrado" });
-
-  const { start: periodStart, end: periodEnd } = monthRange(year, month);
-  const contract = provider.contracts.find((c: { startDate: Date; endDate: Date | null }) => {
-    const start = new Date(c.startDate);
-    const end = c.endDate ? new Date(c.endDate) : null;
-    return start <= periodEnd && (!end || end >= periodStart);
-  });
-
-  if (!contract || contract.rules.length === 0) {
-    const apuracao = await tx.providerApuracao.upsert({
-      where: { tenantId_providerId_year_month: { tenantId, providerId, year, month } },
-      create: {
-        tenantId, providerId, year, month,
-        memoryJson: { linhas: [], subtotais: {}, total_comissao: 0, aviso: "Sem contrato vigente" },
-      },
-      update: {},
-    });
-    return { id: apuracao.id, grossCommission: 0, netAmount: 0 };
-  }
-
-  const hasStoreSaleRule = contract.rules.some(
-    (r: { source: string; category: string }) => r.source === "STORE" && r.category !== "servico_at_loja",
-  );
-  const hasStoreServiceRule = contract.rules.some((r: { category: string }) => r.category === "servico_at_loja");
-  const events = await collectProviderEvents(tx, provider, periodStart, periodEnd, hasStoreSaleRule, hasStoreServiceRule);
-
-  const { lines, grossCommission } = computeCommissionLines(events, toNumericRules(contract.rules));
-
-  const reversals = await tx.providerReversal.findMany({
-    where: { providerId, factDate: { gte: periodStart, lte: periodEnd } },
-  });
-  const totalReversals = Math.round(reversals.reduce((s: number, r: { amount: unknown }) => s + decimalToNumber(r.amount as Prisma.Decimal), 0) * 100) / 100;
-
-  const totalAllowance = await calculateAllowance(tx, providerId, contract, periodStart, periodEnd);
-  const netAmount = Math.round(Math.max(0, grossCommission - totalReversals + totalAllowance) * 100) / 100;
-
-  const memory = {
-    prestador_id: provider.id,
-    periodo: {
-      inicio: periodStart.toISOString().split("T")[0],
-      fim: periodEnd.toISOString().split("T")[0],
-      label: `${String(month).padStart(2, "0")}/${year}`,
-    },
-    linhas: lines,
-    subtotais_por_categoria: summarizeCommissionLines(lines),
-    total_comissao: grossCommission,
-  };
-
-  const apuracao = await tx.providerApuracao.upsert({
-    where: { tenantId_providerId_year_month: { tenantId, providerId, year, month } },
-    create: {
-      tenantId, providerId, year, month,
-      grossCommission: new Prisma.Decimal(grossCommission),
-      totalReversals: new Prisma.Decimal(totalReversals),
-      totalAllowance: new Prisma.Decimal(totalAllowance),
-      netAmount: new Prisma.Decimal(netAmount),
-      memoryJson: memory as Prisma.InputJsonValue,
-    },
-    update: {
-      grossCommission: new Prisma.Decimal(grossCommission),
-      totalReversals: new Prisma.Decimal(totalReversals),
-      totalAllowance: new Prisma.Decimal(totalAllowance),
-      netAmount: new Prisma.Decimal(netAmount),
-      memoryJson: memory as Prisma.InputJsonValue,
-    },
-  });
-
-  return { id: apuracao.id, grossCommission, netAmount };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function calculateAllowance(
-  tx: any,
-  providerId: string,
-  contract: { allowanceCap: Prisma.Decimal | null; dailyMeal: Prisma.Decimal | null; dailyTransport: Prisma.Decimal | null; monthlyCellphone: Prisma.Decimal | null },
-  periodStart: Date,
-  periodEnd: Date,
-): Promise<number> {
-  const uncoveredDays = await tx.providerUncoveredDay.count({
-    where: {
-      providerId,
-      day: { gte: periodStart, lte: periodEnd },
-    },
-  });
-
-  // Os campos do contrato sao VALORES DO MES (nao diarias) — ver calcAllowance.
-  return calcAllowance({
-    meal: decimalToNumber(contract.dailyMeal),
-    transport: decimalToNumber(contract.dailyTransport),
-    cellphone: decimalToNumber(contract.monthlyCellphone),
-    cap: decimalToNumber(contract.allowanceCap),
-    daysInMonth: periodEnd.getDate(),
-    uncoveredDays,
-  });
-}
