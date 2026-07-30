@@ -378,7 +378,13 @@ function AlertsSection() {
       </h2>
       {/* Painel único, colunas por gravidade. Sem card por alerta: o tom do
           título (destructive p/ dinheiro, warning p/ operação) carrega o estado. */}
-      <div className="grid gap-3 lg:grid-cols-3">
+      {/* CMN-1: `[&>*]:min-w-0` em TODOS os grids do painel. Item de grid nasce
+          com `min-width: auto` e não encolhe abaixo do conteúdo, então os
+          `truncate` de dentro dos cartões nunca disparavam — o painel, que é a
+          primeira tela de todo usuário, empurrava 932px numa tela de 390. É o
+          "truncate ghost": a classe está lá, sem efeito, porque a cadeia de
+          encolhimento quebra num ancestral. */}
+      <div className="grid [&>*]:min-w-0 gap-3 lg:grid-cols-3">
         {alerts.overdueFinancials.length > 0 && (
           <AlertGroup
             tone="destructive"
@@ -436,7 +442,12 @@ function AlertGroup({
 }) {
   const dot = tone === "destructive" ? "bg-destructive" : "bg-warning";
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
+    // CMN-1: `min-w-0` no CARTÃO, não só no texto. Item de grid nasce com
+    // `min-width: auto` e não encolhe abaixo do conteúdo — então os `truncate`
+    // lá dentro nunca disparavam. Medido no painel a 390px: `scrollWidth` 932
+    // antes, 390 depois. É o "truncate ghost": a classe está lá, sem efeito,
+    // porque a cadeia de encolhimento quebra num ancestral.
+    <div className="min-w-0 rounded-xl border border-border bg-card p-3">
       <p className="mb-1.5 flex items-center gap-2 px-1.5 text-sm font-medium">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
         <span className="min-w-0 truncate">{title}</span>
@@ -472,7 +483,7 @@ function QuickLinks({ tenantSlug, allowedModules }: { tenantSlug?: string; allow
         Acesso rápido
       </h2>
       {/* Ícone monocromático (herda cor no hover): sem rainbow. Grid denso. */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="grid [&>*]:min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
         {links.map((link) => (
           <Link
             key={link.href}
@@ -578,13 +589,13 @@ export function DashboardContent({
       {/* Métricas — um único grid coeso (não seções fragmentadas em cards). O
           significado vem do `tone`, não de 8 cores aleatórias. */}
       {statsLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid [&>*]:min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-[4.75rem] rounded-xl" />
           ))}
         </div>
       ) : stats ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid [&>*]:min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <Kpi
             icon={DollarSign}
             label="Faturamento hoje"
@@ -634,13 +645,13 @@ export function DashboardContent({
       <AlertsSection />
 
       {/* Gráfico + status de OS. */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid [&>*]:min-w-0 gap-4 lg:grid-cols-2">
         <SalesChart />
         <OrdersByStatus />
       </div>
 
       {/* Atividade recente. */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid [&>*]:min-w-0 gap-4 lg:grid-cols-2">
         <RecentSalesTable />
         <RecentOrdersTable />
       </div>

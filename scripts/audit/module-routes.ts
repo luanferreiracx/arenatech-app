@@ -217,6 +217,8 @@ export const AUDIT_MODULES: AuditModule[] = [
       { path: "/communication" },
       { path: "/communication/send" },
       { path: "/communication/templates" },
+      // A aba do bot vive em Configurações mas é deste módulo (ADR 0055).
+      { path: "/settings/bot" },
     ],
   },
   {

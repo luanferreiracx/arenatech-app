@@ -19,6 +19,23 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 11: frontend fechado + painel consertado no mobile
+
+Crawler nas 4 telas (as três de /communication + /settings/bot, que é deste
+módulo por ADR 0055), 16 visitas: **0 quebradas, 0 atenção**. Os 2 redirects são
+o gate de papel do Módulo 10 funcionando.
+
+- **CMN-1 (P2)** — achado no DESTINO do redirect: o painel empurrava **932px numa
+  tela de 390**. Os cartões de alerta são itens de grid, que nascem com
+  `min-width: auto` e não encolhem — os `truncate` dentro deles nunca disparavam
+  ("truncate ghost"). `min-w-0` no cartão resolve: 932 → 390, zero elementos fora.
+  É a tela mais visitada do sistema; corrigido aqui apesar de pertencer ao
+  Módulo 14.
+
+**Lição de método, 2ª ocorrência:** medi 932px com a correção JÁ aplicada e quase
+concluí que não funcionava — era `.next/dev` velho. Mesma armadilha do P0 fantasma
+do Módulo 2. Medir contra build limpo antes de concluir.
+
 ### 2026-07-30 — Finalização, Módulo 11 (Talison): backend — o custo do bot era invisível
 
 Maior tráfego do sistema, de longe: **2.992 conversas e 42.384 mensagens** desde

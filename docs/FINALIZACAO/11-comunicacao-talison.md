@@ -1,7 +1,7 @@
 # Módulo 11 — Comunicação / Talison
 
 **Passada A (backend):** concluída em 2026-07-30.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-30 (4 telas × 2 papéis × 2 viewports).
 
 ## Superfície
 
@@ -99,10 +99,40 @@ Registro isso com o mesmo peso dos achados: um módulo que aguenta 42 mil mensag
 com essas defesas no lugar é resultado de trabalho anterior bem feito, e desfazer
 qualquer um desses pontos por engano seria caro.
 
+## Passada de frontend
+
+Crawler nas 4 telas do módulo (as três de `/communication` mais `/settings/bot`,
+que mora em Configurações mas é deste módulo por ADR 0055), como admin e como
+operador, em 1440 e 390: **16 visitas, 0 quebradas, 0 atenção**.
+
+Os 2 redirects são o gate de papel do Módulo 10 funcionando: `/settings/bot` é
+configuração de admin, e o operador é mandado para o painel com aviso visível.
+
+### CMN-1 — o painel empurrava 932px numa tela de 390 (P2)
+
+Achado no destino do redirect, não nas telas do módulo — mas medido, severo e na
+tela mais visitada do sistema, então corrigido aqui.
+
+Os cartões de alerta do painel (`10 contas vencidas`, `6 OS atrasadas`,
+`10 produtos com estoque baixo`) são itens de grid, e item de grid nasce com
+`min-width: auto`: não encolhe abaixo do conteúdo. Os `truncate` que já existiam
+**dentro** deles nunca disparavam — o "truncate ghost", a classe presente e sem
+efeito porque a cadeia de encolhimento quebra num ancestral. `min-w-0` no cartão,
+não só no texto.
+
+Medido a 390px: `scrollWidth` **932 antes, 390 depois**, zero elementos fora.
+
+> **Lição de método, segunda ocorrência.** Cheguei a medir 932px com a correção
+> **já aplicada** na árvore e quase concluí que ela não funcionava. Era
+> compilação velha em `.next/dev`. A mesma armadilha produziu um P0 fantasma no
+> Módulo 2. A regra vale sempre: **medir contra build limpo antes de concluir** —
+> e não escrever no comentário que algo "resolveu" antes de ver o número novo.
+
 ## Verificação
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test:unit   # 2032 verdes (2 novos)
+pnpm typecheck && pnpm lint && pnpm test:unit          # 2032 verdes (2 novos)
+pnpm tsx scripts/audit/crawl-module.ts comunicacao     # 0 quebradas · 0 atenção
 ```
 
 **Falha antes do fix, verificada:** removi a acumulação de `usage` no laço e o
