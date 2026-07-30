@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { instantRange } from "@/lib/utils/date-filter";
 import { Prisma } from "@prisma/client";
 import {
   createTRPCRouter,
@@ -274,8 +275,16 @@ export const depixTransactionRouter = createTRPCRouter({
       const where: Prisma.TenantDepixTransactionWhereInput = {};
       if (input?.kind && input.kind !== "ALL") where.kind = input.kind;
       if (input?.status && input.status !== "ALL") where.status = input.status;
-      if (input?.dateFrom) where.createdAt = { ...(where.createdAt as object | undefined), gte: new Date(input.dateFrom) };
-      if (input?.dateTo) where.createdAt = { ...(where.createdAt as object | undefined), lte: new Date(input.dateTo) };
+      // DPX-1: o `lte` era `new Date(dateTo)` — meia-noite UTC, sem fim de dia.
+      // Filtrar UM dia deixava `gte` e `lte` no mesmo instante e o extrato voltava
+      // VAZIO: medido em produção, 0 transações onde o correto eram 11.
+      // `createdAt` é instante, então a faixa ancora no dia BRT.
+      if (input?.dateFrom || input?.dateTo) {
+        where.createdAt = {
+          ...(where.createdAt as object | undefined),
+          ...instantRange(input?.dateFrom, input?.dateTo),
+        };
+      }
 
       const [data, total] = await ctx.withTenant(async (db) =>
         Promise.all([
