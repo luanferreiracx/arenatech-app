@@ -123,3 +123,63 @@ describe("runTalison", () => {
     expect(result.degraded).toBe(true);
   });
 });
+
+/**
+ * TL-1 — consumo de tokens por conversa.
+ *
+ * O provider já devolvia `usage` (inputTokens/outputTokens) e **nenhum código
+ * lia**: em julho de 2026 o bot processou 12.104 mensagens e o custo era
+ * invisível. A soma tem que ser do LAÇO INTEIRO — um diálogo que gastou cinco
+ * rodadas de tool-call custa muito mais que um que respondeu de primeira, e sem
+ * somar os dois pareciam iguais.
+ */
+describe("TL-1 — telemetria de consumo de tokens", () => {
+  it("soma o consumo de todas as iterações do laço", async () => {
+    const logger = await import("@/lib/logger");
+    const info = vi.spyOn(logger.logger, "info").mockImplementation(() => undefined);
+
+    const provider = fakeProvider([
+      {
+        text: "",
+        toolCalls: [{ id: "1", name: "consultar_status_os", arguments: { numero_os: "OS-1" } }],
+        usage: { inputTokens: 100, outputTokens: 20 },
+      },
+      { text: "Sua OS está pronta!", toolCalls: [], usage: { inputTokens: 150, outputTokens: 30 } },
+    ]);
+
+    await runTalison(baseArgs(provider));
+
+    const metrica = info.mock.calls.find(
+      ([msg, fields]) =>
+        msg === "talison.metric" &&
+        (fields as { talisonMetric?: string })?.talisonMetric === "tokens",
+    );
+    expect(metrica, "nenhuma métrica de tokens foi emitida").toBeDefined();
+
+    const campos = metrica![1] as Record<string, unknown>;
+    expect(campos.inputTokens).toBe(250); // 100 + 150, as duas iterações
+    expect(campos.outputTokens).toBe(50); // 20 + 30
+    expect(campos.iterations).toBe(2);
+    expect(campos.tenantId).toBe("tenant-1");
+
+    info.mockRestore();
+  });
+
+  it("não emite métrica quando o provider não informa consumo", async () => {
+    const logger = await import("@/lib/logger");
+    const info = vi.spyOn(logger.logger, "info").mockImplementation(() => undefined);
+
+    const provider = fakeProvider([{ text: "Olá!", toolCalls: [] }]);
+    await runTalison(baseArgs(provider));
+
+    const metrica = info.mock.calls.find(
+      ([msg, fields]) =>
+        msg === "talison.metric" &&
+        (fields as { talisonMetric?: string })?.talisonMetric === "tokens",
+    );
+    // Zero não é dado: emitir "0 tokens" poluiria a agregação com ruído.
+    expect(metrica).toBeUndefined();
+
+    info.mockRestore();
+  });
+});

@@ -22,7 +22,12 @@ export type TalisonMetric =
   | "wait_message"
   | "wait_skipped_closed"
   | "off_hours_notice"
-  | "catchup_replied";
+  | "catchup_replied"
+  // TL-1: consumo de tokens por conversa. O provider já devolvia `usage` e
+  // ninguém lia — num módulo com 12 mil mensagens só em julho, o custo do bot era
+  // invisível. Emitido como log estruturado, igual às demais: o tooling de log
+  // agrega por dia/tenant sem precisar de sistema de métricas dedicado.
+  | "tokens";
 
 export function recordTalisonMetric(
   metric: TalisonMetric,

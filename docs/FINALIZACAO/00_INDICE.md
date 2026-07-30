@@ -33,7 +33,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 8 | Comissões | ✅ | ✅ | **novo** | [08-comissoes.md](./08-comissoes.md) |
 | 9 | Clientes / Interesses | ✅ | ✅ | tem +4 | [09-clientes-interesses.md](./09-clientes-interesses.md) |
 | 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
-| 11 | Comunicação / Talison | — | — | **não** | — |
+| 11 | Comunicação / Talison | ✅ | ⏳ | **não** | [11-comunicacao-talison.md](./11-comunicacao-talison.md) |
 | 12 | Fidelidade | — | — | **não** | — |
 | 13 | Catálogo / Ferramentas | — | — | **não** | — (módulo `/checklist` removido no M4) |
 | 14 | Painel / Relatórios | — | — | **não** | — |
