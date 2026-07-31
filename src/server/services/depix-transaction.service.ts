@@ -60,6 +60,17 @@ const ZERO_FEE: DepixFeeConfig = {
  * painel superadmin (/admin/depix-fees) pra intervencao humana. O retry MANUAL do
  * painel ignora o teto (override do superadmin), reusando a mesma idempotencyKey.
  */
+/**
+ * Janela da guarda de quase-duplicata de saque (SQ-1).
+ *
+ * 10 minutos cobre com folga o gesto de "sera que saiu? vou tentar de novo" —
+ * os dois incidentes de producao aconteceram com minutos de intervalo — e e
+ * curto o bastante para nao atrapalhar pagamentos sequenciais de verdade. Quando
+ * atrapalha, a mensagem diz qual e a transacao anterior, entao o operador decide
+ * com informacao em vez de no escuro.
+ */
+const DUPLICATE_WITHDRAW_WINDOW_MS = 10 * 60 * 1000;
+
 const MAX_REPAYMENT_ATTEMPTS = 8;
 
 /**
@@ -1314,6 +1325,50 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
       }),
     );
     if (existing) return existing;
+  }
+
+  // SQ-1: guarda de quase-duplicata, INDEPENDENTE da chave do cliente.
+  //
+  // A idempotencia acima so protege quem reenvia a MESMA key. A tela cunhava a
+  // key com `useMemo(() => crypto.randomUUID(), [])`, que vive enquanto o
+  // componente esta montado — fechar o saque e reabrir gera uma key nova. Ou
+  // seja: a protecao evaporava exatamente no gesto de quem ficou na duvida se o
+  // saque saiu, que e quando ela mais importa. Aconteceu duas vezes em producao;
+  // na segunda o dono so nao pagou em dobro porque desconfiou e nao clicou.
+  //
+  // Aqui a chave e a INTENCAO (destino + valor), nao a sessao de tela. Recusa em
+  // vez de deduplicar em silencio: se o operador quer mesmo mandar duas vezes, a
+  // decisao tem que ser dele, com o numero da transacao anterior na mao.
+  {
+    const desde = new Date(Date.now() - DUPLICATE_WITHDRAW_WINDOW_MS);
+    const recente = await withTenant(args.tenantId, async (tx) =>
+      tx.tenantDepixTransaction.findFirst({
+        where: {
+          tenantId: args.tenantId,
+          kind: "WITHDRAW",
+          pixKey,
+          // Compara pelo LIQUIDO, que e o que o operador digita. O bruto depende
+          // da taxa vigente e so e calculado adiante.
+          netAmountCents: args.netAmountCents,
+          createdAt: { gte: desde },
+          // Um saque que a propria Eulen recusou (limite, chave invalida) nao
+          // moveu dinheiro e nao deve bloquear a nova tentativa. Quem bloqueia e
+          // o que esta vivo ou ja concluido.
+          status: { notIn: ["FAILED", "CANCELLED", "EXPIRED"] },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
+    if (recente) {
+      const minutos = Math.max(1, Math.round((Date.now() - recente.createdAt.getTime()) / 60_000));
+      throw new TRPCError({
+        code: "CONFLICT",
+        message:
+          `Ja existe um saque igual a este (mesma chave PIX e mesmo valor) criado ha ${minutos} min: ` +
+          `${recente.number}. Confira nas transacoes antes de enviar outro — se aquele saiu, este seria ` +
+          `um pagamento em dobro.`,
+      });
+    }
   }
 
   // Custodia (ADR 0051): carrega o modelo da carteira. Se non_custodial, o
