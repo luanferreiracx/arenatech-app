@@ -19,6 +19,29 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 12: frontend — o CTA gêmeo sem gate
+
+Crawler limpo. Os dois achados vieram de olhar a tela no estado em que a produção
+está: zero campanhas.
+
+- **FDU-1 (P2)** — a aba Campanhas tem dois caminhos para criar: o botão do
+  cabeçalho, com `{isAdmin && …}`, e o CTA do estado vazio, SEM gate. Como
+  `createCampaign` recusa não-admin, com zero campanhas esse CTA era a ÚNICA ação
+  visível para o operador — e só podia dar 403. Mesma tela, dois gêmeos, um
+  gateado e o outro não.
+- **FDU-2 (P3)** — a tela abria em Submissões, dizendo "quando um cliente
+  publicar, aparece aqui". Sem campanha nenhum cliente publica: a loja caía numa
+  tela que manda esperar quando o próximo passo é criar campanha. A aba de entrada
+  passou a depender do estado.
+
+**Limite registrado:** o E2E novo NÃO cobre o FDU-1 — o seed tem uma campanha,
+então o estado vazio não renderiza, e confirmei que o teste passa mesmo sem o
+gate. Ele guarda o botão do cabeçalho. O caminho do vazio foi verificado à mão
+contra a cópia de produção. Está escrito no cabeçalho do teste para ninguém
+confundir cobertura com garantia.
+
+---
+
 ### 2026-07-30 — Finalização, Módulo 12 (Fidelidade): backend — guardião do razão
 
 Produção: **zero linhas nas quatro tabelas**. O módulo foi construído ponta a
