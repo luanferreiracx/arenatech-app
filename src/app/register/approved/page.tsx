@@ -6,8 +6,12 @@ export const metadata: Metadata = {
 };
 
 export default function RegisterApprovedPage() {
+  // AD-2: `<main>` em vez de `div`. Medido: as quatro telas de auto-cadastro não
+  // tinham landmark nenhum (main 0, header 0) — mesma ausência do catálogo
+  // público (CTU-2). São a porta de entrada de quem chega de fora e ainda não tem
+  // conta; sem `main` não há como pular para o conteúdo (WCAG 1.3.1).
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 flex items-center justify-center p-4">
+    <main className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 flex items-center justify-center p-4">
       <div className="w-full max-w-lg text-center">
         <div className="bg-white/5 border border-white/10 rounded-2xl p-12">
           {/* Icon */}
@@ -41,6 +45,6 @@ export default function RegisterApprovedPage() {
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
