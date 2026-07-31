@@ -1,7 +1,7 @@
 # Módulo 13 — Catálogo / Ferramentas
 
 **Passada A (backend):** concluída em 2026-07-31.
-**Passada B (frontend):** pendente.
+**Passada B (frontend):** concluída em 2026-07-31 (4 telas internas × 2 papéis × 2 viewports + o catálogo anônimo).
 
 ## Superfície
 
@@ -75,10 +75,61 @@ usasse, e uma URL pública que já respondia errado para quem a digitasse.
   (`catalog-subdomain-slug.test.ts`, 6 casos incluindo caracteres inválidos e
   subdomínios reservados).
 
+## Achados da passada de frontend
+
+As quatro telas internas passaram limpas nos dois papéis e nos dois viewports. Os
+achados estão na superfície **anônima** — `/catalog`, a única tela que qualquer
+pessoa abre sem login, indexável e multi-tenant, que **não tinha nenhum teste**.
+
+### CTU-1 — a logo da loja não tinha nome acessível (P2)
+
+O `alt` da imagem era a string literal **`"Logo"`**: o nome do *tipo* de coisa, não
+da coisa (WCAG 1.1.1). Medido no navegador, contra a cópia de produção: o nome da
+loja **não aparecia em texto nenhum do corpo da página** — só no `<title>`. Quem
+usa leitor de tela abria o catálogo e não tinha como saber de quem ele é.
+
+Num catálogo multi-tenant por subdomínio isso pesa: a logo é a única marca da loja
+na tela. O dado já estava em mãos — `CatalogContact.storeName` é carregado pelo
+serviço e já chegava aos dois componentes que renderizam a logo.
+
+Verificado depois: os dois `alt` passaram de `"Logo"` para `"Arena Tech"`.
+
+### CTU-2 — a página pública não tinha landmark nenhum (P2)
+
+Medido: `main: 0`, `header: 0`, `footer: 0`. O único landmark era um `nav`. Quem
+usa leitor de tela não tinha como pular para o conteúdo principal (WCAG 1.3.1) —
+numa página que é o cartão de visita da loja para quem chega de fora.
+
+Custo da correção: zero. Mesma caixa, tag com significado — `<header>` na topbar e
+`<main>` no conteúdo.
+
+### Primeiro E2E da superfície anônima
+
+`catalog-publico.spec.ts`: abre `/catalog` **sem login**, confirma 200 sem
+redirecionar para o login, e afirma que nenhuma imagem tem `alt="Logo"` nem `alt`
+vazio.
+
+> **Limite registrado:** o banco de seed não tem logo nem foto de produto, então a
+> asserção de imagens roda sobre zero elementos e passa por vacuidade ali. Ela
+> morde em qualquer ambiente com imagens, e o caminho foi verificado à mão contra a
+> cópia de produção. Está escrito no próprio teste.
+
+## Um achado que não sobreviveu ao build limpo
+
+O crawl completo acusou **6 atenções** — operador e admin, nas quatro telas, com
+`404` devolvendo HTML numa rota tRPC. Assinatura idêntica ao P0 fantasma do
+Módulo 2.
+
+Apaguei `.next/dev`, reiniciei e recrawlei: **0 quebradas, 0 atenção** nos dois
+papéis. Era compilação velha, terceira vez neste programa. A regra segue valendo:
+**achado de crawler é hipótese até reproduzir em build limpo.**
+
 ## Verificação
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test:unit   # 2036 verdes (4 novos)
+pnpm typecheck && pnpm lint && pnpm test:unit          # 2036 verdes (4 novos)
+pnpm test:e2e __tests__/e2e/catalog-publico.spec.ts    # 2 verdes (novo)
+pnpm tsx scripts/audit/crawl-module.ts catalogo        # 0 quebradas · 0 atenção
 ```
 
 **Falha antes do fix, verificada:** removi o `tenantSlug` da chamada e o teste

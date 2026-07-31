@@ -44,7 +44,7 @@ export function SidebarContent({
       {/* Marca */}
       <div className="flex h-16 items-center gap-2 border-b border-[var(--cat-line)] px-5">
         <Link href="/catalog" className="flex min-w-0 items-center gap-2" aria-label="Início do catálogo">
-          <Logo size="md" tenantLogoUrl={contact.logoUrl ?? undefined} />
+          <Logo size="md" tenantLogoUrl={contact.logoUrl ?? undefined} tenantName={contact.storeName} />
         </Link>
       </div>
 

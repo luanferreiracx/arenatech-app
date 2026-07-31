@@ -35,7 +35,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | ✅ | ✅ | **não** | [11-comunicacao-talison.md](./11-comunicacao-talison.md) |
 | 12 | Fidelidade | ✅ | ✅ | **novo** | [12-fidelidade.md](./12-fidelidade.md) |
-| 13 | Catálogo / Ferramentas | ✅ | ⏳ | **não** | [13-catalogo-ferramentas.md](./13-catalogo-ferramentas.md) |
+| 13 | Catálogo / Ferramentas | ✅ | ✅ | **novo** | [13-catalogo-ferramentas.md](./13-catalogo-ferramentas.md) |
 | 14 | Painel / Relatórios | — | — | **não** | — |
 | 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
 

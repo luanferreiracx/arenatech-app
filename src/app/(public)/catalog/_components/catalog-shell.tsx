@@ -62,7 +62,12 @@ export function CatalogShell({ children, ...nav }: CatalogShellProps) {
       {/* Conteúdo */}
       <div className="min-w-0 flex-1">
         {/* Topbar mobile: hambúrguer + marca (a sidebar some no mobile). */}
-        <div className="flex h-14 items-center gap-3 border-b border-[var(--cat-line)] bg-[var(--cat-surface)] px-4 lg:hidden">
+        {/* CTU-2: `<header>` e `<main>` em vez de `div`. Medido: a página pública
+            não tinha NENHUM landmark além de um `nav` — nem main, nem header, nem
+            footer. É a única tela que qualquer pessoa abre sem login, e quem usa
+            leitor de tela não tinha como pular direto para o conteúdo (WCAG
+            1.3.1). Custo zero: mesma caixa, tag com significado. */}
+        <header className="flex h-14 items-center gap-3 border-b border-[var(--cat-line)] bg-[var(--cat-surface)] px-4 lg:hidden">
           <button
             onClick={() => setDrawerOpen(true)}
             aria-label="Abrir menu"
@@ -71,11 +76,11 @@ export function CatalogShell({ children, ...nav }: CatalogShellProps) {
             <Menu className="size-5" />
           </button>
           <Link href="/catalog" className="min-w-0" aria-label="Início do catálogo">
-            <Logo size="sm" tenantLogoUrl={nav.contact.logoUrl ?? undefined} />
+            <Logo size="sm" tenantLogoUrl={nav.contact.logoUrl ?? undefined} tenantName={nav.contact.storeName} />
           </Link>
-        </div>
+        </header>
 
-        {children}
+        <main>{children}</main>
       </div>
     </div>
   );
