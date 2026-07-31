@@ -169,3 +169,53 @@ pnpm test:integration                             # 89 arquivos, 281 testes verd
 Teste que **falha antes** da correção:
 `__tests__/integration/depix-statement-day-filter.test.ts` — antes do fix
 devolvia `[]` onde deveriam estar 2 transações do dia.
+
+## Adendo — 2026-07-31: o histórico da carteira era inalcançável (DPX-7, P2)
+
+**Reportado pelo dono depois do fechamento do módulo, e ele estava certo.**
+
+O cartão "Atividade recente" mostra as **8 últimas** transações e oferece um botão
+"Ver tudo" apontando para `/depix-wallet?view=all`. **Nenhuma página lia esse
+parâmetro.** O clique navegava para a mesma tela e nada mudava — não havia lista
+completa, paginação nem filtro em lugar nenhum.
+
+Medido em produção no momento do conserto: **474 transações** (413 depósitos, **61
+saques**) em dois meses. A loja enxergava **1,7%** do próprio histórico e não tinha
+caminho para o resto. Nas palavras do dono: *"ficamos presos nos últimos saques e
+só."*
+
+O mais revelador: **`depixTransaction.list` já aceitava `page`, `pageSize`, `kind`,
+`status` e intervalo de datas, e já devolvia `total` e `pageCount`.** A paginação
+existia no backend desde sempre. Faltava a tela — e o link apontava para um lugar
+que não existia.
+
+**Correção:** `/depix-wallet/transactions`, com paginação de 25 por página e os
+filtros de tipo e situação que a procedure já suportava. O "Ver tudo" passou a
+apontar para lá. A linha de transação foi **extraída** para um componente
+compartilhado (`transaction-row.tsx`) em vez de duplicada — renderizar a mesma
+linha em dois lugares com dois códigos é o padrão que este sistema já pagou caro
+sete vezes.
+
+Verificado no navegador contra a cópia de produção: **1–25 de 322, página 1 de
+13**; a página 2 traz conteúdo diferente; o filtro "Só saques" mostra **1–25 de
+53** em 3 páginas.
+
+### Por que a minha passada não pegou
+
+O crawler visita `/depix-wallet`, a tela renderiza, não há erro de console nem
+request falho — **passa como `ok`**. Um link que navega para a própria página com
+um parâmetro ignorado é indistinguível de um link que funciona, para um detector
+que só olha se a tela quebrou.
+
+O checklist de frontend tem o eixo certo (nº 11: *"botão que não faz nada, feature
+meia-implementada"*), e eu não o apliquei aqui: não cliquei no "Ver tudo". A lição
+é específica e vale registrar — **em toda tela com "ver mais/ver tudo/histórico
+completo", seguir o link e conferir se ele leva a algo diferente do que já estava
+na tela.**
+
+### Cobertura
+
+Quatro casos novos em `depix-wallet.spec.ts`. Dois deles usam `test.skip()`
+**explícito** quando o seed não tem carteira provisionada nem transação — um teste
+que passa por falta de dado não guarda nada, e esconder isso já foi erro deste
+programa antes.
