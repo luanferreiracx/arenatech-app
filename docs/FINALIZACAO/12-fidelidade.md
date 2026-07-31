@@ -1,7 +1,7 @@
 # Módulo 12 — Fidelidade
 
 **Passada A (backend):** concluída em 2026-07-30.
-**Passada B (frontend):** pendente (`/fidelidade` + painel no cliente).
+**Passada B (frontend):** concluída em 2026-07-30.
 
 ## Superfície
 
@@ -75,9 +75,63 @@ transição:
 mantendo o saldo correto — a deriva silenciosa exata que ele existe para pegar — e
 o teste reprovou com `expected +0 to be 50`.
 
+## Achados da passada de frontend
+
+Crawler: 1 tela × 2 papéis × 2 viewports, **0 quebradas, 0 atenção**. Os dois
+achados vieram de olhar a tela **no estado em que a produção está** — zero
+campanhas.
+
+### FDU-1 — o botão de criar campanha tinha um gêmeo sem gate (P2)
+
+A aba Campanhas tem dois caminhos para criar: o botão do cabeçalho, envolvido em
+`{isAdmin && …}`, e o CTA do estado vazio, **sem gate nenhum**.
+
+`createCampaign` recusa quem não é admin (a guarda existe, e há teste de authz
+cobrindo). Então, com zero campanhas — o estado de produção hoje — o CTA do vazio
+era a **única ação visível para o operador na aba**, e só podia terminar em 403.
+
+Mesma tela, dois gêmeos, um gateado e o outro não. É a versão mais concentrada do
+padrão que este programa vem achando desde o Módulo 1.
+
+Corrigido: o CTA herda o mesmo gate, e o texto do vazio muda para quem não pode
+criar — *"A loja ainda não tem campanha de fidelidade. Quem cria é o
+administrador."* em vez de um convite que não se cumpre.
+
+### FDU-2 — a tela abria mandando esperar (P3)
+
+`/fidelidade` abre em **Submissões**, cujo estado vazio diz: *"Quando um cliente
+publicar sobre a loja, a submissão aparece aqui para aprovação."*
+
+Com zero campanhas isso é conselho impossível: **sem campanha, nenhum cliente
+publica**. A loja que abre o módulo pela primeira vez — o caso de toda loja hoje,
+já que o programa nunca foi ligado — cai numa tela que manda aguardar quando o
+próximo passo é criar uma campanha.
+
+A aba de entrada passou a depender do estado: sem campanha, abre em **Campanhas**,
+onde o próximo passo está à vista. Havendo campanha, segue abrindo em Submissões,
+que é o trabalho do dia a dia.
+
+Não afirmo que isto explica o módulo nunca ter sido ligado — é uma hipótese
+razoável, não uma medição. O que é medido: a primeira tela dava o conselho errado
+para o estado em que a loja está.
+
 ## Verificação
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test:unit   # verde
-pnpm test:integration                           # verde (2 novos)
+pnpm typecheck && pnpm lint && pnpm test:unit        # verde
+pnpm test:integration                                # 304 verdes (2 novos)
+pnpm test:e2e __tests__/e2e/fidelidade.spec.ts       # 2 verdes (novo)
+pnpm tsx scripts/audit/crawl-module.ts fidelidade    # 0 quebradas · 0 atenção
 ```
+
+### Um limite que registro em vez de esconder
+
+O E2E novo **não** cobre o defeito que o FDU-1 corrigiu. O banco de seed tem uma
+campanha, então o estado vazio não renderiza — e eu confirmei que o teste passa
+**mesmo com o gate removido**. Ele guarda o botão do cabeçalho, que já era gateado
+antes desta passada.
+
+Cobrir o vazio exigiria apagar as campanhas do seed, que outras suítes usam. O
+caminho foi verificado à mão contra a cópia de produção (zero campanhas): o
+operador passa a não ver botão de criar e lê a frase honesta. Está escrito assim
+no cabeçalho do próprio teste, para ninguém confundir cobertura com garantia.

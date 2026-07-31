@@ -156,8 +156,17 @@ export function RewardCampaignsManager() {
         <EmptyState
           icon={Star}
           title="Nenhuma campanha de fidelidade"
-          description="Crie uma campanha: o cliente publica sobre a loja (story/reel/post) e ganha desconto, cashback ou brinde."
-          action={<Button onClick={openCreate}>Criar campanha</Button>}
+          description={
+            isAdmin
+              ? "Crie uma campanha: o cliente publica sobre a loja (story/reel/post) e ganha desconto, cashback ou brinde."
+              : "A loja ainda não tem campanha de fidelidade. Quem cria é o administrador."
+          }
+          // FDU-1: este CTA era gêmeo do botão do cabeçalho, que já é
+          // `{isAdmin && …}` — mas nascia sem gate. Com zero campanhas (o estado
+          // de produção hoje) ele era a ÚNICA ação que o operador via na aba, e
+          // `createCampaign` recusa quem não é admin: um botão que só podia dar
+          // 403. Mesma tela, dois gêmeos, um gateado e o outro não.
+          action={isAdmin ? <Button onClick={openCreate}>Criar campanha</Button> : undefined}
         />
       ) : (
         <div className="rounded-lg border">

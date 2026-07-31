@@ -34,7 +34,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 9 | Clientes / Interesses | ✅ | ✅ | tem +4 | [09-clientes-interesses.md](./09-clientes-interesses.md) |
 | 10 | Configurações / Equipe / Auth | ✅ | ✅ | tem +4 | [10-config-auth.md](./10-config-auth.md) |
 | 11 | Comunicação / Talison | ✅ | ✅ | **não** | [11-comunicacao-talison.md](./11-comunicacao-talison.md) |
-| 12 | Fidelidade | ✅ | ⏳ | **não** | [12-fidelidade.md](./12-fidelidade.md) |
+| 12 | Fidelidade | ✅ | ✅ | **novo** | [12-fidelidade.md](./12-fidelidade.md) |
 | 13 | Catálogo / Ferramentas | — | — | **não** | — (módulo `/checklist` removido no M4) |
 | 14 | Painel / Relatórios | — | — | **não** | — |
 | 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
