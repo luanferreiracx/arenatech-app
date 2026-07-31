@@ -16,6 +16,16 @@ interface LogoProps {
   className?: string;
   /** Logo do tenant ativo (MinIO). Se presente, prevalece sobre o placeholder. */
   tenantLogoUrl?: string | null;
+  /**
+   * Nome da loja, usado como texto alternativo da imagem.
+   *
+   * CTU-1: o `alt` era a string literal `"Logo"`. Para quem usa leitor de tela
+   * isso não é alternativa nenhuma — é o nome do tipo de coisa, não da coisa
+   * (WCAG 1.1.1). No catálogo PÚBLICO, que é anônimo, indexável e multi-tenant,
+   * a logo é a única marca da loja na página: sem o nome no `alt`, o visitante
+   * cego não tem como saber de quem é o catálogo que abriu.
+   */
+  tenantName?: string | null;
 }
 
 const sizeMap: Record<LogoSize, { height: number; textSize: string; iconSize: number }> = {
@@ -24,7 +34,7 @@ const sizeMap: Record<LogoSize, { height: number; textSize: string; iconSize: nu
   lg: { height: 48, textSize: "text-2xl", iconSize: 48 },
 };
 
-export function Logo({ size = "md", variant = "full", className, tenantLogoUrl }: LogoProps) {
+export function Logo({ size = "md", variant = "full", className, tenantLogoUrl, tenantName }: LogoProps) {
   const { height, textSize, iconSize } = sizeMap[size];
 
   // Logo do tenant: exibe a imagem enviada, contida no slot. O cabeçalho da
@@ -42,7 +52,7 @@ export function Logo({ size = "md", variant = "full", className, tenantLogoUrl }
       <div className={cn("relative shrink-0", box, className)}>
         <Image
           src={tenantLogoUrl}
-          alt="Logo"
+          alt={tenantName?.trim() || "Logo da loja"}
           fill
           sizes="224px"
           className={cn("object-contain", variant === "icon" ? "object-center" : "object-left")}

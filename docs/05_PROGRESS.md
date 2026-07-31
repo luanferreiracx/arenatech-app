@@ -19,6 +19,29 @@
 
 ---
 
+### 2026-07-31 — Finalização, Módulo 13: frontend — a superfície anônima
+
+As 4 telas internas passaram limpas nos dois papéis e viewports. Os achados estão
+em `/catalog`, a única tela que qualquer pessoa abre sem login — indexável,
+multi-tenant e **sem nenhum teste** até agora.
+
+- **CTU-1 (P2)** — o `alt` da logo era a string literal "Logo": nome do TIPO de
+  coisa, não da coisa (WCAG 1.1.1). Medido: o nome da loja não aparecia em texto
+  nenhum do corpo, só no `<title>`. `CatalogContact.storeName` já estava carregado
+  e já chegava ao componente. Agora os `alt` dizem "Arena Tech".
+- **CTU-2 (P2)** — `main: 0, header: 0, footer: 0`. O único landmark era um `nav`;
+  não havia como pular para o conteúdo (WCAG 1.3.1). Custo zero: mesma caixa, tag
+  com significado.
+- **E2E novo** da superfície anônima (2 casos). Limite registrado no próprio
+  teste: o seed não tem imagens, então a asserção passa por vacuidade ali.
+
+**Terceira ocorrência do fantasma de build velho:** o crawl acusou 6 atenções (404
+com HTML em rota tRPC, assinatura idêntica ao P0 fantasma do M2). Apaguei
+`.next/dev`, recrawlei: 0 e 0. Achado de crawler é hipótese até reproduzir em build
+limpo.
+
+---
+
 ### 2026-07-31 — Finalização, Módulo 13 (Catálogo): backend — catálogo do vizinho
 
 Produção: 117 serviços, 103 aparelhos, 232 avaliações — módulo em uso real.
