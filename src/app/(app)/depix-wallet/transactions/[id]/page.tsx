@@ -11,11 +11,13 @@ import {
   Copy,
   ExternalLink,
   Printer,
+  AlertTriangle,
   RefreshCw,
   Share2,
   XCircle,
 } from "lucide-react";
 import { useTRPC } from "@/trpc/react";
+import { resultadoDoSaqueEhIncerto } from "@/lib/depix/withdraw-retry-safety";
 import { toast } from "@/lib/toast";
 import { PageHeader } from "@/components/domain/page-header";
 import { LoadingState } from "@/components/domain/loading-state";
@@ -130,6 +132,11 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
   const isFinal = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
   const isCompleted = t.status === "COMPLETED";
   const isFailed = ["FAILED", "CANCELLED", "EXPIRED"].includes(t.status);
+  // Saque que falhou por comunicacao (timeout, 5xx, resposta ilegivel): o PIX
+  // pode ter saido. Enquanto ninguem conferir, esta tela nao pode afirmar que o
+  // valor nao foi debitado — foi essa afirmacao que levou ao pagamento em dobro
+  // de 2026-07-27.
+  const resultadoIncerto = resultadoDoSaqueEhIncerto(t);
   // PIX ja aprovado pelo provedor mas ainda aguardando confirmacao on-chain
   // (DePix a caminho). Sinaliza ao operador que o pagamento entrou — o saldo
   // so e creditado de fato no COMPLETED (confirmacao da rede Liquid).
@@ -232,7 +239,9 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                       (tone === "pending" || tone === "processing") && "animate-pulse",
                     )}
                   />
-                  {t.statusLabel}
+                  {/* Mesmo rotulo da lista: "Falhou" aqui e "Verificar" la
+                      faria a mesma transacao ter dois nomes. */}
+                  {resultadoIncerto ? "Verificar" : t.statusLabel}
                 </div>
               </div>
             </div>
@@ -246,8 +255,10 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
 
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-1.5">
-              {["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(t.status)
-                ? "Valor (nao creditado)"
+              {resultadoIncerto
+                ? "Valor (envio nao confirmado)"
+                : ["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(t.status)
+                  ? "Valor (nao creditado)"
                 : isDeposit
                   ? t.status === "COMPLETED"
                     ? "Voce recebeu"
@@ -493,6 +504,24 @@ export default function TransactionDetailPage({ params }: { params: Promise<{ id
                   </div>
                 )}
               </dl>
+            </Card>
+          )}
+
+          {resultadoIncerto && (
+            <Card role="alert" className="p-4 border border-amber-500/40 bg-amber-500/5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <div className="space-y-1 min-w-0">
+                  <p className="text-sm font-semibold">
+                    Este saque consta como falho, mas o envio nao foi confirmado.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    A falha foi de comunicacao com o provedor, entao nao da para garantir daqui que
+                    o PIX nao saiu. <strong>Confirme com o destinatario antes de enviar de novo</strong> —
+                    repetir sem checar pode pagar duas vezes.
+                  </p>
+                </div>
+              </div>
             </Card>
           )}
 

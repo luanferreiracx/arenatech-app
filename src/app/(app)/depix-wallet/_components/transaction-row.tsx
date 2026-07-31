@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { cn } from "@/lib/utils";
+import { resultadoDoSaqueEhIncerto } from "@/lib/depix/withdraw-retry-safety";
 
 /**
  * Uma linha de transação da carteira DePix.
@@ -52,6 +53,8 @@ export type TransactionRowData = {
   grossAmountCents: number;
   netAmountCents?: number | null;
   createdAt: Date | string;
+  /** Null em registros anteriores a 2026-07-31 — tratado como incerto. */
+  failureKind?: string | null;
 };
 
 export function TransactionRow({ tx }: { tx: TransactionRowData }) {
@@ -61,7 +64,12 @@ export function TransactionRow({ tx }: { tx: TransactionRowData }) {
   // movimenta saldo — exibe neutro e riscado (sem +/− verde, que enganava:
   // parecia crédito mesmo não tendo entrado).
   const didMoveFunds = tx.status === "COMPLETED";
-  const isVoided = ["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(tx.status);
+  // Saque que falhou por comunicacao pode ter saido. Riscar e acinzentar diria
+  // "nao movimentou" — a mesma leitura que levou ao pagamento em dobro de
+  // 2026-07-27. Ele fica em destaque de atencao ate alguem conferir.
+  const resultadoIncerto = resultadoDoSaqueEhIncerto(tx);
+  const isVoided =
+    !resultadoIncerto && ["CANCELLED", "FAILED", "EXPIRED", "MED_REFUNDED"].includes(tx.status);
 
   return (
     <li>
@@ -72,9 +80,11 @@ export function TransactionRow({ tx }: { tx: TransactionRowData }) {
         <div
           className={cn(
             "h-10 w-10 rounded-full grid place-items-center shrink-0",
-            isVoided
-              ? "bg-muted text-muted-foreground"
-              : isDeposit
+            resultadoIncerto
+              ? "bg-warning/10 text-warning"
+              : isVoided
+                ? "bg-muted text-muted-foreground"
+                : isDeposit
                 ? "bg-success/10 text-success"
                 : "bg-primary/10 text-primary",
           )}
@@ -109,10 +119,10 @@ export function TransactionRow({ tx }: { tx: TransactionRowData }) {
             <span className="text-[11px] text-muted-foreground font-mono">{tx.number}</span>
             <div className="flex items-center gap-2">
               <StatusBadge
-                variant={STATUS_VARIANT[tx.status] ?? "default"}
+                variant={resultadoIncerto ? "warning" : (STATUS_VARIANT[tx.status] ?? "default")}
                 className="h-5 text-[10px] px-1.5"
               >
-                {tx.statusLabel}
+                {resultadoIncerto ? "Verificar" : tx.statusLabel}
               </StatusBadge>
               <span className="text-[10px] text-muted-foreground tabular-nums">
                 {formatDateRel(tx.createdAt)}
