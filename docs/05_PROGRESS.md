@@ -19,6 +19,35 @@
 
 ---
 
+### 2026-07-31 — Finalização, Módulo 14 (Painel/Relatórios): fechado nos dois lados
+
+**Backend sem defeito.** A passada foi de reconciliação contra a cópia de
+produção — clientes (1.382), OS abertas (10), vendas do mês (284) e faturamento
+(R$ 208.002,43): exato nos quatro.
+
+Registro o quase-erro: na primeira conferência o faturamento deu R$ 178.022,96
+contra os R$ 208.002,43 do painel, com a MESMA contagem de vendas — eu estava a um
+passo de escrever um achado de ~17% de superfaturamento na tela mais vista. Fui ler
+o código antes: o painel usa deliberadamente a definição de receita do DRE
+(GREATEST(subtotal − desconto,0) − taxa, escalada por itens mantidos, incluindo
+PARTIALLY_REFUNDED), e eu tinha somado `totalAmount` — a definição ANTIGA, que a
+auditoria financeira de 2026-07-10 corrigiu justamente por divergir do DRE. Refeita
+com a regra certa: idêntico.
+
+**Frontend:** crawler limpo (o overflow de celular já fora corrigido no M11).
+
+- **PN-1 (P2)** — o bloco de indicadores era `stats ? <KPIs> : null`. Com a query
+  falhando, a linha INTEIRA de números sumia e o painel seguia renderizando o
+  resto, parecendo completo: lê-se como "não há nada hoje". Eixo 1 do checklist na
+  tela mais aberta do sistema.
+- **PN-2 (P2)** — mesmo desenho em "Requer atenção", onde a leitura errada é pior:
+  ausência de alerta é uma AFIRMAÇÃO ("nada precisa de você"), e o painel a fazia
+  sem ter checado — com 15 contas vencidas e 154 produtos abaixo do mínimo.
+
+E2E novo (2 casos), incluindo guarda do overflow a 390px.
+
+---
+
 ### 2026-07-31 — Finalização, Módulo 13: frontend — a superfície anônima
 
 As 4 telas internas passaram limpas nos dois papéis e viewports. Os achados estão

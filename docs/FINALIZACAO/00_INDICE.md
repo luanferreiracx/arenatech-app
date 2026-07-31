@@ -36,7 +36,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 11 | Comunicação / Talison | ✅ | ✅ | **não** | [11-comunicacao-talison.md](./11-comunicacao-talison.md) |
 | 12 | Fidelidade | ✅ | ✅ | **novo** | [12-fidelidade.md](./12-fidelidade.md) |
 | 13 | Catálogo / Ferramentas | ✅ | ✅ | **novo** | [13-catalogo-ferramentas.md](./13-catalogo-ferramentas.md) |
-| 14 | Painel / Relatórios | — | — | **não** | — |
+| 14 | Painel / Relatórios | ✅ | ✅ | **novo** | [14-painel-relatorios.md](./14-painel-relatorios.md) |
 | 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
 
 Legenda: ✅ fechado · ⏳ em andamento · ⏸ adiado · — não começou.

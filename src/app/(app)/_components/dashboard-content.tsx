@@ -33,6 +33,7 @@ import {
   SERVICE_ORDER_STATUS_LABELS,
   type ServiceOrderStatus,
 } from "@/lib/validators/service-order";
+import { QueryErrorState } from "@/components/domain/query-error-state";
 
 /** Map service order status to valid Badge variant */
 function statusToBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -362,9 +363,13 @@ function RecentOrdersTable() {
 
 function AlertsSection() {
   const trpc = useTRPC();
-  const { data: alerts, isLoading } = useQuery(trpc.dashboard.alerts.queryOptions());
+  const { data: alerts, isLoading, isError, error } = useQuery(trpc.dashboard.alerts.queryOptions());
 
   if (isLoading) return <Skeleton className="h-32 rounded-lg" />;
+  // PN-2: ausência de alerta é uma AFIRMAÇÃO ("nada requer atenção"). Quando a
+  // query falha, sumir em silêncio faz o painel afirmar isso sem ter checado —
+  // com 15 contas vencidas e 154 produtos abaixo do mínimo no banco.
+  if (isError) return <QueryErrorState error={error} />;
   if (!alerts) return null;
 
   const hasAlerts = alerts.lowStock.length > 0 || alerts.overdueFinancials.length > 0 || alerts.lateOrders.length > 0;
@@ -521,7 +526,12 @@ export function DashboardContent({
   allowedModules?: string[];
 }) {
   const trpc = useTRPC();
-  const { data: stats, isLoading: statsLoading } = useQuery(trpc.dashboard.stats.queryOptions());
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+    error: statsErrorObj,
+  } = useQuery(trpc.dashboard.stats.queryOptions());
   const has = (mod: string) => (allowedModules ?? []).includes(mod);
 
   // Aviso de por que o usuário caiu aqui: o proxy redireciona para /painel com
@@ -636,6 +646,17 @@ export function DashboardContent({
             href={has("stock") ? "/stock" : undefined}
           />
         </div>
+      ) : statsError ? (
+        /* PN-1: era `null`. Quando a query dos indicadores falhava, a linha
+           INTEIRA de números sumia — e o painel continuava renderizando saudação,
+           atalhos, gráficos e tabelas, parecendo completo. O usuário não via erro
+           nenhum; via um painel sem números, que se lê como "não há nada hoje".
+           É o eixo 1 do checklist na tela mais aberta do sistema. */
+        <QueryErrorState
+          error={statsErrorObj}
+          forbiddenTitle="Sem acesso aos indicadores"
+          forbiddenDescription="Peça a um administrador da loja se precisar do resumo do painel."
+        />
       ) : null}
 
       {/* Acesso rápido — o que se faz todo dia, a um clique. */}
