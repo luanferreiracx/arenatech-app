@@ -19,6 +19,29 @@
 
 ---
 
+### 2026-07-30 — Finalização, Módulo 12 (Fidelidade): backend — guardião do razão
+
+Produção: **zero linhas nas quatro tabelas**. O módulo foi construído ponta a
+ponta nos PRs #685-#690 e nunca foi ligado pela loja. Sem prova de dados possível,
+e nada sangrando — o entregável certo é proteção para quando ligarem, não conserto.
+
+Auditado e íntegro: CAS em toda transição de saldo (updateMany + count, devolvendo
+CONFLICT), CHECK no banco barrando saldo negativo (com teste que bate na marra),
+saldo e movimento sempre na mesma transação, 7 arquivos de teste incluindo dois
+casos de concorrência.
+
+- **FD-1 (P3)** — `RewardBalance` carrega NOVE agregados derivados ao lado de
+  `RewardMovement`, que é o razão: duas fontes de verdade para o mesmo fato, sem
+  constraint ligando as duas. Os testes cobriam as peças; nenhum somava o razão e
+  comparava com os agregados ao fim de um ciclo. Entregue o guardião
+  (`reward-ledger-reconciles.test.ts`): crédito → reserva → liberação pelo caller,
+  afirmando `disponível = total − reservado`, o histórico batendo com a soma dos
+  créditos, e toda mudança de saldo tendo exatamente uma linha nova no razão.
+  Provado que morde: fiz o movimento de reserva gravar 0 mantendo o saldo certo — a
+  deriva silenciosa exata — e o teste reprovou.
+
+---
+
 ### 2026-07-30 — Finalização, Módulo 11: frontend + o painel transbordando 542px
 
 Crawler nas 4 telas do módulo (as três de /communication + /settings/bot, que é
