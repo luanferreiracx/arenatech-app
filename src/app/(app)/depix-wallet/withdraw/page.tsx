@@ -41,6 +41,12 @@ import { PixKeyTypeTabs } from "../_components/pix-key-type-tabs";
 import { RecipientPicker } from "../_components/recipient-picker";
 import { AmountQuickPicks } from "../_components/amount-quick-picks";
 import { FeeBreakdown } from "../_components/fee-breakdown";
+import {
+  descartarChaveDaIntencao,
+  idempotencyKeyDaIntencao,
+  respostaEhTentativaMorta,
+  resultadoEhIndeterminado,
+} from "@/lib/depix/withdraw-retry-safety";
 
 const STEPS = [
   { id: 1, label: "Destinatario" },
@@ -74,7 +80,9 @@ export default function DepixWithdrawPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  // Estado indeterminado: pedido saiu, resposta nao voltou. Nao e erro nem
+  // sucesso, e a UI precisa dizer isso em vez de re-armar o botao verde.
+  const [estadoIndeterminado, setEstadoIndeterminado] = useState(false);
 
   const [step, setStep] = useState(1);
   const [pixKeyType, setPixKeyType] = useState<PixKeyType>("CPF");
@@ -108,11 +116,32 @@ export default function DepixWithdrawPage() {
   const createMutation = useMutation(
     trpc.depixTransaction.createWithdraw.mutationOptions({
       onSuccess: (tx) => {
+        // Intencao concluida: descarta a chave para que um proximo saque
+        // deliberado ao mesmo destino nao seja deduplicado por engano.
+        descartarChaveDaIntencao(sessionStorage, intencaoAtual());
+        // A dedupe do servidor devolve o registro que ja existe — inclusive um
+        // que nasceu FALHO. Nao chame isso de "enviado": a chave acabou de ser
+        // descartada, entao o proximo clique e uma tentativa nova de verdade.
+        if (respostaEhTentativaMorta(tx.status)) {
+          toast.error("Este saque consta como falho. Confira o motivo e tente de novo.");
+          router.push(`/depix-wallet/transactions/${tx.id}`);
+          return;
+        }
         toast.success("Saque enviado!");
         void queryClient.invalidateQueries({ queryKey: [["depixTransaction"]] });
         router.push(`/depix-wallet/transactions/${tx.id}`);
       },
-      onError: (err) => toast.error(err.message),
+      onError: (err) => {
+        // A pergunta que importa nao e "deu erro?", e "o dinheiro saiu?".
+        // Sem codigo de erro do servidor, o pedido pode nem ter chegado a
+        // voltar — tratamos como indeterminado e paramos de convidar o
+        // operador a clicar de novo.
+        if (resultadoEhIndeterminado(err.data?.code)) {
+          setEstadoIndeterminado(true);
+          return;
+        }
+        toast.error(err.message);
+      },
     }),
   );
 
@@ -166,6 +195,11 @@ export default function DepixWithdrawPage() {
     toast.success(`Destinatario carregado: ${r.recipientName ?? "(sem nome)"}`);
   }
 
+  /** A intencao do saque: destino + valor. Identidade estavel entre remontagens. */
+  function intencaoAtual() {
+    return { pixKey, recipientTaxId, netAmountCents: netAmount };
+  }
+
   function handleSubmit() {
     createMutation.mutate({
       pixKeyType,
@@ -173,7 +207,7 @@ export default function DepixWithdrawPage() {
       recipientName: recipientName.trim(),
       recipientTaxId,
       netAmountCents: netAmount,
-      idempotencyKey,
+      idempotencyKey: idempotencyKeyDaIntencao(sessionStorage, intencaoAtual()),
       twoFactorCode: twoFactorCode.trim(),
       // Non-custodial: envia a passphrase (sem trim — espacos podem ser parte
       // dela). Custodial: undefined (o backend ignora).
@@ -185,6 +219,57 @@ export default function DepixWithdrawPage() {
   }
 
   if (overviewQuery.isLoading || walletInfoQuery.isLoading) return <LoadingState />;
+
+  // O pedido saiu e a resposta nao voltou. A tela ANTIGA mostrava um toast
+  // vermelho e devolvia o botao verde armado — foi assim que o dono quase pagou
+  // duas vezes, duas vezes. Aqui o formulario sai de cena: a unica saida e
+  // conferir o que de fato aconteceu.
+  if (estadoIndeterminado) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title={
+            <div className="flex items-center gap-2">
+              <Button asChild variant="ghost" size="icon">
+                <Link href="/depix-wallet" aria-label="Voltar">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <span>Sacar via PIX</span>
+            </div>
+          }
+          subtitle="Nao foi possivel confirmar o resultado deste saque."
+        />
+        <Card
+          role="alert"
+          className="max-w-xl mx-auto p-6 border-amber-500/40 bg-amber-500/5 space-y-4"
+        >
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+            <div className="space-y-2 min-w-0">
+              <p className="font-semibold">O saque pode ter sido enviado.</p>
+              <p className="text-sm text-muted-foreground">
+                A conexao caiu antes da resposta chegar, entao nao da para dizer daqui se o PIX
+                saiu. <strong>Nao tente de novo por aqui</strong> — confira a lista de transacoes
+                primeiro. Se o saque estiver la, ele foi enviado.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button asChild className="w-full sm:w-auto">
+              <Link href="/depix-wallet/transactions">
+                Ver transacoes
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full sm:w-auto">
+              <Link href="/depix-wallet">Voltar a carteira</Link>
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   // ADR 0051: sem carteira configurada nao ha como sacar. Direciona ao setup.
   if (walletInfoQuery.data?.provisioned === false) {
