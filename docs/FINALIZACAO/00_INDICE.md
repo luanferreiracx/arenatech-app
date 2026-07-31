@@ -41,6 +41,85 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 
 Legenda: ✅ fechado · ⏳ em andamento · ⏸ adiado · — não começou.
 
+## Programa concluído — 2026-07-31
+
+**14 módulos auditados nos dois lados. 1 adiado por decisão do dono** (Fiscal/NF-e,
+à espera da definição de qual API usar; medido e registrado, 0 notas emitidas).
+
+27 PRs, do #739 ao #765, todos com CI verde e mergeados.
+
+### O que o programa mudou de fato
+
+O ponto de partida era: *"apesar de você sempre dizer que está tudo ok,
+continuamos encontrando bugs e gaps."* A resposta foi trocar leitura de código por
+**três provas** — código, dado de produção e navegador real — e exigir que todo
+achado tivesse um teste que **falha antes da correção**.
+
+Alguns achados que só a medição encontrou:
+
+- **Ajuda de custo zerando o mês por um dia de falta** (M8). Os dias do mês vinham
+  de `getDate()`, que lê no fuso do processo: no container de produção, UTC,
+  devolvia 1 em vez de 31. Com zero dias descobertos a conta errada dava o
+  resultado certo — por isso ninguém via.
+- **A conversão de lead nunca casou um telefone** (M9). Comparação exata contra uma
+  coluna gravada em três formatos; **nenhum** dos 75 interesses tinha o formato dos
+  clientes. 6 leads já haviam comprado e o funil marcava 0%.
+- **Cadastrar o primeiro prestador dava 500** (M8). Sentinela `"__none__"` num
+  filtro de coluna UUID: a porta de entrada do módulo quebrava exatamente para
+  quem ainda não tinha entrado — invisível no arena-tech, certeiro nos outros 6
+  tenants.
+- **O custo do bot era invisível** (M11). 42.384 mensagens, `usage` devolvido pelo
+  provedor e lido por ninguém.
+- **O disparo em massa furava o opt-out de LGPD** (M9), aplicado só no envio
+  um-a-um.
+
+### O padrão que apareceu sete vezes
+
+**Duas implementações do mesmo recurso, o endurecimento numa e os usuários na
+outra.** Relatório de caixa (M1), recibo público (M2), guarda de mês fechado
+(M8), gating REST (M10), opt-out de LGPD (M9), CTA gêmeo sem gate (M12),
+rate-limit de leitura pública (M15).
+
+Quando dá para corrigir extraindo a regra para **um** lugar em vez de copiá-la, é
+o que foi feito — `module-gate.ts`, `phoneMatchKey`, `assertApuracaoAberta`,
+`isAdminOnlySettingsPath`.
+
+### Correções de primitivo pagaram juros
+
+`PageHeader`, breadcrumb, `TabsList`, `QueryErrorState`, política de retry e
+`min-w-0` foram corrigidos nos primeiros módulos. Do M9 em diante, o crawler
+passou a voltar limpo com frequência — os módulos seguintes chegaram melhores
+porque a base melhorou.
+
+### Método: o que aprendi apanhando
+
+Três achados foram **descartados** por não sobreviverem à verificação, e estão
+documentados como tal em vez de escondidos:
+
+1. **Build velho no `.next/dev`** produziu achado fantasma três vezes (M2, M11,
+   M13) — sempre com a mesma assinatura: 404 devolvendo HTML numa rota tRPC.
+   Regra: **achado de crawler é hipótese até reproduzir em build limpo.**
+2. **Sonda mal escrita** virou "defeito" quatro vezes: checkbox do Radix sem
+   texto, `main` que não existe, parâmetro de URL que a página não lê,
+   `networkidle` resolvendo antes da mutation sair.
+3. **Grep de assinatura** não substitui leitura do corpo: quase escrevi "7 writes
+   de dinheiro sem gate de admin" (M8) sobre procedures que checam admin inline.
+
+### Cobertura de teste
+
+E2E por módulo passou de **9 de 15 para 14 de 15**. Novos: DePix Wallet,
+Comissões, Interesses, Fidelidade, Catálogo público, Painel. Suíte unitária de
+~1.900 para **2.040**; integração de ~280 para **304**.
+
+### Verificação final
+
+```bash
+pnpm typecheck && pnpm lint && pnpm test:unit   # 2040 verdes
+pnpm test:integration                            # 304 verdes
+pnpm test:e2e --grep @smoke                      # 27 verdes
+```
+
+
 **Ordem alterada em 2026-07-29 (decisão do dono):** o Módulo 10
 (Configurações/Equipe/Auth) foi **antecipado** para a frente de Comissões. Três
 achados transversais foram caindo nele ao longo das passadas — o `ErrorBoundary`
