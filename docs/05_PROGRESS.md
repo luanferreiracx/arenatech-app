@@ -19,6 +19,29 @@
 
 ---
 
+### 2026-07-31 — Finalização, Módulo 13 (Catálogo): backend — catálogo do vizinho
+
+Produção: 117 serviços, 103 aparelhos, 232 avaliações — módulo em uso real.
+
+- **CT-1 (P2)** — `GET /api/catalog/public` não passava `tenantSlug`, e sem slug o
+  serviço cai no tenant padrão. Resultado: `loja-b.pdvdepix.app/api/catalog/public`
+  respondia com produtos e preços do **arena-tech**. As PÁGINAS já faziam certo
+  (leem `x-catalog-tenant-slug` do rewrite do proxy); a rota não recebia o header
+  porque o proxy isenta `/api/*` de propósito — incidente documentado no M10. A
+  rota passou a resolver o slug do próprio Host com a MESMA função do proxy.
+  **Alcance medido: a rota não tem nenhum consumidor** (varri src, testes, docs) —
+  era armadilha armada, não sangramento. Não removi por ser rota pública com
+  possível consumidor externo invisível; fica como decisão do dono.
+
+Íntegro: nenhuma procedure pública nos 4 routers (53 no total), teto de paginação
+no caminho anônimo (MAX_PAGE_SIZE 48), catálogo fechado para tenant suspenso,
+slug validado contra injeção com teste próprio.
+
+Hipótese testada e derrubada: suspeitei de `pageSize` sem teto na rota anônima
+(ela só faz `parsePositiveInt`) — o clamp está no serviço, uma camada adiante.
+
+---
+
 ### 2026-07-30 — Finalização, Módulo 12: frontend — o CTA gêmeo sem gate
 
 Crawler limpo. Os dois achados vieram de olhar a tela no estado em que a produção
