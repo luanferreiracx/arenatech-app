@@ -116,23 +116,88 @@ segundo saque.
 O saldo e o 2FA do ambiente local não existem; foram injetados **reescrevendo a
 resposta HTTP no navegador**, sem alterar uma linha do app.
 
-## Limite conhecido, declarado
+## Segunda rodada — o buraco do `FAILED` (SQ-2)
 
-A guarda **não** bloqueia quando o saque anterior está `FAILED` — um saque que a
-Eulen recusou (limite diário, chave inválida) precisa poder ser refeito na hora.
+A primeira correção deixou um buraco declarado, e o dono mandou fechar.
 
-Mas `FAILED` no nosso banco **não prova que o dinheiro não saiu**. Dos 9 saques
-FAILED em produção, dois têm causa indeterminada: `HTTP 520` e
-`Resposta invalida: sem id`. O incidente de 2026-07-27 foi exatamente isso — a
-transação tinha sido transmitida e o app gravou FAILED.
+A guarda não bloqueava sobre `FAILED`, porque um saque que a Eulen recusou
+(limite diário, chave inválida) precisa poder ser refeito na hora. Só que
+`FAILED` no nosso banco **nunca provou que o dinheiro não saiu**: o incidente de
+2026-07-27 foi exatamente um saque transmitido e gravado como FAILED, e o
+operador pagou duas vezes confiando no registro.
 
-Nesse caminho quem protege é a chave estável (a 2ª tentativa da mesma intenção é
-deduplicada), não a guarda. Se o operador limpar o storage ou trocar de
-dispositivo, a proteção não existe.
+Medido em produção: dos 9 saques FAILED, **dois têm causa indeterminada** —
+`Erro ao solicitar saque: HTTP 520` e `Resposta invalida: sem id`.
 
-**Decisão do dono, em aberto:** vale registrar no saque se a falha foi *recusa
-definitiva* ou *resultado desconhecido*, e bloquear repetição no segundo caso?
-Custa uma coluna e uma migration; fecha o último buraco.
+**A distinção virou um fato de primeira classe do saque.** Enum
+`DepixWithdrawFailureKind { REJECTED, UNKNOWN }` gravado junto com o `FAILED`,
+classificado onde o sistema realmente sabe:
+
+| Situação | Classificação | Por quê |
+|---|---|---|
+| Validação local (CPF, chave PIX) | `REJECTED` | Nem chegamos a chamar a Eulen |
+| HTTP 4xx (exceto 408/429) | `REJECTED` | Ela entendeu o pedido e disse não |
+| HTTP 5xx, 408, 429 | `UNKNOWN` | Pode ter processado antes de falhar em responder |
+| 200 com erro de negócio | `REJECTED` | Recusa explícita |
+| 200 sem `withdrawalId` | `UNKNOWN` | Pode ter criado o saque do lado dela |
+| Timeout / rede | `UNKNOWN` | O clássico |
+| Saldo insuficiente após cotação | `REJECTED` | Abortado antes de transmitir |
+| Janela expirada antes do sweep | `REJECTED` | Abortado antes de transmitir |
+| LWK transfer falhou | `UNKNOWN` | O lock não cobre o broadcast |
+
+`408` e `429` são 4xx de nome, mas não recusam nada — um é timeout, o outro é
+"pergunte depois". Classificá-los como recusa reabriria o buraco.
+
+**A guarda passou a bloquear `FAILED` com causa incerta**, com mensagem própria:
+o operador vê "falhou" na lista, e se a recusa não explicasse o porquê ele leria
+como bug e procuraria um contorno.
+
+`failureKind` nulo (registros anteriores a esta migration) conta como **incerto**.
+Tratar nulo como recusa reabriria o buraco justamente no histórico do incidente.
+
+### A tela parou de mentir junto
+
+O bloqueio no servidor não bastava: a lista mostrava esse saque **riscado e
+cinza**, e o detalhe dizia **"Valor (não creditado)"**. Foi essa leitura que
+produziu o pagamento em dobro. Agora:
+
+| | Recusa definitiva | Causa incerta |
+|---|---|---|
+| Etiqueta | `Falhou` | `Verificar` |
+| Linha na lista | riscada, cinza | destaque de atenção |
+| Rótulo do valor | "Valor (não creditado)" | "Valor (envio não confirmado)" |
+| Aviso | erro do provedor | *"Este saque consta como falho, mas o envio não foi confirmado. Confirme com o destinatário antes de enviar de novo."* |
+
+Verificado em navegador, 1440px e 390px, com um saque de cada tipo: a recusa
+comum continua discreta (senão o aviso vira ruído e ninguém lê) e a incerta salta.
+A etiqueta é a mesma nas duas telas — "Falhou" na lista e "Verificar" no detalhe
+seria a mesma transação com dois nomes.
+
+### Testes que reprovam antes
+
+```
+Integração:
+  × bloqueia quando a falha anterior foi INDETERMINADA
+  × a mensagem explica POR QUE bloqueia um saque que consta como falho
+  × registro antigo, sem classificação, conta como incerto
+      → 'Saldo disponivel insuficiente…'   (a guarda não chegou a rodar)
+
+Unit:
+  × falha de comunicação fica marcada para verificação
+  × registro antigo, sem classificação, também fica marcado
+```
+
+Controles negativos que seguem passando: recusa definitiva **não** bloqueia e
+**não** polui a tela; falha incerta fora da janela de 10 min não bloqueia.
+
+### Migration
+
+`20260731150000_depix_withdraw_failure_kind` — enum, coluna nullable, índice
+parcial (só saques falhos de causa incerta) e backfill que classifica apenas o
+que a mensagem torna inequívoco. `HTTP 520`, `Resposta invalida: sem id` e
+`falha ao transferir` ficam deliberadamente sem classificação, ou seja, incertos.
+
+Verificada aplicando **todas** as migrations num banco vazio — é o que o CI faz.
 
 ## Testes que reprovam antes da correção
 
@@ -158,6 +223,6 @@ Controles negativos que continuam passando (a guarda não pode ser cega): saque
 
 ```bash
 pnpm typecheck && pnpm lint          # 0 erros
-pnpm test:unit                       # 2051 verdes (+11)
-pnpm test:integration                # 310 verdes (+6)
+pnpm test:unit                       # 2059 verdes (+19)
+pnpm test:integration                # 314 verdes (+10)
 ```

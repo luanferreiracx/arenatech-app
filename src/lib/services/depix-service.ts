@@ -367,6 +367,16 @@ export interface DepixWithdrawResult {
   fee?: number;
   raw?: unknown;
   error?: string;
+  /**
+   * Quando `success: false`, diz se da para AFIRMAR que o dinheiro nao saiu.
+   *
+   * `"rejected"` — a Eulen respondeu recusando, ou nem chegamos a chamar.
+   * `"unknown"`  — timeout, 5xx, resposta ilegivel. Pode ter sido processado.
+   *
+   * Na duvida e sempre `"unknown"`: o custo de errar para incerto e um bloqueio
+   * de 10 minutos; o de errar para recusado e pagar duas vezes.
+   */
+  failureKind?: "rejected" | "unknown";
 }
 
 /**
@@ -431,14 +441,22 @@ export async function createDepixWithdraw(
 
   const taxIdDigits = taxId.replace(/\D/g, "");
   if (!taxIdDigits) {
-    return { success: false, error: "CPF/CNPJ do destinatario e obrigatorio" };
+    return {
+      success: false,
+      error: "CPF/CNPJ do destinatario e obrigatorio",
+      failureKind: "rejected",
+    };
   }
 
   let pixKeyFormatted: string;
   try {
     pixKeyFormatted = formatPixKey(pixKey, pixKeyType);
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Chave PIX invalida" };
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Chave PIX invalida",
+      failureKind: "rejected",
+    };
   }
 
   // Eulen oficial: { pixKey, taxNumber, payoutAmountInCents }. Passamos o valor
@@ -463,21 +481,25 @@ export async function createDepixWithdraw(
     // retenta com o MESMO nonce ate virar sincrono (sem risco de duplicar).
     const raw = await postWithdrawSync(saqueUrl, apiKey, nonce, payload);
     if (!raw.ok) {
-      return { success: false, error: raw.error };
+      return { success: false, error: raw.error, failureKind: raw.failureKind };
     }
 
     const data = raw.data;
     const apiError = extractEulenError({ response: data });
     if (apiError) {
       logger.error("Depix saque: erro da API", { erro: apiError });
-      return { success: false, error: `Erro da API: ${apiError}` };
+      return { success: false, error: `Erro da API: ${apiError}`, failureKind: "rejected" };
     }
 
     const withdrawalId = data.withdrawalId as string | undefined;
     const depositAddress = data.depositAddress as string | undefined;
     if (!withdrawalId || !depositAddress) {
       logger.error("Depix saque: resposta sem withdrawalId/depositAddress", { data });
-      return { success: false, error: "Resposta invalida do provedor de saque" };
+      return {
+        success: false,
+        error: "Resposta invalida do provedor de saque",
+        failureKind: "unknown",
+      };
     }
 
     const depositAmountInCents = data.depositAmountInCents as number | undefined;
@@ -510,8 +532,26 @@ export async function createDepixWithdraw(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erro ao solicitar saque",
+      failureKind: "unknown",
     };
   }
+}
+
+/**
+ * O status HTTP diz se a Eulen ENTENDEU o pedido e recusou, ou se apenas nao
+ * conseguiu responder.
+ *
+ * 4xx = ela entendeu e disse nao (limite diario, chave invalida, compliance): o
+ * saque nao existe do lado dela. 5xx = pode ter processado antes de falhar em
+ * responder — o `HTTP 520` de 2026-06-23 e exatamente esse caso.
+ *
+ * 408 e 429 sao 4xx de nome, mas nao carregam recusa nenhuma: um e timeout, o
+ * outro e "pergunte de novo mais tarde". Nenhum dos dois afirma que o pedido
+ * deixou de ser processado, entao contam como incertos.
+ */
+export function classificarFalhaHttp(status: number): "rejected" | "unknown" {
+  if (status === 408 || status === 429) return "unknown";
+  return status >= 400 && status < 500 ? "rejected" : "unknown";
 }
 
 /**
@@ -526,7 +566,8 @@ async function postWithdrawSync(
   nonce: string,
   payload: Record<string, unknown>,
 ): Promise<
-  { ok: true; data: Record<string, unknown> } | { ok: false; error: string }
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string; failureKind: "rejected" | "unknown" }
 > {
   const MAX_ATTEMPTS = 4;
   const RETRY_DELAY_MS = 1_500;
@@ -552,7 +593,11 @@ async function postWithdrawSync(
       } catch {
         msg = `${msg}: ${text.substring(0, 200)}`;
       }
-      return { ok: false, error: `Erro ao solicitar saque: ${msg}` };
+      return {
+        ok: false,
+        error: `Erro ao solicitar saque: ${msg}`,
+        failureKind: classificarFalhaHttp(response.status),
+      };
     }
 
     const raw = (await response.json()) as unknown;
@@ -572,9 +617,12 @@ async function postWithdrawSync(
     }
   }
 
+  // Esgotamos as tentativas e a Eulen nunca devolveu o resultado sincrono. O
+  // saque pode estar na fila DELA — reenviar seria arriscado.
   return {
     ok: false,
     error: "Provedor de saque ocupado (resposta assincrona). Tente novamente em instantes.",
+    failureKind: "unknown",
   };
 }
 

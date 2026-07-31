@@ -50,7 +50,11 @@ afterAll(async () => {
 });
 
 /** Um saque já existente, no estado em que a guarda deve bloquear. */
-async function saqueExistente(status: string, minutosAtras = 2) {
+async function saqueExistente(
+  status: string,
+  minutosAtras = 2,
+  failureKind: "REJECTED" | "UNKNOWN" | null = null,
+) {
   return prisma.tenantDepixTransaction.create({
     data: {
       tenantId,
@@ -68,6 +72,7 @@ async function saqueExistente(status: string, minutosAtras = 2) {
       userId,
       userName: "Admin Arena",
       idempotencyKey: randomUUID(),
+      failureKind: failureKind as never,
       createdAt: new Date(Date.now() - minutosAtras * 60_000),
     },
   });
@@ -112,14 +117,64 @@ describe("SQ-1 — segundo saque igual, com chave de idempotência diferente", (
   });
 
   it("saque que a Eulen RECUSOU não bloqueia a nova tentativa", async () => {
-    // FAILED não moveu dinheiro (ex.: limite diário estourado). Bloquear aqui
-    // deixaria o operador preso sem motivo.
-    await saqueExistente("FAILED");
-    await expect(novoSaque()).rejects.not.toThrow(/Ja existe um saque igual/i);
+    // Recusa definitiva (limite diário, chave inválida): o dinheiro não saiu e
+    // prender o operador aqui seria só atrapalhar.
+    await saqueExistente("FAILED", 2, "REJECTED");
+    await expect(novoSaque()).rejects.not.toThrow(/consta como FALHO|Ja existe um saque igual/i);
   });
 
   it("fora da janela de 10 min, não bloqueia", async () => {
     await saqueExistente("COMPLETED", 15);
     await expect(novoSaque()).rejects.not.toThrow(/Ja existe um saque igual/i);
+  });
+});
+
+/**
+ * O buraco que sobrou da 1ª correção, e a razão desta segunda.
+ *
+ * `FAILED` no nosso banco nunca provou que o dinheiro não saiu. Em 2026-07-27 um
+ * saque foi transmitido de verdade e gravado como FAILED — o timeout comeu a
+ * resposta — e o operador, confiando no registro, pagou duas vezes. Dos 9 saques
+ * FAILED em produção, dois têm causa indeterminada: `HTTP 520` e
+ * `Resposta invalida: sem id`.
+ *
+ * A guarda passa a distinguir os dois casos pelo `failureKind`.
+ */
+describe("SQ-2 — saque FALHO de causa incerta bloqueia a repetição", () => {
+  it("bloqueia quando a falha anterior foi INDETERMINADA", async () => {
+    const anterior = await saqueExistente("FAILED", 2, "UNKNOWN");
+
+    await expect(novoSaque()).rejects.toThrow(/consta como FALHO/i);
+
+    const total = await prisma.tenantDepixTransaction.count({
+      where: { tenantId, pixKey: CHAVE_PIX },
+    });
+    expect(total, "não pode nascer um segundo saque").toBe(1);
+    expect(
+      (await prisma.tenantDepixTransaction.findFirstOrThrow({
+        where: { tenantId, pixKey: CHAVE_PIX },
+      })).id,
+    ).toBe(anterior.id);
+  });
+
+  it("a mensagem explica POR QUE bloqueia um saque que consta como falho", async () => {
+    // Sem isso o operador lê como bug — vê "falhou" na lista e o sistema
+    // recusando — e vai procurar um jeito de contornar.
+    const anterior = await saqueExistente("FAILED", 2, "UNKNOWN");
+    await expect(novoSaque()).rejects.toThrow(
+      new RegExp(`${anterior.number}.*consta como FALHO.*nao da para garantir`, "is"),
+    );
+  });
+
+  it("registro antigo, sem classificação, conta como incerto", async () => {
+    // Linhas anteriores a esta migration têm `failure_kind` nulo. Tratar nulo
+    // como "recusado" reabriria o buraco justamente no histórico do incidente.
+    await saqueExistente("FAILED", 2, null);
+    await expect(novoSaque()).rejects.toThrow(/consta como FALHO/i);
+  });
+
+  it("falha incerta fora da janela de 10 min não bloqueia", async () => {
+    await saqueExistente("FAILED", 15, "UNKNOWN");
+    await expect(novoSaque()).rejects.not.toThrow(/consta como FALHO/i);
   });
 });

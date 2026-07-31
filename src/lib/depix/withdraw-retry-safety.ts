@@ -57,6 +57,25 @@ export function respostaEhTentativaMorta(status: string): boolean {
   return status === "FAILED" || status === "CANCELLED" || status === "EXPIRED";
 }
 
+/**
+ * Este saque falhou sem que se possa afirmar que o dinheiro nao saiu?
+ *
+ * Serve tanto para bloquear a repeticao quanto para a UI parar de mentir. Um
+ * saque assim NAO pode aparecer riscado e cinza como "nao movimentou" — foi
+ * exatamente essa leitura que levou ao pagamento em dobro de 2026-07-27.
+ *
+ * `failureKind` nulo sao registros anteriores a 2026-07-31, quando o sistema
+ * ainda nao anotava a causa. Contam como incertos: e o lado seguro.
+ */
+export function resultadoDoSaqueEhIncerto(tx: {
+  kind: string;
+  status: string;
+  failureKind?: string | null;
+}): boolean {
+  if (tx.kind !== "WITHDRAW" || tx.status !== "FAILED") return false;
+  return tx.failureKind !== "REJECTED";
+}
+
 export type IntencaoDeSaque = {
   pixKey: string;
   recipientTaxId: string;

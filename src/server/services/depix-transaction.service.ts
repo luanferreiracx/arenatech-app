@@ -71,6 +71,15 @@ const ZERO_FEE: DepixFeeConfig = {
  */
 const DUPLICATE_WITHDRAW_WINDOW_MS = 10 * 60 * 1000;
 
+/**
+ * Traduz a classificacao do provedor para o enum do banco. Ausencia de
+ * classificacao vira UNKNOWN — o lado seguro: bloqueia a repeticao por 10
+ * minutos em vez de arriscar um segundo pagamento.
+ */
+function classificarFalha(kind: "rejected" | "unknown" | undefined) {
+  return kind === "rejected" ? "REJECTED" : "UNKNOWN";
+}
+
 const MAX_REPAYMENT_ATTEMPTS = 8;
 
 /**
@@ -1351,22 +1360,37 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
           // da taxa vigente e so e calculado adiante.
           netAmountCents: args.netAmountCents,
           createdAt: { gte: desde },
-          // Um saque que a propria Eulen recusou (limite, chave invalida) nao
-          // moveu dinheiro e nao deve bloquear a nova tentativa. Quem bloqueia e
-          // o que esta vivo ou ja concluido.
-          status: { notIn: ["FAILED", "CANCELLED", "EXPIRED"] },
+          OR: [
+            // Vivo ou concluido: o dinheiro saiu ou esta saindo.
+            { status: { notIn: ["FAILED", "CANCELLED", "EXPIRED"] } },
+            // FALHOU, mas nao da para afirmar que o dinheiro nao saiu. `FAILED`
+            // no nosso banco nunca provou isso: em 2026-07-27 um saque foi
+            // transmitido e gravado como FAILED, e o operador pagou duas vezes.
+            // Registros antigos tem `failureKind` nulo e contam como incertos.
+            {
+              status: "FAILED",
+              OR: [{ failureKind: "UNKNOWN" }, { failureKind: null }],
+            },
+          ],
         },
         orderBy: { createdAt: "desc" },
       }),
     );
     if (recente) {
       const minutos = Math.max(1, Math.round((Date.now() - recente.createdAt.getTime()) / 60_000));
+      // O saque anterior aparece como "falhou" na lista. Se a mensagem nao
+      // explicar por que estamos bloqueando mesmo assim, o operador le como bug
+      // e procura um jeito de contornar — que e exatamente o que nao queremos.
+      const anteriorConstaFalho = recente.status === "FAILED";
       throw new TRPCError({
         code: "CONFLICT",
-        message:
-          `Ja existe um saque igual a este (mesma chave PIX e mesmo valor) criado ha ${minutos} min: ` +
-          `${recente.number}. Confira nas transacoes antes de enviar outro — se aquele saiu, este seria ` +
-          `um pagamento em dobro.`,
+        message: anteriorConstaFalho
+          ? `O saque ${recente.number}, de ${minutos} min atras, e igual a este e consta como FALHO — ` +
+            `mas a falha foi de comunicacao, entao nao da para garantir que o PIX nao saiu. ` +
+            `Confirme com o destinatario antes de enviar de novo.`
+          : `Ja existe um saque igual a este (mesma chave PIX e mesmo valor) criado ha ${minutos} min: ` +
+            `${recente.number}. Confira nas transacoes antes de enviar outro — se aquele saiu, este seria ` +
+            `um pagamento em dobro.`,
       });
     }
   }
@@ -1537,7 +1561,11 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: withdrawResult.error ?? "PixPay falhou" },
+        data: {
+          status: "FAILED",
+          errorMessage: withdrawResult.error ?? "PixPay falhou",
+          failureKind: classificarFalha(withdrawResult.failureKind),
+        },
       }),
     );
     throw new TRPCError({
@@ -1559,6 +1587,8 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         data: {
           status: "FAILED",
           errorMessage: "Saldo insuficiente para taxa final do provedor",
+          // Nada foi transmitido on-chain: o dinheiro nao saiu.
+          failureKind: "REJECTED",
           apiResponse: withdrawResult.raw as never,
         },
       }),
@@ -1603,6 +1633,8 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
         data: {
           status: "FAILED",
           errorMessage: "Janela do saque expirou antes do envio on-chain (sem perda de fundos)",
+          // Abortado antes do sweep — nada foi transmitido.
+          failureKind: "REJECTED",
         },
       }),
     );
@@ -1695,7 +1727,13 @@ export async function createWithdraw(args: CreateWithdrawArgs) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: sweep.error ?? "LWK transfer falhou" },
+        data: {
+          status: "FAILED",
+          errorMessage: sweep.error ?? "LWK transfer falhou",
+          // O lock nao cobre o broadcast: a transacao pode ter ido para a rede
+          // mesmo com o transfer reportando falha (incidente 2026-07-27).
+          failureKind: "UNKNOWN",
+        },
       }),
     );
     throw new TRPCError({
@@ -1880,7 +1918,11 @@ export async function createExternalWithdraw(args: CreateExternalWithdrawArgs) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: withdrawResult.error ?? "Provedor de saque falhou" },
+        data: {
+          status: "FAILED",
+          errorMessage: withdrawResult.error ?? "Provedor de saque falhou",
+          failureKind: classificarFalha(withdrawResult.failureKind),
+        },
       }),
     );
     throw new TRPCError({
@@ -2654,7 +2696,13 @@ export async function createOnchainWithdraw(args: CreateOnchainWithdrawArgs) {
     await withTenant(args.tenantId, async (tx) =>
       tx.tenantDepixTransaction.update({
         where: { id: created.id },
-        data: { status: "FAILED", errorMessage: sweep.error ?? "LWK transfer falhou" },
+        data: {
+          status: "FAILED",
+          errorMessage: sweep.error ?? "LWK transfer falhou",
+          // O lock nao cobre o broadcast: a transacao pode ter ido para a rede
+          // mesmo com o transfer reportando falha (incidente 2026-07-27).
+          failureKind: "UNKNOWN",
+        },
       }),
     );
     throw new TRPCError({

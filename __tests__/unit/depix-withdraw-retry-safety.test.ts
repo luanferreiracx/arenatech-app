@@ -20,6 +20,7 @@ import {
   descartarChaveDaIntencao,
   idempotencyKeyDaIntencao,
   respostaEhTentativaMorta,
+  resultadoDoSaqueEhIncerto,
   resultadoEhIndeterminado,
   type ArmazenamentoDeChave,
 } from "@/lib/depix/withdraw-retry-safety";
@@ -157,5 +158,37 @@ describe("resposta da dedupe: nem todo registro devolvido e um saque vivo", () =
     expect(respostaEhTentativaMorta("PENDING")).toBe(false);
     expect(respostaEhTentativaMorta("PROCESSING")).toBe(false);
     expect(respostaEhTentativaMorta("COMPLETED")).toBe(false);
+  });
+});
+
+describe("a tela nao pode afirmar que o dinheiro nao saiu", () => {
+  const saque = (status: string, failureKind?: string | null) => ({
+    kind: "WITHDRAW",
+    status,
+    failureKind,
+  });
+
+  it("falha de comunicação fica marcada para verificação", () => {
+    // É o caso de 2026-07-27: o saque saiu e o registro dizia FAILED. Riscar e
+    // acinzentar essa linha é o que fez o operador pagar duas vezes.
+    expect(resultadoDoSaqueEhIncerto(saque("FAILED", "UNKNOWN"))).toBe(true);
+  });
+
+  it("registro antigo, sem classificação, também fica marcado", () => {
+    expect(resultadoDoSaqueEhIncerto(saque("FAILED", null))).toBe(true);
+    expect(resultadoDoSaqueEhIncerto(saque("FAILED", undefined))).toBe(true);
+  });
+
+  it("recusa definitiva da Eulen é falha comum — não polui a tela", () => {
+    // Limite diário estourado acontece com frequência; marcar todo FAILED como
+    // "verificar" faria o aviso virar ruído e ninguém mais leria.
+    expect(resultadoDoSaqueEhIncerto(saque("FAILED", "REJECTED"))).toBe(false);
+  });
+
+  it("não marca depósito nem saque que não falhou", () => {
+    expect(resultadoDoSaqueEhIncerto({ kind: "DEPOSIT", status: "FAILED" })).toBe(false);
+    expect(resultadoDoSaqueEhIncerto(saque("COMPLETED"))).toBe(false);
+    expect(resultadoDoSaqueEhIncerto(saque("CANCELLED"))).toBe(false);
+    expect(resultadoDoSaqueEhIncerto(saque("PROCESSING"))).toBe(false);
   });
 });

@@ -44,6 +44,25 @@ enum DepixTransactionStatus {
   MED_REFUNDED              // deposito devolvido pelo BC (MED) apos pago — pendencia
 }
 
+/// Por que um saque FALHOU — e, sobretudo, se da para afirmar que o dinheiro
+/// NAO saiu.
+///
+/// Existe porque `FAILED` no nosso banco nunca provou isso. Em 2026-07-27 um
+/// saque foi transmitido de verdade e gravado como FAILED (o timeout comeu a
+/// resposta); o operador confiou no registro e pagou duas vezes. Dos 9 saques
+/// FAILED em producao, dois tem causa indeterminada (`HTTP 520`, `Resposta
+/// invalida: sem id`).
+///
+/// Regra: so use REJECTED quando o provedor RESPONDEU recusando, ou quando a
+/// falha aconteceu antes de qualquer chamada externa. Na duvida, UNKNOWN — o
+/// custo de errar para UNKNOWN e um bloqueio de 10 minutos; para REJECTED e
+/// pagar duas vezes.
+enum DepixWithdrawFailureKind {
+  REJECTED /// O provedor recusou, ou nem chegamos a chamar. O dinheiro NAO saiu.
+  UNKNOWN  /// Timeout, 5xx, resposta ilegivel, broadcast sem confirmacao.
+           /// Pode ter saido. Repetir e arriscado.
+}
+
 model TenantDepixTransaction {
   id                    String                  @id @default(uuid()) @db.Uuid
   tenantId              String                  @map("tenant_id") @db.Uuid
@@ -155,6 +174,10 @@ model TenantDepixTransaction {
   /// ─── AUDITORIA ──────────────────────────────────────────────────────
   apiResponse           Json?                   @map("api_response")
   errorMessage          String?                 @map("error_message") @db.Text
+  /// Preenchido junto com `status = FAILED` em saques. Null em registros
+  /// anteriores a 2026-07-31 e em falhas que nao sao de saque — o codigo trata
+  /// null como UNKNOWN, que e o lado seguro.
+  failureKind           DepixWithdrawFailureKind? @map("failure_kind")
   expiresAt             DateTime?               @map("expires_at")
   userId                String                  @map("user_id") @db.Uuid
   userName              String?                 @map("user_name")
