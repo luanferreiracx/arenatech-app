@@ -19,6 +19,39 @@
 
 ---
 
+### 2026-07-31 — Finalização, Módulo 15 (Admin/Superadmin): ÚLTIMO MÓDULO
+
+**Os 15 módulos estão fechados** (14 auditados nos dois lados + o Fiscal adiado por
+decisão do dono, à espera da definição da API).
+
+Mapa de privilégio medido: 53 procedures administrativos, **todos** `adminProcedure`;
+1 pública legítima (planos da página de preços); e 4 mutations anônimas do
+auto-cadastro NO-KYC — **todas com rate-limit** (5/h no cadastro, 10/h nas
+verificações, 5/15min no reenvio) mais contador de tentativas por código.
+
+- **AD-1 (P3)** — `byPublicLink` e `getQuoteByLink` são anônimas e rodam em
+  `withAdmin` (RLS DESLIGADO). O controle é o segredo do link, e a entropia
+  sustenta (CSPRNG, base32-crockford, 12 chars ≈ 60 bits). Faltava a segunda
+  camada: teto de tentativas — que `respondToQuote`, a mutation logo abaixo no
+  mesmo arquivo, já tinha. Medindo a produção apareceram **2 OS com link de 7
+  chars (≈35 bits)** vindas de backfill, que nenhum gerador do código produz; o
+  teto cobre as duas sem reescrevê-las. Guardião exige limite em TODA
+  `publicProcedure` do router.
+- **AD-2 (P2)** — as 4 telas de `/register` não tinham landmark (`main: 0`,
+  `header: 0`). Mesma ausência do catálogo público (CTU-2): as duas superfícies
+  anônimas do sistema tinham o mesmo buraco.
+
+Auditei os 11 usos de `withAdmin` fora do admin em `service-order.ts`: os três
+grupos são legítimos (users é tabela global sem tenant_id, userTenant vem filtrado
+por ctx.tenantId, e as rotas públicas por link).
+
+Duas leituras minhas caíram na medição e viraram nota de método: li a tabela de
+comprimento de links ao contrário (achei que 12 chars era o formato fraco, quando
+é o atual e os de 32/64 são legado mais longo), e a sonda marcou as telas de
+registro como "main vazio" quando o que faltava era o próprio `<main>`.
+
+---
+
 ### 2026-07-31 — Finalização, Módulo 14 (Painel/Relatórios): fechado nos dois lados
 
 **Backend sem defeito.** A passada foi de reconciliação contra a cópia de

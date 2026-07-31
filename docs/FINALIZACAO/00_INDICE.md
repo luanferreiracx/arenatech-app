@@ -37,7 +37,7 @@ Achado só é dado por fechado com **teste que falha antes do fix**.
 | 12 | Fidelidade | ✅ | ✅ | **novo** | [12-fidelidade.md](./12-fidelidade.md) |
 | 13 | Catálogo / Ferramentas | ✅ | ✅ | **novo** | [13-catalogo-ferramentas.md](./13-catalogo-ferramentas.md) |
 | 14 | Painel / Relatórios | ✅ | ✅ | **novo** | [14-painel-relatorios.md](./14-painel-relatorios.md) |
-| 15 | Admin / Superadmin / onboarding NO-KYC | — | — | **não** | — |
+| 15 | Admin / Superadmin / onboarding NO-KYC | ✅ | ✅ | **não** | [15-admin-superadmin.md](./15-admin-superadmin.md) |
 
 Legenda: ✅ fechado · ⏳ em andamento · ⏸ adiado · — não começou.
 

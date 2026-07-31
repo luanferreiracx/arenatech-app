@@ -2375,7 +2375,16 @@ export const serviceOrderRouter = createTRPCRouter({
     }),
 
   // ── PUBLIC: get by public link ──
+  //
+  // AD-1: leitura ANÔNIMA que roda em `withAdmin` — ou seja, com o RLS desligado.
+  // O controle de acesso é o segredo do link (base32-crockford via CSPRNG, 12
+  // chars ≈ 60 bits), e isso basta contra adivinhação. O que faltava era o teto
+  // de tentativas: sem ele, o endpoint aceita martelada de graça, e a produção
+  // ainda tem 2 OS com link de 7 chars (≈35 bits) vindas de backfill antigo, que
+  // nenhum gerador do código produz. `respondToQuote`, logo abaixo, já tinha o
+  // limite — a leitura é que ficou de fora.
   byPublicLink: publicProcedure
+    .use(rateLimitMiddleware({ limit: 60, windowMs: 15 * 60 * 1000 }))
     .input(z.object({ link: z.string().min(1) }))
     .query(async ({ input }) => {
       // Public route - use withAdmin to bypass RLS
@@ -2433,7 +2442,9 @@ export const serviceOrderRouter = createTRPCRouter({
     }),
 
   // ── PUBLIC: get quote for approval ──
+  // AD-1: mesma leitura anônima com RLS desligado — mesmo teto.
   getQuoteByLink: publicProcedure
+    .use(rateLimitMiddleware({ limit: 60, windowMs: 15 * 60 * 1000 }))
     .input(z.object({ link: z.string().min(1) }))
     .query(async ({ input }) => {
       return withAdmin(async (tx) => {
