@@ -60,6 +60,7 @@ import { logger } from "@/lib/logger";
 import { linkInterestConversionByPhone } from "@/server/services/interest-conversion.service";
 import { productSearchFilter } from "@/server/services/product-search";
 import { normalizeProductName } from "@/lib/utils/product-name";
+import { normalizeCatalogNameOrNull } from "@/lib/utils/catalog-name";
 import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
 import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
@@ -2137,8 +2138,10 @@ export const saleRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               customerId: sale.customerId,
               sellerType: "customer",
-              brand: upg.brand,
-              model: upg.model,
+              // Snapshot em caixa alta, igual ao catálogo — este par alimenta a
+              // lista de Compra de Aparelhos.
+              brand: normalizeCatalogNameOrNull(upg.brand),
+              model: normalizeCatalogNameOrNull(upg.model),
               imei: upg.imei,
               serial: upg.serialNumber,
               condition,

@@ -17,6 +17,7 @@ import {
 import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { validateDepixLimit } from "@/lib/services/depix-limit-service";
 import { logger } from "@/lib/logger";
+import { normalizeCatalogName } from "@/lib/utils/catalog-name";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0;
@@ -169,7 +170,8 @@ export const quickSaleRouter = createTRPCRouter({
             buyerName: input.buyerName ?? null,
             cpfCnpj: input.cpfCnpj?.replace(/\D/g, "") ?? null,
             phone: input.phone?.replace(/\D/g, "") ?? null,
-            productDescription: input.productDescription,
+            // Caixa alta como o resto do catalogo (decisao do dono, 2026-08-01).
+            productDescription: normalizeCatalogName(input.productDescription),
             quantity: input.quantity,
             unitPrice: unitPriceDecimal,
             discount: discountDecimal,
@@ -238,7 +240,9 @@ export const quickSaleRouter = createTRPCRouter({
         if (input.buyerName !== undefined) data.buyerName = input.buyerName;
         if (input.cpfCnpj !== undefined) data.cpfCnpj = input.cpfCnpj?.replace(/\D/g, "") ?? null;
         if (input.phone !== undefined) data.phone = input.phone?.replace(/\D/g, "") ?? null;
-        if (input.productDescription !== undefined) data.productDescription = input.productDescription;
+        if (input.productDescription !== undefined) {
+          data.productDescription = normalizeCatalogName(input.productDescription);
+        }
         if (input.quantity !== undefined) data.quantity = input.quantity;
         if (input.unitPrice !== undefined) data.unitPrice = new Prisma.Decimal(input.unitPrice / 100);
         if (input.discount !== undefined) data.discount = new Prisma.Decimal(input.discount / 100);
