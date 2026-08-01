@@ -164,6 +164,23 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("transfira pra um atendente na hora");
   });
 
+  it("nota fiscal: não afirma nem nega, e a guarda vence a instrução da loja", () => {
+    const instrucaoContraria = "Emitimos nota fiscal em todas as vendas, pode confirmar pro cliente.";
+    const prompt = buildSystemPrompt({
+      contactName: null,
+      businessContext: buildTalisonBusinessContext(),
+      storeInstructions: instrucaoContraria,
+    });
+
+    expect(prompt).toContain("NOTA FISCAL");
+    expect(prompt).toContain("NÃO diga que sim NEM que não");
+    expect(prompt).toContain("transferir_para_humano");
+    // DEPOIS do texto do admin — só lá em cima o modelo obedecia a loja (medido
+    // com o DeepSeek real) — mas ANTES da guarda anti-injeção, que segue última.
+    expect(prompt.indexOf("NOTA FISCAL")).toBeGreaterThan(prompt.indexOf(instrucaoContraria));
+    expect(prompt.trimEnd().endsWith(STORE_INSTRUCTIONS_GUARD)).toBe(true);
+  });
+
   it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 
