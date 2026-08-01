@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
 
 /**
  * Resolve o `brandId` de um produto a partir das entradas do formulário/CSV,
@@ -32,9 +33,36 @@ export async function resolveBrandId(
 }
 
 /**
- * Find-or-create de marca por nome, deduplicando por nome normalizado
- * (lower+unaccent+trim). Usa a mesma normalização do backfill para não recriar
- * variantes ("Asus" vs "ASUS"). Cria com a grafia exata que o usuário digitou.
+ * Marca existente cujo nome normalizado (minúsculo, sem acento, espaços
+ * colapsados) bate com `rawName` — é assim que "Asus", "ASUS" e "Ásus" viram a
+ * mesma marca. A coluna `search_name` é mantida por trigger no banco; o termo
+ * passa pelo par TypeScript da mesma normalização.
+ *
+ * `excludeId` serve à renomeação: ao editar a marca X, ela não conta como
+ * duplicata de si mesma.
+ */
+export async function findBrandByName(
+  tx: Prisma.TransactionClient,
+  rawName: string,
+  excludeId?: string,
+): Promise<{ id: string; name: string } | null> {
+  const searchName = normalizeSearchTerm(rawName);
+  if (!searchName) return null;
+
+  return tx.productBrand.findFirst({
+    where: {
+      searchName,
+      deletedAt: null,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Find-or-create de marca por nome, deduplicando por nome normalizado.
+ * Cria com a grafia exata que o usuário digitou.
  */
 export async function findOrCreateBrandByName(
   tx: Prisma.TransactionClient,
@@ -43,17 +71,8 @@ export async function findOrCreateBrandByName(
 ): Promise<{ brandId: string; brandName: string }> {
   const name = rawName.trim();
 
-  // Match por nome normalizado (case/acento/espaço) via SQL — o índice único
-  // (@@unique tenantId,name) é exato, então a dedup canônica exige unaccent.
-  const matches = await tx.$queryRaw<Array<{ id: string; name: string }>>`
-    SELECT id, name FROM product_brands
-    WHERE tenant_id = ${tenantId}::uuid
-      AND deleted_at IS NULL
-      AND lower(unaccent(btrim(name))) = lower(unaccent(btrim(${name})))
-    ORDER BY created_at ASC
-    LIMIT 1
-  `;
-  if (matches[0]) return { brandId: matches[0].id, brandName: matches[0].name };
+  const existing = await findBrandByName(tx, name);
+  if (existing) return { brandId: existing.id, brandName: existing.name };
 
   const created = await tx.productBrand.create({
     data: { tenantId, name },

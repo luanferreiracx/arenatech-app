@@ -1,7 +1,7 @@
-import { sanitizeProductName } from "./product-name";
+import { normalizeProductName } from "./product-name";
 
 /** Rótulo quando não há modelo informado (paridade Laravel). */
-const FALLBACK_NAME = "Aparelho seminovo";
+const FALLBACK_NAME = "APARELHO SEMINOVO";
 
 /**
  * Nome canônico do produto de um aparelho-de-entrada (trade-in). Fonte única
@@ -11,12 +11,12 @@ const FALLBACK_NAME = "Aparelho seminovo";
  * código antigo ainda prependia a marca (`[brand, model].join(" ")`), acumulando
  * "Apple". Isso fazia o dedup por nome nunca casar o produto do catálogo
  * ("iPhone 16") → nascia uma duplicata a cada troca. Aqui colapsamos a marca
- * repetida via sanitizeProductName, devolvendo o nome que o catálogo usa.
+ * repetida via normalizeProductName, devolvendo o nome que o catálogo usa.
  */
 export function resolveTradeInProductName(
   brand: string | null | undefined,
   model: string | null | undefined,
 ): string {
-  const cleanModel = sanitizeProductName((model ?? "").trim(), brand);
+  const cleanModel = normalizeProductName((model ?? "").trim(), brand);
   return cleanModel || FALLBACK_NAME;
 }

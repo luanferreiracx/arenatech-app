@@ -14,7 +14,9 @@ import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
-const MARK = "csv-atomic-test";
+// MAIÚSCULO porque o import grava o nome do produto em caixa alta
+// (normalizeProductName) — o filtro `startsWith` precisa casar o que foi gravado.
+const MARK = "CSV-ATOMIC-TEST";
 let ctx: any, tenantId: string, adminId: string;
 
 const call = () => createCallerFactory(appRouter)(ctx);

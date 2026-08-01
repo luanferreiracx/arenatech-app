@@ -20,6 +20,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { formatBRL, type TalisonTool, type TalisonToolContext } from "@/lib/talison/tools/contract";
 import { searchWords, expandWord } from "@/lib/search/synonyms";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
 
 const MAX_RESULTS = 8;
 const ACESSORIO_PIX_DISCOUNT = 0.05;
@@ -74,10 +75,11 @@ function accessorySearchWhere(term: string): Prisma.ProductWhereInput[] {
   // Cada palavra vira "palavra + sinonimos" (modulo compartilhado com o
   // catalogo). Por palavra: casa QUALQUER sinonimo (OR); entre palavras: todas
   // exigidas (AND, via o array que entra no AND externo da query).
+  // `search_name` (nome + marca sem acento) cobre o miolo da busca; sku/barcode
+  // e descricao seguem no contains cru — nao tem coluna normalizada.
   return searchWords(term).map((word) => ({
     OR: expandWord(word).flatMap((synonym): Prisma.ProductWhereInput[] => [
-      { name: { contains: synonym, mode: "insensitive" } },
-      { brand: { contains: synonym, mode: "insensitive" } },
+      { searchName: { contains: normalizeSearchTerm(synonym) } },
       { sku: { contains: synonym, mode: "insensitive" } },
       { barcode: { contains: synonym, mode: "insensitive" } },
       { description: { contains: synonym, mode: "insensitive" } },

@@ -19,6 +19,41 @@
 
 ---
 
+### 2026-08-01 — Catálogo: marcas gerenciáveis, nome em caixa alta, busca sem acento
+
+Três correções pedidas pelo dono, todas no cadastro/busca de produto.
+
+**1. Marcas ganharam tela.** A marca virou entidade em 13/07 (`ProductBrand`) mas
+nasceu sem CRUD: dava para criar uma de raspão no cadastro de produto e nunca
+mais renomear ou apagar. Agora tem `Estoque › Marcas` (espelha Categorias), com
+`createBrand`/`updateBrand`/`deleteBrand` em `adminProcedure` (`manageCatalog`).
+Exclusão só de marca sem produto vinculado; renomear propaga para a coluna-sombra
+`Product.brand` (senão a busca por marca continuaria achando o nome velho).
+Duplicata é recusada ignorando caixa e acento — "ASUS" não vira uma segunda "Ásus".
+
+**2. Criar marca no cadastro do produto** virou o componente
+`ProductBrandSelect`: a marca é criada NA HORA (`stock.createBrand`) e volta
+selecionada. Antes o formulário guardava um `newBrandName` que só virava marca se
+o produto salvasse — falhou a validação, a marca digitada evaporava.
+
+**3. Nome de produto agora é gravado em CAIXA ALTA.** `sanitizeProductName` virou
+`normalizeProductName` e é o ponto único por onde passam os cinco caminhos de
+escrita (cadastro, edição, CSV, trade-in, cópia). A migração subiu o acervo
+existente. O campo do formulário sobe a caixa enquanto o operador digita.
+
+**4. Busca de produto ficou insensível a ACENTO** (ADR 0060). `contains` com
+`mode: "insensitive"` do Prisma ignora caixa, não acento — "pelicula" não achava
+"PELÍCULA". Nova coluna derivada `search_name` (nome + marca normalizados),
+mantida por trigger, com índice GIN trigram; nove superfícies de busca passaram a
+usar o mesmo `productSearchFilter()`. O `$queryRaw` que existia só no PDV foi
+apagado, e o `normalizeTerm` duplicado dos sinônimos virou `normalizeSearchTerm`.
+
+Coberto por `__tests__/integration/product-search-accent-insensitive.test.ts` (9
+casos contra o Postgres de verdade — trigger, uppercase, busca nas telas e CRUD
+de marca) mais os unitários de normalização.
+
+---
+
 ### 2026-07-31 — Finalização, Módulo 15 (Admin/Superadmin): ÚLTIMO MÓDULO
 
 **Os 15 módulos estão fechados** (14 auditados nos dois lados + o Fiscal adiado por

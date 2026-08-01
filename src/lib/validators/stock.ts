@@ -328,6 +328,26 @@ export const listCategoriesSchema = z.object({
 
 export type ListCategoriesInput = z.infer<typeof listCategoriesSchema>;
 
+// ── Product Brand schemas ──
+
+export const createBrandSchema = z.object({
+  name: z.string().trim().min(1, "Nome e obrigatorio").max(100),
+});
+
+export type CreateBrandInput = z.infer<typeof createBrandSchema>;
+
+export const updateBrandSchema = createBrandSchema.extend({
+  id: z.string().uuid(),
+});
+
+export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
+
+export const listBrandsSchema = z
+  .object({ search: z.string().max(MAX_BUSCA).optional() })
+  .optional();
+
+export type ListBrandsInput = z.infer<typeof listBrandsSchema>;
+
 // ── Stock Entry/Exit schemas ──
 
 export const stockEntrySchema = z.object({

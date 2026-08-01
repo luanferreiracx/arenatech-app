@@ -1,19 +1,15 @@
 import { describe, it, expect } from "vitest";
-import {
-  normalizeTerm,
-  expandWord,
-  searchWords,
-  expandSearchWords,
-} from "@/lib/search/synonyms";
+import { expandWord, searchWords, expandSearchWords } from "@/lib/search/synonyms";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
 
-describe("normalizeTerm", () => {
+describe("normalizeSearchTerm", () => {
   it("minuscula e remove acentos", () => {
-    expect(normalizeTerm("Película")).toBe("pelicula");
-    expect(normalizeTerm("RELÓGIO")).toBe("relogio");
-    expect(normalizeTerm("rápido")).toBe("rapido");
+    expect(normalizeSearchTerm("Película")).toBe("pelicula");
+    expect(normalizeSearchTerm("RELÓGIO")).toBe("relogio");
+    expect(normalizeSearchTerm("rápido")).toBe("rapido");
   });
   it("casa formas com e sem acento", () => {
-    expect(normalizeTerm("película")).toBe(normalizeTerm("pelicula"));
+    expect(normalizeSearchTerm("película")).toBe(normalizeSearchTerm("pelicula"));
   });
 });
 
