@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { withAdmin } from "@/server/db"
 import { logger } from "@/lib/logger"
-import { timingSafeEqualString } from "@/lib/utils/timing-safe"
+import { timingSafeEqualBearer } from "@/lib/utils/timing-safe"
 import { recordWebhookEvent, extractSourceIp } from "@/lib/webhooks/replay-guard"
 import { scheduleTalisonRun } from "@/lib/talison/scheduler"
 import { sendBotMessage } from "@/lib/talison/chatwoot-client"
@@ -47,11 +47,18 @@ export async function POST(req: NextRequest) {
     // nginx para este endpoint redige o parâmetro `token` antes de logar
     // (ver docs/decisions/0048-chatwoot-webhook-token-redaction.md). Prefira
     // sempre o header `authorization: Bearer <token>` quando o caminho permitir.
-    const token =
-      req.headers.get("x-chatwoot-signature") ??
-      req.headers.get("authorization") ??
-      req.nextUrl.searchParams.get("token") ??
-      ""
+    // ⚠️ Conferimos TODOS os portadores, nunca só o primeiro presente. O Chatwoot
+    // >= 4.16 passou a enviar `X-Chatwoot-Signature` (HMAC) nos webhooks de agent
+    // bot sempre que o bot tem `secret` — header que simplesmente não existia
+    // antes. Com o `??` que havia aqui, o primeiro header PRESENTE vencia: a
+    // assinatura sequestrava a variável, o `?token=` da query nunca era lido e
+    // todo webhook virava 401, deixando o bot mudo (incidente de 2026-08-01, na
+    // atualização 4.12.1 → 4.16.2).
+    const tokenCandidates = [
+      req.headers.get("x-chatwoot-signature"),
+      req.headers.get("authorization"),
+      req.nextUrl.searchParams.get("token"),
+    ]
     const expectedToken = process.env.CHATWOOT_WEBHOOK_TOKEN
     if (!expectedToken) {
       if (process.env.NODE_ENV === "production") {
@@ -59,13 +66,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Service not configured" }, { status: 503 })
       }
       logger.warn("Chatwoot webhook: sem CHATWOOT_WEBHOOK_TOKEN — aceitando em dev")
-    } else {
-      const okRaw = timingSafeEqualString(token, expectedToken)
-      const okBearer = timingSafeEqualString(token, `Bearer ${expectedToken}`)
-      if (!okRaw && !okBearer) {
-        logger.warn("Chatwoot webhook: invalid token")
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      }
+    } else if (!tokenCandidates.some((candidate) => timingSafeEqualBearer(candidate, expectedToken))) {
+      logger.warn("Chatwoot webhook: invalid token")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Determine tenant from account (Chatwoot account maps to tenant).
