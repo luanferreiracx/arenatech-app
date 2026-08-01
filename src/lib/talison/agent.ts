@@ -27,7 +27,10 @@ const PRICE_TOOLS = new Set([
   "listar_servicos",
   "buscar_aparelho",
   "buscar_acessorio",
-  "consultar_avaliacao",
+  // "calcular_avaliacao" é o nome real no registry — a lista tinha
+  // "consultar_avaliacao", que não existe, e por isso toda avaliação de troca
+  // caía como preço suspeito.
+  "calcular_avaliacao",
   "simular_parcelamento",
   "consultar_status_os",
 ]);

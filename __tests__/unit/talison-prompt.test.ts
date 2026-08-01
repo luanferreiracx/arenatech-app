@@ -146,6 +146,15 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("nunca como preço confirmado pela loja");
   });
 
+  it("não vaza a análise interna: descrição de mídia é contexto, não fala com o cliente", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("NUNCA MOSTRE SEU RASCUNHO");
+    expect(prompt).toContain("CONTEXTO INTERNO");
+    expect(prompt).toContain("você fala COM o cliente, não SOBRE ele");
+    expect(prompt).toContain("Sua primeira palavra já é a mensagem pro cliente");
+  });
+
   it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 

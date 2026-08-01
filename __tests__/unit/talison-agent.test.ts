@@ -76,6 +76,32 @@ describe("runTalison", () => {
     expect(result.toolsUsed).toEqual([]);
   });
 
+  /**
+   * Regressão de 01/08/2026: PRICE_TOOLS listava "consultar_avaliacao", nome que
+   * não existe no registry. A tool real da troca é "calcular_avaliacao", então
+   * TODA avaliação virava "valor em dinheiro sem tool de preço" — falso positivo
+   * que inflava a métrica e escondia caso de verdade.
+   */
+  it("não marca preço suspeito quando calcular_avaliacao rodou (é tool de preço)", async () => {
+    const provider = fakeProvider([
+      { text: "", toolCalls: [{ id: "t1", name: "calcular_avaliacao", arguments: {} }] },
+      { text: "Yago, seu iPhone 15 Pro Max 256GB ficou avaliado em R$ 3.600,00!", toolCalls: [] },
+    ]);
+
+    const result = await runTalison(baseArgs(provider));
+
+    expect(result.toolsUsed).toContain("calcular_avaliacao");
+    expect(result.suspiciousPrice).toBe(false);
+  });
+
+  it("marca preço suspeito quando o valor sai sem nenhuma tool de preço", async () => {
+    const provider = fakeProvider([{ text: "Fica R$ 3.600,00 pra você!", toolCalls: [] }]);
+
+    const result = await runTalison(baseArgs(provider));
+
+    expect(result.suspiciousPrice).toBe(true);
+  });
+
   it("executa a tool pedida e usa o resultado na resposta final", async () => {
     const provider = fakeProvider([
       {
