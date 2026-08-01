@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger";
 import { runTalison } from "@/lib/talison/agent";
 import { createDeepSeekProvider } from "@/lib/talison/providers/deepseek";
 import { createClaudeVisionProvider } from "@/lib/talison/providers/claude-vision";
+import { extractVideoFrame } from "@/lib/talison/providers/video-frame";
 import { createGroqAudioProvider } from "@/lib/talison/providers/groq-audio";
 import { sendBotMessage, sendPrivateNote } from "@/lib/talison/chatwoot-client";
 import { buildTalisonBusinessContext } from "@/lib/talison/business-context";
@@ -66,19 +67,11 @@ async function resolveMediaContents(
       const isVideo =
         message.contentType === "video" || message.contentType.startsWith("video/");
 
-      // Vídeo (ou cliente que marcou a loja em vídeo/story): o modelo NÃO assiste
-      // vídeo. Em vez de ficar mudo, instrui o bot a pedir descrição/foto ou
-      // oferecer atendente. A legenda do cliente, se houver, é preservada.
-      if (isVideo) {
-        const caption = message.content?.trim();
-        const note =
-          "[cliente enviou um VÍDEO — você não consegue assistir vídeos. " +
-          "Peça gentilmente para ele descrever em texto o que precisa OU enviar uma foto; " +
-          "se for sobre um defeito/produto, ofereça transferir para um atendente.]";
-        return caption ? `${caption}\n${note}` : note;
+      if (!isImage && !isAudio && !isVideo) return message.content;
+      // Sem URL não há o que baixar; vídeo ainda avisa o bot pra pedir a foto.
+      if (!message.mediaUrl) {
+        return isVideo ? withCaption(message.content?.trim(), VIDEO_UNREADABLE_NOTE) : message.content;
       }
-
-      if ((!isImage && !isAudio) || !message.mediaUrl) return message.content;
 
       const cached = cachedMediaText(message.metadata);
       if (cached) return cached;
@@ -86,8 +79,16 @@ async function resolveMediaContents(
       const caption = message.content?.trim();
       let resolved: string;
       try {
-        if (isImage) {
-          const description = await vision.describe({ imageUrl: message.mediaUrl });
+        if (isVideo) {
+          // O modelo não assiste vídeo, mas um quadro costuma bastar: um terço
+          // dos stories do Instagram chega em vídeo e o anúncio mostra o produto
+          // o tempo todo. Sem quadro, cai na nota de pedir descrição ou foto.
+          const frame = await extractVideoFrame(message.mediaUrl);
+          resolved = frame
+            ? withCaption(caption, `[quadro do vídeo enviado: ${await vision.describe({ image: frame })}]`)
+            : withCaption(caption, VIDEO_UNREADABLE_NOTE);
+        } else if (isImage) {
+          const description = await vision.describe({ image: { url: message.mediaUrl } });
           resolved = caption
             ? `${caption}\n[imagem enviada: ${description}]`
             : `[imagem enviada: ${description}]`;
@@ -114,9 +115,10 @@ async function resolveMediaContents(
         }
       } catch (error) {
         logger.warn("Talison: resolução de mídia falhou, seguindo sem ela", {
-          tipo: isImage ? "imagem" : "áudio",
+          tipo: isVideo ? "vídeo" : isImage ? "imagem" : "áudio",
           error: error instanceof Error ? error.message : String(error),
         });
+        if (isVideo) return withCaption(caption, VIDEO_UNREADABLE_NOTE);
         return caption || (isImage ? "[cliente enviou uma imagem]" : "[cliente enviou um áudio]");
       }
 
@@ -144,6 +146,17 @@ async function resolveMediaContents(
       return resolved;
     }),
   );
+}
+
+/** Quando nem o quadro do vídeo sai, o bot precisa saber o que fazer. */
+const VIDEO_UNREADABLE_NOTE =
+  "[cliente enviou um VÍDEO — você não consegue assistir vídeos. " +
+  "Peça gentilmente para ele descrever em texto o que precisa OU enviar uma foto; " +
+  "se for sobre um defeito/produto, ofereça transferir para um atendente.]";
+
+/** A legenda do cliente, quando existe, vem antes da nota sobre a mídia. */
+function withCaption(caption: string | undefined, note: string): string {
+  return caption ? `${caption}\n${note}` : note;
 }
 
 /** Mapeia uma ChatbotMessage (com texto já resolvido) para o papel do modelo. */

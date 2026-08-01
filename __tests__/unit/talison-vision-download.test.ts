@@ -48,7 +48,7 @@ describe("claude-vision — download server-side", () => {
     global.fetch = vi.fn().mockResolvedValue(mockImageResponse(bytes, "image/png")) as typeof fetch;
 
     const provider = createClaudeVisionProvider();
-    const out = await provider.describe({ imageUrl: "https://chatwoot/story.jpg" });
+    const out = await provider.describe({ image: { url: "https://chatwoot/story.jpg" } });
 
     expect(out).toContain("MacBook Air M4");
     const source = (create.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0]?.source) as {
@@ -65,7 +65,7 @@ describe("claude-vision — download server-side", () => {
     global.fetch = vi.fn().mockRejectedValue(new Error("network")) as typeof fetch;
 
     const provider = createClaudeVisionProvider();
-    await provider.describe({ imageUrl: "https://chatwoot/story.jpg" });
+    await provider.describe({ image: { url: "https://chatwoot/story.jpg" } });
 
     const source = create.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0]?.source as { type: string; url?: string };
     expect(source.type).toBe("url");
@@ -76,7 +76,7 @@ describe("claude-vision — download server-side", () => {
     global.fetch = vi.fn().mockResolvedValue(mockImageResponse(new Uint8Array([9]), "application/octet-stream")) as typeof fetch;
 
     const provider = createClaudeVisionProvider();
-    await provider.describe({ imageUrl: "https://chatwoot/story" });
+    await provider.describe({ image: { url: "https://chatwoot/story" } });
 
     const source = create.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0]?.source as { media_type?: string };
     expect(source.media_type).toBe("image/jpeg");

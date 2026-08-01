@@ -79,7 +79,7 @@ describe("processConversation — visão", () => {
   it("descreve a imagem via Claude e injeta no histórico do DeepSeek", async () => {
     const result = await processConversation("tenant-1", "conv-1");
     expect(result.status).toBe("replied");
-    expect(describe_).toHaveBeenCalledWith({ imageUrl: "https://x/foto.jpg" });
+    expect(describe_).toHaveBeenCalledWith({ image: { url: "https://x/foto.jpg" } });
 
     const passedArgs = runTalison.mock.calls[0]?.[0] as { history: LlmMessage[] };
     const userMessage = passedArgs.history.find((m) => m.role === "user");

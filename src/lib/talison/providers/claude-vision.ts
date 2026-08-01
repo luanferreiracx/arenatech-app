@@ -34,6 +34,14 @@ type ImageSource =
  * e fica cego — mas a nossa rede baixa normalmente. Espelha o padrão da groq-audio.
  * Se o download falhar, retorna null e o caller cai pro source de URL (degradação).
  */
+/** Único ponto onde um MIME solto vira um dos tipos que o Claude aceita. */
+function toSupportedMediaType(raw: string | null | undefined): SupportedMediaType {
+  const normalized = (raw ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  return SUPPORTED_MEDIA_TYPES.includes(normalized as SupportedMediaType)
+    ? (normalized as SupportedMediaType)
+    : "image/jpeg";
+}
+
 async function downloadImage(imageUrl: string): Promise<ImageSource | null> {
   try {
     const response = await fetch(imageUrl, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
@@ -41,10 +49,7 @@ async function downloadImage(imageUrl: string): Promise<ImageSource | null> {
       logger.warn("Claude vision: download da imagem falhou", { status: response.status });
       return null;
     }
-    const rawType = (response.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
-    const mediaType = SUPPORTED_MEDIA_TYPES.includes(rawType as SupportedMediaType)
-      ? (rawType as SupportedMediaType)
-      : "image/jpeg";
+    const mediaType = toSupportedMediaType(response.headers.get("content-type"));
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
       logger.warn("Claude vision: imagem vazia ou grande demais", { bytes: buffer.byteLength });
@@ -59,10 +64,27 @@ async function downloadImage(imageUrl: string): Promise<ImageSource | null> {
   }
 }
 
+/**
+ * Um prompt só, porque a foto do cliente é ambígua por natureza: pode ser o
+ * anúncio da loja, o aparelho pra avaliação, um defeito ou um comprovante de
+ * pagamento — e classificar antes de olhar erra.
+ *
+ * O prompt anterior pedia só "estado físico do aparelho (tela, carcaça, danos)".
+ * Em anúncio isso devolvia "a caixa está fechada, não dá pra avaliar o estado" e
+ * o bot perdia o produto; em comprovante, "não mostra nenhum aparelho físico".
+ * Medido em 01/08/2026: story em imagem escalava 86,2% pro humano contra 86,7%
+ * de story em vídeo — ou seja, enxergar não estava ajudando em nada.
+ */
 const DEFAULT_PROMPT =
-  "Descreva objetivamente o que aparece nesta imagem, focando no estado " +
-  "físico do aparelho (tela, carcaça, danos visíveis). Não invente dados " +
-  "que não dá pra ver. Responda em português, em uma frase.";
+  "Você ajuda o atendimento de uma loja de eletrônicos a entender uma imagem " +
+  "enviada por um cliente. Ela pode ser um anúncio/story da loja, o aparelho do " +
+  "cliente para avaliação ou troca, um defeito, ou um comprovante de pagamento. " +
+  "Responda em português, em tópicos curtos:\n" +
+  "PRODUTO: modelo exato, capacidade e cor, se der pra identificar.\n" +
+  "TEXTOS: transcreva preços, condições de pagamento e qualquer texto visível.\n" +
+  "ESTADO: condição física aparente (tela, carcaça, danos), se houver aparelho.\n" +
+  "DEFEITO: o problema aparente, se houver.\n" +
+  "Escreva 'não informado' no que não estiver visível. Nunca invente.";
 
 type VisionConfig = { apiKey: string; model: string; fallbackModel: string };
 
@@ -106,7 +128,7 @@ async function describeWith(
 export function createClaudeVisionProvider(): VisionProvider {
   return {
     name: "claude-vision",
-    async describe({ imageUrl, prompt }) {
+    async describe({ image, prompt }) {
       const config = getConfig();
       if (!config) {
         logger.info("Claude vision: mock mode (sem ANTHROPIC_API_KEY)");
@@ -116,8 +138,12 @@ export function createClaudeVisionProvider(): VisionProvider {
       const client = new Anthropic({ apiKey: config.apiKey, timeout: REQUEST_TIMEOUT_MS });
       const finalPrompt = prompt ?? DEFAULT_PROMPT;
 
-      // Baixa a imagem uma vez (server-side) e manda base64; se não der, usa a URL.
-      const source: ImageSource = (await downloadImage(imageUrl)) ?? { type: "url", url: imageUrl };
+      // Bytes em mãos (quadro de vídeo) vão direto. URL a gente baixa uma vez
+      // server-side e manda base64; se o download falhar, cai pra URL crua.
+      const source: ImageSource =
+        "base64" in image
+          ? { type: "base64", media_type: toSupportedMediaType(image.mediaType), data: image.base64 }
+          : ((await downloadImage(image.url)) ?? { type: "url", url: image.url });
 
       // Haiku primeiro (rápido/barato). Só escala pro Sonnet quando o Haiku falha
       // ou não resolve — decisão do dono: Sonnet apenas como fallback de visão.
