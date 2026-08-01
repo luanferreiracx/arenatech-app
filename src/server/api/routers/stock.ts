@@ -95,6 +95,7 @@ import { normalizeSearchTerm } from "@/lib/search/normalize";
 import { productSearchFilter } from "@/server/services/product-search";
 import { assertSkuBarcodeAvailable } from "@/server/services/product-sku-barcode.service";
 import { normalizeProductName } from "@/lib/utils/product-name";
+import { normalizeCatalogName, normalizeCatalogNameOrNull } from "@/lib/utils/catalog-name";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 // EST-2: todo filtro de data deste router usava `new Date(dateFrom)` (meia-noite
@@ -1112,9 +1113,10 @@ export const stockRouter = createTRPCRouter({
             imei: cleanImei,
             serial: cleanSerial,
             // brand/model em DevicePurchase ficam como snapshot historico
-            // — derivados do Product no momento da compra.
-            brand: product.brand,
-            model: product.name,
+            // — derivados do Product no momento da compra, em caixa alta como o
+            // catalogo (o nome ja vem assim; a marca e texto livre legado).
+            brand: normalizeCatalogNameOrNull(product.brand),
+            model: normalizeCatalogName(product.name),
             condition: input.condition,
             batteryHealth: input.batteryHealth ?? null,
             purchasePrice: new Prisma.Decimal(input.purchasePrice).div(100),

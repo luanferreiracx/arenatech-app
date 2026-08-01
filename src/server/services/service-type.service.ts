@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { normalizeCatalogName } from "@/lib/utils/catalog-name";
 
 /**
  * Slug canônico do tipo de serviço: minúsculo, sem acento, separado por hífen.
@@ -64,7 +65,9 @@ export async function findOrCreateServiceTypeByName(
   tenantId: string,
   rawName: string,
 ): Promise<{ serviceTypeId: string; serviceTypeName: string }> {
-  const name = rawName.trim();
+  // Caixa alta como o resto do catálogo (decisão do dono, 2026-08-01). O slug
+  // continua minúsculo — é ele que dedup "Troca de Tela" e "TROCA DE TELA".
+  const name = normalizeCatalogName(rawName);
   const slug = slugifyServiceType(name);
 
   const existing = await tx.serviceType.findFirst({

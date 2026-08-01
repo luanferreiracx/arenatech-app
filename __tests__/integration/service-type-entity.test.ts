@@ -26,6 +26,9 @@ import { appRouter } from "@/server/api/root";
 import { withTenant } from "@/server/db";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+// Nome de serviço/tipo é gravado em CAIXA ALTA desde 2026-08-01, e o
+// `contains` do Prisma sem `mode` é case-sensitive — por isso os filtros
+// deste arquivo usam `mode: "insensitive"`.
 const MARK = "svc-type-entity";
 let tenantId: string, adminId: string, ctx: any;
 
@@ -55,8 +58,8 @@ afterAll(async () => {
 
 /** Remove o que as rodadas (inclusive as que morreram no meio) deixaram. */
 async function limpar() {
-  await prisma.service.deleteMany({ where: { tenantId, name: { contains: MARK } } });
-  await prisma.serviceType.deleteMany({ where: { tenantId, name: { contains: MARK } } });
+  await prisma.service.deleteMany({ where: { tenantId, name: { contains: MARK, mode: "insensitive" } } });
+  await prisma.serviceType.deleteMany({ where: { tenantId, name: { contains: MARK, mode: "insensitive" } } });
 }
 
 describe("17 — tipo de serviço é entidade, não texto solto", () => {
@@ -81,7 +84,7 @@ describe("17 — tipo de serviço é entidade, não texto solto", () => {
 
     // Uma entidade só — não duas quase-iguais.
     const tipos = await prisma.serviceType.count({
-      where: { tenantId, name: { contains: MARK }, deletedAt: null },
+      where: { tenantId, name: { contains: MARK, mode: "insensitive" }, deletedAt: null },
     });
     expect(tipos).toBe(1);
   });
@@ -192,10 +195,10 @@ describe("17 — tipo de serviço é entidade, não texto solto", () => {
     // A sombra continua batendo com a entidade — nada de "X (cópia)" como tipo.
     const tipo = await prisma.serviceType.findUniqueOrThrow({ where: { id: tipoId } });
     expect(s.serviceType).toBe(tipo.name);
-    expect(s.deviceModel).toContain("(cópia)");
+    expect(s.deviceModel).toContain("(CÓPIA)"); // nome do serviço em caixa alta
 
     const tipos = await prisma.serviceType.count({
-      where: { tenantId, name: { contains: `${MARK} Microfone` }, deletedAt: null },
+      where: { tenantId, name: { contains: `${MARK} Microfone`, mode: "insensitive" }, deletedAt: null },
     });
     expect(tipos).toBe(1);
   });
