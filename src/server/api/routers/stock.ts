@@ -2005,11 +2005,19 @@ export const stockRouter = createTRPCRouter({
     }),
 
   /** Stats for dashboard cards */
-  /** Search products for autocomplete (EntitySelector) */
+  /**
+   * Busca de produto do autocomplete (EntitySelector).
+   *
+   * `search` aceita VAZIO de propósito: o EntitySelector dispara a primeira
+   * busca no instante em que o popover abre, antes de o operador digitar. Com
+   * `min(1)` isso virava 400 e o app cuspia um toast "Nao foi possivel
+   * carregar" com o erro cru do Zod — foi o que aconteceu na entrada de estoque
+   * (2026-08-01). Termo vazio agora significa "me mostre as primeiras opções".
+   */
   searchProducts: tenantProcedure
     .input(
       z.object({
-        search: z.string().max(MAX_BUSCA).min(1),
+        search: z.string().max(MAX_BUSCA),
         // Telas que so operam saldo por quantidade (baixa, ajuste por quantidade)
         // passam true: serializados nao tem saldo agregado e sao recusados pelo
         // servidor — esconde-los da busca evita o erro tardio e a confusao.
@@ -2215,20 +2223,26 @@ export const stockRouter = createTRPCRouter({
       });
     }),
 
+  /** Idem `searchProducts`: termo vazio = primeiras opções, não erro. */
   searchSuppliers: tenantProcedure
-    .input(z.object({ search: z.string().min(1) }))
+    .input(z.object({ search: z.string().max(MAX_BUSCA) }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const term = input.search.trim();
         return tx.supplier.findMany({
           where: {
             deletedAt: null,
             active: true,
-            OR: [
-              { name: { contains: input.search, mode: "insensitive" } },
-              { tradeName: { contains: input.search, mode: "insensitive" } },
-              { cpf: { contains: input.search, mode: "insensitive" } },
-              { cnpj: { contains: input.search, mode: "insensitive" } },
-            ],
+            ...(term
+              ? {
+                  OR: [
+                    { name: { contains: term, mode: "insensitive" as const } },
+                    { tradeName: { contains: term, mode: "insensitive" as const } },
+                    { cpf: { contains: term, mode: "insensitive" as const } },
+                    { cnpj: { contains: term, mode: "insensitive" as const } },
+                  ],
+                }
+              : {}),
           },
           orderBy: { name: "asc" },
           take: 15,
