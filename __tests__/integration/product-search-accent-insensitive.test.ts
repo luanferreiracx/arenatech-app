@@ -23,10 +23,13 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: proc
 const MARK = `busca-acento-${Date.now().toString(36)}`;
 
 let tenantId: string;
-let adminCtx: ReturnType<typeof mkCtx>;
-let operatorCtx: ReturnType<typeof mkCtx>;
+// `any` no contexto: mesmo padrão das outras suítes de integração — o contexto
+// real do tRPC carrega headers/db que o caller não usa nestes testes.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let adminCtx: any;
+let operatorCtx: any;
 
-const call = (ctx: ReturnType<typeof mkCtx>) => createCallerFactory(appRouter)(ctx);
+const call = (ctx: any) => createCallerFactory(appRouter)(ctx);
 
 function mkCtx(userId: string, role: string) {
   return {
@@ -36,9 +39,8 @@ function mkCtx(userId: string, role: string) {
       availableTenants: [{ id: tenantId, slug: "arena-tech", role }],
     },
     tenantId,
-    withTenant: (fn: Parameters<typeof withTenant>[1]) => withTenant(tenantId, fn),
-  // O contexto do tRPC carrega mais campos (headers, db); o caller só usa estes.
-  } as unknown as Parameters<ReturnType<typeof createCallerFactory<typeof appRouter>>>[0];
+    withTenant: (fn: any) => withTenant(tenantId, fn),
+  };
 }
 
 beforeAll(async () => {
