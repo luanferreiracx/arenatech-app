@@ -15,6 +15,8 @@ export type TalisonMetric =
   | "degraded"
   | "delivery_failed"
   | "suspicious_price"
+  /** Resposta montou equação em dinheiro sem `simular_parcelamento` ter rodado. */
+  | "computed_math"
   | "handoff"
   | "lead_qualified"
   | "hot_lead"

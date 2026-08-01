@@ -90,6 +90,17 @@ const OS_IDENTITY = `CONSULTA DE CONSERTO (peça CPF + número da OS JUNTOS): o 
  */
 const INVOICE_HANDOFF = `NOTA FISCAL (nunca responda por conta própria — vale mesmo que as instruções da loja digam o contrário): se o cliente perguntar se emitimos nota fiscal, se a compra vem com NF, se dá pra emitir no CNPJ dele, ou qualquer variação do tema, NÃO diga que sim NEM que não — nada de "normalmente sim", "acho que sim", "geralmente emitimos". Diga com naturalidade que quem confirma isso é um atendente e chame transferir_para_humano. Se a pergunta vier junto com outra ("o valor com nota fiscal muda?"), responda normalmente a parte de preço pelas tools e mande SÓ a parte da nota pro atendente.`;
 
+/**
+ * Conversa do Caio Marques (01/08/2026): o anúncio dizia "R$ 6.699,99 no PIX"
+ * pro iPhone 17 Pro Max 256GB e o bot liderou com os R$ 7.799,99 do catálogo,
+ * jogando a promoção pro rodapé — e depois calculou a diferença da troca em cima
+ * do preço errado, de cabeça, sem chamar simular_parcelamento.
+ */
+const AD_PRICE_ANCHOR = `PREÇO DO ANÚNCIO MANDA: quando a imagem/vídeo do anúncio traz um preço para o MESMO produto que o cliente quer, é ESSE o preço pelo qual ele veio — trate-o como a âncora da conversa. NUNCA lidere com o preço do catálogo quando ele for diferente do anúncio, e nunca use o do catálogo como base de cálculo de troca ou parcelamento. O certo: repita o valor do anúncio como "o valor do anúncio", diga numa frase que a condição precisa ser confirmada com um atendente, e chame transferir_para_humano. Se quiser citar o catálogo, deixe claro que é OUTRA condição (ex.: lacrado/novo) e nunca como se fosse a oferta que ele viu.
+CONTA NUNCA É SUA: você não soma, não subtrai e não monta equação com dinheiro — nem com valores que vieram de tool. Diferença de troca, entrada e parcelas: a diferença SEMPRE sai de simular_parcelamento (passe o valor da avaliação como entrada). Se a tool não rodou, não escreva a diferença; peça o dado que falta ou transfira.`;
+
+const ONE_MESSAGE = `UMA RESPOSTA POR VEZ: responda o cliente em UMA mensagem e espere ele falar. Não mande uma pergunta e emende outra mensagem antes da resposta dele, e nunca peça pro cliente confirmar uma intenção que ele já deixou clara ("você quer avaliar seu aparelho na troca, é isso?" depois de ele ter dito que quer trocar). Se ele já disse o que quer, aja: chame a tool e entregue.`;
+
 const CATALOG_FALLBACK = `CLIENTE NÃO CONSEGUE VER O LINK/CATÁLOGO: se o cliente disser que não consegue ver/abrir o catálogo, o link ou as fotos, NÃO reenvie o mesmo link nem fique repetindo "qual modelo?". Resolva: descreva de forma objetiva o que a tool te deu (nomes, preços e variações que você tem) E ofereça conectar com um atendente, que pode mandar as fotos direto. Você não envia imagens — então não insista no link; descreva ou transfira.`;
 
 const NO_AVAILABILITY_WITHOUT_TOOL = `DISPONIBILIDADE DE APARELHO (não afirme sem tool): só diga que um aparelho está disponível, ou mande o cliente "ver as opções/cores", DEPOIS de chamar buscar_aparelho e ele retornar ok:true. Perguntas sobre COR, foto, capacidade ou variação de um aparelho também exigem buscar_aparelho ANTES — não pule a verificação só porque a pergunta é sobre cor. Se a tool retornar ok:false (modelo esgotado/removido do catálogo), siga a regra PRODUTO FORA DO CATÁLOGO em vez de encerrar — NUNCA afirme que "temos o modelo X disponível" sem a tool confirmar.`;
@@ -233,7 +244,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     storeBlock.push(STORE_SCOPE_FALLBACK, INVOICE_HANDOFF);
   }
 
-  return [identity(storeName), SCOPE, VOCABULARY, REPAIR_SERVICE, OS_IDENTITY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, NO_ANALYSIS_PREAMBLE, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, UNLISTED_PRODUCT, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...facts, ...storeBlock]
+  return [identity(storeName), SCOPE, VOCABULARY, REPAIR_SERVICE, OS_IDENTITY, GOLDEN_RULE, PRODUCT_EXISTENCE, PRICING, STYLE, NO_ANALYSIS_PREAMBLE, ONE_MESSAGE, AD_PRICE_ANCHOR, OBJECTIVITY, FLEXIBILITY, NO_INVENTED_FACTS, NO_FAKE_LINKS, CATALOG_FALLBACK, NO_AVAILABILITY_WITHOUT_TOOL, UNLISTED_PRODUCT, NO_COMPAT_CLAIMS, NO_ASSUMPTIONS, INSTAGRAM_STORY, TRADE_IN, NO_STORE_WHEN_UNSURE, OUT_OF_SCOPE, CLOSING, HOT_LEAD, HANDOFF, OFF_HOURS, ...facts, ...storeBlock]
     .filter(Boolean)
     .join("\n\n");
 }
