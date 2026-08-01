@@ -135,6 +135,17 @@ describe("Talison prompt", () => {
     expect(prompt).toContain("buscar_aparelho");
   });
 
+  it("produto fora do catálogo: segue atendendo e sempre condiciona a disponibilidade ao atendente", () => {
+    const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
+
+    expect(prompt).toContain("PRODUTO FORA DO CATÁLOGO");
+    expect(prompt).toContain("não encerre o atendimento");
+    expect(prompt).toContain("CONFIRMADA COM UM ATENDENTE");
+    // Seguir atendendo não afrouxa preço: valor continua saindo só de tool.
+    expect(prompt).toContain("preço só sai de tool");
+    expect(prompt).toContain("nunca como preço confirmado pela loja");
+  });
+
   it("exige coletar dados antes de avaliar troca (não deduzir)", () => {
     const prompt = buildSystemPrompt({ contactName: null, businessContext: buildTalisonBusinessContext() });
 
