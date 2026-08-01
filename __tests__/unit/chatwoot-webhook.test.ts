@@ -135,6 +135,67 @@ describe("POST /api/webhooks/chatwoot", () => {
     expect(state.tx.chatbotMessage.create).not.toHaveBeenCalled();
   });
 
+  describe("portadores do token", () => {
+    /**
+     * Regressão do incidente de 2026-08-01 (Chatwoot 4.12.1 → 4.16.2): o 4.16
+     * passou a assinar os webhooks de agent bot com `X-Chatwoot-Signature`
+     * sempre que o bot tem `secret`. O código escolhia o primeiro header
+     * PRESENTE, então a assinatura sequestrava a leitura e o `?token=` da query
+     * nunca era conferido — o bot ficou mudo por 66 minutos em produção.
+     */
+    it("aceita token na query string mesmo com assinatura HMAC presente", async () => {
+      const request = new NextRequest(
+        "http://localhost/api/webhooks/chatwoot?token=secret",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chatwoot-signature": "sha256=hmac-que-nao-e-o-token",
+          },
+          body: JSON.stringify(makePayload()),
+        },
+      );
+
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(state.tx.chatbotMessage.create).toHaveBeenCalled();
+    });
+
+    it("aceita token via header authorization no formato Bearer", async () => {
+      const request = new NextRequest("http://localhost/api/webhooks/chatwoot", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer secret",
+        },
+        body: JSON.stringify(makePayload()),
+      });
+
+      expect((await POST(request)).status).toBe(200);
+    });
+
+    it("rejeita quando nenhum portador carrega o token esperado", async () => {
+      const request = new NextRequest(
+        "http://localhost/api/webhooks/chatwoot?token=errado",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-chatwoot-signature": "sha256=tambem-errado",
+            authorization: "Bearer nao-e-esse",
+          },
+          body: JSON.stringify(makePayload()),
+        },
+      );
+
+      const response = await POST(request);
+
+      expect(response.status).toBe(401);
+      expect(state.tx.chatbotMessage.create).not.toHaveBeenCalled();
+    });
+  });
+
   it("agenda Talison para mensagem incoming quando Chatwoot está pending", async () => {
     const response = await callWebhook(makePayload());
 
