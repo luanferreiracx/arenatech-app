@@ -80,6 +80,7 @@ import {
   writeCashMovement,
 } from "@/server/services/cash-session.service";
 import { buildTechnicianReport } from "@/server/services/os-technician-report.service";
+import { productSearchFilter } from "@/server/services/product-search";
 import { deleteNfseAttachment } from "@/server/services/os-nfse-storage.service";
 // ── Helpers ──
 
@@ -3234,14 +3235,9 @@ export const serviceOrderRouter = createTRPCRouter({
           deletedAt: null,
         };
 
-        if (input.query) {
-          const q = input.query.trim();
-          where.OR = [
-            { name: { contains: q, mode: "insensitive" } },
-            { sku: { contains: q, mode: "insensitive" } },
-            { brand: { contains: q, mode: "insensitive" } },
-          ];
-        }
+        // Busca de peça sem acento (search_name cobre nome + marca).
+        const searchFilter = productSearchFilter(input.query);
+        if (searchFilter) where.AND = [searchFilter];
 
         const products = await tx.product.findMany({
           where,

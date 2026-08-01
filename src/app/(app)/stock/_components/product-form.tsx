@@ -26,6 +26,7 @@ import { FormActions } from "@/components/domain/forms/form-actions";
 import { MoneyInput } from "@/components/inputs/money-input";
 import { NcmInput } from "@/components/inputs/ncm-input";
 import { blockEnterSubmit } from "@/lib/utils/form-keyboard";
+import { ProductBrandSelect } from "@/components/domain/forms/product-brand-select";
 import { VariationsEditor } from "./variations-editor";
 import { ProductPhotoManager } from "./product-photo-manager";
 import { VariationImagesPanel } from "./variation-images-panel";
@@ -35,9 +36,8 @@ interface ProductFormProps {
   isEdit?: boolean;
 }
 
-/** Valor-sentinela dos <select> para entrar no modo "criar nova categoria/marca". */
+/** Valor-sentinela do <select> para entrar no modo "criar nova categoria". */
 const NEW_CATEGORY_OPTION = "__new__";
-const NEW_BRAND_OPTION = "__new__";
 
 export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps) {
   const router = useRouter();
@@ -79,7 +79,6 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
   const { data: categories } = useQuery(
     trpc.stock.listCategories.queryOptions({ pageSize: 100 })
   );
-  const { data: brands } = useQuery(trpc.stock.listBrands.queryOptions({}));
 
   const createMutation = useMutation(
     trpc.stock.create.mutationOptions({
@@ -146,7 +145,15 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
                 <FormItem className="md:col-span-2">
                   <FormLabel>Nome do Produto *</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Ex: iPhone 13 128GB" />
+                    {/* Caixa alta enquanto digita: o servidor grava assim de
+                        qualquer jeito (normalizeProductName) — melhor o operador
+                        ver o resultado do que descobrir depois na lista. */}
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value.toLocaleUpperCase("pt-BR"))}
+                      placeholder="Ex: IPHONE 13 128GB"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -184,57 +191,15 @@ export function ProductForm({ defaultValues, isEdit = false }: ProductFormProps)
             <FormField
               control={form.control}
               name="brandId"
-              render={({ field }) => {
-                const creatingNew = form.watch("newBrandName") != null;
-                return (
-                  <FormItem>
-                    <FormLabel>Marca</FormLabel>
-                    <FormControl>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={creatingNew ? NEW_BRAND_OPTION : field.value ?? ""}
-                        onChange={(e) => {
-                          if (e.target.value === NEW_BRAND_OPTION) {
-                            field.onChange(null);
-                            form.setValue("newBrandName", "");
-                          } else {
-                            field.onChange(e.target.value || null);
-                            form.setValue("newBrandName", null);
-                          }
-                        }}
-                      >
-                        <option value="">Sem marca</option>
-                        {brands?.data?.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
-                          </option>
-                        ))}
-                        <option value={NEW_BRAND_OPTION}>+ Nova marca…</option>
-                      </select>
-                    </FormControl>
-                    {creatingNew && (
-                      <FormField
-                        control={form.control}
-                        name="newBrandName"
-                        render={({ field: nameField }) => (
-                          <FormItem className="mt-2">
-                            <FormControl>
-                              <Input
-                                autoFocus
-                                placeholder="Nome da nova marca"
-                                value={nameField.value ?? ""}
-                                onChange={(e) => nameField.onChange(e.target.value)}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                );
-              }}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Marca</FormLabel>
+                  <FormControl>
+                    <ProductBrandSelect value={field.value ?? null} onChange={field.onChange} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
 
             <FormField

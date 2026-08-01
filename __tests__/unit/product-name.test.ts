@@ -1,49 +1,58 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeProductName } from "@/lib/utils/product-name";
+import { normalizeProductName } from "@/lib/utils/product-name";
 
-describe("sanitizeProductName", () => {
+describe("normalizeProductName", () => {
   it("remove marca duplicada no início (bug do import legado)", () => {
-    expect(sanitizeProductName("Apple Apple Apple Apple iPhone 15", "Apple")).toBe("iPhone 15");
-    expect(sanitizeProductName("Apple Apple iPhone 13 Pro", "Apple")).toBe("iPhone 13 Pro");
+    expect(normalizeProductName("Apple Apple Apple Apple iPhone 15", "Apple")).toBe("IPHONE 15");
+    expect(normalizeProductName("Apple Apple iPhone 13 Pro", "Apple")).toBe("IPHONE 13 PRO");
   });
 
   it("remove a marca do nome quando o modelo não a carrega no nome canônico", () => {
-    expect(sanitizeProductName("Apple iPhone 14", "Apple")).toBe("iPhone 14");
-    expect(sanitizeProductName("Apple MacBook Air M1 2020", "Apple")).toBe("MacBook Air M1 2020");
-    expect(sanitizeProductName("Apple iPad 10a Geracao", "Apple")).toBe("iPad 10a Geracao");
-    expect(sanitizeProductName("Apple Magic Keyboard", "Apple")).toBe("Magic Keyboard");
+    expect(normalizeProductName("Apple iPhone 14", "Apple")).toBe("IPHONE 14");
+    expect(normalizeProductName("Apple MacBook Air M1 2020", "Apple")).toBe("MACBOOK AIR M1 2020");
+    expect(normalizeProductName("Apple iPad 10a Geracao", "Apple")).toBe("IPAD 10A GERACAO");
+    expect(normalizeProductName("Apple Magic Keyboard", "Apple")).toBe("MAGIC KEYBOARD");
   });
 
   it("preserva um 'Apple' em produtos cujo nome oficial inclui a marca", () => {
-    expect(sanitizeProductName("Apple Apple Watch SE 3", "Apple")).toBe("Apple Watch SE 3");
-    expect(sanitizeProductName("Apple Watch Series 10", "Apple")).toBe("Apple Watch Series 10");
-    expect(sanitizeProductName("Apple Pencil", "Apple")).toBe("Apple Pencil");
+    expect(normalizeProductName("Apple Apple Watch SE 3", "Apple")).toBe("APPLE WATCH SE 3");
+    expect(normalizeProductName("Apple Watch Series 10", "Apple")).toBe("APPLE WATCH SERIES 10");
+    expect(normalizeProductName("Apple Pencil", "Apple")).toBe("APPLE PENCIL");
   });
 
-  it("é case-insensitive na marca mas preserva o texto original do nome", () => {
-    expect(sanitizeProductName("apple APPLE iPhone 16", "Apple")).toBe("iPhone 16");
+  it("é case-insensitive na marca", () => {
+    expect(normalizeProductName("apple APPLE iPhone 16", "Apple")).toBe("IPHONE 16");
   });
 
-  it("não mexe quando o nome não começa pela marca", () => {
-    expect(sanitizeProductName("iPhone 15", "Apple")).toBe("iPhone 15");
-    expect(sanitizeProductName("Galaxy S24", "Samsung")).toBe("Galaxy S24");
+  it("não tira nada quando o nome não começa pela marca", () => {
+    expect(normalizeProductName("iPhone 15", "Apple")).toBe("IPHONE 15");
+    expect(normalizeProductName("Galaxy S24", "Samsung")).toBe("GALAXY S24");
   });
 
   it("generaliza para qualquer marca, não só Apple", () => {
-    expect(sanitizeProductName("Samsung Samsung Galaxy S24", "Samsung")).toBe("Galaxy S24");
-    expect(sanitizeProductName("Xiaomi Xiaomi Redmi Note 13", "Xiaomi")).toBe("Redmi Note 13");
+    expect(normalizeProductName("Samsung Samsung Galaxy S24", "Samsung")).toBe("GALAXY S24");
+    expect(normalizeProductName("Xiaomi Xiaomi Redmi Note 13", "Xiaomi")).toBe("REDMI NOTE 13");
   });
 
   it("normaliza espaços e trima", () => {
-    expect(sanitizeProductName("  Apple   Apple  iPhone 15  ", "Apple")).toBe("iPhone 15");
+    expect(normalizeProductName("  Apple   Apple  iPhone 15  ", "Apple")).toBe("IPHONE 15");
   });
 
-  it("devolve só trimado quando não há marca resolvida", () => {
-    expect(sanitizeProductName("  Apple Apple iPhone 15 ", null)).toBe("Apple Apple iPhone 15");
-    expect(sanitizeProductName("iPhone 15", undefined)).toBe("iPhone 15");
+  it("sobe a caixa mesmo sem marca resolvida", () => {
+    expect(normalizeProductName("  Apple Apple iPhone 15 ", null)).toBe("APPLE APPLE IPHONE 15");
+    expect(normalizeProductName("iPhone 15", undefined)).toBe("IPHONE 15");
   });
 
   it("lida com nome que é só a marca repetida", () => {
-    expect(sanitizeProductName("Apple Apple", "Apple")).toBe("Apple");
+    expect(normalizeProductName("Apple Apple", "Apple")).toBe("APPLE");
+  });
+
+  it("preserva acentuação ao subir a caixa (pt-BR)", () => {
+    expect(normalizeProductName("película 3d cerâmica", null)).toBe("PELÍCULA 3D CERÂMICA");
+    expect(normalizeProductName("cabo de força", null)).toBe("CABO DE FORÇA");
+  });
+
+  it("devolve string vazia para nome vazio", () => {
+    expect(normalizeProductName("   ", "Apple")).toBe("");
   });
 });

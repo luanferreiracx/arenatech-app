@@ -10,6 +10,8 @@ import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc"
 import { parseNfeXml, validateAccessKey, allocateCosts } from "@/server/services/nfe-import.service"
 import { logger } from "@/lib/logger"
 import { MAX_BUSCA, MAX_DATA, MAX_XML } from "@/lib/validators/limits";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
+import { productSearchFilter } from "@/server/services/product-search";
 
 function decimalToCents(v: Prisma.Decimal | null | undefined): number {
   if (v == null) return 0
@@ -564,17 +566,9 @@ export const nfeImportRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        const term = input.query.trim()
         const products = await tx.product.findMany({
-          where: {
-            active: true,
-            deletedAt: null,
-            OR: [
-              { name: { contains: term, mode: "insensitive" } },
-              { sku: { contains: term, mode: "insensitive" } },
-              { barcode: { contains: term, mode: "insensitive" } },
-            ],
-          },
+          // Busca sem acento (search_name) — mesma regra do PDV e do estoque.
+          where: { active: true, deletedAt: null, ...(productSearchFilter(input.query) ?? {}) },
           select: {
             id: true,
             name: true,
@@ -606,10 +600,16 @@ export const nfeImportRouter = createTRPCRouter({
         if (!item) return [];
 
         const description = (item.description ?? "").toLowerCase();
-        const tokens = description
-          .split(/[^a-z0-9áàâãéêíóôõúç]+/i)
-          .filter((t) => t.length >= 3)
-          .slice(0, 6);
+        // Tokens normalizados (sem acento) para casar com `search_name`: a
+        // descricao da NF-e vem "CAPA SILICONE" e o produto e "Capa Silicone".
+        const tokens = [
+          ...new Set(
+            description
+              .split(/[^a-z0-9áàâãéêíóôõúç]+/i)
+              .map((t) => normalizeSearchTerm(t))
+              .filter((t) => t.length >= 3),
+          ),
+        ].slice(0, 6);
 
         if (tokens.length === 0) return [];
 
@@ -617,7 +617,7 @@ export const nfeImportRouter = createTRPCRouter({
           where: {
             active: true,
             deletedAt: null,
-            OR: tokens.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
+            OR: tokens.map((t) => ({ searchName: { contains: t } })),
           },
           select: {
             id: true,

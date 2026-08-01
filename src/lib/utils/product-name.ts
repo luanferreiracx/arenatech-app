@@ -1,5 +1,5 @@
 /**
- * Higieniza o nome do produto removendo a marca repetida no início.
+ * Nome canônico do produto: sem a marca repetida no início e em CAIXA ALTA.
  *
  * Contexto: um import legado prependia a marca ao `name` a cada execução,
  * gerando nomes como "Apple Apple Apple iPhone 15" (a migração
@@ -17,16 +17,28 @@
  *
  * Sem uma marca resolvida (brand vazio), o nome é devolvido apenas trimado —
  * não temos como saber o que é prefixo de marca.
+ *
+ *   3. Caixa alta no fim de tudo (pedido do dono, 2026-08-01): o acervo tinha
+ *      "iphone 13", "IPhone 13 PRO" e "Capinha silicone" convivendo, e a lista
+ *      de estoque/PDV ficava difícil de varrer. Como TODO caminho de escrita de
+ *      produto passa por aqui (cadastro, edição, CSV, trade-in, cópia), este é
+ *      o único ponto que precisa garantir o padrão. A busca não sofre: ela roda
+ *      sobre `search_name`, que é minúsculo e sem acento.
  */
 
 // Modelos cujo nome canônico inclui a marca no início (não devem perder o
 // prefixo). Comparação case-insensitive contra a 1ª palavra após a marca.
 const BRAND_BOUND_MODELS = new Set(["watch", "pencil"]);
 
-export function sanitizeProductName(name: string, brand?: string | null): string {
+/** Caixa alta com locale pt-BR — mantém "Ç"/"Ã" corretos ao subir a caixa. */
+function upper(value: string): string {
+  return value.toLocaleUpperCase("pt-BR");
+}
+
+export function normalizeProductName(name: string, brand?: string | null): string {
   const trimmed = name.trim().replace(/\s+/g, " ");
   const brandTrimmed = brand?.trim();
-  if (!trimmed || !brandTrimmed) return trimmed;
+  if (!trimmed || !brandTrimmed) return upper(trimmed);
 
   const brandLower = brandTrimmed.toLowerCase();
   const words = trimmed.split(" ");
@@ -36,12 +48,12 @@ export function sanitizeProductName(name: string, brand?: string | null): string
   while (brandLead < words.length && words[brandLead]!.toLowerCase() === brandLower) {
     brandLead++;
   }
-  if (brandLead === 0) return trimmed; // nome não começa pela marca — nada a fazer.
+  if (brandLead === 0) return upper(trimmed); // nome não começa pela marca — nada a fazer.
 
   const rest = words.slice(brandLead);
-  if (rest.length === 0) return brandTrimmed; // nome era só a marca repetida.
+  if (rest.length === 0) return upper(brandTrimmed); // nome era só a marca repetida.
 
   // Mantém uma ocorrência da marca quando o modelo a carrega no nome canônico.
   const keepBrand = BRAND_BOUND_MODELS.has(rest[0]!.toLowerCase());
-  return keepBrand ? `${brandTrimmed} ${rest.join(" ")}` : rest.join(" ");
+  return upper(keepBrand ? `${brandTrimmed} ${rest.join(" ")}` : rest.join(" "));
 }

@@ -29,6 +29,9 @@ import {
   createCategorySchema,
   updateCategorySchema,
   listCategoriesSchema,
+  createBrandSchema,
+  updateBrandSchema,
+  listBrandsSchema,
   stockEntryBatchSchema,
   stockExitSchema,
   posicaoEstoqueSchema,
@@ -83,9 +86,15 @@ import {
 } from "@/server/services/stock-item.service";
 import { recordCashPaidTransaction } from "@/server/services/installment-ledger.service";
 import { writeCashMovement } from "@/server/services/cash-session.service";
-import { resolveBrandId, findOrCreateBrandByName } from "@/server/services/product-brand.service";
+import {
+  resolveBrandId,
+  findOrCreateBrandByName,
+  findBrandByName,
+} from "@/server/services/product-brand.service";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
+import { productSearchFilter } from "@/server/services/product-search";
 import { assertSkuBarcodeAvailable } from "@/server/services/product-sku-barcode.service";
-import { sanitizeProductName } from "@/lib/utils/product-name";
+import { normalizeProductName } from "@/lib/utils/product-name";
 import { deleteProductImage } from "@/lib/product-image-service";
 import { Prisma } from "@prisma/client";
 // EST-2: todo filtro de data deste router usava `new Date(dateFrom)` (meia-noite
@@ -153,14 +162,8 @@ export const stockRouter = createTRPCRouter({
           where.active = input.active;
         }
 
-        if (input.search?.trim()) {
-          const term = input.search.trim();
-          where.OR = [
-            { name: { contains: term, mode: "insensitive" } },
-            { sku: { contains: term, mode: "insensitive" } },
-            { barcode: { contains: term, mode: "insensitive" } },
-          ];
-        }
+        const searchFilter = productSearchFilter(input.search);
+        if (searchFilter) where.AND = [searchFilter];
 
         if (input.categoryId) {
           where.categoryId = input.categoryId;
@@ -304,7 +307,7 @@ export const stockRouter = createTRPCRouter({
             tenantId: ctx.tenantId,
             sku: input.sku || null,
             barcode: input.barcode || null,
-            name: sanitizeProductName(input.name, resolvedBrand.brandName),
+            name: normalizeProductName(input.name, resolvedBrand.brandName),
             description: input.description || null,
             brandId: resolvedBrand.brandId,
             brand: resolvedBrand.brandName,
@@ -489,7 +492,7 @@ export const stockRouter = createTRPCRouter({
           data: {
             sku: input.sku || null,
             barcode: input.barcode || null,
-            name: sanitizeProductName(input.name, resolvedBrand.brandName),
+            name: normalizeProductName(input.name, resolvedBrand.brandName),
             description: input.description || null,
             brandId: resolvedBrand.brandId,
             brand: resolvedBrand.brandName,
@@ -2020,11 +2023,7 @@ export const stockRouter = createTRPCRouter({
             deletedAt: null,
             active: true,
             ...(input.excludeSerialized ? { isSerialized: false } : {}),
-            OR: [
-              { name: { contains: input.search, mode: "insensitive" } },
-              { sku: { contains: input.search, mode: "insensitive" } },
-              { barcode: { contains: input.search, mode: "insensitive" } },
-            ],
+            ...(productSearchFilter(input.search) ?? {}),
           },
           orderBy: { name: "asc" },
           take: 15,
@@ -2273,19 +2272,116 @@ export const stockRouter = createTRPCRouter({
   // ─── Marcas (entidade ProductBrand — paridade com categorias) ───
 
   listBrands: tenantProcedure
-    .input(z.object({ search: z.string().optional() }).optional())
+    .input(listBrandsSchema)
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const where: Prisma.ProductBrandWhereInput = { deletedAt: null, active: true };
-        if (input?.search?.trim()) {
-          where.name = { contains: input.search.trim(), mode: "insensitive" };
-        }
-        const data = await tx.productBrand.findMany({
+        // Busca sem acento: filtra a coluna derivada (ver src/lib/search/normalize.ts).
+        const term = normalizeSearchTerm(input?.search ?? "");
+        if (term) where.searchName = { contains: term };
+
+        const brands = await tx.productBrand.findMany({
           where,
           orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            _count: { select: { products: { where: { deletedAt: null } } } },
+          },
+        });
+        // DTO plano: a tela de marcas só precisa de quantos produtos usam a marca
+        // (pra decidir se dá pra excluir) — `_count` do Prisma não vaza pro client.
+        return {
+          data: brands.map((brand) => ({
+            id: brand.id,
+            name: brand.name,
+            productCount: brand._count.products,
+          })),
+        };
+      });
+    }),
+
+  createBrand: tenantProcedure
+    .input(createBrandSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar marcas." });
+      }
+      return ctx.withTenant(async (tx) => {
+        const duplicate = await findBrandByName(tx, input.name);
+        if (duplicate) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `A marca "${duplicate.name}" ja existe.`,
+          });
+        }
+        return tx.productBrand.create({
+          data: { tenantId: ctx.tenantId, name: input.name },
           select: { id: true, name: true },
         });
-        return { data };
+      });
+    }),
+
+  updateBrand: tenantProcedure
+    .input(updateBrandSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar marcas." });
+      }
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.productBrand.findFirst({
+          where: { id: input.id, deletedAt: null },
+          select: { id: true },
+        });
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Marca nao encontrada." });
+
+        const duplicate = await findBrandByName(tx, input.name, input.id);
+        if (duplicate) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `A marca "${duplicate.name}" ja existe.`,
+          });
+        }
+
+        const brand = await tx.productBrand.update({
+          where: { id: input.id },
+          data: { name: input.name },
+          select: { id: true, name: true },
+        });
+        // A coluna-sombra `Product.brand` (e o `search_name` que dela deriva)
+        // precisa acompanhar a renomeacao — senao a busca por marca continua
+        // achando o nome antigo.
+        await tx.product.updateMany({
+          where: { brandId: brand.id },
+          data: { brand: brand.name },
+        });
+        return brand;
+      });
+    }),
+
+  deleteBrand: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!can(ctx.session, ctx.tenantId, "manageCatalog")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir marcas." });
+      }
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx.productBrand.findFirst({
+          where: { id: input.id, deletedAt: null },
+          select: { _count: { select: { products: { where: { deletedAt: null } } } } },
+        });
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Marca nao encontrada." });
+        if (existing._count.products > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Marca possui ${existing._count.products} produto(s) vinculado(s).`,
+          });
+        }
+        await tx.productBrand.update({
+          where: { id: input.id },
+          data: { deletedAt: new Date(), active: false },
+        });
+        return { success: true };
       });
     }),
 
@@ -3606,7 +3702,7 @@ export const stockRouter = createTRPCRouter({
             const product = await tx.product.create({
               data: {
                 tenantId: ctx.tenantId,
-                name: sanitizeProductName(line.name, brandName),
+                name: normalizeProductName(line.name, brandName),
                 sku: line.sku || null,
                 barcode: line.barcode || null,
                 brandId,
@@ -4132,7 +4228,7 @@ export const stockRouter = createTRPCRouter({
         // Se o usuário informou um SKU para a cópia, ele precisa estar livre.
         await assertSkuBarcodeAvailable(tx, { sku: input.newSku });
 
-        const newName = input.newName || `${source.name} (copia)`;
+        const newName = normalizeProductName(input.newName || `${source.name} (copia)`, source.brand);
 
         // Create duplicate product
         const duplicate = await tx.product.create({
@@ -4240,15 +4336,8 @@ export const stockRouter = createTRPCRouter({
           ];
         }
         // Busca por nome/marca do produto via relacao
-        if (input.productSearch?.trim()) {
-          const term = input.productSearch.trim();
-          where.product = {
-            OR: [
-              { name: { contains: term, mode: "insensitive" } },
-              { brand: { contains: term, mode: "insensitive" } },
-            ],
-          };
-        }
+        const productFilter = productSearchFilter(input.productSearch);
+        if (productFilter) where.product = productFilter;
         const [data, total] = await Promise.all([
           tx.stockItem.findMany({
             where,

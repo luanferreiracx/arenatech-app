@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, tenantProcedure } from "@/server/api/trpc";
+import { productSearchFilter } from "@/server/services/product-search";
 
 /**
  * Busca global para o command palette (⌘K) — resolve cliente, OS e produto por
@@ -66,14 +67,10 @@ export const searchRouter = createTRPCRouter({
             : Promise.resolve([]),
           wanted.has("products")
             ? tx.product.findMany({
-                where: {
-                  deletedAt: null,
-                  OR: [
-                    { name: insensitive },
-                    { sku: insensitive },
-                    { barcode: { contains: term } },
-                  ],
-                },
+                // Busca de produto sem acento (search_name) — mesma regra do PDV
+                // e do estoque. `productSearchFilter` nunca é null aqui: o input
+                // exige 2+ caracteres.
+                where: { deletedAt: null, ...(productSearchFilter(term) ?? {}) },
                 select: { id: true, name: true, sku: true },
                 take: RESULT_LIMIT,
                 orderBy: { name: "asc" },

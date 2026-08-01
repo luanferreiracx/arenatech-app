@@ -29,6 +29,10 @@ model Product {
   minStock         Int       @default(0) @map("min_stock")
   unit             String    @default("un")
   imageUrl         String?   @map("image_url")
+  /// DERIVADA (trigger `products_search_name_sync`): nome + marca em minúsculo e
+  /// sem acento. É o alvo único das buscas de produto — filtre com o termo
+  /// passado por `normalizeSearchTerm()`. A aplicação NUNCA escreve aqui.
+  searchName       String?   @map("search_name")
   active           Boolean   @default(true)
   deletedAt        DateTime? @map("deleted_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -61,6 +65,10 @@ model ProductBrand {
   id        String    @id @default(uuid()) @db.Uuid
   tenantId  String    @map("tenant_id") @db.Uuid
   name      String
+  /// DERIVADA (trigger `product_brands_search_name_sync`): nome em minúsculo e
+  /// sem acento. Chave de dedup do find-or-create e alvo da busca por marca.
+  /// A aplicação NUNCA escreve aqui.
+  searchName String?  @map("search_name")
   active    Boolean   @default(true)
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")

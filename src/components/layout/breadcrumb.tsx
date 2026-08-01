@@ -75,6 +75,7 @@ const segmentLabels: Record<string, string> = {
   import: "Importar CSV",
   suppliers: "Fornecedores",
   categories: "Categorias",
+  brands: "Marcas",
   // Caixa / OS / Fiscal / Config
   reviews: "Conferências",
   "technician-report": "Relatório de Técnicos",

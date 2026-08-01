@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { withAdmin } from "@/server/db";
 import { expandSearchWords } from "@/lib/search/synonyms";
+import { normalizeSearchTerm } from "@/lib/search/normalize";
 
 const DEFAULT_PAGE_SIZE = 24;
 const MAX_PAGE_SIZE = 48;
@@ -211,10 +212,12 @@ function buildSearchGroups(search: string | undefined): Prisma.ProductWhereInput
   // Cada palavra vira "palavra + sinonimos" (modulo compartilhado com o bot).
   // Por palavra: casa QUALQUER sinonimo (OR). Entre palavras: todas exigidas
   // (AND, ja que cada grupo entra no AND externo do buildCatalogWhere).
+  // Cada sinonimo entra normalizado (sem acento) contra `search_name` — assim
+  // "pelicula" acha "PELÍCULA" no catalogo publico e no bot, nao so o sinonimo
+  // acentuado da lista.
   return expandSearchWords(search ?? "").map((synonyms) => ({
     OR: synonyms.flatMap((synonym): Prisma.ProductWhereInput[] => [
-      { name: { contains: synonym, mode: "insensitive" } },
-      { brand: { contains: synonym, mode: "insensitive" } },
+      { searchName: { contains: normalizeSearchTerm(synonym) } },
       { sku: { contains: synonym, mode: "insensitive" } },
       { barcode: { contains: synonym, mode: "insensitive" } },
     ]),
