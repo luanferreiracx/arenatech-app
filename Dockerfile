@@ -60,7 +60,10 @@ RUN addgroup --system --gid 1001 nodejs && \
 # curl (libcurl) e necessario para a consulta CheckIMEI: a API rejeita o
 # handshake TLS do Node (fetch/undici) com "Wrong IP", mas aceita o do libcurl
 # — mesmo comportamento do Laravel/Guzzle. Ver imei-service.ts.
-RUN apk add --no-cache curl
+#
+# ffmpeg extrai um quadro dos videos que o cliente manda (um terco dos stories
+# do Instagram chega em video e o modelo nao assiste video). Ver video-frame.ts.
+RUN apk add --no-cache curl ffmpeg
 
 # Prisma CLI + deps em pasta isolada (/opt/prisma) para nao colidir com o
 # standalone que tem package.json proprio + pnpm packageManager.

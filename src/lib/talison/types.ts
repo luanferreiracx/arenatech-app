@@ -53,10 +53,17 @@ export type LlmProvider = {
 };
 
 /** Provider de visão (Claude) — descreve uma imagem em texto. */
+/**
+ * Origem da imagem pra visão: uma URL remota (foto do cliente no Chatwoot) ou
+ * bytes que já temos em mãos (quadro extraído de um vídeo). União em vez de
+ * campos opcionais pra não existir estado ilegal — "os dois" ou "nenhum".
+ */
+export type VisionImage = { url: string } | { base64: string; mediaType: string };
+
 export type VisionProvider = {
   readonly name: string;
-  /** Recebe a URL da imagem + um hint de contexto, devolve descrição textual. */
-  describe(args: { imageUrl: string; prompt?: string }): Promise<string>;
+  /** Recebe a imagem + um hint de contexto, devolve descrição textual. */
+  describe(args: { image: VisionImage; prompt?: string }): Promise<string>;
 };
 
 /** Provider de transcrição de áudio (Groq Whisper) — áudio do cliente → texto. */
