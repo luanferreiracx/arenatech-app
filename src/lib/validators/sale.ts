@@ -237,8 +237,11 @@ export const checkSaleSignatureStatusSchema = z.object({
 
 // ── Search Products (for PDV) ──
 
+// `query` aceita VAZIO: o EntitySelector (compra de aparelhos) busca assim que o
+// popover abre, antes de digitarem. Vazio = "primeiras opções". O PDV não passa
+// por aqui com vazio — ele só habilita a query a partir de 2 caracteres.
 export const searchProductsSchema = z.object({
-  query: z.string().max(MAX_BUSCA).min(1),
+  query: z.string().max(MAX_BUSCA),
   withStock: z.boolean().optional(),
 });
 

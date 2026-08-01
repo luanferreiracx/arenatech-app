@@ -3177,11 +3177,11 @@ export const saleRouter = createTRPCRouter({
         // Busca insensível a ACENTO e case (productSearchFilter → search_name).
         // Isto era um $queryRaw com unaccent só aqui; o resto do sistema não tinha
         // equivalente. Agora é o mesmo filtro de todas as telas, em Prisma puro.
-        const searchFilter = productSearchFilter(input.query);
-        if (!searchFilter) return [];
-
+        // Termo vazio = sem filtro: o EntitySelector abre pedindo as primeiras
+        // opções, e devolver erro nesse caso vira toast de falha na cara do
+        // operador (regressão vista na entrada de estoque em 2026-08-01).
         const products = await tx.product.findMany({
-          where: { active: true, deletedAt: null, ...searchFilter },
+          where: { active: true, deletedAt: null, ...(productSearchFilter(input.query) ?? {}) },
           orderBy: { name: "asc" },
           take: 20,
         });

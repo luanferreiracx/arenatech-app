@@ -317,8 +317,16 @@ describe("searchProductsSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejeita busca vazia", () => {
+  // Busca vazia é o ABRIR do autocomplete (EntitySelector dispara antes de o
+  // operador digitar) e significa "primeiras opções". Recusar aqui virava toast
+  // de erro na cara de quem abria a entrada de estoque.
+  it("aceita busca vazia — é o autocomplete abrindo", () => {
     const result = searchProductsSchema.safeParse({ query: "" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita busca acima do limite de tamanho", () => {
+    const result = searchProductsSchema.safeParse({ query: "x".repeat(300) });
     expect(result.success).toBe(false);
   });
 
