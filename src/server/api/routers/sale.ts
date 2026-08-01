@@ -59,6 +59,7 @@ import { createPublicPdfToken } from "@/lib/whatsapp/public-pdf-token";
 import { logger } from "@/lib/logger";
 import { linkInterestConversionByPhone } from "@/server/services/interest-conversion.service";
 import { productSearchFilter } from "@/server/services/product-search";
+import { normalizeProductName } from "@/lib/utils/product-name";
 import { createDeposit, checkTransactionStatus } from "@/server/services/depix-transaction.service";
 import { isSettledForSaleDepixStatus } from "@/lib/services/depix-transaction-fee";
 import { createInfinitepayCheckout, buildInfinitepayPrefill } from "@/lib/services/infinitepay-service";
@@ -712,7 +713,7 @@ export const saleRouter = createTRPCRouter({
               saleId: input.saleId,
               productId: input.productId,
               stockItemId: input.stockItemId,
-              description: product.name,
+              description: normalizeProductName(product.name),
               quantity: 1,
               unitPrice: centsToPrisma(unitPriceCents),
               costPrice: stockItem.costPrice,
@@ -773,7 +774,12 @@ export const saleRouter = createTRPCRouter({
           const attrLabel = variation.attributeValues
             .map((pva) => `${pva.attributeValue.attribute.name}: ${pva.attributeValue.value}`)
             .join(", ");
-          const desc = attrLabel ? `${product.name} - ${attrLabel}` : product.name;
+          // Caixa alta na descricao INTEIRA: o nome do produto ja vem em caixa
+          // alta, entao sem isto o item de venda saía metade-metade ("PELÍCULA
+          // HIDROGEL - Acabamento: Fosco") no cupom e no relatorio.
+          const desc = normalizeProductName(
+            attrLabel ? `${product.name} - ${attrLabel}` : product.name,
+          );
           if (existingVar) {
             const newQty = existingVar.quantity + input.quantity;
             await tx.saleItem.update({
@@ -826,7 +832,7 @@ export const saleRouter = createTRPCRouter({
               tenantId: ctx.tenantId,
               saleId: input.saleId,
               productId: input.productId,
-              description: product.name,
+              description: normalizeProductName(product.name),
               quantity: input.quantity,
               unitPrice: centsToPrisma(unitPriceCents),
               costPrice: product.costPrice,
